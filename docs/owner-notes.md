@@ -1,5 +1,18 @@
 # Owner Notes
 
+## 2026-10-30 — Your chats, upload records and builder settings follow your account; the offer countdown is gone (you: "EVERYTHING SERVER")
+
+**What changed (branch `account-state-server`, not merged or deployed):**
+- **Chats.** The server was already where chats are kept, but two gaps let a chat live in one browser only. Opening a project straight from its address (a reload of `/projects/<id>`) never asked the server, so the browser's copy was shown and never replaced; now every open project asks the server once, and the server's copy replaces what the browser had cached. And a chat the server refused to save was silently forgotten; now the screen says "This chat is not saved to your account yet — trying again", it is sent again (5 s, doubling to 2 minutes, and at once when the connection returns), and "Chat saved to your account." when it lands. A chat the server could not be asked about is asked again the same way.
+- **Upload records, Builder, Effort, site-or-app.** These already went to the account's settings record on the server (`/api/site/account-state`, one file per account); now proven on two devices.
+- **Credit gauge.** Its "most you have held" mark is the account's: the server keeps the larger value, whichever device wrote last, so a phone that only saw 20 credits no longer shrinks the gauge a laptop drew against 8,000.
+- **Offer countdown removed.** The pricing page's Days/Hours/Min/Sec timer restarted in every browser, so it is gone, with its styles and its stored date. The server drops that old date if an open older page still sends it, so that page's other settings still save.
+- **Welcome note** (the one-time "welcome" overlay) already follows the account; kept.
+
+**No database change.** Everything uses the existing per-account files in R2.
+
+**Tests:** a new browser test with two fresh "devices" on one account, driving the real Worker routes; three new Worker route cases; one guard updated (the retired offer key out, the site-or-app key in). They fail on the old code. Mutation sweep 4 of 4 killed, comment control survived.
+
 ## 2026-10-30 — Every project lives on the server from the first second (your four points: create on send, show the server's list, no device-only cards, deletes on the server)
 
 **What changed:**

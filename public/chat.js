@@ -302,8 +302,12 @@ function wireBuildEffort() {
 
 
 // ── Credit balance (server-owned; the chip is display only) ───────────────
-// The arc gauge shows the balance against the highest balance this browser
-// has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
+// The arc gauge shows the balance against the highest balance THE ACCOUNT has
+// held (plan size / last top-up) — a fuel gauge that drains as you spend. The
+// mark is kept on the account (`credMax` in `/api/site/account-state`, which
+// the server keeps as the larger of the two values, never the later one), so
+// every device draws the same gauge; this browser's copy is a cache.
+// (2026-10-30, owner: "everything server".)
 const CRED_MAX_KEY = 'zephyr_cred_max_v1';
 const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
 // THE PAID FLAG IS TRI-STATE and stays so: until /api/credits resolves,
@@ -323,8 +327,10 @@ let paidKnown = false;
 function setArcFill(el, frac) {
   if (el) el.style.strokeDashoffset = (CRED_ARC_LEN * (1 - frac)).toFixed(2);
 }
+let credLast = null;
 function setCredits(n) {
   if (typeof n !== 'number') return;
+  credLast = n;
   // Whole credits show clean; fractional balances (from Orchestrator use) round
   // to 2 decimals for display — the ledger still tracks the exact amount.
   const txt = '✦ ' + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -452,9 +458,9 @@ const MEMBERSHIPS = [
     save: 'Save $33/mo while the launch offer lasts',
     feats: [1, 1, 1] },
 ];
-// Launch offer is a rolling window: it always ends N days out, computed at open
-// time, so the countdown can never freeze into "Ends in soon".
-const OFFER_WINDOW_DAYS = 5;
+// THE LAUNCH-OFFER COUNTDOWN WAS TAKEN OFF (2026-10-30, owner: "everything
+// server"). Its end date was kept in each browser and restarted there, so two
+// devices showed two different deadlines and neither was real. No clock now.
 const MEMBER_ROWS = [
   'All video, image &amp; voice models',
   'No watermark on your files',
@@ -515,18 +521,6 @@ function openCredits(topupsOnly) {
       '<div class="cp-list">' + rows + '</div>' +
       '<div class="cp-note" id="cpNote"></div>'
     : '<button type="button" class="cp-close up-close">✕</button>' +
-      '<div class="up-promo up-promo-timer">' +
-        '<span class="up-spark s1">✦</span><span class="up-spark s2">✦</span>' +
-        '<div class="up-segs">' +
-          '<div class="up-seg"><b id="upcD">00</b><span>Days</span></div>' +
-          '<span class="up-colon">:</span>' +
-          '<div class="up-seg"><b id="upcH">00</b><span>Hours</span></div>' +
-          '<span class="up-colon">:</span>' +
-          '<div class="up-seg"><b id="upcM">00</b><span>Min</span></div>' +
-          '<span class="up-colon">:</span>' +
-          '<div class="up-seg"><b id="upcS">00</b><span>Sec</span></div>' +
-        '</div>' +
-      '</div>' +
       '<div class="up-headwrap">' +
         '<div class="up-eyebrow">Membership</div>' +
         '<h1 class="up-h1">Upgrade your plan</h1>' +
@@ -541,34 +535,6 @@ function openCredits(topupsOnly) {
   ov.querySelector('.cp-close').onclick = () => ov.remove();
   const topupLink = ov.querySelector('.up-topup-link');
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
-  // Live launch-offer countdown, painted into the four segment boxes; the
-  // interval dies with the overlay.
-  const segD = ov.querySelector('#upcD'), segH = ov.querySelector('#upcH'),
-        segM = ov.querySelector('#upcM'), segS = ov.querySelector('#upcS');
-  if (segD) {
-    // Rolling per-browser window: anchor to a stored end date; if it's missing
-    // or already elapsed, start a fresh N-day window. The clock always shows a
-    // real, consistent countdown and never freezes into a broken "soon".
-    const OFFER_KEY = 'zephyr_offer_end_v1';
-    let end = parseInt(localStorage.getItem(OFFER_KEY) || '0', 10) || 0;
-    if (!end || end - Date.now() <= 0) {
-      end = Date.now() + OFFER_WINDOW_DAYS * 86400000;
-      try { localStorage.setItem(OFFER_KEY, String(end)); } catch {}
-    }
-    const two = (n) => String(n).padStart(2, '0');
-    const tick = () => {
-      const ms = Math.max(0, end - Date.now());
-      segD.textContent = two(Math.floor(ms / 86400000));
-      segH.textContent = two(Math.floor((ms % 86400000) / 3600000));
-      segM.textContent = two(Math.floor((ms % 3600000) / 60000));
-      segS.textContent = two(Math.floor((ms % 60000) / 1000));
-    };
-    tick();
-    const tid = setInterval(() => {
-      if (!document.body.contains(ov)) { clearInterval(tid); return; }
-      tick();
-    }, 1000);
-  }
   ov.querySelectorAll('.cp-card, .cp-lrow, .up-card').forEach((c) => {
     c.onclick = async () => {
       const note = document.getElementById('cpNote');
@@ -4975,13 +4941,17 @@ function chatAdopt(s, c) {
   if (c.name && (!s.name || s.name === 'New website')) s.name = c.name;
   s.chatRev = c.rev;
 }
+const chatPulling = new Set();
 async function chatPull(s) {
   const key = chatKeyOf(s);
-  if (!key || chatPulled.has(key)) return;
+  if (!key || chatPulled.has(key) || chatPulling.has(key)) return;
+  chatPulling.add(key);
   let d = null;
   try { const r = await apiFetch('/api/site/chat/' + encodeURIComponent(key)); d = r.ok ? await r.json().catch(() => null) : null; } catch (e) { d = null; }
-  if (!d || d.ok !== true) return; // could not say: the local copy stands, and it is asked again on the next open
+  chatPulling.delete(key);
+  if (!d || d.ok !== true) { chatPullRetry(key); return; } // could not say: the copy here is painted, and the server is asked again
   chatPulled.add(key);
+  chatPullTries.delete(key);
   const live = sitesLoad().find((x) => chatKeyOf(x) === key);
   if (!live) return;
   if (d.chat && Number.isInteger(d.chat.rev) && d.chat.rev > (Number(live.chatRev) || 0)) {
@@ -5010,6 +4980,15 @@ async function chatSyncAll() {
   const one = async () => { for (let s = queue.shift(); s; s = queue.shift()) { try { await chatPull(s); } catch (e) { /* asked again on the next page load */ } } };
   await Promise.all([one(), one(), one()]);
 }
+// A PROJECT OPENED STRAIGHT FROM ITS ADDRESS (2026-10-30): a reload of
+// `/projects/<id>` draws the project without passing through `openProject`, so
+// its chat was painted from this browser's copy and never asked of the server,
+// and every other chat this browser holds waited for the list to be shown. Each
+// draw of an open project asks once (a read in flight is not asked twice).
+function chatOpenCheck(s) {
+  try { chatPull(s).catch(() => {}); } catch (e) { /* the copy here is painted meanwhile */ }
+  try { chatSyncAll().catch(() => {}); } catch (e) { /* asked again on the list */ }
+}
 function chatPushChanged() {
   for (const s of (sitesCache || [])) {
     const key = chatKeyOf(s);
@@ -5027,7 +5006,7 @@ async function chatPush(key, again = 0) {
   const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined, appOs: s.appOs === 'android' || s.appOs === 'ios' ? s.appOs : undefined };
   let r = null, d = null;
   try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
-  if (r && r.ok && d && Number.isInteger(d.rev)) { s.chatRev = d.rev; chatSentSig.set(key, sig); return; }
+  if (r && r.ok && d && Number.isInteger(d.rev)) { s.chatRev = d.rev; chatSentSig.set(key, sig); chatSaved(key); return; }
   if (r && r.status === 409 && d && again < 2) {
     // A NEWER COPY STANDS: kept, with this tab's messages it lacks after it.
     const theirs = d.chat && Array.isArray(d.chat.msgs) ? d.chat.msgs : [];
@@ -5038,7 +5017,51 @@ async function chatPush(key, again = 0) {
     s.msgs = theirs.concat(mine);
     chatPush(key, again + 1);
     if (siteOpenId === s.id && typeof renderSites === 'function') renderSites();
+    return;
   }
+  // NOT SAVED TO THE ACCOUNT (2026-10-30, owner: "everything server"): a failed
+  // write is never left to the browser alone. It is said on the screen and
+  // written again, sooner after the connection comes back.
+  chatUnsaved(key);
+}
+// THE SERVER IS THE CHAT'S HOME (2026-10-30): a chat this tab could not read
+// from the server, or could not write to it, is asked or sent again on a
+// backoff (5 s doubling to 2 minutes) and whenever the connection returns, and
+// the screen says so until it lands. Nothing waits for the next page load.
+const chatPullTries = new Map();
+const chatPushTries = new Map();
+const chatPending = new Set();
+function chatBackoff(n) { return Math.min(120000, 5000 * Math.pow(2, Math.max(0, n))); }
+function chatPullRetry(key) {
+  const n = chatPullTries.get(key) || 0;
+  chatPullTries.set(key, n + 1);
+  setTimeout(() => {
+    if (chatPulled.has(key)) return;
+    const live = (sitesCache || []).find((x) => chatKeyOf(x) === key);
+    if (live) chatPull(live).catch(() => {});
+  }, chatBackoff(n));
+}
+function chatUnsaved(key) {
+  const n = chatPushTries.get(key) || 0;
+  chatPushTries.set(key, n + 1);
+  if (!chatPending.size && typeof sbToast === 'function') sbToast('This chat is not saved to your account yet — trying again.');
+  chatPending.add(key);
+  clearTimeout(chatTimers.get(key));
+  chatTimers.set(key, setTimeout(() => chatPush(key), chatBackoff(n)));
+}
+function chatSaved(key) {
+  chatPushTries.delete(key);
+  if (chatPending.delete(key) && !chatPending.size && typeof sbToast === 'function') sbToast('Chat saved to your account.');
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('online', () => {
+    for (const key of chatPending) { clearTimeout(chatTimers.get(key)); chatPush(key); }
+    for (const key of chatPullTries.keys()) {
+      if (chatPulled.has(key)) continue;
+      const live = (sitesCache || []).find((x) => chatKeyOf(x) === key);
+      if (live) chatPull(live).catch(() => {});
+    }
+  });
 }
 /** Writes this chat up now if it changed, and answers when it is up (or in 4 s at most). */
 function chatFlushFor(s) {
@@ -6097,7 +6120,7 @@ function renderSites() {
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
   siteBuildsCheck();
-  if (open) { resumeOpenSite(open); siteHeldRepliesCheck(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
+  if (open) { chatOpenCheck(open); resumeOpenSite(open); siteHeldRepliesCheck(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
   // AN ID THAT NAMES NOTHING FALLS BACK TO THE LIST, AND THE URL STOPS LYING.
   // A pasted link to a deleted project, or one belonging to another account,
   // lands here. `replaceState` and not a push, and not `openProject` either:
@@ -18575,11 +18598,12 @@ function toggleSidebar() {
 // wipe are never sent as removals.
 const ACCT_KEYS = {
   picker: 'zephyr_build_picker_v1', effort: 'zephyr_build_effort_v2', view: 'zephyr_view_v1',
-  side: 'zephyr_side_v1', credMax: 'zephyr_cred_max_v1', offerEnd: 'zephyr_offer_end_v1',
+  side: 'zephyr_side_v1', credMax: 'zephyr_cred_max_v1',
   welcome: 'zephyr_welcome_v1', editWatch: 'gf.edit.watch.v1', mediaUploads: 'gf-media-uploads', kind: 'zephyr_build_kind_v1',
 };
 const ACCT_AT_KEY = 'gf.acct.at.v1';
-var ACCT_WIPE_KEYS = Object.values(ACCT_KEYS).concat(ACCT_AT_KEY);
+// The retired launch-offer date (2026-10-30) is still cleared where an older page left it.
+var ACCT_WIPE_KEYS = Object.values(ACCT_KEYS).concat(ACCT_AT_KEY, 'zephyr_offer_end_v1');
 /** The keys both wipes clear: every one sent to the account, and their times. */
 function acctWipeKeys() { return typeof ACCT_WIPE_KEYS !== 'undefined' && ACCT_WIPE_KEYS ? ACCT_WIPE_KEYS : []; }
 const acctNameOf = {};
@@ -18613,7 +18637,15 @@ function acctPush() {
   acctDirty.clear();
   const who = acctFor;
   apiFetch('/api/site/account-state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ set }) })
-    .then((r) => { if (!r.ok) throw new Error('not saved'); })
+    .then((r) => { if (!r.ok) throw new Error('not saved'); return r.json().catch(() => null); })
+    .then((d) => {
+      // THE ACCOUNT'S GAUGE MARK MAY BE HIGHER THAN THE ONE SENT: kept here too.
+      const e = d && d.state && d.state.credMax;
+      if (who !== acctFor || !e || typeof e.v !== 'string') return;
+      if ((parseFloat(e.v) || 0) <= (parseFloat(localStorage.getItem(ACCT_KEYS.credMax)) || 0)) return;
+      acctApplying = true;
+      try { acctRawSet.call(localStorage, ACCT_KEYS.credMax, e.v); acctStamp('credMax', e.at); acctApply('credMax', e.v); } catch (er) { /* the next read brings it */ } finally { acctApplying = false; }
+    })
     .catch(() => { if (who === acctFor) { Object.keys(set).forEach((n) => acctDirty.add(n)); clearTimeout(acctTimer); acctTimer = setTimeout(acctPush, 15000); } });
 }
 /** What a value read from the account changes on the screen already drawn. */
@@ -18621,6 +18653,7 @@ function acctApply(name, v) {
   if (name === 'picker' && v && typeof setBuildPicker === 'function') setBuildPicker(v);
   else if (name === 'effort' && v && typeof setBuildEffort === 'function') setBuildEffort(v);
   else if (name === 'kind' && v && typeof setBuildKind === 'function') setBuildKind(v);
+  else if (name === 'credMax' && typeof credLast === 'number' && typeof setCredits === 'function') setCredits(credLast);
   else if (name === 'side') {
     const sb = document.getElementById('sideBar');
     if (sb && sb.classList.contains('collapsed') !== (v === 'collapsed')) toggleSidebar();
@@ -18639,7 +18672,9 @@ function acctPull(uid) {
     for (const name of Object.keys(ACCT_KEYS)) {
       const e = d.state[name];
       const mine = ats[name] || 0;
-      if (e && typeof e === 'object' && Number.isFinite(e.at) && e.at > mine) {
+      // THE GAUGE'S MARK IS THE HIGHER ONE, whichever device saw it first.
+      const higher = name === 'credMax' && e && typeof e === 'object' && (parseFloat(e.v) || 0) > (parseFloat(localStorage.getItem(ACCT_KEYS.credMax)) || 0);
+      if (e && typeof e === 'object' && Number.isFinite(e.at) && (e.at > mine || higher)) {
         acctApplying = true;
         try {
           if (e.v === null) acctRawRemove.call(localStorage, ACCT_KEYS[name]);
