@@ -19017,6 +19017,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         pages: revise && Array.isArray(priorPages) ? priorPages : [],
         parts: priorParts && Array.isArray(priorParts.parts) ? priorParts.parts : [],
         spec, kind: plan && plan.kind, ownParts: !revise && !priorPages, model: agModel,
+        // HELPERS ON A NEW SITE (2026-10-30, the owner): pages written at the same time.
+        helpers: !revise && !priorPages,
       });
       try { mark?.("agent", { ok: ag.ok, rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped }); } catch { /* a trace must never break a build */ }
       return asWriterAnswer(ag, agModel);

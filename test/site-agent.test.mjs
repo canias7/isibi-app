@@ -549,7 +549,7 @@ test("SA34 a clearing that would save little is not made: over the pile limit, s
 // ── 2026-10-29: the tools offered are the tools wired; the checks reach the agent ──
 test("SA35 a tool with nothing behind it is never offered; the request carries exactly the wired ones", async () => {
   assert.deepEqual(toolsFor({}).map((t) => t.name).filter((n) => ["look", "run", "read_table"].includes(n)), []);
-  const all = { look: async () => ({}), run: async () => ({}), readTable: async () => ({}) };
+  const all = { look: async () => ({}), run: async () => ({}), readTable: async () => ({}), helpers: async () => [] };
   assert.deepEqual(toolsFor(all).map((t) => t.name), AGENT_TOOLS.map((t) => t.name));
   const s = scripted([answer(use("finish", { summary: "s" }))]);
   await runSiteAgent({ send: s.send, build: okBuild, look: all.look }, { request: "r", pages: PAGES });

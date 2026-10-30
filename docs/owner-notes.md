@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-30 — Helper agents on a new site (you: "do it for now")
+
+**What it does:** on a first build, the site agent now has a `helpers` tool. It writes the shared files itself (header, footer, stylesheet, shared components) and the home page, then hands every other page to helper agents in one call, up to 6 at once. The helpers write their pages at the same time; the main agent then builds, looks and fixes as before.
+
+**The limits:** a helper reads any file but writes only its own page (anything else is refused and it is told so); it cannot build, look, run commands or start helpers of its own; it has 15 rounds. A page a helper could not write comes back to the main agent to write itself. Edits never get helpers. Every helper's cost is added to the build's one bill.
+
+**Tests:** `test/site-agent-helpers.test.mjs`, 4 cases, including one that only passes if the helpers really run at the same time. Sweep: 8 small deliberate bugs, all caught once the own-page check was tested directly; the comment-only control survived. Nothing spent, no model called.
+
+**Not yet measured live:** how much faster, and what it costs. That needs one paid test build, with your approval.
+
 ## 2026-10-30 — Prebuilt site features removed; your front end and the server-code fixes combined (you: "merge it to main")
 
 **What went:** the ready-made payments (Stripe checkout and basket), the after-submission effects (confirmation emails, texts, webhooks, owner notices), outside connections, scheduled jobs and the site spam check. The model writes any of these itself, as the site's own server code, when a customer asks; the site gets `site.verify` for signed messages and Cloudflare's Workers best practices (adapted, credited) in the agent's instructions. The platform's own billing is untouched.

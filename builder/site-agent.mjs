@@ -53,6 +53,9 @@ const CREDIT_USD = 0.008;
 const MAX_READ = 8;
 const MAX_FILE_CHARS = 120000;
 const MAX_SHOTS = 2;
+/** Pages handed to helpers in one call, and the rounds each helper may take. */
+export const MAX_HELPERS = 6;
+export const HELPER_ROUNDS = 15;
 const PAGE_KEY = /^[a-z0-9][a-z0-9._$-]*(?:\/[a-z0-9._$-]+)*\.tsx$/i;
 const PART_KEY = /^-parts\/[a-z0-9][a-z0-9-]{0,62}$/i;
 const TABLE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
@@ -109,6 +112,15 @@ export const AGENT_TOOLS = Object.freeze([
     input_schema: { type: "object", properties: { page: { type: "string", description: "The page's address, e.g. \"/\" or \"/about\"." } }, required: ["page"] },
   },
   {
+    name: "helpers",
+    description: "Hand pages to helper agents that write them AT THE SAME TIME as each other, then come back to you with what they wrote. For a new site, once the shared files every page uses are written (the header, the footer, the stylesheet, shared components): give each helper ONE page file that it alone writes, and a brief of what that page holds and which shared components it uses. A helper reads any file but writes only its own page; it cannot build. You then build, look and fix. Up to " + MAX_HELPERS + " pages in one call.",
+    input_schema: {
+      type: "object",
+      properties: { tasks: { type: "array", maxItems: MAX_HELPERS, items: { type: "object", properties: { file: { type: "string" }, brief: { type: "string" } }, required: ["file", "brief"] } } },
+      required: ["tasks"],
+    },
+  },
+  {
     name: "finish",
     description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer.",
     input_schema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
@@ -153,6 +165,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - Every command is a round, and every round costs the owner money: put everything you want to look at in ONE command (join them with ;), never one look per round.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
 - Every round costs the owner money, so do as much as you can in each one: call several tools in the same answer. Write every file you already know in ONE answer (several write_file calls side by side), read every file you need in one read_files call, and never spend a round on one small file when more are ready.
+- When the helpers tool is offered (a new site): write the shared files first (header, footer, stylesheet, shared components) and the home page yourself, then hand every other page to helpers in ONE helpers call, so they are written at the same time. Then build, look and fix.
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
@@ -312,7 +325,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -420,6 +433,7 @@ async function runTool(use, st, deps) {
     case "write_file": {
       const w = writableKey(input.file, st.ws);
       if (!w.ok) return { error: w.why };
+      if (st.onlyWrite && w.key !== st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
       const src = typeof input.source === "string" ? input.source : "";
       if (!src.trim()) return { error: "the source is empty" };
       if (src.length > MAX_FILE_CHARS) return { error: "the file is over " + MAX_FILE_CHARS + " characters" };
@@ -435,6 +449,7 @@ async function runTool(use, st, deps) {
       return { text: "Saved " + w.key + " (" + src.length + " chars)." };
     }
     case "delete_file": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
       const w = writableKey(input.file);
       if (!w.ok || w.key === CSS_KEY) return { error: "only a page or a component can be removed" };
       if (w.key === "index.tsx") return { error: "the home page cannot be removed" };
@@ -445,6 +460,7 @@ async function runTool(use, st, deps) {
       return { text: "Removed " + w.key + " from your workspace." };
     }
     case "change_rows": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
       const t = typeof input.table === "string" ? input.table.trim() : "";
       const table = (st.tables || []).find((x) => x.name === t);
       if (!table) return { error: st.tables && st.tables.length ? "no such table; the site's tables are " + st.tables.map((x) => x.name).join(", ") : "this site has no tables" };
@@ -517,8 +533,36 @@ async function runTool(use, st, deps) {
       st.looked.add(route);
       return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + "." + checkNotes(r), images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
     }
+    case "helpers": {
+      if (typeof deps.helpers !== "function") return { error: "helpers cannot be used here" };
+      const raw = Array.isArray(input.tasks) ? input.tasks : [];
+      if (!raw.length) return { error: "name at least one page for a helper" };
+      if (raw.length > MAX_HELPERS) return { error: "at most " + MAX_HELPERS + " pages in one call" };
+      const tasks = [];
+      const seen = new Set();
+      for (const t of raw) {
+        const w = writableKey(t && t.file, st.ws);
+        const brief = t && typeof t.brief === "string" ? t.brief.trim() : "";
+        if (!w.ok || w.key === CSS_KEY || w.key.startsWith("-parts/")) return { error: "a helper writes one page (\"about.tsx\"), never a component or the stylesheet: " + String(t && t.file).slice(0, 60) };
+        if (seen.has(w.key)) return { error: "two helpers cannot write the same page: " + w.key };
+        if (!brief) return { error: "give the helper for " + w.key + " a brief" };
+        seen.add(w.key);
+        tasks.push({ file: w.key, brief: brief.slice(0, 4000) });
+      }
+      const done = await deps.helpers(tasks, st.ws);
+      const lines = [];
+      for (const d of done) {
+        if (d.source) {
+          st.ws.set(d.file, d.source);
+          st.dirty = true;
+          st.written.add(d.file);
+          lines.push(d.file + ": written (" + d.source.length + " chars)" + (d.summary ? ". " + d.summary.slice(0, 600) : ""));
+        } else lines.push(d.file + ": NOT written (" + (d.why || "no answer") + ") — write it yourself");
+      }
+      return { text: "The helpers are back:\n" + lines.join("\n") + "\nBuild next, then look and fix." };
+    }
     case "finish": {
-      if (st.dirty) return { error: "build first: files were written since the last build that passed" };
+      if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
       // back to fix it; if it finishes again it is let go (it may not be able to),
       // and the final reply says what the check still found.
@@ -582,7 +626,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "" } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -592,16 +636,35 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     ? spec.tables.filter((t) => t && typeof t.name === "string" && Array.isArray(t.columns))
       .map((t) => ({ name: t.name, columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
     : [];
-  const st = { ws, tables, rows: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
+  const st = { ws, tables, onlyWrite, rows: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
   // a first build was offered `look` with nothing behind it, tried it, was told
   // "pages cannot be looked at here", and finished without ever seeing a page).
   // Fixed per caller, so the opening is still the same every round (rule 4).
-  const tools = toolsFor(deps);
-  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts }), cache_control: { type: "ephemeral" } }] }];
   const usage = [];
+  // HELPERS (2026-10-30, the owner: "run agents in parallel"): offered only
+  // when the caller asks (first builds), never to a helper itself. Each helper
+  // is this same agent on a copy of the workspace, allowed to write one page;
+  // they run at the same time, and their cost joins this run's.
+  if (helpers && !onlyWrite) {
+    deps = { ...deps, helpers: (tasks, cur) => Promise.all(tasks.map(async (t) => {
+      try {
+        const left = Math.max(60000, maxMs - (now() - started));
+        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, log: (e) => log({ ...e, helper: 1 }) }, {
+          request: "YOU ARE A HELPER. Another agent is building this site and has handed you ONE page to write: " + t.file + ". Write that page, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first. Then finish with one line on what the page holds.\n\nYOUR PAGE'S BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST FOR THE WHOLE SITE\n" + String(request || ""),
+          pages: cur.pages(), parts: cur.parts(), css: cur.css(), map, spec, kind, ownParts, model, maxRounds: HELPER_ROUNDS, maxMs: left, onlyWrite: t.file,
+        });
+        for (const u of r.usage) usage.push(u);
+        const page = r.pages.find((p) => p.path === t.file);
+        const wrote = r.changed.includes(t.file) && page ? page.source : "";
+        return { file: t.file, source: wrote, summary: r.summary, why: wrote ? "" : r.stopped ? "the helper stopped: " + r.stopped : "the helper wrote nothing" };
+      } catch (e) { return { file: t.file, source: "", why: "the helper failed: " + String((e && e.message) || e).slice(0, 120) }; }
+    })) };
+  }
+  const tools = onlyWrite ? toolsFor(deps).filter((t) => t.name !== "build") : toolsFor(deps);
+  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts }), cache_control: { type: "ephemeral" } }] }];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
   let rounds = 0;
@@ -668,7 +731,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
 
   const credits = usage.length ? Math.max(1, Math.ceil(spent())) : 0;
   return {
-    ok: st.done && !st.dirty && (st.built || !st.written.size),
+    ok: st.done && (onlyWrite ? true : !st.dirty && (st.built || !st.written.size)),
     stopped: st.done ? "" : stopped,
     pages: ws.pages(), parts: ws.parts(),
     css: ws.css(), cssChanged: ws.cssChanged(),
