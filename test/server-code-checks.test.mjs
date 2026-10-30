@@ -125,3 +125,38 @@ test("SC8 the check refuses reaching the language's internals", () => {
     assert.equal(checkServerPart({ name: "server-x", source: `export const hosts = [];\nexport default async function () { ${s}; return new Response("") }` }).ok, false, s);
   }
 });
+
+test("SC9 the test run's `site` has verify, as the real one: a webhook that checks its signature is not a code fault", async () => {
+  const { createHmac } = await import("node:crypto");
+  const hook = { name: "server-paid", source: `export const hosts = [];
+export default async function (request: Request, site: any) {
+  const raw = await request.text();
+  if (!(await site.verify("STRIPE_WEBHOOK_SECRET", raw, request.headers.get("stripe-signature") || ""))) return new Response("not signed", { status: 400 });
+  return Response.json({ ok: true });
+}` };
+  // The same HMAC as the real helper, against the made-up secret: right, wrong,
+  // base64, another algorithm, and the refusals the real one makes.
+  const hex = createHmac("sha256", "test-secret-K").update("t.body").digest("hex");
+  const b64 = createHmac("sha512", "test-secret-K").update("t.body").digest("base64");
+  const flipped = hex.replace(/^./, (c) => (c === "0" ? "1" : "0"));
+  const probe = { name: "server-sig", source: `export const hosts = [];
+export default async function (request: Request, site: any) {
+  const seen = [
+    await site.verify("K", "t.body", "${hex}"),
+    await site.verify("K", "t.body", " ${hex} "),
+    await site.verify("K", "t.body", "${flipped}"),
+    await site.verify("K", "t.other", "${hex}"),
+    await site.verify("K", "t.body", "${b64}", { algo: "SHA-512", encoding: "base64" }),
+    await site.verify("OTHER", "t.body", "${hex}"),
+    await site.verify("K", "t.body", ""),
+    await site.verify("lower", "t.body", "${hex}"),
+  ];
+  throw new Error(JSON.stringify(seen));
+}` };
+  const r = await dryRunServerParts([hook, probe], { ts });
+  const by = Object.fromEntries(r.results.map((x) => [x.name, x]));
+  assert.equal(by.paid.ok, true, "a webhook that calls site.verify runs: " + by.paid.error);
+  assert.deepEqual(by.paid.keys, ["STRIPE_WEBHOOK_SECRET"]);
+  assert.deepEqual(JSON.parse(by.sig.error), [true, true, false, false, true, false, false, false]);
+  assert.deepEqual(keysAsked(hook.source), ["STRIPE_WEBHOOK_SECRET"], "the secret a signature needs is named as a key");
+});

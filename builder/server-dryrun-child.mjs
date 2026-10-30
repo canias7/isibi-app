@@ -20,6 +20,25 @@ function fakeSite(hosts, rec) {
       return "@@gfkey:" + name + "@@";
     },
     hasKey(name) { rec.keys.add(String(name)); return true; },
+    // THE SIGNATURE CHECK, AS THE REAL ONE (2026-10-30): the same arguments, the
+    // same HMAC, compared in constant time — against a made-up secret
+    // (`test-secret-<NAME>`), since no owner's key exists here. Our sample
+    // request carries no signature, so a webhook that checks answers false and
+    // takes its own "not signed" branch. That is the honest answer: a fixed true
+    // would walk an unsigned sample into the code that trusts it.
+    async verify(name, payload, signature, { algo = "SHA-256", encoding = "hex" } = {}) {
+      if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(String(name))) return false;
+      rec.keys.add(String(name));
+      if (typeof payload !== "string" || typeof signature !== "string" || !signature) return false;
+      const k = await crypto.subtle.importKey("raw", enc.encode("test-secret-" + name), { name: "HMAC", hash: algo }, false, ["sign"]);
+      const mac = new Uint8Array(await crypto.subtle.sign("HMAC", k, enc.encode(payload)));
+      const want = encoding === "base64" ? btoa(String.fromCharCode(...mac)) : Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
+      const [a, b] = await Promise.all([crypto.subtle.digest("SHA-256", enc.encode(want)), crypto.subtle.digest("SHA-256", enc.encode(signature.trim()))]);
+      const x = new Uint8Array(a), y = new Uint8Array(b);
+      let diff = 0;
+      for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+      return diff === 0;
+    },
     async fetch(url, init = {}) {
       const u = new URL(String(url));
       if (u.protocol !== "https:") throw new Error("that address is refused: not https");
@@ -87,4 +106,3 @@ process.stdin.on("end", async () => {
   process.stdout.write(JSON.stringify({ results }));
   process.exit(0);
 });
-void enc;

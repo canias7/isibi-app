@@ -113,10 +113,10 @@ export function calledFunctions(files) {
   return out;
 }
 
-/** The keys a server part asks for, by name. */
+/** The keys a server part asks for, by name (a signature's secret too: `site.verify("NAME", …)`). */
 export function keysAsked(source) {
   const out = new Set();
-  for (const m of String(source || "").matchAll(/site\s*\.\s*(?:key|hasKey)\s*\(\s*["']([A-Z][A-Z0-9_]{0,63})["']\s*\)/g)) out.add(m[1]);
+  for (const m of String(source || "").matchAll(/site\s*\.\s*(?:key|hasKey|verify)\s*\(\s*["']([A-Z][A-Z0-9_]{0,63})["']\s*[,)]/g)) out.add(m[1]);
   return [...out];
 }
 

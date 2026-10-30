@@ -1,0 +1,63 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the fake verify",
+    "control": true,
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "    // THE SIGNATURE CHECK, AS THE REAL ONE (2026-10-30): the same arguments, the",
+    "to": "    // THE SIGNATURE CHECK, LIKE THE REAL ONE (2026-10-30): the same arguments, the"
+  },
+  {
+    "label": "THE DEFECT ITSELF: the fake site has no verify again",
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "    async verify(name, payload, signature, { algo = \"SHA-256\", encoding = \"hex\" } = {}) {",
+    "to": "    async verifyGone(name, payload, signature, { algo = \"SHA-256\", encoding = \"hex\" } = {}) {"
+  },
+  {
+    "label": "A FIXED TRUE: every signature passes",
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "      return diff === 0;\n    },\n    async fetch(url, init = {}) {",
+    "to": "      return true;\n    },\n    async fetch(url, init = {}) {"
+  },
+  {
+    "label": "THE SIGNATURE IS NOT TRIMMED (the real one trims)",
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "enc.encode(signature.trim())",
+    "to": "enc.encode(signature)"
+  },
+  {
+    "label": "THE ALGORITHM IS IGNORED",
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "{ name: \"HMAC\", hash: algo }",
+    "to": "{ name: \"HMAC\", hash: \"SHA-256\" }"
+  },
+  {
+    "label": "BASE64 IS IGNORED",
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "const want = encoding === \"base64\" ?",
+    "to": "const want = false ?"
+  },
+  {
+    "label": "THE SECRET IS NOT THE KEY'S OWN (one secret for every name)",
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "enc.encode(\"test-secret-\" + name)",
+    "to": "enc.encode(\"test-secret-K\")"
+  },
+  {
+    "label": "THE KEY IS NOT RECORDED",
+    "files": ["builder/server-dryrun-child.mjs"],
+    "from": "      if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(String(name))) return false;\n      rec.keys.add(String(name));\n",
+    "to": "      if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(String(name))) return false;\n"
+  },
+  {
+    "label": "keysAsked FORGETS verify",
+    "files": ["builder/server-code.mjs"],
+    "from": "(?:key|hasKey|verify)",
+    "to": "(?:key|hasKey)"
+  },
+  {
+    "label": "keysAsked READS ONLY A LONE ARGUMENT AGAIN",
+    "files": ["builder/server-code.mjs"],
+    "from": "[\"']\\s*[,)]/g)) out.add(m[1]);",
+    "to": "[\"']\\s*\\)/g)) out.add(m[1]);"
+  }
+]
