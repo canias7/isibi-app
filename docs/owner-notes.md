@@ -1,5 +1,19 @@
 # Owner Notes
 
+## 2026-10-30 — The key card: keys collected in the chat, never seen by the model (branch `key-card`, from `agent-fix-all` `21816fe67`; not merged, not deployed)
+
+**Your words:** "when the model says add key, in the chat I want a server thing that pulls up and collects the key, WITHOUT THE MODEL TOUCHING IT."
+
+**What changed:**
+1. **Replies name the keys still missing.** Edit, add-on and build replies now carry `needKeys`: a list of key names (with the service and why), never a value. It comes from the keys the finished server code reads that are not set yet, and from a new agent tool, `request_key`. That tool takes a name only. If the agent tries to hand it a value, the tool refuses it. Names follow the site-secrets rule. A reply where nothing else changed ("add my Stripe key") also shows the card.
+2. **The card.** A "Keys your site needs" card appears in the chat, with one password box per key (no autocomplete, no spellcheck) and Save. Save posts each value straight to the existing keys route, `POST /api/site/<slug>/secrets`. That route checks you own the site and checks the name and size. The value becomes a secret on the site's own Worker, and `_secrets` keeps only the name and hint. After saving, each row reads "NAME: set ✓" and its box is cleared. The card lives in memory only. Nothing goes into stored messages, localStorage or chat history. Keys that are already set show as set. The keys route now refuses a body over 16 KB (413).
+3. **The model never sees a value.** On its next run the agent learns only that the name is set, through `list_keys`. Its instructions say to call `request_key` and never ask you to paste a key.
+4. **A key typed into the message box is not sent.** Key-shaped text (Stripe, Resend, OpenAI/Anthropic, SendGrid, Slack, GitHub, AWS, Twilio prefixes) stops Send, and a warning offers "Put it in a key card".
+
+**Tests:** `test/key-card.test.mjs` has 10 cases. 6 fail on the old code. The leak test saves a sentinel value through the real keys route. It then runs the agent through the real edit route with a stubbed model. The sentinel appears exactly once, in the push to the site's Worker, and in no model request, stored object, reply or log line. A forced store failure proves the log capture is live. Mutation sweep: 17 of 17 killed, and the comment-only control survived. In the full suite the only failures left are the known noise.
+
+**Changes the container image** (`builder/key-card.mjs` is added to the Dockerfile). **Nothing spent, no model calls, no live writes.**
+
 ## 2026-10-30 — The site agent gets back what the old router and steps did (branch `agent-fix-all`, from `combine-agent-server` `57a828560`; not merged, not deployed, nothing paid)
 
 **What changed** (`builder/site-agent.mjs`, the new `builder/agent-outcome.mjs`, `runAgentChange` in `worker.js`):
