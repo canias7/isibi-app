@@ -210,7 +210,10 @@ test("THE CHAIN: resolved in the container, stored on both publish paths, answer
   const okLine = SERVER.slice(SERVER.indexOf("{ ok: true, files: dist"));
   assert.match(okLine.slice(0, 900), /\.\.\.kitOut/, "the success reply does not carry the closure");
   // A THROW HERE MUST NOT LOSE A BUILT SITE: the files are compiled and paid for.
-  const kitBlock = SERVER.slice(SERVER.indexOf("let kitOut = {};"), SERVER.indexOf("{ ok: true, files: dist"));
+  // The window ends where the server code's own checks begin (2026-10-30:
+  // the bundle check made that block longer; it is not the closure's).
+  assert.ok(SERVER.includes("let kitOut = {};") && SERVER.includes("// THE SITE'S OWN SERVER CODE, RUN ONCE"), "the closure block's landmarks moved");
+  const kitBlock = SERVER.slice(SERVER.indexOf("let kitOut = {};"), SERVER.indexOf("// THE SITE'S OWN SERVER CODE, RUN ONCE"));
   assert.ok(kitBlock.length > 50 && kitBlock.length < 1200, "re-derive the closure block's window");
   assert.match(kitBlock, /catch \(e\)/, "a closure that throws takes the publish down with it");
   assert.match(kitBlock, /kitError/, "a closure that failed says nothing");

@@ -730,7 +730,10 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // features): page-gen's rule 14 (payments, after-submission effects, outside
   // connections, scheduled jobs, the spam check) became "WHAT THE SITE HAS",
   // and the prose that described them left; all three requests carry it.
-  const pinned = { build: "d166e49ef0b9d33e", revise: "8463e1022c440ad0", addon: "f25a556b0b8d9c3a" };
+  // RE-PINNED 2026-10-30 (owner: "Do 1,2,3,4", the server-code checks): only the
+  // `server` field's two descriptions moved — `site: SiteHelper` and the KEEP IT
+  // SAFE rules. Compared key by key against the request before it; nothing else differs.
+  const pinned = { build: "74db85a50ec0bcc5", revise: "6bc520a83a8e800c", addon: "d4da33ecf0ebb1ca" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last
