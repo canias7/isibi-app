@@ -1,5 +1,20 @@
 # Owner Notes
 
+## 2026-10-30 — The projects page's cards: the right site opens and deletes, deleted sites stay gone, no blank thumbnails
+
+**What was wrong (an audit of the "Your sites" page):** two sites built from the same chat got the same card id, so pressing × on one deleted the other (reproduced headless: × on "Fold Lane Bakery Two" deleted `bakery-1`). A delete whose database record failed to go still answered "done", and the card came back on the next list. A build or edit still running could claim the site back after its delete. Draft thumbnails were lost after the first redraw. Unfinished cards showed a blank white frame, and live thumbnails ran the site's scripts, which then failed (the frame showed whatever the failing script left).
+
+**What changed:**
+- Each server site matches at most one local record (its own slug first, then the chat), so every card has its own id.
+- The server's delete checks that the site's records really went (`site_backends`, and `site_project`, now removed first so a retry still finds the site). A failure answers an error and the card stays, with a short message.
+- The delete is refused while a build or edit is running on the site ("delete it once that finishes"), and when the running work cannot be read. Chosen over cancelling the job: nothing is torn down, and you press delete again afterwards.
+- Unfinished sites now ask before they are deleted, the delete messages are the app's own toasts (no browser alert), the chat is found by the site's address, and a deleted address is never drawn again in that tab, even from a list fetched before the delete.
+- Thumbnails show the server-rendered page with no scripts, a draft preview is kept across redraws (and asked again after a minute when it was not ready), and an unfinished site with nothing to show reads "Not finished".
+
+**Not changed (yours to decide):** the phone tile, the database icon and its brackets, the position of ×. No colours or fonts changed.
+
+**Tests:** `test/projects-page-fixes.test.mjs`, 12 cases (11 fail on the old code; the control passes), including the real Worker's delete route with Supabase's answers supplied. Four older guards updated to the new spelling. Sweep: 12 of 12 mutants killed, the comment-only control survived. Screenshots before and after in the session's scratchpad. Branch `projects-page-fixes`, not merged or deployed.
+
 ## 2026-10-30 — Parallel agents: the router splits a message again, and each part is run by the site agent (you: "i still want parallel agents tho, so make it work how it used to work")
 
 **What changed:** a message on an existing site goes to the router again, which splits it into parts, exactly as before the one-big-agent switch: the same request record, the same side-by-side running (`PARALLEL_WRITES`), the same waits ("waiting for X"), the same draft saves, the same card and background-work panel. The difference is who does each part: **the site agent**, handed only that part's words (what the router held back for other parts is taken out first), instead of the old lanes. First builds are unchanged. Where the request flow cannot take a message (no message key, the flow off, edits not queued), the agent still takes the whole message with no routing call, as on 2026-10-28.

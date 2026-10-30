@@ -337,19 +337,23 @@ test("a delete that answers 'already gone' clears the card instead of asking for
   // different facts, and the 2026-08-08 bug was a client that dropped the record
   // on a 404 without telling anybody.
   const gone = block.slice(i404, i403);
-  assert.match(gone, /alert\(/, "the card is cleared silently, which is how a failed takedown reads as a successful one");
+  assert.match(gone, /sbToast\(/, "the card is cleared silently, which is how a failed takedown reads as a successful one");
   assert.doesNotMatch(gone, /\breturn;/, "it still bails out, so the card survives the one status that means it should not");
 
   // NOT YOURS: says so, and DOES return. Clearing the card here would hide an
   // ownership bug rather than report one.
   const theirs = block.slice(i403, iFail);
-  assert.match(theirs, /alert\(/, "another account's site is dropped with no explanation");
+  assert.match(theirs, /sbToast\(/, "another account's site is dropped with no explanation");
   assert.match(theirs, /\breturn;/, "another account's site is silently dropped from the list");
 
   // A REAL FAILURE: says so, and DOES return, which is the behaviour that was
   // already right and must survive the change above it.
-  const failed = block.slice(iFail, iFail + 400);
-  assert.match(failed, /alert\([\s\S]*?\breturn;/, "a failed takedown no longer keeps the site in the list to retry");
+  // LANDMARK TO LANDMARK (2026-10-30): the branch grew a line reading the
+  // server's reason, so it ends where the chat clear-up begins.
+  const iEnd = block.indexOf("AND ITS CHAT ON THE SERVER", iFail);
+  assert.ok(iEnd > iFail, "the failure branch's end landmark moved");
+  const failed = block.slice(iFail, iEnd);
+  assert.match(failed, /sbToast\([\s\S]*?\breturn;/, "a failed takedown no longer keeps the site in the list to retry");
 });
 
 // ─────────────────────────────────────────────────────────────────────────

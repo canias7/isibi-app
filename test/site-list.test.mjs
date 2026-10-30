@@ -249,7 +249,7 @@ test("the cap is one number and headroom over the biggest real account", () => {
 
 test("the start screen merges instead of reading localStorage alone", () => {
   const c = blankComments(read("../public/chat.js"));
-  assert.ok(/SiteList\.merge\(sitesLoad\(\), sitesRemote, sitesRemote !== null\)/.test(c),
+  assert.ok(/SiteList\.merge\(sitesLoad\(\), sitesRemote, sitesRemote !== null, sitesDeletedSlugs\)/.test(c),
     "the grid is the merged list, and `null` is what marks a list never answered");
   assert.ok(/sitesFetchRemote\(\);/.test(c), "and the fetch is started from the render");
 });
@@ -292,7 +292,7 @@ test("every card hop resolves through the merged list, never localStorage alone"
   assert.ok(!/siteOpenId = card\.dataset\.open/.test(body),
     "neither handler opens by the card's own id: for a site this browser has no "
     + "record of that id is `srv_<slug>`, which `siteById` can never find");
-  assert.ok(/const s = siteAdopt\(cardEntry\(id\)\)/.test(body), "delete");
+  assert.ok(/const entry = cardEntry\(id\);\s*const s = siteAdopt\(entry\)/.test(body), "delete");
   assert.ok(!/const s = siteById\(id\);/.test(body),
     "the delete no longer looks the site up in localStorage alone");
 });

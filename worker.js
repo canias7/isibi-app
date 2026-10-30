@@ -20052,6 +20052,17 @@ async function deleteSiteFor(env, uid, dslug) {
     if (!srow) return Response.json({ ok: false, error: "no such site" }, { status: 404 });
     if (srow.uid !== uid) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
 
+    // A BUILD OR EDIT STILL RUNNING IS REFUSED, NOT RACED (2026-10-30, the
+    // projects page's audit): a job that finishes after the row below is gone
+    // claims the slug again (`claimSiteSlug`, `saveBackend`), and the card the
+    // owner just deleted comes back on the next list. Refused before anything
+    // is torn down, so the site is untouched and the delete can be pressed
+    // again once the job ends. A count that cannot be read is refused too:
+    // "cannot tell" must not read as "nothing running".
+    const runningJobs = await runningForSite(env, uid, dslug);
+    if (runningJobs === null) return Response.json({ ok: false, error: "couldn't check this site's running work — try again in a moment" }, { status: 503 });
+    if (runningJobs > 0) return Response.json({ ok: false, running: runningJobs, error: "this site is still being built or edited — delete it once that finishes" }, { status: 409 });
+
     // Forget the cached connection BEFORE anything is torn down. A warm isolate
     // holding a string that points at a dropped database is worse than a slow
     // lookup: it answers reads with a connection error instead of a 404.
@@ -20340,13 +20351,6 @@ async function deleteSiteFor(env, uid, dslug) {
       jobsRemoved = Array.isArray(jrows) ? jrows.length : 0;
     } catch (e) { console.error("site jobs delete failed:", dslug, e && e.message); }
 
-    // Registration goes last. While it exists the site is still findable and
-    // still owned, so a failure above leaves something to retry against rather
-    // than the orphan this route exists to prevent.
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
-    } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
-
     // The project record goes unconditionally now, and that is safe because of
     // the trigger: deleting this row ENQUEUES the project into `neon_teardown`,
     // so the cron finishes the job whether the inline drop above worked or not.
@@ -20354,9 +20358,33 @@ async function deleteSiteFor(env, uid, dslug) {
     // nowhere to hand the work to — it left the site half-deleted and needed an
     // operator. The queue is strictly better: the record is never lost, and the
     // caller's site really is gone.
+    // ITS ANSWER IS READ TOO (2026-10-30), and it goes BEFORE the
+    // registration row: a failure here answers an error while the ownership
+    // row still stands, so the retry can reach it.
+    let projectRowGone = false;
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+      const pr = await fetch(`${SUPABASE_URL}/rest/v1/site_project?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+      projectRowGone = !!(pr && pr.ok);
+      if (!projectRowGone) console.error("site project row delete failed:", dslug, pr && pr.status);
     } catch (e) { console.error("site project row delete failed:", dslug, e && e.message); }
+    if (!projectRowGone) return Response.json({ ok: false, slug: dslug, error: "the site is down but its record couldn't be removed — try deleting again" }, { status: 502 });
+
+    // Registration goes last. While it exists the site is still findable and
+    // still owned, so a failure above leaves something to retry against rather
+    // than the orphan this route exists to prevent.
+    //
+    // AND ITS ANSWER IS READ (2026-10-30). This row is the only source of
+    // `/api/site/list`, so a PostgREST failure here used to answer 200 and the
+    // card came back on the next list. A failure now answers an error while
+    // the row still stands, so the owner's retry has something to authorise
+    // against — the reason the project row above is removed BEFORE this one.
+    let rowGone = false;
+    try {
+      const rr = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE", headers: svcHeaders(env) });
+      rowGone = !!(rr && rr.ok);
+      if (!rowGone) console.error("site row delete failed:", dslug, rr && rr.status);
+    } catch (e) { console.error("site row delete failed:", dslug, e && e.message); }
+    if (!rowGone) return Response.json({ ok: false, slug: dslug, error: "the site is down but its record couldn't be removed — try deleting again" }, { status: 502 });
 
     // AND THE OWNER'S CUSTOM DOMAINS. Left behind, each one is a hostname
     // still registered on our zone — BILLED PER HOSTNAME by Cloudflare for
