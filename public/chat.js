@@ -1020,7 +1020,8 @@ function enterLandingAuthed() {
   const so = document.getElementById('signOutRow');
   if (so) { if (so.parentElement !== document.body) document.body.appendChild(so); so.style.display = ''; }
   // Swap the landing's Sign in / Sign up / Pricing nav for the profile menu.
-  document.querySelectorAll('#marketing .mkt-links').forEach((n) => { n.style.display = 'none'; });
+  // The new landing's nav (`.gfl .nl`, 2026-10-30) too: its Sign in stayed up.
+  document.querySelectorAll('#marketing .mkt-links, #marketing .gfl .nl').forEach((n) => { n.style.display = 'none'; });
   fetchCredits();
 }
 

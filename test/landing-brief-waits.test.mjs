@@ -26,3 +26,12 @@ test("LBW2 a ?q= brief for a signed-in visitor waits in the start box too", () =
   assert.match(b, /ta\.value = firstBrief/);
   assert.doesNotMatch(b, /siteCreate\(/, "a link starts a build");
 });
+
+test("LBW3 signed in, the landing hides the new landing's Sign in / Pricing nav as well as the old one", () => {
+  const b = block("function enterLandingAuthed() {", "\n}\n");
+  assert.match(b, /#marketing \.gfl \.nl/, "the new landing's nav stays up when signed in");
+  assert.match(b, /#marketing \.mkt-links/);
+  // and that nav really is the one holding Sign in
+  const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(html, /<div class="nl">[^]*?data-mkt="signin"/);
+});
