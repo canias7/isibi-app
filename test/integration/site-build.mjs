@@ -2054,6 +2054,37 @@ try {
     Object.keys(broken.files || {}).slice(0, 6).join(", ") || "(no files)");
   }
 
+  if (SECTION("server-request", 3)) {
+  // ── THE SITE'S SERVER CODE, ASKED THROUGH THE BUILT BUNDLE (2026-10-30) ────
+  //
+  // After the build, each `server-<name>` part is asked once through
+  // `dist/server/server.js` (`server-bundle-check.mjs`), every call faked. Four
+  // parts: one that answers, one whose dry run passes but which answers 500 on
+  // the real route (an answer over its size limit — only the real route says so), a
+  // webhook checking its signature (unsigned sample: 400, not a fault), and a
+  // `tick` hook that throws (read from the site's own error log).
+  console.log("\nbuilding a site with server code…");
+  const parts = [
+    { name: "server-hello", source: `export const hosts = ["api.example.com"];\nexport default async function (request: Request, site: SiteHelper): Promise<Response> {\n  const r = await site.fetch("https://api.example.com/x", { headers: { authorization: "Bearer " + site.key("EXAMPLE_KEY") } });\n  const rows = await site.sql("select 1");\n  return Response.json({ ok: r.ok, rows: rows.length });\n}` },
+    { name: "server-big", source: `export const hosts = [];\nexport default async function (request: Request, site: SiteHelper): Promise<Response> {\n  return new Response(new Uint8Array(2_000_000), { headers: { "content-type": "application/octet-stream" } });\n}` },
+    { name: "server-paid", source: `export const hosts = [];\nexport default async function (request: Request, site: SiteHelper): Promise<Response> {\n  const raw = await request.text();\n  if (!(await site.verify("STRIPE_WEBHOOK_SECRET", raw, request.headers.get("stripe-signature") || ""))) return new Response("not signed", { status: 400 });\n  return Response.json({ ok: true });\n}` },
+    { name: "server-nightly", source: `export const hosts = [];\nexport const on = ["tick"];\nexport default async function (request: Request, site: SiteHelper): Promise<Response> {\n  const rows: any = null;\n  return Response.json({ n: rows.length });\n}` },
+    { name: "server-booked", source: `export const hosts = [];\nexport const on = ["created:bookings"];\nexport default async function (request: Request, site: SiteHelper): Promise<Response> {\n  const { row } = await request.json();\n  return Response.json({ who: row.customer.name });\n}` },
+  ];
+  const sv = await post({ files: { "index.tsx": INDEX }, parts, slug: "fold-coffee" });
+  ok("the build with server code succeeds", sv.ok === true, "stage=" + sv.stage + " error=" + String(sv.error || "").slice(0, 300));
+  const st = sv.serverTests || {};
+  ok("…and the built bundle was asked", st.bundle && st.bundle.ran === true, JSON.stringify(st.bundle || null));
+  const by = Object.fromEntries((st.results || []).map((r) => [r.name, r]));
+  ok("…a function that answers passes", by.hello && by.hello.ok === true, JSON.stringify(by.hello || null));
+  ok("…one whose answer the real route refuses (over its size limit) is a code fault, found only through the built site", by.big && by.big.ok === false && by.big.kind === "code" && by.big.via === "bundle" && by.big.status === 500, JSON.stringify(by.big || null));
+  ok("…a webhook refusing the unsigned sample is not a fault", by.paid && by.paid.ok === true, JSON.stringify(by.paid || null));
+  ok("…a failing tick hook is caught from the site's own error log", by.nightly && by.nightly.ok === false && by.nightly.kind === "code", JSON.stringify(by.nightly || null));
+  ok("…and the built site itself named each failure — the size limit, the tick hook and the row hook — and passed the rest",
+    JSON.stringify([...(st.bundle?.failed || [])].sort()) === JSON.stringify(["big", "booked", "nightly"]) && JSON.stringify([...(st.bundle?.passed || [])].sort()) === JSON.stringify(["hello", "paid"]),
+    JSON.stringify(st.bundle || null));
+  }
+
   if (SECTION("excluded-import", 3)) {
   // tsconfig EXCLUDES src/components/charts, because it is a catalogue rather
   // than application code and typechecking all 70 on every build cost 3s a site.

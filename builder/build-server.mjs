@@ -42,6 +42,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { BUILD_KEYS } from "./build-keys.mjs";
 import { dryRunServerParts } from "./server-dryrun.mjs";
+import { bundleCheckServerParts, mergeBundleResults } from "./server-bundle-check.mjs";
 import { sessionDir, prepareSandbox, writeSiteFiles, readSiteFiles, runCommand, sweepSessions, netCut, netProbe } from "./agent-shell.mjs";
 import { isServerPart } from "./server-code.mjs";
 import { callBuilderModel, keysFrom, BUILDER_CALL_MS, CONTAINER_CALL_CAP_MS, STREAM_IDLE_MS, patientCall } from "./build-call.mjs";
@@ -2850,6 +2851,11 @@ const server = http.createServer((req, res) => {
           let tsc = null;
           try { tsc = createRequire(path.join(APP, "package.json"))("typescript"); } catch { tsc = null; }
           serverTests = await dryRunServerParts(sp, tsc ? { ts: tsc } : {});
+          // AND ONCE THROUGH THE BUILT SITE ITSELF (2026-10-30): the same
+          // bundle the site will run, its real route and `site` helper, with
+          // every call, key and row faked. Folded into the dry run's results,
+          // so the reply and the one repair round read both alike.
+          serverTests = mergeBundleResults(serverTests, await bundleCheckServerParts(SERVER_BUNDLE, payload.slug, sp));
         }
       } catch (e) { serverTests = { ran: false, why: String((e && e.message) || e).slice(0, 120), results: [] }; }
       return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), ...(serverTests ? { serverTests } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, ...(shots.length ? { shots } : {}), ...(layout.length ? { layout } : {}), worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });

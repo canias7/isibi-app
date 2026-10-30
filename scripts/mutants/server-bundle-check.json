@@ -1,0 +1,117 @@
+[
+  {
+    "label": "CONTROL: a comment only, in the child",
+    "control": true,
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "// AN OUTSIDE SERVICE: the dry run's plausible empty answer.",
+    "to": "// AN OUTSIDE SERVICE: the dry run's plausible, empty answer."
+  },
+  {
+    "label": "THE WIRING: the container never asks the built site",
+    "files": ["builder/build-server.mjs"],
+    "from": "          serverTests = mergeBundleResults(serverTests, await bundleCheckServerParts(SERVER_BUNDLE, payload.slug, sp));\n",
+    "to": ""
+  },
+  {
+    "label": "A 5xx IS NOT FLAGGED",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "      else if (res.status >= 500) {",
+    "to": "      else if (res.status >= 600) {"
+  },
+  {
+    "label": "A 4xx IS FLAGGED (the unsigned webhook reads as a fault)",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "      else if (res.status >= 500) {",
+    "to": "      else if (res.status >= 400) {"
+  },
+  {
+    "label": "EVERY 5xx IS THE CODE'S (sample-input stops get repaired)",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "        fail(f.name, msg || \"status \" + res.status, CODE.test(msg) ? \"code\" : \"input\", res.status);",
+    "to": "        fail(f.name, msg || \"status \" + res.status, \"code\", res.status);"
+  },
+  {
+    "label": "THE ROUTE'S OWN REFUSALS ARE NOT THE CODE'S",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "|did not answer with a Response|answer is too large|answer was withheld/;",
+    "to": "|did not answer with a Response/;"
+  },
+  {
+    "label": "A HOOK'S LOGGED FAILURE IS NOT READ",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "      if (m) logged.push([m[1], m[2]]);",
+    "to": "      if (m) void m;"
+  },
+  {
+    "label": "HOOKS ARE NOT ASKED",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "  for (const ev of events) {",
+    "to": "  for (const ev of []) {"
+  },
+  {
+    "label": "A HOOKED FUNCTION IS ASKED AS A VISITOR'S (the route answers 404)",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "    if (Array.isArray(f.hooks) && f.hooks.length && f.visitors !== true) continue;",
+    "to": ""
+  },
+  {
+    "label": "NO FAKE FETCH: the bundle reaches the network",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "globalThis.fetch = async (input, init = {}) => {",
+    "to": "const unusedFetch = async (input, init = {}) => {"
+  },
+  {
+    "label": "THE KEYS ARE NOT MADE UP (hasKey reads false)",
+    "files": ["builder/server-bundle-child.mjs"],
+    "from": "env[k] = \"check-key-\" + k.toLowerCase();",
+    "to": "void k;"
+  },
+  {
+    "label": "THE SANDBOX'S ENVIRONMENT IS THE PARENT'S",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "        env: {}, stdio: [\"pipe\", \"pipe\", \"ignore\"],",
+    "to": "        env: process.env, stdio: [\"pipe\", \"pipe\", \"ignore\"],"
+  },
+  {
+    "label": "NO PERMISSION MODEL",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "[\"--permission\", \"--allow-fs-read=\" + BUNDLE_CHILD, ",
+    "to": "[\"--allow-fs-read=\" + BUNDLE_CHILD, "
+  },
+  {
+    "label": "NO TIMER",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "finish({ ran: false, why: \"timed out\", results: [] }); }, timeoutMs);",
+    "to": "finish({ ran: false, why: \"timed out\", results: [] }); }, timeoutMs * 1000);"
+  },
+  {
+    "label": "A FATAL LOAD READS AS A RUN",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "      if (j && j.fatal) return finish({ ran: false, why: String(j.fatal).slice(0, 200), results: [] });\n",
+    "to": ""
+  },
+  {
+    "label": "NO SLUG IS ASKED ANYWAY",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "  if (!s) return { ran: false, why: \"no site address to ask\", results: [] };\n",
+    "to": ""
+  },
+  {
+    "label": "THE MERGE IGNORES THE BUNDLE'S FAILURE",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "    return r && r.ok && x && !x.ok ?",
+    "to": "    return r && r.ok && x && false ?"
+  },
+  {
+    "label": "THE MERGE LETS THE BUNDLE OVERWRITE A DRY-RUN FAILURE",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "    return r && r.ok && x && !x.ok ?",
+    "to": "    return r && x && !x.ok ?"
+  },
+  {
+    "label": "THE MERGE DROPS THE BUNDLE WHEN THE DRY RUN DID NOT RUN",
+    "files": ["builder/server-bundle-check.mjs"],
+    "from": "  if (!dry || !dry.ran) return bundle.ran ?",
+    "to": "  if (!dry || !dry.ran) return false ?"
+  }
+]
