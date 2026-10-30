@@ -1,5 +1,41 @@
 # Owner Notes
 
+## 2026-10-30 — The landing and sign-in designs are on the real front end (branch only)
+
+**What you asked:** *"use that for the frontend"*. On `chris-testing-no-ai`
+the signed-out page is now the design: the header, the centred chatbox
+(typing and pressing ↑ keeps the brief and opens sign-up, as the old
+WEBSITE channel did), "Your framework" with the turning ring and its cards,
+and the footer. The sign-in popup is now a full page in the chosen look,
+with the same code behind it (sign in, create account, email code, password
+reset); its line no longer says "Create AI video, images, and voice."
+
+New files `public/gf-landing.css` (every rule scoped to the landing) and
+`public/gf-landing.js` (the ring). The old CRT landing is hidden, not
+deleted. Suite: 11,597 tests, 1 failing (an ancestry check this shallow
+clone cannot answer), 2 skipped. Not merged or deployed.
+
+## 2026-10-30 — Landing page and sign-in page designs (mockups, not live)
+
+**What you asked:** a new landing page and a sign-in page, designed in chat
+round by round. Saved as design files only; the live site is unchanged.
+
+- `docs/design/landing.html` — the landing: only the sites-screen chatbox,
+  centred; "Your framework", a slowly turning ring of the providers a site
+  runs on (Neon, Cloudflare, React, TypeScript, Tailwind, TanStack, Vite,
+  Chromium, xAI, Anthropic, Nano Banana Pro, Expo) around the GF mark, with a
+  business-card panel on the right (Go Farther's card by default, a logo's
+  card on click, "See more" for the full detail) over a soft moving
+  background; and a footer. Expo and Nano Banana Pro are labelled planned /
+  paused, as they are.
+- `docs/design/sign-in.html` — sign in, create account, the email code,
+  forgot password and new password as a page instead of the popup (open it
+  with `?v=A`, the look you picked, then `#signup`, `#verify`, `#forgot`,
+  `#reset`).
+
+On branch `chris-testing-no-ai`; not wired into `public/`, not merged or
+deployed.
+
 
 
 

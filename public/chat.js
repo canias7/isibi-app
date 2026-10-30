@@ -732,7 +732,7 @@ function friendlyAuthErr(e) {
 }
 
 const AUTH_TITLES = {
-  in:    { creds: 'Sign in to gofarther.dev',   code: 'Check your email' },
+  in:    { creds: 'Sign in',   code: 'Check your email' },
   up:    { creds: 'Create your account', code: 'Check your email' },
   reset: { creds: 'Reset your password', code: 'Check your email', newpass: 'Set a new password' },
 };
@@ -767,7 +767,8 @@ function renderAuthStep() {
     authStep === 'code' ? 'Enter the code we emailed to ' + pendingEmail + '.' :
     authStep === 'newpass' ? 'Choose a new password for ' + pendingEmail + '.' :
     authMode === 'reset' ? 'We’ll email you a reset code.' :
-    'Create AI video, images, and voice.';
+    authMode === 'up' ? 'Describe a business, get a website and app.' :
+    'Welcome back. Pick up where you left off.';
   authEl('authSwitchText').textContent = authMode === 'up' ? 'Already have an account?' : 'New here?';
   authEl('authToggle').textContent = authMode === 'up' ? 'Sign in' : 'Create an account';
   authEl('authPass').setAttribute('autocomplete', authMode === 'up' ? 'new-password' : 'current-password');
@@ -4063,6 +4064,20 @@ function initCrt() {
   // clicking anywhere in the box (padding, empty area) focuses the field
   if (landBox && landInput) landBox.addEventListener('click', (e) => { if (e.target !== landSend && !landSend.contains(e.target)) landInput.focus(); });
   if (landSend) landSend.addEventListener('click', submitLand);
+  // The new landing's chatbox (gf-landing): the same destination as the
+  // WEBSITE channel above — the brief waits for the builder, then the app or
+  // the sign-up page opens.
+  const gflAsk = document.getElementById('gflAsk');
+  const gflBrief = document.getElementById('gflBrief');
+  const submitGfl = () => {
+    const b = (gflBrief && gflBrief.value.trim()) || '';
+    if (b) pendingSiteBrief = b;
+    try { localStorage.setItem(VIEW_KEY, 'sites'); } catch (e) {}
+    if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
+    if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
+  };
+  if (gflAsk) gflAsk.addEventListener('submit', (e) => { e.preventDefault(); submitGfl(); });
+  if (gflBrief) gflBrief.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitGfl(); } });
   paintCrt();
 }
 
@@ -18569,6 +18584,14 @@ if (firstBrief) {
   window.history.replaceState({}, '', location.pathname);
   if (window.Auth && Auth.isSignedIn()) { showView('sites'); siteCreate(firstBrief); }
   else pendingSiteBrief = firstBrief;
+}
+// ?auth=signin|start, from a page outside the app (the pricing page's
+// buttons): open the sign-in page straight away. Buying needs an account, so
+// a signed-out visitor who presses Buy lands here, not at a checkout.
+const authAsk = params.get('auth');
+if (authAsk === 'signin' || authAsk === 'start') {
+  window.history.replaceState({}, '', location.pathname);
+  if (!(window.Auth && Auth.isSignedIn())) openAuthFrom(authAsk, 'app');
 }
 // Back from Stripe: the webhook mints the credits — poll the balance so the
 // chip catches up even if the webhook lands a few seconds after we do. Said as
