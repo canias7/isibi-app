@@ -163,11 +163,13 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.cost, BILL);
   });
 
-  test("SAR2 " + mode + ": an agent that never finishes saves nothing and charges nothing", async () => {
-    const r = await drive({ mode, ask: "Change the hours.", rounds: [[use("write_file", { file: "index.tsx", source: HOME_NEW })], [use("read_files", { files: ["menu.tsx"] })]] });
+  // NO ROUND LIMIT since 2026-10-30 (the owner: "no limit"), so an agent that
+  // never finishes is one that stops answering with a tool mid-work.
+  test("SAR2 " + mode + ": an agent that stops without finishing saves nothing and charges nothing", async () => {
+    const r = await drive({ mode, ask: "Change the hours.", rounds: [[use("write_file", { file: "index.tsx", source: HOME_NEW })], [use("read_files", { files: ["menu.tsx"] })], [{ type: "text", text: "I am not sure." }]] });
     assert.equal(r.reply.ok, false);
     assert.equal(r.reply.error, "agent-stopped");
-    assert.match(r.reply.msg, /limit of steps.*Nothing on the site was changed.*Nothing was charged/);
+    assert.match(r.reply.msg, /Nothing on the site was changed.*Nothing was charged/);
     assert.equal(r.home, HOME, "the page is as it was");
     assert.equal(r.css, CSS);
     assert.equal(r.compiles.length, 0);

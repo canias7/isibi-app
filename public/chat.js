@@ -13172,7 +13172,7 @@ function siteJobFollow(origin, job) {
   const id = origin + '|' + job;
   if (siteJobFollowing.has(id)) return;
   siteJobFollowing.add(id);
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   let attempt = 0;
   const stop = () => { siteJobFollowing.delete(id); };
   const draw = () => {
@@ -13205,6 +13205,9 @@ function siteJobFollow(origin, job) {
     if (read.act === 'gone') { c.closed = true; draw(); stop(); return; }
     if (read.act === 'retry' || (read.act === 'wait' && read.kind !== 'reply')) {
       if (read.act === 'wait' && e && typeof e.status === 'string') c.view.state = e.status;
+      // STILL RUNNING IS NOT A GIVE-UP (2026-10-30): the horizon counts from
+      // the server's last "running", so a job past 50 minutes is still followed.
+      if (read.act === 'wait') startedAt = Date.now();
       draw();
       if (Date.now() - startedAt > EditPoll.POLL_GIVE_UP_MS) { stop(); return; }
       setTimeout(step, EditPoll.pollDelayMs(++attempt));
@@ -14091,6 +14094,8 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     if (read.act === 'wait' && read.kind === 'reply') { apply(e, r, true); return; }
     if (read.act === 'wait') {
       w.attempt++;
+      // STILL RUNNING (2026-10-30): the give-up horizon counts from here.
+      w.startedAt = Date.now();
       // A JOB WAITING BEHIND ANOTHER CHANGE, OR A PLATFORM UPDATE, SAYS SO
       // (stage 3b): the sentence replaces "Thinking" in the live steps for as
       // long as the poll says `waiting`, and the ordinary poll paints nothing.
@@ -16123,7 +16128,10 @@ const BUILD_POLL_MS = 6000;
 // (2026-10-29, kiln-lane-4) ran 22½ minutes: the page gave up and said it had
 // not come together while the server was still writing a site that then saved.
 // A build still unanswered here has not failed — it is told honestly and left running.
-const BUILD_FOLLOW_MS = 50 * 60 * 1000;
+// NO FIXED CUTOFF (the owner, 2026-10-30: "no limit"): the page follows a build
+// for as long as the server answers that it is still running (202); it stops on
+// the build's own answer, a run of unreadable answers, or the server losing it.
+const BUILD_FOLLOW_MS = Infinity;
 /**
  * THE BUILD'S TALK, PUSHED (2026-10-19, owner: "do it now"): one open
  * connection to `/api/site/build/<id>/stream`, read with the page's own

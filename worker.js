@@ -223,6 +223,7 @@ import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
+import { noteProgress } from "./builder/job-progress.mjs";
 import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer, agentAttachments, agentAttachmentsFromBlocks } from "./builder/site-agent.mjs";
 import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { pdfText } from "./builder/pdf-text.mjs";
@@ -391,7 +392,7 @@ import { withProviderRetry, waitingKey, noticeKey, WAITING_PREFIX, parkRecord, r
 import { holdDecision, BUSY_PROBE_MS } from "./builder/container-hold.mjs";
 // HOW LONG A CONTAINER JOB MAY RUN — the one setting, read here so the deploy
 // can shorten it without a code change. `fireContainerJob` is its one consumer.
-import { readJobMaxMs } from "./builder/job-duration.mjs";
+import { readJobMaxMs, JOB_CREDENTIAL_MS } from "./builder/job-duration.mjs";
 // The probe's own reader, shared with the runner so the caller's numbers are
 // clamped by ONE rule — two copies of a bound is how one of them drifts.
 import { readProbe, ENV_PROBE_NAMES } from "./builder/job-probe.mjs";
@@ -4825,7 +4826,9 @@ function providerWaitOpts(env, model) {
     model: String(model || ""),
     deadlineAt: env && Number.isFinite(env.JOB_DEADLINE_AT) ? env.JOB_DEADLINE_AT : null,
     stopped: async () => !!(sig && sig.aborted) || !!(sink && typeof sink.stopped === "function" && (await sink.stopped())),
-    onWait: sink && sink.onWait, onRecover: sink && sink.onRecover, onPark: sink && sink.onPark, onStop: sink && sink.onStop,
+    // A PROVIDER WAIT IS PROGRESS (2026-10-30): the job is waiting on purpose,
+    // so the no-progress watchdog hears every 5-minute retry.
+    onWait: (...a) => { noteProgress("provider-wait"); return sink && typeof sink.onWait === "function" ? sink.onWait(...a) : undefined; }, onRecover: sink && sink.onRecover, onPark: sink && sink.onPark, onStop: sink && sink.onStop,
     ...(typeof clock.now === "function" ? { now: clock.now } : {}),
     ...(typeof clock.sleep === "function" ? { sleep: clock.sleep } : {}),
   };
@@ -20474,7 +20477,11 @@ async function chatSharedElsewhere(env, uid, chatId, dslug) {
 // it when the build ends, however it ends. A mark older than
 // BUILD_MARK_STALE_MS is a build that died without clearing it, and is
 // ignored, so a crash cannot block a delete for ever.
+// NO FIXED DEADLINE (2026-10-30): the mark is rewritten every
+// BUILD_MARK_REFRESH_MS while its build runs, so its age is the time since the
+// build was last alive, never how long the build has run.
 const BUILD_MARK_STALE_MS = 30 * 60_000;
+const BUILD_MARK_REFRESH_MS = 5 * 60_000;
 const buildMarkKey = (slug) => "build-running/" + slug + ".json";
 async function writeBuildMark(env, slug, uid, token) {
   try { if (env && env.SITES_BUCKET && slug) await env.SITES_BUCKET.put(buildMarkKey(slug), JSON.stringify({ uid: uid || null, at: Date.now(), token })); }
@@ -26571,7 +26578,11 @@ async function fireContainerJob(env, id, { holder = "", kind = "edit", who: iden
   const kindMs = kind === "build" ? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS;
   const setting = readJobMaxMs(env, kindMs);
   if (setting.why) console.warn("job runner: JOB_MAX_MINUTES refused —", setting.why);
-  const budgetMs = setting.ms;
+  // NO FIXED DEADLINE (the owner, 2026-10-30): unless the deploy sets
+  // JOB_MAX_MINUTES, the token and the launch's `deadlineAt` take the
+  // credential's horizon (`JOB_CREDENTIAL_MS`), and the build service stops a
+  // job only after `NO_PROGRESS_MS` without progress.
+  const budgetMs = setting.from === "env" ? setting.ms : JOB_CREDENTIAL_MS;
   const pre = who.pre === true;
   const token = await signJobToken({ id, slug: pre ? preScopeSlug(id) : who.slug, uid: who.uid, exp: Math.floor((Date.now() + budgetMs) / 1000) + JOB_TOKEN_GRACE_S, pre }, key);
   const payload = JSON.stringify({
@@ -28772,7 +28783,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // keys). Only a build run in a Worker, inline or by the queue consumer,
       // needs the mark.
       if (!(env.SITE_BUILD_CONTAINER && env.SITE_BUILD_CONTAINER.local === true)) bMark.slug = slug;
-      if (bMark.slug) await writeBuildMark(env, slug, bu.id, bMark.token);
+      if (bMark.slug) {
+        await writeBuildMark(env, slug, bu.id, bMark.token);
+        bMark.timer = setInterval(() => { writeBuildMark(env, slug, bu.id, bMark.token); }, BUILD_MARK_REFRESH_MS);
+      }
       rec.step(tr.done(), { stage: "design", picker: String(body.picker || "").slice(0, 24) || null });
 
       // A site's slug is claimed by whoever built it first; a second user cannot
@@ -30575,7 +30589,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         designRecovery: designRecovery || undefined,
         backendDesign: firstBuildBackend || undefined,
       }, { picker: models.picker, request: brief, name: brand, slug, uid: bu && bu.id, chat: chatId }));
-      })().finally(() => clearBuildMark(env, bMark.slug, bMark.token)), bHeld.parts);
+      })().finally(() => { if (bMark.timer) clearInterval(bMark.timer); return clearBuildMark(env, bMark.slug, bMark.token); }), bHeld.parts);
 }
 
 async function handleRequest(request, env, ctx) {

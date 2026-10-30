@@ -23,7 +23,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { readLaunch, runJob } from "../builder/container-job.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
-import { JOB_KILL_GRACE_MS, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE, readDeadline, makeTerminator } from "../builder/job-clock.mjs";
+import { JOB_KILL_GRACE_MS, JOB_STOP_GRACE_MS, STOPPED_EXIT_CODE, readDeadline, makeTerminator, makeWatchdog, NO_PROGRESS_MS } from "../builder/job-clock.mjs";
 import { EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS } from "../builder/edit-job.mjs";
 
 const ROOT = new URL("..", import.meta.url);
@@ -109,13 +109,13 @@ test("a second SIGTERM changes nothing, and a runner whose job never watches the
 // ── the build service ───────────────────────────────────────────────────────
 
 /** The service's job functions, evaluated with the terminator and the deadline reader handed in. */
-function serviceFns({ WORKER_DIR = ROOT.pathname, PORT = 8080, JOBS = new Map(), TERMS = new Map(), holdBusy = () => () => {}, console: c = { log() {}, error() {} }, makeTerminator: mt = makeTerminator, readDeadline: rd = readDeadline, spawn: sp = spawn } = {}) {
+function serviceFns({ WORKER_DIR = ROOT.pathname, PORT = 8080, JOBS = new Map(), TERMS = new Map(), holdBusy = () => () => {}, console: c = { log() {}, error() {} }, makeTerminator: mt = makeTerminator, readDeadline: rd = readDeadline, spawn: sp = spawn, makeWatchdog: mw = makeWatchdog, NO_PROGRESS_MS: np = NO_PROGRESS_MS } = {}) {
   const src = noComments(BUILD_SERVER);
   const from = at(src, "function checkWorkerTree(");
   const to = at(src, "function busyState()");
   const text = src.slice(from, to).replace(/^const WORKER_TREE_CHECK = [^\n]*$/m, "").replace(/^const TERMS = new Map\(\);$/m, "");
-  return new Function("fs", "path", "spawn", "process", "WORKER_DIR", "PORT", "JOBS", "TERMS", "holdBusy", "console", "makeTerminator", "readDeadline",
-    text + "\nreturn { checkWorkerTree, cleanChildEnv, startJob, stopJob, stopJobChildren };")(fs, path, sp, process, WORKER_DIR, PORT, JOBS, TERMS, holdBusy, c, mt, rd);
+  return new Function("fs", "path", "spawn", "process", "WORKER_DIR", "PORT", "JOBS", "TERMS", "holdBusy", "console", "makeTerminator", "readDeadline", "makeWatchdog", "NO_PROGRESS_MS",
+    text + "\nreturn { checkWorkerTree, cleanChildEnv, startJob, stopJob, stopJobChildren };")(fs, path, sp, process, WORKER_DIR, PORT, JOBS, TERMS, holdBusy, c, mt, rd, mw, np);
 }
 
 /** A fake terminator that records what the service asked of it. */
@@ -130,7 +130,7 @@ function fakeTerminators() {
   return { made, factory };
 }
 
-test("startJob arms the terminator at the launch's deadline, clears it when the child ends, and the record carries the deadline", async () => {
+test("startJob NEVER arms the terminator at the launch's deadline (no fixed limit, 2026-10-30), clears it when the child ends, and the record carries the deadline", async () => {
   const JOBS = new Map();
   const TERMS = new Map();
   const { made, factory } = fakeTerminators();
@@ -139,7 +139,7 @@ test("startJob arms the terminator at the launch's deadline, clears it when the 
   const started = fns.startJob(launch, launchJson({ deadlineAt: 1_900_000_000_000 }));
   assert.equal(started.ok, true, JSON.stringify(started));
   assert.equal(made.length, 1, "no terminator was made for the child");
-  assert.deepEqual(made[0].armed, [1_900_000_000_000], "the terminator was not armed at the launch's deadline");
+  assert.deepEqual(made[0].armed, [], "the terminator was armed at a fixed deadline");
   assert.equal(JOBS.get(ID).deadlineAt, 1_900_000_000_000);
   assert.equal(TERMS.get(ID), made[0], "the service cannot find the child's terminator by id");
   const until = Date.now() + 90_000;
@@ -182,11 +182,12 @@ test("stopJob stops a running child through its terminator with the reason and r
   assert.equal(fns.stopJobChildren("drain"), 1, "an ended child was counted as stopped");
 });
 
-test("THE REAL CHILD, STOPPED: a deadline already past its grace ends the real runner through SIGTERM, and the record says so", async () => {
+test("THE REAL CHILD, STOPPED: a child with no progress for the watchdog's window ends through SIGTERM, and the record says so", async () => {
   const JOBS = new Map();
   const TERMS = new Map();
   const logs = [];
-  const fns = serviceFns({ JOBS, TERMS, console: { log: (...a) => logs.push(a.join(" ")), error: (...a) => logs.push(a.join(" ")) } });
+  // The watchdog's window shrunk to 1.5 s: the child below is silent while the gateway holds it.
+  const fns = serviceFns({ JOBS, TERMS, makeWatchdog: (o) => makeWatchdog({ ...o, idleMs: 1500 }), console: { log: (...a) => logs.push(a.join(" ")), error: (...a) => logs.push(a.join(" ")) } });
   // A gateway that holds the claim open, so the runner is mid-await when the
   // signal lands and has to end through the belt or the gate — never on its own.
   // HELD LONGER THAN THE WHOLE STOP SEQUENCE (the term grace, the kill grace
@@ -207,19 +208,21 @@ test("THE REAL CHILD, STOPPED: a deadline already past its grace ends the real r
   server.close();
   const j = JOBS.get(ID);
   assert.notEqual(j.state, "running", "the child was not stopped: " + JSON.stringify(j));
-  assert.equal(j.stopped, "deadline", "the record does not say the child was stopped for its deadline: " + JSON.stringify(j));
+  assert.equal(j.stopped, "no-progress", "the record does not say the child was stopped for no progress: " + JSON.stringify(j));
   // Ended by the runner's own belt (its exit code) or by the signal before the
   // runner had its handler up — either is under the kill grace, never the kill,
   // and NEVER A NATURAL END (exit 0): the claim is held for a minute, so a
   // child that ends on its own inside the window was not stopped at all.
-  assert.ok(j.code === STOPPED_EXIT_CODE || j.signal === "SIGTERM", "the child ended some other way: " + JSON.stringify(j));
+  // (2026-10-30) The watchdog fires once the runner has its handler up, so it
+  // may end through its own stop path, which says `stopping` before it ends.
+  assert.ok(j.code === STOPPED_EXIT_CODE || j.signal === "SIGTERM" || (Array.isArray(j.tail) && j.tail.some((l) => /"stopping":true/.test(l))), "the child ended some other way: " + JSON.stringify(j));
   assert.ok(Date.now() - at0 < JOB_STOP_GRACE_MS + 15_000, "the child outlived the stop grace: " + (Date.now() - at0) + " ms");
-  assert.ok(logs.some((l) => /stopping.*deadline|stopped/.test(l)), "the service did not say why the child was stopped: " + logs.slice(-6).join("\n"));
+  assert.ok(logs.some((l) => /stopping.*no-progress|stopped/.test(l)), "the service did not say why the child was stopped: " + logs.slice(-6).join("\n"));
 });
 
 test("the service's routes and drain: DELETE /job/<id> stops a child, the drain stops its children before it gives up, and the runner's tree carries the clock module", () => {
   const src = noComments(BUILD_SERVER);
-  assert.match(src, /import \{ readDeadline, makeTerminator, JOB_STOP_GRACE_MS \} from "\.\/job-clock\.mjs";/, "the service does not import the clock");
+  assert.match(src, /import \{ readDeadline, makeTerminator, makeWatchdog, NO_PROGRESS_MS, JOB_STOP_GRACE_MS \} from "\.\/job-clock\.mjs";/, "the service does not import the clock");
   // Landmarks are CODE, never comments: the blanker above erases those.
   const delAt = at(src, 'req.method === "DELETE" && req.url.startsWith("/job/")');
   const getAt = at(src, 'req.method === "GET" && req.url.startsWith("/job/")');
@@ -291,7 +294,8 @@ test("editStopped has the stopped sentence, and the fire names the deadline the 
   // fallback. One long literal asserted both by accident and neither on purpose.
   assert.match(fire, /kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS/, "the launch's clock is not the kind's own");
   assert.match(fire, /readJobMaxMs\(env, kindMs\)/, "the deploy's setting is not read, or not with the kind's clock as its fallback");
-  assert.match(fire, /const budgetMs = setting\.ms;/, "the launch's clock is no longer the setting's answer");
+  // NO FIXED DEADLINE (2026-10-30): the setting when the deploy names one, else the credential's horizon.
+  assert.match(fire, /const budgetMs = setting\.from === "env" \? setting\.ms : JOB_CREDENTIAL_MS;/, "the launch's clock is no longer the setting's answer or the credential horizon");
 });
 
 test("S7-5 (2026-10-23) A JOB WHOSE LEASE THE LOST SWEEP TOOK STOPS — a beat answered `alive: false` makes the gate answer `stopped` and ends a turn wait; a transport failure or a live beat changes nothing; the heartbeat stops renewing the turn — driven out of the source", async () => {

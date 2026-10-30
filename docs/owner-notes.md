@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-30 — No limit on how long a task runs (branch `no-time-limit`, not merged, nothing live or paid)
+
+You asked for "no limit" on how long a task runs. Now:
+
+- The site agent no longer stops at 40 rounds or 40 minutes, and its helpers no longer stop at 15 rounds.
+- A job in the container is no longer stopped at 50 minutes. It is stopped only if it has done nothing for 15 minutes in a row (no agent step, no tool result, no model answer, no build step). A job that keeps working is never stopped.
+- The container stays up while its job keeps working, however long.
+- The page keeps following a build or an edit for as long as the server says it is still running.
+- What still has an end: each single model call keeps its own timeout (10 minutes per call, 5 minutes with no streamed words, up to 40 minutes while waiting for a provider that is down), and the job's sign-in pass lasts 24 hours.
+
 ## 2026-10-30 — Seven branches combined into one (`combine-agent-server`, not merged, not deployed)
 
 **What it is:** `projects-page-2`, `sites-server-side`, `account-state-server`, `agent-server-tools`, `agent-input-tools`, `agent-old-steps` and `agent-guardrails`, merged in that order onto `claude/nice-ramanujan-9ry8wy`. Every branch's behaviour is kept: the agent is offered all its tools (the server tools, the input tools and the old steps' tools), and the site agent's change runs inside the guardrails (one check before finishing, a part's scope, one retry, the version's name, the cheap text rung, the undo facts) with every input the other branches wired (attachments, imported sites, screen sizes, earlier answers, questions to you) and every save they added (database additions, settings, page moves, table rules).

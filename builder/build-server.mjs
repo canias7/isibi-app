@@ -73,7 +73,7 @@ import { runStep } from "./run-step.mjs";
 import { startSiteServer, renderAs } from "./site-ssr.mjs";
 import { spawn } from "node:child_process";
 import { readLaunch } from "./container-job.mjs";
-import { readDeadline, makeTerminator, JOB_STOP_GRACE_MS } from "./job-clock.mjs";
+import { readDeadline, makeTerminator, makeWatchdog, NO_PROGRESS_MS, JOB_STOP_GRACE_MS } from "./job-clock.mjs";
 import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
@@ -165,7 +165,7 @@ const MODEL_JOBS = new Map();
  * `/model/result` while it waits, so the job waiting on it can show it.
  */
 function serverWait(model, deadlineAt, id) {
-  const keep = (n) => { const j = id ? MODEL_JOBS.get(id) : null; if (j && j.state === "pending") j.wait = n; };
+  const keep = (n) => { touchProgress(); const j = id ? MODEL_JOBS.get(id) : null; if (j && j.state === "pending") j.wait = n; };
   return { model: String(model || ""), deadlineAt, onWait: keep, onRecover: keep, onPark: keep };
 }
 // A lane is one slug, so one live job is the normal state and two means a
@@ -1528,6 +1528,20 @@ function cleanChildEnv(extra) {
  */
 const TERMS = new Map();
 
+/**
+ * Each running child's no-progress watchdog, by job id (2026-10-30, the
+ * owner: "no limit" on how long a task runs). A child is stopped only when it
+ * has made no progress for `NO_PROGRESS_MS`: every line it writes, and every
+ * model answer, stream piece or provider-wait notice this service hands a job,
+ * is progress. `LAST_PROGRESS_AT` is what `/busy` reports as `idleMs`.
+ */
+const WATCHDOGS = new Map();
+let LAST_PROGRESS_AT = 0;
+function touchProgress() {
+  LAST_PROGRESS_AT = Date.now();
+  for (const w of WATCHDOGS.values()) w.touch();
+}
+
 /** Start the runner for one launch. The payload goes down stdin, verbatim. */
 function startJob(launch, raw) {
   const runner = path.join(WORKER_DIR, "builder", "container-job.mjs");
@@ -1564,7 +1578,11 @@ function startJob(launch, raw) {
     },
   });
   TERMS.set(launch.id, term);
-  term.arm(deadlineAt);
+  // NO FIXED DEADLINE (2026-10-30): `deadlineAt` stays on the record as the
+  // credential's horizon; the stop is the no-progress watchdog's.
+  const dog = makeWatchdog({ idleMs: NO_PROGRESS_MS, onIdle: () => term.stop("no-progress") });
+  WATCHDOGS.set(launch.id, dog);
+  touchProgress();
   child.stdin.on("error", () => {});
   child.stdin.end(raw);
   const tail = [];
@@ -1576,6 +1594,7 @@ function startJob(launch, raw) {
       while ((i = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1);
         if (!line) continue;
+        touchProgress();
         console.log("job " + launch.id + " " + prefix + ": " + line.slice(0, 2000));
         tail.push(line.slice(0, 300)); if (tail.length > 20) tail.shift();
       }
@@ -1589,6 +1608,8 @@ function startJob(launch, raw) {
     // child ended on its own would signal a pid that may be somebody else's.
     term.clear();
     TERMS.delete(launch.id);
+    dog.clear();
+    WATCHDOGS.delete(launch.id);
     JOBS.set(launch.id, { state: code === 0 ? "done" : "failed", kind: launch.kind, startedAt: at, ms: Date.now() - at, code, signal: signal || null, stopped: term.why() || null, deadlineAt, touchedAt: Date.now(), tail: tail.slice(-5) });
     console.log("job " + launch.id + ": " + (code === 0 ? "done" : "failed (" + (signal || code) + ")") + (term.why() ? " — stopped: " + term.why() : "") + " after " + (Date.now() - at) + " ms");
     release();
@@ -1630,7 +1651,7 @@ function busyState() {
   // hold probe's look reads it through the Worker's verbatim pass-through, so a
   // survival past the death window stops being ambiguous: survived-under-fire
   // and never-fired-upon are different findings and want different next steps.
-  return { busy: _busy > 0, jobs: _busy, sinceMs: _busy > 0 ? Date.now() - _busySince : 0, stopping: _stopping };
+  return { busy: _busy > 0, jobs: _busy, sinceMs: _busy > 0 ? Date.now() - _busySince : 0, idleMs: _busy > 0 ? Date.now() - Math.max(LAST_PROGRESS_AT, _busySince) : 0, stopping: _stopping };
 }
 
 // ── THE PLATFORM'S OWN KILL, SURVIVED ────────────────────────────────────────
@@ -2167,7 +2188,7 @@ const server = http.createServer((req, res) => {
           // gotta report everything"): its index, so the caller can say which part.
           // AND WHAT EACH ONE IS WRITING RIGHT NOW (2026-10-19, owner: "i dont only
           // want when finished"): the page words in its answer so far, newest last.
-          const liveWords = (i, partial) => { const j = MODEL_JOBS.get(id); if (j && j.state === "pending" && j.live && Number.isInteger(i)) { const w = wordsSoFar(partial); if (w.length) j.live[i] = w; } };
+          const liveWords = (i, partial) => { touchProgress(); const j = MODEL_JOBS.get(id); if (j && j.state === "pending" && j.live && Number.isInteger(i)) { const w = wordsSoFar(partial); if (w.length) j.live[i] = w; } };
           const tick = (i) => { const j = MODEL_JOBS.get(id); if (j && j.state === "pending") { j.done = (j.done || 0) + 1; if (Array.isArray(j.doneIdx) && Number.isInteger(i)) j.doneIdx.push(i); } };
           const results = await runFanout(mReqs, (r, i) =>
             patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), r, budget, longPost, { stream: true, idleMs: STREAM_IDLE_MS, onPartial: (partial) => liveWords(i, partial) }), { log: (m) => console.error(m), wait: serverWait(r && r.model, at + CONTAINER_CALL_CAP_MS, id) })
@@ -2179,6 +2200,7 @@ const server = http.createServer((req, res) => {
           // from a container that lost the work, and those need opposite moves:
           // one is "stub what is missing and publish", the other is "buy it
           // again". The states stay apart, so the sentences can.
+          touchProgress();
           MODEL_JOBS.set(id, { state: "done", answers: results, ms: Date.now() - at, touchedAt: Date.now() });
           // THE STORE IS WRITTEN BEFORE THE REPORT AND THE BEAT IS CLEARED
           // WHATEVER THE REPORT DOES. A report that throws would otherwise leave
@@ -2195,12 +2217,14 @@ const server = http.createServer((req, res) => {
         }
         try {
           const counted = (partial) => {
+            touchProgress();
             const j = MODEL_JOBS.get(id);
             if (j && j.state === "pending") { const k = filesDoneSoFar(partial); if (k > (j.files || 0)) j.files = k; const w = wordsSoFar(partial); if (w.length) j.words = w; }
             if (code) code(partial);
           };
           const answer = await patientCall(() => callBuilderModel(keysFrom(BUILD_KEYS), mReq, budget, longPost,
             { stream: true, idleMs: STREAM_IDLE_MS, onPartial: counted }), { log: (m) => console.error(m), wait: serverWait(mReq && mReq.model, at + CONTAINER_CALL_CAP_MS, id) });
+          touchProgress();
           MODEL_JOBS.set(id, { state: "done", answer, ms: Date.now() - at, touchedAt: Date.now() });
           await sendModelReport(report, { state: "done", answer, ...genTag(report, id) });
         } catch (e) {

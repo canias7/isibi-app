@@ -10,6 +10,7 @@
 // service spawns with a clean environment, the flags, the fire with every one
 // of its inline fallbacks, the token it mints, the secrets it hands over (held
 // to what the RPC helper reads), and the gateway mount on the app zone.
+import { JOB_CREDENTIAL_MS } from "../builder/job-duration.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs, { readFileSync } from "node:fs";
@@ -26,7 +27,7 @@ import {
   FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, NO_CONTAINER_EDIT_MSG, fireOutcome,
 } from "../builder/edit-job.mjs";
 import { gatewayKey, verifyJobToken, signJobToken, SB_MARKER } from "../builder/job-gateway.mjs";
-import { makeTerminator, readDeadline } from "../builder/job-clock.mjs";
+import { makeTerminator, readDeadline, makeWatchdog, NO_PROGRESS_MS } from "../builder/job-clock.mjs";
 import { APP_ZONE } from "../site-domains.mjs";
 import { laneName } from "../builder/build-lane.mjs";
 
@@ -225,8 +226,8 @@ function buildServerFns({ WORKER_DIR, PORT = 8080, JOBS = new Map(), holdBusy = 
   const text = src.slice(from, to).replace(/^const WORKER_TREE_CHECK = [^\n]*$/m, "");
   // The clock (stage 5d) is the real one here; test/job-stop.test.mjs drives
   // it with fakes.
-  return new Function("fs", "path", "spawn", "process", "WORKER_DIR", "PORT", "JOBS", "holdBusy", "console", "makeTerminator", "readDeadline",
-    text + "\nreturn { checkWorkerTree, cleanChildEnv, startJob };")(fs, path, spawn, process, WORKER_DIR, PORT, JOBS, holdBusy, c, makeTerminator, readDeadline);
+  return new Function("fs", "path", "spawn", "process", "WORKER_DIR", "PORT", "JOBS", "holdBusy", "console", "makeTerminator", "readDeadline", "makeWatchdog", "NO_PROGRESS_MS",
+    text + "\nreturn { checkWorkerTree, cleanChildEnv, startJob };")(fs, path, spawn, process, WORKER_DIR, PORT, JOBS, holdBusy, c, makeTerminator, readDeadline, makeWatchdog, NO_PROGRESS_MS);
 }
 
 test("checkWorkerTree, driven: the repository's own tree imports; no tree, or one whose worker.js lacks the export, refuses by name", async () => {
@@ -481,7 +482,9 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   // job with twenty-seven of room until run 44 met it. The property is
   // unchanged: the launch's deadline IS the job's whole clock, whatever that
   // clock is, which is why it is read against the constant and never a literal.
-  assert.ok(launch.deadlineAt >= Date.now() + CONTAINER_EDIT_JOB_MS - 60_000 && launch.deadlineAt <= Date.now() + CONTAINER_EDIT_JOB_MS, "the launch does not name the job's deadline: " + launch.deadlineAt);
+  // NO FIXED DEADLINE (2026-10-30): with no deploy setting the launch names the
+  // credential's horizon; the service stops a child only for no progress.
+  assert.ok(launch.deadlineAt >= Date.now() + JOB_CREDENTIAL_MS - 60_000 && launch.deadlineAt <= Date.now() + JOB_CREDENTIAL_MS, "the launch does not name the credential's horizon: " + launch.deadlineAt);
   assert.ok(launch.deadlineAt > Date.now() + EDIT_JOB_MS, "the launch named a Worker isolate's clock as the deadline for a job that is not in one");
   // THE TOKEN VERIFIES under the key derived from the platform secret, names
   // this job, its site and its owner, and outlives the job's clock.
@@ -491,7 +494,7 @@ test("with the canary naming the site, the consumer FIRES the job at the site's 
   assert.equal(who.slug, SLUG);
   assert.equal(who.uid, UID);
   assert.ok(who.exp * 1000 > Date.now() + CONTAINER_EDIT_JOB_MS, "the token expires before the job's clock does");
-  assert.ok(who.exp * 1000 <= Date.now() + CONTAINER_EDIT_JOB_MS + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the job by more than its grace");
+  assert.ok(who.exp * 1000 <= Date.now() + JOB_CREDENTIAL_MS + JOB_TOKEN_GRACE_S * 1000 + 5000, "the token outlives the job by more than its grace");
   // THE SECRETS: the listed ones that are set, and never the rest — and since
   // stage 4b never the service key or the mint, which the Worker's env holds.
   assert.equal("SUPABASE_SERVICE_KEY" in launch.secrets, false, "the service key travelled into the container");
@@ -542,7 +545,7 @@ test("the DEPLOY's setting reaches the wire: JOB_MAX_MINUTES moves the launch's 
   // fallback is a measured answer rather than an assumption about the module.
   const { ns: ns2 } = await drive({ env: { SITE_SECRETS_KEY: "platform-secret", JOB_RUNNER_CANARY: SLUG, JOB_MAX_MINUTES: "600" } });
   const longer = JSON.parse(ns2.calls[0].body);
-  assert.ok(longer.deadlineAt >= Date.now() + CONTAINER_EDIT_JOB_MS - 60_000 && longer.deadlineAt <= Date.now() + CONTAINER_EDIT_JOB_MS,
+  assert.ok(longer.deadlineAt >= Date.now() + JOB_CREDENTIAL_MS - 60_000 && longer.deadlineAt <= Date.now() + JOB_CREDENTIAL_MS,
     "a setting longer than the compiled chain was taken: " + (longer.deadlineAt - Date.now()) + "ms");
 });
 

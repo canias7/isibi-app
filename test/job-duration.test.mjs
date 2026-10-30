@@ -137,7 +137,7 @@ test("readJobMaxMs has a CONSUMER — a setting nothing reads is not a setting",
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
     // Prose about the reader names the reader — the recorded own-goal.
     .split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
-  assert.match(src, /import \{ readJobMaxMs \} from "\.\/builder\/job-duration\.mjs";/, "worker.js no longer imports the setting's reader");
+  assert.match(src, /import \{ readJobMaxMs, JOB_CREDENTIAL_MS \} from "\.\/builder\/job-duration\.mjs";/, "worker.js no longer imports the setting's reader");
   // DERIVED BOTH WAYS, and re-anchored the same day when the job probe became a
   // SECOND legitimate mint: the property was never "read once", it is that
   // EVERY place minting a job's clock reads the setting. A mint with no read is
@@ -151,7 +151,7 @@ test("readJobMaxMs has a CONSUMER — a setting nothing reads is not a setting",
     "worker.js mints " + mints.length + " job deadlines and reads the setting " + reads.length + " times — one of them is not configurable");
   // AND EACH MINT'S `budgetMs` COMES OFF THE READER, never a constant: the
   // count alone is satisfied by two reads feeding one mint.
-  assert.equal((src.match(/const budgetMs = (?:setting\.ms|readJobMaxMs\(env\)\.ms);/g) || []).length, mints.length,
+  assert.equal((src.match(/const budgetMs = (?:setting\.ms|readJobMaxMs\(env\)\.ms|setting\.from === "env" \? setting\.ms : JOB_CREDENTIAL_MS);/g) || []).length, mints.length,
     "a job deadline is minted from something other than the setting's answer");
 });
 

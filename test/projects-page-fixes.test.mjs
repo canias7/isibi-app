@@ -283,6 +283,6 @@ test("runSiteBuild writes the mark when its slug is decided and clears its own w
   const end = W.indexOf("\nasync function ", at + 10);
   assert.ok(at > 0 && end > at, "runSiteBuild moved");
   const fn = W.slice(at, end);
-  assert.match(fn, /rec\.identify\(slug, bu\.id\);\s*if \(!\(env\.SITE_BUILD_CONTAINER && env\.SITE_BUILD_CONTAINER\.local === true\)\) bMark\.slug = slug;\s*if \(bMark\.slug\) await writeBuildMark\(env, slug, bu\.id, bMark\.token\);/);
-  assert.match(fn, /\}\)\(\)\.finally\(\(\) => clearBuildMark\(env, bMark\.slug, bMark\.token\)\), bHeld\.parts\);/);
+  assert.match(fn, /rec\.identify\(slug, bu\.id\);\s*if \(!\(env\.SITE_BUILD_CONTAINER && env\.SITE_BUILD_CONTAINER\.local === true\)\) bMark\.slug = slug;\s*if \(bMark\.slug\) \{\s*await writeBuildMark\(env, slug, bu\.id, bMark\.token\);\s*bMark\.timer = setInterval\(\(\) => \{ writeBuildMark\(env, slug, bu\.id, bMark\.token\); \}, BUILD_MARK_REFRESH_MS\);/);
+  assert.match(fn, /\}\)\(\)\.finally\(\(\) => \{ if \(bMark\.timer\) clearInterval\(bMark\.timer\); return clearBuildMark\(env, bMark\.slug, bMark\.token\); \}\), bHeld\.parts\);/);
 });
