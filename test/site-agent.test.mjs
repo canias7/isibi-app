@@ -198,7 +198,7 @@ test("SA11 read_table goes through the caller's reader; tool results pair with t
 
 // ── THE SWITCH AND THE WIRING (2026-10-28) ──────────────────────────────────
 import { readFileSync } from "node:fs";
-import { stoppedFacts, AGENT_TAKES_ALL, AGENT_CREDIT_CAP, historyText, sumUsage, asWriterAnswer, agentTakes, roundFacts, fileName, CSS_KEY } from "../builder/site-agent.mjs";
+import { stoppedFacts, AGENT_TAKES_ALL, AGENT_CREDIT_CAP, historyText, sumUsage, asWriterAnswer, agentTakes, roundFacts, fileName, CSS_KEY, TOOL_NEEDS } from "../builder/site-agent.mjs";
 import { jobSecrets } from "../builder/edit-job.mjs";
 
 test("SA12 no switch and no spending limit", () => {
@@ -550,7 +550,8 @@ test("SA34 a clearing that would save little is not made: over the pile limit, s
 // ── 2026-10-29: the tools offered are the tools wired; the checks reach the agent ──
 test("SA35 a tool with nothing behind it is never offered; the request carries exactly the wired ones", async () => {
   assert.deepEqual(toolsFor({}).map((t) => t.name).filter((n) => ["look", "run", "read_table"].includes(n)), []);
-  const all = { look: async () => ({}), run: async () => ({}), readTable: async () => ({}), helpers: async () => [] };
+  // EVERY GATED TOOL WIRED, from the gate's own table (2026-10-30: new tools join it).
+  const all = { ...Object.fromEntries(Object.values(TOOL_NEEDS).map((k) => [k, async () => ({})])), look: async () => ({}), run: async () => ({}), readTable: async () => ({}), helpers: async () => [] };
   assert.deepEqual(toolsFor(all).map((t) => t.name), AGENT_TOOLS.map((t) => t.name));
   const s = scripted([answer(use("finish", { summary: "s" }))]);
   await runSiteAgent({ send: s.send, build: okBuild, look: all.look }, { request: "r", pages: PAGES });

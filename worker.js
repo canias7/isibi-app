@@ -28,7 +28,7 @@ import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { makeIdem } from "./site-idem.mjs";
 import { placeAttachedPhotos, attachedFilesNote, ownPhotoFacts, ownPhotoSentence, storeAttachedPhotos, attachedFirst, placeAttachedLogo, ownLogoSentence } from "./builder/attached-photos.mjs";
-import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publicUrl as importPublicUrl } from "./builder/site-import.mjs";
+import { importSite, importBriefBlock, readImportSite, placeImportedPhotos, publicUrl as importPublicUrl, importedImages } from "./builder/site-import.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_MODEL_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, uploadKind, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { MEDIA_PART_BYTES, MEDIA_DRAFT_MS, MEDIA_SESSION_MS, MEDIA_CACHE, MEDIA_FORMATS, mediaDesignNote, mediaErrorNote, mediaLimits, mediaKindOf, isMediaName, draftKey, siteScope, draftScope, readStoredMeta, parseRange, mediaHeaders, etagMatches, ifRangeHolds, handleMediaStart, handleMediaPart, handleMediaComplete, handleMediaAbort, handleMediaStatus, handleMediaDelete, holdMedia, releaseMedia, abortProven, pagesUsing, mediaBlock, mediaForModel } from "./site-media.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
@@ -222,7 +222,8 @@ import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
-import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer } from "./builder/site-agent.mjs";
+import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer, agentAttachments, agentAttachmentsFromBlocks } from "./builder/site-agent.mjs";
+import { pdfText } from "./builder/pdf-text.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17010,7 +17011,38 @@ function agentShell(env, slug) {
   };
 }
 
-async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "" }) {
+/**
+ * WHAT THE OWNER BRINGS IN, FOR THE SITE AGENT (2026-10-30): an attached photo
+ * stored in the site's own uploads (`storeOwnPhoto`, the library every upload
+ * lands in), a PDF's words (`pdfText`), and their old website read by the
+ * first build's own import (`importSite` through `importFetchText`, the same
+ * guarded fetch), its pictures copied into the uploads the way a first build
+ * copies them (`placeImportedPhotos`).
+ */
+function agentInputDeps(env, slug) {
+  return {
+    pdfText,
+    storeAttachment: async (f) => {
+      const bytes = Uint8Array.from(atob(String(f.data || "")), (c) => c.charCodeAt(0));
+      return storeOwnPhoto(env, slug, f.name, bytes);
+    },
+    importSite: async (href) => {
+      const got = await importSite(href, { fetchText: importFetchText }).catch(() => ({ ok: false, reason: "we couldn't reach it" }));
+      if (!got || !got.ok) return got;
+      const all = importedImages(got.extract);
+      let placed = [], missing = [];
+      try { const r = await placeImportedPhotos(all.map((i) => ({ attached: i.id })), got.extract, { fetchBytes: importFetchBytes, store: (name, bytes) => storeOwnPhoto(env, slug, name, bytes) }); placed = r.placed; missing = r.missing; } catch { /* the words still come back */ }
+      const pictures = all.map((i) => {
+        const p = placed.find((x) => x.id === i.id);
+        const m = missing.find((x) => x.ref === i.id);
+        return { id: i.id, alt: i.alt, url: p ? p.url : "", why: m ? m.reason : "" };
+      });
+      return { ok: true, extract: got.extract, pictures };
+    },
+  };
+}
+
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
@@ -17027,7 +17059,10 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // bigger" and the answer to an earlier question mean what they meant.
   let history = "";
   try { const c = cleanChatId(chat); if (uid && c) { const cur = await chatStoreRead(env, chatStoreKey(uid, c)); if (cur.read && cur.chat) history = historyText(cur.chat.msgs); } } catch { history = ""; }
+  // THE FILES ON THIS MESSAGE (2026-10-30): before, the agent was given none.
+  const inFiles = agentAttachments(Array.isArray(images) ? images.slice(0, MAX_ATTACHMENTS) : []);
   const ag = await runSiteAgent({
+    ...agentInputDeps(env, slug),
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
     build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
     run: agentShell(env, slug),
@@ -17041,6 +17076,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     log: (e) => tm("agent:" + e.event, "ok", e),
   }, {
     request: words, pages, parts, css, history, map, spec,
+    attached: inFiles.files, unread: inFiles.skipped,
     ownParts: ownPartsSite(pages, parts), model: models.pages,
   });
   tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length });
@@ -19003,6 +19039,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       try { mark?.("agent"); } catch { /* a trace must never break a build */ }
       const agModel = model || (models && models.pages) || modelsFor(picker || undefined).pages;
       const ag = await runSiteAgent({
+        ...agentInputDeps(env, slug),
         send: quickSend(env, "agent", budget),
         build: async (w) => agentBuildAnswer(await compile(w.pages, w.parts)),
         // THE AGENT LOOKS IN A FIRST BUILD TOO (2026-10-29): the same compile,
@@ -19017,6 +19054,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         pages: revise && Array.isArray(priorPages) ? priorPages : [],
         parts: priorParts && Array.isArray(priorParts.parts) ? priorParts.parts : [],
         spec, kind: plan && plan.kind, ownParts: !revise && !priorPages, model: agModel,
+        // THE FILES ATTACHED TO THE BUILD'S MESSAGE (2026-10-30): the images and
+        // PDFs the designer was shown, by the same ids (text files are in the brief).
+        attached: agentAttachmentsFromBlocks(attachments, attachmentIds),
         // HELPERS ON A NEW SITE (2026-10-30, the owner): pages written at the same time.
         helpers: !revise && !priorPages,
       });
@@ -36059,7 +36099,7 @@ async function handleRequest(request, env, ctx) {
               // part's agent never does another part's work.
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: eRun, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
-                uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat,
+                uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat, images: eb && eb.images,
                 bill: (usage) => eCharge(...usage), billLang: (usage) => eCharge({ langUsage: usage }), charges: eCharges,
               });
               return Response.json(ag.body, { status: ag.status });
@@ -42432,7 +42472,7 @@ async function handleRequest(request, env, ctx) {
               const aAgParts = await readSiteParts(env, ownerSlug);
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: aInstruction, pages: aSrc, parts: aAgParts.ok ? aAgParts.parts : null, job: aJob, picker: ab && ab.picker, trace: editTrace,
-                uid: ou && typeof ou.id === "string" ? ou.id : "", chat: ab && ab.chat,
+                uid: ou && typeof ou.id === "string" ? ou.id : "", chat: ab && ab.chat, images: ab && ab.images,
                 bill: (usage) => aCharge(pageCredits(...usage), ++aAgSeq), billLang: (usage) => (usage && usage.length ? aCharge(pageCredits(...usage), ++aAgSeq) : 0), charges: aCharges,
               });
               return Response.json(ag.body, { status: ag.status });
