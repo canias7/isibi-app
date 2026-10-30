@@ -130,8 +130,8 @@ const SRC = [
   cut("function failureOutcomeOf("),
   cut("function sitePathOf("),
   // The success composers, whole, so a reply reads as a tab would print it.
-  ...["problemNote", "photoNote", "listPhotoNote", "browserTimeZone", "jobZone", "onceWhen", "jobWords",
-    "jobOnceNote", "addonReplyText", "renderTail", "alsoTail", "editOutcomes", "partialSaid", "pageOpVerb",
+  ...["problemNote", "photoNote", "listPhotoNote", "browserTimeZone",
+    "addonReplyText", "renderTail", "alsoTail", "editOutcomes", "partialSaid", "pageOpVerb",
     "pageOpsSaid", "editReplyBody", "editReply"].map((n) => cut("function " + n + "(")),
   cut("function reactSend("),
   cut("function buildCostWords("),

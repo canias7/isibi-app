@@ -45,7 +45,7 @@ import * as LANES from "../builder/site-lanes.mjs";
 const { PICTURE_TOOL, imageSlots } = PICTURE;
 const { LANE_FIELDS, laneLayer, laneEscalate, laneVerbs, OWN_LANES } = LANES;
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
-import { ADD_KINDS, DISPATCHED_ADDS, MAKES_PAGES, BACKEND_ADDS, MAX_ADD_TABLES, MAX_ADD_APIS, MIN_JOB_MINUTES } from "../builder/site-add.mjs";
+import { ADD_KINDS, DISPATCHED_ADDS, MAKES_PAGES, BACKEND_ADDS, MAX_ADD_TABLES } from "../builder/site-add.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,18 +92,16 @@ const MW1_THREE = "Updated /. " + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
 const MW1_FOUR = "Updated the look — the description. Updated /visit. " + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
 /** Every part put off this turn, in order: the router's (`deferred`) and the steps' (`putOff`). */
 const MW3_HELD = (b) => [b.deferred, b.putOff].flatMap((v) => (Array.isArray(v) ? v : typeof v === "string" && v ? [v] : []));
-// THE ADD-ON'S PLACEMENT, DECLINE AND SCHEDULE SENTENCES, as the page composes them.
+// THE ADD-ON'S PLACEMENT AND DECLINE SENTENCES, as the page composes them.
 const MW5_QR_UNSHOWN = /I saved the QR code “Wholesale”, but no page shows it yet \(you asked for it on \/\)/;
 const MW5_SCENE_UNSHOWN = /I saved the 3D scene, but no page draws it yet \(you asked for it on \/wholesale\)/;
 const MW5_QR_SHOWN = /added a QR code captioned “Wholesale” on \//;
 const MW5_SCENE_SHOWN = /added a 3D scene on \/wholesale/;
-const MW6_DECLINED = /I couldn’t design a connection to an outside service from what you asked, so nothing was made for it/;
-const MW7_ADJUSTED = /You asked for often to run every minute, which the platform doesn’t do, so it runs every 15 minutes/;
+const MW6_DECLINED = /I couldn’t design a list for the site to store from what you asked, so nothing was made for it/;
 // …AND THE SAME FACTS, AS A MODEL-WRITTEN REPLY IS GIVEN THEM.
 const MW5_QR_FACT = /QR code[^]*“Wholesale”[^]*no page shows it/;
 const MW5_SCENE_FACT = /scene[^]*no page (shows|draws) it/i;
-const MW6_FACT = /Nothing was made for a connection to an outside service: the builder could not design it/;
-const MW7_FACT = /asked to run every minute[^]*runs every 15 minutes/;
+const MW6_FACT = /Nothing was made for a list for the site to store: the builder could not design it/;
 const MW2_FIVE = "Updated the look — the description, the design. Updated /visit. "
   + BOULE_SAID + " " + MENU_SAID + ROLL_BACK;
 const PHOTO_OFF = { pictures: [{ page: "index.tsx", alt: BOULE, remove: true }] };
@@ -178,10 +176,10 @@ test("THE REGISTERED CAPABILITIES: nine edit layers, twenty-one look lanes — e
     purpose: "page", components: "page", shape: "page", three: "page", tsx: "page", images: "picture", action: "nav", backend: "rules", slug: "rename",
     kind: "escalate:build", pages: "verbs",
   });
-  assert.deepEqual(ADD_KINDS, ["table", "row", "function", "api", "job", "page", "component", "words", "frame", "qr", "three", "photo"]);
+  assert.deepEqual(ADD_KINDS, ["table", "row", "function", "page", "component", "words", "frame", "qr", "three", "photo"]);
   assert.deepEqual(DISPATCHED_ADDS, ["frame"], "the add-on kind handed to an edit rung moved");
   assert.deepEqual(MAKES_PAGES, ["page", "component"]);
-  assert.deepEqual(BACKEND_ADDS, ["table", "function", "api", "job"]);
+  assert.deepEqual(BACKEND_ADDS, ["table", "function"]);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -787,28 +785,24 @@ function addSaid(r) {
   return { reply: said.text, facts: Array.isArray(f.facts) ? f.facts.map((x) => x.text) : [] };
 }
 
-test("WORKS — A TABLE, A FUNCTION THAT READS IT, AN API AND A JOB THAT RUNS THE FUNCTION, FROM ONE MESSAGE: each designer is shown what the ones before it proposed, the database is changed in that order, the job is registered, one publish and one charge, and the reply names all four", async () => {
-  const r = await addon("mixed-chain-" + rnd(), "keep a list of orders, count them every morning, and fetch the weather", {
-    kinds: ["table", "function", "api", "job"], publishes: true,
+test("WORKS — A TABLE AND A FUNCTION THAT READS IT, FROM ONE MESSAGE: the function's designer is shown what the table's proposed, the database is changed in that order, one publish and one charge, and the reply names both", async () => {
+  const r = await addon("mixed-chain-" + rnd(), "keep a list of orders and count them", {
+    kinds: ["table", "function"], publishes: true,
     answers: {
       table: { table: [TABLE("orders", [["who", "text"], ["loaves", "integer"]])] },
       function: { function: [{ name: "count_orders", returns: "void", internal: true, body: "BEGIN PERFORM count(*) FROM orders; END;" }] },
-      api: { api: [{ name: "weather", url: "https://api.open-meteo.com/v1/forecast?latitude=51.45&longitude=-2.58&current=temperature_2m", method: "GET" }] },
-      job: { job: [{ name: "morning_count", fn: "count_orders", everyMinutes: 1440, at: "07:00" }] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.deepEqual(r.prompts.map((p) => (p.tool === "add_to_site" ? p.kind : p.tool)), ["pick_adds", "table", "function", "api", "job", "write_pages"], "the designers did not run one after another, in dependency order");
+  assert.deepEqual(r.prompts.map((p) => (p.tool === "add_to_site" ? p.kind : p.tool)), ["pick_adds", "table", "function", "write_pages"], "the designers did not run one after another, in dependency order");
   // A NEW OBJECT IS THERE FOR THE STEPS AFTER IT, IN THE SAME MESSAGE.
   assert.match(promptFor(r, "function").text, /orders \([^)]*who[^)]*\)[^\\]*being added by this same change/, "the function designer was not shown the new table");
-  assert.match(promptFor(r, "job").text, /count_orders/, "the job designer was not shown the new function");
   const order = ddl(r).map((q) => (/CREATE TABLE IF NOT EXISTS "orders"/.test(q) ? "table" : /FUNCTION "count_orders"/.test(q) ? "function" : null)).filter(Boolean);
   assert.deepEqual([...new Set(order)], ["table", "function"], "the function was created before the table it reads");
-  assert.deepEqual(r.registered.map((j) => j.name), ["morning_count"]);
   assert.equal(r.compiles.length, 1, "not one publish");
   assert.equal(r.body.cost, 1, "not one charge for the whole addition");
   const { reply } = addSaid(r);
-  for (const said of ["now storing orders", "added the function count_orders", "connected weather", "scheduled morning_count (every day at 07:00)"]) assert.ok(reply.includes(said), "the reply does not say “" + said + "”: " + reply);
+  for (const said of ["now storing orders", "added the function count_orders"]) assert.ok(reply.includes(said), "the reply does not say “" + said + "”: " + reply);
 });
 
 test("WORKS, AND FIXED MW5 — A NEW PAGE AND WHAT GOES ON IT, FROM ONE MESSAGE (a price-table component, a QR code to it, a 3D scene, a line of words): each designer is told the page is being added, one publish and one charge — and the QR code and the scene, saved but on no page the writer wrote, are said as saved and NOT shown", async () => {
@@ -892,41 +886,22 @@ test("WORKS (BY DESIGN, ACROSS TWO MESSAGES) — A NEW ENTRY OR A NEW MENU LINK 
   assert.match(addSaid(frame).reply, /The new link, button or footer item is a separate step/);
 });
 
-test("FIXED MW6 — ONE ADDITION'S DESIGNER DECLINES BESIDE ONE THAT DESIGNS: the function is added, and the declined connection is kept on the reply and said as not made", async () => {
-  const r = await addon("mixed-decline-" + rnd(), "count the orders and fetch the weather", {
-    kinds: ["function", "api"],
-    answers: { function: { function: [{ name: "count_orders", returns: "int", internal: true, body: "SELECT 1", language: "sql" }] }, api: {} },
+test("FIXED MW6 — ONE ADDITION'S DESIGNER DECLINES BESIDE ONE THAT DESIGNS: the function is added, and the declined list is kept on the reply and said as not made", async () => {
+  const r = await addon("mixed-decline-" + rnd(), "count the orders and keep a list of suppliers", {
+    kinds: ["table", "function"],
+    answers: { function: { function: [{ name: "count_orders", returns: "int", internal: true, body: "SELECT 1", language: "sql" }] }, table: {} },
   });
   assert.equal(r.body.ok, true);
   assert.deepEqual(r.body.functions, ["count_orders"]);
-  assert.deepEqual(r.body.declined, ["api"], "the declined kind is not kept beside the one added");
+  assert.deepEqual(r.body.declined, ["table"], "the declined kind is not kept beside the one added");
   const said = addSaid(r);
   assert.match(said.reply, /^Done — added the function count_orders\./);
-  assert.match(said.reply, MW6_DECLINED, "the declined connection is not said: " + said.reply);
+  assert.match(said.reply, MW6_DECLINED, "the declined list is not said: " + said.reply);
   assert.ok(said.facts.some((f) => MW6_FACT.test(f)), JSON.stringify(said.facts));
 });
 
-test("WORKS (ONE REFUSED, THE REST LAND) — ONE ADDITION REFUSED BY THE CHECKS IS LEFT OUT BY NAME: a job dated in the past is never registered; the function beside it is added; the reason is said", async () => {
-  // CHANGED ON THE OWNER'S WORD (2026-10-22, the big add-on test, choosing the
-  // alternative the audit's §9 offered): it was all or nothing, and one
-  // refused job threw away 22 other asks. Still validated before any apply: a
-  // refused kind is never applied, and only it is left out.
-  const r = await addon("mixed-refused-" + rnd(), "count the orders, and run it once on the first of January 2020", {
-    kinds: ["function", "job"], tz: "Europe/London",
-    answers: {
-      function: { function: [{ name: "count_orders", returns: "void", internal: true, body: "BEGIN PERFORM 1; END;" }] },
-      job: { job: [{ name: "once_then", fn: "count_orders", everyMinutes: 0, on: "2020-01-01", at: "09:00" }] },
-    },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.deepEqual(r.body.functions, ["count_orders"]);
-  assert.deepEqual((r.body.notAdded || []).map((n) => n.kind + ":" + n.why), ["job:past-date"]);
-  assert.deepEqual(r.registered, [], "the refused job was registered");
-  assert.match(addSaid(r).reply, /already gone/, addSaid(r).reply);
-});
-
-test("WORKS — NO ADD-ON LIMITS (owner, 2026-10-24): a seventh table and a fifth API are added with the rest, none left out", async () => {
-  assert.deepEqual([MAX_ADD_TABLES, MAX_ADD_APIS], [Infinity, Infinity]);
+test("WORKS — NO ADD-ON LIMITS (owner, 2026-10-24): a seventh table is added with the rest, none left out", async () => {
+  assert.equal(MAX_ADD_TABLES, Infinity);
   const t = await addon("mixed-tables-" + rnd(), "add seven lists", {
     kinds: ["table"], publishes: true,
     answers: { table: { table: ["a", "b", "c", "d", "e", "f", "g"].map((n) => TABLE("list_" + n, [["name", "text"]])) } },
@@ -935,41 +910,5 @@ test("WORKS — NO ADD-ON LIMITS (owner, 2026-10-24): a seventh table and a fift
   assert.equal(t.body.tables.length, 7);
   assert.equal(t.body.notAdded, undefined, JSON.stringify(t.body.notAdded));
   assert.doesNotMatch(addSaid(t).reply, /left out/);
-  const a = await addon("mixed-apis-" + rnd(), "fetch five feeds", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [1, 2, 3, 4, 5].map((n) => ({ name: "feed_" + n, url: "https://example.com/feed" + n + ".json", method: "GET" })) } },
-  });
-  assert.deepEqual(a.body.apis, ["feed_1", "feed_2", "feed_3", "feed_4", "feed_5"]);
-  assert.doesNotMatch(addSaid(a).reply, /left out/);
 });
 
-test("FIXED MW7 — A SCHEDULE FASTER THAN THE PLATFORM RUNS: “every minute” runs every fifteen minutes, and the reply says what was asked, what runs, and why", async () => {
-  assert.equal(MIN_JOB_MINUTES, 15);
-  const r = await addon("mixed-clamp-" + rnd(), "count the orders every minute", {
-    kinds: ["function", "job"],
-    answers: {
-      function: { function: [{ name: "count_orders", returns: "void", internal: true, body: "BEGIN PERFORM 1; END;" }] },
-      job: { job: [{ name: "often", fn: "count_orders", everyMinutes: 1 }] },
-    },
-  });
-  assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.jobs.map((j) => [j.everyMinutes, j.askedEveryMinutes]), [[15, 1]], "the requested and applied intervals are not both kept");
-  const said = addSaid(r);
-  assert.match(said.reply, /scheduled often \(every 15 minutes\)/);
-  assert.match(said.reply, MW7_ADJUSTED, "the adjustment is not explained: " + said.reply);
-  assert.ok(said.facts.some((f) => MW7_FACT.test(f)), JSON.stringify(said.facts));
-});
-
-test("FIXED MW7 — A SCHEDULE THE PLATFORM RUNS AS ASKED IS SAID AS ASKED, WITH NO ADJUSTMENT NOTE", async () => {
-  const r = await addon("mixed-noclamp-" + rnd(), "count the orders every hour", {
-    kinds: ["function", "job"],
-    answers: {
-      function: { function: [{ name: "count_orders", returns: "void", internal: true, body: "BEGIN PERFORM 1; END;" }] },
-      job: { job: [{ name: "hourly", fn: "count_orders", everyMinutes: 60 }] },
-    },
-  });
-  assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.jobs.map((j) => [j.everyMinutes, j.askedEveryMinutes]), [[60, undefined]]);
-  const said = addSaid(r);
-  assert.ok(!MW7_ADJUSTED.test(said.reply), "an interval run as asked is said as adjusted: " + said.reply);
-});

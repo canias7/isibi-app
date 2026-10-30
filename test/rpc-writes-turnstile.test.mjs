@@ -188,13 +188,12 @@ function hook(name) {
   const end = rows.indexOf("\n}\n", at2);
   return rows.slice(at2, end);
 }
-test("the kit's write hooks carry the token; the read hooks do not", () => {
-  for (const h of ["useRpcAction", "useCancelClaim", "useAmendClaim"]) {
+// 2026-10-29: the spam check's page half (spam-guard) was deleted with the
+// prebuilt features, so no hook asks for a challenge token any more.
+test("the kit's hooks ask for no spam-check token; the claim token is still sent last", () => {
+  for (const h of ["useRpcAction", "useCancelClaim", "useAmendClaim", "useRpc", "useClaimedRow"]) {
     const src = hook(h);
-    assert.match(src, /JSON\.stringify\(challenged\(/, h + " does not attach the token");
-    assert.match(src, /resetChallenge\(\)/, h + " does not reset the spent token");
+    assert.ok(src.length > 0 && !/challenged\(|resetChallenge\(/.test(src), h + " still attaches a spam-check token");
   }
-  for (const h of ["useRpc", "useClaimedRow"]) assert.ok(!/challenged\(/.test(hook(h)), h + " spends a token on a read");
-  // The claim token is still written last in the amend body.
-  assert.match(hook("useAmendClaim"), /challenged\(\{ \.\.\.values, tok: claim \}\)/);
+  assert.match(hook("useAmendClaim"), /JSON\.stringify\(\{ \.\.\.values, tok: claim \}\)/);
 });

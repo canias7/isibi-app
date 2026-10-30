@@ -28,16 +28,14 @@
 // normalise one alone and watch it vanish.
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
 
 import {
   auditTier, refusedFields, droppedFields, unbuiltItems, declaredItems,
   normalizeSchema, SPEC_TIERS, TIER_LIST, TOOL_FIELDS, MAX_FN_BODY,
 } from "../site-schema.mjs";
-import { MAX_API_BODY, normalizeApi } from "../site-apis.mjs";
 import { cleanAdd, addRefusal, proposedSpec, appliedFacts, APPLIED_KINDS, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, ADD_KINDS, addTool, auditFrontend, frontendItem, missingPages, missingPagesNote } from "../builder/site-add.mjs";
 import { claimEvidence, requirementOutcomes, requirementNote } from "../builder/site-requirements.mjs";
-import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM } from "../builder/site-table.mjs";
 import { siteHasTables, siteHasBackend, schemaDigest, pageRulesFor } from "../builder/page-gen.mjs";
 
 /** A stored site with one table and one internal function — real dependencies. */
@@ -58,17 +56,19 @@ test("the four tiers and their lists agree with the tools, in BOTH directions", 
   // import them, so the census is what keeps the copy honest. A field added to
   // a tool and forgotten here is reported as a MISSING CAPABILITY on every site
   // that uses it — the failure mode this runs in both directions to stop.
-  const items = { table: TABLE_ITEM, function: FUNCTION_ITEM, api: API_ITEM, job: JOB_ITEM };
-  for (const tier of SPEC_TIERS) {
+  // The api and job tools were deleted (2026-10-29: the site agent writes
+  // connections and timers as its own server code); the two left are censused.
+  const items = { table: TABLE_ITEM, function: FUNCTION_ITEM };
+  for (const tier of Object.keys(items)) {
     const real = Object.keys(items[tier].properties || {});
     assert.ok(real.length > 0, tier + "'s item shape is empty — the census read nothing");
     assert.deepEqual([...TOOL_FIELDS[tier]].sort(), real.sort(),
       "TOOL_FIELDS." + tier + " and the real tool disagree — one of them changed alone");
   }
-  // …AND THE ADD PATH'S OWN MAP IS THE SAME FOUR, so a kind that touches the
-  // database can never be audited under the wrong list.
-  assert.deepEqual(Object.keys(SPEC_OF_KIND).sort(), [...SPEC_TIERS].sort());
-  for (const k of SPEC_TIERS) assert.equal(SPEC_OF_KIND[k], TIER_LIST[k]);
+  // …AND THE ADD PATH'S OWN MAP is the two kinds that still touch the
+  // database, each under its tier's list, so it can never be audited under the wrong one.
+  assert.deepEqual(Object.keys(SPEC_OF_KIND).sort(), ["function", "table"]);
+  for (const k of Object.keys(SPEC_OF_KIND)) assert.equal(SPEC_OF_KIND[k], TIER_LIST[k]);
 });
 
 test("a non-table tier really is audited — the old readers answered [] whatever they were handed", () => {
@@ -80,10 +80,6 @@ test("a non-table tier really is audited — the old readers answered [] whateve
   // `droppedFields({functions: [{name, encryptAtRest: true}]})` → [].
   const fn = { name: "peek", args: [], returns: "void", body: "select 1", encryptAtRest: true };
   assert.deepEqual(droppedFields({ functions: [fn] }, "function", ctx), ["encryptAtRest"]);
-  const api = { name: "weather", url: "https://x.example/w", retryPolicy: "exponential" };
-  assert.deepEqual(droppedFields({ apis: [api] }, "api", ctx), ["retryPolicy"]);
-  const job = { name: "remind", fn: "cancel_booking", everyMinutes: 1440, encryptAtRest: true };
-  assert.deepEqual(droppedFields({ jobs: [job] }, "job", ctx), ["encryptAtRest"]);
   // …AND THE DEFAULT TIER IS STILL `table`, so every existing call site means
   // exactly what it meant.
   assert.deepEqual(droppedFields({ tables: [{ name: "t", columns: [{ name: "c", type: "text" }], encryptAtRest: true }] }), ["encryptAtRest"]);
@@ -131,13 +127,10 @@ test("a dependent item normalised ALONE vanishes, and that is the wrong question
   // prose. Both of these are CORRECT normalisation and both are the wrong
   // reading of the model's answer, because the item is not being declared
   // alone — it is going into a spec that also carries what it needs.
-  const job = { name: "remind", fn: "cancel_booking", everyMinutes: 1440 };
-  assert.equal(normalizeSchema({ jobs: [job] }).jobs, undefined, "a job alone survived — this case no longer proves anything");
   const fn = { name: "list_open", args: [], returns: "setof bookings", body: "select * from bookings" };
   assert.equal(normalizeSchema({ functions: [fn] }).functions, undefined, "a function naming an absent table survived");
   // WITH the dependency, both survive.
   const ctx = BASE();
-  assert.equal(normalizeSchema({ ...ctx, jobs: [job] }).jobs.length, 1);
   assert.equal(normalizeSchema({ ...ctx, functions: [fn] }).functions.length, 1);
 });
 
@@ -147,34 +140,29 @@ test("VALID DEPENDENT ITEMS SURVIVE AND UNSUPPORTED PROPERTIES ARE STILL REPORTE
   // nothing has no false `unbuilt`, and one that reports everything as unbuilt
   // certainly names the bad property.
   const ctx = BASE();
-  const job = { name: "remind", fn: "cancel_booking", everyMinutes: 1440, encryptAtRest: true, slaMinutes: 30 };
-  const withoutCtx = auditTier({ jobs: [job] }, "job");
-  assert.deepEqual(withoutCtx.unbuilt, ["remind"], "without its function the job is dropped whole — the control for the line below");
+  // A FUNCTION whose return type names a table.
+  const fn = { name: "list_open", args: [], returns: "setof bookings", body: "select * from bookings", sandboxed: true, slaMinutes: 30 };
+  const withoutCtx = auditTier({ functions: [fn] }, "function");
+  assert.deepEqual(withoutCtx.unbuilt, ["list_open"], "without its table the function is dropped whole — the control for the line below");
   assert.deepEqual(withoutCtx.reached, [], "a dropped item cannot report its fields");
-
-  const withCtx = auditTier({ jobs: [job] }, "job", ctx);
-  assert.deepEqual(withCtx.unbuilt, [], "a valid dependent item did NOT survive with its dependency present");
-  assert.deepEqual(withCtx.reached, ["encryptAtRest", "slaMinutes"], "the unsupported properties stopped being reported");
-  assert.equal(withCtx.scanned, 1);
-
-  // THE SAME BOTH WAYS FOR A FUNCTION whose return type names a table.
-  const fn = { name: "list_open", args: [], returns: "setof bookings", body: "select * from bookings", sandboxed: true };
-  assert.deepEqual(auditTier({ functions: [fn] }, "function").unbuilt, ["list_open"]);
   const okFn = auditTier({ functions: [fn] }, "function", ctx);
-  assert.deepEqual(okFn.unbuilt, []);
-  assert.deepEqual(okFn.reached, ["sandboxed"]);
+  assert.deepEqual(okFn.unbuilt, [], "a valid dependent item did NOT survive with its dependency present");
+  assert.deepEqual(okFn.reached, ["sandboxed", "slaMinutes"], "the unsupported properties stopped being reported");
+  assert.equal(okFn.scanned, 1);
 });
 
 test("a sibling designed earlier in the same message counts as present", () => {
   // Each kind is its own model call, and the proposal is what carries one
   // designer's answer to the next. A job whose function was designed one call
   // earlier must validate against THAT, not against the stored site.
+  // (A function whose table was designed one call earlier; the job example
+  // went with the job kind, 2026-10-29.)
   const stored = normalizeSchema({ tables: [{ name: "slots", columns: [{ name: "at", type: "timestamptz" }] }] });
-  let proposed = proposedSpec(stored, "function", [{ name: "sweep_old", args: [], returns: "void", body: "delete from slots", internal: true }]);
-  const job = { name: "nightly", fn: "sweep_old", everyMinutes: 1440, retries: 3 };
-  assert.deepEqual(auditTier({ jobs: [job] }, "job", stored).unbuilt, ["nightly"], "the stored site has no such function — the control");
-  assert.deepEqual(auditTier({ jobs: [job] }, "job", proposed).unbuilt, [], "a function designed one call earlier did not count");
-  assert.deepEqual(auditTier({ jobs: [job] }, "job", proposed).reached, ["retries"]);
+  const proposed = proposedSpec(stored, "table", [{ table: { name: "bookings", columns: [{ name: "who", type: "text" }] } }]);
+  const fn = { name: "list_open", args: [], returns: "setof bookings", body: "select * from bookings", retries: 3 };
+  assert.deepEqual(auditTier({ functions: [fn] }, "function", stored).unbuilt, ["list_open"], "the stored site has no such table — the control");
+  assert.deepEqual(auditTier({ functions: [fn] }, "function", proposed).unbuilt, [], "a table designed one call earlier did not count");
+  assert.deepEqual(auditTier({ functions: [fn] }, "function", proposed).reached, ["retries"]);
 });
 
 test("an item the engine drops WHOLE is named — the report that did not exist above the table tier", () => {
@@ -197,11 +185,6 @@ test("a RENAMED field is not a refusal, and a refused numeric guarantee is", () 
   // ways — which is why `refused` asks whether the field's EFFECT was live
   // rather than whether its key survived.
   const ctx = BASE();
-  // `cacheSeconds` is kept as `ttl`. The key vanishes; the guarantee did not.
-  const api = { name: "weather", url: "https://x.example/w", cacheSeconds: 300 };
-  assert.equal(normalizeSchema({ ...ctx, apis: [api] }).apis[0].ttl, 300, "the rename stopped happening — this case tests nothing");
-  assert.equal(normalizeSchema({ ...ctx, apis: [api] }).apis[0].cacheSeconds, undefined);
-  assert.deepEqual(refusedFields({ apis: [api] }, "api", ctx), [], "a field that worked perfectly is reported as refused");
   // `maxRows: -5` is kept as `maxRows: 0`, and zero means NO CAP. The key
   // survives; the guarantee did not.
   const t = { name: "t", columns: [{ name: "c", type: "text" }], maxRows: -5 };
@@ -215,41 +198,7 @@ test("a RENAMED field is not a refusal, and a refused numeric guarantee is", () 
 // 3. CORRECTION 3 — THE API BODY, DRIVEN THROUGH A REAL POST
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("a GET's body normalises to empty whatever it declared — why a GET fixture proves nothing", () => {
-  // THE READING ERROR THIS CASE EXISTS TO STOP. An earlier pass read
-  // `normalizeApi`'s output for a GET, saw `body: ""`, and concluded there was
-  // no cap at all. The cap is real and only a POST can see it.
-  const huge = "x".repeat(5000);
-  assert.equal(normalizeApi({ name: "a", url: "https://x.example/y", method: "GET", body: huge }).body, "");
-  assert.equal(normalizeApi({ name: "a", url: "https://x.example/y", body: huge }).body, "", "an unstated method is a GET");
-});
 
-test("the engine SLICES a POST body and the cleaner REFUSES it, at one number", () => {
-  const huge = "x".repeat(5000);
-  // THE ENGINE'S BEHAVIOUR, MEASURED: 5,000 in, 4,000 out, silently. The slice
-  // stays as a belt for a payload that never met the cleaner, so this is the
-  // wall rather than a bug.
-  const kept = normalizeApi({ name: "a", url: "https://x.example/y", method: "POST", body: huge });
-  assert.equal(kept.body.length, MAX_API_BODY);
-  assert.equal(MAX_API_BODY, 4000);
-  // THE CLEANER REFUSES RATHER THAN CUTTING, at the same number, because a
-  // connection that POSTs half a request to somebody else's server for ever is
-  // a failure the customer can neither see nor act on.
-  const site = { tables: [], functions: [], apis: [], jobs: [], jobFns: [], url: "https://x.gofarther.app/", pages: ["/"] };
-  const over = cleanAdd("api", [{ name: "a", url: "https://x.example/y", method: "POST", body: huge }], site);
-  assert.equal(over.ok, false);
-  assert.equal(over.why, "body-too-long");
-  assert.deepEqual(over.skipped, [{ why: "body-too-long", name: "a" }]);
-  // AT the wall is fine; one over is not — the boundary, not a round number.
-  const atCap = cleanAdd("api", [{ name: "a", url: "https://x.example/y", method: "POST", body: "x".repeat(MAX_API_BODY) }], site);
-  assert.equal(atCap.ok, true);
-  assert.equal(atCap.value[0].body.length, MAX_API_BODY, "a body at the wall was cut anyway");
-  const one = cleanAdd("api", [{ name: "a", url: "https://x.example/y", method: "POST", body: "x".repeat(MAX_API_BODY + 1) }], site);
-  assert.equal(one.why, "body-too-long");
-  // AND THE CUSTOMER GETS A SENTENCE, not a silently different request.
-  assert.match(addRefusal("body-too-long"), /smaller pieces/);
-  assert.match(addRefusal("body-too-long"), /Nothing was changed/);
-});
 
 test("the function body had TWO walls a factor of two apart, and now has one", () => {
   // `site-add.mjs` sliced at 8,000 and the engine at 4,000, so a body in
@@ -270,13 +219,14 @@ test("the function body had TWO walls a factor of two apart, and now has one", (
 });
 
 test("an answer longer than the old cap is KEPT WHOLE (owner, 2026-10-24: no add-on limits)", () => {
-  // Until 2026-10-24 seven connections against a cap of four kept four and
-  // named three `over-cap`. There is no cap now: all seven are kept, none named.
-  const site = { tables: [], functions: [], apis: [], jobs: [], jobFns: [], url: "https://x.gofarther.app/", pages: ["/"] };
-  const many = Array.from({ length: 7 }, (_, i) => ({ name: "a" + i, url: "https://x.example/" + i }));
-  const r = cleanAdd("api", many, site);
+  // Until 2026-10-24 the add-on kinds were capped. There is no cap now: seven
+  // functions are all kept, none named (the connection example went with the
+  // api kind, 2026-10-29).
+  const site = { tables: [], functions: [], url: "https://x.gofarther.app/", pages: ["/"] };
+  const many = Array.from({ length: 7 }, (_, i) => ({ name: "f" + i, returns: "void", body: "select 1" }));
+  const r = cleanAdd("function", many, site);
   assert.equal(r.ok, true);
-  assert.equal(r.value.length, 7, "a connection past the old cap was cut");
+  assert.equal(r.value.length, 7, "a function past the old cap was cut");
   assert.deepEqual(r.skipped, []);
   // THE ONE COUNT LEFT (the photographs bought) keeps a sentence of its own,
   // which asks nobody to send anything again, and stays apart from the QR cap.
@@ -293,12 +243,8 @@ test("the proposal accumulates and the baseline is never written to", () => {
   const before = JSON.stringify(base);
   let spec = proposedSpec(base, "table", [{ table: { name: "bookings", columns: [{ name: "who", type: "text" }] } }]);
   spec = proposedSpec(spec, "function", [{ name: "cancel", args: [], returns: "void", body: "x", internal: true }]);
-  spec = proposedSpec(spec, "api", [{ name: "weather", url: "https://x.example/w" }]);
-  spec = proposedSpec(spec, "job", [{ name: "remind", fn: "cancel", everyMinutes: 1440 }]);
   assert.deepEqual(spec.tables.map((t) => t.name), ["slots", "bookings"]);
   assert.deepEqual(spec.functions.map((f) => f.name), ["cancel"]);
-  assert.deepEqual(spec.apis.map((a) => a.name), ["weather"]);
-  assert.deepEqual(spec.jobs.map((j) => j.name), ["remind"]);
   // THE BASELINE IS WHAT `added` VERSUS `altered` IS DECIDED AGAINST, what the
   // reply reports, and what a refused addition leaves the site as. A proposal
   // written over it is a change nothing can roll back.
@@ -321,19 +267,18 @@ test("the note marks what is being added by this same change", () => {
   const note = siteNote({
     name: "Fretwork", kind: "shopfront", url: "https://fretwork-1.gofarther.app/", pages: ["/"], hasDatabase: true,
     tables: ["slots", "bookings"], columns: { slots: ["at timestamptz"], bookings: ["who text"] },
-    functions: ["cancel"], jobFns: ["cancel"], jobs: ["remind"], apis: [],
-    proposed: { tables: ["bookings"], functions: ["cancel"], jobFns: ["cancel"], jobs: ["remind"] },
+    functions: ["cancel"],
+    proposed: { tables: ["bookings"], functions: ["cancel"] },
   });
   assert.match(note, /bookings \(who text\) — being added by this same change/);
   assert.match(note, /cancel \(being added by this same change\)/);
-  assert.match(note, /remind \(being added by this same change\)/);
   assert.doesNotMatch(note, /slots \(at timestamptz\) — being added/, "a stored table is presented as new");
   // A CALLER THAT PASSES NO `proposed` GETS THE NOTE IT ALWAYS GOT, byte for
   // byte — the same rule the columns and the table facts already follow.
   const plain = siteNote({
     name: "Fretwork", kind: "shopfront", url: "https://fretwork-1.gofarther.app/", pages: ["/"], hasDatabase: true,
     tables: ["slots", "bookings"], columns: { slots: ["at timestamptz"], bookings: ["who text"] },
-    functions: ["cancel"], jobFns: ["cancel"], jobs: ["remind"], apis: [],
+    functions: ["cancel"],
   });
   assert.doesNotMatch(plain, /being added by this same change/);
 });
@@ -361,7 +306,7 @@ test("every kind that can answer coverage carries the list, and the rest cannot"
   //     that never shipped. Its identity is the PLACEMENT (a route), because
   //     the designer answers `{page, describe}` and cannot know a url the
   //     provider mints after it has spoken.
-  assert.deepEqual(REQUIREMENT_ADDS, ["table", "row", "function", "api", "job", "page", "component", "qr", "three", "photo"]);
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "row", "function", "page", "component", "qr", "three", "photo"]);
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(addTool(k).input_schema.properties.requirements, k + " designs something and cannot say what it could not cover");
   }
@@ -399,13 +344,12 @@ test("a connection or a callable function IS a backend, and the page step is tol
   // request said "THIS SITE'S DATA / There is none", and the digest returned
   // before composing the connection section. The connection was designed,
   // applied and served by the platform — and unreachable from every page.
-  const apiOnly = { tables: [], functions: [], apis: [{ name: "weather", params: ["city"] }] };
+  // (The connection half went with the api kind, 2026-10-29.)
   const fnOnly = { tables: [], functions: [{ name: "lookup", args: [], returns: "void", body: "x", internal: false }], apis: [] };
   const internalOnly = { tables: [], functions: [{ name: "send", args: [], returns: "void", body: "x", internal: true }], apis: [] };
   const nothing = { tables: [], functions: [], apis: [] };
 
-  assert.equal(siteHasTables(apiOnly), false, "`siteHasTables` is still the narrower fact and stays");
-  assert.equal(siteHasBackend(apiOnly), true);
+  assert.equal(siteHasTables(fnOnly), false, "`siteHasTables` is still the narrower fact and stays");
   assert.equal(siteHasBackend(fnOnly), true);
   // AN INTERNAL FUNCTION IS NOT A BACKEND A PAGE CAN REACH: it is REVOKEd from
   // PUBLIC and never granted to the Data API roles, and the digest already
@@ -415,7 +359,6 @@ test("a connection or a callable function IS a backend, and the page step is tol
   assert.equal(siteHasBackend(null), false);
 
   const NO_DB = /THIS SITE HAS NO DATABASE/;
-  assert.doesNotMatch(pageRulesFor(apiOnly), NO_DB, "a site with a connection is told it has no API to call");
   assert.doesNotMatch(pageRulesFor(fnOnly), NO_DB);
   assert.match(pageRulesFor(internalOnly), NO_DB, "a site whose only function is internal got the data rules");
   assert.match(pageRulesFor(nothing), NO_DB);
@@ -426,13 +369,11 @@ test("the digest names the connections and functions even with no tables", () =>
   // names what a page may call was never composed for a table-less site — the
   // same shape as the `useApi` gap this function's own comment records, one
   // return statement earlier.
-  const apiOnly = { tables: [], functions: [], apis: [{ name: "weather", params: ["city"] }] };
-  const d = schemaDigest(apiOnly);
-  assert.match(d, /the schema declares no tables/, "the table half stopped being said plainly");
-  assert.match(d, /OUTSIDE DATA this site can read/);
-  assert.match(d, /weather\(city\)/);
+  // (The connection half went with the api kind, 2026-10-29.)
   const fnOnly = { tables: [], functions: [{ name: "lookup", args: [{ name: "id", type: "uuid" }], returns: "void", body: "x", internal: false }], apis: [] };
-  assert.match(schemaDigest(fnOnly), /lookup\(id: uuid\) -> void/);
+  const d = schemaDigest(fnOnly);
+  assert.match(d, /the schema declares no tables/, "the table half stopped being said plainly");
+  assert.match(d, /lookup\(id: uuid\) -> void/);
   // AN INTERNAL FUNCTION IS STILL NOT ADVERTISED — it answers 403 to every
   // visitor, and listing it told the model it could call it.
   assert.doesNotMatch(schemaDigest({ tables: [], functions: [{ name: "send", args: [], returns: "void", body: "x", internal: true }], apis: [] }), /send\(/);
@@ -440,76 +381,8 @@ test("the digest names the connections and functions even with no tables", () =>
   assert.equal(schemaDigest({ tables: [], functions: [], apis: [] }), "(the schema declares no tables)");
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 6. A JOB THAT WOULD NOT REGISTER IS SAID — on both sides of the wire
-// ─────────────────────────────────────────────────────────────────────────────
 
-/** Length-preserving, LINE COMMENTS FIRST — the recorded blanker-order trap. */
-function blank(src) {
-  let out = "", i = 0;
-  while (i < src.length) {
-    if (src[i] === "/" && src[i + 1] === "/") {
-      let j = i; while (j < src.length && src[j] !== "\n") j++;
-      out += " ".repeat(j - i); i = j; continue;
-    }
-    if (src[i] === "/" && src[i + 1] === "*") {
-      let j = src.indexOf("*/", i + 2); j = j < 0 ? src.length : j + 2;
-      out += src.slice(i, j).replace(/[^\n]/g, " "); i = j; continue;
-    }
-    out += src[i]; i++;
-  }
-  return out;
-}
-const W = blank(fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8"));
-const C = blank(fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8"));
-// THE BLANKER'S OWN OBSERVER: a blanker that ate the file satisfies every
-// absence check below perfectly.
-assert.ok(W.includes("await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs)"), "the blanker ate the addon's job registration");
-assert.ok(C.includes("function addonReplyText"), "the blanker ate the browser's addon reader");
 
-test("a failed job registration clears the jobs and names itself, like a failed function", () => {
-  // THE CATCH LOGGED TO A CONSOLE NOBODY READS and left `aJobs` exactly as it
-  // was, so the reply said "scheduled a reminder every day at 09:00" about
-  // something nothing would ever run. The old comment said "a job that did not
-  // register is a job the next publish registers" — `persistSiteJobs` has two
-  // call sites and the other is the BUILD route, so on this path that is a full
-  // rebuild, not the next publish. A rule true because of a layer below it.
-  assert.equal((W.match(/await persistSiteJobs\(/g) || []).length, 2, "the job registration's call sites moved — re-read the claim above");
-  const at = W.indexOf("await persistSiteJobs(env, ou.id, ownerSlug, merged.jobs)");
-  const end = W.indexOf("try { aSeeded = await seedSiteRows(", at);
-  assert.ok(end > at, "the registration window could not be closed");
-  const block = W.slice(at, end);
-  assert.ok(block.length > 200 && block.length < 2000, "the registration window is the wrong size: " + block.length);
-  assert.match(block, /aJobErrors = aJobs\.map\(\(j\) => \(\{ name: j\.name, error: why \}\)\)/, "a failed registration does not name the jobs it lost");
-  assert.match(block, /aJobs = \[\];/, "a failed registration leaves the jobs on the reply, so the customer is told they are scheduled");
-  assert.match(block, /aFailedKinds\.add\("job"\)/, "a failed registration does not make the job step a failure for the coverage");
-  assert.match(block, /aMark\("jobs", "fail"/, "a failed registration leaves no trace mark");
-  // A FUNCTION THAT FAILED TO CREATE IS THE SAME KIND OF FACT, and was already
-  // reported — it just never reached the coverage, so a requirement handed to
-  // the `function` step still read as delivered on a change where it does not
-  // exist.
-  assert.match(block, /if \(aFnErrors\.length\) aFailedKinds\.add\("function"\)/, "a function the database refused does not fail its step");
-  // …AND THE ERROR IS BOUNDED AND NOT THE RAW THROW: a driver message can
-  // quote what it was handed.
-  assert.match(block, /\.slice\(0, 200\)/, "a registration failure's message is unbounded");
-});
-
-test("`jobErrors` reaches the wire and the browser prints it", () => {
-  // TWO HALVES BUILT TO MEET. `functionErrors` is the precedent and is asserted
-  // beside it in both places, so a reader cannot be added for one and forgotten
-  // for the other — which is exactly how this shipped with a reporter on one
-  // tier and none on the next.
-  assert.ok((W.match(/jobErrors: aJobErrors\.length \? aJobErrors : undefined/g) || []).length >= 2,
-    "the failed jobs do not reach both the queued reply and the synchronous one");
-  assert.ok((W.match(/functionErrors: aFnErrors\.length \? aFnErrors : undefined/g) || []).length >= 2,
-    "the observer is dead: the function half is not on both replies either");
-  // EVERY FAILED JOB SINCE 2026-10-03 (the mixed-work fixes): the browser read
-  // the first three and dropped the rest without a word.
-  assert.match(C, /for \(const je of \(Array\.isArray\(a\.jobErrors\) \? a\.jobErrors : \[\]\)\)/,
-    "the browser never reads the failed jobs, or reads only some of them");
-  assert.match(C, /couldn’t be set up/, "the browser has no sentence for a job that would not register");
-  assert.match(C, /so it won’t run yet/, "the sentence does not say what it means for the customer");
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE AUDIT READS THE DECLARATION, AND THE PROPOSAL MERGES AN EXTENSION
@@ -554,14 +427,8 @@ test("a declared scalar the pipeline keeps under another value is `changed`", ()
   // declared value replaced by a different VALID value", which neither
   // `reached` (the key did reach something) nor `refused` (the effect is live)
   // covers. Driven through the real cleaner, so the clamp is the product's.
-  const site = { functions: ["send_reminder"], jobFns: ["send_reminder"], jobs: [] };
-  const declared = { name: "daily", fn: "send_reminder", everyMinutes: 5 };
-  const sentItem = cleanAdd("job", [declared], site).value[0];
-  assert.ok(sentItem.everyMinutes > 5, "the floor did not apply — this case tests nothing");
-  const ctx = { tables: [], functions: [{ name: "send_reminder", internal: true, returns: "void", body: "BEGIN END;" }], apis: [], jobs: [] };
-  const out = auditTier({ jobs: [declared] }, "job", ctx, { sent: new Map([["daily", sentItem]]) });
-  assert.deepEqual(out.changed, ["everyMinutes"], "a clamped declaration is not reported as changed");
-  assert.deepEqual(out.refused, [], "a live value was reported as refused");
+  // (Its clamped-scalar half was a job's `everyMinutes` floor and went with
+  // the job kind, 2026-10-29.)
   // OBJECTS AND ARRAYS ARE NEVER COMPARED: normalisation legitimately ENRICHES
   // them — a column gains its type on every table there is — so comparing them
   // would report every declaration on the platform as changed.
@@ -635,20 +502,6 @@ test("normalising WHAT WAS SENT is not the same as normalising the declaration",
   assert.deepEqual(fromDecl.refused, [], "the two readings agree — this case no longer divides them");
 });
 
-test("a list is never reported as changed, however much of it the cleaner dropped", () => {
-  // THE CONTROL THAT PROVES `scalar` LOAD-BEARING, and the first one written
-  // could not: a list of OBJECTS stringifies to "[object Object]" whichever
-  // objects it holds, so `columns` can never look changed with or without the
-  // guard. A list of STRINGS can — `params` declared `["ok","not ok!"]` reaches
-  // the engine as `["ok"]`, and `String()` tells those apart.
-  const declared = { name: "a4", url: "https://x.test/y", params: ["ok", "not ok!"] };
-  const sentItem = cleanAdd("api", [declared], { apis: [] }).value[0];
-  assert.deepEqual(sentItem.params, ["ok"], "the cleaner kept the malformed param — this case tests nothing");
-  assert.notEqual(String(declared.params), String(sentItem.params), "the two lists stringify the same — this case tests nothing");
-  const out = auditTier({ apis: [declared] }, "api", { tables: [], functions: [], apis: [], jobs: [] },
-    { sent: new Map([["a4", sentItem]]) });
-  assert.deepEqual(out.changed, [], "a shortened list was reported as a changed declaration");
-});
 
 test("appliedFacts checks a claim against what Postgres really enforces", () => {
   // LIFTED OUT OF THE ROUTE because a mutant that emptied `fails` survived a
@@ -690,12 +543,6 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
   assert.equal(unknown.kind, "table", "an applied entry does not say what KIND of thing it is");
   assert.deepEqual([unknown.holds, unknown.fails, unknown.checked], [[], [], []],
     "a table the spec does not describe was given guarantees it never declared");
-  // A JOB'S SCHEDULE IS ITS GUARANTEE, and a job whose function the database
-  // refused is not a result at all.
-  const jobs = [{ name: "daily", fn: "send_reminder", everyMinutes: 1440, at: "09:00" }];
-  assert.deepEqual(appliedFacts({ jobs })[0].holds, ["1440", "09:00"]);
-  assert.deepEqual(appliedFacts({ jobs, fnErrors: [{ name: "send_reminder", error: "syntax error" }] }), [],
-    "a job over a function the database refused counts as a result");
   assert.deepEqual(appliedFacts({}), [], "an empty change claims something was applied");
   // A SWEEP SURVIVOR, CLOSED HERE RATHER THAN IN THE ROUTE, for the reason the
   // comment at the top of this case already gives: `checked: holds` on the
@@ -715,8 +562,6 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
     ...appliedFacts({ spec, tables: ["bookings"] }),
     ...appliedFacts({ spec, tables: ["waitlist"] }),
     ...appliedFacts({ spec: { functions: [{ name: "f", internal: true, returns: "void" }] }, functions: ["f"] }),
-    ...appliedFacts({ spec: { apis: [{ name: "w", url: "https://api.test/x", method: "GET" }] }, apis: ["w"] }),
-    ...appliedFacts({ jobs }),
     ...appliedFacts({ pages: ["/gallery"] }),
     ...appliedFacts({ qrs: [{ name: "gallery", points: "https://fw.gofarther.app/gallery", label: "Our gallery" }] }),
     ...appliedFacts({ three: true }),
@@ -730,7 +575,7 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
     // picture.
     ...appliedFacts({ photos: [{ route: "/gallery", bought: true }] }),
   ];
-  assert.ok(everyKind.length >= 9, "the observer is not alive: " + everyKind.length);
+  assert.ok(everyKind.length >= 7, "the observer is not alive (two fewer since the api and job kinds went, 2026-10-29): " + everyKind.length);
   // ── THE TWO NEW KINDS' OWN SHAPES, DRIVEN (2026-09-19) ────────────────────
   //
   // Four sweep survivors, all here: the census above proved an ENTRY exists

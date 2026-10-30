@@ -366,24 +366,25 @@ test("A HISTORY ALREADY HOLDING AS MANY ANSWERS AS IT KEEPS, EVERY ONE STILL NEE
   });
 });
 
-test("PAST THE TOTAL-ANSWER LIMIT AT THE ADD-ON: thirteen answers ride to the designers, the oldest — the time of day — first among them, and the addition is made once on them", async () => {
+test("PAST THE TOTAL-ANSWER LIMIT AT THE ADD-ON: thirteen answers ride to the designers, the oldest — the first detail — first among them, and the addition is made once on them", async () => {
+  const TBL = { table: { name: "reminders", access: "collect", columns: [{ name: "who", type: "text" }] } };
   const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-  const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
-  const TIME = { q: "What time of day should the reminder go out?", a: "9am" };
-  const thirteen = [TIME, ...Array.from({ length: 12 }, (_, i) => ({ q: "Reminder detail " + i + "?", a: "Answer " + i }))];
+  const FIRST = { q: "Should a reminder keep who it was for?", a: "Yes" };
+  const thirteen = [FIRST, ...Array.from({ length: 12 }, (_, i) => ({ q: "Reminder detail " + i + "?", a: "Answer " + i }))];
   const slug = "fw-history-addon-" + Math.random().toString(16).slice(2, 8);
-  const r = await addon(slug, "remind people the day before", { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } }, context: thirteen });
+  const r = await addon(slug, "keep a list of reminders and a way to send one", { kinds: ["table", "function"], publishes: true, answers: { table: { table: [TBL] }, function: { function: [FN] } }, context: thirteen });
   assert.equal(r.body.ok, true, "an addition carrying thirteen answers did not run: " + JSON.stringify(r.body).slice(0, 300));
-  assert.ok(promptFor(r, "job").text.includes(JSON.stringify(contextBlock(thirteen)).slice(1, -1)), "the job's designer was not shown every answer, the oldest first");
+  for (const kind of ["table", "function"]) {
+    assert.ok(promptFor(r, kind).text.includes(JSON.stringify(contextBlock(thirteen)).slice(1, -1)), "the " + kind + "'s designer was not shown every answer, the oldest first");
+  }
+  assert.ok(r.sql.some((s) => /CREATE TABLE IF NOT EXISTS "reminders"/.test(s)), "the table was not created");
   assert.ok(r.sql.some((s) => /create\s+(or\s+replace\s+)?function/i.test(s)), "the function was not created");
-  assert.equal(r.registered.length, 1, "the job was not registered exactly once");
-  // AND A DESIGNER THAT ASKS keeps every answer with its question: nothing applied or registered.
-  const QJ = { text: "Should it go out on Sundays too?", options: ["Yes", "No"] };
+  // AND A DESIGNER THAT ASKS keeps every answer with its question: nothing applied.
+  const QF = { text: "Should it count Sundays too?", options: ["Yes", "No"] };
   const slug2 = "fw-history-addon-ask-" + Math.random().toString(16).slice(2, 8);
-  const a = await addon(slug2, "remind people the day before", { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { question: QJ, job: [JOB] } }, context: thirteen });
+  const a = await addon(slug2, "keep a list of reminders and a way to send one", { kinds: ["table", "function"], answers: { table: { table: [TBL] }, function: { question: QF, function: [FN] } }, context: thirteen });
   assert.equal(a.body.error, "clarify", "the designer's question was not asked: " + JSON.stringify(a.body).slice(0, 300));
   assert.ok(!a.sql.some((s) => /\b(create|alter|insert|drop)\b/i.test(s)), "a design was applied beside the unresolved question");
-  assert.deepEqual(a.registered, []);
   const rec = readAskRecord(a.store.store.get(QUESTION_KEY(slug2)));
   assert.ok(rec, "the designer's question was not kept");
   assert.deepEqual(rec.context, thirteen, "the designer's question kept fewer than every answer");

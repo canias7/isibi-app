@@ -28,7 +28,6 @@ import assert from "node:assert/strict";
 import { renderKit } from "./fixtures/site-render.mjs";
 import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, storedPage, addedTo, compiledPages, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
 import { renderRouteSource } from "./fixtures/site-render.mjs";
-import { siteApiFetch } from "./fixtures/site-api-fetch.mjs";
 // THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
 // a case that hardcoded "12001 characters is too big" would be a second copy of
 // `MAX_PART_CHARS` and would pass silently the day the real one moved.
@@ -60,12 +59,6 @@ import { SITE_KINDS, OPAQUE_KINDS, claimEvidence, implementationOf } from "../bu
 // hand-typed permission is a second copy of the emitter and the two drift.
 import { grantsFor, policiesFor } from "../site-rls.mjs";
 import { splitPrivileges, readParens } from "../site-schema-recover.mjs";
-// THE READER THE SERVING ROUTE USES, so "the stored declaration is read back
-// whole" is asked of the product rather than of the object the case just wrote:
-// `apiFor` runs a stored connection back through `normalizeApi`, which is where
-// a field that survives storage and not the readback would be lost.
-import { apiFor } from "../site-apis.mjs";
-import { missingRequired, typeFromShape } from "../site-api-shape.mjs";
 // THE CUSTOMER'S SCREEN, COMPOSED BY THE BROWSER ITSELF. `browserReply` loads
 // `public/chat.js` and runs the real `addonAnswer` — selection and composition
 // both — so a case about what somebody reads is not a second copy of the
@@ -79,10 +72,11 @@ const browserText = (body) => {
   return b.text;
 };
 
-/** An internal function and a job over it: the pageless pair, so the whole
- *  route runs without a container. */
+/** An internal function: pageless, so the whole route runs without a
+ *  container. (The job beside it went with the job kind, 2026-10-29.) */
 const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
+/** A new table, for the cases that need a step before the function's. */
+const WAITLIST = { table: [{ table: { name: "waitlist", columns: [{ name: "who", type: "text" }] } }] };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. THE VALIDATION READS THE MODEL'S OWN DECLARATION
@@ -91,9 +85,8 @@ const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, a
 test("a property the tool never offered is reported, though the cleaner removed it first", async () => {
   const answers = {
     function: { function: [{ ...FN, encryptAtRest: true, retries: 3 }] },
-    job: { job: [JOB] },
   };
-  const r = await addon("fw-declared", "remind people the day before", { kinds: ["function", "job"], answers });
+  const r = await addon("fw-declared", "remind people the day before", { kinds: ["function"], answers });
   assert.equal(r.status, 200, "the route did not answer: " + JSON.stringify(r.body));
   assert.equal(r.body.ok, true);
   // THE DEFECT: `cleanAdd` rebuilds a function out of the six keys it knows, so
@@ -113,38 +106,22 @@ test("a declaration inside the tool that survives whole is not reported", async 
   // THE CONTROL, and it is the half that keeps the check from crying wolf: the
   // same route, the same kinds, a function declaring only what the tool offers.
   const r = await addon("fw-clean", "remind people the day before", {
-    kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } },
+    kinds: ["function"], answers: { function: { function: [FN] } },
   });
   assert.equal(r.body.ok, true);
   assert.equal(r.body.invalidProps, undefined, "a clean declaration was reported as a lost guarantee");
   assert.equal(r.body.changedProps, undefined, "a clean declaration was reported as changed");
 });
 
-test("a declared value the pipeline stored differently is recorded as changed", async () => {
-  // NEITHER REACHED-FOR NOR REFUSED: the declaration landed and it landed as
-  // something else. `everyMinutes: 5` is raised to the floor, silently, and the
-  // reply would otherwise say the reminder runs every five minutes.
-  const r = await addon("fw-changed", "remind them every five minutes", {
-    kinds: ["function", "job"],
-    answers: { function: { function: [FN] }, job: { job: [{ ...JOB, everyMinutes: 5, at: "" }] } },
-  });
-  assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.changedProps, ["everyMinutes"], "a clamped schedule is not reported");
-  // AND THE REPLY SAYS WHAT IT REALLY IS, which is the point: the customer can
-  // read the job's real interval off the same answer.
-  assert.ok(r.body.jobs[0].everyMinutes > 5, "the floor did not apply — this case tests nothing");
-  // DEVELOPER-FACING, never a customer sentence: a property name is not
-  // something they can act on, and the count clause is about lost GUARANTEES.
-  assert.doesNotMatch(r.body.coverNote || "", /everyMinutes/);
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. EVIDENCE IS THE APPLIED RESULT, AND IT IS SPECIFIC TO THE CLAIM
 // ─────────────────────────────────────────────────────────────────────────────
 
+// (The claim was the job's until the job kind went, 2026-10-29; it is the
+// function's own now, and `internal` is the configuration fact it names.)
 const claiming = (by) => ({
-  function: { function: [FN] },
-  job: { job: [JOB], requirements: [{ need: "customers get a reminder the day before", status: "covered", by }] },
+  function: { function: [FN], requirements: [{ need: "customers get a reminder the day before", status: "covered", by }] },
 });
 
 // ── WHAT THE JUDGMENT NAMES AS DOING THE WORK (2026-10-05) ──────────────────
@@ -171,7 +148,7 @@ test("a claim naming a configuration that really holds is recorded, and still do
   // before"*, which nothing here has watched happen. So the fact is RECORDED
   // and the requirement stays unverified.
   const r = await addon("fw-ev-a", "remind people the day before", {
-    kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"), ...judgedBy("job:daily_reminder"),
+    kinds: ["function"], answers: claiming("send_reminder is internal and runs every day"), ...judgedBy("function:send_reminder"),
   });
   assert.equal(r.body.ok, true);
   assert.deepEqual(r.body.functions, ["send_reminder"], "the function was not applied — this case tests nothing");
@@ -182,7 +159,7 @@ test("a claim naming a configuration that really holds is recorded, and still do
   // nothing could be said about, and the record keeps which.
   const rec = storedAnswer(r, "fw-ev-a");
   assert.equal(rec.coverage.counts.configured, 1, "the configuration fact that was checked is not recorded");
-  assert.ok(rec.coverage.requirements.some((x) => typeof x.configuredBy === "string" && x.configuredBy.includes("daily_reminder")),
+  assert.ok(rec.coverage.requirements.some((x) => typeof x.configuredBy === "string" && x.configuredBy.includes("send_reminder")),
     "the record does not say WHICH configuration matched: " + JSON.stringify(rec.coverage.requirements));
 });
 
@@ -202,7 +179,7 @@ test("the same claim is NOT delivered when the database refused the function it 
   // stronger one, and asserting the weaker would now pass over a regression
   // that stopped blocking the job.
   const r = await addon("fw-ev-b", "remind people the day before", {
-    kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"), fnFail: true,
+    kinds: ["function"], answers: claiming("send_reminder is internal and runs every day"), fnFail: true,
   });
   assert.equal(r.body.ok, true);
   assert.deepEqual(r.body.functions, [], "the function was applied — the refusal did not reach the route");
@@ -218,7 +195,7 @@ test("a claim that names nothing checkable is unverified, however real the thing
   // EXISTENCE IS NOT DELIVERY. The job was registered and its schedule is real;
   // the claim says nothing about either, so there is nothing to check.
   const r = await addon("fw-ev-c", "remind people the day before", {
-    kinds: ["function", "job"], answers: claiming("daily_reminder handles it"), ...judgedBy("job:daily_reminder"),
+    kinds: ["function"], answers: claiming("send_reminder handles it"), ...judgedBy("function:send_reminder"),
   });
   assert.equal(r.body.ok, true);
   assert.deepEqual(r.body.functions, ["send_reminder"]);
@@ -230,7 +207,7 @@ test("the stored coverage is written again once the apply has landed", async () 
   // above the loop happens BEFORE a statement has reached Postgres, so every
   // verdict in it is decided against an empty applied result.
   const r = await addon("fw-record", "remind people the day before", {
-    kinds: ["function", "job"], answers: claiming("daily_reminder runs send_reminder at 09:00 every day"), ...judgedBy("job:daily_reminder"),
+    kinds: ["function"], answers: claiming("send_reminder is internal and runs every day"), ...judgedBy("function:send_reminder"),
   });
   const rec = storedAnswer(r, "fw-record");
   assert.ok(rec && rec.coverage, "no developer record was stored at all");
@@ -310,15 +287,17 @@ test("a requirement handed forward reaches the designer it was handed to", async
   // call. The function step hands "it goes out every morning at nine" to the
   // job step, which runs a minute later in `ADD_KINDS` order and, before this,
   // was never told — while the customer was told the change was made.
-  const r = await addon("fw-forward", "remind people the day before", {
-    kinds: ["function", "job"],
+  // (Told through the table step to the function step since the job kind
+  // went, 2026-10-29.)
+  const r = await addon("fw-forward", "keep a waiting list and count it", {
+    kinds: ["table", "function"],
     answers: {
-      function: { function: [FN], requirements: [{ need: "it goes out every morning at nine", status: "elsewhere", step: "job" }] },
-      job: { job: [JOB] },
+      table: { ...WAITLIST, requirements: [{ need: "it goes out every morning at nine", status: "elsewhere", step: "function" }] },
+      function: { function: [FN] },
     },
   });
-  const job = promptFor(r, "job");
-  assert.ok(job, "the job designer never ran — this case tests nothing");
+  const job = promptFor(r, "function");
+  assert.ok(job, "the function designer never ran — this case tests nothing");
   assert.match(job.text, /What this addition still has to do/, "the hand-off block never reached the designer");
   assert.match(job.text, /it goes out every morning at nine/, "the requirement itself never reached the designer");
   // …AND THE SENTENCE NAMES WHAT THIS STEP IS. `requirementBrief` had one
@@ -327,13 +306,13 @@ test("a requirement handed forward reaches the designer it was handed to", async
   // writing. A sweep survivor: the block can reach every kind and still tell
   // five of the six the wrong thing about themselves.
   assert.doesNotMatch(job.text, /this page has to make possible/,
-    "the job designer is told the requirement is about a page");
+    "the function designer is told the requirement is about a page");
   assert.match(job.text, /the part you are designing has to make possible/,
     "the hand-off does not say what this step is");
   // …AND THE FUNCTION DESIGNER, WHICH RAN FIRST, WAS TOLD NOTHING — the brief is
   // composed from what has been collected SO FAR, which is exactly "the
   // receiving step is still ahead".
-  assert.doesNotMatch(promptFor(r, "function").text, /What this addition still has to do/,
+  assert.doesNotMatch(promptFor(r, "table").text, /What this addition still has to do/,
     "a step is handed requirements nobody had answered yet");
 });
 
@@ -342,11 +321,13 @@ test("a requirement handed BACK to a step that already ran stays outstanding", a
   // omitted step outstanding."* The job step names the `function` step, which
   // ran first — so nobody can deliver it, and reading "that step ran" as
   // satisfied is the reading this replaces.
-  const r = await addon("fw-backward", "remind people the day before", {
-    kinds: ["function", "job"],
+  // (The function step hands back to the table step since the job kind went,
+  // 2026-10-29.)
+  const r = await addon("fw-backward", "keep a waiting list and remind people", {
+    kinds: ["table", "function"], publishes: true,
     answers: {
-      function: { function: [FN] },
-      job: { job: [JOB], requirements: [{ need: "the reminder shows their booking time", status: "elsewhere", step: "function" }] },
+      table: WAITLIST,
+      function: { function: [FN], requirements: [{ need: "the reminder shows their booking time", status: "elsewhere", step: "table" }] },
     },
   });
   assert.equal(r.body.ok, true);
@@ -382,7 +363,7 @@ test("a requirement handed BACK to a step that already ran stays outstanding", a
     "the outstanding requirement is not on the wire");
   const back = storedAnswer(r, "fw-backward").coverage;
   assert.equal(back.handoffs.undelivered, 1, "a hand-off nobody could deliver was read as satisfied");
-  assert.ok(!back.toldSteps.includes("function"), "the function step was recorded as told about a later step's request");
+  assert.ok(!back.toldSteps.includes("table"), "the table step was recorded as told about a later step's request");
 });
 
 test("…and NAMING the thing it wants makes the same hand-off an exact question", async () => {
@@ -390,11 +371,11 @@ test("…and NAMING the thing it wants makes the same hand-off an exact question
   // "cannot tell" because the requirement names no thing to look for. Name one
   // the change did not make and the answer is exact — this is the difference
   // between the kind-level reconcile and the item-level one, driven.
-  const r = await addon("fw-backward-item", "remind people the day before", {
-    kinds: ["function", "job"],
+  const r = await addon("fw-backward-item", "keep a waiting list and remind people", {
+    kinds: ["table", "function"], publishes: true,
     answers: {
-      function: { function: [FN] },
-      job: { job: [JOB], requirements: [{ need: "the reminder shows their booking time", status: "elsewhere", step: "function", item: "booking_time_for" }] },
+      table: WAITLIST,
+      function: { function: [FN], requirements: [{ need: "the reminder shows their booking time", status: "elsewhere", step: "table", item: "booking_times" }] },
     },
   });
   assert.equal(r.body.ok, true);
@@ -412,10 +393,9 @@ test("a requirement handed to a step this change never runs stays outstanding", 
   // and no add kind owns it, so nobody is ever told and it is still the
   // customer's to do.
   const r = await addon("fw-edit", "remind people the day before", {
-    kinds: ["function", "job"],
+    kinds: ["function"],
     answers: {
       function: { function: [FN], requirements: [{ need: "the wording suits their brand", status: "elsewhere", step: "edit" }] },
-      job: { job: [JOB] },
     },
   });
   assert.match(r.body.coverNote, /Still to do: the wording suits their brand/);
@@ -523,108 +503,8 @@ test("public and internal functions carry opposite guarantees, and a claim on th
     "a claim of privacy about a function every visitor can call was read as delivered");
 });
 
-test("a job whose new function the database refused is not registered, and the dependency is named", async () => {
-  // Owner: *"When a required new function fails, do not register its dependent
-  // new jobs. Name the failed dependency and remove those jobs from the
-  // scheduled-success list."*
-  //
-  // THE FIRST PASS TOOK IT OUT OF THE EVIDENCE ONLY — so the reply stopped
-  // calling the requirement delivered and went on registering a timer against a
-  // function that does not exist. Every firing would write "this job is no
-  // longer part of the site", for ever, on a schedule the customer was told was
-  // set up.
-  const r = await addon("fw-blocked", "remind people the day before", {
-    kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } }, fnFail: true,
-  });
-  assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.functions, [], "the function was applied — this case tests nothing");
-  assert.deepEqual(r.body.jobs, [], "a job on a function the database refused is still on the scheduled list");
-  // THE DEPENDENCY BY NAME, because "couldn't be set up" gives nobody anything
-  // to do: the function is what failed and the function is what they can ask
-  // for again.
-  assert.equal((r.body.jobErrors || []).length, 1, "the blocked job is not reported at all");
-  assert.equal(r.body.jobErrors[0].name, "daily_reminder");
-  assert.match(r.body.jobErrors[0].error, /send_reminder/, "the failed dependency is not named");
-  // AND NOTHING WAS REGISTERED. The reply is what the customer reads;
-  // `site_functions` is what the two-minute runner reads, and the first pass at
-  // this corrected only the reply.
-  assert.deepEqual(r.registered, [], "a timer was registered against a function that does not exist");
-});
 
-test("a job whose own function was created is left alone by another function's failure", async () => {
-  // THE CONTROL, and it is what makes the block a block rather than a ban: ONE
-  // function is refused and the other is created, so a wholesale "a function
-  // failed, so no jobs" passes every assertion in the case above and takes a
-  // working schedule off the site here.
-  const r = await addon("fw-blocked-other", "remind people the day before and sweep old holds", {
-    kinds: ["function", "job"],
-    answers: {
-      function: { function: [FN, { name: "sweep_holds", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" }] },
-      job: { job: [JOB, { name: "nightly_sweep", fn: "sweep_holds", everyMinutes: 1440, at: "03:00" }] },
-    },
-    fnFail: "send_reminder",
-  });
-  assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.functions, ["sweep_holds"], "the surviving function was not created — this case tests nothing");
-  assert.deepEqual(r.body.functionErrors.map((e) => e.name), ["send_reminder"]);
-  // ONE JOB SURVIVES, AND IT IS THE ONE WHOSE OWN FUNCTION EXISTS.
-  assert.deepEqual(r.body.jobs.map((j) => j.name), ["nightly_sweep"]);
-  assert.deepEqual((r.body.jobErrors || []).map((e) => e.name), ["daily_reminder"]);
-  // …AND THE DATABASE AGREES WITH THE REPLY. The reply is what the customer
-  // reads; `site_functions` is what the two-minute runner reads, and the first
-  // pass at this fix corrected only the reply — so the blocked reminder would
-  // have gone on firing against a function that does not exist, for ever,
-  // writing "this job is no longer part of the site" every time.
-  assert.deepEqual(r.registered.map((row) => row.name), ["nightly_sweep"],
-    "a job on a refused function was still registered to run: " + JSON.stringify(r.registered.map((x) => x.name)));
-});
 
-test("a stored connection proves configuration and never behaviour", async () => {
-  // Owner: *"A stored connection proves configuration exists; it does not prove
-  // credentials work or the external service answers. Keep behavior unverified
-  // unless the specific behavior was checked."*
-  //
-  // An api is not DDL — it is stored in `_meta.schema` — so "applied" here means
-  // STORED, and nothing has called the service or checked the key.
-  const API = { name: "weather", url: "https://api.test/v1/forecast", method: "GET", params: ["city"], cacheSeconds: 300 };
-  // `publishes` FOR THE SAME REASON AS THE PUBLIC FUNCTION: a connection is
-  // read BY A PAGE, so an addition that makes one is never pageless and the
-  // route writes the page. The compile and the dispatch upload are stubbed;
-  // nothing else about the path is.
-  const behaviour = await addon("fw-api-behave", "show the forecast", {
-    kinds: ["api"], publishes: true,
-    // THE CLAIM SPELLS THE BEHAVIOUR OUT, and that is what makes the case
-    // about the VOCABULARY rather than about a short sentence. A sweep survivor
-    // proved the bare "the weather connection" vacuous: it names no behaviour
-    // word, so a reader that had one in its list would answer the same. With
-    // `live` and `forecast` in the claim, a configuration-only vocabulary is
-    // the only thing keeping this unverified.
-    answers: { api: { api: [API], requirements: [{ need: "visitors see the live forecast", status: "covered", by: "the weather connection returns the live forecast" }] } },
-    ...judgedBy("api:weather"),
-  });
-  assert.equal(behaviour.body.ok, true);
-  assert.deepEqual(behaviour.body.apis, ["weather"], "the connection was not stored — this case tests nothing");
-  assert.match(behaviour.body.coverNote, /can't confirm from here that visitors see the live forecast/,
-    "a stored connection was read as proof the service answers");
-
-  // AND THE CONFIGURATION ITSELF IS CHECKABLE, which is what keeps this from
-  // being "nothing about an api is ever evidence": a claim naming the host, the
-  // verb or a parameter is about the thing that really was applied.
-  const config = await addon("fw-api-config", "show the forecast", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [API], requirements: [{ need: "the forecast is read from api.test", status: "covered", by: "weather calls api.test" }] } },
-    ...judgedBy("api:weather"),
-  });
-  // RE-ANCHORED: the host IS checked and IS recorded — and it is configuration,
-  // so it does not settle the need either. The difference this case exists for
-  // survives in the record: the behavioural claim above matches nothing and
-  // this one matches a real stored setting.
-  assert.match(config.body.coverNote, /can't confirm from here/);
-  assert.equal(storedAnswer(config, "fw-api-config").coverage.counts.configured, 1,
-    "a claim naming the stored host was not recorded as checked configuration");
-  assert.equal(storedAnswer(behaviour, "fw-api-behave").coverage.counts.configured, 0,
-    "a claim naming only behaviour was recorded as checked configuration");
-});
 
 test("the language the engine supports is carried, and only the setting the engine never heard of is reported", async () => {
   // ⚠ THIS CASE IS RE-ANCHORED, NOT APPEASED, AND THE EXPECTATION MOVED
@@ -777,26 +657,27 @@ test("the language rides the stored declaration, and the next designer is told",
     "the offered languages are not the engine's own list");
   // A SECOND CHANGE ON THE SAME SITE is where the readback is really read, so
   // the marker is asserted on a site whose STORED schema already carries one.
-  const next = await addon("fw-lang-next", "add a job that runs it", {
-    kinds: ["job"],
+  // (The next designer was the job's until the job kind went, 2026-10-29; it
+  // is the function designer's own now.)
+  const OTHER = { name: "count_bookings", internal: true, returns: "int", body: "BEGIN RETURN 1; END;" };
+  const next = await addon("fw-lang-next", "add a counter beside it", {
+    kinds: ["function"],
     stored: { tables: [{ name: "bookings", columns: [{ name: "who", type: "text" }], access: "collect" }],
       functions: [{ name: "send_reminder", args: [], returns: "void", internal: true, language: "plpgsql" }] },
-    answers: { job: { job: [JOB] } },
+    answers: { function: { function: [OTHER] } },
   });
   const nextNote = next.prompts.map((p) => JSON.stringify(p)).join("\n");
   assert.match(nextNote, /written in plpgsql/, "the stored language never reached the next designer");
-  assert.match(nextNote, /functions a scheduled job may run are/, "the job designer lost its own list");
-  assert.deepEqual((next.body.jobs || []).map((j) => j && j.name), ["daily_reminder"],
-    "a job on a plpgsql function was not registered");
+  assert.equal(next.body.ok, true, "a change beside a plpgsql function did not land");
   // AND AN ORDINARY FUNCTION IS NOT MARKED — the mark is non-default ONLY, so
   // a site with no plpgsql function reads the line it always read. Without
   // this the filter could mark everything and every existing site's note would
   // grow a clause about the language it already had.
-  const plain = await addon("fw-lang-plain", "add a job that runs it", {
-    kinds: ["job"],
+  const plain = await addon("fw-lang-plain", "add a counter beside it", {
+    kinds: ["function"],
     stored: { tables: [{ name: "bookings", columns: [{ name: "who", type: "text" }], access: "collect" }],
       functions: [{ name: "send_reminder", args: [], returns: "void", internal: true, language: "sql" }] },
-    answers: { job: { job: [JOB] } },
+    answers: { function: { function: [OTHER] } },
   });
   const plainNote = plain.prompts.map((p) => JSON.stringify(p)).join("\n");
   assert.match(plainNote, /send_reminder/, "the function did not reach the note at all — this control tests nothing");
@@ -810,20 +691,23 @@ test("a function this same change is adding carries its language into the next d
   // two never line up and a function designed one call earlier reaches the job
   // designer with no language on it. A sweep survivor is why this case exists.
   const body = "DECLARE n int; BEGIN SELECT count(*) INTO n FROM bookings; RETURN n; END";
-  const r = await addon("fw-lang-inflight", "add a counter and a job that runs it", {
-    kinds: ["function", "job"],
+  // (The next designer was the job's until the job kind went, 2026-10-29; it
+  // is the page writer's now, so the function is a public one it may call.)
+  const r = await addon("fw-lang-inflight", "add a counter and a page that shows it", {
+    kinds: ["function", "page"], publishes: true,
     answers: {
-      function: { function: [{ ...FN, body, language: "plpgsql" }] },
-      job: { job: [JOB] },
+      function: { function: [{ ...FN, internal: false, body, language: "plpgsql" }] },
+      page: { page: [CHECK_PAGE] },
     },
+    written: [writtenPage("/booking-check")],
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  const jobPrompt = r.prompts.find((p) => p.tool === "add_to_site" && p.kind === "job");
-  assert.ok(jobPrompt, "the job designer was never called");
+  const jobPrompt = r.prompts.find((p) => p.kind === "page");
+  assert.ok(jobPrompt, "the page designer was never called");
   const text = JSON.stringify(jobPrompt);
   assert.match(text, /being added by this same change/, "the function is not marked as in flight — this case tests nothing");
   assert.match(text, /written in plpgsql/,
-    "a function designed one call earlier reached the job designer with no language on it");
+    "a function designed one call earlier reached the next designer with no language on it");
 });
 
 test("the language a designer may declare is the engine's own list, and the wire gets a copy", async () => {
@@ -1879,8 +1763,11 @@ test("a MIXED-SUCCESS function step blocks only the requirement whose own functi
   // lose the real dependency failure, which is the other half of the ask.
   const OK_NEED = { need: "the page can count what is stored", status: "elsewhere", step: "function", item: "count_ok" };
   const BAD_NEED = { need: "the owner gets a nightly summary", status: "elsewhere", step: "function", item: "count_bad" };
+  // (The requirements were the job step's until the job kind went,
+  // 2026-10-29; the page step, which runs after the function step, hands them now.)
   const r = await addon("fw-mixed-fn", "count what is stored and send me a summary", {
-    kinds: ["function", "job"],
+    kinds: ["function", "page"], publishes: true,
+    written: [writtenPage("/booking-check")],
     fnFail: "count_bad",
     answers: {
       function: {
@@ -1889,7 +1776,7 @@ test("a MIXED-SUCCESS function step blocks only the requirement whose own functi
           { name: "count_bad", internal: true, returns: "int", body: "BEGIN RETURN 2; END;" },
         ],
       },
-      job: { job: [{ name: "nightly", fn: "count_ok", everyMinutes: 1440, at: "09:00" }], requirements: [OK_NEED, BAD_NEED] },
+      page: { page: [CHECK_PAGE], requirements: [OK_NEED, BAD_NEED] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -1981,7 +1868,8 @@ test("on a site that already has things of a kind, a requirement naming none of 
   // whether THAT function is the one the requirement meant, so "still to do" is
   // a claim nobody is entitled to.
   //
-  // THE SHAPE IS A JOB-ONLY CHANGE deliberately: `aReportable` answers TRUE for
+  // THE SHAPE IS A PAGE-ONLY CHANGE deliberately (it was job-only until the
+  // job kind went, 2026-10-29): `aReportable` answers TRUE for
   // a kind this change never RAN (it made none, definitionally), so `function`
   // and `qr` are both answerable here and the case is not resting on the route
   // going quiet for some other reason.
@@ -1999,10 +1887,11 @@ test("on a site that already has things of a kind, a requirement naming none of 
   // a section folded into an existing page leaves no item in any list, so a
   // working one and an absent one look identical from here.
   const PART = { need: "the page shows opening hours", status: "elsewhere", step: "component", item: "hours-band" };
-  const r = await addon("fw-stocked", "remind them the day before", {
-    kinds: ["job"], stored: HAVE,
+  const r = await addon("fw-stocked", "add a page with the booking count", {
+    kinds: ["page"], stored: HAVE, publishes: true,
+    written: [writtenPage("/booking-check")],
     look: { qr: [{ name: "wifi", points: "WIFI:S:Fretwork;;", label: "Wi-Fi" }] },
-    answers: { job: { job: [JOB], requirements: [VAGUE, CODE, PART] } },
+    answers: { page: { page: [CHECK_PAGE], requirements: [VAGUE, CODE, PART] } },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   // THE PRECONDITION, asserted rather than assumed: the apply ran (which is what
@@ -2039,7 +1928,7 @@ test("on a site that already has things of a kind, a requirement naming none of 
   assert.match(r.body.coverNote, /can't see from here whether something counts what is stored/,
     "the unanswerable need is not said as unanswerable: " + r.body.coverNote);
   // RE-ANCHORED 2026-10-06: there and unchecked, and said to be the site's
-  // own — "I've set that up" was a claim about a code this job-only change
+  // own — "I've set that up" was a claim about a code this page-only change
   // never made (`foundIn: "existing"`, the distinction the record has kept
   // since 2026-09-15 and the sentence did not).
   assert.match(r.body.coverNote, /Your site already had that in place, but I can't confirm from here that the poster's code/,
@@ -2057,7 +1946,7 @@ test("existing-site evidence is used only where it was really read", async () =>
   // really given rather than from a list of its own.
   const spec = { tables: [{ name: "bookings" }], functions: [{ name: "count_it" }], apis: [], jobs: [] };
   const full = existingFacts({ spec, pages: ["/", "/menu"], look: { qr: [{ name: "wifi", points: "x", label: "Wi-Fi" }], three: "a globe" } });
-  assert.deepEqual(full.kinds.slice().sort(), ["api", "function", "job", "page", "qr", "table", "three"],
+  assert.deepEqual(full.kinds.slice().sort(), ["function", "page", "qr", "table", "three"],
     "the enumerable kinds are not the ones the caller supplied");
   assert.ok(full.items.some((m) => m.kind === "function" && m.name === "count_it"));
   assert.ok(full.items.some((m) => m.kind === "page" && m.name === "/menu"));
@@ -7619,335 +7508,10 @@ const RICH_API = {
   cacheSeconds: 300,
 };
 
-test("a connection carries what it answers all the way to the page writer, and the owner is told where the key comes from", async () => {
-  const r = await addon("fw-api-shape", "show the forecast on the home page", {
-    kinds: ["api"], publishes: true, answers: { api: { api: [RICH_API] } },
-  });
-  assert.equal(r.body.ok, true, r.text || JSON.stringify(r.body));
 
-  // 1. THE TOOL THE DESIGNER REALLY RECEIVED. Read off the request rather than
-  // the source, and one level IN: a case that asserted the shape reached the
-  // store would otherwise pass against a tool that never offered it, because
-  // the fixture hands the answer in.
-  const tool = promptFor(r, "api");
-  for (const p of ["returns", "credential", "params"]) {
-    assert.ok(tool.itemProps.includes(p), "the api tool does not offer " + p + ": " + JSON.stringify(tool.itemProps));
-  }
 
-  // 2. STORED. `_meta.schema` is where a connection lives — `r.meta()` is that
-  // stored spec — and the engine's allow-list drops anything it does not copy
-  // out explicitly.
-  const stored = r.meta();
-  const saved = (stored.apis || []).find((a) => a.name === "weather");
-  assert.deepEqual(saved.returns, SHAPE, "the sketch did not survive to the store: " + JSON.stringify(saved));
-  assert.deepEqual(saved.paramInfo, [
-    { name: "city", type: "string", required: true, note: "the town or postcode to look up" },
-    { name: "days", type: "number", note: "how many days ahead" },
-  ], JSON.stringify(saved.paramInfo));
-  assert.deepEqual(saved.credential, { service: "WeatherAPI", url: "https://weatherapi.test/signup", note: "the free tier covers 1,000 calls a month" });
-  assert.deepEqual(saved.params, ["city", "days"], "the stored names are still a plain list every reader iterates");
 
-  // 3. REREAD, through the reader the SERVING route uses — not by looking at
-  // the object we just wrote. `apiFor` runs the stored declaration back through
-  // `normalizeApi`, which is where a field that survives storage and not the
-  // readback would be lost.
-  const back = apiFor(stored, "weather");
-  assert.deepEqual(back.returns, SHAPE);
-  assert.equal(back.paramInfo[0].required, true);
-  assert.deepEqual(missingRequired(back, {}), ["city"], "the reread declaration lost the required flag");
 
-  // 4. THE PAGE PROMPT. The writer is handed the field names and the exact
-  // annotation, so neither is a guess.
-  const page = pagePrompt(r);
-  assert.match(page.text, /it answers \{\\"current\\":\{\\"temp_c\\":\\"number\\"/, "the shape is not in the page prompt");
-  assert.match(page.text, /days: number, optional/);
-  assert.match(page.text, /useApi<\{ current: \{ temp_c: number; condition: \{ text: string \} \}; forecast: \{ day: string; high: number \}\[\] \}>/,
-    "the writer has to invent the annotation");
-
-  // ⚠ TWO COMPOSERS PRINT THE SAME FACTS AND THEY ARE TWO HOPS. The addon
-  // directive describes the connection THIS CHANGE adds; the page catalogue
-  // lists every connection the site has. They share `apiDetailLines`, so a bare
-  // match on the line's words is satisfied by either — which is how a sweep
-  // mutant that emptied one of them survived. The INDENT is the discriminator:
-  // the directive bullets at two spaces and the catalogue at six.
-  assert.ok(page.text.includes("\\n  - city: string, REQUIRED — the town or postcode to look up"),
-    "the addon directive says nothing about what the connection it adds answers");
-  assert.ok(page.text.includes("\\n      city: string, REQUIRED — the town or postcode to look up"),
-    "the page catalogue says nothing about what the site's connections answer");
-  assert.match(page.text, /HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE/, "the catalogue does not tell the page to draw loading and error");
-  assert.match(page.text, /It crosses the internet, so draw all three states/, "the addon directive does not, and it is the one about the new connection");
-
-  // AND THE TOOL REALLY OFFERS THE TYPED PARAMETER, which is the other half of
-  // "the fixture hands the answer in": a bare-string `items` here would make
-  // every assertion above about a shape no designer could have written.
-  assert.equal(tool.itemSchema.properties.params.items.type, "object", JSON.stringify(tool.itemSchema.properties.params.items));
-  assert.ok(Object.keys(tool.itemSchema.properties.params.items.properties).includes("required"),
-    "the tool's parameters went back to bare names");
-
-  // 5. THE CUSTOMER'S OWN SENTENCE, composed by the browser's real formatter.
-  // The destination was always there; the provenance is what was missing.
-  const said = browserText(r.body);
-  assert.match(said, /add W_KEY under Cloud → Secrets/, said);
-  assert.match(said, /The key for weather comes from WeatherAPI at https:\/\/weatherapi\.test\/signup \(the free tier covers 1,000 calls a month\)/, said);
-});
-
-test("a connection needing no key is told so, and one that declares nothing is byte for byte what it was", async () => {
-  // ⚠ "SUPPORT CONNECTIONS NEEDING NO KEY" IS DERIVED FROM THE DECLARATION,
-  // AND THE SENTENCE IS ABOUT THE OWNER'S OWN WORK. This one carries NO
-  // `{{SECRET}}` anywhere, so `secretsNeeded` is empty — and the credential
-  // guidance declared beside it (`RICH_API`'s WeatherAPI sign-up page) cannot
-  // turn that into a go-and-sign-up instruction.
-  //
-  // It used to read "needs no key, so it is answering already", which is a
-  // claim about a service this platform has never called: the url may not
-  // resolve, the path may be wrong, the response may be nothing like the
-  // sketch. A declared connection is a stored declaration, and whether it
-  // answers is closed by a real call and by nothing here.
-  const free = await addon("fw-api-free", "show the forecast", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [{ ...RICH_API, url: "https://api.test/v1/public?c={{param.city}}" }] } },
-  });
-  const freeSaid = browserText(free.body);
-  assert.match(freeSaid, /weather needs no key, so there is nothing to paste for it\./, freeSaid);
-  assert.doesNotMatch(freeSaid, /answering already/, "the reply claims a service nobody called is working: " + freeSaid);
-  assert.doesNotMatch(freeSaid, /Cloud → Secrets/, "a keyless connection was told to paste a key: " + freeSaid);
-  assert.doesNotMatch(freeSaid, /comes from WeatherAPI/, "a keyless connection was sent to sign up: " + freeSaid);
-
-  // THE NEGATIVE CONTROL, and it is the compatibility claim: every connection
-  // on the platform today declares none of the three.
-  const plain = await addon("fw-api-plain", "show the forecast", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [{ name: "weather", url: "https://api.test/v1?c={{param.city}}&key={{W_KEY}}", params: ["city"], cacheSeconds: 300 }] } },
-  });
-  const old = ((plain.meta() || {}).apis || []).find((a) => a.name === "weather");
-  assert.deepEqual(Object.keys(old), ["name", "url", "method", "headers", "params", "body", "ttl"],
-    "a connection declaring none of the three gained a key in the store: " + JSON.stringify(old));
-  const oldPage = pagePrompt(plain);
-  assert.match(oldPage.text, /weather\(city\) — the platform holds the key and does the call/, "the old per-connection line moved");
-  assert.doesNotMatch(oldPage.text, /it answers/, "a connection that described nothing described something");
-  assert.match(browserText(plain.body), /add W_KEY under Cloud → Secrets/, "the destination sentence moved");
-  assert.doesNotMatch(browserText(plain.body), /comes from/, "a connection with no credential guidance invented some");
-});
-
-test("a request carrying a keyed and a keyless connection says the right thing about EACH", async () => {
-  // ⚠ THE CASE THE FLAT SECRETS LIST COULD NOT GET RIGHT, and it needs two
-  // connections in ONE request to exist at all. The note took every
-  // `{{SECRET}}` the whole change needed, which answers "does this CHANGE need
-  // a key" — so with a keyed connection in the request the loop ran over the
-  // keyless one too and read its credential metadata as provenance, sending
-  // the owner to sign up for a key nothing would ever use. With no keyed
-  // connection the same list was empty and the whole reply claimed the service
-  // was answering.
-  //
-  // The two services are named DIFFERENTLY on purpose: that is what makes
-  // "the keyed one's provenance is printed and the keyless one's is not" an
-  // assertion rather than a coincidence.
-  const r = await addon("fw-api-mixed", "show the forecast and the tide times", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [
-      RICH_API,
-      { name: "tides", url: "https://tides.test/v1/today?port={{param.port}}",
-        params: [{ name: "port", type: "string", required: true, description: "the harbour" }],
-        returns: [{ time: "string", height: "number" }],
-        credential: { service: "TideWatch", url: "https://tidewatch.test/signup", note: "free for 500 calls" } },
-    ] } },
-  });
-  assert.equal(r.body.ok, true, r.text || JSON.stringify(r.body));
-  assert.deepEqual((r.body.apis || []).slice().sort(), ["tides", "weather"], JSON.stringify(r.body.apis));
-  assert.deepEqual(r.body.needsSecrets, ["W_KEY"], "the destination sentence is about the keyed one alone: " + JSON.stringify(r.body.needsSecrets));
-
-  const said = browserText(r.body);
-  assert.match(said, /The key for weather comes from WeatherAPI at https:\/\/weatherapi\.test\/signup/, said);
-  assert.match(said, /tides needs no key, so there is nothing to paste for it\./, said);
-  assert.doesNotMatch(said, /TideWatch/, "the keyless connection's own credential guidance reached the owner: " + said);
-  assert.doesNotMatch(said, /The key for tides/, "the keyless connection was told it has a key: " + said);
-  assert.doesNotMatch(said, /answering already/, said);
-
-  // AND BOTH ARE REALLY STORED, so the sentence is about a connection the site
-  // has rather than about an answer that was refused on the way in.
-  const meta = r.meta() || {};
-  const stored = meta.apis || [];
-  assert.deepEqual(stored.map((a) => a.name).slice().sort(), ["tides", "weather"], JSON.stringify(stored.map((a) => a.name)));
-
-  // ⚠ AND THE LIST RESPONSE IS THE OTHER HALF OF THIS CASE. `tides` answers a
-  // BARE ARRAY, which is what most list endpoints send and which the tool
-  // refused to let a model say until the root rule became one definition.
-  // Followed to all three places a connection has to reach.
-  const tool = promptFor(r, "api");
-  assert.ok(tool.itemProps.includes("returns"), JSON.stringify(tool.itemProps));
-  // ⚠ THE TOOL'S OWN TYPE, not merely that the property is offered. It was
-  // `"object"` while the cleaner accepted a list, so a designer obeying the
-  // schema could not say this — and a case reading only the key set passes
-  // against that tool, because the fixture hands the answer in.
-  assert.ok([].concat(tool.itemSchema.properties.returns.type).includes("array"),
-    "the tool does not let a designer describe a list answer: " + JSON.stringify(tool.itemSchema.properties.returns.type));
-  assert.deepEqual(stored.find((a) => a.name === "tides").returns, [{ time: "string", height: "number" }],
-    "a top-level list sketch did not survive the store");
-  assert.deepEqual(apiFor(meta, "tides").returns, [{ time: "string", height: "number" }],
-    "the readback dropped it — the serving route and the store disagree about the shape");
-  const page = pagePrompt(r);
-  assert.match(page.text, /it answers \[\{\\"time\\":\\"string\\",\\"height\\":\\"number\\"\}\]/, "the list shape is not in the page prompt");
-  // The prompt rides in a JSON body, so the quotes around the name are escaped
-  // in it — which is why the weather assertion above stops short of them.
-  assert.match(page.text, /useApi<\{ time: string; height: number \}\[\]>\(\\"tides\\", \{ port \}\)/,
-    "the writer is left to invent the annotation for a list answer");
-});
-
-test("ACCEPTANCE: the page the addon route produced renders the service's answer through the real hook and the real route", async () => {
-  // ⚠ THE JOIN, AND WHY IT IS ONE CASE. The tier had three claims, each proved
-  // somewhere else and none of them proving the next: that the declared shape
-  // reaches the writer (the prompt case), that a page written against it
-  // renders (the standalone render, with `@/lib/rows` stubbed), and that the
-  // public route serves the connection (the serving cases). A page can satisfy
-  // all three and still draw nothing, because between the page and the service
-  // sit two hops nothing had ever run together — the url `useApi` builds from
-  // the parameters it is given, and what the platform's route does with them.
-  //
-  // So: the page goes through the REAL addon route, the source is read back
-  // OUT OF THE STORE, and that exact string is rendered with the kit's own
-  // `useApi` against the route that answers `/api/db/<slug>/api/<name>`. The
-  // only stub left is the third-party service. (2026-10-28: the site's own
-  // Worker. That route is the site template's `siteApi`, with the owner's key
-  // as the site's own variable; the platform only passes the call on, so the
-  // render goes through the template's handler, not `worker.js`.)
-  const FORECAST = typeFromShape(SHAPE);
-  const WRITTEN = [{
-    path: "src/routes/index.tsx",
-    // THE STORED PAGE'S OWN WORDS ARE KEPT, because `keptProse` is a real wall
-    // on this path: an addition may only ADD, and a rewrite that loses the
-    // page's prose is refused 422 before anything is stored.
-    source: "import { createFileRoute } from '@tanstack/react-router'\n"
-      + "import { useApi } from '@/lib/rows'\n"
-      + "type Forecast = " + FORECAST + ";\n"
-      + "export const Route = createFileRoute('/')({ component: Page })\n"
-      + "function Page(){\n"
-      + "  const q = useApi<Forecast>(\"weather\", { city: \"Leeds\" });\n"
-      + "  if (q.isLoading) return <main><h1>index</h1><p>Words for index.</p><p data-slot=\"waiting\">Checking the forecast…</p></main>\n"
-      + "  if (q.error) return <main><h1>index</h1><p>Words for index.</p><p data-slot=\"failed\">The forecast is not available right now.</p></main>\n"
-      + "  return <main><h1>index</h1><p>Words for index.</p>"
-      + "<p data-slot=\"now\">{q.data?.current?.temp_c}°C, {q.data?.current?.condition?.text}</p>"
-      + "<ul>{(q.data?.forecast ?? []).map((d) => <li key={d.day}>{d.day}: {d.high}</li>)}</ul></main>\n"
-      + "}\n",
-  }];
-  const r = await addon("fw-api-live", "show the forecast on the home page", {
-    kinds: ["api"], publishes: true, sitePages: ["/"], written: WRITTEN,
-    answers: { api: { api: [RICH_API] } },
-  });
-  assert.equal(r.body.ok, true, r.text || JSON.stringify(r.body));
-
-  // ── 1. THE COMPILER PAYLOAD, which is what the site was really built from.
-  const sent = compiledPages(r).find((p) => p.path === "index.tsx");
-  assert.ok(sent, "the page never reached the builder: " + JSON.stringify(compiledPages(r).map((p) => p.path)));
-  assert.match(sent.source, /useApi<Forecast>\("weather", \{ city: "Leeds" \}\)/, sent.source);
-  assert.match(sent.source, new RegExp("type Forecast = " + FORECAST.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-    "the annotation the connection derived did not reach the compiler: " + sent.source);
-
-  // ── 2. THE STORED SOURCE, which is a different claim: what the next edit
-  // works from, and what this case renders. A change that reached the compiler
-  // and not the store leaves the site serving one page and offering another.
-  const src = storedSource(r, "fw-api-live", "index.tsx");
-  assert.match(src, /useApi<Forecast>\("weather"/, "the page is not in the store: " + src);
-  assert.match(src, /q\.data\?\.current\?\.temp_c/, src);
-
-  // ── 3. KNOWN VALUES, through the real hook and the real route.
-  const api = (r.meta().apis || []).find((a) => a.name === "weather");
-  assert.ok(api, "the connection is not in the stored schema");
-  const REAL = { current: { temp_c: 18.5, condition: { text: "Light rain" } }, forecast: [{ day: "Sat", high: 21 }] };
-  const answers = (v, status = 200) => () => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
-
-  const good = await renderRouteSource(src, { slug: "fw-live-ok", api, secrets: { W_KEY: "real-key" }, fetch: await siteApiFetch({ slug: "fw-live-ok", api, secrets: { W_KEY: "real-key" }, service: answers(REAL) }) });
-  assert.match(good.html, /18\.5°C, Light rain/, "the declared field names did not reach the page: " + good.html);
-  assert.match(good.html, /<li>Sat: 21<\/li>/, good.html);
-  assert.match(good.html, /Words for index\./, "the page lost the words it was built on: " + good.html);
-  // THE TWO HOPS A STUBBED HOOK SKIPS, and they are the point of this case.
-  assert.deepEqual(good.routed, ["/api/db/fw-live-ok/api/weather?city=Leeds"],
-    "the hook built a different url from the parameters the page gave it: " + JSON.stringify(good.routed));
-  assert.equal(good.upstream.length, 1, JSON.stringify(good.upstream));
-  assert.match(good.upstream[0], /c=Leeds/, good.upstream[0]);
-  assert.match(good.upstream[0], /key=real-key/, "the site did not substitute the key; the page must never see it");
-
-  // ── 4. LOADING. Not a stub answering `{isLoading:true}` — a server render
-  // runs no effects, so this IS the hook's own pending state.
-  assert.match(good.loading, /Checking the forecast…/, good.loading);
-  assert.doesNotMatch(good.loading, /18\.5/, "the first render already had the data, so it is not the loading state");
-
-  // ── 5. MISSING CREDENTIALS. The vault holds nothing, `fill` refuses, and
-  // the page draws its error branch instead of a plausible wrong answer.
-  const nokey = await renderRouteSource(src, { slug: "fw-live-nokey", api, secrets: {}, fetch: await siteApiFetch({ slug: "fw-live-nokey", api, secrets: {}, service: answers(REAL) }) });
-  assert.match(nokey.html, /not available right now/, nokey.html);
-  assert.doesNotMatch(nokey.html, /18\.5/, nokey.html);
-  assert.deepEqual(nokey.upstream, [], "a request went out with the key blank");
-  assert.equal(nokey.errors.length, 1, "the page was handed no error to branch on");
-  assert.doesNotMatch(String(nokey.errors[0].message || ""), /W_KEY/,
-    "the site's own credential name reached the browser: " + nokey.errors[0].message);
-
-  // ── 6. UPSTREAM FAILURE. The service answers and the answer is a failure,
-  // which is a different thing from the platform refusing before the call.
-  const down = await renderRouteSource(src, { slug: "fw-live-down", api, secrets: { W_KEY: "real-key" },
-    fetch: await siteApiFetch({ slug: "fw-live-down", api, secrets: { W_KEY: "real-key" }, service: answers({ error: "gateway" }, 502) }) });
-  assert.match(down.html, /not available right now/, down.html);
-  assert.doesNotMatch(down.html, /18\.5/, down.html);
-  assert.equal(down.upstream.length, 1, "the service was never called, so this is not the upstream case");
-  assert.equal(down.errors.length, 1, "a failing service rendered as success");
-});
-
-test("a sketch that cannot be read refuses the connection by name, and stores nothing", async () => {
-  // A SAMPLE INSTEAD OF A SKETCH is the mistake this refusal is for: a real
-  // value where a type name belongs. Refused rather than dropped, because the
-  // alternative is a page written blind against a service nobody described —
-  // which is the defect the field exists to close.
-  const r = await addon("fw-api-bad", "show the forecast", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [{ ...RICH_API, returns: { current: { temp_c: 18.5 } } }] } },
-  });
-  assert.equal(r.body.ok, false, "a connection with an unreadable sketch was published: " + JSON.stringify(r.body));
-  assert.match(r.body.msg || "", /couldn't read the description of what that service sends back/, r.body.msg);
-  // THE PROPERTY, not the shape of an empty key: the site's stored spec holds
-  // no connection by that name. `apis` may legitimately be `[]` here — that is
-  // the fixture's own starting spec — so asserting on the key rather than on
-  // the connection would pass for a store that really did gain one.
-  assert.equal(((r.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
-    "a refused connection reached the store: " + JSON.stringify((r.meta() || {}).apis));
-  assert.equal(r.body.cost, 0, "a refusal charged for something");
-
-  // ⚠ AND THE CREDENTIAL REFUSAL IS ITS OWN WALL, with its own sentence. An
-  // http sign-up page is a link this platform would put in front of its own
-  // customer, and the engine merely DROPS it — so without a refusal here the
-  // connection ships and the owner is told nothing. Driven because the sweep
-  // found the cleaner's line could be cut with every case still green: the
-  // sketch refusal above covers a different branch.
-  const bad = await addon("fw-api-badcred", "show the forecast", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [{ ...RICH_API, credential: { service: "WeatherAPI", url: "http://weatherapi.test/signup" } }] } },
-  });
-  assert.equal(bad.body.ok, false, "a connection with an http sign-up link was published: " + JSON.stringify(bad.body));
-  assert.match(bad.body.msg || "", /has to be an https address/, bad.body.msg);
-  assert.equal(((bad.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
-    "the refused connection reached the store anyway");
-  assert.equal(bad.body.cost, 0, "a refusal charged for something");
-
-  // ⚠ A SENTENCE WHERE THE SKETCH GOES IS ITS OWN BRANCH, and it is the one a
-  // model really writes: the tool's own description says NEVER write a
-  // sentence here precisely because reaching for prose is the habit. It lands
-  // on `shape-top` rather than `shape-leaf` — a leaf is a type NAME and may sit
-  // anywhere but the root — and a sweep mutant took `shape-top` off the
-  // malformed-sketch list with every case above still green, because a
-  // fall-through to the default still REFUSES and only the advice changes. The
-  // specific sentence says what to do about a sketch; the default says "say
-  // what you want on the site and where", which is the wrong thing to tell
-  // somebody whose only problem is how the answer was described.
-  const prose = await addon("fw-api-prose", "show the forecast", {
-    kinds: ["api"], publishes: true,
-    answers: { api: { api: [{ ...RICH_API, returns: "a list of exchange rates" }] } },
-  });
-  assert.equal(prose.body.ok, false, "a connection whose sketch is a sentence was published: " + JSON.stringify(prose.body));
-  assert.match(prose.body.msg || "", /couldn't read the description of what that service sends back/, prose.body.msg);
-  assert.doesNotMatch(prose.body.msg || "", /say what you want on the site and where/,
-    "the customer got the generic advice about a connection whose only problem is its sketch");
-  assert.equal(((prose.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
-    "the refused connection reached the store anyway");
-  assert.equal(prose.body.cost, 0, "a refusal charged for something");
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A SUPPLIED VIDEO OR AUDIO URL, FROM THE CUSTOMER'S SENTENCE TO THE COMPONENT
@@ -8124,314 +7688,18 @@ test("a supplied AUDIO url is external by construction, and an invented hosted o
   assert.ok(!builtBad.source.includes("interview.mp3"), "the invented url survived into the compiled page");
 });
 
-// ── A JOB THAT RUNS ONCE, THROUGH THE REAL ROUTE (2026-09-19) ───────────────
-//
-// Owner: *"Add native one-time scheduling as a separate, reviewable
-// capability… A request to run once must never silently become a recurring
-// job."* The scheduler's own arithmetic and the run/skip lifecycle are driven
-// where they live; what these drive is the hop chain the route owns — the TOOL
-// the designer really received, what the cleaner kept, what reached
-// `site_functions`, and what the customer was told.
-const ONCE_FN = { name: "send_note", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-const ONCE_JOB = { name: "closing_note", fn: "send_note", everyMinutes: 60, at: "09:00", on: "2026-10-03" };
-// THE CLOCK THESE CASES RUN ON (2026-10-04, the owner: *"fix the
-// expired-date test fixtures using a controlled test clock"*). The one-time
-// jobs here are dated 2026-10-03, and the route reads "today" in the
-// browser's zone through `new Date()` (`aToday`), so on the real calendar
-// these cases expired when that date ended in London: three went red at
-// 23:00 UTC on 2026-10-03 for a reason of the calendar's alone. Each case
-// whose verdict turns on today's date runs with `Date` held at noon UTC on
-// 2026-10-02 — the day before every fixture date, after every past one, and
-// years before the leap day the refusal case accepts.
-const JOB_CLOCK = Date.parse("2026-10-02T12:00:00Z");
-const onJobClock = (t) => t.mock.timers.enable({ apis: ["Date"], now: JOB_CLOCK });
-
-test("a one-time job is offered, kept, registered and reported", async (t) => {
-  onJobClock(t);
-  const r = await addon("fw-once", "email everyone on the 3rd of October that we're closed", {
-    kinds: ["function", "job"], tz: "Europe/London",
-    answers: { function: { function: [ONCE_FN] }, job: { job: [ONCE_JOB] } },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
-
-  // HOP 1 — THE TOOL REALLY OFFERED IT. Read one level IN, off the request the
-  // route sent, because a case that hands the answer in bypasses the tool
-  // entirely: from outside, "the model did not say it" and "we never gave it
-  // anywhere to say it" are the same absence. This repository has paid for
-  // that distinction twice.
-  const jobCall = r.prompts.find((p) => p.kind === "job");
-  assert.ok(jobCall.itemProps.includes("on"),
-    "the job designer has nowhere to say a job runs once: " + JSON.stringify(jobCall.itemProps));
-  assert.match(jobCall.itemSchema.properties.on.description, /runs ONCE/,
-    "the tool does not say what `on` is for");
-  assert.match(jobCall.itemSchema.properties.on.description, /MUST also give `at`/,
-    "the tool does not say a date needs a time");
-
-  // HOP 2 — THE CLEANER KEPT IT, and forced the interval to the ceiling. The
-  // model asked for 60 minutes while thinking about a date; the interval means
-  // nothing for a one-time job and the forcing is the fail-safe if `on` is
-  // ever lost.
-  const kept = r.body.jobs.find((j) => j.name === "closing_note");
-  assert.equal(kept.on, "2026-10-03", "the date did not survive cleaning: " + JSON.stringify(kept));
-  assert.equal(kept.at, "09:00", "a one-time job asked at 60 minutes lost its time of day");
-  assert.ok(kept.everyMinutes >= 44640,
-    "the interval was left as asked, so a lost date would leave an hourly job: " + JSON.stringify(kept));
-
-  // HOP 3 — IT REACHED THE REGISTRY, in the SPEC, which is where `dueJobs`
-  // reads it. A registration that drops `on` turns the request into a monthly
-  // job the moment it is saved, and nothing downstream could tell.
-  const row = r.registered.find((x) => x.name === "closing_note");
-  assert.ok(row, "the job was never registered: " + JSON.stringify(r.registered.map((x) => x.name)));
-  assert.equal(row.spec.on, "2026-10-03", "the registry row lost the date: " + JSON.stringify(row.spec));
-  assert.equal(row.spec.at, "09:00");
-  assert.equal(row.spec.tz, "Europe/London", "the browser's zone did not reach the registry");
-  assert.equal(row.spec.fn, "send_note");
-
-  // HOP 4 — AND NOTHING WAS PUBLISHED. An internal function and a job change
-  // no page, so this is the pageless path: no container, no compile.
-  assert.equal(r.compiles.length, 0, "a job-only change wanted a container");
-});
-
-test("a one-time job is refused by name rather than quietly recurring", async (t) => {
-  onJobClock(t);
-  // ⚠ THE OWNER'S SENTENCE AS THREE REFUSALS, and they are three because they
-  // need three different things done about them. Each is asserted on the
-  // customer's own words, and each costs nothing: `cost: 0`, no registration.
-  const ask = async (job, extra) => addon("fw-once-bad", "email everyone on the 3rd that we're closed", {
-    kinds: ["function", "job"], tz: "Europe/London", ...extra,
-    answers: { function: { function: [ONCE_FN] }, job: { job: [job] } },
-  });
-
-  // ONE KIND REFUSED NEVER SINKS THE REST (owner, 2026-10-22): the function
-  // lands, the job is left out BY NAME, and nothing is registered for it.
-  const jobLeft = (r) => (r.body.notAdded || []).find((x) => x.kind === "job") || {};
-  const past = await ask({ ...ONCE_JOB, on: "2020-01-01" });
-  assert.equal(past.body.ok, true, JSON.stringify(past.body));
-  assert.equal(jobLeft(past).why, "past-date", "a date already gone was accepted: " + JSON.stringify(past.body));
-  assert.match(jobLeft(past).msg, /already gone/, past.body.msg);
-  assert.deepEqual(past.registered.map((x) => x.name), [], "a refused change registered a job");
-
-  const bad = await ask({ ...ONCE_JOB, on: "3 Oct" });
-  assert.equal(jobLeft(bad).why, "bad-date", JSON.stringify(bad.body));
-  assert.match(jobLeft(bad).msg, /couldn't read the date/, bad.body.msg);
-
-  // ⚠ AND A DATE THAT IS THE RIGHT SHAPE AND NOT A REAL DAY — a sweep
-  // survivor, because "3 Oct" is refused by the SHAPE and so could not tell a
-  // working calendar check from none at all. `2026-02-30` and `2026-13-45`
-  // both match `ON_RE` exactly; only the arithmetic separates them from a day.
-  // The leap year is the control on the other side: 2024 really has a 29th of
-  // February and must be accepted.
-  for (const junk of ["2026-02-30", "2026-13-45", "2026-00-10", "2026-04-31"]) {
-    const r = await ask({ ...ONCE_JOB, on: junk });
-    assert.equal(jobLeft(r).why, "bad-date", "a date that is not a day was accepted: " + junk + " " + JSON.stringify(r.body));
-  }
-  const leap = await ask({ ...ONCE_JOB, on: "2028-02-29" });
-  assert.equal(jobLeft(leap).why, undefined, "a real leap day was refused — the check is too strict: " + JSON.stringify(leap.body));
-
-  const noTime = await ask({ name: "closing_note", fn: "send_note", everyMinutes: 1440, on: "2026-10-03" });
-  assert.equal(jobLeft(noTime).why, "no-time", JSON.stringify(noTime.body));
-  assert.match(jobLeft(noTime).msg, /needs a time of day/, noTime.body.msg);
-
-  // …AND THE CONTROL THAT MAKES THE PAST-DATE WALL A WALL: the same date, with
-  // no zone on the request. `aToday` is then unknown and the check stands down
-  // rather than comparing a local date against UTC — which would refuse a
-  // perfectly good "today" for everybody west of Greenwich for most of the
-  // working day. Without this the case could not tell a working wall from one
-  // that refuses everything.
-  const noZone = await ask({ ...ONCE_JOB, on: "2020-01-01" }, { tz: null });
-  assert.equal(jobLeft(noZone).why, undefined, "the wall fired with no zone to judge against: " + JSON.stringify(noZone.body));
-});
-
-test("an ordinary recurring job is byte for byte what it was", async () => {
-  // THE CONTROL FOR THE WHOLE FEATURE. Every site on the platform is this case,
-  // and a change that quietly gave one of them a date would be the defect
-  // inverted.
-  const r = await addon("fw-still-daily", "remind people the day before", {
-    kinds: ["function", "job"], tz: "Europe/London",
-    answers: { function: { function: [FN] }, job: { job: [JOB] } },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  const kept = r.body.jobs.find((j) => j.name === "daily_reminder");
-  assert.equal(kept.on, undefined, "a recurring job gained a date");
-  assert.equal(kept.everyMinutes, 1440, "a recurring job's interval moved");
-  const row = r.registered.find((x) => x.name === "daily_reminder");
-  assert.equal(row.spec.on, undefined, "a recurring job was registered as one-time");
-  assert.deepEqual(Object.keys(row.spec).sort(), ["at", "fn", "tz"], "the recurring spec's shape moved: " + JSON.stringify(row.spec));
-});
-
-// ── A JOB THAT REUSES A FUNCTION THE SITE ALREADY HAS (2026-09-19) ──────────
-//
-// REPRODUCED LIVE ON RUN 52, and the feature worked while the report denied it.
-// The ask registered `count_bookings_once` — a one-time job on the site's own
-// `nightly_booking_count` — and the customer was told, on the same screen that
-// had just said it was scheduled:
-//
-//   "…waiting on another part of the same change that didn't work: … — the
-//    count_bookings_once it needs could not be created"
-//
-// THE CAUSE WAS TWO READERS OF ONE FACT. `applySiteSchema` persists a function
-// with NO BODY, `normalizeSchema` drops a bodiless function, and the job goes
-// behind it — so the audit called the job `unbuilt` and marked the whole `job`
-// step failed. The apply then re-attached exactly such a job and registered it.
-// `withJobDeps` and `storedJobFns` are the one rule both read now.
-//
-// IT IS NOT ABOUT `on`. A recurring job on a stored function took the same
-// path, which is why both are driven here.
-const STORED_FN = { name: "nightly_count", args: "", returns: "json", internal: true };
-const SITE_HAS_FN = { tables: STORED_SCHEMA.tables, functions: [STORED_FN], apis: [], jobs: [] };
-const ONCE_REUSE = { name: "count_once", fn: "nightly_count", everyMinutes: 1440, at: "09:00", on: "2026-10-03" };
-const DAILY_REUSE = { name: "count_daily", fn: "nightly_count", everyMinutes: 1440, at: "07:00" };
-/** The claim a designer really makes about a job it scheduled. */
-const jobNeed = (item) => ({
-  need: "the booking count runs on its own",
-  status: "covered",
-  by: item + " runs nightly_count on the schedule asked for",
-  kind: "job",
-  item,
-});
-
-for (const [shape, job] of [["one-time", ONCE_REUSE], ["recurring", DAILY_REUSE]]) {
-  test("a " + shape + " job reusing a stored function is registered AND reported as scheduled", async (t) => {
-    onJobClock(t);
-    const r = await addon("fw-reuse-job-" + shape, "count the bookings on a schedule", {
-      kinds: ["job"], tz: "Europe/London", stored: SITE_HAS_FN,
-      answers: { job: { job: [job], requirements: [jobNeed(job.name)] } },
-    });
-    assert.equal(r.body.ok, true, JSON.stringify(r.body));
-    // THIS CASE IS ABOUT REUSE, so it must not have created the function — the
-    // whole defect lives in the branch where `appliedFacts` is silent.
-    assert.deepEqual(r.body.functions || [], [], "the change created a function: this is not the reuse path");
-
-    // ── REGISTRATION. The job really reached `site_functions`, in the SPEC,
-    // which is where `dueJobs` reads it.
-    const row = r.registered.find((x) => x.name === job.name);
-    assert.ok(row, "the reused-function job was never registered: " + JSON.stringify(r.registered.map((x) => x.name)));
-    assert.equal(row.spec.fn, "nightly_count", "the registry row lost the function it reuses");
-    assert.equal(row.spec.on, job.on, "the registry row disagrees with the shape asked for");
-
-    // ── AND THE STEP IS NOT FAILED. `jobErrors` is the route's own report of a
-    // job that could not be set up; a reuse job must produce none.
-    assert.deepEqual(r.body.jobErrors || [], [], "a registered job was reported as an error");
-    assert.deepEqual((r.body.unbuilt || {}).job || [], [],
-      "a job the engine really built was reported as dropped whole: " + JSON.stringify(r.body.unbuilt));
-
-    // ── STORED COVERAGE. The claim naming the job resolves against the job
-    // this change applied, and the state is the honest ceiling: it exists and
-    // nothing here has watched it fire.
-    const cov = storedAnswer(r, "fw-reuse-job-" + shape).coverage;
-    const q = cov.requirements.find((x) => x.need === "the booking count runs on its own");
-    assert.equal(q.implementation, "found", "a registered job was not found by its own claim");
-    assert.equal(q.foundIn, "applied", "the job this change made was not read as this change's work");
-    assert.equal(q.implementedBy, job.name);
-    assert.equal(q.state, "unverified", "a registered job was not read as there-and-unchecked: " + q.state);
-    assert.equal(cov.counts.blocked, 0, "a registered job left a blocked requirement: " + JSON.stringify(cov.counts));
-    assert.equal(cov.counts.failed, 0, "a registered job left a failed requirement");
-    assert.equal(cov.counts.missing, 0, "a registered job was counted as work that is not there");
-
-    // ── `checked` STAYS EMPTY, asserted by its OBSERVABLE consequence. The
-    // stored record carries no `made` list, so a loop over one here would be a
-    // negative assertion with no observer — this repository's own most
-    // expensive shape. `delivered` is the state `checked` and only `checked`
-    // buys, so a filled one shows up exactly here; the census that drives
-    // `appliedFacts` over every applied kind lives in `addon-steps`.
-    assert.equal(cov.counts.delivered, 0,
-      "a job claimed a behaviour nothing on this path exercises: " + JSON.stringify(cov.counts));
-
-    // ── AND THE CUSTOMER'S OWN SCREEN, composed by the browser's real
-    // `addonAnswer`. The scheduling is stated; run 52's sentence is not.
-    const said = browserText(r.body);
-    assert.match(said, new RegExp("scheduled " + job.name), "the reply does not say the job was scheduled: " + said);
-    assert.doesNotMatch(said, /could not be created/,
-      "run 52's sentence came back about a job that was registered: " + said);
-    assert.doesNotMatch(said, /waiting on another part of the same change/,
-      "a registered job is still reported as a broken dependency: " + said);
-    // AUTOMATIC EXECUTION IS STILL UNVERIFIED AND THE REPLY SAYS SO — the job
-    // clause, which is more specific than the general can't-confirm one and is
-    // true of every job this platform has ever registered. Losing it would
-    // trade one over-claim for another, so it is asserted rather than assumed.
-    assert.match(said, /Scheduled as you asked/, "the reply does not state the scheduling: " + said);
-    assert.match(said, /Automatic running hasn't been verified from here yet/,
-      "the reply claims the schedule has been seen to run: " + said);
-  });
-}
-
-test("the genuine job failures are still reported when a stored function is in play", async (t) => {
-  onJobClock(t);
-  // ⚠ THE CONTROLS, and without them the fix above is indistinguishable from
-  // clearing every job failure. Each is a DIFFERENT reason a job legitimately
-  // does not happen, and each must survive on a site that also has a reusable
-  // stored function — which is the exact context the fix widened.
-  const ask = (slug, opts) => addon(slug, "count the bookings on a schedule", {
-    kinds: ["job"], tz: "Europe/London", stored: SITE_HAS_FN, ...opts,
-  });
-
-  // (a) A NAME NOBODY DECLARED, and (b) A PUBLIC STORED FUNCTION. Both are
-  // refused BY THE CLEANER, one hop earlier than the audit — `cleanAdd` admits
-  // a job only against the site's internal functions — so they never reach the
-  // context this fix widened at all. That is the stronger place for them to be
-  // caught: a named refusal with a sentence, cost 0, nothing written. The
-  // walls INSIDE the widened context are driven at the module, where the
-  // cleaner cannot mask them (`site-schema-audit`).
-  //
-  // (b) IS THE ONE THAT MATTERS HERE. A job on a function a visitor could call
-  // hands out every recipient's address to anyone who asks; the engine refuses
-  // it deliberately, and a fix that widened the context by internal-ness would
-  // show up as this case passing where it should not.
-  for (const [what, slug, stored, job] of [
-    ["a function nobody declared", "fw-reuse-ghost", SITE_HAS_FN, { ...ONCE_REUSE, name: "count_ghost", fn: "no_such_fn" }],
-    ["a PUBLIC stored function", "fw-reuse-public", { ...SITE_HAS_FN, functions: [{ ...STORED_FN, internal: false }] }, ONCE_REUSE],
-  ]) {
-    const x = await ask(slug, { stored, answers: { job: { job: [job], requirements: [jobNeed(job.name)] } } });
-    assert.equal(x.body.ok, false, "a job on " + what + " was accepted: " + JSON.stringify(x.body));
-    assert.equal(x.body.reason, "no-job-fn", "a job on " + what + " was refused for the wrong reason: " + x.body.reason);
-    assert.equal(x.body.cost, 0, "a refused job charged");
-    assert.match(x.body.msg, /names a function this site doesn't have/, x.body.msg);
-    assert.deepEqual(x.registered.map((n) => n.name), [], "a job on " + what + " was registered");
-  }
-
-  // (c) A NEW FUNCTION THE DATABASE REFUSED. The job depends on something this
-  // change tried and failed to create; it is blocked by NAME, and the site's
-  // reusable stored function must not rescue it.
-  const c = await ask("fw-reuse-fnfail", {
-    kinds: ["function", "job"], fnFail: true,
-    answers: {
-      function: { function: [{ name: "fresh_fn", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" }] },
-      job: { job: [{ ...ONCE_REUSE, name: "count_fresh", fn: "fresh_fn" }], requirements: [jobNeed("count_fresh")] },
-    },
-  });
-  assert.equal((c.body.jobErrors || []).length, 1, "a job on a failed new function was not reported: " + JSON.stringify(c.body));
-  assert.match(c.body.jobErrors[0].error, /fresh_fn/, "the failed dependency is not named");
-  assert.deepEqual(c.registered.map((x) => x.name), [], "a job on a function that failed to create was registered");
-
-  // (d) THE REGISTRATION ITSELF FAILING. The job is perfectly well formed and
-  // the upsert does not land — the one failure the audit can never see, and
-  // the one the reply must still carry.
-  const d = await ask("fw-reuse-regfail", {
-    jobsFail: true,
-    answers: { job: { job: [ONCE_REUSE], requirements: [jobNeed("count_once")] } },
-  });
-  assert.equal((d.body.jobErrors || []).length, 1,
-    "a job whose registration failed was reported as scheduled: " + JSON.stringify(d.body));
-  assert.deepEqual(d.body.jobs || [], [], "a job that never registered was still claimed");
-  const dq = storedAnswer(d, "fw-reuse-regfail").coverage.requirements[0];
-  assert.notEqual(dq.state, "unverified", "a job whose registration failed still read as set up");
-});
-
-// ── FOUR COMPLETE REQUESTS, EACH THROUGH THE REAL ROUTE (2026-09-19) ────────
+// ── COMPLETE REQUESTS, EACH THROUGH THE REAL ROUTE (2026-09-19) ─────────────
 //
 // Owner: *"a customer describes an addition, the builder understands the
 // existing site, passes the right information between designers, creates the
 // complete feature, preserves existing work, and accurately reports the
-// result."* Every other case in this file isolates ONE hop; these four are
+// result."* Every other case in this file isolates ONE hop; these are
 // whole customer sentences, and each is chosen because its value crosses a
-// boundary no single-kind case can see:
+// boundary no single-kind case can see (2 and 3, a job and a connection, went
+// with those kinds, 2026-10-29):
 //
 //   1. an EXISTING table reaching a new function, and that function reaching
 //      the page designer that runs after it
-//   2. an EXISTING internal function reaching a new job — the re-attach hop,
-//      which `normalizeSchema` would otherwise drop in silence
-//   3. a connection's DECLARED RESPONSE SHAPE reaching the page writer, which
-//      is the whole of what made that tier unwritable
 //   4. a page, a component ON that page and a QR code pointing AT it, in one
 //      message — three kinds whose destination is a route this same change is
 //      adding, which was a silent substitution until 2026-09-17
@@ -8502,103 +7770,7 @@ test("COMPLETE REQUEST 1 — an existing table reaches a new function, and the f
   assert.equal(kept.access, "user", "the existing table's access was replaced by the default");
 });
 
-test("COMPLETE REQUEST 2 — an existing internal function reaches a new job, and survives the normaliser", async () => {
-  // *"Every night at 11 run the hold sweep."* The site already HAS
-  // `sweep_holds`; this message designs only a job.
-  //
-  // ⚠ THIS IS THE RE-ATTACH HOP AND WITHOUT IT THE DROP IS SILENT.
-  // `normalizeSchema` keeps a job only when its function is declared in the
-  // SAME spec — right for a build, where the spec is the whole backend, and
-  // wrong here, where the spec is only what this message designed. A stored
-  // function has no body to re-send (re-sending one would `CREATE OR REPLACE`
-  // the live function with nothing), so the job is re-attached against the
-  // stored INTERNAL names instead, and only when the stored one really is
-  // internal.
-  const r = await addon("fw-cr2", "every night at 11 run the hold sweep", {
-    kinds: ["job"], tz: "Europe/London",
-    stored: { ...STORED_SCHEMA, functions: [{ name: "sweep_holds", args: "", returns: "json", internal: true }] },
-    answers: { job: { job: [{ name: "nightly_sweep", fn: "sweep_holds", everyMinutes: 1440, at: "23:00" }] } },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
 
-  // THE CROSSING — the job designer was told which functions it MAY run. Only
-  // an INTERNAL function qualifies, which is the engine's own rule and is why
-  // that list is `jobFns` rather than `functions`.
-  const jb = promptFor(r, "job");
-  assert.ok(jb, "the job designer was never called");
-  assert.match(jb.text, /sweep_holds/, "the job designer was not told it may run the site's own internal function");
-
-  // IT SURVIVED — the row the cron really selects carries the stored
-  // function's name, the clock time and the browser's own zone.
-  const row = r.registered.find((x) => x.name === "nightly_sweep");
-  assert.ok(row, "the job was dropped by the normaliser: " + JSON.stringify(r.registered));
-  assert.equal(row.spec.fn, "sweep_holds", "the job lost the function it runs");
-  assert.equal(row.spec.at, "23:00", "the job lost its clock time");
-  assert.equal(row.spec.tz, "Europe/London", "the job lost the owner's zone");
-  assert.equal(row.spec.on, undefined, "a nightly job was registered as one-time");
-
-  // PAGELESS — a job changes no page, so nothing was compiled. `getContainer`
-  // throws by default in this fixture, so reaching one is an error rather than
-  // a silent extra, and that is what makes this assertion worth making.
-  assert.deepEqual(r.compiles, [], "a job-only change compiled something");
-  assert.equal(r.body.jobErrors, undefined, "the job was reported as failing: " + JSON.stringify(r.body.jobErrors));
-});
-
-test("COMPLETE REQUEST 3 — a connection's declared response shape reaches the page writer", async () => {
-  // *"Show the live tide times on the home page, from tides.example."*
-  //
-  // THIS IS THE TIER THAT COULD NOT BE WRITTEN AT ALL. `useApi<T = unknown>`
-  // means a page either declares its own `T` — a guess about a third party's
-  // JSON, from a model that has never seen a response — or leaves it unstated;
-  // and an INVENTED type typechecks clean while the page renders "". So the
-  // declared shape reaching the writer IS the feature, and it crosses from the
-  // `api` designer to the page call.
-  // ⚠ `api` ALONE, AND THAT IS THE PRODUCT BEING RIGHT. A connection exists to
-  // be READ by a page, so the route is never pageless for one — it writes a
-  // page whether or not the customer asked for a new route. Adding a `page`
-  // kind here aimed at `/` is a request to ADD a page the site already has,
-  // which `cleanAdd` correctly refuses `no-path`; the first draft of this case
-  // did exactly that and reported the tier broken.
-  // ⚠ AND THE WRITER RETURNS THE HOME PAGE **PLUS** THE TIDE TABLE, not a
-  // rewrite of it. `keptProse` refuses a change that loses a word the page
-  // already said, which is the wall that makes "an addition only ADDS" real —
-  // and the fixture's default `write_pages` answer is a different home page
-  // entirely, so a case that takes it is refused `rewrote` before anything
-  // about connections is reached. That refusal is the product being correct;
-  // taking the default here would have reported it as this tier failing.
-  const r = await addon("fw-cr3", "show the live tide times on the home page, from tides.example", {
-    kinds: ["api"], publishes: true, sitePages: ["/"],
-    written: [addedTo("/", "<TideTable/>")],
-    answers: {
-      api: { api: [{
-        name: "tides", url: "https://tides.example/v1/today?port={{PORT}}&key={{TIDES_KEY}}", method: "GET",
-        params: [{ name: "port", type: "string", required: true, description: "the harbour code" }],
-        returns: { times: [{ time: "string", height: "number" }] },
-        credential: { name: "TIDES_KEY", service: "Tides Example", signup: "https://tides.example/signup" },
-      }] },
-    },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
-
-  // THE CROSSING — the page WRITER (not the designer) is handed the shape, as
-  // something it can declare rather than a sketch it has to interpret, plus
-  // which parameter it must supply.
-  const pw = pagePrompt(r);
-  assert.ok(pw, "the page writer was never called");
-  assert.match(pw.text, /tides/, "the page writer was not told the connection exists");
-  assert.match(pw.text, /height/, "the page writer was not told the answer's own field names");
-  assert.match(pw.text, /port/, "the page writer was not told which parameter the connection needs");
-
-  // IT IS STORED WHOLE, so the next change reads it back rather than
-  // re-deriving it from nothing.
-  const api = (r.meta().apis || []).find((a) => a.name === "tides");
-  assert.ok(api, "the connection was not stored: " + JSON.stringify(r.meta().apis));
-  assert.ok(api.returns, "the stored connection lost its declared response shape");
-
-  // AND THE OWNER IS TOLD WHICH SECRET IT NEEDS. Where to GET one is the
-  // provenance half; where to PUT it was already wired.
-  assert.match(JSON.stringify(r.body), /TIDES_KEY/, "the owner is not told which secret the connection needs");
-});
 
 test("COMPLETE REQUEST 4 — a page, a component on it, and a QR code pointing at it, in one message", async () => {
   // *"Add a /tour page with the workshop video on it, and a QR code that opens
@@ -9491,14 +8663,9 @@ const plainHome = () => ({ path: "index.tsx", source:
 const plainHomeLinking = (route) => ({ path: "index.tsx", source:
   plainHome().source.replace("</main>", '<p>See our <a href="' + route + '">rates</a>.</p></main>') });
 
-/** Run 53's connection, verbatim from the designer's stored answer. */
-const RATES_API = {
-  name: "exchange_rates",
-  url: "https://api.frankfurter.dev/v1/latest?base=GBP&symbols=EUR,USD",
-  method: "GET",
-  returns: { amount: "number", base: "string", date: "string", rates: { EUR: "number", USD: "number" } },
-  cacheSeconds: 3600,
-};
+/** Run 53's step before the page was a connection; the api kind went
+ *  (2026-10-29), so a function step hands the same needs to the page now. */
+const RATES_FN = { name: "rates_today", returns: "json", body: "SELECT '{}'::json" };
 /**
  * RUN 53'S TWO NEED TEXTS, handed to `page` — with the `item` DROPPED.
  *
@@ -9523,22 +8690,18 @@ const OTHER = { need: "The stockists page lists our shops",
 /** The page the WRITER returns — the page kind declared nothing. */
 const ratesPage = { path: "rates.tsx", source:
   "import { createFileRoute } from '@tanstack/react-router'\n"
-  + "import { useApi } from '@/lib/rows'\n"
   + "export const Route = createFileRoute('/rates')({ component: Rates })\n"
-  + "function Rates(){ const { data, isLoading, error } = useApi('exchange_rates')\n"
-  + "  if (isLoading) return <p>Looking up what a pound buys right now…</p>\n"
-  + "  if (error) return <p>Rates did not load</p>\n"
-  + "  if (!data) return <p>Rates did not load</p>\n"
+  + "function Rates(){\n"
   + "  return <main><h1>What a pound is worth</h1>\n"
-  + "    <p>{data.rates.EUR.toFixed(4)} euros</p><p>Rates from {data.date}.</p></main> }\n" };
+  + "    <p>1.1700 euros</p><p>Rates from today.</p></main> }\n" };
 
 const ratesAsk = (slug, opts) => addon(slug,
   "Add a page at /rates showing what one pound is worth in euros and dollars right now, read live from the Frankfurter exchange-rate API", {
-    kinds: ["api", "page"], publishes: true, credits: 400,
+    kinds: ["function", "page"], publishes: true, credits: 400,
     storedPages: [plainHome()],
     written: [ratesPage, plainHomeLinking("/rates")],
     answers: {
-      api: { api: [RATES_API], requirements: [...HANDED, NAMED, OTHER] },
+      function: { function: [RATES_FN], requirements: [...HANDED, NAMED, OTHER] },
       // THE EMPTY PAGE DESIGNER — the whole point of the case.
       page: {},
     },
@@ -9921,30 +9084,15 @@ test("the add-on page writer is given the owner's video by address, and never of
 // job naming a function the site did not have refused the WHOLE addition —
 // the menu, booking, events and contact pages went with it. Now the refused
 // kind is left out by name and the others land.
-test("PARTIAL 1 — a job naming a function the site does not have is left out by name; the page beside it lands", async () => {
-  const r = await addon("fw-partial-job", "add a gallery page, and every Monday count last week's bookings", {
-    kinds: ["page", "job"], tz: "Europe/London", publishes: true,
-    written: [writtenPage("/"), writtenPage("/gallery")],
-    answers: {
-      page: { page: [GALLERY] },
-      job: { job: [{ name: "weekly_count", fn: "count_last_week", everyMinutes: 10080, at: "08:00" }] },
-    },
-  });
-  assert.equal(r.body.ok, true, "one refused kind sank the whole addition: " + JSON.stringify(r.body).slice(0, 400));
-  assert.ok((r.body.kinds || []).includes("page"), "the page did not land: " + JSON.stringify(r.body.kinds));
-  const left = (r.body.notAdded || []).find((x) => x.kind === "job");
-  assert.ok(left, "the refused job was not named: " + JSON.stringify(r.body.notAdded));
-  assert.equal(left.why, "no-job-fn");
-  assert.match(left.msg, /function this site doesn't have/, left.msg);
-  assert.deepEqual(r.registered.map((x) => x.name), [], "a refused job was registered");
-});
 
 test("PARTIAL 2 — when every kind that designed is refused, the refusal is still the answer, at no cost", async () => {
-  const r = await addon("fw-partial-all", "every Monday count last week's bookings", {
-    kinds: ["job"], tz: "Europe/London",
-    answers: { job: { job: [{ name: "weekly_count", fn: "count_last_week", everyMinutes: 10080, at: "08:00" }] } },
+  // (A job naming a missing function until the job kind went, 2026-10-29; a
+  // function whose privacy cannot be read now.)
+  const r = await addon("fw-partial-all", "add a reminder sender", {
+    kinds: ["function"],
+    answers: { function: { function: [{ ...FN, internal: "yes" }] } },
   });
-  assert.deepEqual([r.status, r.body.error, r.body.reason, r.body.cost], [422, "add", "no-job-fn", 0], JSON.stringify(r.body).slice(0, 300));
+  assert.deepEqual([r.status, r.body.error, r.body.reason, r.body.cost], [422, "add", "bad-internal", 0], JSON.stringify(r.body).slice(0, 300));
   assert.equal(r.charges.length, 0, "a refusal charged");
 });
 

@@ -218,8 +218,10 @@ test("A09-4 CONTROL: one failed read then a good one — the retry reads the sto
   assert.ok(r.statements.length > 20, "the engine sent almost nothing: " + r.statements.length);
   assert.ok(r.written, "nothing written to _meta");
   assert.deepEqual(r.written.tables.map((t) => t.name).sort(), ["bookings", "gallery", "loaves"]);
-  assert.deepEqual((r.written.apis || []).map((a) => a.name), ["weather"]);
-  assert.deepEqual((r.written.jobs || []).map((a) => a.name), ["nightly"]);
+  // RE-ANCHORED 2026-10-29: stored outside connections and jobs are no longer
+  // carried (the model writes them as site functions), so what the merge must
+  // keep from the store is its function.
+  assert.deepEqual((r.written.functions || []).map((a) => a.name), ["count_bookings"]);
 });
 
 test("A09-4 CONTROL: a brand-new database with no _meta table is an empty store, not an unreadable one — the first apply runs and writes", async () => {

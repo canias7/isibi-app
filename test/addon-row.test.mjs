@@ -976,16 +976,16 @@ test("a ledger that refuses the reserve stops the job before anything is written
 // 4. A ROW BESIDE OTHER KINDS: set aside and said, the rest as before
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("a row asked beside a scheduled job: the job is added as before, the entry is left out by name", async () => {
+// (Beside a function and a scheduled job until the job kind went, 2026-10-29.)
+test("a row asked beside a database function: the function is added as before, the entry is left out by name", async () => {
   const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-  const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
   const db = bakeryDb();
-  const r = await addon("rows-mixed-" + hex(3), "add a rye loaf and remind me every morning", {
-    kinds: ["row", "function", "job"], stored: SPEC, db,
-    answers: { function: { function: [FN] }, job: { job: [JOB] }, row: { row: [ENTRY] } },
+  const r = await addon("rows-mixed-" + hex(3), "add a rye loaf and a reminder sender", {
+    kinds: ["row", "function"], stored: SPEC, db,
+    answers: { function: { function: [FN] }, row: { row: [ENTRY] } },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  assert.deepEqual(r.body.kinds, ["function", "job"]);
+  assert.deepEqual(r.body.kinds, ["function"]);
   assert.equal(db.rows("loaves").length, 6, "a row asked beside other kinds was written");
   assert.ok(!r.prompts.some((p) => p.kind === "row"), "the row designer ran beside other kinds");
   const aside = (r.body.notAdded || []).find((n) => n.kind === "row");

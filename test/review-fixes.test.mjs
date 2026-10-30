@@ -22,18 +22,6 @@ test("1+6: a preview gets no owner keys and no database login; old keys are forg
   assert.doesNotMatch(push, /previewScriptName/, "an owner key is still pushed to the draft's preview");
 });
 
-test("2: a site on the shared bucket never queues, drains or sweeps webhooks there", async () => {
-  const { queueFailed, drainOwnQueue, siteTick } = await loadTemplate("lib/site-webhook-retry.ts");
-  const touched = [];
-  const B = { get: async (k) => { touched.push(k); return null; }, put: async (k) => { touched.push(k); }, delete: async (k) => { touched.push(k); }, list: async (o) => { touched.push(o.prefix); return { objects: [], truncated: false }; } };
-  const env = { SITES: B, WEBHOOK_URL: "https://h.example/x" };
-  assert.equal(await queueFailed(env, { slug: "x", table: "t", action: "created", out: { sent: false, status: 503, body: "{}", eventId: "e1" } }), null);
-  await drainOwnQueue(env, "x");
-  const u = new URL("https://x.gofarther.app/__gf/tick");
-  await siteTick(new Request(u, { method: "POST", headers: { "x-gf-site-job": "1" } }), env, u, "x", "x-gf-site-job");
-  assert.deepEqual(touched, [], "the shared bucket was touched: " + touched.join(", "));
-});
-
 test("3: the clock wakes every site in turn, whatever the count", async () => {
   const src = between(W, "export function siteTickSlice(", "\n}\n") + "\n}";
   const siteTickSlice = new Function("return " + src.replace("export ", ""))();

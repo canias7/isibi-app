@@ -438,16 +438,12 @@ export function looksLikeTable(def) {
  * the rows are written while the columns are still in hand. It used to be two
  * fields away, behind `description`.
  *
- * AND THE THREE OPTIONAL TIERS COME FIRST, which is the one ordering here that
- * runs against a dependency rather than with it — stated rather than glossed. A
- * job names a function, a function's body queries tables, and a third-party read
- * feeds a page built on them; at 10, 11 and 12 all three are decided before
- * `tables` at 13 says what exists. Nothing enforces an order, so nothing breaks:
- * what it costs is that the model commits to what to schedule and fetch while
- * the thing being scheduled is still hypothetical. Reversing it is one edit to
- * this array plus the tool's own sub-order.
+ * `functions` COMES FIRST (the prebuilt jobs and outside reads that sat before
+ * it went on 2026-10-29): a function's body queries tables that `tables` then
+ * declares. Nothing enforces an order; reversing it is one edit to this array
+ * plus the tool's own sub-order.
  */
-export const BACKEND_FIELDS = ["jobs", "apis", "functions", "tables", "seed"];
+export const BACKEND_FIELDS = ["functions", "tables", "seed"];
 
 /**
  * HOIST `backend.*` BACK TO THE TOP LEVEL — the tool nests, everything else

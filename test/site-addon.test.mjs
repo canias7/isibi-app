@@ -1079,56 +1079,22 @@ test("the addon reply is DRIVEN, not grepped", () => {
   // with every list empty.
   assert.match(reply({ ok: true, recovered: true, job: "e_1" }), /published/, "a recovered reply is not said as published");
   assert.doesNotMatch(reply({ ok: true, recovered: true, job: "e_1" }), /Done —|Done\./, "a recovered reply reads as an ordinary success");
-  // A CLOCK TIME (2026-09-03): said with the job, its zone only when it is
-  // not this browser's own.
-  const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  assert.match(reply({ added: [], changed: [], jobs: [{ name: "j", everyMinutes: 1440, at: "09:00", tz: "Etc/GMT-14" }] }), /scheduled j \(every day at 09:00 \(Etc\/GMT-14\)\)/);
-  assert.match(reply({ added: [], changed: [], jobs: [{ name: "j", everyMinutes: 1440, at: "09:00", tz: here }] }), /scheduled j \(every day at 09:00\)\./, "the browser's own zone is said back to it");
   const gone = reply({ added: [], changed: [], removed: ["src/routes/prices.tsx"] });
   assert.match(gone, /removed \/prices/, gone);
   const kept = reply({ added: ["src/routes/g.tsx"], kept: [{ path: "src/routes/index.tsx", why: "home" }] });
   assert.match(kept, /I left \//, "a page we refused to delete is kept silently: " + kept);
   assert.match(reply({ added: [], problems: ["g.tsx: names a colour"] }), /names a colour/);
-  // THE BACKEND TIERS (2026-09-03): what the engine made, by name; a job with
-  // how often it runs, in a customer's words; the database the site got; a
-  // function the database refused, with its reason; the key to paste, and
-  // where. A pageless reply — a job alone — still reads as done.
+  // THE BACKEND (2026-09-03): what the engine made, by name; the database the
+  // site got; a function the database refused, with its reason. The prebuilt
+  // jobs and outside connections went on 2026-10-29: an answer still carrying
+  // them is not said back as scheduled or connected.
   const backend = reply({ added: [], changed: ["src/routes/index.tsx"], functions: ["bookings_on_day"], apis: ["exchange_rate"],
-    jobs: [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440 }, { name: "weekly", everyMinutes: 10080 }, { name: "often", everyMinutes: 45 }],
-    provisioned: true, functionErrors: [{ name: "broken_one", error: "column d does not exist" }], needsSecrets: ["RATES_KEY"] });
+    jobs: [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440 }],
+    provisioned: true, functionErrors: [{ name: "broken_one", error: "column d does not exist" }] });
   assert.match(backend, /added the function bookings_on_day/, backend);
-  assert.match(backend, /connected exchange_rate/, backend);
-  assert.match(backend, /scheduled remind_tomorrow \(every day\), weekly \(every week\), often \(every 45 minutes\)/, backend);
   assert.match(backend, /Your site has its own database now\./, backend);
   assert.match(backend, /The function broken_one couldn’t be created — column d does not exist\./, backend);
-  assert.match(backend, /add RATES_KEY under Cloud → Secrets/, backend);
-  assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
-  // ⚠ A ONE-TIME JOB IS SAID BY ITS DATE, AND THE INTERVAL IS A LIE HERE —
-  // reproduced 2026-09-19 on the reply the addon route really composes for a
-  // job stored with `on: "2026-10-03"`: **"scheduled remind_once (every 31 days
-  // at 09:00 (Europe/London))"**. `everyMinutes` is `MAX_EVERY_MINUTES` for a
-  // one-time job — a ceiling `normalizeJob` forces and `dueJobs` never consults
-  // — and it was the only number this composer knew about. The customer asked
-  // for one reminder and was told they had a monthly one.
-  const once = reply({ added: [], changed: [], jobs: [{ name: "remind_once", fn: "remind_once", everyMinutes: 44640, at: "09:00", tz: "Etc/GMT-14", on: "2026-10-03" }] });
-  assert.match(once, /scheduled remind_once \(once on 3 October 2026 at 09:00 \(Etc\/GMT-14\)\)/, once);
-  assert.ok(!/every 31 days/.test(once), "the reply still describes a one-time job by its forced interval: " + once);
-  // …AND THAT RUN NOW SPENDS IT. Nobody would guess: the button sits in the
-  // panel beside a job that has not fired, and pressing it consumes the
-  // occurrence so the scheduled tick afterwards finds the stamp and skips.
-  assert.match(once, /remind_once runs once and then stops — pressing Run now in Cloud → Schedule uses up that one run\./, once);
-  // TWO OF THEM READ AS TWO, and a recurring job beside them earns no such
-  // sentence — the note is derived from which jobs carry a readable date.
-  const mixed = reply({ added: [], changed: [], jobs: [
-    { name: "a", everyMinutes: 44640, at: "09:00", tz: "Etc/GMT-14", on: "2026-10-03" },
-    { name: "b", everyMinutes: 44640, at: "18:00", tz: "Etc/GMT-14", on: "2026-11-01" },
-    { name: "nightly", everyMinutes: 1440, at: "23:00", tz: "Etc/GMT-14" }] });
-  assert.match(mixed, /scheduled a \(once on 3 October 2026 at 09:00 \(Etc\/GMT-14\)\), b \(once on 1 November 2026 at 18:00 \(Etc\/GMT-14\)\), nightly \(every day at 23:00 \(Etc\/GMT-14\)\)/, mixed);
-  assert.match(mixed, /a, b each run once and then stop — pressing Run now/, mixed);
-  assert.ok(!/nightly runs once/.test(mixed), "a recurring job was described as one-time: " + mixed);
-  // THE RECURRING CONTROL, byte for byte what it was.
-  const daily = reply({ added: [], changed: [], jobs: [{ name: "nightly", everyMinutes: 1440, at: "23:00", tz: "Etc/GMT-14" }] });
-  assert.equal(daily, "Done — scheduled nightly (every day at 23:00 (Etc/GMT-14)).", daily);
+  assert.doesNotMatch(backend, /scheduled|connected|remind_tomorrow|exchange_rate/, backend);
   const plain = reply({ added: ["src/routes/g.tsx"], changed: [] });
   assert.ok(!/function|connected|scheduled|database|Secrets/.test(plain), "an ordinary addition mentions the backend: " + plain);
   // ⚠ A CHANGED PAGE IS "UPDATED" WHATEVER ELSE HAPPENED, and this asserted the
@@ -1425,16 +1391,16 @@ test("a table the site does not have is appended whole, exactly as before", () =
   assert.equal(tables[2].access, "display", "a NEW table keeps the access it was designed with");
 });
 
-test("PAYMENT REACHES A TABLE THAT ALREADY EXISTS — the bug this closes", () => {
-  const pay = { from: "bookings", amount: "price", currency: "GBP" };
+// 2026-10-29: the prebuilt payments went; `payment` is no longer something an
+// add-on may give a table the site already has.
+test("payment no longer reaches a table that already exists", () => {
   const { tables, added, altered } = mergeAddonSchema(priorTables(), [
-    { name: "bookings", access: "collect", columns: [], payment: pay },
+    { name: "bookings", access: "collect", columns: [], payment: { from: "bookings", amount: "price", currency: "GBP" } },
   ]);
-  assert.deepEqual(tables[0].payment, pay);
-  assert.deepEqual(added, [], "an existing table was not created");
-  assert.deepEqual(altered, [{ table: "bookings", fields: ["payment"] }]);
+  assert.equal(tables[0].payment, undefined);
+  assert.deepEqual(added, []);
+  assert.deepEqual(altered, []);
 });
-
 test("publicView reaches one too", () => {
   const view = { columns: ["slot"], where: [], limit: 500 };
   const { tables } = mergeAddonSchema(priorTables(), [
@@ -1503,20 +1469,8 @@ test("a designed table with no name is dropped rather than crashing the build", 
   assert.deepEqual(added, []);
 });
 
-test("the two alterable fields are the two that need a PAGE, and nothing else", () => {
-  assert.deepEqual(ADDON_TABLE_FIELDS, ["payment", "publicView"]);
-});
-
-test("a payable table survives normalizeSchema — the engine really receives it", async () => {
-  const { normalizeSchema } = await import("../site-schema.mjs");
-  const { tables } = mergeAddonSchema(priorTables(), [{
-    name: "bookings", access: "collect",
-    columns: [{ name: "price", type: "integer" }],
-    payment: { from: "bookings", amount: "price", currency: "GBP" },
-  }]);
-  const t = normalizeSchema({ tables }).tables[0];
-  assert.ok(t.payment, "this is the exact property the old concat dropped");
-  assert.equal(t.access, "collect");
+test("the one alterable field is the one that needs a PAGE, and nothing else", () => {
+  assert.deepEqual(ADDON_TABLE_FIELDS, ["publicView"]);
 });
 
 test("THE ROUTE USES THE MERGE, and reports what it CREATED rather than what was named", () => {
@@ -1606,7 +1560,7 @@ test("the designer is TOLD it may name an existing table, and told access is dis
   // nothing can ask for again.
   const rule = addRule("table");
   assert.match(rule, /table the site already has/i, "the add step is not told it may name an existing table");
-  assert.match(rule, /PAYMENT/, "…nor that payment is one of the things it may give one");
+  assert.doesNotMatch(rule, /PAYMENT/, "…and payment is offered again (it went 2026-10-29)");
   assert.match(rule, /public view/i, "…nor a public view");
   assert.match(rule, /access[^.]*discarded/i, "…nor that an access answer on an existing table is discarded");
 });
@@ -1626,11 +1580,6 @@ test("A FUNCTION THE DESIGNER DECLARES REACHES THE SPEC — the tier this unbloc
   assert.ok(declared.includes("functions"));
 });
 
-test("a third-party API declaration reaches it too", () => {
-  const { spec } = mergeAddonSchema(priorTables(), { tables: [], apis: [API] });
-  assert.deepEqual(spec.apis, [API]);
-});
-
 test("a build that declares none sends exactly what it sent before", () => {
   const { spec, declared } = mergeAddonSchema(priorTables(), { tables: [] });
   assert.deepEqual(Object.keys(spec), ["tables"], "an empty tier must not appear as an empty list");
@@ -1643,8 +1592,9 @@ test("an empty list is not a declaration", () => {
   assert.equal(spec.apis, undefined);
 });
 
-test("the three tiers are the ones that were dropped, and rate limits are deliberately not among them", () => {
-  assert.deepEqual(ADDON_SPEC_FIELDS, ["functions", "apis", "jobs"]);
+// The api and job tiers went with the prebuilt features (2026-10-29).
+test("the function tier is the one carried, and rate limits are deliberately not among them", () => {
+  assert.deepEqual(ADDON_SPEC_FIELDS, ["functions"]);
   assert.ok(!ADDON_SPEC_FIELDS.includes("rateLimits"),
     "an addon does not ask for rate limits and the erase semantics are a separate question");
 });
@@ -1658,14 +1608,13 @@ test("the merge still takes a bare table array, so nothing that called it the ol
 test("A DECLARED FUNCTION SURVIVES normalizeSchema — measured, because it did not before", async () => {
   const { normalizeSchema } = await import("../site-schema.mjs");
   const { spec } = mergeAddonSchema(priorTables(), { tables: [], functions: [FN], apis: [API] });
+  assert.equal(spec.apis, undefined, "a designed api is carried again");
   const n = normalizeSchema(spec);
   assert.equal((n.functions || []).length, 1, "this is the exact tier the old `{tables}` call dropped");
-  assert.equal((n.apis || []).length, 1);
   // …and the shape the route USED to send drops both, or the assertion above
   // passes against a normaliser that would have worked all along.
   const oldWay = normalizeSchema({ tables: spec.tables });
   assert.equal((oldWay.functions || []).length, 0);
-  assert.equal((oldWay.apis || []).length, 0);
 });
 
 test("THE ROUTE HANDS OVER THE WHOLE DESIGNED SPEC", () => {
@@ -1892,7 +1841,9 @@ test("the live check asks for a page the fixture does NOT have", () => {
 // by name. Handed the overlay (a spec, not a table list), the merge now
 // unions functions, apis and jobs by name, the later one winning; `declared`
 // still names only what this message designed.
-test("AB2-3 mergeAddonSchema unions the prior spec's functions, apis and jobs with the designed ones, by name", () => {
+// 2026-10-29: the api and job tiers went with the prebuilt features, so only
+// functions are unioned; a prior or designed api or job is not carried.
+test("AB2-3 mergeAddonSchema unions the prior spec's functions with the designed ones, by name", () => {
   const prior = {
     tables: [{ name: "bookings", columns: ["name"] }],
     functions: [{ name: "count_once", sql: "select 1", access: "internal" }],
@@ -1906,14 +1857,14 @@ test("AB2-3 mergeAddonSchema unions the prior spec's functions, apis and jobs wi
   };
   const r = mergeAddonSchema(prior, designed);
   assert.deepEqual(r.spec.functions.map((f) => [f.name, f.sql]), [["COUNT_ONCE", "select 3"], ["digest", "select 2"]]);
-  assert.deepEqual(r.spec.jobs.map((j) => j.name), ["daily", "weekly_digest"]);
-  assert.deepEqual(r.spec.apis.map((a) => a.name), ["weather"]);
-  assert.deepEqual(r.declared, ["functions", "jobs"]);
+  assert.equal(Object.hasOwn(r.spec, "jobs"), false);
+  assert.equal(Object.hasOwn(r.spec, "apis"), false);
+  assert.deepEqual(r.declared, ["functions"]);
   assert.deepEqual(r.spec.tables.map((t) => t.name), ["bookings"]);
   // A TABLE LIST (the live path) carries nothing but tables, exactly as before.
   const live = mergeAddonSchema(prior.tables, designed);
   assert.deepEqual(live.spec.functions.map((f) => f.name), ["digest", "COUNT_ONCE"]);
-  assert.deepEqual(live.spec.jobs.map((j) => j.name), ["weekly_digest"]);
+  assert.equal(Object.hasOwn(live.spec, "jobs"), false);
   assert.equal(Object.hasOwn(live.spec, "apis"), false);
   // CONTROL: nothing prior and nothing designed sends no spec-level key.
   assert.deepEqual(Object.keys(mergeAddonSchema({ tables: [] }, { tables: [] }).spec), ["tables"]);

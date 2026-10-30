@@ -195,17 +195,19 @@ test("migrationNote speaks only for a record whose page never came, naming what 
   });
 });
 
-test("unionSpec: the merged tables whole, the merged functions, connections and jobs first and the stored ones they do not name after, the rest of the stored spec kept", () => {
+test("unionSpec: the merged tables whole, the merged functions first and the stored ones they do not name after, the rest of the stored spec kept", () => {
   const stored = { tables: [{ name: "bookings" }], functions: [{ name: "old_fn", internal: true }, { name: "Shared" }], apis: [{ name: "rates" }], jobs: [], version: 3 };
   const merged = { tables: [{ name: "bookings" }, { name: "gear" }], functions: [{ name: "shared", sql: "new" }, { name: "new_fn" }], jobs: [{ name: "nightly" }] };
   const u = unionSpec(stored, merged);
   assert.deepEqual(u.tables.map((t) => t.name), ["bookings", "gear"], "the tables are not the merged set");
   assert.deepEqual(u.functions.map((f) => f.name), ["shared", "new_fn", "old_fn"], "the merged functions do not come first, or the stored ones they do not name are dropped");
   assert.equal(u.functions[0].sql, "new", "the stored copy of a re-declared function won");
-  assert.deepEqual(u.apis.map((a) => a.name), ["rates"], "a tier the merge did not touch lost the stored entries");
-  assert.deepEqual(u.jobs.map((j) => j.name), ["nightly"]);
+  // The prebuilt jobs and connections went on 2026-10-29: a merge's are not
+  // carried, and the stored spec's rest (old sites' entries included) is kept as it was.
+  assert.deepEqual(u.apis.map((a) => a.name), ["rates"], "the rest of the stored spec lost an entry");
+  assert.deepEqual(u.jobs, [], "a merge's jobs were carried");
   assert.equal(u.version, 3, "the rest of the stored spec was dropped");
-  assert.deepEqual(unionSpec(null, null), { tables: [], functions: [], apis: [], jobs: [] });
+  assert.deepEqual(unionSpec(null, null), { tables: [], functions: [] });
   assert.deepEqual(unionSpec({ tables: [{ name: "a" }] }, {}).tables.map((t) => t.name), ["a"], "a merge with no tables lost the stored ones");
 });
 
@@ -257,9 +259,9 @@ test("the apply is a closure built inside the backend block and called exactly t
   assert.ok(!/\bapplySiteSchema\(/.test(r.slice(0, at(r, "aApplyBackend = async (version) => {", "the closure"))), "the schema is still applied inline, before the closure");
   const closure = blockFrom(block, at(block, "aApplyBackend = async (version) => {", "the closure"));
   assert.match(closure, /aMade = await applySiteSchema\(adb, merged\);/, "the closure does not apply the schema");
-  assert.match(closure, /await persistSiteJobs\(env, ou\.id, ownerSlug, merged\.jobs\);/, "the closure does not register the jobs");
+  assert.doesNotMatch(closure, /persistSiteJobs/, "the closure still registers prebuilt jobs");
   assert.match(closure, /aSeeded = await seedSiteRows\(adb, merged, aSeed\);/, "the closure does not seed the rows");
-  assert.match(closure, /aSecrets = \[\.\.\.new Set\(/, "the closure does not read the secrets a connection needs");
+  assert.doesNotMatch(closure, /aSecrets = /, "the closure still reads the secrets a prebuilt connection needed");
   // The union precedes the closure, and the page call reads `aSpec`.
   const union = at(block, "aSpec = unionSpec(aSpec, merged);", "the union");
   assert.ok(union < at(block, "aApplyBackend = async (version) => {"), "the union is not before the closure");

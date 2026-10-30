@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { deadNewFunctions, jobsWithoutDead } from "../site-draft.mjs";
+import { deadNewFunctions } from "../site-draft.mjs";
 
 const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 /** The source between two landmarks, both asserted present first. */
@@ -24,25 +24,11 @@ test("A04-3: only a function the site did not already have counts as dead", () =
   assert.deepEqual(deadNewFunctions([], []), []);
 });
 
-test("A04-3: jobs on a dead function are split out, the rest kept", () => {
-  const jobs = [{ name: "nudge", fn: "REMIND" }, { name: "tidy", fn: "old_fn" }];
-  const r = jobsWithoutDead(jobs, ["remind"]);
-  assert.deepEqual(r.jobs.map((j) => j.name), ["tidy"]);
-  assert.deepEqual(r.blocked, [{ name: "nudge", fn: "REMIND" }]);
-  assert.deepEqual(jobsWithoutDead(jobs, undefined).jobs.length, 2);
-  assert.deepEqual(jobsWithoutDead(undefined, ["remind"]), { jobs: [], blocked: [] });
-});
-
-test("A04-3: the publication's schema step keeps the dead functions, and its jobs step leaves their jobs out, told", () => {
-  const schema = between('if (!did("schema")) {', 'if (!did("jobs")) {');
+test("A04-3: the publication's schema step keeps the dead functions", () => {
+  const schema = between('if (!did("schema")) {', 'if (!did("seeds")) {');
   assert.match(schema, /const made = await live\.applySiteSchema\(/);
   assert.match(schema, /deadNewFunctions\(made && made\.functionErrors, prior\)/);
   assert.match(schema, /mark\("schema", dead\.length \? \{ deadFns: dead \} : \{\}\)/);
-  const jobs = between('if (!did("jobs")) {', 'if (!did("seeds")) {');
-  assert.match(jobs, /jobsWithoutDead\(plan\.jobs, j\.deadFns\)/);
-  assert.match(jobs, /skipped\.push\(\{ stage: "jobs"/);
-  assert.match(jobs, /persistSiteJobs\(env, j\.uid, slug, sorted\.jobs\)/);
-  assert.doesNotMatch(jobs, /persistSiteJobs\(env, j\.uid, slug, plan\.jobs\)/);
 });
 
 test("A06-5: the Edit page rung overlays the draft's held changes on its schema before the writer", () => {

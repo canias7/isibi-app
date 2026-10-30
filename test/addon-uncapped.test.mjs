@@ -19,8 +19,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   cleanAdd, foldAdds, mergePageBatches, pageBatchDirectives, ADD_PAGE_BATCH, UNCAPPED,
-  MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS,
-  MAX_ADD_JOBS, MAX_SECTIONS, MAX_OWN_PHOTOS, MAX_ADD_WORDS, MAX_ADD_MANIFEST, addRefusal, addTool,
+  MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_FUNCTIONS,
+  MAX_SECTIONS, MAX_OWN_PHOTOS, MAX_ADD_WORDS, MAX_ADD_MANIFEST, addRefusal, addTool,
 } from "../builder/site-add.mjs";
 import { frameFollowOn } from "../builder/request.mjs";
 import { COMPONENT_MENU } from "../builder/site-plan.mjs";
@@ -37,7 +37,7 @@ const TABLES = Array.from({ length: 12 }, (_, i) => ({ table: { name: "list_" + 
 const FUNCTIONS = Array.from({ length: 8 }, (_, i) => ({ name: "count_" + i, returns: "void", internal: true, body: "BEGIN PERFORM 1; END;" }));
 
 test("every add-on cap is gone: the constants are unbounded and nothing is named over-cap", () => {
-  for (const [n, c] of Object.entries({ MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MAX_SECTIONS, MAX_OWN_PHOTOS, MAX_ADD_WORDS, MAX_ADD_MANIFEST })) {
+  for (const [n, c] of Object.entries({ MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_FUNCTIONS, MAX_SECTIONS, MAX_OWN_PHOTOS, MAX_ADD_WORDS, MAX_ADD_MANIFEST })) {
     assert.equal(c, UNCAPPED, n + " is still a cap");
   }
   assert.equal(UNCAPPED, Infinity);

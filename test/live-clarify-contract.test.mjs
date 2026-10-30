@@ -726,7 +726,11 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // page writer's tool gained the `server` field (the site's own server code, its
   // rules, a chatbot example and the hooks; then live answers, files and exact
   // schedules); nothing else in the request moved.
-  const pinned = { build: "f03d9495a9a3f90c", revise: "99437c2195fb1745", addon: "90bdcee6534d6cc6" };
+  // RE-PINNED 2026-10-29 (the owner's decision to delete the prebuilt site
+  // features): page-gen's rule 14 (payments, after-submission effects, outside
+  // connections, scheduled jobs, the spam check) became "WHAT THE SITE HAS",
+  // and the prose that described them left; all three requests carry it.
+  const pinned = { build: "d166e49ef0b9d33e", revise: "8463e1022c440ad0", addon: "f25a556b0b8d9c3a" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last

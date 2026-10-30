@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
-import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM } from "../builder/site-table.mjs";
 import { TSX_ITEM, MAX_TSX, TOOL_DIRECTIVE } from "../builder/site-plan.mjs";
 import { MAX_ADD_MANIFEST as MAX_COMPONENTS } from "../builder/site-add.mjs";
 import { MAX_PAGES } from "../builder/page-gen.mjs";
@@ -33,12 +33,11 @@ import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
 import { MAX_QRS } from "../builder/site-qr-list.mjs";
 import { IMAGE_CAP, MAX_PROMPT_CHARS } from "../builder/site-images.mjs";
-import { MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, AT_RE as JOBS_AT_RE, ON_RE as JOBS_ON_RE } from "../site-jobs.mjs";
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
 import { wordsParts as WP, wordsLanded as WL, renderedLinks as RL } from "../builder/site-add.mjs";
 import {
   ADD_PAGE_BATCH, ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_WORDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
-  BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, MAX_JOB_MINUTES, AT_RE, ON_RE, onceDay, backendDesigned, pageless, jobEvery,
+  BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, backendDesigned, pageless,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
@@ -585,13 +584,14 @@ test("a message may name every kind, and the kinds that come in numbers answer l
   // answer is a list like every other kind that comes in numbers. `row`
   // JOINED 2026-10-01 for the same reason: "add a rye and a spelt" is two
   // entries in one list.
-  assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "photo", "row", "table", "words"]);
+  // `api` and `job` LEFT 2026-10-29 with the prebuilt features.
+  assert.deepEqual([...LIST_ADDS].sort(), ["component", "function", "page", "photo", "row", "table", "words"]);
   // ⚠ THE CEILING LEFT THE TOOLS ON 2026-10-03 (the mixed-work fixes). Each
   // list kind's tool said `maxItems`, which tells a model to leave the rest out
   // — so an entry past it never reached the cleaner, and `over-cap` never named
   // it. The tools ask for everything asked for now; the cleaner keeps what a
   // site can hold (the same numbers, below) and names every entry past it.
-  const caps = { table: MAX_ADD_TABLES, row: MAX_ADD_ROWS, function: MAX_ADD_FUNCTIONS, api: MAX_ADD_APIS, job: MAX_ADD_JOBS,
+  const caps = { table: MAX_ADD_TABLES, row: MAX_ADD_ROWS, function: MAX_ADD_FUNCTIONS,
     page: MAX_ADD_PAGES, component: MAX_ADD_COMPONENTS, words: MAX_ADD_WORDS, photo: IMAGE_CAP };
   for (const k of LIST_ADDS) {
     const p = addTool(k).input_schema.properties[k];
@@ -612,7 +612,7 @@ test("a message may name every kind, and the kinds that come in numbers answer l
   // NO ADD-ON LIMITS (owner, 2026-10-24). The pages are written ADD_PAGE_BATCH
   // to a writer, so page-gen's MAX_PAGES bounds one batch, never the addition.
   assert.ok(ADD_PAGE_BATCH <= MAX_PAGES, "one batch asks a writer for more pages than it keeps");
-  for (const c of [MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS]) assert.equal(c, Infinity);
+  for (const c of [MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_FUNCTIONS]) assert.equal(c, Infinity);
   // And the rules say "as many as they asked for", never "one".
   //
   // `table` IS THE EXCEPTION AND IT IS A DELIBERATE REVERSAL (owner,
@@ -1025,7 +1025,7 @@ test("cleanAdd: a component lands on the one page a one-page site has, is refuse
   assert.equal(own.ok, true); assert.deepEqual(own.value[0].components, []); assert.equal(own.value[0].tsx[0].name, "tide-clock");
 });
 
-test("cleanAdd: a table needs a name and columns unless it gives an existing table payment or a public view", () => {
+test("cleanAdd: a table needs a name and columns unless it gives an existing table a public view", () => {
   const ok = cleanAdd("table", { table: { name: "Bookings", columns: [{ name: "when", type: "text" }, { nope: 1 }], access: "collect" }, seed: [{ when: "x" }, "junk", ...Array(20).fill({ when: "y" })], shows: "/" }, DB);
   assert.equal(ok.ok, true);
   const t = ok.value[0];
@@ -1042,7 +1042,8 @@ test("cleanAdd: a table needs a name and columns unless it gives an existing tab
   assert.equal(t.exists, true);
   assert.equal(cleanAdd("table", { table: { name: "bookings", columns: [] } }, SITE).why, "no-columns");
   assert.equal(cleanAdd("table", { table: { name: "orders", columns: [], payment: { from: "products" } } }, DB).why, "no-columns", "payment on a table the site does not have is not an alteration");
-  assert.equal(cleanAdd("table", { table: { name: "bookings", columns: [], payment: { from: "services" } } }, DB).ok, true);
+  // Payment is no longer an alteration (2026-10-29, the prebuilt payments went).
+  assert.equal(cleanAdd("table", { table: { name: "bookings", columns: [], payment: { from: "services" } } }, DB).why, "no-columns");
   assert.equal(cleanAdd("table", { table: { name: "bookings", columns: [], publicView: { columns: ["when"] } } }, DB).ok, true);
   assert.equal(cleanAdd("table", { table: { name: "Bad Name", columns: [{ name: "a" }] } }, DB).why, "no-table");
   assert.equal(cleanAdd("table", { table: ["bookings"] }, DB).why, "no-table");
@@ -1245,12 +1246,9 @@ test("every refusal token has a sentence of its own, and the already-reply names
     // Run 26: a code opening one of the site's own pages — a page it lacks,
     // or an address the route could not read.
     "no-such-page", "no-address",
-    // The backend tiers (2026-09-03): a function with no body or return, a
-    // connection with no name or a plain-http address, a job with no name
-    // or naming a function the site may not run.
-    "no-function", "no-api", "bad-url", "no-job", "no-job-fn",
-    // A clock time on a job that runs more often than daily (2026-09-03).
-    "bad-time"];
+    // The backend tier (2026-09-03): a function with no body or return.
+    // (The connection's and job's refusals went with them, 2026-10-29.)
+    "no-function"];
   const seen = new Set();
   for (const t of tokens) {
     const s = addRefusal(t, "page");
@@ -1278,46 +1276,24 @@ test("every refusal token has a sentence of its own, and the already-reply names
 // needed … if customer touches it then neon db is created". Three more kinds,
 // the build's own item shapes by identity, and a site that gets its database
 // the first time any of the four is designed for it.
-test("the three other tiers are kinds here — the build's own shapes by identity, in run order, on the engine's own floor", async () => {
+// 2026-10-29: the api and job kinds went with the prebuilt features; the
+// function is the one other tier.
+test("the function tier is a kind here — the build's own shape by identity, in run order", async () => {
   for (const k of BACKEND_ADDS) assert.ok(OWN_ADDS.includes(k), k + " is a backend kind this module does not design");
-  assert.deepEqual(BACKEND_ADDS, ["table", "function", "api", "job"]);
-  assert.deepEqual(BACKEND_KEYS, ["tables", "functions", "apis", "jobs"], "the fold keys are not derived from the kinds");
-  // RUN ORDER: a table before the function that reads it, both before the
-  // job that runs the function, all before the page that shows them.
+  assert.deepEqual(BACKEND_ADDS, ["table", "function"]);
+  assert.deepEqual(BACKEND_KEYS, ["tables", "functions"], "the fold keys are not derived from the kinds");
+  assert.ok(!ADD_KINDS.includes("api") && !ADD_KINDS.includes("job"), "a prebuilt connection or job is a kind again");
+  // RUN ORDER: a table before the function that reads it, both before the page that shows them.
   const order = BACKEND_ADDS.map((k) => ADD_KINDS.indexOf(k));
   assert.ok(order.every((i, n) => i >= 0 && (n === 0 || i > order[n - 1])) && order[order.length - 1] < ADD_KINDS.indexOf("page"), "the backend kinds do not run in order, before the page");
   const { tool: build } = await readSchemaTool();
   const backend = build.input_schema.properties.backend.properties;
-  for (const [k, item, key] of [["function", FUNCTION_ITEM, "functions"], ["api", API_ITEM, "apis"], ["job", JOB_ITEM, "jobs"]]) {
-    // THE JOB'S ITEM IS THE SHARED ONE PLUS ITS OWN `function` (owner,
-    // 2026-10-22, option B), which is the function item itself.
-    if (k === "job") {
-      const own = addTool(k).input_schema.properties[k].items;
-      const { function: fnField, ...rest } = own.properties;
-      assert.deepEqual({ ...own, properties: rest }, item, "the job's item is not the shared shape plus its function");
-      assert.deepEqual(fnField.properties, FUNCTION_ITEM.properties, "the job's own function is not the function item");
-    } else assert.equal(addTool(k).input_schema.properties[k].items, item, k + "'s item is not the shared shape");
-    assert.deepEqual(backend[key].items, item, "the build tool's " + key + " item is not the shared one — two shapes again");
-  }
-  // The engine's floor for a job and this module's are one number, and the
-  // rule says it.
-  assert.equal(MIN_JOB_MINUTES, MIN_EVERY_MINUTES, "the job floor drifted from site-jobs.mjs");
-  // ⚠ AND THE CEILING, WHICH MATTERS MORE THAN THE FLOOR. A one-time job's
-  // interval is FORCED to this value as a fail-safe: if `spec.on` is ever lost
-  // the job degrades to *at most monthly* rather than to whatever the model
-  // asked for. If the two numbers drift apart, that fail-safe silently becomes
-  // whatever number THIS file happens to hold — which is the runaway the field
-  // exists to prevent, arriving through the twin.
-  assert.equal(MAX_JOB_MINUTES, MAX_EVERY_MINUTES, "the job ceiling drifted from site-jobs.mjs");
-  assert.equal(String(ON_RE), String(JOBS_ON_RE), "the one-time date shape drifted from site-jobs.mjs");
-  assert.match(addRule("job"), new RegExp("under " + MIN_JOB_MINUTES + " minutes"), "the job rule does not say the floor");
-  // The picker is told a reminder is a job AND a function.
-  const desc = pickTool().input_schema.properties.kinds.description;
-  assert.match(desc, /is a `job` AND a `function` \(the job runs a function/, "the picker's examples do not say a job needs its function");
-  assert.match(desc, /"job" — [^\n]*`job` AND a `function`/, "the job hint does not say so");
+  assert.equal(addTool("function").input_schema.properties.function.items, FUNCTION_ITEM, "function's item is not the shared shape");
+  assert.deepEqual(backend.functions.items, FUNCTION_ITEM, "the build tool's functions item is not the shared one — two shapes again");
+  assert.ok(!backend.apis && !backend.jobs, "the build tool still asks for apis or jobs");
 });
 
-test("cleanAdd: a function needs a name, a body and a return; a connection an https address; a job a function the site may run", () => {
+test("cleanAdd: a function needs a name, a body and a return", () => {
   const DBF = { ...DB, functions: ["booking_by_claim", "bookings_due_tomorrow"], jobFns: ["bookings_due_tomorrow"] };
   const fn = cleanAdd("function", [
     { name: "Bookings_On_Day", args: [{ name: "d", type: "text" }, { nope: 1 }], returns: "int", body: "SELECT count(*)::int FROM bookings WHERE preferred_day = d" },
@@ -1348,77 +1324,48 @@ test("cleanAdd: a function needs a name, a body and a return; a connection an ht
   assert.deepEqual(priv.skipped, [{ why: "bad-internal", name: "reads_private" }, { why: "no-invoker", name: "wants_invoker" }]);
   assert.equal(cleanAdd("function", [{ name: "Bad Name", returns: "int", body: "SELECT 1" }], DBF).why, "no-function");
   assert.equal(cleanAdd("function", [{ name: "twice", returns: "int", body: "SELECT 1" }, { name: "twice", returns: "int", body: "SELECT 2" }], DBF).value.length, 1, "a name repeated in one answer is kept twice");
-  const api = cleanAdd("api", [
-    { name: "Exchange_Rate", url: "https://api.frankfurter.app/latest?from=GBP&to=EUR", method: "get", params: ["from", "Bad Name"], cacheSeconds: 99999, headers: { Accept: "application/json", nope: 3 } },
-    { name: "plain", url: "http://x.test" },
-    { name: "posted", url: "https://x.test/graphql", method: "POST", body: "{\"query\":\"{ rates }\"}" },
-  ], DBF);
-  assert.equal(api.ok, true);
-  assert.deepEqual(api.value[0], { name: "exchange_rate", url: "https://api.frankfurter.app/latest?from=GBP&to=EUR", method: "GET", headers: { Accept: "application/json" }, params: ["from"], cacheSeconds: 3600, exists: false });
-  assert.equal(api.value[1].body, "{\"query\":\"{ rates }\"}", "a POST body is dropped");
-  assert.deepEqual(api.skipped, [{ why: "bad-url", name: "plain" }], "a plain-http service is accepted, or refused under another name");
-  assert.equal(cleanAdd("api", [{ name: "x" }], DBF).why, "bad-url");
-  assert.equal(cleanAdd("api", [{ url: "https://x.test" }], DBF).why, "no-api");
-  const job = cleanAdd("job", [
-    { name: "Remind_Tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 5 },
-    { name: "bad", fn: "booking_by_claim", everyMinutes: 60 },
-    { name: "worse", fn: "nothing", everyMinutes: 60 },
-  ], DBF);
-  assert.equal(job.ok, true);
-  assert.deepEqual(job.value, [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: MIN_JOB_MINUTES, exists: false }], "a job under the floor is not raised to it, or a name is not lowered");
-  assert.deepEqual(job.skipped.map((s) => s.why), ["no-job-fn", "no-job-fn"], "a job naming a function a visitor could call, or none at all, is kept");
-  assert.equal(cleanAdd("job", [{ name: "x", fn: "nothing", everyMinutes: 60 }], DBF).why, "no-job-fn");
-  assert.equal(cleanAdd("job", [{ fn: "bookings_due_tomorrow", everyMinutes: 60 }], DBF).why, "no-job");
-  // THE SITE'S `jobFns` IS THE ONE LIST A JOB MAY NAME FROM — `functions`
-  // alone is not enough, because the engine drops a job on a public function.
-  assert.equal(cleanAdd("job", [{ name: "x", fn: "booking_by_claim", everyMinutes: 60 }], { ...DBF, jobFns: [] }).why, "no-job-fn");
-  assert.equal(cleanAdd("job", [{ name: "x", fn: "fresh", everyMinutes: 60 }], { ...DBF, jobFns: ["fresh"] }).ok, true, "a builder the route appended after the function designer is refused");
+  // The api and job kinds went on 2026-10-29: cleanAdd refuses them as unknown kinds.
+  for (const k of ["api", "job"]) assert.notEqual(cleanAdd(k, [{ name: "x", url: "https://x.test", fn: "bookings_due_tomorrow", everyMinutes: 60 }], DBF).ok, true, k + " is cleaned again");
 });
 
-test("the note lists each table with its columns, the functions a job may run apart, and says a site with no database gets one on first touch", () => {
+test("the note lists each table with its columns and the functions, and says a site with no database gets one on first touch", () => {
   const n = siteNote({ ...DB, tables: ["bookings", "lessons"], columns: { bookings: ["name text", "email text", "preferred_day text"], lessons: "junk" },
     functions: ["booking_by_claim", "bookings_due_tomorrow"], jobFns: ["bookings_due_tomorrow"], apis: ["exchange_rate"], jobs: ["remind_tomorrow"] });
   assert.match(n, /It stores: bookings \(name text, email text, preferred_day text\), lessons\./, "the columns are not printed beside their table");
   assert.match(n, /Its database functions are: booking_by_claim, bookings_due_tomorrow\./);
-  assert.match(n, /The functions a scheduled job may run are: bookings_due_tomorrow\./, "the job designer is not told which functions it may name");
-  assert.match(n, /Its outside connections are: exchange_rate\./);
-  assert.match(n, /Its scheduled jobs are: remind_tomorrow\./);
+  // The prebuilt jobs and connections went on 2026-10-29: an old site's are not offered.
+  assert.doesNotMatch(n, /scheduled job|outside connections|exchange_rate|remind_tomorrow/);
   assert.match(siteNote(DB), /It stores: bookings\./, "a table with no columns given is not printed bare");
   const none = siteNote(SITE);
   assert.match(none, /NO database yet/);
-  assert.match(none, /first table, function, outside connection or scheduled job you design for it creates one/, "the designer is not told a first touch makes the database");
+  assert.match(none, /first table or function you design for it creates one/, "the designer is not told a first touch makes the database");
   assert.ok(!/cannot be added/.test(none), "the note still says a table cannot be added to a site with no database");
   assert.ok(!/functions are/.test(siteNote(DB)), "a site with no functions is told it has some");
 });
 
-test("the fold carries the three tiers as name-keyed lists; the directive says what a page calls and that a job changes no page; pageless is decided here", () => {
+// 2026-10-29: the api and job tiers went; the fold carries the functions.
+test("the fold carries the function tier as a name-keyed list; the directive says what a page calls; pageless is decided here", () => {
   const DBF = { ...DB, jobFns: ["bookings_due_tomorrow"] };
   const fn = cleanAdd("function", [{ name: "bookings_on_day", args: [{ name: "d", type: "text" }], returns: "int", body: "SELECT 1", internal: false }, { name: "bookings_due_tomorrow", returns: "json", body: "SELECT '[]'::json", internal: true }], DBF).value;
-  const api = cleanAdd("api", [{ name: "exchange_rate", url: "https://x.test/r?k={{RATES_KEY}}", params: ["base"] }], DBF).value;
-  const job = cleanAdd("job", [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440 }], DBF).value;
-  const f = foldAdds([{ kind: "function", value: fn }, { kind: "api", value: api }, { kind: "job", value: job }], {}, DBF);
+  const f = foldAdds([{ kind: "function", value: fn }], {}, DBF);
   assert.deepEqual(f.designed.functions, [
     { name: "bookings_on_day", args: [{ name: "d", type: "text" }], returns: "int", body: "SELECT 1", internal: false },
     { name: "bookings_due_tomorrow", args: [], returns: "json", body: "SELECT '[]'::json", internal: true },
   ], "the functions do not reach the spec in the engine's shape, or `internal` is lost");
-  assert.deepEqual(f.designed.apis, [{ name: "exchange_rate", url: "https://x.test/r?k={{RATES_KEY}}", method: "GET", params: ["base"] }], "`exists` rides into the spec, or the connection is lost");
-  assert.deepEqual(f.designed.jobs, [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440 }]);
   assert.equal(f.designed.tables, undefined, "a fold with no table stores one");
-  assert.deepEqual(backendDesigned(f.designed), ["functions", "apis", "jobs"]);
-  assert.deepEqual(backendDesigned({ tables: [{ name: "x" }], functions: [] }), ["tables"]);
+  assert.equal(f.designed.apis, undefined);
+  assert.equal(f.designed.jobs, undefined);
+  assert.deepEqual(backendDesigned(f.designed), ["functions"]);
+  assert.deepEqual(backendDesigned({ tables: [{ name: "x" }], functions: [], apis: [{ name: "a" }], jobs: [{ name: "j" }] }), ["tables"]);
   assert.deepEqual(backendDesigned(null), []);
   assert.match(f.directive, /## The function this change adds\n- `bookings_on_day\(d: text\) -> int` is live in the site's database\. Call it by NAME/, "the page writer is not told the function and the hooks");
   assert.match(f.directive, /`bookings_due_tomorrow\(\) -> json` is live in the site's database, INTERNAL/, "an internal function is offered to the page");
-  assert.match(f.directive, /useApi\("exchange_rate", \{ base \}\)/, "the page writer is not told how to read the connection");
-  // "every day", not "every 1440 minutes" (2026-09-03, `jobEvery`).
-  assert.match(f.directive, /## The scheduled job this change adds\n- `remind_tomorrow` runs `bookings_due_tomorrow\(\)` every day and sends[^\n]*It changes NO page/, "the page writer is told to write a page for a job");
+  assert.doesNotMatch(f.directive, /useApi|scheduled job/);
   assert.match(addDirective("function", { name: "f", args: [], returns: "int", exists: true }, DB), /this change replaces/, "a function named again is not said to be replaced");
-  // PAGELESS: a job, or internal functions alone, changes no page; anything
-  // else does, and nothing at all is not pageless.
-  assert.equal(pageless([{ kind: "job", value: job }]), true);
-  assert.equal(pageless([{ kind: "function", value: [fn[1]] }, { kind: "job", value: job }]), true);
+  // PAGELESS: internal functions alone change no page; anything else does,
+  // and nothing at all is not pageless.
+  assert.equal(pageless([{ kind: "function", value: [fn[1]] }]), true);
   assert.equal(pageless([{ kind: "function", value: fn }]), false, "a function a page calls is pageless");
-  assert.equal(pageless([{ kind: "api", value: api }, { kind: "job", value: job }]), false, "a connection a page reads is pageless");
   assert.equal(pageless([{ kind: "table", value: [{ table: { name: "t" } }] }]), false);
   assert.equal(pageless([]), false, "nothing to add is pageless — it is `declined`");
   assert.equal(pageless([{ kind: "function", value: [] }]), false);
@@ -1430,7 +1377,8 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   const W = blankComments(read("../worker.js"));
   const b = W.slice(at(W, "if (ad) {", "addon"), at(W, "if (tx) {", "addon end"));
   assert.match(W, /import \{[^}]*\bbackendDesigned\b[^}]*\bpageless\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "the two decisions are not imported");
-  assert.match(W, /import \{[^}]*\bnormalizeJob\b[^}]*\} from "\.\/site-jobs\.mjs"/, "the engine's job reader is not imported");
+  // The prebuilt jobs and connections went on 2026-10-29: their reader is not imported.
+  assert.doesNotMatch(W, /from "\.\/site-jobs\.mjs"/, "the engine's job reader is imported again");
   // THE SITE, as the designers see it: the tables with their columns, the
   // three tiers by name, and the internal functions apart.
   // RE-ANCHORED 2026-09-14, and the rename is the change: the facts are a
@@ -1523,27 +1471,10 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
     "the route no longer asks which of the four backend states this site is in");
   assert.match(b, /if \(aBack\.state === "none"\) aSpec = \{ tables: \[\] \};/,
     "`{tables: []}` is no longer keyed on the ONE state in which it is true");
-  // A JOB ON A STORED INTERNAL FUNCTION is re-attached through the engine's
-  // own reader, only when the stored function really is internal.
+  // NO JOB IS RE-ATTACHED (2026-10-29): the prebuilt jobs went.
   const norm = at(b, "const merged = normalizeSchema(folded.spec);", "normalize");
   const reattach = b.slice(norm, at(b, "let aSeed = aDesigned.seed;", "seed"));
-  assert.match(reattach, /const j = normalizeJob\(raw\);/, "a designed job is not read by the engine's reader");
-  // RE-ANCHORED 2026-09-19, NOT APPEASED. This was pinned to the inline filter
-  // `f && f.internal && String(f.name).toLowerCase() === j.fn`, which is a
-  // SPELLING — and that spelling was the whole defect: the AUDIT a thousand
-  // lines above had no equivalent, so the two answered differently about the
-  // same job and run 52 registered one the customer was told could not be
-  // created. `storedJobFns` is now the one rule and BOTH read it, which is a
-  // strictly stronger claim than the filter existing here.
-  assert.match(reattach, /aJobFns\.has\(j\.fn\)/, "the re-attachment no longer asks which functions a job may name");
-  assert.match(b, /const aJobFns = storedJobFns\(aSpec\);/,
-    "the apply built its own idea of which stored functions a job may name");
-  assert.doesNotMatch(reattach, /f\.internal/,
-    "the re-attachment kept a second, inline copy of the rule it now shares with the audit");
-  // …AND THE AUDIT ASKS THE SAME RULE. Without this the two can drift apart
-  // again by editing either one, which is exactly how the defect arrived.
-  assert.match(b, /k === "job" \? withJobDeps\(withMine\) : withMine/,
-    "the audit validates a job without the site's own functions present");
+  assert.doesNotMatch(reattach, /normalizeJob\(|aJobFns/, "a job is re-attached again");
   // THE SEED NET ONLY FOR AN ADDED TABLE; the engine's report read for what
   // it made; the jobs registered by the build route's own call.
   const apply = at(b, "aMade = await applySiteSchema(adb, merged);", "apply");
@@ -1551,8 +1482,7 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   const made = b.slice(apply, at(b, "aSeeded = await seedSiteRows(adb, merged, aSeed)", "seeding"));
   assert.match(made, /aFunctions = aNamed\("functions"\)\.filter\(\(n\) => aMadeFns\.includes\(n\)\);/, "the reply names functions the engine did not make");
   assert.match(made, /aFnErrors = Array\.isArray\(aMade && aMade\.functionErrors\)/, "a function the database refused is not carried");
-  assert.match(made, /await persistSiteJobs\(env, ou\.id, ownerSlug, merged\.jobs\);/, "the jobs are not registered");
-  assert.match(made, /flatMap\(\(a\) => secretsNeeded\(a\)\)/, "the secrets a connection needs are not read");
+  assert.doesNotMatch(made, /persistSiteJobs|secretsNeeded/, "prebuilt jobs are registered, or a connection's secrets read, again");
   // PAGELESS: before the page call, billed through the one charge, answered
   // in the page path's shape. RE-ANCHORED 2026-09-05 (stage 8): the schema
   // work above is a CLOSURE the pageless path runs itself before it answers
@@ -1687,42 +1617,6 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
 // "Every day at nine" was "every 1440 minutes from whenever it was added".
 // The designer answers `at`; the zone is the owner's browser's, read by the
 // route and stamped on the cleaned job; the fold carries both to the engine.
-test("a job's clock time is cleaned, refused off a faster job, folded with the zone the route stamps, and said in words", () => {
-  assert.equal(String(AT_RE), String(JOBS_AT_RE), "the clock-time shape drifted from site-jobs.mjs");
-  const DBF = { ...DB, functions: ["due"], jobFns: ["due"] };
-  const c = cleanAdd("job", [
-    { name: "remind", fn: "due", everyMinutes: 1440, at: "09:00" },
-    { name: "hourly", fn: "due", everyMinutes: 60, at: "09:00" },
-    { name: "junk", fn: "due", everyMinutes: 1440, at: "9am" },
-    { name: "plain", fn: "due", everyMinutes: 60 },
-  ], DBF);
-  assert.deepEqual(c.value, [{ name: "remind", fn: "due", everyMinutes: 1440, at: "09:00", exists: false }, { name: "plain", fn: "due", everyMinutes: 60, exists: false }]);
-  assert.deepEqual(c.skipped, [{ why: "bad-time", name: "hourly" }, { why: "bad-time", name: "junk" }], "a time on an hourly job, or an unreadable time, is kept or dropped silently");
-  assert.match(addRefusal("bad-time"), /once a day or less often/);
-  assert.ok(!Object.hasOwn(c.value[0], "tz"), "this module invented a zone — only the route knows it");
-  // The route stamps the zone; the fold carries both to the engine.
-  const stamped = c.value.map((j) => (j.at ? { ...j, tz: "Europe/London" } : j));
-  const f = foldAdds([{ kind: "job", value: stamped }], {}, DBF);
-  assert.deepEqual(f.designed.jobs, [{ name: "remind", fn: "due", everyMinutes: 1440, at: "09:00", tz: "Europe/London" }, { name: "plain", fn: "due", everyMinutes: 60 }]);
-  assert.match(f.directive, /`remind` runs `due\(\)` every day at 09:00 \(Europe\/London\) and sends/, "the page writer is not told the clock time");
-  assert.equal(jobEvery({ everyMinutes: 1440, at: "09:00", tz: "Europe/London" }), "every day at 09:00 (Europe/London)");
-  assert.equal(jobEvery({ everyMinutes: 10080 }), "every week");
-  assert.equal(jobEvery({ everyMinutes: 2880, at: "18:30" }), "every 2 days at 18:30");
-  assert.equal(jobEvery({ everyMinutes: 45 }), "every 45 minutes");
-  assert.equal(jobEvery({ everyMinutes: 1440, at: "9am" }), "every day", "an unreadable time is said");
-  // The shape offers it, the rule says it.
-  assert.equal(JOB_ITEM.properties.at.type, "string");
-  assert.match(addRule("job"), /`at` for the time of day/, "the job rule does not mention the clock time");
-  // THE ROUTE: the zone read from the post through Intl, stamped on jobs with
-  // a time as they are cleaned, and carried to the reply.
-  const W = blankComments(read("../worker.js"));
-  const b = W.slice(at(W, "if (ad) {", "addon"), at(W, "if (tx) {", "addon end"));
-  assert.match(b, /const aTz = validTimeZone\(ab && ab\.tz\);/, "the owner's zone is not read from the post");
-  assert.match(b, /if \(k === "job" && aTz\) \{\s*for \(const j of Array\.isArray\(clean\.value\) \? clean\.value : \[\]\) if \(j && j\.at\) j\.tz = aTz;/, "a job with a time is not stamped with the zone");
-  assert.match(b, /\.\.\.\(j\.at \? \{ at: j\.at, tz: j\.tz \|\| null \} : \{\}\)/, "the reply drops the clock time");
-  assert.match(W, /import \{[^}]*\bvalidTimeZone\b[^}]*\} from "\.\/site-jobs\.mjs"/, "validTimeZone is not imported");
-});
-
 // ── THE ADD STEP'S OWN REPAIR (owner, 2026-09-04: "each path has a repair path") ──
 //
 // "Try to fix it, if not fix, send as it is." Run 34's gear addon published a

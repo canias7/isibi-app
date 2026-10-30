@@ -18,7 +18,8 @@
 //     unrelated, and which listed thing carries it out;
 //   · execution — CODE: every id it names must be one it was shown, and must
 //     really have been applied or already be there, with the part of a table
-//     that does the work (`table:signups:notify`, `…:confirm`, `…:sms`).
+//     that does the work (a column: `table:signups.email`; the email and text
+//     parts a table once had went with those features, 2026-10-29).
 // The cases check the facts the reply model is really given
 // (`addonReplyFacts`), not only the stored record.
 import test from "node:test";
@@ -91,14 +92,8 @@ test("JUDGE 1 — the owner's reproductions at the module: the genuine quote sti
     const o = requirementOutcomes(list, { ...ctx, judged: true });
     assert.deepEqual(o.map((x) => [x.state, x.unjudged]), [["unknown", true]]);
   }
-  // A VERDICT NAMING THE TABLE'S EMAIL PART, which the table does not have: the
-  // part is checked, the table's existence is not enough — "Still to do".
-  const yesConfirm = { ...email.list[0], judged: { follows: "needed", carried: "yes", by: ["table:signups:confirm"], reason: "" } };
-  const oc = requirementOutcomes([yesConfirm], { ...ctx, judged: true })[0];
-  assert.deepEqual([oc.state, oc.implementation, oc.why], ["missing", "found", "the signups table does not do this"]);
-  assert.doesNotMatch(requirementNote([yesConfirm], { ...ctx, judged: true }), /I've set that up/);
-  const yesSms = { ...sms.list[0], judged: { follows: "needed", carried: "yes", by: ["table:lesson_bookings:sms"], reason: "" } };
-  assert.equal(requirementOutcomes([yesSms], { ...ctx, judged: true })[0].state, "missing");
+  // (A verdict naming the table's email or text part went with those parts,
+  // 2026-10-29: no table has one, so such an id is never shown or kept.)
   // "NO" IS STILL TO DO; "UNSURE" FALLS TO THE DESIGNER'S OWN REFERENCE AND MAY
   // NOT BUY "I've set that up" — the referenced table being there is not the email.
   const no = { ...email.list[0], judged: { follows: "needed", carried: "no", by: [], reason: "nothing sends one" } };
@@ -115,37 +110,16 @@ test("JUDGE 1 — the owner's reproductions at the module: the genuine quote sti
     assert.deepEqual(requirementOutcomes([bare], { ...ctx, judged: true }).map((x) => [x.state, x.unjudged]), [["unknown", true]], JSON.stringify(by));
     assert.equal(requirementNote([bare], { ...ctx, judged: true }), "", "a yes naming nothing was told: " + JSON.stringify(by));
   }
-  // AND THE PART THAT REALLY IS THERE: a collect table emails its owner.
-  const owner = { id: "table#9", need: "The owner hears about each signup", status: "covered", from: "table", kind: "table", item: "signups", judged: { follows: "asked", carried: "yes", by: ["table:signups:notify"], reason: "" } };
-  const on = requirementOutcomes([owner], { ...ctx, judged: true })[0];
-  assert.deepEqual([on.state, on.carriedBy, on.implementedBy, on.foundIn], ["unverified", ["table:signups:notify"], "signups", "applied"]);
 });
 
-test("JUDGE 2 — what a table does is read off the table as stored, one reader for applied, existing and shown: the owner's email needs a collect table a visitor may write to; an email or text to the visitor needs its declaration; nothing else counts", () => {
-  assert.deepEqual(tableParts({ name: "a", access: "collect" }), ["notify"]);
-  assert.deepEqual(tableParts({ name: "a", access: "collect", write: "none" }), [], "a collect table nobody may write to still emails the owner");
-  assert.deepEqual(tableParts({ name: "a", access: "display" }), []);
-  assert.deepEqual(tableParts({ name: "a", access: "user" }), []);
-  assert.deepEqual(tableParts({ name: "a", access: "user", confirm: { to: "email", subject: "s", body: "b" }, sms: { fn: "text_me" }, webhooks: ["created"], payment: { from: "menu" } }), ["confirm", "sms", "webhooks", "payment"]);
-  assert.deepEqual(tableParts({ name: "a", access: "user", confirm: null, sms: [], webhooks: [], payment: "yes" }), [], "a part nothing declared was read as there");
-  assert.deepEqual(tableParts({ name: "a", webhooks: true }), ["webhooks"]);
-  assert.deepEqual([tableParts(null), tableParts("collect")], [[], []]);
-  // EVERY PART HAS ITS ONE LINE, AND EVERY LINE IS A PART.
-  assert.deepEqual(Object.keys(PART_SAYS).sort(), [...TABLE_PARTS].sort());
-  // THE PARTS RIDE ON BOTH INVENTORIES, never in `holds` (a claim's words cannot name its way into one).
-  const spec = { tables: [{ name: "signups", access: "collect", columns: [{ name: "email" }] }] };
-  const a = appliedFacts({ spec, tables: ["signups"] })[0];
-  assert.deepEqual(a.parts, ["notify"]);
-  assert.ok(!a.holds.includes("notify"), "a part reached the claim vocabulary");
-  // …AND ITS COLUMNS, each a carrier of its own (2026-10-07).
-  assert.deepEqual(existingFacts({ spec }).items, [{ kind: "table", name: "signups", parts: ["notify"], columns: ["email"] }]);
-});
 
 test("JUDGE 3 — the judgment's answer is cleaned by code: only ids it was shown, only things it was shown, every verdict from its own constants, nothing repaired — and every requirement it was shown is accounted for, with a verdict anybody can use or named as missing, and why", () => {
   const ids = ["table#0", "table#1", "page#0", "page#1", "page#2", "page#3"];
-  const items = ["table:signups", "table:signups:notify", "page:/sign-up"];
+  // (A table's parts — notify, confirm, sms — went with those features,
+  // 2026-10-29; a column is the carrier beside the table now.)
+  const items = ["table:signups", "table:signups.email", "page:/sign-up"];
   const { verdicts, invalid, missing } = readVerdicts({ verdicts: [
-    { id: "table#0", follows: "needed", carried: "yes", by: ["table:signups", "TABLE:SIGNUPS", " table:signups:notify ", "function:send_confirmation"], reason: "  kept\n so the owner can read them " },
+    { id: "table#0", follows: "needed", carried: "yes", by: ["table:signups", "TABLE:SIGNUPS", " table:signups.email ", "function:send_confirmation"], reason: "  kept\n so the owner can read them " },
     { id: "table#1", follows: "optional", carried: "no", by: ["function:anything"], reason: "works without it" },
     { id: "page#0", follows: "asked", carried: "yes", by: ["function:send_confirmation"], reason: "x" },
     { id: "page#1", follows: "implied", carried: "yes", by: ["page:/sign-up"], reason: "x" },
@@ -157,7 +131,7 @@ test("JUDGE 3 — the judgment's answer is cleaned by code: only ids it was show
   assert.deepEqual([...verdicts.keys()], ["table#0", "table#1"]);
   // A THING IT NAMES THAT IT WAS NEVER SHOWN IS DROPPED BESIDE ONE IT WAS; FOR
   // "NO" THE LIST IS NOT READ AT ALL.
-  assert.deepEqual(verdicts.get("table#0"), { follows: "needed", carried: "yes", by: ["table:signups", "table:signups:notify"], reason: "kept so the owner can read them" });
+  assert.deepEqual(verdicts.get("table#0"), { follows: "needed", carried: "yes", by: ["table:signups", "table:signups.email"], reason: "kept so the owner can read them" });
   assert.deepEqual(verdicts.get("table#1"), { follows: "optional", carried: "no", by: [], reason: "works without it" });
   // RE-ANCHORED 2026-10-06 (the owner: "Keep legitimate 'unsure' judgments
   // distinct from missing judgments"): a "yes" naming only what it was never
@@ -184,9 +158,9 @@ test("JUDGE 3 — the judgment's answer is cleaned by code: only ids it was show
   assert.deepEqual([before.missing, before.invalid], [[], []]);
   assert.deepEqual(readVerdicts({ verdicts: [{ id: "a#0", carried: "no" }] }, { ids: ["a#0"], meaningOnly: true }).missing, [{ id: "a#0", why: "no-follows" }]);
   // THE ID SHAPES: a kind this layer knows, a name, and for a table a part from the vocabulary.
-  assert.deepEqual(carrierOf("table:signups:confirm"), { kind: "table", name: "signups", part: "confirm" });
+  assert.deepEqual(carrierOf("table:signups.email"), { kind: "table", name: "signups", column: "email" });
   assert.deepEqual(carrierOf("page:/sign-up"), { kind: "page", name: "/sign-up" });
-  for (const bad of ["table:signups:fax", "spell:x", "table:", ":x", "", 7, "edit:/"]) assert.equal(carrierOf(bad), null, String(bad));
+  for (const bad of ["table:signups:fax", "table:signups:confirm", "table:signups:notify", "spell:x", "table:", ":x", "", 7, "edit:/"]) assert.equal(carrierOf(bad), null, String(bad));
   assert.deepEqual([FOLLOWS, CARRIED], [["asked", "needed", "optional", "unrelated"], ["yes", "no", "unsure"]]);
 });
 
@@ -218,10 +192,10 @@ test("JUDGE 5 — the judgment's call: one tool, a question beside it, the rules
   assert.equal(item.properties.follows.enum, FOLLOWS);
   assert.equal(item.properties.carried.enum, CARRIED);
   const entry = { id: "table#0", need: "Every signup is kept", basis: "needed", words: "leave their name", status: "covered", from: "table", kind: "table", item: "signups", junk: { x: 1 } };
-  const items = judgeItems({ answers: [{ kind: "table", value: [table("signups", ["name", "email"], { confirm: { to: "email", subject: "s", body: "b" } })] }] });
-  // …AND EACH COLUMN THIS REQUEST DESIGNED, its own item (2026-10-07); the
-  // `confirm` setting is the part already listed, never twice.
-  assert.deepEqual(items.map((i) => i.id), ["table:signups", "table:signups:notify", "table:signups:confirm", "table:signups.name", "table:signups.email"]);
+  const items = judgeItems({ answers: [{ kind: "table", value: [table("signups", ["name", "email"])] }] });
+  // …AND EACH COLUMN THIS REQUEST DESIGNED, its own item (2026-10-07). (The
+  // table's own parts, notify and confirm, went with those features, 2026-10-29.)
+  assert.deepEqual(items.map((i) => i.id), ["table:signups", "table:signups.name", "table:signups.email"]);
   // EVERY KIND UNDER THE IDENTITY ITS APPLIED FACTS USE: a page by its route and
   // the photographs on it by placement; a photograph by its own name and its
   // page; what the site already has; and what a requirement names that is in
@@ -238,14 +212,15 @@ test("JUDGE 5 — the judgment's call: one tool, a question beside it, the rules
   });
   assert.deepEqual(all.map((i) => i.id), ["page:/gallery", "photo:/gallery", "photo:oven", "photo:/visit", "function:count_signups", "table:bookings", "page:/", "page:/rates"]);
   assert.match(all.find((i) => i.id === "page:/rates").text, /neither designed by this request nor already on the site/);
-  assert.match(all.find((i) => i.id === "function:count_signups").text, /run only by the platform.*its SQL: SELECT count/);
+  assert.match(all.find((i) => i.id === "function:count_signups").text, /run only by the site's own server code.*its SQL: SELECT count/);
   const req = judgeRequest({ message: "Add a sign-up page", entries: [entry], items, model: "m" });
   assert.equal(req.tool_choice.name, "judge_requirements");
   assert.ok(req.system[0].cache_control && req.tools[0].cache_control, "the fixed half is not cached");
   const text = req.messages[0].content;
   assert.ok(text.includes(JSON.stringify({ id: "table#0", need: "Every signup is kept", basis: "needed", words: "leave their name", status: "covered", from: "table", kind: "table", item: "signups" })), text);
-  assert.match(text, /- table:signups:confirm — part of the table signups: the person who adds a row is emailed/);
-  assert.match(text, /- table:signups:notify — part of the table signups: the owner is emailed about each new row/);
+  // EVERY LISTED THING BY ID, each on its own line (the table's email parts went with those features, 2026-10-29).
+  assert.match(text, /- table:signups — a table, added by this request/);
+  assert.match(text, /- table:signups\.email — a column of the table signups: email/);
   const before = judgeRequest({ message: "x", entries: [entry], items, step: "page", model: "m" }).messages[0].content;
   assert.match(before, /about to be handed to the page step/);
   assert.doesNotMatch(before, /What this request designed/);
@@ -345,61 +320,6 @@ const signupAsk = (slug, msg, requirements, extra = {}, tableExtra = {}) => addo
   ...extra,
 });
 
-test("JUDGE 7 — the owner's first reproduction through the route: the confirmation email quoting their real words is judged an optional extra — offered, never set up; the storage it rests on is a real dependency and is said as set up and unchecked; the reply model is given exactly that", async () => {
-  const r = await signupAsk("fw-judge-signup", SIGNUP, [STORE, EMAIL], judging([
-    [/kept so the owner/, "needed", "yes", ["table:signups"]],
-    [/confirmation email/, "optional", "no"],
-  ]));
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 600));
-  const rec = storedAnswer(r, "fw-judge-signup").coverage;
-  // PROVENANCE PASSED BOTH — the quotes are theirs — so this is the judgment's doing.
-  assert.equal(rec.ungrounded, undefined, "a genuine quote was set aside by the grounding, so this case tests nothing");
-  // WHAT THE JUDGMENT WAS REALLY SHOWN: both requirements with their quotes, the
-  // table this request designed and the one part it really has — no email to the visitor.
-  const shown = judged(r);
-  assert.equal(shown.length, 1, "expected exactly one judgment: " + shown.length);
-  assert.ok(shown[0].includes('"need":"Every signup receives a confirmation email","basis":"needed","words":"leave their name and email address"'), shown[0]);
-  assert.match(shown[0], /- table:signups — a table, added by this request; it keeps name, email/);
-  assert.match(shown[0], /- table:signups:notify — part of the table signups: the owner is emailed about each new row/);
-  assert.doesNotMatch(shown[0], /table:signups:confirm/, "the judgment was shown an email part nothing designed");
-  assert.match(shown[0], /^What they asked for:\nAdd a sign-up page where people leave their name and email address\n/);
-  // THE RECORD: the storage kept and carried by the table; the email set aside as optional.
-  assert.deepEqual(rec.requirements.map((q) => [q.need, q.state, q.carriedBy]), [[STORE.need, "unverified", ["table:signups"]]]);
-  assert.deepEqual(rec.setAside.map((s) => [s.need, s.follows]), [[EMAIL.need, "optional"]]);
-  assert.equal(rec.judged, true);
-  // NOTHING THAT SENDS MAIL WAS MADE FOR IT.
-  const stored = r.meta().tables.find((t) => t.name === "signups");
-  assert.ok(stored && !stored.confirm, "a confirmation email was configured for an idea nobody asked for: " + JSON.stringify(stored));
-  // THE FACTS THE REPLY MODEL IS GIVEN: the storage as set up-and-unchecked, the
-  // email once — as an idea they could ask for — and nowhere as done or not done.
-  const f = facts(r.body);
-  // ONE FACT PER REQUIREMENT, ITS KIND THE STATE'S (2026-10-06): set up and
-  // unchecked is done with something worth knowing, never "not done".
-  assert.ok(f.includes("note: Set up, but nothing here can check that it works: Each signup is kept so the owner can read them."), JSON.stringify(f));
-  assert.ok(!f.some((x) => /I've set that up/.test(x)), "the cover note was given to the reply model beside the requirements: " + JSON.stringify(f));
-  assert.deepEqual(f.filter((x) => /confirmation email/.test(x)), ["note: Something they did not ask for, so nothing was made for it, which they could ask for if they want: “Every signup receives a confirmation email”."], JSON.stringify(f));
-  assert.doesNotMatch(coverOf(r), /confirmation email/, coverOf(r));
-  // AND THE TWO COMPOSED REPLIES AGREE.
-  for (const text of [addonReply(r.body), browserText(r.body)]) {
-    assert.doesNotMatch(text, /set that up[^.]*confirmation email/, text);
-    assert.match(text, /Every signup receives a confirmation email/, "the idea was not offered: " + text);
-  }
-  // THE COVERAGE MARK COUNTS WHAT LEFT THE LIST.
-  const mark = r.traces.find((t) => t && t.phase === "coverage");
-  assert.ok(mark, "no coverage mark");
-  // …AND THE STATES REACH THE STORED TRACE (2026-10-07): one mark of seventeen
-  // keys kept its first eight, so `setAside`, `unsent` and the states never
-  // arrived. Each mark now fits, and the keys after `lost` are on their own.
-  const states = r.traces.find((t) => t && t.phase === "coverage:states");
-  assert.ok(states && states.detail, "no states mark: " + JSON.stringify(r.traces.map((t) => t && t.phase)));
-  for (const k of ["done", "broke", "unsure", "gone", "unseen", "unjudged", "setAside", "unsent"]) assert.ok(Object.hasOwn(states.detail, k), "the states mark lost `" + k + "`: " + JSON.stringify(states.detail));
-  assert.ok(states.detail.setAside >= 1, "what left the list is not counted: " + JSON.stringify(states.detail));
-  const unbuilt = r.traces.find((t) => t && t.phase === "coverage:unbuilt");
-  assert.ok(unbuilt && unbuilt.detail && Object.hasOwn(unbuilt.detail, "unbuilt"), "the unbuilt count left no mark");
-  for (const k of ["total", "covered", "elsewhere", "unsupported", "unreadable", "bad", "moved", "lost"]) assert.ok(Object.hasOwn(mark.detail || {}, k), "the counts mark lost `" + k + "`");
-  const jm = r.traces.find((t) => t && t.phase === "judge:final");
-  assert.ok(jm && jm.status === "ok", "the judgment left no mark: " + JSON.stringify(r.traces.map((t) => t && t.phase)));
-});
 
 test("JUDGE 8 — the owner's second reproduction, as a hand-off: an SMS reminder quoting \"book a lesson\" is judged before it is handed on, so the page designer is never asked to build for it, and nobody is told about a text message", async () => {
   const MSG = "Add a page where students can book a lesson by choosing a day and a time";
@@ -433,79 +353,8 @@ test("JUDGE 8 — the owner's second reproduction, as a hand-off: an SMS reminde
   assert.match(coverOf(r), /I've set that up, but I can't confirm from here that Each booking is kept so the teacher can see it/);
 });
 
-test("JUDGE 9 — one message, three requirements: the storage they need and the notification they asked for are carried by the table and its own part and said as set up-and-unchecked; the confirmation email quoting their real words is unrelated and goes nowhere", async () => {
-  const MSG = SIGNUP + ", and email me each time someone signs up";
-  const NOTIFY = { need: "The owner is emailed about each new signup", status: "covered", by: "signups is a collect table, so each new row emails the owner", item: "signups", kind: "table", basis: "asked", words: "email me each time someone signs up" };
-  const r = await signupAsk("fw-judge-three", MSG, [STORE, NOTIFY, EMAIL], judging([
-    [/kept so the owner/, "needed", "yes", ["table:signups"]],
-    [/owner is emailed/, "asked", "yes", ["table:signups:notify"]],
-    [/confirmation email/, "unrelated", "no"],
-  ]));
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 600));
-  // A WHOLE ANSWER IS ONE CALL: nothing asked again, nothing recorded missing.
-  assert.equal(judged(r).length, 1, "a whole answer was asked again");
-  const rec = storedAnswer(r, "fw-judge-three").coverage;
-  assert.equal(rec.verdictsMissing, undefined);
-  // THE NOTIFICATION'S OWN CLAIM NAMES A SETTING THAT HOLDS ("a collect table"),
-  // so it reads `configured` — the same customer sentence as `unverified`.
-  assert.deepEqual(rec.requirements.map((q) => [q.need, q.state, q.carriedBy, q.implementation]), [
-    [STORE.need, "unverified", ["table:signups"], "found"],
-    [NOTIFY.need, "configured", ["table:signups:notify"], "found"],
-  ]);
-  assert.equal(rec.requirements[1].configuredBy, "signups: collect");
-  assert.deepEqual(rec.setAside.map((s) => [s.need, s.follows]), [[EMAIL.need, "unrelated"]]);
-  const f = facts(r.body);
-  assert.ok(f.includes("note: Set up, but nothing here can check that it works: Each signup is kept so the owner can read them."), JSON.stringify(f));
-  assert.ok(f.includes("note: Set up, but nothing here can check that it works: The owner is emailed about each new signup."), JSON.stringify(f));
-  assert.ok(!f.some((x) => /confirmation email/.test(x)), "an unrelated requirement reached the reply model: " + JSON.stringify(f));
-  assert.equal(r.body.suggestions, undefined, "an unrelated requirement was offered as an idea");
-});
 
-test("JUDGE 10 — a confirmation email they really asked for: carried by the table's own email part when the platform kept it; when the platform could not keep it the table's existence settles nothing and it is still to do", async () => {
-  const MSG = SIGNUP + ", and send each person a confirmation email";
-  const CONFIRM = { need: "Each person who signs up is emailed a confirmation", status: "covered", by: "signups.confirm emails the address they gave", item: "signups", kind: "table", basis: "asked", words: "send each person a confirmation email" };
-  const verdicts = judging([[/kept so the owner/, "needed", "yes", ["table:signups"]], [/emailed a confirmation/, "asked", "yes", ["table:signups:confirm"]]]);
-  const good = await signupAsk("fw-judge-confirm", MSG, [STORE, CONFIRM], verdicts, { confirm: { to: "email", subject: "You're on the list", body: "<p>Thanks, {name}</p>" } });
-  assert.equal(good.body.ok, true, JSON.stringify(good.body).slice(0, 600));
-  const g = storedAnswer(good, "fw-judge-confirm").coverage.requirements.find((q) => q.need === CONFIRM.need);
-  assert.deepEqual([g.state, g.carriedBy], ["unverified", ["table:signups:confirm"]]);
-  assert.match(coverOf(good), /I've set that up, but I can't confirm from here that Each signup is kept so the owner can read them; or that Each person who signs up is emailed a confirmation/);
-  // THE SAME DESIGN WITH AN ADDRESS COLUMN THE TABLE DOES NOT HAVE: the platform
-  // drops the email (`normalizeConfirm`), the table still applies, and the
-  // verdict's part is checked against what was applied — not the table's name.
-  const bad = await signupAsk("fw-judge-confirm-lost", MSG, [STORE, CONFIRM], verdicts, { confirm: { to: "mail_address", subject: "You're on the list", body: "<p>Thanks</p>" } });
-  assert.equal(bad.body.ok, true, JSON.stringify(bad.body).slice(0, 600));
-  assert.deepEqual(bad.body.tables, ["signups"], "the table did not apply — this case tests nothing");
-  assert.ok(!bad.meta().tables.find((t) => t.name === "signups").confirm, "the platform kept an email it cannot send — this case tests nothing: " + JSON.stringify(bad.meta().tables.find((t) => t.name === "signups").confirm));
-  const b = storedAnswer(bad, "fw-judge-confirm-lost").coverage.requirements.find((q) => q.need === CONFIRM.need);
-  assert.deepEqual([b.state, b.implementation, b.why], ["missing", "found", "the signups table does not do this"]);
-  assert.match(coverOf(bad), /Still to do: Each person who signs up is emailed a confirmation/);
-  assert.doesNotMatch(coverOf(bad), /I've set that up[^.]*emailed a confirmation/);
-  assert.ok(facts(bad.body).includes("not-done: Not done: Each person who signs up is emailed a confirmation."), JSON.stringify(facts(bad.body)));
-});
 
-test("JUDGE 11 — a notification the site already sends: carried by the existing table's own part, found where it already was; on a table that sends nothing, the judgment says so and it is still to do", async () => {
-  const MSG = "Add a contact page, and make sure I get an email whenever someone sends an enquiry";
-  const NEED = { need: "The owner is emailed about each new enquiry", status: "covered", by: "the enquiries table already emails the owner", item: "enquiries", kind: "table", basis: "asked", words: "I get an email whenever someone sends an enquiry" };
-  const ask = (slug, access, verdict) => addon(slug, MSG, {
-    kinds: ["page"], publishes: true, written: [writtenPage("/contact")],
-    stored: { tables: [{ name: "enquiries", access, columns: [{ name: "name", type: "text" }, { name: "message", type: "text" }] }], functions: [], apis: [], jobs: [] },
-    answers: { page: { page: [PAGE("/contact", "Contact")], requirements: [NEED] } },
-    ...judging([[/owner is emailed/, ...verdict]]),
-  });
-  const r = await ask("fw-judge-existing", "collect", ["asked", "yes", ["table:enquiries:notify"]]);
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 600));
-  assert.match(judged(r)[0], /- table:enquiries:notify — part of the table enquiries: the owner is emailed about each new row/);
-  const q = storedAnswer(r, "fw-judge-existing").coverage.requirements[0];
-  assert.deepEqual([q.state, q.implementedBy, q.foundIn, q.carriedBy], ["unverified", "enquiries", "existing", ["table:enquiries:notify"]]);
-  // THE TABLE IS THERE AND SENDS NOTHING: no part to name, and the existence of
-  // the table the designer referenced buys nothing.
-  const none = await ask("fw-judge-existing-none", "user", ["asked", "no"]);
-  assert.doesNotMatch(judged(none)[0], /table:enquiries:notify/, "a part the table does not have was offered");
-  const n = storedAnswer(none, "fw-judge-existing-none").coverage.requirements[0];
-  assert.equal(n.state, "missing", JSON.stringify(n));
-  assert.match(coverOf(none), /Still to do: The owner is emailed about each new enquiry/);
-});
 
 test("JUDGE 12 — what the judgment leaves without a usable verdict is never dropped: it is asked once more, and still short the addition stops before anything is applied or charged — an entry skipped twice, a \"yes\" naming only what it was never shown, and nothing at all before a hand-off", async () => {
   // RE-ANCHORED 2026-10-06. This case asserted the defect the owner then
@@ -586,16 +435,17 @@ test("JUDGE 13 — a judgment that fails stops the addition before anything is a
 });
 
 test("JUDGE 15 — an optional idea that something already made does is not offered as one: \"nothing was made for it\" would be the false half", async () => {
+  // (Carried by a column since the table's notify part went, 2026-10-29.)
   const OWNER = { need: "The owner hears about each new signup", status: "covered", by: "signups is a collect table", item: "signups", kind: "table", basis: "needed", words: "leave their name and email address" };
   const r = await signupAsk("fw-judge-optional-done", SIGNUP, [STORE, OWNER], judging([
     [/kept so the owner/, "needed", "yes", ["table:signups"]],
-    [/owner hears/, "optional", "yes", ["table:signups:notify"]],
+    [/owner hears/, "optional", "yes", ["table:signups.email"]],
   ]));
   assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 400));
   assert.equal(r.body.suggestions, undefined, "an idea something already does was offered as not made");
   assert.ok(!facts(r.body).some((x) => /owner hears/.test(x)), JSON.stringify(facts(r.body)));
   const rec = storedAnswer(r, "fw-judge-optional-done").coverage;
-  assert.deepEqual(rec.setAside.map((s) => [s.need, s.follows, s.carriedBy]), [[OWNER.need, "optional", ["table:signups:notify"]]]);
+  assert.deepEqual(rec.setAside.map((s) => [s.need, s.follows, s.carriedBy]), [[OWNER.need, "optional", ["table:signups.email"]]]);
   // THE CONTROL: the same idea, judged with nothing doing it, IS offered.
   const off = await signupAsk("fw-judge-optional-offer", SIGNUP, [STORE, OWNER], judging([
     [/kept so the owner/, "needed", "yes", ["table:signups"]],
@@ -661,13 +511,15 @@ const FIELD = { need: "The signup form asks for their email address so the confi
 const ownerAsk = (slug, opts) => addon(slug, OWNER_MSG, {
   kinds: ["table", "page"], publishes: true, written: [writtenPage("/signup")],
   answers: {
-    table: { table: [table("signups", ["name", "email"], { confirm: { to: "email", subject: "You're signed up", body: "<p>Thanks, {name}</p>" } })], requirements: [SEND, FIELD] },
+    // (The table's `confirm` part went with that feature, 2026-10-29; the
+    // table itself is what the verdicts name now.)
+    table: { table: [table("signups", ["name", "email"])], requirements: [SEND, FIELD] },
     page: { page: [PAGE("/signup", "Sign up")] },
   },
   ...opts,
 });
 /** What a model that finished would answer, per requirement; meaning only before a hand-off. */
-const WHOLE = [[/emailed a confirmation/, "asked", "yes", ["table:signups:confirm"]], [/asks for their email address/, "asked", "yes", ["page:/signup"]]];
+const WHOLE = [[/emailed a confirmation/, "asked", "yes", ["table:signups"]], [/asks for their email address/, "asked", "yes", ["page:/signup"]]];
 const verdictOf = (e, step) => {
   const [, follows, carried, by] = WHOLE.find(([re]) => re.test(e.need));
   return step ? { id: e.id, follows, carried: "unsure", reason: "r" } : { id: e.id, follows, carried, by, reason: "r" };
@@ -752,7 +604,7 @@ test("JUDGE 21 — a partial answer that leaves out the email they asked for: as
   assert.equal(shown.length, 3);
   assert.match(shown[2], /YOUR LAST ANSWER LEFT THESE WITHOUT A VERDICT ANYBODY CAN USE: table#0 \(no verdict\)\./, "the second call did not name exactly the one left out");
   const rec = storedAnswer(r, "fw-partial-recovered").coverage;
-  assert.deepEqual(rec.requirements.find((q) => q.need === SEND.need).carriedBy, ["table:signups:confirm"]);
+  assert.deepEqual(rec.requirements.find((q) => q.need === SEND.need).carriedBy, ["table:signups"]);
   assert.deepEqual(rec.verdictsMissing.map((x) => [x.at, x.id, x.why, x.finished]), [["final", "table#0", "no-verdict", true]]);
   const twice = await ownerAsk("fw-partial-stops", answering(but(/emailed a confirmation/)));
   assert.deepEqual([twice.status, twice.body.incomplete, twice.body.cost, twice.charges.length], [503, true, 0, 0]);

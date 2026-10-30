@@ -424,9 +424,9 @@ test("DFB7b (audit A28-6) HELD STARTER ROWS ARE JUDGED BY THE ENGINE'S OWN RULES
   } finally { globalThis.fetch = real; }
 });
 
-test("DFB7 BACKEND WRITES ARE HELD WHERE A LIVE SITE WOULD SEE THEM — on a published site the schema, starter rows and jobs are held and the database is not written; before the first publication the schema and rows are written (nobody uses the database yet) and the jobs are still held; with the switch off every write goes live as before; the publication applies the schema, the jobs and the starter rows", async () => {
+test("DFB7 BACKEND WRITES ARE HELD WHERE A LIVE SITE WOULD SEE THEM — on a published site the schema and starter rows are held and the database is not written; before the first publication nothing is held (nobody uses the database yet); with the switch off every write goes live as before; the publication applies the schema and the starter rows", async () => {
   const { draftFirstApi } = await loadWorkerModule();
-  const spec = { tables: [LOAVES, { name: "hours", columns: [{ name: "day", type: "text" }], read: "public", write: "none" }], jobs: [{ name: "nightly", every: "1d", sql: "select 1" }] };
+  const spec = { tables: [LOAVES, { name: "hours", columns: [{ name: "day", type: "text" }], read: "public", write: "none" }] };
   const slug = slugOf("dfb7");
   const site = previewSite(slug, []);
   const real = globalThis.fetch; globalThis.fetch = site.fetchStub;
@@ -437,21 +437,18 @@ test("DFB7 BACKEND WRITES ARE HELD WHERE A LIVE SITE WOULD SEE THEM — on a pub
     const made = await w.schema("postgres://x", spec);
     assert.deepEqual([...made], ["loaves", "hours"]);
     assert.equal(made.held, true);
-    await w.jobs(OWNER.id, spec.jobs);
     const seeded = await w.seed("postgres://x", spec, { hours: [{ day: "Monday" }] });
     assert.deepEqual(seeded.seeded, { hours: 1 });
     assert.equal(site.db.writes().length, writes0, "a held backend write reached the database");
-    assert.deepEqual(w.hold.ops.map((o) => o.kind), ["schema", "jobs", "seed"]);
-    // THE PUBLICATION'S PLAN: the latest schema, the jobs, the seed.
+    assert.deepEqual(w.hold.ops.map((o) => o.kind), ["schema", "seed"]);
+    // THE PUBLICATION'S PLAN: the latest schema, the seed.
     const pl = publishPlan(w.hold.ops);
     assert.equal(pl.ok, true);
-    assert.deepEqual([!!pl.plan.spec, pl.plan.jobs.length, pl.plan.seeds.length], [true, 1, 1]);
+    assert.deepEqual([!!pl.plan.spec, pl.plan.seeds.length], [true, 1]);
     // A SITE NOT YET PUBLISHED: no pointer.
     site.store.store.delete("current/" + slug + ".json");
     const w2 = await draftFirstApi.backendWriter(site.env, slug);
     assert.deepEqual([w2.on, w2.holding], [true, false], "a never-published site's database writes were held");
-    await w2.jobs(OWNER.id, spec.jobs);
-    assert.deepEqual(w2.hold.ops.map((o) => o.kind), ["jobs"], "scheduled jobs ran before the first publication");
     // THE SWITCH OFF: nothing held.
     const w3 = await draftFirstApi.backendWriter({ ...site.env, DRAFT_FIRST: "" }, slug);
     assert.deepEqual([w3.on, w3.holding, w3.hold], [false, false, null]);
@@ -1294,16 +1291,16 @@ test("DFR11 A FIRST PUBLICATION STOPPED BEFORE ITS SCRIPT — nothing was live b
   } finally { await finish(P, compiler); }
 });
 
-test("DFB11 EVERY BACKEND WRITE A TASK MAKES GOES THROUGH ITS WRITER — in worker.js the schema apply, the starter rows and the job registration are called only by the writer (Publish applies through it, switched off), or under a binding of those very names from a task's writer (`= aWriter.calls` and its build and rules twins); the data step, the add-on's entries and the address hold before they write; the build carries its hold to its resume", () => {
+test("DFB11 EVERY BACKEND WRITE A TASK MAKES GOES THROUGH ITS WRITER — in worker.js the schema apply and the starter rows are called only by the writer (Publish applies through it, switched off), or under a binding of those very names from a task's writer (`= aWriter.calls` and its build and rules twins); the data step, the add-on's entries and the address hold before they write; the build carries its hold to its resume", () => {
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const body = (name) => { const i = src.indexOf("async function " + name + "("); assert.ok(i >= 0, name + " is missing"); return [i, src.indexOf("\n}\n", i)]; };
   const [w0, w1] = body("backendWriter");
   // PUBLISH APPLIES THROUGH THE SAME WRITER, SWITCHED OFF.
   const [p0, p1] = body("runPublication");
   assert.match(src.slice(p0, p1), /const live = \(await backendWriter\(\{ \.\.\.env, DRAFT_FIRST: "" \}, slug\)\)\.calls;/);
-  const binds = [...src.matchAll(/const \{ applySiteSchema(?:, seedSiteRows, persistSiteJobs)? \} = ([abr])Writer\.calls;/g)].map((m) => ({ at: m.index, who: m[1] }));
+  const binds = [...src.matchAll(/const \{ applySiteSchema(?:, seedSiteRows)? \} = ([abr])Writer\.calls;/g)].map((m) => ({ at: m.index, who: m[1] }));
   assert.deepEqual(binds.map((b) => b.who).sort(), ["a", "b", "r"], "a task's binding from its writer is gone: " + JSON.stringify(binds));
-  for (const fn of ["applySiteSchema", "seedSiteRows", "persistSiteJobs"]) {
+  for (const fn of ["applySiteSchema", "seedSiteRows"]) {
     const sites = [...src.matchAll(new RegExp("(?<![.\\w])" + fn + "\\(", "g"))].map((m) => m.index)
       .filter((i) => !/async function $/.test(src.slice(Math.max(0, i - 15), i)) && !/^\s*(\/\/|\*)/.test(src.slice(src.lastIndexOf("\n", i) + 1, i)));
     assert.ok(sites.length >= 2, fn + ": the observer found no call sites");

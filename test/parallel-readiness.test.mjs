@@ -159,33 +159,30 @@ for (const [label, message, kinds] of [
 
 // ── 3. GENUINE DEPENDENCIES STILL WAIT, AND ARE SHOWN WHAT THEY USE ─────────
 
-test("SCH 3 — GENUINE CHAINS: a function that reads the new table (`uses: [\"table\"]`) and a job that runs the new function (`uses: [\"function\"]`) each wait for what they use and are shown it; each designer asked once", { timeout: 30000 }, async () => {
+test("SCH 3 — A GENUINE CHAIN: a function that reads the new table (`uses: [\"table\"]`) waits for what it uses and is shown it; each designer asked once", { timeout: 30000 }, async () => {
   const db = rowsDb({ tables: {} });
   const order = [];
   const seen = {};
   const W_COUNT = "a function counting the signups";
-  const W_JOB = "a daily job that runs it";
-  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "function", words: W_COUNT, uses: ["table"] }, { kind: "job", words: W_JOB, uses: ["function"] }];
+  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "function", words: W_COUNT, uses: ["table"] }];
   await withPlatform({
     slug: slugOf("s3"), pages: PAGES, replies: true, balance: 400, db,
     answers: {
       route: { intent: "addon" },
-      [T.adds]: { kinds: ["table", "function", "job"], scopes },
+      [T.adds]: { kinds: ["table", "function"], scopes },
       "add:table": async () => { order.push("table:start"); await new Promise((r) => setTimeout(r, 150)); order.push("table:end"); return SIGNUPS; },
       "add:function": async (args) => { order.push("function:start"); seen.fn = shownSite(args); await new Promise((r) => setTimeout(r, 100)); order.push("function:end"); return { function: [{ name: "count_signups", internal: true, returns: "bigint", body: "SELECT count(*) FROM signups" }] }; },
-      "add:job": async (args) => { order.push("job:start"); seen.job = shownSite(args); return { job: [{ name: "daily_count", fn: "count_signups", everyMinutes: 1440 }] }; },
       [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
     },
   }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", " + W_COUNT + ", and " + W_JOB + "." });
+    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", and " + W_COUNT + "." });
     const { rec } = await settle(P, r.key);
     assert.ok(["done", "partial"].includes(statuses(rec)[0]), JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
     assert.ok(order.indexOf("function:start") > order.indexOf("table:end"), "the function started before the table it reads: " + order.join(", "));
-    assert.ok(order.indexOf("job:start") > order.indexOf("function:end"), "the job started before the function it runs: " + order.join(", "));
     assert.match(seen.fn, /signups/, "the function was not shown the table it reads");
-    assert.match(seen.job, /count_signups/, "the job was not shown the function it runs");
-    for (const k of ["table", "function", "job"]) assert.equal(designs(P, k), 1, k + " was designed more than once");
-    assert.ok(P.jobsRegistered.some((j) => j && String(j.name || "").includes("daily_count")), "the job was not registered: " + JSON.stringify(P.jobsRegistered));
+    for (const k of ["table", "function"]) assert.equal(designs(P, k), 1, k + " was designed more than once");
+    assert.equal(creates(db, "signups"), 1);
+    assert.equal(fnCreates(db, "count_signups"), 1, "the function was not created exactly once");
   });
 });
 

@@ -23,15 +23,17 @@ test("the copied modules import only each other", () => {
   }
 });
 
-// 2026-10-28: the site's own Worker. The platform no longer sends a visitor's
-// mail or texts at all; the site does, with the copied module. So the property
-// moved: the site's senders import the copy, and neither the platform nor the
-// site keeps a second hand-written sender.
-test("the site sends with the copied module, and nobody keeps a second sender", () => {
-  for (const f of ["builder/lovable/template/src/lib/site-effects.ts", "builder/lovable/template/src/lib/site-jobs-run.ts"]) {
-    const src = read(f);
-    assert.match(src, /import \{ postProviderEmail, postProviderSms \} from "\.\/effects\/site-providers\.mjs";/, f);
-    assert.doesNotMatch(src, /function postProviderEmail\(/, f);
+// 2026-10-29: the prebuilt senders (the site's after-submission effects and
+// its jobs runner) were deleted; a site that sends writes its own server code.
+// So no template file and not the platform keeps a provider sender.
+test("nobody keeps a prebuilt sender", () => {
+  const dir = new URL("../builder/lovable/template/src/lib/", import.meta.url);
+  const files = fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f));
+  assert.ok(files.includes("site-functions.ts"), "landmark: the template's lib");
+  for (const f of files) {
+    const src = fs.readFileSync(new URL(f, dir), "utf8");
+    assert.doesNotMatch(src, /site-providers\.mjs|function postProvider(Email|Sms)\(/, f);
   }
+  assert.ok(!EFFECT_MODULES.includes("site-providers.mjs"));
   assert.doesNotMatch(read("worker.js"), /async function postProviderEmail\(/);
 });

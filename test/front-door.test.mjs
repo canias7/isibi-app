@@ -65,9 +65,10 @@ test("every visitor dispatch carries the limits; probes and confirmations do not
   const limited = gets.filter((g) => g.includes("siteLimits(env)"));
   // Three since 2026-10-27: the site's own data reads (`ownDataRead`) too.
   assert.equal(limited.length, 3);
-  // And the clock's two calls (a job, a wake), with more outside calls.
+  // And the clock's call (a wake), with more outside calls. (Its second, a
+  // scheduled job's run, left with the scheduled jobs, 2026-10-29.)
   const clock = gets.filter((g) => g.includes("{ limits: { ...lim.limits, subRequests: SITE_JOB_SUBREQUESTS } }"));
-  assert.equal(clock.length, 2);
+  assert.equal(clock.length, 1);
   assert.ok(limited.some((g) => g.includes("get(name, {}, siteLimits(env)).fetch(fwd)")));
   assert.ok(limited.some((g) => g.includes("previewScriptName(pv.slug)")));
   assert.ok(limited.some((g) => g.includes("get(name, {}, siteLimits(env))")));
@@ -175,18 +176,6 @@ test("the platform answers what an address is, and nothing of the site's", () =>
   assert.match(fn, /if \(previewOf\(label\)\) return \{ to: "platform" \};/, "a draft preview is sent to a site's live Worker");
   assert.match(fn, /resolveAlias\(label, seen, now\)/);
   assert.match(fn, /siteForHostname\(env, host\)/);
-});
-
-test("the Stripe address the owner registers is the SITE's own, so payments never pass through the app", () => {
-  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  const at = chat.indexOf("function sitePayments(site)");
-  const fn = chat.slice(at, chat.indexOf("box.innerHTML", at));
-  assert.match(fn, /const hookUrl = \(siteOrigin \|\| location\.origin\) \+ '\/api\/stripe\/site\/' \+ slug;/);
-  const pick = new Function("site", fn.slice(fn.indexOf("const siteOrigin"), fn.indexOf("const hookUrl")) + "return siteOrigin;");
-  assert.equal(pick({ liveUrl: "https://ember-cart.gofarther.app/" }), "https://ember-cart.gofarther.app");
-  assert.equal(pick({ liveUrl: "https://test.isibi.ai/" }), "https://test.isibi.ai");
-  assert.equal(pick({ liveUrl: "https://gofarther.dev/s/x/" }), "", "the workspace path is not a site address");
-  assert.equal(pick({}), "");
 });
 
 test("every platform-only path a visitor could aim at a site's address is refused by the site, not served", () => {

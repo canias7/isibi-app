@@ -15,8 +15,10 @@ import {
 } from "../scripts/canary-rules.mjs";
 import { readFileSync } from "node:fs";
 import { UI_SCENARIOS } from "../scripts/canary-ui.mjs";
-import { MAIL_PROVIDERS } from "../site-mail.mjs";
-import { SMS_PROVIDERS } from "../site-sms.mjs";
+// The provider secret names the gate asks about, as scripts/canary-rules.mjs
+// keeps them since the platform's own senders went (2026-10-29).
+const MAIL_PROVIDERS = [{ secret: "RESEND_KEY" }, { secret: "SENDGRID_KEY" }, { secret: "POSTMARK_KEY" }];
+const SMS_PROVIDERS = [{ secret: "TWILIO_SID", also: "TWILIO_TOKEN" }, { secret: "MESSAGEBIRD_KEY" }, { secret: "VONAGE_KEY", also: "VONAGE_SECRET" }];
 
 const SC = UI_SCENARIOS["4b-rules-close"];
 const SPEC = SC.rules;

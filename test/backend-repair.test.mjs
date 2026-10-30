@@ -1050,7 +1050,7 @@ test("the survey decides with the shared function, so a hand run and a build agr
 // the recorded "a wall nobody can drive is a wall nobody is guarding", met in
 // the branch whose wrong answer blocks a legitimate table.
 
-test("the population check reports and never refuses: five legitimate shapes stay silent", async () => {
+test("the population check reports and never refuses: four legitimate shapes stay silent", async () => {
   const A = await import("../builder/site-add.mjs");
   const table = (o) => ({ name: "repairs", columns: [{ name: "who", type: "text" }], ...o });
   const ask = (spec, seed) => A.missingPopulation({ spec, seed: seed || {}, readers: A.readTables({ spec }) });
@@ -1066,10 +1066,7 @@ test("the population check reports and never refuses: five legitimate shapes sta
   assert.deepEqual(ask(read, { repairs: [{ who: "a" }] }), []);
   // 3. A DECLARED FUNCTION WRITES IT — the owner's own example.
   assert.deepEqual(ask({ ...read, functions: [{ name: "w", body: "INSERT INTO repairs (who) VALUES ('x'); SELECT COUNT(*) FROM repairs" }] }), []);
-  // 4. A JOB WRITES IT — the other half of the owner's example, and the bodies
-  //    are scanned separately, so this is not the same assertion as 3.
-  assert.deepEqual(ask({ ...read, jobs: [{ name: "j", body: "INSERT INTO repairs (who) VALUES ('x')" }] }), []);
-  // 5. THE CLIENT WRITES IT — every booking form on the platform.
+  // 4. THE CLIENT WRITES IT — every booking form on the platform.
   assert.deepEqual(ask({ tables: [table({ access: "collect" })], functions: [{ name: "c", body: "SELECT COUNT(*) FROM repairs" }] }), []);
   // AND AN UPDATE COUNTS AS A WRITER, not only an INSERT.
   assert.deepEqual(ask({ ...read, functions: [{ name: "u", body: "UPDATE repairs SET who='x'; SELECT COUNT(*) FROM repairs" }] }), []);

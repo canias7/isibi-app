@@ -51,8 +51,10 @@ test("PIECE 1 — A COLUMN AND A SETTING ARE CARRIERS OF THEIR OWN: read and wri
   assert.equal(carrierId(carrierOf("table:dishes.allergens")), "table:dishes.allergens");
   assert.deepEqual(carrierOf("table:bookings:noOverlap"), { kind: "table", name: "bookings", part: "nooverlap" });
   assert.equal(carrierId(carrierOf("table:bookings:nooverlap")), "table:bookings:nooverlap");
-  // THE PARTS STAND AS THEY WERE.
-  assert.deepEqual(carrierOf("table:bookings:confirm"), { kind: "table", name: "bookings", part: "confirm" });
+  // THE PARTS THAT DID SOMETHING (notify, confirm, sms, webhooks, payment) WENT
+  // on 2026-10-29: the model writes such things as site functions now, so a
+  // carrier naming one names nothing a table can have.
+  for (const gone of ["confirm", "notify", "sms", "webhooks", "payment"]) assert.equal(carrierOf("table:bookings:" + gone), null, gone);
   assert.deepEqual(carrierOf("table:bookings"), { kind: "table", name: "bookings" });
   for (const bad of ["table:bookings:colour", "table:dishes.all-ergens", "table:dishes.", "table:.allergens", "table:a.b:confirm"]) assert.equal(carrierOf(bad), null, bad);
   assert.deepEqual(carrierOf("page:/menu.html"), { kind: "page", name: "/menu.html" }, "a page's dot was read as a column");
@@ -71,7 +73,7 @@ test("PIECE 2 — WHAT THE DATABASE REFUSED IS TAKEN OFF THE TABLE AS APPLIED: i
   assert.deepEqual(dishes.columns, ["name", "price"]);
   assert.ok(!dishes.holds.includes("allergens") && dishes.fails.includes("allergens"), JSON.stringify(dishes));
   assert.deepEqual(dishes.refused, ["column allergens"]);
-  assert.deepEqual(bookings.parts, ["notify", "maxrows"], "a refused setting is still one of the table's parts");
+  assert.deepEqual(bookings.parts, ["maxrows"], "a refused setting is still one of the table's parts");
   assert.deepEqual(bookings.refused, ["nooverlap"]);
   assert.ok(bookings.fails.includes("nooverlap"));
   // CONTROL: nothing refused, nothing taken off, and no `refused` at all.
@@ -79,7 +81,7 @@ test("PIECE 2 — WHAT THE DATABASE REFUSED IS TAKEN OFF THE TABLE AS APPLIED: i
   assert.deepEqual(clean.columns, ["name", "price", "allergens"]);
   assert.equal(clean.refused, undefined);
   const ex = existingFacts({ spec: SPEC }).items;
-  assert.deepEqual(ex.map((i) => [i.name, i.parts, i.columns]), [["dishes", [], ["name", "price", "allergens"]], ["bookings", ["notify", "maxrows", "nooverlap"], ["start_at", "end_at", "email"]]]);
+  assert.deepEqual(ex.map((i) => [i.name, i.parts, i.columns]), [["dishes", [], ["name", "price", "allergens"]], ["bookings", ["maxrows", "nooverlap"], ["start_at", "end_at", "email"]]]);
 });
 
 test("PIECE 3 — A REQUIREMENT IS CHECKED AGAINST THE PIECE IT RESTS ON: a column that did not go in, and a setting the database refused, read as still to do with why, while the table stands; one naming the table whole is set up and carries the piece that is missing, told in its fact; a table with nothing missing says nothing more", () => {
@@ -118,10 +120,10 @@ test("PIECE 3 — A REQUIREMENT IS CHECKED AGAINST THE PIECE IT RESTS ON: a colu
 });
 
 test("PIECE 4 — THE JUDGMENT IS SHOWN EACH SETTING AND COLUMN THIS REQUEST DESIGNED, and nothing more of what the site already has; a part is listed once; what its list cannot show is counted, never dropped without a number", () => {
-  const designed = { name: "bookings", access: "collect", columns: [{ name: "start_at" }, { name: "Email" }], noOverlap: { start: "start_at", end: "end_at" }, confirm: { to: "email", subject: "s", body: "b" } };
+  const designed = { name: "bookings", access: "collect", columns: [{ name: "start_at" }, { name: "Email" }], noOverlap: { start: "start_at", end: "end_at" } };
   const items = judgeItems({ answers: [{ kind: "table", value: [{ table: designed }] }], existing: { items: [{ kind: "table", name: "dishes", parts: [] }] }, spec: SPEC });
   assert.deepEqual(items.map((i) => i.id), [
-    "table:bookings", "table:bookings:notify", "table:bookings:confirm", "table:bookings:nooverlap",
+    "table:bookings", "table:bookings:nooverlap",
     "table:bookings.start_at", "table:bookings.email", "table:dishes",
   ]);
   assert.match(items.find((i) => i.id === "table:bookings:nooverlap").text, /a setting of the table bookings: no two entries overlapping in time/);

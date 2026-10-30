@@ -10,7 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  RULES_MODEL, RULES_TOOL, CLEARABLE, NOT_CLEARABLE,
+  RULES_MODEL, RULES_TOOL,
   rulesDigest, rulesRequest, readRules, mergeRules, rulesReply, rulesUsage, runRulesEdit,
 } from "../builder/site-rules.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
@@ -71,10 +71,12 @@ test("the tool offers read and write as SEPARATE fields", () => {
   assert.ok(!p.read.enum.includes("anyone"), "anyone is a WRITE level and naming it as a read is the bug that killed the data layer");
 });
 
-test("clear is bounded by an enum to what really goes away", () => {
+// 2026-10-29: the prebuilt senders went (the site agent writes a site's own
+// sending as server code), so this lane no longer offers them or a way to clear them.
+test("the tool offers no prebuilt sender and no clear", () => {
   const p = RULES_TOOL.input_schema.properties.tables.items.properties;
-  assert.deepEqual(p.clear.items.enum, CLEARABLE);
-  for (const n of NOT_CLEARABLE) assert.ok(!CLEARABLE.includes(n), n + " is DDL and cannot be cleared by omission");
+  assert.ok(p.read && p.unique && p.retired, "landmarks: the kept rules are offered");
+  for (const gone of ["confirm", "sms", "webhooks", "clear", "payment"]) assert.ok(!Object.hasOwn(p, gone), gone + " is still offered");
 });
 
 test("the tool tells the model an empty list is the right answer for a page change", () => {
@@ -98,20 +100,13 @@ test("a read level that is not one is dropped rather than passed through", () =>
   assert.equal(changes.length, 0);
 });
 
-test("confirm must name a column the table really has", () => {
-  const ok = readRules(one({ table: "bookings", confirm: { to: "email", subject: "s", body: "b" } }), TABLES);
-  assert.equal(ok.changes[0].confirm.to, "email");
-  const bad = readRules(one({ table: "bookings", confirm: { to: "e_mail", subject: "s", body: "b" } }), TABLES);
-  assert.equal(bad.changes.length, 0);
-  assert.deepEqual(bad.refused, [{ table: "bookings", rule: "confirm", why: "no-column" }]);
-});
-
-test("confirm with no subject or no body is refused, not half-applied", () => {
-  for (const c of [{ to: "email", subject: "", body: "b" }, { to: "email", subject: "s", body: "  " }]) {
-    const r = readRules(one({ table: "bookings", confirm: c }), TABLES);
-    assert.equal(r.changes.length, 0, JSON.stringify(c));
-    assert.equal(r.refused.length, 1);
+test("a sender or clear in the answer is not a change, and nothing is refused for it", () => {
+  for (const c of [{ confirm: { to: "email", subject: "s", body: "b" } }, { sms: { to: "email", body: "b" } }, { webhooks: ["created"] }, { clear: ["confirm"] }]) {
+    const r = readRules(one({ table: "bookings", ...c }), TABLES);
+    assert.deepEqual(r, { changes: [], refused: [] }, JSON.stringify(c));
   }
+  // The control: a kept rule beside it still lands.
+  assert.equal(readRules(one({ table: "bookings", maxRows: 5, webhooks: ["created"] }), TABLES).changes[0].maxRows, 5);
 });
 
 test("noOverlap is REFUSED unless both columns are integers — the engine skips it silently otherwise", () => {
@@ -150,17 +145,6 @@ test("maxRows must be a positive whole number", () => {
   for (const bad of [0, -3, "lots", null]) {
     assert.equal(readRules(one({ table: "menu", maxRows: bad }), TABLES).changes.length, 0, String(bad));
   }
-});
-
-test("clearing a DDL constraint is REFUSED and said out loud", () => {
-  const r = readRules(one({ table: "bookings", clear: ["unique"] }), TABLES);
-  assert.equal(r.changes.length, 0);
-  assert.deepEqual(r.refused, [{ table: "bookings", rule: "unique", why: "cannot-clear" }]);
-});
-
-test("clearing confirm is allowed", () => {
-  const r = readRules(one({ table: "bookings", clear: ["confirm"] }), TABLES);
-  assert.deepEqual(r.changes[0].clear, ["confirm"]);
 });
 
 test("a table entry naming nothing changeable is not a change", () => {
@@ -209,19 +193,6 @@ test("the merge does not mutate the stored spec it was handed", () => {
   assert.equal(prior.tables[0].read, undefined, "a merge that edits its input corrupts _meta on a failed apply");
 });
 
-test("clear sets the rule to null, which is what the normalisers read as absent", () => {
-  const prior = { tables: [{ ...bookings, confirm: { to: "email", subject: "s", body: "b" } }] };
-  const { spec, applied } = mergeRules(prior, [{ table: "bookings", clear: ["confirm"] }]);
-  assert.equal(spec.tables[0].confirm, null);
-  assert.ok(applied[0].fields.includes("cleared confirm"));
-  assert.equal(normalizeSchema(spec).tables[0].confirm, null);
-});
-
-test("clearing something that was never on is not reported as a change", () => {
-  const { applied } = mergeRules({ tables: [menu] }, [{ table: "menu", clear: ["confirm"] }]);
-  assert.equal(applied.length, 0);
-});
-
 test("ONE HALF OF THE PAIR MOVES AND THE OTHER KEEPS WHAT IT HAD", () => {
   // `display` is read public / write none. Opening the write must not close the
   // read, and `resolveAccess` takes the absent half from the preset.
@@ -242,10 +213,10 @@ test("the marketplace change: a private table becomes browsable, and the write d
 
 test("a merged change survives normalizeSchema — the engine really receives it", () => {
   const { spec } = mergeRules({ tables: [bookings] }, [
-    { table: "bookings", confirm: { to: "email", subject: "Booked", body: "See you {slot_date}" }, unique: ["slot_date", "slot_time"] },
+    { table: "bookings", maxRows: 20, unique: ["slot_date", "slot_time"] },
   ]);
   const t = normalizeSchema(spec).tables[0];
-  assert.equal(t.confirm.to, "email", "this is the exact property the addon merge DROPPED silently");
+  assert.equal(t.maxRows, 20);
   assert.deepEqual(t.unique, ["slot_date", "slot_time"]);
 });
 
@@ -273,9 +244,9 @@ test("reopening a closed table hands its privileges back", () => {
 // ── the reply ───────────────────────────────────────────────────────────────
 
 test("the reply names the table and what moved, in the owner's words", () => {
-  const msg = rulesReply({ applied: [{ table: "bookings", fields: ["confirm", "unique"] }] });
+  const msg = rulesReply({ applied: [{ table: "bookings", fields: ["retired", "unique"] }] });
   assert.match(msg, /bookings/);
-  assert.match(msg, /confirmation email/);
+  assert.match(msg, /whether it's open/);
   assert.match(msg, /no-duplicates/);
   assert.ok(!/\bunique\b/.test(msg), "the reply is for a shop owner, not a schema");
 });
@@ -450,80 +421,11 @@ test("THE LAYER CANNOT REACH A PAGE, AND THAT IS THE PROTECTION", () => {
   }
 });
 
-test("every clearable rule is one that really stops when the declaration goes", () => {
-  // confirm and sms are read out of `_meta` on the write path; a constraint is
-  // DDL and `applySiteSchema` is additive, so dropping it from the spec leaves
-  // the index standing. This asserts the two lists cannot overlap.
-  for (const c of CLEARABLE) assert.ok(!NOT_CLEARABLE.includes(c), c);
-  assert.ok(CLEARABLE.length > 0 && NOT_CLEARABLE.length > 0);
-});
-
 test("the tool's own read/write enums come from site-access.mjs rather than a copy", () => {
   const src = fs.readFileSync(new URL("../builder/site-rules.mjs", import.meta.url), "utf8");
   assert.match(src, /enum:\s*READ_LEVELS/);
   assert.match(src, /enum:\s*WRITE_LEVELS/);
   assert.ok(!/enum:\s*\[\s*"none"/.test(src), "a second list of access levels is two things that can disagree");
-});
-
-// ── webhooks, the sixth thing this lane can change ─────────────────────────
-//
-// It belongs HERE and not in the addon lane: that one may touch an existing
-// table only for payments and a public view, because both need a PAGE as well
-// as a schema change. A webhook needs no page — it fires on the data path after
-// the write — so it lives with the other no-page rules, in the one lane that
-// can also turn it off again.
-
-test("the rules lane can switch webhooks on, narrow them, and clear them", () => {
-  const spec = { tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }] }] };
-
-  const on = mergeRules(spec, [{ table: "bookings", webhooks: ["created"] }]);
-  assert.deepEqual(on.spec.tables[0].webhooks, ["created"], "the declaration must reach the table");
-  assert.deepEqual(on.applied, [{ table: "bookings", fields: ["webhooks"] }], "and be reported");
-
-  const widened = mergeRules(on.spec, [{ table: "bookings", webhooks: ["created", "updated", "deleted"] }]);
-  assert.deepEqual(widened.spec.tables[0].webhooks, ["created", "updated", "deleted"], "a later change replaces it");
-
-  const off = mergeRules(widened.spec, [{ table: "bookings", clear: ["webhooks"] }]);
-  assert.equal(off.spec.tables[0].webhooks, null, "clearing must switch it off");
-  assert.deepEqual(off.applied, [{ table: "bookings", fields: ["cleared webhooks"] }], "and say so");
-
-  // UNTOUCHED IS UNTOUCHED. A rules change about something else must not switch
-  // a customer's integration on or off as a side effect.
-  const other = mergeRules(on.spec, [{ table: "bookings", maxRows: 20 }]);
-  assert.deepEqual(other.spec.tables[0].webhooks, ["created"], "an unrelated change must leave it alone");
-});
-
-test("webhooks is clearable, and the tool says every clearable name", () => {
-  // CLEARABLE because it is read out of `_meta` on the write path, so dropping
-  // the declaration really stops the sending — unlike the constraints, which are
-  // additive DDL that would stand in Postgres while `_meta` said they were gone.
-  assert.ok(CLEARABLE.includes("webhooks"), "webhooks must be switchable off");
-  for (const k of NOT_CLEARABLE) {
-    assert.ok(!CLEARABLE.includes(k), k + " must not have become clearable");
-  }
-  // The enum is derived from CLEARABLE, so this asserts the DESCRIPTION keeps up
-  // — a name the model can send and is never told about is one it will not use.
-  const clear = RULES_TOOL.input_schema.properties.tables.items.properties.clear;
-  assert.deepEqual([...clear.items.enum].sort(), [...CLEARABLE].sort(), "the enum must be the clearable set");
-  for (const k of CLEARABLE) {
-    assert.match(clear.description, new RegExp('"' + k + '"'), "the clear description must name " + k);
-  }
-});
-
-test("the rules tool's webhook events match the deliverer's, and survive the normaliser", () => {
-  const w = RULES_TOOL.input_schema.properties.tables.items.properties.webhooks;
-  assert.ok(w, "the rules lane cannot declare webhooks");
-  assert.deepEqual([...w.items.enum].sort(), ["created", "deleted", "updated"], "the events must be the three real ones");
-
-  // THE WHOLE CHAIN, because this lane's output goes through `normalizeSchema`
-  // before `applySiteSchema` — so an invalid event the model sends anyway is
-  // filtered there rather than reaching `_meta`.
-  const merged = mergeRules(
-    { tables: [{ name: "t", access: "collect", columns: [{ name: "a", type: "text" }] }] },
-    [{ table: "t", webhooks: ["created", "nonsense"] }],
-  );
-  const normalised = normalizeSchema(merged.spec).tables.find((t) => t.name === "t");
-  assert.deepEqual(normalised.webhooks, ["created"], "the normaliser must drop the invented event");
 });
 
 // ── the stored shape (2026-10-23, audit A29-5, A29-6, A29-7) ─────────────────
@@ -554,14 +456,6 @@ test("A29-5: a stored numeric column reads as a number, and noOverlap on it is a
   const text = readRules(one({ table: "sessions", noOverlap: { start: "slot_date", end: "customer" } }), [storedBookings]);
   assert.deepEqual(text.refused, [{ table: "sessions", rule: "noOverlap", why: "not-integers" }]);
   assert.ok(RULES_TOOL.input_schema.properties.tables.items.properties.noOverlap.properties.on, "the tool offers no scope");
-});
-
-test("A29-6: a webhooks answer reaches the change, and the digest says what is on", () => {
-  const r = readRules(one({ table: "sessions", webhooks: ["created", "bogus", "created"] }), [storedBookings]);
-  assert.deepEqual(r.changes, [{ table: "sessions", webhooks: ["created"] }]);
-  assert.deepEqual(readRules(one({ table: "sessions", webhooks: ["bogus"] }), [storedBookings]).changes, []);
-  assert.match(rulesDigest([{ ...storedBookings, webhooks: ["created"] }]), /webhooks on created/);
-  assert.match(rulesDigest([{ ...storedBookings, webhooks: true }]), /webhooks on created \+ updated \+ deleted/);
 });
 
 test("A29-7: the designer's unique groups and noOverlap's scope are said, never [object Object]", () => {

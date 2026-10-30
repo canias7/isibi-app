@@ -300,20 +300,19 @@ test("THE FULL PAGE WRITER ASKS, after the quick writer could not make the chang
 });
 
 test("A DOWNSTREAM DESIGNER ASKS AFTER AN EARLIER DESIGNER COMPLETED: nothing of the addition is applied or charged, the whole addition waits on the answer — and resumed, every designer is handed the answer and the addition is applied once", async () => {
+  const TBL = { table: { name: "reminders", access: "collect", columns: [{ name: "who", type: "text" }] } };
   const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-  const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
-  const QJ = { text: "What time of day should the reminder go out?", options: ["9am", "6pm"] };
-  const ASK = "remind people the day before";
+  const QF = { text: "Should the reminder count only today's entries?", options: ["Today only", "All of them"] };
+  const ASK = "keep a list of reminders and a way to send one";
   const slug = "fw-designer-asks-" + Math.random().toString(16).slice(2, 8);
-  // THE FIRST MESSAGE: the function's designer designs, then the job's asks.
-  const first = await addon(slug, ASK, { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { question: QJ } } });
+  // THE FIRST MESSAGE: the table's designer designs, then the function's asks.
+  const first = await addon(slug, ASK, { kinds: ["table", "function"], answers: { table: { table: [TBL] }, function: { question: QF } } });
   assert.equal(first.body.error, "clarify", JSON.stringify(first.body).slice(0, 300));
   assert.equal(first.body.cost, 0, "a question was charged");
-  assert.ok(promptFor(first, "function"), "the earlier designer did not run");
-  assert.ok(promptFor(first, "job"), "the designer that asked did not run");
-  assert.ok(promptFor(first, "job").props.includes("question"), "the designer was not offered the question");
+  assert.ok(promptFor(first, "table"), "the earlier designer did not run");
+  assert.ok(promptFor(first, "function"), "the designer that asked did not run");
+  assert.ok(promptFor(first, "function").props.includes("question"), "the designer was not offered the question");
   assert.ok(!first.sql.some((q) => /\b(create|alter|insert|drop)\b/i.test(q)), "the earlier design was applied before the question: " + first.sql.filter((q) => /create|alter|insert/i.test(q)).join(" | "));
-  assert.deepEqual(first.registered, [], "a job was registered for a question");
   const rec = readAskRecord(first.store.store.get(QUESTION_KEY(slug)));
   assert.ok(rec, "the designer's question was not kept");
   assert.equal(rec.stage, "addon");
@@ -321,15 +320,15 @@ test("A DOWNSTREAM DESIGNER ASKS AFTER AN EARLIER DESIGNER COMPLETED: nothing of
   assert.deepEqual(rec.context, []);
   assert.match(first.body.clarify.id, /^[0-9a-f]{32}$/);
   // THE ANSWER RESUMES THE WHOLE ADDITION, word for word, with the answer beside it (as the routing route hands it on).
-  const told = [{ q: QJ.text, a: "9am" }];
-  const again = await addon(slug, rec.request, { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } }, context: told });
+  const told = [{ q: QF.text, a: "Today only" }];
+  const again = await addon(slug, rec.request, { kinds: ["table", "function"], publishes: true, answers: { table: { table: [TBL] }, function: { function: [FN] } }, context: told });
   assert.equal(again.body.ok, true, JSON.stringify(again.body).slice(0, 300));
   const shownAs = JSON.stringify(contextBlock(told)).slice(1, -1);
-  for (const kind of ["function", "job"]) {
+  for (const kind of ["table", "function"]) {
     assert.ok(promptFor(again, kind).text.includes(shownAs), kind + "'s designer was not shown the answer");
   }
+  assert.equal(again.sql.filter((q) => /CREATE TABLE IF NOT EXISTS "reminders"/.test(q)).length >= 1, true, "the table was not created on the answer");
   assert.equal(again.sql.filter((q) => /create\s+(or\s+replace\s+)?function/i.test(q)).length >= 1, true, "the function was not created on the answer");
-  assert.equal(again.registered.length, 1, "the job was not registered exactly once");
   assert.ok(again.body.cost > 0, "the addition was not charged when it was made");
 });
 

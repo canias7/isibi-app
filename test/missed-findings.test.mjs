@@ -12,7 +12,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { pageMeta } from "../site-meta.mjs";
 import { acceptsVisitorUploads } from "../site-uploads.mjs";
-import { dueJobs, MAX_JOBS_PER_TICK } from "../site-jobs.mjs";
 import { lintPages } from "../builder/page-gen.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -140,50 +139,6 @@ test("all three read hooks refuse an undeclared table", () => {
     const p = lintPages(page("const x = " + call + ";"), SPEC).join(" ");
     assert.match(p, /does not declare/, call + " is not reported");
   }
-});
-
-// ── 5. the jobs drain's ordering ────────────────────────────────────────────
-
-const job = (name, lastRun) => ({ owner_id: "u", slug: "s", name, schedule_minutes: 2, last_run: lastRun });
-
-test("the stalest jobs run first, so the cap cannot starve anything", () => {
-  // The filter can return more than the cap and the slice takes a fixed number —
-  // so in READ ORDER the same first 25 win every tick and everything behind them
-  // starves permanently, with each tick reporting a healthy run.
-  const now = Date.parse("2026-08-15T12:00:00Z");
-  const rows = [];
-  for (let i = 0; i < MAX_JOBS_PER_TICK + 10; i++) {
-    // Later index = MORE recently run, so read order is the opposite of the
-    // right order and a stable slice would pick exactly the wrong ones.
-    rows.push(job("j" + i, new Date(now - (60 - i) * 60000).toISOString()));
-  }
-  const due = dueJobs(rows, now);
-  assert.equal(due.length, MAX_JOBS_PER_TICK);
-  assert.equal(due[0].name, "j0", "the job that has waited longest did not run first");
-  assert.ok(!due.some((r) => r.name === "j" + (rows.length - 1)), "the most recently run job took a slot");
-});
-
-test("a never-run job goes to the front", () => {
-  // A site that has just been built, ahead of everything already ticking over.
-  const now = Date.parse("2026-08-15T12:00:00Z");
-  const rows = [
-    job("old", new Date(now - 3600000).toISOString()),
-    job("fresh", null),
-    job("older", new Date(now - 7200000).toISOString()),
-  ];
-  const due = dueJobs(rows, now);
-  assert.equal(due[0].name, "fresh");
-  assert.deepEqual(due.map((r) => r.name), ["fresh", "older", "old"]);
-});
-
-test("the registry read is whole and ordered, or the window itself is arbitrary", () => {
-  // 2026-10-27: the list is the site's own `_jobs`, read whole by its Worker
-  // (no LIMIT: a site holds at most eight), and `dueJobs` orders what is due.
-  const src = read("../builder/lovable/template/src/lib/site-jobs-run.ts");
-  const at = src.indexOf("FROM _jobs ORDER BY name");
-  assert.ok(at > 0, "the site's registry read moved — rescope this");
-  assert.doesNotMatch(src.slice(at, src.indexOf("\n", at)), /LIMIT/, "the site reads only part of its own list");
-  assert.match(src, /dueJobs\(rows\.filter\(\(r\) => r\.schedule_minutes != null\), Date\.now\(\)\)\.slice\(0, MAX_JOBS_PER_TICK\)/);
 });
 
 // ── 6 & 7. the render check's stub and its sandbox ──────────────────────────

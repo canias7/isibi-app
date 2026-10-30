@@ -918,12 +918,13 @@ test("PI 27 — designWaits: a kind waits only for what it uses, shares words wi
   assert.deepEqual(designWaits(["table", "component"], { uses: { table: [], component: ["table"] } }).component, ["table"]);
   // One phrase for two kinds ("a booking page" is a page and a table).
   assert.deepEqual(designWaits(["table", "page"], { scopes: { table: "a booking page", page: "a booking page" }, uses: { table: [], page: [] } }).page, ["table"]);
-  // NO CHAIN BY CATEGORY (the scheduler round): a function that reads no table and a job that runs no new function wait for nothing…
-  const free = designWaits(["table", "function", "job", "component"], { uses: { table: [], function: [], job: [], component: [] } });
-  assert.deepEqual(free, { table: [], function: [], job: [], component: [] });
-  // …and a function that reads the new table, and a job that runs the new function, say so and wait — transitively.
-  const chain = designWaits(["table", "function", "job"], { uses: { table: [], function: ["table"], job: ["function"] } });
-  assert.deepEqual(chain, { table: [], function: ["table"], job: ["table", "function"] });
+  // NO CHAIN BY CATEGORY (the scheduler round): a function that reads no table and a page that calls no new function wait for nothing…
+  // (A job was the third link until the job kind went, 2026-10-29; a page that calls the function is now.)
+  const free = designWaits(["table", "function", "page", "component"], { uses: { table: [], function: [], page: [], component: [] } });
+  assert.deepEqual(free, { table: [], function: [], page: [], component: [] });
+  // …and a function that reads the new table, and a page that calls the new function, say so and wait — transitively.
+  const chain = designWaits(["table", "function", "page"], { uses: { table: [], function: ["table"], page: ["function"] } });
+  assert.deepEqual(chain, { table: [], function: ["table"], page: ["table", "function"] });
   // Transitive: a QR code on a new page that shows a new table is shown both.
   assert.deepEqual(designWaits(["table", "page", "qr"], { uses: { table: [], page: ["table"], qr: ["page"] } }).qr, ["table", "page"]);
   // Unread (no `uses`): every earlier kind that changes what a designer is shown — as before.

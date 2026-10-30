@@ -569,7 +569,14 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
   // of removals and pages were run on, and the per-lane anchor below — the
   // one that says the router carries hints and never a lane's instructions —
   // is untouched.
-  assert.ok(pick + css < whole * 2 / 15,
+  //
+  // RE-ANCHORED 2026-10-29, TWO FIFTEENTHS TO ONE SIXTH, and the cause is the
+  // DENOMINATOR, not the edit path: the build tool lost its prebuilt-feature
+  // rule (payments, after-submission effects, outside connections, scheduled
+  // jobs and the spam check were deleted, so page-gen's rule 14 became "WHAT
+  // THE SITE HAS"). Measured: 13,094 against 85,153 (1/6.5); the edit path's
+  // own size did not move.
+  assert.ok(pick + css < whole / 6,
     "the edit path is no longer materially smaller than the build tool (" + (pick + css) + " vs " + whole + ")");
   // And the router really is the small half — if it grew to carry each field's
   // full instructions it would cost more than the call it exists to shrink.
@@ -598,8 +605,10 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
     " chars per lane against a smallest lane tool of " + smallestLane);
   // The headline claim stays absolute, because THAT one is about the two calls a
   // customer actually pays for and does not move with the lane count.
-  // (ONE NINTH SINCE 2026-10-03: `elsewhere`, named above.)
-  assert.ok(pick < whole / 9, "the router alone is no longer a fraction of the build tool (" + pick + " vs " + whole + ")");
+  // (ONE NINTH SINCE 2026-10-03: `elsewhere`, named above. ONE EIGHTH SINCE
+  // 2026-10-29: the build tool shrank by its deleted prebuilt-feature rule,
+  // named above; measured 10,422 against 85,153, 1/8.2.)
+  assert.ok(pick < whole / 8, "the router alone is no longer a fraction of the build tool (" + pick + " vs " + whole + ")");
   // THE PICKED MODEL, not a spelling. This pinned `claude-haiku-4-5` until run
   // 93, when a billing refusal at that one provider took down every lane, the
   // router and the whole cheap ladder at once. What this line is for is that

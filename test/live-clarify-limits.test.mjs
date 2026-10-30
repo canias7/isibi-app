@@ -269,21 +269,21 @@ test("BELOW THE THRESHOLD AND THE LIMIT, THE ROUTER'S ONE RE-SEND STILL OFFERS I
   }
 });
 
-test("THE REPEATED-QUESTION THRESHOLD AT THE ADD-ON: the job's designer, answered twice, asks again beside a schedule, after the function's designer finished — nothing of the addition is applied, registered or charged and the designer is never sent again; the clear answer applies the whole addition once", async () => {
+test("THE REPEATED-QUESTION THRESHOLD AT THE ADD-ON: the function's designer, answered twice, asks again beside a proposed function, after the table's designer finished — nothing of the addition is applied or charged and the designer is never sent again; the clear answer applies the whole addition once", async () => {
+  const TBL = { table: { name: "reminders", access: "collect", columns: [{ name: "who", type: "text" }] } };
   const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-  const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
-  const QJ = { text: "What time of day should the reminder go out?", options: ["9am", "6pm"] };
-  const ASK = "remind people the day before";
-  const twice = [{ q: QJ.text, a: "in the morning" }, { q: "what time of day should the reminder go out", a: "early on" }];
+  const QF = { text: "Should the reminder count only today's entries?", options: ["Today only", "All of them"] };
+  const ASK = "keep a list of reminders and a way to send one";
+  const twice = [{ q: QF.text, a: "today, I think" }, { q: "should the reminder count only today's entries", a: "mostly today" }];
   const slug = "fw-limit-addon-" + Math.random().toString(16).slice(2, 8);
-  const first = await addon(slug, ASK, { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { question: QJ, job: [JOB] } }, context: twice });
+  const first = await addon(slug, ASK, { kinds: ["table", "function"], answers: { table: { table: [TBL] }, function: { question: QF, function: [FN] } }, context: twice });
   const why = JSON.stringify(first.body).slice(0, 300);
-  assert.equal(first.body.error, "clarify", "the question beside the schedule was not asked: " + why);
+  assert.equal(first.body.error, "clarify", "the question beside the proposed function was not asked: " + why);
   assert.equal(first.body.cost, 0, "the question was charged");
-  assert.equal(first.prompts.filter((p) => p.kind === "job").length, 1, "the job's designer was sent again at the threshold");
-  assert.ok(promptFor(first, "job").props.includes("question"), "the designer was not offered its question");
+  assert.equal(first.prompts.filter((p) => p.kind === "function").length, 1, "the function's designer was sent again at the threshold");
+  assert.ok(promptFor(first, "table"), "the earlier designer did not run");
+  assert.ok(promptFor(first, "function").props.includes("question"), "the designer was not offered its question");
   assert.ok(!first.sql.some((s) => /\b(create|alter|insert|drop)\b/i.test(s)), "a design was applied beside the unresolved question: " + first.sql.filter((s) => /create|alter|insert/i.test(s)).join(" | "));
-  assert.deepEqual(first.registered, [], "the schedule proposed beside the question was registered");
   const rec = readAskRecord(first.store.store.get(QUESTION_KEY(slug)));
   assert.ok(rec, "the designer's question at the threshold was not kept");
   assert.equal(rec.stage, "addon");
@@ -292,12 +292,12 @@ test("THE REPEATED-QUESTION THRESHOLD AT THE ADD-ON: the job's designer, answere
   assert.equal(rec.note, againNote(twice));
   assert.equal(first.body.clarify.note, rec.note, "the card is not shown the note");
   // THE CLEAR ANSWER, as the routing route hands it on: the whole addition, applied once.
-  const told = appendAnswer(rec.context, { q: QJ.text, a: "9am" });
-  const again = await addon(slug, rec.request, { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } }, context: told });
+  const told = appendAnswer(rec.context, { q: QF.text, a: "Today only" });
+  const again = await addon(slug, rec.request, { kinds: ["table", "function"], publishes: true, answers: { table: { table: [TBL] }, function: { function: [FN] } }, context: told });
   assert.equal(again.body.ok, true, JSON.stringify(again.body).slice(0, 300));
-  assert.ok(promptFor(again, "job").text.includes(JSON.stringify(contextBlock(told)).slice(1, -1)), "the designer was not shown every answer");
+  assert.ok(promptFor(again, "function").text.includes(JSON.stringify(contextBlock(told)).slice(1, -1)), "the designer was not shown every answer");
+  assert.ok(again.sql.some((s) => /CREATE TABLE IF NOT EXISTS "reminders"/.test(s)), "the table was not created on the clear answer");
   assert.ok(again.sql.some((s) => /create\s+(or\s+replace\s+)?function/i.test(s)), "the function was not created on the clear answer");
-  assert.equal(again.registered.length, 1, "the job was not registered exactly once");
   assert.ok(again.body.cost > 0, "the addition was not charged when it was made");
 });
 
@@ -453,19 +453,18 @@ for (const mode of ["sync", "job"]) {
   });
 }
 
-test("THE TOTAL-ANSWER LIMIT AT THE ADD-ON: carrying twelve answers, the job's designer is offered its question and asks a new one beside a schedule — nothing is applied, registered or charged, and the question keeps all twelve", async () => {
+test("THE TOTAL-ANSWER LIMIT AT THE ADD-ON: carrying twelve answers, the function's designer is offered its question and asks a new one beside a proposed function — nothing is applied or charged, and the question keeps all twelve", async () => {
+  const TBL = { table: { name: "reminders", access: "collect", columns: [{ name: "who", type: "text" }] } };
   const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-  const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
-  const QJ = { text: "Should it go out on Sundays too?", options: ["Yes", "No"] };
+  const QF = { text: "Should it count Sundays too?", options: ["Yes", "No"] };
   const twelve = Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Reminder detail " + i + "?", a: "Answer " + i }));
   const slug = "fw-limit-addon-total-" + Math.random().toString(16).slice(2, 8);
-  const r = await addon(slug, "remind people the day before", { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { question: QJ, job: [JOB] } }, context: twelve });
+  const r = await addon(slug, "keep a list of reminders and a way to send one", { kinds: ["table", "function"], answers: { table: { table: [TBL] }, function: { question: QF, function: [FN] } }, context: twelve });
   assert.equal(r.body.error, "clarify", "a question at the total-answer limit was not asked: " + JSON.stringify(r.body).slice(0, 300));
   assert.equal(r.body.cost, 0);
-  assert.ok(promptFor(r, "job").props.includes("question"), "the designer was not offered its question at the limit");
-  assert.equal(r.prompts.filter((p) => p.kind === "job").length, 1, "the designer was sent again");
+  assert.ok(promptFor(r, "function").props.includes("question"), "the designer was not offered its question at the limit");
+  assert.equal(r.prompts.filter((p) => p.kind === "function").length, 1, "the designer was sent again");
   assert.ok(!r.sql.some((s) => /\b(create|alter|insert|drop)\b/i.test(s)), "a design was applied beside the unresolved question");
-  assert.deepEqual(r.registered, []);
   const rec = readAskRecord(r.store.store.get(QUESTION_KEY(slug)));
   assert.ok(rec, "the question at the limit was not kept");
   assert.deepEqual(rec.context, twelve, "an answer was dropped from the question at the limit");

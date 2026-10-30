@@ -51,7 +51,7 @@ const FAILED = ["The number of signups is counted every hour"];
 const BLOCKED = ["The count shows on the dashboard page", "The count is emailed to the owner each morning", "The count starts again each month"];
 const SET_UP = ["Each signup is kept so the owner can read them", "Only the owner can read the signups"];
 const CONFIGURED = ["Each signup is kept as a collected entry"];
-const SCHEDULED = ["The reminder runs every morning", "The reminder is sent to everyone who booked", "The reminder goes out at nine"];
+// (SCHEDULED left 2026-10-29 with the prebuilt jobs: nothing reports a job now.)
 const UNSEEN = ["Each signup gets a welcome message", "Each signup is tagged with where it came from", "Signups older than a year are archived"];
 // ADDED 2026-10-06: carried by what the site already had, above the set-up
 // sentence's old cut of two — never "set up" by this change.
@@ -67,17 +67,15 @@ const failedStep = (need) => E({ need, status: "covered", from: "function", item
 const blocked = (need) => E({ need, status: "elsewhere", step: "function", from: "page", judged: J("no") });
 const setUp = (need) => E({ need, status: "covered", from: "table", item: "signups", kind: "table", by: "signups keeps each one", judged: J("yes", ["table:signups"]) });
 const configured = (need) => E({ need, status: "covered", from: "table", item: "signups", kind: "table", by: "signups is a collect table", judged: J("yes", ["table:signups"]) });
-const scheduled = (need) => E({ need, status: "covered", from: "job", item: "nightly_a", kind: "job", judged: J("yes", ["job:nightly_a"]) });
 const unseen = (need) => E({ need, status: "covered", from: "table", item: "signups", kind: "table", judged: J("unsure") });
 const already = (need) => E({ need, status: "covered", from: "table", item: "enquiries", kind: "table", judged: J("yes", ["table:enquiries"]) });
-// WHAT REALLY RAN: the table and the job applied; the function step failed.
+// WHAT REALLY RAN: the table applied; the function step failed.
 const MADE = appliedFacts({
   spec: {
     tables: [{ name: "signups", access: "collect", columns: [{ name: "name" }, { name: "email" }] }],
     functions: [{ name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" }],
-    jobs: [{ name: "nightly_a", fn: "send_reminder", everyMinutes: 1440, at: "09:00" }],
   },
-  tables: ["signups"], functions: ["send_reminder"], jobs: [{ name: "nightly_a", fn: "send_reminder", everyMinutes: 1440, at: "09:00" }],
+  tables: ["signups"], functions: ["send_reminder"],
 });
 // …AND WHAT THE SITE ALREADY HAD: a table nothing in this change touched.
 const EXISTING = existingFacts({ spec: { tables: [{ name: "enquiries", access: "collect", columns: [{ name: "name" }, { name: "message" }] }] } });
@@ -85,7 +83,7 @@ const OPTS = { made: MADE, reportable: REPORTABLE, failed: ["function"], judged:
 /** Every kind of outcome at once, each above its old cut, in an order the note does not use. */
 const MIXED = () => [
   ...UNSEEN.map(unseen), ...SET_UP.map(setUp), ...MISSING.map(missing), ...BLOCKED.map(blocked),
-  ...SCHEDULED.map(scheduled), ...ALREADY.map(already), ...UNSUPPORTED.map(unsupported), ...FAILED.map(failedStep), ...CONFIGURED.map(configured),
+  ...ALREADY.map(already), ...UNSUPPORTED.map(unsupported), ...FAILED.map(failedStep), ...CONFIGURED.map(configured),
 ];
 /** What the note says, in its own order: every requirement, told as what became of it. */
 const TOLD_ORDER = [
@@ -93,7 +91,6 @@ const TOLD_ORDER = [
   ...MISSING.map((n) => ["still-to-do", n, "missing"]), ...FAILED.map((n) => ["still-to-do", n, "failed"]),
   ...BLOCKED.map((n) => ["blocked", n, "blocked"]),
   ...SET_UP.map((n) => ["set-up", n, "unverified"]), ...CONFIGURED.map((n) => ["set-up", n, "configured"]),
-  ...SCHEDULED.map((n) => ["scheduled", n, "unverified"]),
   ...ALREADY.map((n) => ["already-there", n, "unverified"]),
   ...UNSEEN.map((n) => ["unseen", n, "unknown"]),
 ];
@@ -105,8 +102,8 @@ const bodyOf = (report, { other = "", ...extra } = {}) => ({
   coverOther: other || undefined,
   ...extra,
 });
-const KIND_OF = { unsupported: "not-done", "still-to-do": "not-done", blocked: "not-done", "set-up": "note", scheduled: "note", "already-there": "note", unseen: "unverified" };
-const ALL = [...UNSUPPORTED, ...MISSING, ...FAILED, ...BLOCKED, ...SET_UP, ...CONFIGURED, ...SCHEDULED, ...ALREADY, ...UNSEEN];
+const KIND_OF = { unsupported: "not-done", "still-to-do": "not-done", blocked: "not-done", "set-up": "note", "already-there": "note", unseen: "unverified" };
+const ALL = [...UNSUPPORTED, ...MISSING, ...FAILED, ...BLOCKED, ...SET_UP, ...CONFIGURED, ...ALREADY, ...UNSEEN];
 
 test("TOLD 1 — the report: every requirement of every kind of outcome, above every old cut and mixed, in the note's order, with what became of it and why where its sentence says", () => {
   // RE-ANCHORED 2026-10-06: "already-there", for what the site already had.
@@ -114,7 +111,7 @@ test("TOLD 1 — the report: every requirement of every kind of outcome, above e
   // …AND THE THREE READINGS OF CONTENT A CHANGE PUT ON A PAGE (2026-10-13,
   // `content-evidence.mjs`): shown as it first loads, in the code and not
   // shown, in the code with the page unread — each "set up" with its evidence.
-  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "checked", "set-up", "shown", "behind", "in-code", "scheduled", "already-there", "unseen", "not-tracked"]);
+  assert.deepEqual([...TOLD], ["unsupported", "still-to-do", "blocked", "checked", "set-up", "shown", "behind", "in-code", "already-there", "unseen", "not-tracked"]);
   const r = requirementReport(MIXED(), OPTS);
   assert.deepEqual(r.told.map((o) => [o.told, o.need, o.state]), TOLD_ORDER);
   // THE REASON RIDES WHERE ITS SENTENCE GIVES ONE, and nowhere else.
@@ -136,9 +133,9 @@ test("TOLD 2 — the note the browser prints names every one in its own sentence
   assert.ok(note.includes("Still to do: " + [...MISSING, ...FAILED].join("; ") + "."), note);
   assert.ok(note.includes("And this one is waiting on another part of the same change that didn't work: " + BLOCKED.map((n) => n + " — the function step could not do its part").join("; ") + "."), note);
   assert.ok(note.includes("I've set that up, but I can't confirm from here that " + [...SET_UP, ...CONFIGURED].join("; or that ") + " — have a look"), note);
-  assert.ok(note.includes("Scheduled as you asked: " + SCHEDULED.join("; ") + ". Automatic running"), note);
+  assert.doesNotMatch(note, /Scheduled as you asked/);
   assert.ok(note.includes("Your site already had that in place, but I can't confirm from here that " + ALREADY.join("; or that ") + " — have a look"), note);
-  assert.doesNotMatch(note.slice(note.indexOf("I've set that up"), note.indexOf("Scheduled as you asked")), new RegExp(ALREADY.join("|")), "what the site already had was said to be set up");
+  assert.doesNotMatch(note.slice(note.indexOf("I've set that up"), note.indexOf("Your site already had")), new RegExp(ALREADY.join("|")), "what the site already had was said to be set up");
   assert.ok(note.includes("I can't see from here whether " + UNSEEN.join("; or whether ") + " — nothing I can check"), note);
   assert.doesNotMatch(note, /more like it|\band \d+ more\b/i);
   for (const n of ALL) assert.equal(note.split(n).length - 1, 1, "said other than once: " + n);
@@ -159,13 +156,14 @@ test("TOLD 3 — the deduplication is the note's, kept: one need is said once in
   const ways = requirementReport([missing("Each signup is kept"), setUp("Each signup is kept")], OPTS);
   assert.deepEqual(ways.told.map((o) => o.told), ["still-to-do", "set-up"]);
   assert.deepEqual(facts(bodyOf(ways)).filter((f) => /Each signup is kept/.test(f)), ["not-done: Not done: Each signup is kept.", "note: Set up, but nothing here can check that it works: Each signup is kept."]);
-  // RUN 50'S RECONCILED HAND-OFF (`requirement-coverage`'s own case): both
-  // entries kept for the record, the need told once.
-  const NEED = "That count runs every night at 11";
-  const MADE50 = [{ kind: "job", name: "nightly_booking_count", holds: ["1440", "23:00"], fails: [], checked: [] }];
-  const OPTS50 = { told: ["job"], made: MADE50, reportable: ["job", "function"] };
-  const handed = cleanRequirements([{ need: NEED, status: "elsewhere", step: "job" }], "function").list;
-  const answered = cleanRequirements([{ need: NEED, status: "covered", by: "nightly_booking_count job at 23:00 every 1440 minutes", kind: "job", item: "nightly_booking_count", answers: "function#0" }], "job").list;
+  // A RECONCILED HAND-OFF (run 50's shape, told through a table since the
+  // prebuilt jobs went on 2026-10-29): both entries kept for the record, the
+  // need told once.
+  const NEED = "Each booking is kept for the owner";
+  const MADE50 = [{ kind: "table", name: "bookings", holds: [], fails: [], checked: [] }];
+  const OPTS50 = { told: ["table"], made: MADE50, reportable: ["table", "function"] };
+  const handed = cleanRequirements([{ need: NEED, status: "elsewhere", step: "table" }], "function").list;
+  const answered = cleanRequirements([{ need: NEED, status: "covered", by: "bookings table keeps each one", kind: "table", item: "bookings", answers: "function#0" }], "table").list;
   const both = [...handed, ...answered];
   assert.equal(requirementOutcomes(both, OPTS50).length, 2, "both entries are kept for the record — this case tests nothing");
   const r50 = requirementReport(both, OPTS50);
@@ -173,10 +171,10 @@ test("TOLD 3 — the deduplication is the note's, kept: one need is said once in
   assert.equal(facts(bodyOf(r50)).filter((f) => f.includes(NEED)).length, 1);
   // …AND WHEN THE TWO WORD IT DIFFERENTLY, the same rule and not the exact one:
   // the hand-off the answer speaks for is silent, the answer is told.
-  const SAID = "The nightly booking count runs at 23:00";
-  const answered2 = cleanRequirements([{ need: SAID, status: "covered", by: "nightly_booking_count job at 23:00 every 1440 minutes", kind: "job", item: "nightly_booking_count", answers: "function#0" }], "job").list;
+  const SAID = "The bookings table keeps every booking";
+  const answered2 = cleanRequirements([{ need: SAID, status: "covered", by: "bookings table keeps each one", kind: "table", item: "bookings", answers: "function#0" }], "table").list;
   const r2 = requirementReport([...handed, ...answered2], OPTS50);
-  assert.equal(requirementOutcomes([...handed, ...answered2], OPTS50).find((o) => o.status === "elsewhere").reconciledBy, "job#0", "the hand-off was not reconciled — this case tests nothing");
+  assert.equal(requirementOutcomes([...handed, ...answered2], OPTS50).find((o) => o.status === "elsewhere").reconciledBy, "table#0", "the hand-off was not reconciled — this case tests nothing");
   assert.deepEqual(r2.told.map((o) => o.need), [SAID]);
 });
 
@@ -195,7 +193,6 @@ test("TOLD 4 — each requirement is its own fact, its kind the state's; the not
   });
   assert.deepEqual(told.filter((x) => x.kind === "note").map((x) => x.text), [
     ...[...SET_UP, ...CONFIGURED].map((n) => "Set up, but nothing here can check that it works: " + n + "."),
-    ...SCHEDULED.map((n) => "Scheduled as asked; its automatic running has not been seen yet: " + n + "."),
     ...ALREADY.map((n) => "Their site already had this before this request, and nothing here can check that it works: " + n + "."),
   ]);
   // UNVERIFIED, NEVER "NOT DONE" (2026-10-15): what nothing could look at is its own kind.
@@ -209,8 +206,8 @@ test("TOLD 4 — each requirement is its own fact, its kind the state's; the not
   assert.ok(!f.some((x) => /Still to do|I've set that up|One thing your site/.test(x.text)), "the note was given beside the requirements");
   // WHAT THE PAGE HOLDS THE REPLY'S PLACE WITH: some of it is not done.
   assert.equal(replyOutcomeOf({ facts: f }), "partly");
-  // SET UP AND SCHEDULED ARE DONE, with something worth knowing…
-  const fine = requirementReport([...SET_UP.map(setUp), ...SCHEDULED.map(scheduled)], OPTS);
+  // SET UP IS DONE, with something worth knowing…
+  const fine = requirementReport(SET_UP.map(setUp), OPTS);
   assert.equal(replyOutcomeOf(addonReplyFacts(bodyOf(fine))), "done");
   // …AND WHAT NOBODY COULD SEE IS NEVER CALLED DONE.
   const blind = requirementReport(UNSEEN.map(unseen), OPTS);
@@ -361,20 +358,6 @@ test("TOLD 8 — three requirements waiting on a part of the change that failed,
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need, o.state]), BLOCKED.map((n) => ["blocked", n, "blocked"]));
 });
 
-test("TOLD 9 — three scheduled requirements, above the old cut of two, through the route: every one told as scheduled and not yet seen running, never as not done", async () => {
-  const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-  const JOBS = ["morning_reminder", "booked_reminder", "nine_reminder"].map((name) => ({ name, fn: "send_reminder", everyMinutes: 1440, at: "09:00" }));
-  const NEEDS = SCHEDULED.map((need, i) => ({ need, status: "covered", by: JOBS[i].name + " runs daily", kind: "job", item: JOBS[i].name }));
-  const r = await addon("rt-told-scheduled", "remind people every morning", {
-    kinds: ["function", "job"], tz: "Europe/London",
-    answers: { function: { function: [FN] }, job: { job: JOBS, requirements: NEEDS } },
-    ...judgingBy(SCHEDULED.map((n, i) => [new RegExp(n), "yes", ["job:" + JOBS[i].name]])),
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 400));
-  assert.ok(r.body.coverNote.includes("Scheduled as you asked: " + SCHEDULED.join("; ") + "."), r.body.coverNote);
-  assert.deepEqual(facts(r.body).filter((x) => SCHEDULED.some((n) => x.includes(n))), SCHEDULED.map((n) => "note: Scheduled as asked; its automatic running has not been seen yet: " + n + "."));
-  assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), SCHEDULED.map((n) => ["scheduled", n]));
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE WHOLE PATH: A REQUEST, ITS JOB, THE STORED ANSWER, THE BACKGROUND REPLY

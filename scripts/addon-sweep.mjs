@@ -663,12 +663,9 @@ export const BROWSER_FNS = Object.freeze([
   // and the paid run comes back with no customer screen at all. The census in
   // `test/addon-sweep.test.mjs` derives the requirement from `addonReplyText`'s
   // own body so the next one fails at the guard rather than in a live run.
-  // ⚠ AND `onceWhen`/`jobZone`/`jobOnceNote` FOR THE SAME REASON (2026-09-19).
-  // The one-time schedule sentence is composed by three functions calling one
-  // another, so all three have to be cut: `jobWords` alone throws the moment a
-  // job carries `on`, which is every one-time reminder a customer asks for.
+  // (`onceWhen`/`jobZone`/`jobWords`/`jobOnceNote` went with the job kind,
+  // 2026-10-29: chat.js no longer has them.)
   "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "browserTimeZone",
-  "jobZone", "onceWhen", "jobWords", "jobOnceNote",
   // `addonOutcomeMsg` IS THE SELECTION'S OWN (2026-09-24): an answer the page
   // cannot use, a refusal with no sentence and a success it broke showing are
   // said by it, where they used to start the rewrite and say nothing.

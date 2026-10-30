@@ -147,7 +147,8 @@ function between(src, from, to, what) {
 // first 2xx answer in the site's own bucket at `idem/<table>/<key>`. server.ts
 // imports TanStack Start, which is not installed here, so the handler and the
 // helpers above it are cut out by landmark, transpiled and run for real; the
-// follow-ups (`runSiteEffects`) are counted by a stand-in.
+// site's own hooks that follow a write (`rowHooks`, lib/site-row-hooks.ts)
+// are counted by a stand-in.
 let serverLoads = 0;
 async function loadOwnDataWrite() {
   const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
@@ -155,7 +156,7 @@ async function loadOwnDataWrite() {
   assert.match(part, /export async function ownDataWrite\(/);
   // The site's own limiter (lib/site-limit.ts), real, beside it.
   const lim = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-limit.ts", import.meta.url), "utf8").replace(/^export /gm, "");
-  const body = "const SITE_SLUG = 'ember-cart';\nconst runSiteEffects = (...a) => globalThis.__siteEffects(...a);\n" + lim + "\n" + part;
+  const body = "const SITE_SLUG = 'ember-cart';\nconst rowHooks = (...a) => globalThis.__siteEffects(...a);\n" + lim + "\n" + part;
   const js = ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   return (await import("data:text/javascript," + encodeURIComponent(js + "\n// " + ++serverLoads))).ownDataWrite;
 }
@@ -215,14 +216,14 @@ test("the site reads the key BEFORE the upstream write, compares the contents, a
   const site = ownSite();
   const restore = site.install();
   try {
-    await press(write, site, { body: '{"name":"Ada","cf-turnstile-response":"tok-1"}' });
-    // A double-click sends one single-use spam token twice (audit A30-4); the
-    // token is dropped before the contents are compared, so the second press
-    // is replayed, not refused or written again.
-    const second = await press(write, site, { body: '{"name":"Ada","cf-turnstile-response":"tok-2"}' });
+    await press(write, site, { body: '{"name":"Ada"}' });
+    // A double-click sends the same contents twice: the second press is
+    // replayed, not written again. (The spam token audit A30-4 dealt with went
+    // with the spam check, 2026-10-29: no page sends one now.)
+    const second = await press(write, site, { body: '{"name":"Ada"}' });
     assert.equal(second.headers.get("x-idempotent-replay"), "1");
     assert.equal(site.ups.length, 1, "a replay that still reaches Postgres is the bug");
-    assert.equal(site.ups[0][2], '{"name":"Ada"}', "the token never reaches the database");
+    assert.equal(site.ups[0][2], '{"name":"Ada"}');
     assert.equal(site.effects.length, 1, "the follow-ups ran once, for the write, never for the replay");
     // Another submission under the same key is not replayed (audit A30-5).
     const other = await press(write, site, { body: '{"name":"Bo"}' });
@@ -253,7 +254,8 @@ test("the site reads the key BEFORE the upstream write, compares the contents, a
   } finally { r3(); }
 });
 
-test("the kit sends the header on every submission and checkout, and renews the key ONLY after a success", () => {
+// (The checkout hook went with the prebuilt payments, 2026-10-29.)
+test("the kit sends the header on every submission, and renews the key ONLY after a success", () => {
   assert.match(rows, /const IDEM_HEADER = "Idempotency-Key";/);
   assert.equal("Idempotency-Key".toLowerCase(), IDEM_HEADER, "the kit and the Worker spell the header differently");
   const mint = between(rows, "function useIdemKey() {", "/** PostgREST's equality filter");
@@ -261,7 +263,7 @@ test("the kit sends the header on every submission and checkout, and renews the 
   assert.match(mint, /renew: \(\) => \{ ref\.current = freshKey\(\); \}/);
   assert.match(rows, /crypto\.randomUUID\(\)\.replace\(\/-\/g, ""\)/, "the key is not unguessable");
 
-  const create = between(rows, "export function useCreateRow<T = Row>(table: string) {", "/** One line of a basket.");
+  const create = between(rows, "export function useCreateRow<T = Row>(table: string) {", "export type UpdateArg<T>");
   assert.match(create, /const idem = useIdemKey\(\);/);
   assert.match(create, /headers: idem\.header\(\),/, "the header is minted and never sent");
   const sendAt = create.indexOf("await send<unknown>(base(table), {");
@@ -270,10 +272,5 @@ test("the kit sends the header on every submission and checkout, and renews the 
   assert.ok(sendAt > 0 && renewAt > sendAt && renewAt < finallyAt,
     "renew must follow the send inside the try — renewing before it, or in finally, makes a refused retry a new submission");
 
-  const checkout = between(rows, "export function useCheckout(table: string) {", "export type UpdateArg<T>");
-  assert.match(checkout, /\.\.\.idem\.header\(\)/, "checkout does not carry the key");
-  const okAt = checkout.indexOf("idem.renew();");
-  const throwAt = checkout.indexOf('throw new Error(data?.error || "We couldn\'t start that payment.");');
-  const goAt = checkout.indexOf("window.location.href = data.url as string;");
-  assert.ok(throwAt > 0 && okAt > throwAt && okAt < goAt, "checkout renews before it knows the session opened, or never");
+  assert.doesNotMatch(rows, /export function useCheckout\(/, "the prebuilt checkout is back");
 });

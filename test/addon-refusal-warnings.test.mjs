@@ -72,11 +72,12 @@ const EMAIL = { need: "The owner is emailed about each new enquiry", status: "co
 const SPIN = { need: "The model turns slowly", status: "covered", by: "the scene", item: "three", kind: "three", basis: "asked", words: "a spinning 3D model of our shop" };
 const LIGHT = { need: "The model is lit from above", status: "covered", by: "the scene", basis: "asked", words: "a spinning 3D model of our shop" };
 const BANNER = { need: "A cookie banner is shown", status: "covered", by: "the scene", basis: "asked", words: "a spinning 3D model of our shop" };
-// THE SITE ALREADY KEEPS ENQUIRIES, and a collect table emails its owner.
+// THE SITE ALREADY KEEPS ENQUIRIES. (The verdict names the table itself: its
+// owner-email part went with that feature, 2026-10-29.)
 const STORED = { tables: [{ name: "enquiries", access: "collect", columns: [{ name: "name", type: "text" }, { name: "message", type: "text" }] }], functions: [], apis: [], jobs: [] };
 const VERDICTS = [
   [/bank transfer/, "asked", "no"],
-  [/emailed/, "asked", "yes", ["table:enquiries:notify"]],
+  [/emailed/, "asked", "yes", ["table:enquiries"]],
   [/turns slowly|answered within a day/, "asked", "no"],
   [/lit from above/, "asked", "unsure"],
   [/cookie banner/, "unrelated", "no"],
@@ -168,7 +169,7 @@ test("REFUSE 3 — every designer declined, each having said what the change nee
   // THE DEVELOPER'S RECORD (this refusal is after it is written): found where
   // it already was.
   const rec = storedAnswer(r, "rw-declined").coverage.requirements.find((q) => q.need === EMAIL.need);
-  assert.deepEqual([rec.state, rec.foundIn, rec.carriedBy], ["unverified", "existing", ["table:enquiries:notify"]]);
+  assert.deepEqual([rec.state, rec.foundIn, rec.carriedBy], ["unverified", "existing", ["table:enquiries"]]);
 });
 
 /** The judgment as a request's model is asked it, read off the request the route sent: by need. */
@@ -276,10 +277,10 @@ test("REFUSE 6 — a refusal after a design the database could not wholly carry:
   // …AND ON A CHANGE THAT WAS BUILT, THE SAME FINDING IS TOLD: once, as its own
   // fact beside the requirement's (`coverOther`, the counted sentences).
   const built = await addon("rw-built-props", "count the visits each night, and let people pay by bank transfer", {
-    kinds: ["function", "job"],
+    // (The requirement rode a job until the job kind went, 2026-10-29.)
+    kinds: ["function"],
     answers: {
-      function: { function: [{ name: "count_visits", internal: true, returns: "bigint", body: "SELECT 1", encryptAtRest: true, retries: 3 }] },
-      job: { job: [{ name: "nightly_count", fn: "count_visits", everyMinutes: 1440, at: "23:00" }], requirements: [PAY] },
+      function: { function: [{ name: "count_visits", internal: true, returns: "bigint", body: "SELECT 1", encryptAtRest: true, retries: 3 }], requirements: [PAY] },
     },
     ...judging([[/bank transfer/, "asked", "no"]]),
   });

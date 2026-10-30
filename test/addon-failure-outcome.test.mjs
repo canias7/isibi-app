@@ -581,9 +581,8 @@ const MADE_UNKNOWN = "I did set up a database for your site along the way, and s
 const MADE_NOTHING = "I did set up a database for your site along the way — nothing from this is stored in it yet.";
 const UNKNOWN_FACT = "note: Some of its database change may have gone in before it stopped; which parts did could not be established.";
 const REPAIRS = { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] };
-/** An internal function and a job over it: a design the pageless path takes. */
+/** An internal function: a design the pageless path takes. */
 const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
 
 test("PROV 1 — at the modules: a database made beside an apply that stopped part-way is said made, with what went into it not known; 'nothing stored' only where the apply never ran; nothing about it beside an apply that landed", () => {
   const unknown = failureOutcome({ provisioned: true, database: "unknown" });
@@ -616,10 +615,10 @@ test("PROV 1 — at the modules: a database made beside an apply that stopped pa
 
 test("PROV 2 — the pageless path: the site's database made, then its apply stops part-way — the outcome is unknown with the database made, and the screen says the database was made and that some of the change may be in it, never that nothing is; ours, so no model reply; nothing charged", async () => {
   const r = await addon("fo-prov-pageless", "remind people the day before", {
-    backend: "none", provisions: true, kinds: ["function", "job"],
+    backend: "none", provisions: true, kinds: ["function"],
     // THE ENGINE'S OWN TABLES GO IN, THEN ONE IS REFUSED — on a database this run made.
     sqlFail: /^CREATE TABLE IF NOT EXISTS _errors /,
-    answers: { function: { function: [FN] }, job: { job: [JOB] } },
+    answers: { function: { function: [FN] } },
   });
   assert.deepEqual([r.status, r.body.ok, r.body.error, r.body.ours, r.body.cost], [502, false, "schema", true, 0], JSON.stringify(r.body).slice(0, 400));
   assert.ok(r.neonCalls.length > 0, "no database was made — this case tests nothing");

@@ -66,7 +66,7 @@ test("Cloud offers a Visibility card, keyed at its own position", () => {
   const keys = cardKeys();
   // THE OBSERVER IS ALIVE: the table really parsed, so an absence below is an
   // absence in the product rather than in this reader.
-  assert.ok(keys.length >= 13, "only " + keys.length + " cards found — the table reader is broken");
+  assert.ok(keys.length >= 12, "only " + keys.length + " cards found — the table reader is broken");
   assert.ok(keys.includes("visibility"), "the Visibility card is gone from Cloud; found " + keys.join(", "));
 
   // MATCHED AT THE KEY'S OWN POSITION — the recorded trap from the Submissions

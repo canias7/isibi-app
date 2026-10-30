@@ -15,7 +15,6 @@ import { platformPair, chooseTurnstile } from "../site-turnstile.mjs";
 import { editReplyFacts } from "../builder/site-reply.mjs";
 
 const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-const deploy = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
 const between = (src, a, b) => {
   const i = src.indexOf(a);
   const j = src.indexOf(b, i + a.length);
@@ -55,14 +54,6 @@ test("published sites may load Turnstile's script and frame", () => {
   const frame = csp.match(/"frame-src [^"]*"/);
   assert.ok(script && script[0].includes("https://challenges.cloudflare.com"), "the widget script is refused");
   assert.ok(frame && frame[0].includes("https://challenges.cloudflare.com"), "the challenge frame is refused");
-});
-
-test("deploy.yml uploads both names as optional secrets with a non-empty fallback", () => {
-  const list = between(deploy, "          secrets: |\n", "        env:");
-  for (const n of ["TURNSTILE_SITE_KEY", "TURNSTILE_SECRET"]) {
-    assert.match(list, new RegExp("^\\s+" + n + "$", "m"), n + " is not uploaded");
-    assert.ok(deploy.includes(n + ": ${{ secrets." + n + " || '-' }}"), n + " has no '-' fallback");
-  }
 });
 
 test("the rules answer's spamCheck becomes a state fact; false or absent says nothing", () => {

@@ -369,8 +369,11 @@ test("visitor row paths run in the site's own Worker, on the limited login only 
   // site's Worker, which holds exactly one database login — the limited one.
   const vm = SRC.match(/const vm = url\.pathname\.match\(\/\^\\\/api\\\/db\\\/[^\n]*\)\$\/i\);/);
   assert.ok(vm, "the visitor-route pattern");
-  for (const p of ["data\\/", "api\\/", "hook\\/", "auth\\/", "|error|", "|checkout|", "|uploads|", "|turnstile)"]) assert.ok(vm[0].includes(p), "visitor route " + p);
-  assert.match(block('url.pathname.startsWith("/api/stripe/site/")', "\n    }\n"), /const own = await ownDataRead\(env, request, wm\[1\]\.toLowerCase\(\)\)/);
+  for (const p of ["data\\/", "auth\\/", "|error|", "|uploads)"]) assert.ok(vm[0].includes(p), "visitor route " + p);
+  // The prebuilt features' routes (outside connections, inbound hooks, checkout,
+  // the spam check, the site's Stripe message) left with them on 2026-10-29.
+  for (const p of ["|api\\/", "(?:api\\/", "hook\\/", "checkout", "turnstile"]) assert.ok(!vm[0].includes(p), "visitor route " + p + " is still routed");
+  assert.ok(!SRC.includes('url.pathname.startsWith("/api/stripe/site/")'), "the site's Stripe message is still routed");
   // What the site's Worker is given: the limited login as APP_CONN, never the owner's.
   const given = block("const app = await siteAppConn(env, slug)", "legacy,\n");
   assert.match(given, /secrets: \{ \.\.\.owned, \.\.\.\(app \? \{ APP_CONN: app \} : \{\}\) \}/);
@@ -378,10 +381,10 @@ test("visitor row paths run in the site's own Worker, on the limited login only 
   // into (the limited one cannot create); it is never put in what is handed over.
   const handed = given.slice(given.indexOf("return {"));
   assert.ok(handed.length > 0 && !/ownerConn|siteBackendBySlug\(|ownerSiteConn\(/.test(handed), "the owner's login is handed to the site");
-  assert.match(given, /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL\]\) await sqlExec\(ownerConn, q\)/);
+  assert.match(given, /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL\]\) await sqlExec\(ownerConn, q\)/);
   // And the site's own writers open that one login.
   const T = (f) => readFileSync(new URL("../builder/lovable/template/src/lib/" + f, import.meta.url), "utf8");
-  assert.match(T("site-pay.ts"), /if \(!env\.APP_CONN \|\| !env\.SITE_TABLES\) return null;/);
+  assert.match(T("site-functions.ts"), /return siteSql\(String\(env\.APP_CONN\), String\(text\), params\);/);
   assert.match(T("site-telemetry.ts"), /const conn = env\.APP_CONN as string;/);
 });
 

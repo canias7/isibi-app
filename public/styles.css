@@ -1984,29 +1984,15 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sk-del:hover { color: #c62828; border-color: rgba(255, 120, 120, .4); }
 /* Edge-function cards (Cloud → Edge functions). */
 .fn-item { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .7rem .85rem; margin-bottom: .6rem; }
-.fn-top { display: flex; align-items: center; gap: .55rem; }
-.fn-ic { display: inline-flex; color: var(--muted); flex: none; }
 .fn-name { font-family: ui-monospace, monospace; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fn-trig { flex: none; font-size: .64rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .12rem .45rem; }
-.fn-top .sk-del { margin-left: auto; }
-.fn-top .st-badge-live, .fn-top .st-badge-soon { margin-left: 0; }
-.fn-flow { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-top: .6rem; }
-.fn-step { font-size: .74rem; color: var(--text, #e8e6ef); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: .18rem .5rem; }
-.fn-sch { display: inline-flex; align-items: center; gap: .25rem; flex: none; font-size: .64rem; letter-spacing: .04em; text-transform: uppercase; color: var(--amber, #000000); border: 1px solid rgba(0,0,0, .35); border-radius: 999px; padding: .12rem .45rem; }
-.fn-sch svg { width: 12px; height: 12px; }
 /* The On/Paused switch on a scheduled job — a BUTTON wearing the badge's
    clothes, because the state and the control are the same thing here. Pushed
    to the row's right edge; the two states keep the badge pair's visual
    weight (filled = running, outline = paused) so the row reads at a glance
    in greyscale too. */
 .fn-tgl { flex: none; margin-left: auto; cursor: pointer; font-size: .6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--on-accent); background: var(--split); border: 1px solid transparent; border-radius: 999px; padding: .12rem .5rem; }
-.fn-tgl.fn-off { font-weight: 700; color: var(--muted); background: none; border-color: var(--line-2); }
 /* Run now (2026-09-03): the quiet twin of the switch, beside it rather than pushed to the edge. */
 .fn-tgl.fn-run { margin-left: .4rem; font-weight: 700; color: var(--muted); background: none; border-color: var(--line-2); }
-.fn-tgl.fn-run:hover:not(:disabled) { color: var(--text); border-color: var(--text); filter: none; }
-.fn-tgl:hover:not(:disabled) { filter: brightness(1.12); }
-.fn-tgl.fn-off:hover:not(:disabled) { color: var(--text); border-color: var(--text); filter: none; }
-.fn-tgl:disabled { opacity: .55; cursor: default; }
 /* FULL-STRENGTH INK. `--dim` is not defined anywhere, so this fell through to a
    hardcoded #a49fb5 — a dark-theme lavender-grey, left behind by the 2026-07-23
    move to the light theme. On the white surface it reads as PLACEHOLDER text,
@@ -2081,21 +2067,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .fl-del { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; background: rgba(0,0,0,.62); }
 .fl-del:hover { background: #ff5b7a; color: #fff; }
 /* Emails setup guide */
-.em-steps { display: flex; flex-direction: column; gap: .7rem; }
-.em-step { display: flex; gap: .8rem; align-items: flex-start; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: .8rem .9rem; }
-.em-n { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; font-size: .85rem; color: var(--on-accent); background: var(--split); }
-.em-step b { display: block; font-size: .9rem; margin-bottom: .2rem; }
 /* The BODY's bolds stay inline. `.em-step b` was written when a step's only bold
    was its title, so emphasis inside the description became a block and broke
    every sentence containing one onto three lines. */
-.em-step span b { display: inline; font-size: inherit; margin-bottom: 0; }
-.em-step span { color: var(--muted); font-size: .82rem; line-height: 1.5; }
 /* `.em-n` is a span inside `.em-step`, so `.em-step span` (0,1,1) beat `.em-n`
    (0,1,0) and painted the step number near-black at 56% on a near-black
    gradient — invisible, in every panel using this markup. Measured, not
    guessed: computed color was rgba(11,11,14,.56). */
 .em-step .em-n { color: var(--on-accent); }
-.em-step code { font-family: ui-monospace, monospace; font-size: .78rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 .3rem; }
 /* Browser frame around the live preview — just a URL chip, no window dots. */
 .st-frame { display: flex; flex-direction: column; width: 100%; height: 100%; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: var(--bg); box-shadow: 0 18px 44px -22px rgba(0, 0, 0, .8); }
 .st-frame-bar { display: flex; align-items: center; padding: .5rem .7rem; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
@@ -4298,18 +4277,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    hand. Monochrome like the rest: state is carried by fill and by a word, never
    by hue alone, so it survives greyscale and anyone who cannot see colour. */
 .em-step.em-done .em-n { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
-.pay-ok, .pay-warn { border: 1px solid var(--line-2); border-radius: 10px; padding: .6rem .8rem; margin-bottom: .9rem; font-size: .85rem; }
 /* A live shop reads as settled; a test key reads as unfinished. The filled rule
    on the left is the difference, not a colour. */
 .pay-ok { border-left: 3px solid #0a0a0a; }
-.pay-warn { border-left: 3px solid #0a0a0a; background: rgba(10, 10, 10, .04); }
-.pay-hook { margin-top: 1rem; }
-.pay-hook label { display: block; font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: .35rem; }
-.pay-hook-row { display: flex; align-items: center; gap: .5rem; }
 /* min-width:0 so the URL ellipsizes instead of pushing Copy off the card —
    the same flex failure as the Data rail, which this session hit twice. */
 .pay-hook-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; font-size: .78rem; background: var(--panel-2); }
-.pay-hook-row .st-publish { flex: none; }
 
 /* ── Cloud → Export data, and Cloud → Files ──────────────────────────────────
    Both panels were dark until 2026-08-07: Export offered snapshot/restore/import

@@ -113,8 +113,8 @@ const SRC = [
   // WHETHER A FAILURE'S NOTE IS SHOWN (2026-10-06): only beside its outcome.
   cut("function failureOutcomeOf("),
   cut("function sitePathOf("),
-  ...["problemNote", "photoNote", "listPhotoNote", "browserTimeZone", "jobZone", "onceWhen", "jobWords",
-    "jobOnceNote", "addonReplyText", "renderTail", "alsoTail", "editOutcomes", "partialSaid", "pageOpVerb",
+  ...["problemNote", "photoNote", "listPhotoNote", "browserTimeZone",
+    "addonReplyText", "renderTail", "alsoTail", "editOutcomes", "partialSaid", "pageOpVerb",
     "pageOpsSaid", "editReplyBody", "editReply", "esc"].map((n) => cut("function " + n + "(")),
   cut("function reactSend("),
   cut("function buildCostWords("),

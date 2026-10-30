@@ -73,7 +73,8 @@ test("an entry-only addition publishes nothing; a page it wrote does", async () 
 
 const VERIFIED = { verified: true, sentence: "VERIFIED — the edit did not publish, and every page still reports 01790404806543-kk6qsh, the version the before-read saw" };
 const UNVERIFIED = { verified: false, sentence: "UNVERIFIED — the site moved on to 01790404906543-zzzzzz, a later version than this job's 01790404806543-kk6qsh, so this job's pages could not be read" };
-const PAGELESS = { ok: true, kinds: ["job"], skipped: [], added: [], changed: [], removed: [], moved: [], functions: [], jobs: [{ name: "daily_reminder", everyMinutes: 1440 }], cost: 3 };
+// (A database function; it was a scheduled job until the job kind went, 2026-10-29.)
+const PAGELESS = { ok: true, kinds: ["function"], skipped: [], added: [], changed: [], removed: [], moved: [], functions: ["send_reminder"], cost: 3 };
 
 test("the verdict: an ok answer passes only with a verified after-read, and says what was saved", async () => {
   const { addonVerdict } = await ca();
@@ -122,7 +123,7 @@ test("an entries-only success that shows no saved entry fails, whatever the afte
   const { addonVerdict, entriesOnly, savedEntries } = await ca();
   assert.equal(entriesOnly(ROW_REPLY), true);
   assert.equal(entriesOnly(PAGELESS), false);
-  assert.equal(entriesOnly({ ...ROW_REPLY, kinds: ["row", "job"] }), false);
+  assert.equal(entriesOnly({ ...ROW_REPLY, kinds: ["row", "function"] }), false);
   assert.equal(savedEntries(ROW_REPLY), true);
   for (const [why, body] of [
     ["an empty list", { ...ROW_REPLY, rows: [] }],

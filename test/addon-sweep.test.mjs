@@ -126,7 +126,8 @@ test("every case can be judged, and judges the site rather than the reply", () =
 // engine MADE — with the one thing the page can show (a changed page on a
 // moved build) demanded where a page must call the thing, and the opposite
 // demanded of a job, which changes no page.
-test("the backend cases pass only on evidence, fail on a bare claim, and the job case fails on a moved build", () => {
+// (The connection and job cases went with those kinds, 2026-10-29.)
+test("the backend cases pass only on evidence and fail on a bare claim", () => {
   const same = { build: "b1", status: 200, html: "<html></html>", text: "x", hrefs: ["/"], routes: ["/"] };
   const moved = { ...same, build: "b2" };
   const by = (n) => CASES.find((c) => c.name === n);
@@ -134,7 +135,6 @@ test("the backend cases pass only on evidence, fail on a bare claim, and the job
   // build passes; a job on an unmoved build passes; a reply that was not ok
   // carries no evidence however full its list.
   assert.equal(blindBackend(same, moved, { ok: true, functions: ["f"], changed: ["index.tsx"] }, "functions", true).ok, true);
-  assert.equal(blindBackend(same, same, { ok: true, jobs: [{ name: "j" }] }, "jobs", false).ok, true);
   assert.equal(blindBackend(same, moved, { ok: false, functions: ["f"], changed: ["index.tsx"] }, "functions", true).ok, false, "a failed reply's list counts as evidence");
   // A TABLE: the reply names one and the build moved; a claim with no table,
   // or an unmoved build, is not a pass.
@@ -150,21 +150,12 @@ test("the backend cases pass only on evidence, fail on a bare claim, and the job
   assert.equal(by("function").check(same, moved, { ...fnOk, functionErrors: [{ name: "bookings_on_day", error: "column d does not exist" }] }, {}).ok, false, "a function the database refused passes");
   assert.equal(by("function").check(same, moved, { ...fnOk, changed: [], added: [] }, {}).ok, false, "a function no page calls passes as a page change");
   assert.equal(by("function").check(same, same, fnOk, {}).ok, false, "an unmoved build passes");
-  assert.equal(by("api").check(same, moved, { ok: true, apis: ["exchange_rate"], added: [], changed: ["prices.tsx"] }, {}).ok, true);
-  assert.equal(by("api").check(same, moved, { ok: true, apis: [], added: [], changed: ["prices.tsx"] }, {}).ok, false, "a publish that made no connection passes");
-  // A JOB: named, and the build UNMOVED — it changes no page; the honest
-  // answer publishes nothing, and a moved build is the lie.
-  const job = { ok: true, jobs: [{ name: "remind_tomorrow", fn: "bookings_due_tomorrow", everyMinutes: 1440 }], functions: ["bookings_due_tomorrow"], added: [], changed: [] };
-  assert.equal(by("job").pageless, true, "the job case is not marked pageless — the runner would wait for a build that will not come");
-  assert.equal(by("job").check(same, same, job, {}).ok, true, "the honest job answer — unmoved build — is called a lie");
-  assert.equal(by("job").check(same, moved, job, {}).ok, false, "a job that moved the build passes");
-  assert.equal(by("job").check(same, same, { ...job, jobs: [] }, {}).ok, false, "a job that scheduled nothing passes");
-  assert.equal(by("job").check(same, same, { ...job, functionErrors: [{ name: "bookings_due_tomorrow" }] }, {}).ok, false, "a job whose builder failed to create passes");
   // Every backend case says it judged the reply, so a reader of the log
   // knows the page was not the evidence.
-  for (const n of ["function", "api", "job"]) assert.match(by(n).check(same, moved, {}, {}).note, /judged off the reply/, n + ": the note pretends the page was read");
+  for (const n of ["function"]) assert.match(by(n).check(same, moved, {}, {}).note, /judged off the reply/, n + ": the note pretends the page was read");
   // And every pageless case is a backend case with no page in its ask's answer.
-  for (const c of CASES.filter((x) => x.pageless)) assert.ok(["job"].includes(c.name), c.name + ": marked pageless but its answer changes a page");
+  // (The job case was the one pageless case; none is left, 2026-10-29.)
+  for (const c of CASES.filter((x) => x.pageless)) assert.fail(c.name + ": marked pageless but its answer changes a page");
 });
 
 test("the runner does not wait for the edge on a pageless case, and judges it the other way round", () => {
@@ -2104,31 +2095,3 @@ test("the harness reads the registry before the post, and the press is its own s
   assert.match(blk, /IT REALLY RUNS/, "the input does not say the press really runs the job");
 });
 
-test("the owner's jobs route answers which function each job runs", async () => {
-  // THE ROUTE'S HALF OF THE SAME FIX. Reading it off the SPEC is the property:
-  // `runJob` does `spec.fn`, so a second copy stored elsewhere could disagree
-  // with what the runner would really call.
-  // ⚠ RE-ANCHORED 2026-09-19, and the expectation MOVED rather than broke. It
-  // read the route's own inline projection out of `worker.js` — a window opened
-  // on `jobs: jrows.map((j) => ({`, which is a SPELLING. That projection is
-  // `jobPanelRow` in `site-jobs.mjs` now, lifted there because a sweep proved
-  // two of its fields could be emptied with the whole suite green: nothing can
-  // drive this route's mapping without Supabase, the owner gate and a session,
-  // so *a wall nobody can drive is a wall nobody is guarding*.
-  //
-  // The new form is strictly stronger, because it DRIVES the property instead
-  // of reading it, and asserts the route really goes through the reader.
-  // Either half alone is the wiring trap — a perfect reader nothing calls, or a
-  // call to a reader that answers nothing.
-  const { jobPanelRow } = await import("../site-jobs.mjs");
-  assert.equal(jobPanelRow({ name: "n", spec: { fn: "send_reminder" }, schedule_minutes: 1440 }).fn, "send_reminder",
-    "the jobs row does not answer the persisted function reference, off the spec the runner reads");
-  // AND IT IS EMPTY RATHER THAN ABSENT for a row that lost it — a job with no
-  // reference can never run, and a missing key reads as "not asked about".
-  assert.equal(jobPanelRow({ name: "n", spec: {}, schedule_minutes: 1440 }).fn, "",
-    "an absent reference must read as empty, not undefined");
-  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // 2026-10-27: the rows come from the site's own `_jobs`, whose `spec` may arrive as text.
-  assert.match(w, /return Response\.json\(\{ jobs: \(jrows \|\| \[\]\)\.map\(\(r\) => jobPanelRow\(\{ \.\.\.r, spec: typeof r\.spec === "string" \? JSON\.parse\(r\.spec\) : r\.spec \}\)\) \}\);/,
-    "the jobs route does not project its rows through the shared jobPanelRow");
-});

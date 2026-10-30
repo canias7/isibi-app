@@ -115,17 +115,64 @@ test("SF8 hooks run on their event only, never for a visitor unless allowed", as
   assert.equal(await fireHooks(env, "kiln", "tick", {}, boom), 1, "a failing hook never throws");
 });
 
-test("SF9 the hooks are wired: a write or payment (paid:<table>) and the clock", () => {
-  const eff = readFileSync(new URL("../builder/lovable/template/src/lib/site-effects.ts", import.meta.url), "utf8");
-  assert.match(eff, /r0\.payment_status === "paid" \? "paid" : action\) \+ ":" \+ table/);
-  assert.match(eff, /later\(fireHooks\(env as unknown as FnEnv, slug, event, \{ table, row \}\)\)/);
-  const tick = readFileSync(new URL("../builder/lovable/template/src/lib/site-webhook-retry.ts", import.meta.url), "utf8");
-  assert.match(tick, /fireHooks\(env as unknown as FnEnv, slug, "tick"\)/);
+// 2026-10-29: the prebuilt follow-ups (and with them `paid:`) were deleted; the
+// model's server code hangs on lib/site-row-hooks.ts alone.
+test("SF9 the hooks are wired: a visitor's write fires created/updated/deleted, the platform's clock fires tick and the schedules", async () => {
+  const { rowHooks, siteTick, TICK_HEADER } = await loadTemplate("lib/site-row-hooks.ts");
+  // The wiring in the site's Worker: a successful write calls rowHooks, the router serves siteTick.
+  const server = readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
+  const ok = server.indexOf("if (r.status >= 200 && r.status < 300) {");
+  const hooked = server.indexOf("const follow = rowHooks(env as unknown as FnEnv, ctx, { slug: SITE_SLUG, method: request.method, path,", ok);
+  assert.ok(ok > 0 && hooked > ok && hooked - ok < 800, "rowHooks runs after a successful write");
+  assert.match(server, /\(await siteTick\(request, env as unknown as FnEnv, url, SITE_SLUG, TICK_HEADER\)\)/);
+  // The platform's clock posts /__gf/tick with that same header.
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.equal(TICK_HEADER, "x-gf-site-job");
+  assert.match(w, /const SITE_JOB_HEADER = "x-gf-site-job";/);
+  assert.match(w, /\/__gf\/tick", \{ method: "POST", headers: \{ \[SITE_JOB_HEADER\]: "1" \} \}/);
+  // Driven: each write method fires its own event with the row.
+  const B = memBucket();
+  const e = { ...env, OWN_BUCKET: "1", SITES: B };
+  const got = [];
+  const mods = { "/src/routes/-parts/server-follow.tsx": { hosts: [], on: ["created:bookings", "updated:bookings", "deleted:bookings", "tick", "cron:*/5 * * * *"],
+    default: async (r) => { got.push(await r.json()); return new Response(""); } } };
+  const { fireHooks } = await loadTemplate("lib/site-functions.ts");
+  // rowHooks fires through the site's own parts (import.meta.glob, empty
+  // here), so the event it names is read from its source and driven through
+  // fireHooks with these parts.
+  const rh = readFileSync(new URL("../builder/lovable/template/src/lib/site-row-hooks.ts", import.meta.url), "utf8");
+  assert.match(rh, /const ACTIONS: Record<string, string> = \{ POST: "created", PATCH: "updated", PUT: "updated", DELETE: "deleted" \};/);
+  assert.match(rh, /fireHooks\(env, slug, action \+ ":" \+ table, \{ table, row: row \|\| \{\} \}\)/);
+  const waited = [];
+  const ctx = { waitUntil: (p) => waited.push(p) };
+  for (const [method, event] of [["POST", "created:bookings"], ["PATCH", "updated:bookings"], ["PUT", "updated:bookings"], ["DELETE", "deleted:bookings"]]) {
+    await rowHooks(e, ctx, { slug: "kiln", method, path: "bookings", search: "?id=eq.7", sent: '{"who":"Ada"}', body: '[{"id":7,"who":"Ada"}]' });
+    assert.equal(await fireHooks(e, "kiln", event, { table: "bookings", row: { id: 7 } }, mods), 1, event);
+  }
+  assert.ok(waited.length === 4, "every write's hooks are kept alive past the answer");
+  assert.equal(await rowHooks(e, ctx, { slug: "kiln", method: "GET", path: "bookings", search: "", sent: "", body: "[]" }), 0, "a read fires nothing");
+  assert.equal(await rowHooks(e, ctx, { slug: "kiln", method: "POST", path: "Bad-Name", search: "", sent: "", body: "{}" }), 0, "not a table name");
+  assert.deepEqual(got.map((g) => g.event), ["created:bookings", "updated:bookings", "updated:bookings", "deleted:bookings"]);
+  // The tick: only a POST to /__gf/tick carrying the header; it answers hooks and schedules.
+  const tick = (init, path = "/__gf/tick") => { const u = new URL("https://kiln.gofarther.app" + path); return siteTick(new Request(u, init), e, u, "kiln", TICK_HEADER); };
+  assert.equal(await tick({ method: "POST" }), null, "no header, no tick");
+  assert.equal(await tick({ method: "GET", headers: { [TICK_HEADER]: "1" } }), null, "a GET is not a tick");
+  assert.equal(await tick({ method: "POST", headers: { [TICK_HEADER]: "1" } }, "/__gf/other"), null);
+  const r = await tick({ method: "POST", headers: { [TICK_HEADER]: "1" } });
+  assert.equal(r.headers.get("x-site-data"), "own");
+  const j = await r.json();
+  assert.equal(j.ok, true);
+  assert.ok("hooks" in j && "schedules" in j, "the tick fires both the tick hooks and the schedules");
+  const src = readFileSync(new URL("../builder/lovable/template/src/lib/site-row-hooks.ts", import.meta.url), "utf8");
+  assert.match(src, /const hooks = await fireHooks\(env, slug, "tick"\)/);
+  assert.match(src, /const schedules = await fireSchedules\(env, slug\)/);
+  assert.doesNotMatch(src, /paid/, "a payment event is back");
 });
 
-test("SF10 the checker reads hook lists", () => {
+test("SF10 the checker reads hook lists; paid: is no longer an event", () => {
   const base = (on) => checkServerPart({ name: "server-x", source: `export const hosts = [];\nexport const on = ${on};\nexport default async function () { return new Response("") }` });
-  assert.equal(base('["created:bookings", "paid:orders", "tick"]').ok, true);
+  assert.equal(base('["created:bookings", "updated:orders", "deleted:orders", "tick", "cron:0 9 * * 1"]').ok, true);
+  assert.equal(base('["paid:orders"]').ok, false);
   assert.equal(base('["whenever"]').ok, false);
   assert.equal(base("events()").ok, false);
 });
@@ -229,7 +276,8 @@ test("SF17 the router and the add-on step send 'the site should DO something' to
   const { ASK_TOOL } = await import("../builder/site-ask.mjs");
   assert.match(JSON.stringify(ASK_TOOL), /SOMETHING THE SITE DOES that it does not do yet is an addition too/);
   const add = readFileSync(new URL("../builder/site-add.mjs", import.meta.url), "utf8");
-  assert.match(add, /Not for anything that DOES something or answers back/);
+  // The api kind that used to point here went with the prebuilt features (2026-10-29).
+  assert.doesNotMatch(add, /An OUTSIDE service a page reads live/);
   assert.match(add, /WITH the site's own server code when it needs one/);
 });
 

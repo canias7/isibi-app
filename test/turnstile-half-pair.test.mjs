@@ -23,15 +23,15 @@ test("the platform reads the spam check as off for every site", () => {
   }
 });
 
-test("the platform sends /api/db/<slug>/turnstile to the site's own Worker", () => {
-  const re = worker.match(/const vm = url\.pathname\.match\(\/\^\\\/api\\\/db\\\/[^\n]*\|turnstile\)\$\/i\);/);
-  assert.ok(re, "the site-route pattern carries turnstile");
+// 2026-10-29: the spam check went with the prebuilt features, so neither the
+// platform nor the site's own Worker routes the widget's config request any more.
+test("the platform no longer routes /api/db/<slug>/turnstile", () => {
+  const re = worker.match(/const vm = url\.pathname\.match\(\/\^\\\/api\\\/db\\\/[^\n]*\);/);
+  assert.ok(re, "landmark: the site-route pattern");
+  assert.ok(!/turnstile/i.test(re[0]), "the site-route pattern still carries turnstile");
 });
 
-test("the site's own Worker answers its widget's config with {} (2026-10-28: the site's own Worker)", () => {
-  const i = server.indexOf('"/api/db/" + SITE_SLUG + "/turnstile"');
-  assert.ok(i > 0, "the route exists in the template");
-  const line = server.slice(i, server.indexOf("\n", i));
-  assert.match(line, /\? Response\.json\(\{\}, \{ headers: \{ "x-site-data": "own"/, "answers {} marked as the site's own");
-  assert.doesNotMatch(line, /secret|siteKey/i, "no key is served");
+test("the site's own Worker serves no widget config", () => {
+  assert.ok(server.includes('"/api/db/" + SITE_SLUG'), "landmark: the template routes its own /api/db paths");
+  assert.ok(!server.includes('"/api/db/" + SITE_SLUG + "/turnstile"'), "the template still routes turnstile");
 });

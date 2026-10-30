@@ -46,10 +46,14 @@ test("the platform passes a visitor's call to the site, and without the mark say
   const v = between("async function siteReadVars(", "\n}\n");
   assert.match(v, /env\.SITE_OWN_DATA !== "1"\) return null/);
   assert.match(between("async function uploadScriptOnce(", "\n}\n"), /const given = await siteReadVars\(env, slug\)/);
-  // Reads, writes, sign-in, connections, hooks, reports, checkout, uploads and
-  // the anti-spam check: one route, to the site.
+  // Reads, writes, sign-in, reports and uploads: one route, to the site.
+  // (Connections, hooks, checkout and the anti-spam check left with the
+  // prebuilt features, 2026-10-29.)
   const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug);");
-  for (const part of ["data\\/", "api\\/", "hook\\/", "auth\\/", "error", "checkout", "uploads", "turnstile"]) assert.ok(route.includes(part), part);
+  for (const part of ["data\\/", "auth\\/", "error", "uploads"]) assert.ok(route.includes(part), part);
+  const pattern = route.match(/const vm = url\.pathname\.match\([^\n]*\);/);
+  assert.ok(pattern, "landmark: the route's pattern");
+  for (const gone of ["|api\\/", "hook\\/", "checkout", "turnstile"]) assert.ok(!pattern[0].includes(gone), gone + " is still routed");
 });
 
 // The behaviour of that route, run: the site's own answer passes through;
@@ -152,7 +156,9 @@ test("a site is given its own login and its owner's own keys as secrets, and nev
 
 test("the platform unlocks the site's own keys at publish and gives them to that site; no note route is left", () => {
   const v = between("async function siteReadVars(", "\n}\n");
-  for (const re of [/SELECT name, cipher FROM _secrets/, /TURNSTILE_PLATFORM_FLAG/, /SITE_SPEC: JSON\.stringify/, /siteAppConn\(env, slug\)/, /ownerEmail\(env, owner\.uid\)/, /siteNotifyOn\(env, slug\)/, /SITE_TABLES: JSON\.stringify\(spec\.tables\)/]) assert.match(v, re);
+  for (const re of [/SELECT name, cipher FROM _secrets/, /siteAppConn\(env, slug\)/, /ownerEmail\(env, owner\.uid\)/, /SITE_TABLES: JSON\.stringify\(spec\.tables\)/]) assert.match(v, re);
+  // The spam check's flag, the follow-ups' spec and the owner-notify switch went with the prebuilt features (2026-10-29).
+  assert.doesNotMatch(v, /TURNSTILE_PLATFORM_FLAG|SITE_SPEC: JSON\.stringify|siteNotifyOn\(/);
   assert.doesNotMatch(v, /SITE_SECRETS_KEY|SUPABASE_SERVICE_KEY|gatewaySecretOf/);
   assert.match(between("async function uploadScriptOnce(", "\n}\n"), /if \(preview\) return \{ bucket, vars, secrets: null \};[\s\S]*return \{ bucket, vars, secrets \};/);
   assert.doesNotMatch(W, /\/api\/site-effect/);
@@ -163,61 +169,21 @@ test("the platform unlocks the site's own keys at publish and gives them to that
 import path from "node:path";
 import { loadTemplate } from "./fixtures/template-ts.mjs";
 
-test("after a booking, the site emails its owner, confirms to the visitor and fires the webhook, with its own keys", async () => {
-  const { runSiteEffects, toPg } = await loadTemplate("lib/site-effects.ts");
-  assert.equal(toPg("SELECT ? , '?' , ?"), "SELECT $1 , '?' , $2");
-  const calls = [];
-  const real = globalThis.fetch;
-  globalThis.fetch = async (u, init = {}) => {
-    const url = String(u);
-    calls.push([url, init.method || "GET", init.headers && (init.headers.Authorization || init.headers.authorization || init.headers["Neon-Connection-String"] || "")]);
-    if (url.endsWith("/sql")) return new Response(JSON.stringify({ rows: [{ id: 7, name: "Ana", email: "ana@example.com" }] }));
-    return new Response("{}", { status: 200 });
-  };
-  const store = new Map();
-  const { memBucket } = await import("./fixtures/site-effects-drive.mjs");
-  const bucket = memBucket();
-  const tables = [{ name: "bookings", access: "collect", notify: true, confirm: { to: "email", subject: "Thanks {name}", body: "See you soon" }, webhooks: ["created"] }];
-  const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", OWNER_EMAIL: "owner@example.com", NOTIFY: "1", SITE_TABLES: JSON.stringify(tables), SITES: bucket, OWN_BUCKET: "1",
-    RESEND_KEY: "re_owner", EMAIL_FROM: "hello@site.com", WEBHOOK_URL: "https://hooks.example/x", WEBHOOK_SECRET: "whs" };
-  const waits = [];
-  try {
-    const fired = await runSiteEffects(env, { waitUntil: (p) => waits.push(p) }, { slug: "ember-cart", method: "POST", path: "bookings", search: "", sent: '{"name":"Ana","email":"ana@example.com"}', body: "" });
-    await Promise.all(waits);
-    assert.deepEqual(fired.sort(), ["confirm", "notify", "sms", "webhook"]);
-    const mail = calls.filter(([u]) => u === "https://api.resend.com/emails");
-    assert.ok(mail.length >= 1, "an email went out through the owner's own Resend key");
-    assert.ok(mail.every(([, , auth]) => auth === "Bearer re_owner"));
-    assert.ok(calls.some(([u]) => u === "https://hooks.example/x"), "the webhook fired");
-    assert.ok(calls.every(([u]) => !/gofarther\.dev|supabase/.test(u)), "nothing went to the platform");
-    // The cooldown is the site's own: a second booking within five minutes does not email the owner again.
-    const before = calls.filter(([u]) => u.includes("resend")).length;
-    waits.length = 0;
-    await runSiteEffects(env, { waitUntil: (p) => waits.push(p) }, { slug: "ember-cart", method: "POST", path: "bookings", search: "", sent: '{"name":"Bo"}', body: "" });
-    await Promise.all(waits);
-    assert.ok(bucket.map.has("effects/notify/ember-cart"));
-    assert.ok(calls.filter(([u]) => u.includes("resend")).length - before <= 1, "at most the confirmation, not a second owner email");
-  } finally { globalThis.fetch = real; }
-});
-
-test("a table with no settings, or a read, runs nothing", async () => {
-  const { runSiteEffects } = await loadTemplate("lib/site-effects.ts");
-  const env = { SITE_TABLES: "[]" };
-  assert.deepEqual(await runSiteEffects(env, undefined, { slug: "s", method: "POST", path: "bookings", search: "", sent: "{}", body: "" }), []);
-  assert.deepEqual(await runSiteEffects({ SITE_TABLES: '[{"name":"bookings","notify":true}]' }, undefined, { slug: "s", method: "GET", path: "bookings", search: "", sent: "", body: "" }), []);
-});
-
-test("the server saves rows only with its own bucket and its form settings, and runs the follow-ups itself", () => {
+// 2026-10-29: the prebuilt follow-ups were deleted; what follows a write is the
+// model's own server code, fired by lib/site-row-hooks.ts.
+test("the server saves rows only with its own bucket and its form settings, and fires the site's own hooks", () => {
   const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
   assert.match(src, /!env\.SITE_TABLES \|\| env\.OWN_BUCKET !== "1" \|\| !env\.SITES\) return null/);
-  assert.match(src, /runSiteEffects\(env as unknown as EffectEnv, ctx/);
+  assert.match(src, /rowHooks\(env as unknown as FnEnv, ctx/);
+  assert.doesNotMatch(src, /runSiteEffects\(/);
   assert.doesNotMatch(src, /EFFECT_KEY|site-effect\b(?!s)/);
 });
 
 // ── logins (2026-10-27) ─────────────────────────────────────────────────────
 test("the site signs its visitors in with its own auth server, and keeps the session cookie to its own API paths", async () => {
-  const { ownAuth } = await loadTemplate("server.ts").catch(async () => {
-    // server.ts imports Start; the handler alone is what is run here.
+  // The handler alone is what is run here, with this test's slug (loading the
+  // whole server.ts would bind the template's own placeholder slug).
+  const { ownAuth } = await (async () => {
     const src = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
     const a = src.indexOf("export async function ownAuth"), b = src.indexOf("\n}\n", a) + 3;
     const cookie = fs.readFileSync(new URL("../site-cookie.mjs", import.meta.url), "utf8");
@@ -225,7 +191,7 @@ test("the site signs its visitors in with its own auth server, and keeps the ses
     const body = cookie + "\n" + lim + "\nconst SITE_SLUG = 'ember-cart';\n" + src.slice(a, b);
     const js = ts.transpileModule(body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
     return import("data:text/javascript," + encodeURIComponent(js + "\n// a" + ++loads));
-  });
+  })();
   const seen = [];
   const real = globalThis.fetch;
   globalThis.fetch = async (u, init = {}) => {
@@ -321,85 +287,6 @@ async function stripeSig(secret, raw, t = Math.floor(Date.now() / 1000)) {
   return "t=" + t + ",v1=" + [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-test("checkout prices from the site's own rows, writes the order as the site, and opens Stripe with the owner's key", async () => {
-  const { siteCheckout } = await loadTemplate("lib/site-pay.ts");
-  const sql = [], stripe = [];
-  const real = globalThis.fetch;
-  globalThis.fetch = async (u, init = {}) => {
-    const url = String(u);
-    if (url.endsWith("/sql")) {
-      const q = JSON.parse(init.body).query;
-      sql.push(q);
-      if (/^SELECT id/.test(q)) return new Response(JSON.stringify({ rows: [{ id: 1, name: "Flat white", price: 3.5 }] }));
-      if (/^INSERT/.test(q)) return new Response(JSON.stringify({ rows: [{ id: 42 }] }));
-      return new Response(JSON.stringify({ rows: [] }));
-    }
-    if (url === "https://api.stripe.com/v1/checkout/sessions") {
-      stripe.push(init.headers.Authorization);
-      return new Response(JSON.stringify({ id: "cs_1", url: "https://checkout.stripe.com/c/cs_1" }));
-    }
-    return new Response("{}", { status: 404 });
-  };
-  try {
-    const tables = [{ name: "orders", columns: ["email"], payment: { from: "menu", name: "name", price: "price", currency: "gbp" } }, { name: "menu", access: "display" }];
-    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: JSON.stringify(tables), STRIPE_SECRET_KEY: "sk_owner" };
-    const url = new URL("https://ember-cart.gofarther.app/api/db/ember-cart/checkout");
-    const r = await siteCheckout(new Request(url, { method: "POST", body: JSON.stringify({ table: "orders", items: [{ id: 1, qty: 2 }], fields: { email: "a@b.c" } }) }), env, url, "ember-cart");
-    const j = await r.json();
-    assert.equal(r.status, 200, JSON.stringify(j));
-    assert.deepEqual([j.url, j.orderId], ["https://checkout.stripe.com/c/cs_1", 42]);
-    assert.deepEqual(stripe, ["Bearer sk_owner"]);
-    assert.ok(sql.some((q) => /^INSERT INTO "orders"/.test(q)));
-    assert.equal(r.headers.get("x-site-data"), "own");
-    // Without the owner's key: refused, never another key.
-    const r2 = await siteCheckout(new Request(url, { method: "POST", body: JSON.stringify({ table: "orders", items: [{ id: 1, qty: 1 }] }) }), { ...env, STRIPE_SECRET_KEY: undefined }, url, "ember-cart");
-    assert.equal(r2.status, 503);
-  } finally { globalThis.fetch = real; }
-});
-
-test("Stripe's paid message is checked against the owner's secret, then the order is flipped by the site", async () => {
-  const { stripeSiteWebhook } = await loadTemplate("lib/site-pay.ts");
-  const sql = [];
-  const real = globalThis.fetch;
-  globalThis.fetch = async (u, init = {}) => {
-    if (String(u).endsWith("/sql")) { sql.push(JSON.parse(init.body)); return new Response(JSON.stringify({ rows: [{ id: 42, payment_status: "paid" }] })); }
-    return new Response("{}");
-  };
-  try {
-    const tables = [{ name: "orders", payment: { from: "menu", name: "name", price: "price" } }];
-    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: JSON.stringify(tables), STRIPE_WEBHOOK_SECRET: "whsec_owner" };
-    const event = { type: "checkout.session.completed", data: { object: { id: "cs_1", payment_status: "paid", client_reference_id: "ember-cart:orders:42", metadata: { slug: "ember-cart", table: "orders", order_id: "42" } } } };
-    const raw = JSON.stringify(event);
-    const url = new URL("https://gofarther.dev/api/stripe/site/ember-cart");
-    const forged = await stripeSiteWebhook(new Request(url, { method: "POST", headers: { "Stripe-Signature": await stripeSig("not-the-owners", raw) }, body: raw }), env, url, "ember-cart");
-    assert.equal(forged.status, 400);
-    assert.equal(sql.length, 0, "nothing written on a bad signature");
-    const ok = await stripeSiteWebhook(new Request(url, { method: "POST", headers: { "Stripe-Signature": await stripeSig("whsec_owner", raw) }, body: raw }), env, url, "ember-cart");
-    assert.equal(ok.status, 200, await ok.clone().text());
-    const flip = sql.find((q) => /SET payment_status='paid'/.test(q.query));
-    assert.ok(flip, "the order was flipped: " + JSON.stringify(sql));
-  } finally { globalThis.fetch = real; }
-});
-
-test("checkout and the site's Stripe messages are passed to the site (2026-10-28)", () => {
-  assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug)"), /checkout/);
-  assert.match(W, /A SITE'S OWN STRIPE MESSAGES[\s\S]{0,600}const own = await ownDataRead\(env, request, wm\[1\]\.toLowerCase\(\)\);/);
-  const v = W.slice(W.indexOf("async function siteReadVars("), W.indexOf("async function siteReadVars(") + 4000);
-  assert.match(v, /SELECT name, cipher FROM _secrets/); // every key the site holds, Stripe's included
-});
-
-test("the site's own connections and hooks are answered by its Worker first", () => {
-  const C = fs.readFileSync(new URL("../builder/lovable/template/src/lib/site-connect.ts", import.meta.url), "utf8");
-  for (const re of [/apiFor\(specOf\(env\)/, /missingRequired\(api, params\)/, /callApi\(/, /handleInbound\(/, /"x-site-data": "own"/, /hit\("api\|"/, /hit\("inbound\|"/]) assert.match(C, re);
-  assert.doesNotMatch(C, /SUPABASE|SITE_SECRETS_KEY|gofarther/);
-  const S = fs.readFileSync(new URL("../builder/lovable/template/src/server.ts", import.meta.url), "utf8");
-  assert.match(S, /siteApi\(request[^)]*\)\)[\s|]*\(await siteHook\(/);
-  // 2026-10-28: the site's own Worker answers them only; the platform passes them on.
-  const route = between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug)");
-  assert.ok(route.includes("api\\/"));
-  assert.ok(route.includes("hook\\/"));
-});
-
 test("the site serves its own robots, sitemap and redirects, with its own origin", async () => {
   const { siteSeoFile, siteRedirect, absolutized } = await loadTemplate("lib/site-addresses.ts");
   const store = {
@@ -466,7 +353,7 @@ test("the site stores its own error reports and counts its own visits, in its ow
 
 test("reports go to the site, the platform makes the two tables, and the stats read the site's own visits (2026-10-28)", () => {
   assert.match(between("A VISITOR'S CALL TO A SITE IS THE SITE'S", "return siteAnswers(env, request, vslug)"), /\|error\|/);
-  assert.match(between("async function siteReadVars(", "\n}\n"), /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL, JOBS_TABLE_SQL\]\)/);
+  assert.match(between("async function siteReadVars(", "\n}\n"), /for \(const q of \[ERRORS_TABLE_SQL, HITS_TABLE_SQL\]\)/);
   assert.match(W, /try \{ return await readOwnHits\(conn\); \}/);
   assert.match(between("async function readOwnHits(", "\n}\n"), /FROM _hits/);
 });
@@ -490,82 +377,15 @@ function fakeBucket() {
   };
 }
 
-test("a failed webhook is kept in the site's own bucket and retried on the platform's wake, with the owner's own secret", async () => {
-  const { queueFailed, drainOwnQueue, siteTick } = await loadTemplate("lib/site-webhook-retry.ts");
-  const B = fakeBucket();
-  const env = { OWN_BUCKET: "1", SITES: B, WEBHOOK_URL: "https://hooks.example.com/in", WEBHOOK_SECRET: "s" };
-  assert.equal(await queueFailed(env, { slug: "x", table: "orders", action: "created", out: { sent: false, status: 404, body: "{}", eventId: "e1" } }), null, "a 4xx is not retried");
-  assert.equal(await queueFailed(env, { slug: "x", table: "orders", action: "created", out: { sent: false, status: 503, body: '{"a":1}', eventId: "e1", attempts: 3 } }), "queued for retry");
-  const row = JSON.parse(B.m.get("webhooks/q/e1.json").v);
-  assert.equal(row.status, "pending");
-  // Due now.
-  B.m.get("webhooks/q/e1.json").v = JSON.stringify({ ...row, next_attempt_at: new Date(Date.now() - 1000).toISOString() });
-  const realFetch = globalThis.fetch;
-  const posts = [];
-  globalThis.fetch = async (u, init) => { posts.push({ u: String(u), init }); return new Response("ok", { status: 200 }); };
-  try {
-    const out = await drainOwnQueue(env, "x");
-    assert.equal(out.delivered, 1, JSON.stringify(out));
-    assert.equal(posts[0].u, "https://hooks.example.com/in");
-    assert.equal(posts[0].init.body, '{"a":1}', "the exact bytes first sent");
-    assert.match(posts[0].init.headers["x-gofarther-signature"], /^v1=/);
-    assert.equal(B.m.has("webhooks/q/e1.json"), false);
-    // Only the platform's wake reaches it.
-    const tu = new URL("https://x.gofarther.app/__gf/tick");
-    assert.equal(await siteTick(new Request(tu, { method: "POST" }), env, tu, "x", "x-gf-site-job"), null);
-    const t = await siteTick(new Request(tu, { method: "POST", headers: { "x-gf-site-job": "1" } }), env, tu, "x", "x-gf-site-job");
-    assert.equal(t.headers.get("x-site-data"), "own");
-  } finally { globalThis.fetch = realFetch; }
-});
-
-test("a scheduled job is kept, claimed and run by the site, with its own function and its owner's own mail key", async () => {
-  const { siteJob, runDueJobs } = await loadTemplate("lib/site-jobs-run.ts");
-  const realFetch = globalThis.fetch;
-  const calls = [];
-  const jobs = [{ name: "remind", spec: { fn: "job_remind" }, schedule_minutes: 60, enabled: true, last_run: null, last_result: null, updated_at: "x" }];
-  globalThis.fetch = async (u, init) => {
-    const q = String(u).endsWith("/sql") ? JSON.parse(init.body) : null;
-    calls.push({ u: String(u), q });
-    if (!q) return Response.json({ id: "m1" });
-    if (/^SELECT name, spec/.test(q.query)) return Response.json({ rows: jobs });
-    if (/^UPDATE _jobs SET last_run=\$1 WHERE name=\$2 AND last_run IS NULL/.test(q.query)) {
-      const j = jobs.find((x) => x.name === q.params[1] && x.last_run == null);
-      if (!j) return Response.json({ rows: [] });
-      j.last_run = q.params[0];
-      return Response.json({ rows: [{ name: j.name }] });
-    }
-    if (/^SELECT "job_remind"\(\)/.test(q.query)) return Response.json({ rows: [{ out: JSON.stringify([{ to: "a@b.co", subject: "Hi", body: "x" }]) }] });
-    if (/^UPDATE _jobs SET last_result/.test(q.query)) { jobs[0].last_result = q.params[0]; return Response.json({ rows: [] }); }
-    return Response.json({ rows: [] });
-  };
-  try {
-    const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/x", RESEND_KEY: "re_k", EMAIL_FROM: "shop@x.co", SITE_SPEC: JSON.stringify({ jobs: [{ name: "remind", fn: "job_remind" }] }) };
-    assert.deepEqual(await runDueJobs(env), { ran: 1 });
-    assert.ok(calls.some((c) => /resend/.test(c.u)), "sent with the owner's own key");
-    assert.ok(jobs[0].last_run && jobs[0].last_result, "claimed and recorded in the site's own table");
-    // A second wake right after: not due, and the claim would refuse anyway.
-    assert.deepEqual(await runDueJobs(env), { ran: 0 });
-    const u = new URL("https://x.gofarther.app/__gf/job");
-    assert.equal(await siteJob(new Request(u, { method: "POST", body: '{"name":"remind"}' }), env, u), null, "a visitor cannot run it");
-    const nope = await siteJob(new Request(u, { method: "POST", body: '{"name":"other"}', headers: { "x-gf-site-job": "1" } }), env, u);
-    assert.equal(nope.status, 404);
-    assert.equal(nope.headers.get("x-site-data"), "own");
-  } finally { globalThis.fetch = realFetch; }
-});
-
-test("the platform keeps only the clock: it registers jobs in the site's database, shows that table, and passes on run-now", () => {
+// 2026-10-29: the prebuilt jobs went; the platform keeps only the clock that
+// wakes each site's own `tick` and `cron:` hooks (lib/site-row-hooks.ts).
+test("the platform keeps only the clock: no job registry, no jobs table, no run-now", () => {
   assert.equal((W.match(/fwd\.headers\.delete\(SITE_JOB_HEADER\)/g) || []).length, 3);
   assert.match(W, /fwd\.headers\.set\(PREVIEW_HEADER, "1"\); fwd\.headers\.delete\(SITE_JOB_HEADER\)/);
-  for (const gone of ["runScheduledSiteJobs", "function jobDeps", "runJobAnywhere", "recordJobOutcome", "runJob("]) assert.ok(!W.includes(gone), gone);
-  const persist = between("async function persistSiteJobs(env, ownerId, slug, jobs) {", "\n}\n");
-  assert.match(persist, /INSERT INTO _jobs/);
-  assert.doesNotMatch(persist, /site_functions|enabled=/);
-  assert.match(W, /SELECT name, spec, schedule_minutes, enabled, last_run, last_result FROM _jobs/);
-  assert.match(W, /UPDATE _jobs SET enabled=\? WHERE name=\?/);
-  assert.match(W, /\/__gf\/job", \{ method: "POST"/);
+  for (const gone of ["runScheduledSiteJobs", "function jobDeps", "runJobAnywhere", "recordJobOutcome", "runJob(", "async function persistSiteJobs(", "FROM _jobs", "UPDATE _jobs SET enabled", '/__gf/job", { method: "POST"']) assert.ok(!W.includes(gone), gone);
   assert.match(W, /ctx\.waitUntil\(runSiteTicks\(env\)/);
+  assert.match(W, /\/__gf\/tick", \{ method: "POST"/);
 });
-
 test("a key the owner saves or removes reaches the site's script at once, and a platform name never does", async () => {
   const { setSiteSecret } = await import("../builder/site-dispatch.mjs");
   const seen = [];

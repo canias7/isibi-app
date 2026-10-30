@@ -513,22 +513,21 @@ test("a put-off part the route cannot find in the message is not guessed at: not
 //
 // The add-on fixture posts exactly what the browser posts for an addition —
 // the message, and the routing reply's `alsoAsked` beside it — to the real
-// route, with every designer's answer supplied. The pageless pair (a function
-// and a job over it) runs without a container; the page kind publishes.
+// route, with every designer's answer supplied. The pageless kind (a function)
+// runs without a container; the page kind publishes.
 const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
-const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
 const LOOK_LATER = "make the headings dark green";
 const saw = (r, words) => r.prompts.filter((p) => JSON.stringify(p).includes(words)).map((p) => p.kind || p.tool);
 
 test("an addition beside a held-back look change: the designers never see it, and the reply says what was held back", async () => {
   const message = "Remind people the day before, and " + LOOK_LATER + ".";
   const r = await addon("op-scope-addon-" + hex32().slice(0, 8), message,
-    { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } }, alsoAsked: LOOK_LATER });
+    { kinds: ["function"], answers: { function: { function: [FN] } }, alsoAsked: LOOK_LATER });
   assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  assert.deepEqual(r.body.kinds, ["function", "job"]);
-  assert.deepEqual(r.prompts.map((p) => p.kind), ["kinds", "function", "job"], "the designers asked");
+  assert.deepEqual(r.body.kinds, ["function"]);
+  assert.deepEqual(r.prompts.map((p) => p.kind), ["kinds", "function"], "the designers asked");
   assert.deepEqual(saw(r, "dark green"), [], "the held-back change reached a designer");
-  assert.deepEqual(saw(r, "Remind people the day before"), ["kinds", "function", "job"], "the addition did not reach every designer");
+  assert.deepEqual(saw(r, "Remind people the day before"), ["kinds", "function"], "the addition did not reach every designer");
   assert.equal(r.body.deferred, LOOK_LATER, "the reply does not say what was held back");
   const screen = browserReply(r.body, true);
   assert.ok(screen.ok, screen.why);
@@ -554,7 +553,7 @@ test("a page addition beside a held-back look change: the page writer never sees
 
 test("an add-on whose held-back part cannot be found runs nothing, costs nothing, and says so", async () => {
   const r = await addon("op-scope-unread-" + hex32().slice(0, 8), "Remind people the day before, and " + LOOK_LATER + ".",
-    { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } }, alsoAsked: "turn the headings green" });
+    { kinds: ["function"], answers: { function: { function: [FN] } }, alsoAsked: "turn the headings green" });
   assert.equal(r.body && r.body.ok, false, JSON.stringify(r.body));
   assert.equal(r.body.error, "held-unread");
   assert.equal(r.body.cost, 0);

@@ -106,18 +106,11 @@ function cutSchemaSource() {
 
 function enforcementSource() {
   const src = cutSchemaSource();
-  // Enforcement is not only DDL. `confirm` is acted on by the Worker's write
-  // path through `site-mail.mjs` — no column, no policy, no trigger — so a
-  // scan limited to the schema and RLS files would call it dead while it works.
-  // Each file listed here is a place a declared feature can genuinely be READ;
-  // adding one is how a new KIND of enforcement joins, and leaving it out is
-  // what made this test fail the first time `confirm` existed.
-  // `site-webhooks.mjs` is the third KIND, joining for exactly the reason the
-  // paragraph above describes: `firesFor` reads `def.webhooks` on the write
-  // path and turns it into an outbound POST — no column, no policy, no trigger,
-  // and nothing in the schema or RLS files to find. Left out, this guard would
-  // correctly report a feature that works as dead.
-  // `builder/page-gen.mjs` is the FOURTH kind, and it is the weakest one — being
+  // Enforcement is not only DDL. Each file listed here is a place a declared
+  // feature can genuinely be READ; adding one is how a new KIND of enforcement
+  // joins. (`site-mail.mjs` and `site-webhooks.mjs` left with `confirm` and
+  // `webhooks`, deleted 2026-10-29.)
+  // `builder/page-gen.mjs` is the other kind, and it is the weakest one — being
   // DESCRIBED to the generator rather than kept by the database. It is here for
   // `defaultSort` and the admission is worth making precisely: reads go straight
   // from the published page to Neon's Data API, which orders by whatever
@@ -129,8 +122,7 @@ function enforcementSource() {
   // Safe to add because the scan counts PROPERTY READS (`t.defaultSort`) rather
   // than name mentions, and this file's prose about dead features — it names
   // `roundRobin` and `sla` in a comment — is blanked before the scan sees it.
-  return [src, blankComments(read("site-rls.mjs")), blankComments(read("site-mail.mjs")),
-    blankComments(read("site-webhooks.mjs")), blankComments(read("builder/page-gen.mjs"))].join("\n");
+  return [src, blankComments(read("site-rls.mjs")), blankComments(read("builder/page-gen.mjs"))].join("\n");
 }
 
 test("the design_schema tool offers a list this test can read", () => {
@@ -143,7 +135,7 @@ test("both push expressions are really removed, or this test proves nothing", ()
   // The guard rests entirely on those two being cut. If the cut silently fails,
   // every property looks enforced and the whole file is a no-op that passes.
   // SCOPED TO THE SCHEMA SOURCE, not the whole bundle. `enforcementSource()`
-  // concatenates four other files, and any of them using `out.push({` for its
+  // concatenates two other files, and any of them using `out.push({` for its
   // own unrelated reasons makes this read as a failed cut — which is exactly
   // what happened when `repairImports` was added to page-gen.mjs. The cut is a
   // fact about site-schema.mjs; assert it about site-schema.mjs.

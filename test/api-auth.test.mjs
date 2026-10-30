@@ -26,7 +26,7 @@ import { FAVICON_FIELD, WORDMARK_FIELD } from "../builder/site-favicon.mjs";
 // THE ONE SHAPE OF A TABLE (2026-09-02): `backend.tables.items` lives in its
 // own module now, shared with the ADD step. Bound for real below, and read as
 // text where a description of it is asserted.
-import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
+import { TABLE_ITEM, FUNCTION_ITEM } from "../builder/site-table.mjs";
 const TABLE_SRC = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "builder", "site-table.mjs"), "utf8");
 import { AUTHORED_AXES, ASKABLE as STYLE_AXES } from "../builder/site-style.mjs";
 import { authoredFieldSchema, AXIS_DECLS } from "../builder/site-authored.mjs";
@@ -76,7 +76,9 @@ const PUBLIC = {
   // named here rather than silently dropped: the list's own guard reads a
   // DISAPPEARANCE as interesting, which is exactly right, and this says which
   // of the three reasons it was.)
-  "/api/stripe/site/*": "A SITE OWNER's own Stripe telling us one of their orders was paid. Separate from /api/stripe/webhook, which is isibi's own billing — different account, different signing secret, and one handler deciding whether an event mints platform credits or marks a barber shop's order is not a thing to build. Stripe cannot hold a session; what authenticates it is the HMAC over the raw body verified against THAT SITE's own webhook secret, so a signature valid for one shop proves nothing about another.",
+  // (`/api/stripe/site/*` — a site owner's own Stripe telling us an order was
+  // paid — left this list on 2026-10-29 with the prebuilt payments: a site
+  // that takes payments now does it in its own server code.)
   "/api/db/*": "A published site's own API. Its visitors are not isibi users — a customer booking a haircut has no account here. As of 2026-07-30 it is TRANSPORT ONLY: the row routes were deleted and these paths forward to the site's Neon Data API and Neon Auth, where the site's own RLS policies decide every access question. What is enforced here is a per-source rate limit and that the slug resolves to a real site. Since 2026-10-28 (the site's own Worker) the platform only passes these calls to the site's own script, which answers for its own slug only, or answers 503 (republish).",
   "/api/site/genresult": "THE BUILD CONTAINER handing back the generation it was fired. It holds no Supabase session and never will — it is our own compute, reached over the queue, not a person. What authenticates it is a 128-bit token minted for ONE generation at fire time and stored in that build's resume record, travelling in a HEADER rather than the path so it stays out of logs and proxies. Knowing it authorises writing exactly one build's answer to one R2 key and nothing else; it is the same shape as a site's inbound webhook secret. An unrecognised token is 404, not 401, because the route's existence is not worth confirming to somebody probing it and a container that got the token wrong has no recovery either way.",
   "/api/site/gencode": "THE BUILD CONTAINER sending the code it is writing, while it writes it (2026-09-07). The same caller, the same credential and the same binding as genbeat one entry up — the report token in a header, the job and the generation in the body matched against the resume record — and the narrowest authority of the three: it writes a bounded tail of the generation's own output to one R2 key under `jobs/`, which the retention sweep already owns. Nothing reads that key but the build poll, and only for the record's own uid. A body that does not bind is 404, as the report and the beat are, and writes nothing.",
@@ -344,14 +346,15 @@ test("the public allow-list is exactly what we think it is", () => {
   for (const p of Object.keys(PUBLIC)) {
     assert.ok(names.includes(p), `${p} is allow-listed as public but no longer exists — remove it from PUBLIC`);
   }
-  // SIX since 2026-09-12, when the media proxy's capability URL left with the
+  // FIVE since 2026-10-29, when the site owners' Stripe callback left with the
+  // prebuilt payments; six since 2026-09-12, when the media proxy's capability URL left with the
   // route; seven from 2026-09-07 (`gencode`), six before that. The number is
   // here so that adding an unauthenticated endpoint has to be a decision
   // somebody wrote down rather than a line that slipped past — which is exactly
   // what it did for `gencode`, and the entries above are those decisions. It
   // goes DOWN as happily as up: an unauthenticated endpoint leaving is the one
   // direction that needs no argument.
-  assert.equal(Object.keys(PUBLIC).length, 6, "a new unauthenticated endpoint was added — is that intended?");
+  assert.equal(Object.keys(PUBLIC).length, 5, "a new unauthenticated endpoint was added — is that intended?");
 });
 
 test("the unauthenticated webhook verifies a signature instead", () => {
@@ -392,15 +395,13 @@ test("a published site's API gates on a site session, not an isibi one", async (
   // The site's own handlers answer only for their own slug: a call naming
   // another site is not theirs (null), never acted on.
   const { loadTemplate } = await import("./fixtures/template-ts.mjs");
-  const pay = await loadTemplate("lib/site-pay.ts");
-  const connect = await loadTemplate("lib/site-connect.ts");
   const tele = await loadTemplate("lib/site-telemetry.ts");
   const files = await loadTemplate("lib/site-files.ts");
   const env = { APP_CONN: "postgresql://x_app:p@ep-1.neon.tech/db", SITE_TABLES: "[]", SITE_SPEC: "{}", OWN_BUCKET: "1", SITES: {}, STRIPE_SECRET_KEY: "sk", STRIPE_WEBHOOK_SECRET: "wh" };
   const real = globalThis.fetch;
   globalThis.fetch = async () => assert.fail("a call for another site reached the network");
   try {
-    for (const [fn, p] of [[pay.siteCheckout, "checkout"], [connect.siteApi, "api/menu"], [connect.siteHook, "hook/menu"], [tele.siteError, "error"], [files.visitorUpload, "uploads"]]) {
+    for (const [fn, p] of [[tele.siteError, "error"], [files.visitorUpload, "uploads"]]) {
       const url = new URL("https://own.gofarther.app/api/db/other-site/" + p);
       assert.equal(await fn(new Request(url, { method: "POST", body: "{}" }), env, url, "own"), null, p);
       const mine = new URL("https://own.gofarther.app/api/db/own/" + p);
@@ -408,13 +409,9 @@ test("a published site's API gates on a site session, not an isibi one", async (
     }
   } finally { globalThis.fetch = real; }
 
-  // And the site's limits on what reaches a third party (Stripe, an outside
-  // API, the database's functions) and on error reports: each acted on, not
-  // merely present.
+  // And the site's limit on error reports: acted on, not merely present.
+  // (The checkout's and outside connections' limits went with them, 2026-10-29.)
   const T = (f) => fs.readFileSync(path.join(ROOT, "builder", "lovable", "template", "src", "lib", f), "utf8");
-  assert.match(T("site-pay.ts"), /const wait = tooMany\([^;]*\);\s*if \(wait\) return Response\.json\([^;]*status: 429/);
-  assert.match(T("site-connect.ts"), /if \(!hit\("api\|"[^;]*\.ok\) return answer\([^;]*429\)/);
-  assert.match(T("site-connect.ts"), /throttle: async \(key: string\) => hit\("inbound\|" \+ key, INBOUND_PER_MIN\)/);
   assert.match(T("site-telemetry.ts"), /if \(limited\(request\.headers\.get\("CF-Connecting-IP"\) \|\| ""\)\) return done;/);
 });
 
@@ -631,10 +628,11 @@ test("every tool the model is given is a schema the API will accept", () => {
     // The table item (2026-09-02) — real, never the stub: it IS the shape the
     // API has to accept, twenty-seven properties of it.
     TABLE_ITEM,
-    // AND THE OTHER THREE TIERS (2026-09-03), lifted beside it for the addon
-    // step: each IS a schema, so against the stub `backend.jobs.items` came
-    // back with no `type` and this check said so — the ninth time, loudly.
-    FUNCTION_ITEM, API_ITEM, JOB_ITEM,
+    // AND THE FUNCTION TIER (2026-09-03), lifted beside it for the addon step:
+    // it IS a schema, so against the stub its items came back with no `type`
+    // and this check said so — the ninth time, loudly. (The api and job tiers
+    // went with the prebuilt features, 2026-10-29.)
+    FUNCTION_ITEM,
     // AND THE DESIGNER'S SCREEN-SIZE WISHES (2026-10-24, device-scope-build; added in combine-d).
     DEVICE_WISHES_FIELD,
     SITE_STYLE_AXES: STYLE_AXES, SITE_AUTHORED_AXES: AUTHORED_AXES,

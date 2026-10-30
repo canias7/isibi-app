@@ -548,8 +548,8 @@ test("SCHEMA-ONLY — A TABLE ADDED AS STORAGE (the router names only `new-data:
 
 // ── ROUND 11: ADDITIONS BESIDE UNRELATED EDITS, NOT ONLY BESIDE A PHOTOGRAPH ──
 // The first task is a TEXT edit on the Visit page, its model answer held: it
-// writes a page's words, which no new page's design, table, function, API or
-// job reads. Each addition below is designed (and, with no page to write,
+// writes a page's words, which no new page's design, table or function
+// reads. Each addition below is designed (and, with no page to write,
 // finished) while that edit is held; a new page's writer — which copies the
 // pages beside it — waits for the edit and is asked once, at its job.
 
@@ -630,45 +630,6 @@ test("R11 FUNCTION control — A REAL DEPENDENCY: a function reading the loaves 
       answers: { [T.adds]: { kinds: ["function"] }, "add:function": { function: [FN_COUNT] } },
     },
     check: { after: () => assert.equal(madeFn(db, "count_loaves"), 1) },
-  });
-});
-
-test("R11 JOB — A SCHEDULED JOB AND ITS FUNCTION beside a held text edit: both designed while the Visit line is being reworded, registered by their own job once", async () => {
-  const db = loavesDb();
-  await overlapCase({
-    slug: slugOf("r11j"), db, first: { kind: "text" },
-    other: {
-      words: "count the loaves every night", writes: ["new-function:count_loaves", "new-job:nightly_count"], reads: ["data:loaves"], route: { intent: "addon" }, marker: "add:function", logged: T.design, once: false,
-      answers: { [T.adds]: { kinds: ["function", "job"] }, "add:function": { function: [FN_COUNT] }, "add:job": { job: [{ name: "nightly_count", fn: "count_loaves", everyMinutes: 1440 }] } },
-    },
-    check: {
-      after: (P, rec) => {
-        assert.equal(madeFn(db, "count_loaves"), 1);
-        assert.equal(calls(P, T.design).length, 2, "a designer was asked again");
-        assert.equal(calls(P, T.pages).length, 0);
-        assert.ok(P.page("visit.tsx").includes(VISIT_TO));
-        assert.deepEqual(statuses(rec), ["done", "done"]);
-      },
-    },
-  });
-});
-
-test("R11 API — AN OUTSIDE CONNECTION beside a held text edit: designed while the Visit line is being reworded, added by its own job once", async () => {
-  const db = loavesDb();
-  await overlapCase({
-    slug: slugOf("r11a"), db, first: { kind: "text" },
-    other: {
-      words: "add a connection that fetches our flour supplier's price list", writes: ["new-api:flour_prices"], route: { intent: "addon" }, marker: "add:api", logged: T.design, seqs: ["#1", "#4"],
-      answers: { [T.adds]: { kinds: ["api"] }, "add:api": { api: [{ name: "flour_prices", url: "https://example.com/flour.json", method: "GET" }] }, [T.pages]: { pages: [{ path: "src/routes/index.tsx", source: HOME_PIC.replace("</section>", "<p>Today's flour prices, from our supplier.</p></section>") }] } },
-    },
-    check: {
-      // A CONNECTION ALWAYS PUBLISHES, so it reaches the page writer — but its
-      // preparation stops before its first reserve and write (it has a schema
-      // to apply), which is before the writer: the writer is asked once, at
-      // its job, against the edited page.
-      before: (P) => assert.equal(calls(P, T.pages).length, 0, "the page writer was asked while the page beside it was still changing"),
-      after: (P) => { assert.equal(calls(P, T.pages).length, 1); assert.ok(calls(P, T.pages)[0].text.includes(VISIT_TO), "the writer was not shown the Visit page as the edit left it"); assert.ok(P.page("visit.tsx").includes(VISIT_TO)); },
-    },
   });
 });
 

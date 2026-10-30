@@ -1370,7 +1370,7 @@ test("every hook the rules name is exported by the template", () => {
   ])].filter((n) => !foreign.has(n));
   const named = cited.filter((n) => /^use[A-Z]/.test(n));
   assert.ok(named.length >= 16, "expected the rules to cite several hooks, found " + named.length);
-  for (const must of ["useCreateRow", "useUpdateRow", "useDeleteRow", "useUploadFile", "useCheckout"]) {
+  for (const must of ["useCreateRow", "useUpdateRow", "useDeleteRow", "useUploadFile"]) {
     assert.ok(named.includes(must),
       must + " is named by the rules and was NOT covered before this guard was rewritten — it must stay covered");
   }
@@ -2233,38 +2233,6 @@ test("the tool cannot be called with an empty page list", () => {
   assert.match(pages.description, /At least one/i);
 });
 
-// ── paid tables ──────────────────────────────────────────────────────────────
-//
-// The failure class this lint exists for: it typechecks, it bundles, and it
-// 403s at a real customer holding a card. A paid table has NO public insert —
-// that missing grant is the whole reason a price cannot be forged — so
-// useCreateRow on one is refused by Postgres at the moment somebody buys.
-
-const PAID_SPEC = {
-  tables: [
-    { name: "products", access: "display", columns: [{ name: "name" }, { name: "price" }] },
-    { name: "orders", access: "collect", payment: { from: "products", price: "price", currency: "gbp" }, columns: [{ name: "customer_name" }, { name: "email" }] },
-    { name: "enquiries", access: "collect", columns: [{ name: "email" }] },
-  ],
-};
-
-test("the digest states PAID for every collect table, yes or no", () => {
-  // Never omitted. An absent line reads as an omission rather than an answer —
-  // which is precisely how a site came out as the placeholder when publicView
-  // was declarable, enforced, and unmentioned here.
-  const d = schemaDigest(PAID_SPEC);
-  assert.match(d, /PAID: YES/);
-  assert.match(d, /PAID: NO/);
-  assert.equal((d.match(/PAID: /g) || []).length, 2, "one line per collect table, and none for a display table");
-});
-
-test("the digest names the catalogue and the currency, so the model cannot guess them", () => {
-  const d = schemaDigest(PAID_SPEC);
-  assert.match(d, /priced in GBP/);
-  assert.match(d, /from products/);
-  assert.match(d, /useCheckout\("orders"\)/);
-});
-
 test("THE PAID GATE RESOLVES THE PAIR — a write-none menu is not told to submit itself", () => {
   // 2026-08-14 audit, confirmed by executing this function. normalizeSchema
   // stamps access:"collect" on every pair-declared table, so the raw-string
@@ -2284,19 +2252,6 @@ test("THE PAID GATE RESOLVES THE PAIR — a write-none menu is not told to submi
   // question, which is the publicView failure this digest exists to prevent.
   assert.match(d, /write "none"/);
   assert.match(d, /no form, no useCreateRow/);
-});
-
-test("…and a payable table is warned off useCreateRow WHATEVER access it wears", () => {
-  // The other direction of the same gate: the payment is the fact that
-  // decides, not the preset name — a payable table wearing `user` never got
-  // its do-NOT-useCreateRow warning at all.
-  const d = schemaDigest({ tables: [
-    { name: "products", access: "display", columns: [{ name: "name" }, { name: "price" }] },
-    { name: "orders", access: "user", payment: { from: "products", price: "price", currency: "gbp" }, columns: [{ name: "email" }] },
-  ] });
-  assert.match(d, /PAID: YES/);
-  assert.match(d, /Do NOT call useCreateRow/);
-  assert.match(d, /useCheckout\("orders"\)/);
 });
 
 test("LINT: the write gate resolves the pair — the blind spot and the false alarm, both directions", () => {
@@ -2377,22 +2332,6 @@ test("...and a table that is NOT retired is untouched", () => {
   // leaked into ordinary tables, every form on the platform would be told its
   // table does not exist.
   assert.deepEqual(lintPages(page('const c = useCreateRow("open");'), RETIRED_SPEC), []);
-});
-
-test("...and useCheckout on a retired table is NOT refused, which is measured", () => {
-  // THE ONE HOOK THAT STILL WORKS ON A CLOSED TABLE, and it is a fact about the
-  // route rather than a judgement. Every other hook here goes to
-  // `/api/db/<slug>/data/…`, the Neon Data API, whose grants `retired` revokes.
-  // `useCheckout` posts to `/api/db/<slug>/checkout`, and `handleCheckout` prices
-  // the cart and INSERTs the order over the site's own owner connection, which
-  // bypasses grants entirely. Reporting it would be a false alarm on correct
-  // code — worse than the miss, by this file's own standing rule.
-  const spec = { tables: [{
-    name: "orders", access: "collect", retired: true,
-    columns: [{ name: "email" }],
-    payment: { from: "menu", name: "dish", price: "price", currency: "gbp" },
-  }, { name: "menu", access: "display", columns: [{ name: "dish" }, { name: "price" }] }] };
-  assert.deepEqual(lintPages(page('const c = useCheckout("orders");'), spec), []);
 });
 
 test("...and the retired filter is the SAME one schemaDigest applies", () => {
@@ -2508,96 +2447,9 @@ test("...and the upload rule cannot fire on either pinned corpus", () => {
   assert.deepEqual(hits, [], "a pinned corpus calls useUploadFile — measure the rule against it before shipping");
 });
 
-test("LINT: useCreateRow on a paid table is refused", () => {
-  const out = lintPages(page('const c = useCreateRow("orders");'), PAID_SPEC);
-  assert.equal(out.length, 1, JSON.stringify(out));
-  assert.match(out[0], /PAID/);
-  assert.match(out[0], /useCheckout\("orders"\)/);
-});
-
 test("...and useCreateRow on an ORDINARY collect table is fine", () => {
   // Or every contact form on the platform gets flagged.
-  assert.deepEqual(lintPages(page('const c = useCreateRow("enquiries");'), PAID_SPEC), []);
-});
-
-test("LINT: useCheckout on a table that takes no payment is refused", () => {
-  // The route answers 404 for it, so the button would simply never work.
-  const out = lintPages(page('const c = useCheckout("enquiries");'), PAID_SPEC);
-  assert.equal(out.length, 1, JSON.stringify(out));
-  assert.match(out[0], /declares no payment/);
-});
-
-test("LINT: useCheckout on a table the schema never declared is refused", () => {
-  const out = lintPages(page('const c = useCheckout("baskets");'), PAID_SPEC);
-  assert.equal(out.length, 1, JSON.stringify(out));
-  assert.match(out[0], /does not declare/);
-});
-
-test("...and useCheckout on the paid table passes", () => {
-  assert.deepEqual(lintPages(page('const c = useCheckout("orders");'), PAID_SPEC), []);
-});
-
-test("the rule tells the model to send only id and qty", () => {
-  // The one sentence that stops a page posting a total. If it ever goes, the
-  // server still refuses — but the model would write a checkout that looks
-  // right and silently has its price ignored, which is worse to debug.
-  assert.ok(PAGE_RULES.includes("and NOTHING else per line — no price, no total, no currency"));
-  assert.match(PAGE_RULES, /is for DISPLAY only and is never sent/);
-});
-
-test("the rule says the return id is NOT proof of payment", () => {
-  // Anyone can type ?paid=7. A page that shows an order's contents from it is
-  // a way to read somebody else's order.
-  assert.match(PAGE_RULES, /NOT proof of payment/);
-});
-
-test("rule 14's example cites components that REALLY EXIST, with the right casing", () => {
-  // Written as `money(total, "GBP")` first. The kit exports `Money`, a
-  // component taking {amount, currency} — so the example the model is told to
-  // copy was TS2724, the page refused, the site published as the placeholder.
-  // Caught by compiling it, which is the only thing that could have.
-  // ANCHORED ON THE WORDS, NOT THE RULE NUMBER, and proved non-empty before it
-  // is read. Written `indexOf("14. A TABLE MARKED")`, inserting a rule above it
-  // moved both anchors to 15 and 16, `indexOf` answered -1 twice, `slice(-1,-1)`
-  // returned the empty string, and this test looped over nothing and PASSED —
-  // the vacuous-window failure, caused by my own renumbering, with the whole
-  // suite green. A number in an anchor is a fact about ordering that a later
-  // edit changes without meaning to.
-  // THE END ANCHOR MOVED ONCE, AND THE GUARD CAUGHT IT — which is the comment
-  // above working rather than a new problem. It was `NO EXPLANATORY COMMENTS`,
-  // the rule that used to follow; that rule was cut on 2026-08-24 and `indexOf`
-  // answered -1, which this assertion reports as an empty window instead of
-  // silently looping over nothing.
-  const from = PAGE_RULES.indexOf("A TABLE MARKED");
-  const to = PAGE_RULES.indexOf("SIDES ARE LOGICAL");
-  assert.ok(from > 0 && to > from, "the paid-table rule or the one after it moved — window is empty");
-  const example = PAGE_RULES.slice(from, to);
-  assert.ok(example.length > 400, "the window collapsed — it is " + example.length + " chars");
-  const kitDir = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
-  // `[\s/]` and not `>`, or `useRows<Product>` matches as a JSX tag — it is a
-  // generic type parameter, and the guard went looking for product.tsx.
-  // THREE EXPORT FORMS, NOT TWO. This knew `export function` and `export const`
-  // and went red on `<Button>` — which `button.tsx` certainly exports, as
-  // `export { Button, buttonVariants }`, the form every shadcn primitive uses.
-  // It had never fired only because the example happened to cite our OWN
-  // components, which are all written the other way. A check that cries wolf on
-  // correct code is worse than the miss it prevents, so the check moves rather
-  // than the rule.
-  const exportsIt = (src, name) => new RegExp(
-    "export\\s+(?:function|const|class)\\s+" + name + "\\b"
-    + "|export\\s*\\{[^}]*\\b" + name + "\\b[^}]*\\}",
-  ).test(src);
-  for (const name of new Set([...example.matchAll(/<([A-Z]\w+)[\s/]/g)].map((m) => m[1]))) {
-    const file = name.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase() + ".tsx";
-    const src = fs.readFileSync(path.join(kitDir, file), "utf8");
-    assert.ok(exportsIt(src, name),
-      name + " is cited by rule 14 but " + file + " does not export it");
-  }
-  // …and it still refuses a name that is genuinely absent, or widening the
-  // pattern above would have turned the guard off rather than fixed it.
-  assert.equal(exportsIt(fs.readFileSync(path.join(kitDir, "button.tsx"), "utf8"), "NotAThing"), false);
-  // And the lower-case call form must not come back.
-  assert.equal(/\bmoney\s*\(/.test(example), false, "the kit exports Money, a component — not a money() function");
+  assert.deepEqual(lintPages(page('const c = useCreateRow("enquiries");'), { tables: [{ name: "enquiries", access: "collect", columns: [{ name: "email" }] }] }), []);
 });
 
 // ── The attach button ──────────────────────────────────────────────────────
@@ -4803,54 +4655,7 @@ test("the export-name rule states a count it can still count", async () => {
   }
 });
 
-test("the digest says a table sends elsewhere, and stays silent when it does not", () => {
-  const T = (webhooks) => ({ tables: [{ name: "bookings", access: "collect", columns: [{ name: "who", type: "text" }], ...(webhooks === undefined ? {} : { webhooks }) }] });
 
-  // SILENT WHEN OFF, unlike `usePublicRows` which prints YES *and* NO. Nothing
-  // on a page changes because a table emits, so a "WEBHOOKS: NO" on every table
-  // of every site is cached prompt saying nothing anybody acts on.
-  assert.doesNotMatch(schemaDigest(T(undefined)), /SENDS ELSEWHERE/,
-    "a table with no webhooks must not be described as sending anywhere");
-  assert.doesNotMatch(schemaDigest(T(null)), /SENDS ELSEWHERE/, "and neither must an explicit off");
-
-  // THE POINT OF SAYING IT AT ALL: stop the model hand-rolling a notification
-  // for something the platform already does after the write.
-  const all = schemaDigest(T(true));
-  assert.match(all, /SENDS ELSEWHERE/, "`true` must be stated");
-  for (const a of ["created", "updated", "deleted"]) {
-    assert.ok(all.includes(a), "`true` must name " + a);
-  }
-  assert.match(all, /do not build any notification/i, "and must say not to rebuild it");
-
-  const one = schemaDigest(T(["created"]));
-  assert.match(one, /SENDS ELSEWHERE: this table already posts .* on created\./,
-    "a narrowed list must name only what it declared");
-  assert.ok(!/updated/.test(one.split("SENDS ELSEWHERE")[1] || ""), "and must not claim events it does not emit");
-});
-
-// ── THE PROMPT MAY NOT CONTRADICT ITS OWN WORKED EXAMPLES ───────────────────
-//
-// Rule 3 says "the only names under that path you should use" and then lists a
-// shortlist DERIVED FROM THE FAMILIES. The four reference pages in the same
-// prompt import ten modules no family declares — the primitives every family
-// assumes: hero, button, card, input, select, textarea, form, skeleton,
-// data-list — plus `seo-jsonld`, cited in rule 18's own prose.
-//
-// Measured live 2026-08-19: obeying both at once, the generator wrote
-// `import { Hero } from "@/components/ui/hero-split"` — the EXPORT from the
-// example, the MODULE from the list. `hero` exports `Hero`, `hero-split`
-// exports `HeroSplit`; both real, one offered. TS2305 on index.tsx, which
-// salvage will not stub, so the entire site published as the placeholder.
-//
-// Asserted over the FINISHED PROMPT rather than over the sources it is built
-// from, because that is the artefact the model reads and the only place the
-// two halves meet.
-//
-// THE FAILURE IS NOW STRUCTURALLY UNREACHABLE, since the worked examples went on
-// 2026-08-24: a prompt that demonstrates no kit import cannot demonstrate a
-// wrong one. So the primary assertion is that ABSENCE, and the two checks that
-// used to do the work are proved still alive against a fabricated prompt rather
-// than left to run over an empty set and report a clean sweep over nothing.
 test("repairImports fixes the measured failure and refuses to guess", () => {
   const page = (source) => [{ path: "index.tsx", source }];
 

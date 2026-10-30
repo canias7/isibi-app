@@ -1059,26 +1059,17 @@ test("a prototype key cannot masquerade as a palette", () => {
     "a real palette still resolves");
 });
 
-test("the third-party api tier is reachable by a generated page", () => {
-  // `useApi` was the ONE hook in @/lib/rows that no rule and no digest ever
-  // mentioned — so a site could declare an api, the platform would serve it, and
-  // no generated page could ever call it. The whole tier reachable by nothing,
-  // which is this repo's signature failure. Asserted as a chain: the hook exists,
-  // the digest names what was declared, and the lint catches a name that was not.
+// 2026-10-29: the third-party api tier (useApi, apis) was deleted; a site
+// reads an outside service in its own server code (site.fetch).
+test("the third-party api tier is gone from the kit and the digest", () => {
   const rows = fs.readFileSync(path.join(ROOT, "builder/lovable/template/src/lib/rows.ts"), "utf8");
-  assert.match(rows, /export function useApi\b/, "the hook is gone");
+  assert.match(rows, /export function useRpc\b/, "landmark: the kit's hooks");
+  assert.doesNotMatch(rows, /export function useApi\b/, "the hook is back");
   const spec = { tables: [{ name: "m", access: "display", columns: ["a"] }], apis: [{ name: "rates", params: ["base"] }] };
   const digest = schemaDigest(spec);
-  assert.match(digest, /useApi\(name, \{ params \}\)/, "the digest never names the hook");
-  assert.match(digest, /rates\(base\)/, "a declared api is not described to the model");
-  assert.deepEqual(lintPages([{ path: "index.tsx", source: 'useApi("rates", {})' }], spec), [],
-    "a declared api is refused");
-  assert.equal(lintPages([{ path: "index.tsx", source: 'useApi("weather", {})' }], spec).length, 1,
-    "an undeclared api compiles, publishes and 404s — the lint has to catch it");
-  // And a site that declares none says nothing at all, rather than an empty header.
-  assert.ok(!/OUTSIDE DATA/.test(schemaDigest({ tables: spec.tables })), "an empty section is still tokens");
+  assert.ok(digest.length > 0, "observer");
+  assert.doesNotMatch(digest, /useApi|OUTSIDE DATA/, "the digest still offers the api tier");
 });
-
 test("the client accepts a build that answered, flaws and all", () => {
   // `!d.error` refused every placeholder build that carried a reason — which is
   // all of them: the route returns `error` beside `ok:true` on validate, home,

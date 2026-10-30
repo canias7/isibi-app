@@ -239,7 +239,13 @@ test("the Data panel offers Import CSV exactly where it offers + Add, and posts 
 });
 
 test("importWords says what went in and names the first line that did not", () => {
-  const src = chat.slice(chat.indexOf("function importWords(d) {"), chat.indexOf("function jobWords(j) {"));
+  // RE-ANCHORED 2026-10-29: the slice ended at `jobWords`, which went with the
+  // prebuilt scheduled jobs; it ends at the next function now, and both
+  // landmarks must exist.
+  const from = chat.indexOf("function importWords(d) {");
+  const to = chat.indexOf("\nfunction ", from + 1);
+  assert.ok(from >= 0 && to > from, "importWords or the function after it is gone from chat.js");
+  const src = chat.slice(from, to);
   const importWords = new Function(src + "; return importWords;")();
   assert.equal(importWords({ kept: 120 }), "Imported 120 rows.");
   assert.equal(importWords({ kept: 1 }), "Imported 1 row.");
