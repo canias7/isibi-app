@@ -829,6 +829,11 @@ async function runTool(use, st, deps) {
       if (r.error) return { error: r.error };
       const before = new Map(files.map((f) => [f.path, f.source]));
       const moved = r.files.find((f) => !before.has(f.path));
+      // ONLY THE PART ASKED FOR (combined 2026-10-30): every file the move
+      // touches passes the same scope check a write does, before anything moves.
+      for (const k of [...files.filter((f) => !r.files.some((g) => g.path === f.path)).map((f) => f.path), ...r.files.filter((f) => before.get(f.path) !== f.source).map((f) => f.path)]) {
+        const why = outOfScope(deps, k); if (why) return { error: why };
+      }
       for (const f of files) if (!r.files.some((g) => g.path === f.path)) { st.ws.delete(f.path); st.written.add(f.path); }
       for (const f of r.files) if (before.get(f.path) !== f.source) { st.ws.set(f.path, f.source); st.written.add(f.path); }
       st.dirty = true;

@@ -1,5 +1,16 @@
 # Owner Notes
 
+## 2026-10-30 — Seven branches combined into one (`combine-agent-server`, not merged, not deployed)
+
+**What it is:** `projects-page-2`, `sites-server-side`, `account-state-server`, `agent-server-tools`, `agent-input-tools`, `agent-old-steps` and `agent-guardrails`, merged in that order onto `claude/nice-ramanujan-9ry8wy`. Every branch's behaviour is kept: the agent is offered all its tools (the server tools, the input tools and the old steps' tools), and the site agent's change runs inside the guardrails (one check before finishing, a part's scope, one retry, the version's name, the cheap text rung, the undo facts) with every input the other branches wired (attachments, imported sites, screen sizes, earlier answers, questions to you) and every save they added (database additions, settings, page moves, table rules).
+
+**Where the combination needed decisions:**
+- A save retried after a failed compile keeps the first run's database additions and settings (they are already stored), and its queued table entries, rules and page moves unless the second run queued its own.
+- Table rules are merged onto the schema as it is after the agent's database additions.
+- Moving a page (`rename_page`) now passes the same part scope a write does, so a part's agent cannot rewrite pages outside its part through a move (1 new test, red without the fix).
+
+**Nothing spent, no model calls, no live writes.**
+
 ## 2026-10-30 — The site agent gets back the six guardrails the old steps had (branch `agent-guardrails`, not merged, nothing live or paid)
 
 **What changed** (`builder/agent-guard.mjs`, wired in `runAgentChange` in `worker.js`, two small hooks in `builder/site-agent.mjs`):

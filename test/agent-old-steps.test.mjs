@@ -124,6 +124,22 @@ test("rename_page: the file moves, links in pages and components follow, the mov
   assert.ok(f.some((x) => x.text.includes("/food")));
 });
 
+test("rename_page under a part's scope (combined with the guardrails): a move touching a file outside it is refused whole", async () => {
+  // The scope allows only the menu page: the move would also rewrite index.tsx and the footer.
+  const mayWrite = (k) => (k === "menu.tsx" || k === "food.tsx" ? "" : "outside this part: " + k);
+  const m = scripted([[{ name: "rename_page", input: { from: "/menu", to: "/food" } }]]);
+  const a = await runSiteAgent({ ...wired(), mayWrite, send: m.send }, { request: "rename", pages: PAGES, parts: PARTS });
+  const res = resultOf(m.seen, 1)[0];
+  assert.equal(res.is_error, true);
+  assert.match(String(res.content), /outside this part/);
+  assert.deepEqual(a.redirects, {});
+  assert.deepEqual(a.pages.map((p) => p.path).sort(), ["index.tsx", "menu.tsx"]);
+  // the same move with nothing in its way still lands (the control)
+  const m2 = scripted([[{ name: "rename_page", input: { from: "/menu", to: "/food" } }], [{ name: "build", input: {} }]]);
+  const b = await runSiteAgent({ ...wired(), mayWrite: () => "", send: m2.send }, { request: "rename", pages: PAGES, parts: PARTS });
+  assert.deepEqual(b.redirects, { "/menu": "/food" });
+});
+
 test("rename_page unbuilt is held at finish", async () => {
   const m = scripted([[{ name: "rename_page", input: { from: "/menu", to: "/food" } }], [{ name: "finish", input: { summary: "x" } }], [{ name: "build", input: {} }]]);
   await runSiteAgent({ ...wired(), send: m.send }, { request: "rename", pages: PAGES, parts: PARTS });
