@@ -1,5 +1,23 @@
 # Owner Notes
 
+## 2026-10-30 — The old steps the site agent could not do, as its tools (you: port them all)
+
+**What changed (branch `agent-old-steps`, not merged or deployed):** the site agent has seven new tools, each built on the old step's own code and offered only where the save behind it is wired:
+- `set_site_settings`: the business's name (the tab title), the search/preview description, the link-preview picture and the tab icon. Stored in the site's settings before the publish, and put back if the publish fails.
+- `set_logo`: one of your uploads as the header logo or the tab icon, stored the way the logo step stored it (no SVG, only your own uploaded pictures).
+- `set_languages`: the language the pages are written in, and the whole list of extra languages (the publish translates them, billed as before).
+- `set_table_rules`: who can see or add to a table, limits, one-per-person, no-double-booking, closing it. Read with the rules step's own reader; letting more people see entries still needs your own words, or the agent must ask you.
+- `rename_page`: moves a page to a new address, rewrites links in pages and components, and the old address sends visitors to the new one (a removed page already sent visitors home).
+- `make_qr`: a QR code for a page, from the QR step's encoder, as a picture the agent places.
+- `ask_owner`: one question with 2–4 answer buttons; nothing is saved, and your answer resumes the agent with the question and answer in front of it.
+- The screen sizes the router reads ("on phones only") now go to the agent and the publish checks the other sizes stayed the same.
+
+**Cost:** nothing new is charged. The agent's normal per-round bill covers every tool; the settings, logo, rules and rename add no model call. A question is charged only for what the agent spent before asking.
+
+**Not done, kept as follow-ups:** renaming the site's own address (item 9) and buying a new picture (item 10, behind the off image switch). Table rules are proven with supplied inputs and the route's wiring, not against a real database.
+
+**Tests:** `test/agent-old-steps.test.mjs` (12) and `test/agent-old-steps-route.test.mjs` (8, the real route), red on the old code (7 of 8 route cases). Sweep: 22 mutants, 19 killed, the comment-only control survived; two survivors are a duplicate guard and an untested settings-store failure. The Dockerfile copies the new module (the container image will roll).
+
 ## 2026-10-30 — The landing's look across the whole signed-in app (you: "u see how with the new design colors looks better, please put this design in the entire platform please")
 
 **What changed:** the app now wears the signed-out landing's colours and type: warm paper (#fbfaf8) instead of plain white, navy ink (#0d1b2a) instead of black, soft beige lines (#e6e2db), white cards, and the Geist / Geist Mono faces (added to the app's Google Fonts link; the landing named Geist but the page never loaded it). The palette tokens at the top of `public/styles.css` hold the landing's values, the landing's own token names (`--ink`, `--card`, `--coral`, `--ok`, `--display`, `--mono`) are on `:root`, and one block at the end re-points the rules that wrote colours, faces or heavy black shadows out by hand: the header and credits pill, the start box, site cards, chat bubbles, the composer and send button, Share / device buttons, the profile menu, the slash and context pop-ups, the "are you sure?" dialog (its danger button is now a darker coral, #c4462e, white text 4.9:1), and the out-of-credits bar. Layout, sizes, wording and behaviour are unchanged; published customer sites are untouched.
