@@ -223,6 +223,7 @@ import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mj
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
 import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer } from "./builder/site-agent.mjs";
+import { fileMap, workspaceDiff, changeReport, reviewNote, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17010,7 +17011,7 @@ function agentShell(env, slug) {
   };
 }
 
-async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "" }) {
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", scope = null, look = false }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
@@ -17027,7 +17028,14 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // bigger" and the answer to an earlier question mean what they meant.
   let history = "";
   try { const c = cleanChatId(chat); if (uid && c) { const cur = await chatStoreRead(env, chatStoreKey(uid, c)); if (cur.read && cur.chat) history = historyText(cur.chat.msgs); } } catch { history = ""; }
-  const ag = await runSiteAgent({
+  // THE GUARDRAILS (2026-10-30, `builder/agent-guard.mjs`): the files as
+  // they were, the one check before finishing, the write scope a part's
+  // answer names, and the version before the change for the undo facts.
+  const before = fileMap({ pages, parts, css });
+  const mayWrite = scopeGuard({ pages, parts, routes: scope, look });
+  let restoreTo = "";
+  try { const ptr = await readPointer(buildDeps(env), slug); restoreTo = ptr && typeof ptr.version === "string" ? ptr.version : ""; } catch { restoreTo = ""; }
+  const runOnce = (request, from) => runSiteAgent({
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
     build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
     run: agentShell(env, slug),
@@ -17039,50 +17047,90 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     },
     progress: (stage, facts) => { if (talk) job.progress.mark(stage, facts); },
     log: (e) => tm("agent:" + e.event, "ok", e),
+    review: (w) => reviewNote(changeReport(before, w, words)),
+    ...(mayWrite ? { mayWrite } : {}),
   }, {
-    request: words, pages, parts, css, history, map, spec,
+    request, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
     ownParts: ownPartsSite(pages, parts), model: models.pages,
   });
-  tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length });
-  const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed };
-  const files = ag.changed.filter((k) => k !== "styles.css");
+  // THE CHANGE IS ALWAYS MEASURED FROM THE SITE AS IT WAS, so a second run
+  // that started from the first one's files still saves the first one's work.
+  const settle = (r) => { const d = workspaceDiff(before, { pages: r.pages, parts: r.parts, css: r.css }); return { ...r, changed: d.changed, removed: d.removed, cssChanged: d.cssChanged }; };
+  let ag = settle(await runOnce(words, { pages, parts, css }));
+  // ONE AUTOMATIC RETRY (2026-10-30): a run that stopped short for a reason
+  // another run can get past goes once more, from the files it left, before
+  // the customer is told. Billed like any run (the stopped one never was).
+  let retried = "";
+  if (!ag.ok && retryAfterStop(ag.stopped)) {
+    retried = ag.stopped;
+    tm("agent:retry", "start", { why: retried });
+    ag = settle(await runOnce(agentRetryRequest(words, stoppedFacts(ag)), { pages: ag.pages, parts: ag.parts, css: ag.css }));
+    // A SECOND RUN THAT ONLY ANSWERED IN WORDS while the first one's files
+    // were never built has not finished the change: still a stop.
+    if (ag.ok && ag.changed.length && !ag.builds) ag = { ...ag, ok: false, stopped: "no-tool" };
+  }
+  tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length, retried });
+  const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed, ...(retried ? { retried } : {}) };
   if (!ag.ok) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
-      msg: stoppedFacts(ag) + " Nothing was charged." } };
+      msg: (retried ? "It was tried twice. " : "") + stoppedFacts(ag) + " Nothing was charged." } };
   }
-  const took = Number(await bill(ag.usage)) || 0;
+  let took = Number(await bill(ag.usage)) || 0;
   // A QUESTION, OR NOTHING TO CHANGE: the agent's own answer, nothing saved.
   if (!ag.changed.length && !ag.rows.length) {
     return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", cost: took, agent: steps } };
   }
+  // THE VERSION'S NAME (2026-10-30): the agent's own summary, first clause.
+  const label = versionName(ag.summary, words);
   let out = null;
-  if (ag.changed.length) {
-    // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
+  const save = async (r) => {
+    const files = r.changed.filter((k) => k !== "styles.css");
     let cssBefore = null;
-    if (ag.cssChanged) {
+    // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
+    if (r.cssChanged) {
       try {
         await mayWriteConfig(env, slug, job);
         cssBefore = css;
-        const w = await patchSiteConfig(env, slug, cfgDb, { css: ag.css }, jobFence(env, job));
+        const w = await patchSiteConfig(env, slug, cfgDb, { css: r.css }, jobFence(env, job));
         if (!w.ok) throw new Error(w.error);
-      } catch (e) {
-        return { status: 503, body: { ok: false, error: "agent-css", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
-          msg: "The site agent's stylesheet could not be stored, so nothing was saved." } };
-      }
+      } catch (e) { return { cssFailed: true }; }
     }
-    out = await recompileAndPublish(env, {
-      slug, pages: ag.pages, parts: ag.parts, label: "Changed by the site agent",
+    const o = await recompileAndPublish(env, {
+      slug, pages: r.pages, parts: r.parts, label,
       job, charge: billLang, charges, models, trace,
       touched: files.filter((k) => !k.startsWith("-parts/")),
     });
+    if (!o.ok && cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
+    return o;
+  };
+  if (ag.changed.length) {
+    out = await save(ag);
+    // A SAVE THAT FAILED ON THE AGENT'S OWN CODE gets the same one retry, with
+    // the compiler's words, from the files it tried to save. That second run
+    // is NOT billed: the failed save was, and a save is never charged twice.
+    if (out && !out.cssFailed && !out.ok && !retried && retryableSave(out)) {
+      retried = "save";
+      steps.retried = retried;
+      tm("agent:retry", "start", { why: "save" });
+      const again = settle(await runOnce(agentRetryRequest(words, "its save did not compile: " + String(out.detail || out.error || "").slice(0, 1500)), { pages: ag.pages, parts: ag.parts, css: ag.css }));
+      if (again.ok && again.changed.length) {
+        ag = { ...again, rows: again.rows.length ? again.rows : ag.rows };
+        Object.assign(steps, { rounds: steps.rounds + again.rounds, builds: steps.builds + again.builds, changed: ag.changed, removed: ag.removed });
+        out = await save(ag);
+      }
+    }
+    if (out && out.cssFailed) {
+      return { status: 503, body: { ok: false, error: "agent-css", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
+        msg: "The site agent's stylesheet could not be stored, so nothing was saved." } };
+    }
     if (!out.ok) {
-      if (cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
       return { status: 422, body: { ok: false, error: lostOr(out, "compile"), layer: "agent", cost: took, agent: steps, deferred: [],
         msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched."), detail: out.detail } };
     }
   }
   // THE TABLE ENTRIES, written last and to the live database, as the data step does.
   const rowFacts = [];
+  let rowsRemoved = 0;
   if (ag.rows.length) {
     const c = await ownerRowConn(env, slug).catch(() => null);
     for (const op of ag.rows) {
@@ -17102,16 +17150,25 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
           try { const r = await sqlExec(c, "delete from " + T + " where id = ?", [id]); if (r.changes) removed++; else failed++; } catch { failed++; }
         }
       }
+      rowsRemoved += removed;
       const did = [added && "added " + added, changed && "changed " + changed, removed && "removed " + removed].filter(Boolean);
       if (did.length) rowFacts.push("In the " + op.table + " table it " + did.join(", ") + (did.length === 1 && (added + changed + removed) === 1 ? " entry" : " entries") + ".");
       if (failed) rowFacts.push(failed + (failed === 1 ? " entry" : " entries") + " in the " + op.table + " table could not be saved.");
     }
     tm("agent:rows", "ok", { facts: rowFacts.length });
   }
-  const msg = [ag.summary || "The change was made.", ...rowFacts].join(" ");
+  // WHAT ELSE CHANGED AND WHAT CAN BE UNDONE (2026-10-30), as facts.
+  const after = { pages: ag.pages, parts: ag.parts, css: ag.css };
+  const report = changeReport(before, after, words);
+  const undo = undoFacts({ before, after, version: out ? restoreTo : "", rowsRemoved });
+  const msg = [ag.summary || "The change was made.", ...rowFacts, reportFacts(report), undoSentence(undo)].filter(Boolean).join(" ");
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg,
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
     ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),
+    preserved: { files: report.files, unasked: report.unasked.slice(0, 20) },
+    ...(Object.keys(undo).length ? { undo } : {}),
+    ...(undo.photosTakenOff ? { photosTakenOff: undo.photosTakenOff } : {}),
+    version: label,
     cost: took + (out ? Number(out.langCharged) || 0 : 0), agent: steps } };
 }
 
@@ -36054,14 +36111,61 @@ async function handleRequest(request, env, ctx) {
             // `builder/site-agent.mjs`.
             if (agentTakes() && !(eJob && eJob.prepare === true)) {
               const agParts = await editParts();
+              // CHEAP TINY EDITS (2026-10-30, the owner's guardrail 5): when the
+              // router or the part answered `text`, the old text rung (one quick
+              // call that rewrites only the words it numbers) tries first; any
+              // refusal, question or failed save falls through to the agent,
+              // with nothing published and nothing charged on the way.
+              let cheapCost = 0;
+              if (eLayer === "text" && agParts.ok) {
+                let tOut = null;
+                try {
+                  tOut = await runTextEdit({ send: eQuick(), seen: (x) => noteSeen(eJob, x) },
+                    { instruction: eRun, pages: editableFiles(eSrc, agParts.parts), scope: stepScopeOf(eb && eb.scope), model: modelsFor(eb && eb.picker).quick });
+                } catch { tOut = null; }
+                try { if (editTrace) editTrace.mark("agent:cheap-text", tOut && tOut.ok ? "ok" : "skip", { reason: String((tOut && tOut.reason) || (tOut && tOut.ask ? "ask" : "")) }); } catch { /* never */ }
+                if (tOut && tOut.ok && !tOut.ask) {
+                  const tMail = carryEmailChange(tOut.pages, tOut.edits, { keepLinks: tOut.keepLinks === true });
+                  const tSplit = splitEditable(tMail.pages);
+                  // CHARGED BEFORE THE SAVE, as the agent's own save is (a queued
+                  // job's reserve must stand before the publish's gate), and saved
+                  // through the same publish the agent uses (the old rung's
+                  // `publishStep` only defers to the lanes' merge, which this
+                  // door never reaches).
+                  const tCost = await eCharge(tOut.usage);
+                  const tPub = await recompileAndPublish(env, {
+                    slug: ownerSlug, pages: tSplit.pages, parts: tSplit.parts,
+                    label: versionName("", eRun, versionLabel({ revise: true, changeNote: eRun })),
+                    job: eJob, charge: (usage) => eCharge({ langUsage: usage }), charges: eCharges, models: modelsFor(eb && eb.picker), trace: editTrace,
+                    touched: writtenPaths(eSrc, tSplit.pages),
+                  });
+                  if (!tPub.ok) cheapCost = tCost;
+                  if (tPub.ok) {
+                    return Response.json({
+                      ok: true, layer: "text", cheap: true, applied: tOut.applied, files: tPub.files, render: tPub.render, renderNote: tPub.renderNote, checks: tPub.checks, draft: tPub.draft,
+                      changed: tOut.edits.map((e) => e.to).slice(0, 8),
+                      notDone: Array.isArray(tOut.notDone) && tOut.notDone.length ? tOut.notDone : undefined,
+                      deferred: [],
+                      msg: "Changed the wording: " + tOut.edits.slice(0, 8).map((e) => "\u201c" + e.from + "\u201d is now \u201c" + e.to + "\u201d").join("; ") + ".",
+                      cost: tCost + (Number(tPub.langCharged) || 0), usage: tOut.usage,
+                    });
+                  }
+                }
+              }
               // ONLY THIS TURN'S PART (2026-10-30, parallel agents): what the
               // router held back for another part is taken out (`eRun`), so a
-              // part's agent never does another part's work.
+              // part's agent never does another part's work. AND ONLY ITS
+              // PAGES (guardrail 2): a part's scope names its pages, and the
+              // agent's writes are held to them (the stylesheet on `look`).
+              const agScope = stepScopeOf(eb && eb.scope);
               const ag = await runAgentChange(env, {
                 slug: ownerSlug, words: eRun, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat,
                 bill: (usage) => eCharge(...usage), billLang: (usage) => eCharge({ langUsage: usage }), charges: eCharges,
+                scope: agScope && agScope.pages ? agScope.pages : null, look: eLayer === "look",
               });
+              // A CHEAP SAVE THAT FAILED AFTER ITS CHARGE is told, never hidden.
+              if (cheapCost && ag.body && typeof ag.body === "object") ag.body.cost = (Number(ag.body.cost) || 0) + cheapCost;
               return Response.json(ag.body, { status: ag.status });
             }
 

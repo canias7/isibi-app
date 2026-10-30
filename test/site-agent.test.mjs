@@ -231,7 +231,7 @@ test("SA14 the build tool compiles only: answered before the repair, the staging
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
   assert.match(fn, /build: \(w\) => recompileAndPublish\(env, \{[^}]*compileOnly: true/);
   // charged only when there is something to save, before the save
-  const bill = fn.indexOf("await bill(ag.usage)"), save = fn.indexOf('label: "Changed by the site agent"'), stop = fn.indexOf("if (!ag.ok) {");
+  const bill = fn.indexOf("await bill(ag.usage)"), save = fn.indexOf("slug, pages: r.pages, parts: r.parts, label,"), stop = fn.indexOf("if (!ag.ok) {");
   assert.ok(stop > 0 && bill > stop && save > bill);
   const spine = between("async function recompileAndPublish(env, {", "\n}\n");
   assert.match(spine, /if \(!compileOnly && job && job\.beside/);
@@ -356,7 +356,7 @@ test("SA21 each round's facts come from the tools' outcomes, for the live progre
 
 test("SA22 the save: stylesheet stored before the publish and put back if it fails; rows written after; only real compile-only css", () => {
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
-  const store = fn.indexOf("patchSiteConfig(env, slug, cfgDb, { css: ag.css }"), pub = fn.indexOf('label: "Changed by the site agent"'), back = fn.indexOf("{ css: cssBefore }"), rows = fn.indexOf("THE TABLE ENTRIES");
+  const store = fn.indexOf("patchSiteConfig(env, slug, cfgDb, { css: r.css }"), pub = fn.indexOf("slug, pages: r.pages, parts: r.parts, label,"), back = fn.indexOf("{ css: cssBefore }"), rows = fn.indexOf("THE TABLE ENTRIES");
   assert.ok(store > 0 && pub > store && back > pub && rows > back);
   assert.match(fn, /cssOverride: typeof w\.css === "string" \? w\.css : null/);
   assert.match(fn, /progress: \(stage, facts\) => \{ if \(talk\) job\.progress\.mark\(stage, facts\); \}/);
