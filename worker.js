@@ -223,6 +223,7 @@ import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mj
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
 import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer } from "./builder/site-agent.mjs";
+import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17010,6 +17011,86 @@ function agentShell(env, slug) {
   };
 }
 
+/**
+ * THE AGENT'S SERVER TOOLS (2026-10-30, `builder/agent-server-tools.mjs`).
+ * `agentCall`: one server function run in the build container's test sandbox
+ * (`/agent-call`: fake database, fake outside calls, no key). Never throws.
+ */
+function agentCall(env, slug) {
+  return async (parts, call) => {
+    if (!env.SITE_BUILD_CONTAINER) return { ok: false, error: "no build container" };
+    try {
+      const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
+      const r = await c.fetch(new Request("http://build/agent-call", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ parts, call }), signal: AbortSignal.timeout(60000),
+      }));
+      const j = await r.json().catch(() => null);
+      return j && typeof j === "object" ? j : { ok: false, error: "the container answered " + r.status };
+    } catch (e) { return { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+  };
+}
+
+/** `read_docs`'s fetch, from the Worker (the container has no internet): the address is judged in the module before and after. */
+async function agentFetchDocs(url) {
+  const r = await fetch(url, { headers: { accept: "text/html,text/plain;q=0.9", "user-agent": "GoFartherSiteAgent/1.0 (+https://gofarther.dev)" }, redirect: "follow", signal: AbortSignal.timeout(15000) });
+  const type = r.headers.get("content-type") || "";
+  if (!/text\/|html|json|markdown/i.test(type)) return { status: 415, url: r.url || url, body: "" };
+  const body = (await r.text()).slice(0, 2_000_000);
+  return { status: r.status, url: r.url || url, body };
+}
+
+/** `read_errors`: the site's own error log, newest first; no stack, no table answers empty. */
+function agentReadErrors(env, slug) {
+  return async (n) => {
+    const logConn = await siteRowConn(env, slug);
+    if (!logConn) throw new Error("this site has no database");
+    try { return await sqlQuery(logConn, "SELECT id, at, message, route, source FROM _errors ORDER BY id DESC LIMIT " + Math.max(1, Math.min(50, Number(n) || 20))); }
+    catch (e) { if (/does not exist/i.test(String((e && e.message) || "")) || (e && e.code) === "42P01") return []; throw e; }
+  };
+}
+
+/** `list_keys`: the NAMES of the site's keys. Only the name column is selected: no cipher, no hint. */
+function agentListKeys(env, slug) {
+  return async () => {
+    const logConn = await siteRowConn(env, slug);
+    if (!logConn) throw new Error("this site has no database");
+    try { return await sqlQuery(logConn, "SELECT name FROM _secrets ORDER BY name"); }
+    catch (e) { if (/does not exist/i.test(String((e && e.message) || "")) || (e && e.code) === "42P01") return []; throw e; }
+  };
+}
+
+/**
+ * `change_schema`'s additions, applied when the agent finishes: the stored
+ * schema (the draft's, under draft-first) with the additions folded in, judged
+ * to keep every table and column it had, then the builder's own apply through
+ * the task's writer (held for Publish on a live site under draft-first, as the
+ * rules step does). Answers `{ ok, added, skipped, revision }` or `{ ok:false, why }`.
+ */
+async function applyAgentSchema(env, slug, conn, ops, job = null) {
+  if (!conn) return { ok: false, why: "no database" };
+  let read = await readSiteSchema(conn);
+  if (!read.ok) read = await readSiteSchema(conn);
+  if (!read.ok) return { ok: false, why: "unreadable" };
+  const writer = await backendWriter(env, slug);
+  let base = read.spec;
+  if (writer.on) {
+    try { const view = await draftView(env, slug); if (view) base = specOverlay(read.spec, view.ops); }
+    catch { return { ok: false, why: "draft unreadable" }; }
+  }
+  const merged = mergeSchemaOps(base, ops);
+  if (!keepsEverything(base, merged.spec)) return { ok: false, why: "it would have lost a table or column" };
+  if (!merged.added.length) return { ok: true, added: [], skipped: merged.skipped, revision: 0 };
+  await writer.calls.applySiteSchema(conn, merged.spec);
+  let revision = 0;
+  if (writer.holding) {
+    const sealed = await sealHeld(env, slug, writer, { job: job ? String(job.id) : null });
+    if (!sealed.ok) return { ok: false, why: "draft" };
+    revision = sealed.revision;
+  }
+  return { ok: true, added: merged.added, skipped: merged.skipped, revision };
+}
+
 async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "" }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
@@ -17039,6 +17120,12 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     },
     progress: (stage, facts) => { if (talk) job.progress.mark(stage, facts); },
     log: (e) => tm("agent:" + e.event, "ok", e),
+    // THE SERVER TOOLS (2026-10-30): trying a function and reading docs always;
+    // the error log, the key names and additions to the database only on a
+    // site that has one.
+    callFunction: agentCall(env, slug),
+    fetchDocs: agentFetchDocs,
+    ...(conn ? { readErrors: agentReadErrors(env, slug), listKeys: agentListKeys(env, slug), applySchema: (ops) => applyAgentSchema(env, slug, conn, ops, job) } : {}),
   }, {
     request: words, pages, parts, css, history, map, spec,
     ownParts: ownPartsSite(pages, parts), model: models.pages,
@@ -17052,8 +17139,24 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   }
   const took = Number(await bill(ag.usage)) || 0;
   // A QUESTION, OR NOTHING TO CHANGE: the agent's own answer, nothing saved.
-  if (!ag.changed.length && !ag.rows.length) {
+  const schemaOps = Array.isArray(ag.schema) ? ag.schema : [];
+  if (!ag.changed.length && !ag.rows.length && !schemaOps.length) {
     return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", cost: took, agent: steps } };
+  }
+  // THE DATABASE'S ADDITIONS FIRST (2026-10-30, `change_schema`): the pages and
+  // the table entries may use them. Additions only, judged twice (the module
+  // and `applyAgentSchema`); a failure stops the save before anything else.
+  const schemaFacts = [];
+  if (schemaOps.length) {
+    let sr;
+    try { sr = await applyAgentSchema(env, slug, conn, schemaOps, job); }
+    catch (e) { sr = { ok: false, why: errorClassForLog(e) }; }
+    tm("agent:schema", sr.ok ? "ok" : "fail", { ops: schemaOps.length, added: sr.ok ? sr.added.length : 0, skipped: sr.ok ? sr.skipped.length : 0 });
+    if (!sr.ok) {
+      return { status: 503, body: { ok: false, error: "agent-schema", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
+        msg: "The site agent's additions to your database could not be made, so nothing was saved." } };
+    }
+    if (sr.added.length) schemaFacts.push("Added to the database: " + sr.added.join(", ") + (sr.revision ? " (saved to your draft; it goes live when you publish)." : "."));
   }
   let out = null;
   if (ag.changed.length) {
@@ -17108,7 +17211,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     }
     tm("agent:rows", "ok", { facts: rowFacts.length });
   }
-  const msg = [ag.summary || "The change was made.", ...rowFacts].join(" ");
+  const msg = [ag.summary || "The change was made.", ...schemaFacts, ...rowFacts].join(" ");
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg,
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
     ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),
@@ -19010,6 +19113,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // the second live build tried it, was refused, and finished unseen.
         look: async (w, route) => agentBuildAnswer(await compile(w.pages, w.parts, { shots: [route] })),
         run: agentShell(env, slug),
+        // A NEW SITE'S SERVER CODE CAN BE TRIED AND ITS PROVIDER'S DOCS READ
+        // (2026-10-30); it has no error log, keys or stored schema to read yet.
+        callFunction: agentCall(env, slug),
+        fetchDocs: agentFetchDocs,
         progress: (stage, facts) => { try { if (typeof say === "function") say(stage, facts); } catch { /* the talk never costs the build */ } },
         log: (e) => { try { mark?.("agent:" + e.event, e); } catch { /* a trace must never break a build */ } },
       }, {

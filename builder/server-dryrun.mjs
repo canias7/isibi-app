@@ -30,14 +30,16 @@ export function toJs(ts, source) {
 }
 
 /** Run every server part once. Never throws; `{ ran:false, why }` when it could not. */
-export async function dryRunServerParts(parts, { ts = null, spawnFn = spawn, timeoutMs = DRYRUN_MS } = {}) {
-  const list = (Array.isArray(parts) ? parts : []).filter(isServerPart);
+export async function dryRunServerParts(parts, { ts = null, spawnFn = spawn, timeoutMs = DRYRUN_MS, call = null } = {}) {
+  // `call` (2026-10-30, the agent's `call_function`): run only that function,
+  // once, with `{ method, body, query, json }`, and hand back its answer.
+  const list = (Array.isArray(parts) ? parts : []).filter(isServerPart).filter((p) => !call || p.name === "server-" + call.name);
   if (!list.length) return { ran: false, why: "none", results: [] };
   let compiler = ts;
   if (!compiler) {
     try { compiler = createRequire(import.meta.url)("typescript"); } catch { return { ran: false, why: "no compiler", results: [] }; }
   }
-  const items = list.map((p) => ({ name: p.name.replace(/^server-/, ""), js: toJs(compiler, p.source), hooks: hooksIn(p.source) }));
+  const items = list.map((p) => ({ name: p.name.replace(/^server-/, ""), js: toJs(compiler, p.source), hooks: hooksIn(p.source), ...(call ? { request: { method: call.method, body: call.body, query: call.query, json: call.json } } : {}) }));
   const as = renderAs();
   return new Promise((resolve) => {
     let out = "", done = false;

@@ -1,5 +1,22 @@
 # Owner Notes
 
+## 2026-10-30 — The site agent's server tools and your five rules for server code (branch `agent-server-tools`, not merged or deployed)
+
+**What changed:** the site agent got five new tools, each offered only where something real is wired behind it:
+- **call_function** tries one of the site's server functions with a sample request, in the same test sandbox the build's server test uses (a stand-in database that saves nothing, outside services answered by the sandbox, no key). It answers the status, the response and any error. Never the live site. It runs in the build container (a new `/agent-call` route), on edits and on first builds.
+- **read_errors** reads the site's error log (`_errors`), newest first, at most 50, messages cut to 300 characters, anything shaped like a key hidden. Edits on sites with a database only.
+- **list_keys** answers the NAMES of the keys you have set for the site. Only the name column is read; a value can never reach the agent. Edits on sites with a database only.
+- **change_schema** adds a table or columns, and nothing else: drop, rename, type changes and anything unknown are refused in code. The additions are applied when the agent finishes, before the table entries, through the same schema apply the builder uses, held in your draft for Publish on a live site; a second check refuses a merged schema that would lose any table or column. Edits on sites with a database only.
+- **read_docs** reads official documentation (Stripe, Resend, Twilio, Cloudflare, MDN, Supabase, Neon) from the Worker, as text cut at 20,000 characters, scripts stripped. Every other site, and a redirect off the list, is refused.
+
+**Your five rules** are now in the agent's server-code instructions: check who is calling and validate every input, no key in page code, a limit on public endpoints; outside services on your own keys, with finish naming exactly which key is missing; webhooks verified and each event done once (its id stored); database changes add, never destroy; every failure answered clearly and written to the site's error log.
+
+**Each tool is counted** in the round record as a number (`fnCalls`, `errorReads`, `keyLists`, `schemaChanges`, `docReads`) and named in the live progress lines.
+
+**Tests:** `test/site-agent-server-tools.test.mjs`, 17 cases (all fail on the old code: the module did not exist), including a real sandbox run that returns the function's own response. One older guard (SA35) now lists the new dependencies. Mutation sweep: 36 of 36 killed, the comment-only control survived. Full suite with `GF_OLD_LANES=1`: 12,585 tests, 5 failed; two were mine and are fixed (the container's worker tree needed the new module in the Dockerfile; a guard reads every `siteRowConn` binding, so the variables were renamed), and the other three are local only (a linked `node_modules` in the worktree, the known reopen-browser flake, a Chromium media check).
+
+**The container image will roll** (`builder/build-server.mjs`, `builder/server-dryrun.mjs`, `builder/server-dryrun-child.mjs` and the Dockerfile changed). Nothing paid, no model call, no live database write.
+
 ## 2026-10-30 — The landing's look across the whole signed-in app (you: "u see how with the new design colors looks better, please put this design in the entire platform please")
 
 **What changed:** the app now wears the signed-out landing's colours and type: warm paper (#fbfaf8) instead of plain white, navy ink (#0d1b2a) instead of black, soft beige lines (#e6e2db), white cards, and the Geist / Geist Mono faces (added to the app's Google Fonts link; the landing named Geist but the page never loaded it). The palette tokens at the top of `public/styles.css` hold the landing's values, the landing's own token names (`--ink`, `--card`, `--coral`, `--ok`, `--display`, `--mono`) are on `:root`, and one block at the end re-points the rules that wrote colours, faces or heavy black shadows out by hand: the header and credits pill, the start box, site cards, chat bubbles, the composer and send button, Share / device buttons, the profile menu, the slash and context pop-ups, the "are you sure?" dialog (its danger button is now a darker coral, #c4462e, white text 4.9:1), and the out-of-credits bar. Layout, sizes, wording and behaviour are unchanged; published customer sites are untouched.

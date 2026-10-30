@@ -2374,6 +2374,29 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  // ONE SERVER FUNCTION, TRIED (2026-10-30, the site agent's `call_function`):
+  // the test run's own sandbox (`server-dryrun.mjs`: a fake database, fake
+  // outside calls, no key) with the agent's sample request. Never the live site.
+  if (req.method === "POST" && req.url === "/agent-call") {
+    let cBody = "", cTooBig = false;
+    req.on("data", (c) => { cBody += c; if (cBody.length > MAX_BODY) { cTooBig = true; req.destroy(); } });
+    req.on("end", async () => {
+      if (cTooBig) return send(res, 413, { ok: false, error: "too large" });
+      let p; try { p = JSON.parse(cBody); } catch { return send(res, 400, { ok: false, error: "invalid json" }); }
+      const call = p && p.call && typeof p.call === "object" ? p.call : null;
+      if (!call || typeof call.name !== "string" || !/^[a-z0-9][a-z0-9-]{0,55}$/i.test(call.name)) return send(res, 400, { ok: false, error: "a function to call" });
+      try {
+        const sp = (Array.isArray(p.parts) ? p.parts : []).filter(isServerPart);
+        let tsc = null;
+        try { tsc = createRequire(path.join(APP, "package.json"))("typescript"); } catch { tsc = null; }
+        const r = await dryRunServerParts(sp, { ...(tsc ? { ts: tsc } : {}), call: { name: call.name, method: call.method, body: call.body, query: call.query, json: call.json } });
+        return send(res, 200, { ok: true, ...r });
+      } catch (e) {
+        return send(res, 200, { ok: false, error: String((e && e.message) || e).slice(0, 300) });
+      }
+    });
+    return;
+  }
   if (req.method === "POST" && req.url === "/model") {
     let mBody = "", mTooBig = false;
     req.on("data", (c) => { mBody += c; if (mBody.length > MAX_MODEL_BODY) { mTooBig = true; req.destroy(); } });

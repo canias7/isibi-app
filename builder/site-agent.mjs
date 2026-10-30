@@ -35,6 +35,7 @@ import { siteSlice } from "./site-map.mjs";
 import { checkServerPart, SERVER_PREFIX } from "./server-code.mjs";
 import { pageCost } from "./publish-pages.mjs";
 import { requiredFiles, partKey, overThreshold } from "./file-picker.mjs";
+import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
 
 /** A guard against a loop, not a spending limit: a first build writes many files. */
 export const AGENT_MAX_ROUNDS = 40;
@@ -120,6 +121,8 @@ export const AGENT_TOOLS = Object.freeze([
       required: ["tasks"],
     },
   },
+  // THE SERVER TOOLS (2026-10-30, the owner): each offered only when wired.
+  ...SERVER_TOOLS,
   {
     name: "finish",
     description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer.",
@@ -153,6 +156,17 @@ WRITING SERVER CODE THAT HOLDS UP (adapted from Cloudflare's Workers best practi
 - Catch what can fail and answer with a clear status and a short message; never send a visitor an error's details or anything from the owner's keys.
 - Never record something as paid, booked or sent until the outside service has confirmed it.`;
 
+/** The owner's five rules for server code (2026-10-30). */
+export const SERVER_RULES = `
+
+SERVER CODE: THE OWNER'S RULES (these come first):
+1. SECURITY FIRST. Before a function writes or reveals anything, check who is calling: the signed-in visitor or the record they claim, looked up with site.sql, and answer 401 or 403 when they may not. Validate every input (each field's presence, type, size and allowed values) and answer 400 when it is wrong. Never put a key, token or secret in page code: only server code holds keys, through site.key. Every function is already limited per visitor per minute; a public endpoint that can be abused (a form, a sign-up, a booking) also limits itself: count recent requests from the caller's address (request.headers.get("cf-connecting-ip")) in a site table, and answer 429 past the limit.
+2. KEYS. An outside service (payments, email, text messages, AI and the rest) always runs on the owner's own key from the site's secrets: site.hasKey("NAME") first, then site.key("NAME"). When it is missing, the function answers 503 with a clear "not set up yet", and finish names exactly which key the owner must add. Never build something that fails silently. When list_keys is offered, use it to see which keys are set.
+3. WEBHOOKS. Verify the signature with site.verify before trusting anything in the message. The same event can arrive twice: store each event's id in a site table (a unique column) and do nothing for one already stored, so the work is never done twice.
+4. DATABASE CHANGES ADD, NEVER DESTROY. Never drop, rename or change the type of a table or column, and never delete stored data to make a change fit. A change that could lose data is not made: say in finish what it would need.
+5. ERRORS. Every server function answers a failure with a clear status and a short message, and records it in the site's error log, where the owner sees it: an error it does not catch is recorded for you; one it catches, it records itself with site.sql("INSERT INTO _errors (at, message, route, source) VALUES (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'), ?, ?, 'server')", [message, "fn/<name>"]), never with a key or a visitor's private details in the message.
+When call_function is offered, try every server function you wrote or changed with a realistic sample request, and a wrong one, before you finish. When read_errors is offered and the owner reports something broken, read the log first. When read_docs is offered, read the provider's official page before writing code against an API you are not sure of.`;
+
 const AGENT_RULES = `
 
 ━━━ YOU ARE THE SITE'S AGENT — THESE RULES WIN OVER ANYTHING ABOVE ━━━
@@ -171,7 +185,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
 
 SERVER CODE is a component named "-parts/server-<name>":
-` + SERVER_HOW + SERVER_PRACTICES;
+` + SERVER_HOW + SERVER_PRACTICES + SERVER_RULES;
 
 /** The rules every round opens with, the same for every site of a kind (rule 4). */
 export function agentSystem(spec = null, kind = "", { ownParts = false } = {}) {
@@ -325,7 +339,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -382,7 +396,7 @@ export function buildFailKind(r) {
 
 // ── WHAT A ROUND DID, AS NUMBERS ─────────────────────────────────────────────
 /** Each tool's uses in one round, as counts: the build trace keeps numbers only. */
-const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish" };
+const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish", call_function: "fnCalls", read_errors: "errorReads", list_keys: "keyLists", change_schema: "schemaChanges", read_docs: "docReads" };
 export function toolCounts(uses) {
   const out = {};
   for (const b of Array.isArray(uses) ? uses : []) {
@@ -561,6 +575,44 @@ async function runTool(use, st, deps) {
       }
       return { text: "The helpers are back:\n" + lines.join("\n") + "\nBuild next, then look and fix." };
     }
+    case "call_function": {
+      if (typeof deps.callFunction !== "function") return { error: "server functions cannot be tried here" };
+      const q = callRequest(input, st.ws.parts().map((p) => p.name));
+      if (!q.ok) return { error: q.why };
+      let r;
+      try { r = await deps.callFunction(st.ws.parts().filter((p) => p.name.startsWith(SERVER_PREFIX)), q.call); }
+      catch (e) { r = { ran: false, why: String((e && e.message) || e) }; }
+      if (r && r.ok === false) return { error: "the function could not be tried: " + String(r.error || "no answer").slice(0, 200) };
+      return callAnswer(r);
+    }
+    case "read_errors": {
+      if (typeof deps.readErrors !== "function") return { error: "the error log cannot be read here" };
+      const n = errorsLimit(input.limit);
+      try { return { text: errorLines(await deps.readErrors(n), n) }; }
+      catch (e) { return { error: "the error log could not be read: " + String((e && e.message) || e).slice(0, 160) }; }
+    }
+    case "list_keys": {
+      if (typeof deps.listKeys !== "function") return { error: "the site's keys cannot be listed here" };
+      try {
+        const names = keyNames(await deps.listKeys());
+        return { text: names.length ? "The owner has set these keys (names only): " + names.join(", ") + "." : "The owner has set no keys for this site yet." };
+      } catch (e) { return { error: "the keys could not be listed: " + String((e && e.message) || e).slice(0, 160) }; }
+    }
+    case "change_schema": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      if (typeof deps.applySchema !== "function") return { error: "the database cannot be changed here" };
+      const c = schemaChange(input, st.tables);
+      if (!c.ok) return { error: c.why };
+      st.schema.push(c.op);
+      // What change_rows and the next change_schema see: the table as it will be.
+      if (c.op.create) st.tables.push({ name: c.op.table, columns: ["id", ...c.op.create.columns.map((x) => x.name)] });
+      else { const t = st.tables.find((x) => x.name === c.op.table); if (t) t.columns = [...t.columns, ...c.op.add.map((x) => x.name)]; }
+      return { text: (c.op.create ? "Queued: a new table " + c.op.table + " (" + c.op.create.columns.map((x) => x.name + " " + x.type).join(", ") + ")" : "Queued: new columns on " + c.op.table + " (" + c.op.add.map((x) => x.name + " " + x.type).join(", ") + ")") + ". Added to the database when you finish, before the table entries." };
+    }
+    case "read_docs": {
+      if (typeof deps.fetchDocs !== "function") return { error: "documentation cannot be read here" };
+      return readDocs(deps.fetchDocs, input.url);
+    }
     case "finish": {
       if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
@@ -597,7 +649,7 @@ const fact = (state, text) => ({ state, text });
 const listed = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]);
 export function roundFacts(outcomes) {
   const out = [];
-  const reads = [], wrote = [], gone = [], looked = [], queued = [], ran = [];
+  const reads = [], wrote = [], gone = [], looked = [], queued = [], ran = [], tried = [];
   for (const { use, r } of Array.isArray(outcomes) ? outcomes : []) {
     if (!use || !r || r.error) continue;
     const i = use.input || {};
@@ -608,11 +660,17 @@ export function roundFacts(outcomes) {
     else if (use.name === "run") ran.push("`" + String(i.command || "").trim().slice(0, 80) + "`");
     else if (use.name === "look") looked.push(fileName(routeFile(String(i.page || "/"))) + " in a browser");
     else if (use.name === "change_rows") queued.push("the " + i.table + " entries");
+    else if (use.name === "change_schema") queued.push("the " + i.table + " table's columns");
+    else if (use.name === "call_function") tried.push("the server function \"" + String(i.name || "").replace(/^-parts\//, "").replace(/^server-/, "").slice(0, 60) + "\"");
+    else if (use.name === "read_errors") looked.push("the site's error log");
+    else if (use.name === "list_keys") looked.push("which keys the owner has set");
+    else if (use.name === "read_docs" && r.host) looked.push("documentation on " + r.host);
     else if (use.name === "build") out.push(/^The build passed\.$/.test(r.text) ? fact("applied", "Built the site; it compiled cleanly.") : /^The build passed/.test(r.text) ? fact("doing", "Built the site; its server code failed a test run, fixing it.") : fact("doing", "Built the site; the compiler found errors, fixing them."));
   }
   if (reads.length) out.unshift(fact("prepared", "Read " + listed([...new Set(reads)]) + "."));
   if (looked.length) out.unshift(fact("prepared", "Looked at " + listed([...new Set(looked)]) + "."));
   if (ran.length) out.push(fact("doing", "Ran " + listed(ran) + " in the site's project."));
+  if (tried.length) out.push(fact("doing", "Tried " + listed([...new Set(tried)]) + " with a sample request, in a test sandbox."));
   if (wrote.length) out.push(fact("applied", "Wrote " + listed([...new Set(wrote)]) + "."));
   if (gone.length) out.push(fact("applied", "Removed " + listed([...new Set(gone)]) + "."));
   if (queued.length) out.push(fact("prepared", "Lined up changes to " + listed([...new Set(queued)]) + ", saved at the end."));
@@ -636,7 +694,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     ? spec.tables.filter((t) => t && typeof t.name === "string" && Array.isArray(t.columns))
       .map((t) => ({ name: t.name, columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
     : [];
-  const st = { ws, tables, onlyWrite, rows: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
+  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
@@ -705,7 +763,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // changed, the text is the agent's answer; otherwise it stopped mid-work.
     if (!uses.length) {
       const said = content.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text.trim()).filter(Boolean).join("\n\n");
-      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length) { st.done = true; st.summary = said.slice(0, 4000); break; }
+      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length) { st.done = true; st.summary = said.slice(0, 4000); break; }
       stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break;
     }
     const ids = uses.map((b, i) => (typeof b.id === "string" && b.id ? b.id : "t" + rounds + "_" + i));
@@ -737,6 +795,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     css: ws.css(), cssChanged: ws.cssChanged(),
     changed: ws.changed(), removed: ws.removed(),
     rows: st.rows,
+    schema: st.schema,
     looked: [...st.looked],
     summary: st.summary,
     lastBuild: st.lastBuild,
