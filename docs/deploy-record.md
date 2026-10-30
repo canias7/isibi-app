@@ -1735,7 +1735,7 @@ A fast-forward from `be6770957`, under the owner's word ("when all the helpers a
 
 - **SiteBuildContainer:** `b59685ee209f5fa2` (246 inputs, computed from the commit; `worker.js` is an input and changed).
 - **Served files match the merged bytes** (read 09:12 UTC): `chat.js`, `styles.css`, `site-list.js`.
-- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+- **Runtime-confirmed by canary run 41097065980** (the owner's free press, 17:14 UTC, spend `no`): both readers answered `cfb2bd39fb26`, a cold container got `b59685ee209f5fa2`, runner and async on. This also confirms deploy 2292's code, which it contains.
 
 ## Deploy 2292 — 2026-10-30 08:15 UTC (`be6770957`)
 
