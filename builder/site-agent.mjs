@@ -38,6 +38,7 @@ import { requiredFiles, partKey, overThreshold } from "./file-picker.mjs";
 import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
 import { attachments as sortAttachments } from "./site-context.mjs";
 import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.mjs";
+import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 
 /** A guard against a loop, not a spending limit: a first build writes many files. */
 export const AGENT_MAX_ROUNDS = 40;
@@ -138,6 +139,44 @@ export const AGENT_TOOLS = Object.freeze([
     name: "import_site",
     description: "Read the owner's existing website (an address they gave in their message): its pages' headings and text, contact details, opening hours, colours, fonts, links, logo and photographs. The pictures come back as addresses in this site's own files, ready for <img src>. Reading only; nothing on this site changes.",
     input_schema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+  },
+  // THE OLD STEPS' TOOLS (2026-10-30, `builder/agent-steps.mjs`): each offered
+  // only where the Worker wires what saves it (`TOOL_NEEDS`), each queued and
+  // saved when you finish, never before.
+  {
+    name: "set_site_settings",
+    description: "Change the site's settings, saved when you finish: `name` (the business's name: the browser tab's title and the link preview's; `title` means the same), `description` (what search engines and link previews show, up to 300 characters, \"\" for none), `shareImage` (the link-preview picture) and `favicon` (the browser-tab icon), each one of the owner's uploads by its name or /u/ address, \"\" to go back to the default. Send only what changes.",
+    input_schema: { type: "object", properties: { name: { type: "string" }, title: { type: "string" }, description: { type: "string" }, shareImage: { type: "string" }, favicon: { type: "string" } } },
+  },
+  {
+    name: "set_logo",
+    description: "Put the owner's uploaded logo in place, saved when you finish: `upload` is one of their uploads (its name or /u/ address); `target` \"logo\" (the header, every page, the default) or \"icon\" (the browser tab); `remove: true` takes it off. No page changes for it on a site whose header is the platform's; a header you wrote yourself shows `SITE_LOGO` where it puts it.",
+    input_schema: { type: "object", properties: { upload: { type: "string" }, target: { type: "string", enum: ["logo", "icon"] }, remove: { type: "boolean" } } },
+  },
+  {
+    name: "set_languages",
+    description: "The site's languages, saved when you finish. `lang`: the language its pages are ALREADY written in, as a tag (\"es\", \"pt-BR\"); a declaration, never a translation. `langs`: the WHOLE list of extra languages the site is also offered in (the publish translates it), [] for none: send every one that stays.",
+    input_schema: { type: "object", properties: { lang: { type: "string" }, langs: { type: "array", items: { type: "string" }, maxItems: 12 } } },
+  },
+  {
+    name: "set_table_rules",
+    description: "Change what one of the site's tables allows, saved to its database when you finish: `read` (who sees entries: public, members, own, none), `write` (who adds: anyone, members, own, none), `unique` (columns that together may not repeat), `oncePerUser` (columns one person may use once), `noOverlap` ({start, end, on?}: whole-number time columns), `maxRows` (a limit), `retired` (true closes it, keeping its entries). Letting more people see entries needs the owner's own words, quoted in `readWords`.",
+    input_schema: { type: "object", properties: { table: { type: "string" }, read: { type: "string" }, readWords: { type: "string" }, write: { type: "string" }, unique: { type: "array", items: { type: "string" } }, oncePerUser: { type: "array", items: { type: "string" } }, noOverlap: { type: "object" }, maxRows: { type: "integer" }, retired: { type: "boolean" } }, required: ["table"] },
+  },
+  {
+    name: "rename_page",
+    description: "Move a page to a new address (\"/menu\" to \"/food\"): its file moves, every link to it in the pages and components is rewritten, and the old address sends visitors to the new one. Build afterwards.",
+    input_schema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] },
+  },
+  {
+    name: "make_qr",
+    description: "A QR code for one of the site's pages (`page`: \"/menu\") or a web address (`url`): answers a picture address to put in an <img src> on a page.",
+    input_schema: { type: "object", properties: { page: { type: "string" }, url: { type: "string" } } },
+  },
+  {
+    name: "ask_owner",
+    description: "Ask the owner ONE question when the request cannot be done right without a detail only they know, with two to four short answers they tap. This ends your turn: nothing you queued or wrote is saved, and you continue from their answer. Never ask what you can find out by reading the site.",
+    input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 } }, required: ["question", "options"] },
   },
   {
     name: "finish",
@@ -439,7 +478,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -496,7 +535,7 @@ export function buildFailKind(r) {
 
 // ── WHAT A ROUND DID, AS NUMBERS ─────────────────────────────────────────────
 /** Each tool's uses in one round, as counts: the build trace keeps numbers only. */
-const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish", call_function: "fnCalls", read_errors: "errorReads", list_keys: "keyLists", change_schema: "schemaChanges", read_docs: "docReads" };
+const TOOL_COUNT_KEYS = { write_file: "writes", read_files: "reads", delete_file: "deletes", change_rows: "rowChanges", read_table: "tableReads", run: "commands", look: "looks", build: "builds", finish: "finish", call_function: "fnCalls", read_errors: "errorReads", list_keys: "keyLists", change_schema: "schemaChanges", read_docs: "docReads", set_site_settings: "settings", set_logo: "logos", set_languages: "languages", set_table_rules: "ruleChanges", rename_page: "pageRenames", make_qr: "qrCodes", ask_owner: "asks" };
 export function toolCounts(uses) {
   const out = {};
   for (const b of Array.isArray(uses) ? uses : []) {
@@ -758,6 +797,52 @@ async function runTool(use, st, deps) {
       const text = [block, links.length ? "PAGES READ: " + links.join(", ") : "", pics.length ? "THEIR PICTURES, copied into this site's files:\n" + pics.join("\n") : "No pictures could be copied."].filter(Boolean).join("\n\n");
       return { text: text.slice(0, MAX_TOOL_TEXT) + (text.length > MAX_TOOL_TEXT ? "\n[…cut]" : "") };
     }
+    case "set_site_settings":
+    case "set_logo":
+    case "set_languages": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      const r = use.name === "set_languages" ? readLanguagesInput(input) : await (use.name === "set_logo" ? readLogoInput : readSettingsInput)(input, { checkUpload: deps.checkUpload });
+      if (r.error) return { error: r.error };
+      Object.assign(st.settings, r.settings);
+      return { text: "Queued: " + Object.keys(r.settings).join(", ") + ". Saved when you finish.", settings: Object.keys(r.settings) };
+    }
+    case "set_table_rules": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      const r = readRulesInput(input, st.ruleTables, [st.request]);
+      if (r.error) return { error: r.error };
+      if (!r.changes.length) return { text: "Already so: nothing to change." };
+      st.rules.push(...r.changes);
+      return { text: "Queued for " + r.changes.map((c) => c.table).join(", ") + ": " + r.changes.flatMap((c) => Object.keys(c).filter((k) => k !== "table" && k !== "readWords")).join(", ") + ". Saved when you finish." };
+    }
+    case "rename_page": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      const files = [...st.ws.pages(), ...st.ws.parts().map((p) => ({ path: partKey(p.name), source: p.source }))];
+      const r = readRenameInput(input, files);
+      if (r.error) return { error: r.error };
+      const before = new Map(files.map((f) => [f.path, f.source]));
+      const moved = r.files.find((f) => !before.has(f.path));
+      for (const f of files) if (!r.files.some((g) => g.path === f.path)) { st.ws.delete(f.path); st.written.add(f.path); }
+      for (const f of r.files) if (before.get(f.path) !== f.source) { st.ws.set(f.path, f.source); st.written.add(f.path); }
+      st.dirty = true;
+      st.redirects[r.redirect.from] = r.redirect.to;
+      return { text: "Moved " + r.redirect.from + " to " + r.redirect.to + (moved ? " (" + moved.path + ")" : "") + "; links rewritten in " + r.changed.length + " file" + (r.changed.length === 1 ? "" : "s") + "; the old address will send visitors to the new one. Build next." };
+    }
+    case "make_qr": {
+      let url = "";
+      try { url = await deps.siteUrl(); } catch { url = ""; }
+      const r = readQrInput(input, url);
+      if (r.error) return { error: r.error };
+      st.qrs++;
+      return { text: "The QR code for " + r.text + " is this picture address; put it in an <img src> (with alt text saying where it leads):\n" + r.src };
+    }
+    case "ask_owner": {
+      if (st.onlyWrite) return { error: "a helper cannot ask the owner" };
+      const r = readAskInput(input);
+      if (r.error) return { error: r.error };
+      st.ask = r.ask;
+      st.done = true;
+      return { text: "Asked. Your turn ends here." };
+    }
     case "finish": {
       if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
@@ -792,6 +877,7 @@ export function fileName(k) {
 }
 const fact = (state, text) => ({ state, text });
 const listed = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]);
+const SETTING_SAID = { name: "the site's name", description: "the site's description", share: "the link-preview picture", favicon: "the browser-tab icon", wordmark: "the header logo", lang: "the site's language", langs: "the site's extra languages" };
 export function roundFacts(outcomes) {
   const out = [];
   const reads = [], wrote = [], gone = [], looked = [], queued = [], ran = [], tried = [];
@@ -810,6 +896,10 @@ export function roundFacts(outcomes) {
     else if (use.name === "read_errors") looked.push("the site's error log");
     else if (use.name === "list_keys") looked.push("which keys the owner has set");
     else if (use.name === "read_docs" && r.host) looked.push("documentation on " + r.host);
+    else if (use.name === "set_table_rules") queued.push("what the " + i.table + " table allows");
+    else if (use.name === "set_site_settings" || use.name === "set_logo" || use.name === "set_languages") queued.push(...(r.settings || []).map((k) => SETTING_SAID[k] || "the site's settings"));
+    else if (use.name === "rename_page") wrote.push("the page address " + String(i.from).trim() + " (now " + String(i.to).trim() + ")");
+    else if (use.name === "make_qr") out.push(fact("prepared", "Made a QR code."));
     else if (use.name === "build") out.push(/^The build passed\.$/.test(r.text) ? fact("applied", "Built the site; it compiled cleanly.") : /^The build passed/.test(r.text) ? fact("doing", "Built the site; its server code failed a test run, fixing it.") : fact("doing", "Built the site; the compiler found errors, fixing them."));
   }
   if (reads.length) out.unshift(fact("prepared", "Read " + listed([...new Set(reads)]) + "."));
@@ -841,7 +931,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     : [];
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
-  const st = { ws, tables, onlyWrite, request: String(request || ""), rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log };
+  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, request: String(request || ""),
+    ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
@@ -910,7 +1001,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // changed, the text is the agent's answer; otherwise it stopped mid-work.
     if (!uses.length) {
       const said = content.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text.trim()).filter(Boolean).join("\n\n");
-      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length) { st.done = true; st.summary = said.slice(0, 4000); break; }
+      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length && !st.rules.length && !Object.keys(st.settings).length) { st.done = true; st.summary = said.slice(0, 4000); break; }
       stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break;
     }
     const ids = uses.map((b, i) => (typeof b.id === "string" && b.id ? b.id : "t" + rounds + "_" + i));
@@ -936,13 +1027,16 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
 
   const credits = usage.length ? Math.max(1, Math.ceil(spent())) : 0;
   return {
-    ok: st.done && (onlyWrite ? true : !st.dirty && (st.built || !st.written.size)),
+    ok: st.done && (onlyWrite || !!st.ask ? true : !st.dirty && (st.built || !st.written.size)),
     stopped: st.done ? "" : stopped,
     pages: ws.pages(), parts: ws.parts(),
     css: ws.css(), cssChanged: ws.cssChanged(),
     changed: ws.changed(), removed: ws.removed(),
     rows: st.rows,
     schema: st.schema,
+    // THE OLD STEPS' QUEUED SAVES (2026-10-30): saved by the caller with the files.
+    settings: st.ask ? {} : { ...st.settings }, rules: st.ask ? [] : st.rules.slice(), redirects: st.ask ? {} : { ...st.redirects },
+    ask: st.ask,
     looked: [...st.looked],
     summary: st.summary,
     lastBuild: st.lastBuild,

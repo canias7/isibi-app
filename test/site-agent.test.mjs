@@ -245,7 +245,9 @@ test("SA15 no switch and no cap reach the deploy or the job", () => {
   const D = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
   assert.doesNotMatch(D, /SITE_AGENT/);
   const K = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
-  assert.match(K, /builder\/site-agent\.mjs \.\/worker\/builder\//);
+  // THE AGENT AND EVERY MODULE IT LOADS ride the one COPY line into ./worker/builder/ (combined 2026-10-30: not necessarily last).
+  const line = K.split("\n").find((l) => /^COPY .*\.\/worker\/builder\/$/.test(l)) || "";
+  for (const m of ["site-agent", "agent-server-tools", "pdf-text", "agent-steps"]) assert.match(line, new RegExp("builder/" + m + "\\.mjs "));
 });
 
 test("SA16 a failed build never opens finish", async () => {

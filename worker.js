@@ -203,7 +203,8 @@ import { readCss, cssNote, MAX_CSS, changedSelectors } from "./builder/site-free
 import { extractText, applyEdits, staleContactLinks, carryEmailChange } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, dataChanges, renamePages, renameRoute, MAX_DATA_ROWS, freshRecent, PUT_BACK_READ_MAX } from "./builder/site-apply.mjs";
 import { insertStatement } from "./builder/site-rows.mjs";
-import { runRulesEdit } from "./builder/site-rules.mjs";
+import { runRulesEdit, mergeRules, withoutRefused } from "./builder/site-rules.mjs";
+import { agentSettingsPatch } from "./builder/agent-steps.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames, codeFigureRemoval } from "./builder/site-picture.mjs";
 import { runTweak, keptProse, tweakParser } from "./builder/site-tweak.mjs";
 import { keepCheck, keepWithheldMsg, KEEP_UNCHECKED_MSG, unsurePhrases } from "./builder/page-keep.mjs";
@@ -17261,7 +17262,7 @@ function agentInputDeps(env, slug) {
   };
 }
 
-async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null }) {
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
@@ -17280,8 +17281,33 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   try { const c = cleanChatId(chat); if (uid && c) { const cur = await chatStoreRead(env, chatStoreKey(uid, c)); if (cur.read && cur.chat) history = historyText(cur.chat.msgs); } } catch { history = ""; }
   // THE FILES ON THIS MESSAGE (2026-10-30): before, the agent was given none.
   const inFiles = agentAttachments(Array.isArray(images) ? images.slice(0, MAX_ATTACHMENTS) : []);
+  // THE OLD STEPS' WIRING (2026-10-30, `builder/agent-steps.mjs`). The screen
+  // sizes the router read (`devices`) go in the agent's first message as the
+  // lanes were told them (`deviceNote`), and the publish checks the other sizes
+  // stayed the same. What the owner answered to earlier questions (`context`)
+  // goes beside the request, so an answer resumes the work it was asked for.
+  const devScope = readDevices(devices);
+  const told = (Array.isArray(context) ? context : []).filter((c) => c && typeof c.q === "string" && typeof c.a === "string");
+  const request = [String(words || ""),
+    told.length ? "WHAT THE OWNER ALREADY ANSWERED\n" + told.map((c) => "You asked: " + c.q + "\nThey answered: " + c.a).join("\n") : "",
+    devScope ? deviceNote(devScope) : ""].filter(Boolean).join("\n\n");
+  let uploads = null;
+  const checkUpload = async (raw) => {
+    const name = String(raw || "").split("?")[0].split("/").pop();
+    if (!name) return { ok: false, why: "name one of the owner's uploads" };
+    if (/\.svg$/i.test(name)) return { ok: false, why: "an SVG cannot be used as a site picture (it can carry code); ask for a PNG, JPEG or WebP" };
+    if (!uploadIsImage(name)) return { ok: false, why: "that file is not a picture" };
+    if (!uploads) uploads = await siteUploadList(env, slug);
+    const hit = uploads.find((o) => o && !o.visitor && o.key.split("/").pop() === name);
+    return hit ? { ok: true, name, url: uploadUrl(slug, name) } : { ok: false, why: "that file is not one of the owner's uploads" };
+  };
   const ag = await runSiteAgent({
     ...agentInputDeps(env, slug),
+    ...(css !== null && env.SITES_BUCKET ? { saveSettings: () => true, checkUpload } : {}),
+    ...(conn && spec ? { saveRules: () => true } : {}),
+    saveRedirects: () => true,
+    siteUrl: () => publicUrlFor(env, slug),
+    ...(canAsk ? { canAsk: () => true } : {}),
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
     build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
     run: agentShell(env, slug),
@@ -17300,7 +17326,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     fetchDocs: agentFetchDocs,
     ...(conn ? { readErrors: agentReadErrors(env, slug), listKeys: agentListKeys(env, slug), applySchema: (ops) => applyAgentSchema(env, slug, conn, ops, job) } : {}),
   }, {
-    request: words, pages, parts, css, history, map, spec,
+    request, pages, parts, css, history, map, spec,
     attached: inFiles.files, unread: inFiles.skipped,
     ownParts: ownPartsSite(pages, parts), model: models.pages,
   });
@@ -17312,9 +17338,19 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
       msg: stoppedFacts(ag) + " Nothing was charged." } };
   }
   const took = Number(await bill(ag.usage)) || 0;
+  // A QUESTION FOR THE OWNER (`ask_owner`): nothing saved; the ending keeps it
+  // as the site's live question (`askReport`) and their answer resumes the
+  // agent with the question and the answer beside the request. Charged for
+  // what the agent spent reaching it, as every agent turn is, nothing more.
+  if (ag.ask) {
+    tm("agent:ask", "ok", { options: ag.ask.options.length });
+    return { status: 200, body: { ok: false, error: "clarify", layer: "agent", cost: took, unchanged: true, ask: ag.ask, msg: ag.ask.text, agent: steps, deferred: [] } };
+  }
+  const setKeys = Object.keys(ag.settings || {});
+  const renames = Object.entries(ag.redirects || {});
   // A QUESTION, OR NOTHING TO CHANGE: the agent's own answer, nothing saved.
   const schemaOps = Array.isArray(ag.schema) ? ag.schema : [];
-  if (!ag.changed.length && !ag.rows.length && !schemaOps.length) {
+  if (!ag.changed.length && !ag.rows.length && !schemaOps.length && !setKeys.length && !(ag.rules || []).length) {
     return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", cost: took, agent: steps } };
   }
   // THE DATABASE'S ADDITIONS FIRST (2026-10-30, `change_schema`): the pages and
@@ -17333,7 +17369,26 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (sr.added.length) schemaFacts.push("Added to the database: " + sr.added.join(", ") + (sr.revision ? " (saved to your draft; it goes live when you publish)." : "."));
   }
   let out = null;
-  if (ag.changed.length) {
+  // THE SETTINGS, stored before the publish as the look step stores them (the
+  // publish reads the name, the description, the marks, the share picture and
+  // the languages from the config), put back if the publish fails.
+  let cfgBefore = null;
+  if (setKeys.length) {
+    try {
+      await mayWriteConfig(env, slug, job);
+      const cur = await readSiteConfig(env, slug, cfgDb);
+      if (!cur.ok) throw new Error(cur.why + ": " + cur.error);
+      const patch = agentSettingsPatch(cur.config, ag.settings);
+      cfgBefore = Object.fromEntries(Object.keys(patch).map((k) => [k, k === "share" ? (cur.config.share || "") : cur.config[k]]));
+      const w = await patchSiteConfig(env, slug, cfgDb, patch, jobFence(env, job));
+      if (!w.ok) throw new Error(w.error);
+    } catch (e) {
+      return { status: 503, body: { ok: false, error: "agent-settings", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
+        msg: "The site agent's settings could not be stored, so nothing was saved." } };
+    }
+  }
+  const putBack = async () => { if (cfgBefore) { try { await patchSiteConfig(env, slug, cfgDb, cfgBefore, jobFence(env, job)); } catch { /* told below */ } } };
+  if (ag.changed.length || setKeys.length) {
     // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
     let cssBefore = null;
     if (ag.cssChanged) {
@@ -17343,6 +17398,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
         const w = await patchSiteConfig(env, slug, cfgDb, { css: ag.css }, jobFence(env, job));
         if (!w.ok) throw new Error(w.error);
       } catch (e) {
+        await putBack();
         return { status: 503, body: { ok: false, error: "agent-css", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
           msg: "The site agent's stylesheet could not be stored, so nothing was saved." } };
       }
@@ -17351,8 +17407,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
       slug, pages: ag.pages, parts: ag.parts, label: "Changed by the site agent",
       job, charge: billLang, charges, models, trace,
       touched: files.filter((k) => !k.startsWith("-parts/")),
+      ...(renames.length ? { renamed: renames.map(([from, to]) => ({ from, to })) } : {}),
+      ...(devScope ? { devices: devScope } : {}),
     });
     if (!out.ok) {
+      await putBack();
       if (cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
       return { status: 422, body: { ok: false, error: lostOr(out, "compile"), layer: "agent", cost: took, agent: steps, deferred: [],
         msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched."), detail: out.detail } };
@@ -17385,10 +17444,34 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     }
     tm("agent:rows", "ok", { facts: rowFacts.length });
   }
-  const msg = [ag.summary || "The change was made.", ...schemaFacts, ...rowFacts].join(" ");
+  // THE TABLE RULES, applied to the live database as the rules step applies them.
+  const ruleFacts = [];
+  if ((ag.rules || []).length) {
+    try {
+      const wr = await backendWriter(env, slug);
+      let rSpec = spec;
+      // AFTER change_schema's additions (combined 2026-10-30): the stored schema
+      // as it now is, so the rules are merged onto the tables just added.
+      if (schemaOps.length) { const rr = await readSiteSchema(conn); if (rr.ok) rSpec = rr.spec; }
+      if (wr.on) { const v = await draftView(env, slug); rSpec = specOverlay(spec, v.ops); }
+      const merged = mergeRules(rSpec, ag.rules);
+      const made = await wr.calls.applySiteSchema(conn, normalizeSchema(merged.spec));
+      const done = withoutRefused(merged.applied, made && Array.isArray(made.refusedRules) ? made.refusedRules : [], []);
+      for (const a of done) ruleFacts.push("Changed the rules of the " + a.table + " table: " + a.fields.join(", ") + ".");
+      if (done.length < merged.applied.length) ruleFacts.push("The database refused some of the rule changes, usually because entries already there break them.");
+    } catch (e) {
+      ruleFacts.push("The table rule changes could not be saved.");
+    }
+    tm("agent:rules", "ok", { facts: ruleFacts.length });
+  }
+  const setFacts = setKeys.length ? ["Saved the site's settings: " + setKeys.join(", ") + "."] : [];
+  const moveFacts = renames.map(([a, b]) => "The page at " + a + " is now at " + b + "; the old address sends visitors there.");
+  const msg = [ag.summary || "The change was made.", ...setFacts, ...moveFacts, ...schemaFacts, ...rowFacts, ...ruleFacts].join(" ");
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg,
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
     ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),
+    ...(setKeys.length ? { settings: setKeys } : {}), ...(renames.length ? { moved: Object.fromEntries(renames) } : {}),
+    ...((ag.rules || []).length ? { applied: ag.rules.map((r) => ({ table: r.table })) } : {}),
     cost: took + (out ? Number(out.langCharged) || 0 : 0), agent: steps } };
 }
 
@@ -36420,7 +36503,11 @@ async function handleRequest(request, env, ctx) {
                 slug: ownerSlug, words: eRun, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat, images: eb && eb.images,
                 bill: (usage) => eCharge(...usage), billLang: (usage) => eCharge({ langUsage: usage }), charges: eCharges,
+                // THE OLD STEPS' INPUTS (2026-10-30): the screen sizes, what the
+                // owner already answered, and a question kept by this ending.
+                devices: eDevices, context: eCtxAll, canAsk: !!eRun,
               });
+              if (ag.body && ag.body.ask) eAskOut.request = eRun;
               return Response.json(ag.body, { status: ag.status });
             }
 
@@ -42793,6 +42880,7 @@ async function handleRequest(request, env, ctx) {
                 slug: ownerSlug, words: aInstruction, pages: aSrc, parts: aAgParts.ok ? aAgParts.parts : null, job: aJob, picker: ab && ab.picker, trace: editTrace,
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: ab && ab.chat, images: ab && ab.images,
                 bill: (usage) => aCharge(pageCredits(...usage), ++aAgSeq), billLang: (usage) => (usage && usage.length ? aCharge(pageCredits(...usage), ++aAgSeq) : 0), charges: aCharges,
+                devices: aDevices,
               });
               return Response.json(ag.body, { status: ag.status });
             }
