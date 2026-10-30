@@ -54,7 +54,7 @@ test("A33-8 the share picture is built on the public name's host and follows a r
   assert.doesNotMatch(body, /siteOrigin\(slug/, "a share URL is still built on the storage slug's host");
   assert.match(worker, /async function shareOriginFor\(env, slug\) \{\n[\s\S]{0,160}const host = siteHostFor\(await publicNameFor\(env, slug, \{ fresh: true \}\)\);/);
   // Every place a rename writes the live address moves the picture with it.
-  assert.equal((worker.match(/\.origin = addressOf\(([\w.]+)\);(?: |\n\s*)rehostShareImage\(\w+, \1\);/g) || []).length, 3,
+  assert.equal((worker.match(/\.origin = addressOf\(([\w.]+)\);(?: |\n\s*)rehostShareImage\(\w+, \1\);/g) || []).length, 4,
     "a rename writes the address without moving the share picture");
-  assert.equal((worker.match(/\.origin = addressOf\(/g) || []).length, 3, "a new address writer appeared");
+  assert.equal((worker.match(/\.origin = addressOf\(/g) || []).length, 4, "a new address writer appeared (the agent's rename_site, fix-all, is the fourth)");
 });

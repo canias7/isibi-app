@@ -39,6 +39,7 @@ import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange
 import { attachments as sortAttachments } from "./site-context.mjs";
 import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
+import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 
 /** A guard against a loop, not a spending limit: a first build writes many files. */
 export const AGENT_MAX_ROUNDS = 40;
@@ -63,6 +64,17 @@ export const HELPER_ROUNDS = 15;
 const PAGE_KEY = /^[a-z0-9][a-z0-9._$-]*(?:\/[a-z0-9._$-]+)*\.tsx$/i;
 const PART_KEY = /^-parts\/[a-z0-9][a-z0-9-]{0,62}$/i;
 const TABLE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+/** A table's key column, from its spec (`pk: true`), else the schema engine's own `id`. */
+export function tableKey(t) {
+  const c = t && Array.isArray(t.columns) ? t.columns.find((x) => x && typeof x === "object" && x.pk === true && typeof x.name === "string") : null;
+  return c ? c.name : "id";
+}
+/** What the agent is told when the site's tables could not be read (never "no tables"). */
+export const UNREADABLE_TABLES = "the site's tables could not be read just now, so nothing about them is known: do not assume there are none, and do not add, change or remove entries or tables this time. Say so in your finish summary";
+/** How often (in rounds) the caller is asked whether the credits spent so far are covered. */
+export const CREDIT_CHECK_EVERY = 5;
+/** A site address as the alias store takes it. */
+const ADDRESS = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** Rows `read_table` reads at most in one call (a pasted list of ~200 is updated from one read). */
 export const MAX_TABLE_READ = 500;
 /** Characters one attachment or import answer carries at most; the rest is read with `from`. */
@@ -87,7 +99,7 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "change_rows",
-    description: "Change the entries stored in one of the site's tables (a menu, a price list, classes…): add rows, update rows by id, remove rows by id. Read the table first to get the ids. Saved to the live database when you finish, not before.",
+    description: "Change the entries stored in one of the site's tables (a menu, a price list, classes…): add rows, update rows by their key, remove rows by their key (`id` here is the value of the table's key column, named in the table list). Read the table first to get the keys. Saved to the database when you finish, before the pages are saved, and taken back if the save fails.",
     input_schema: {
       type: "object",
       properties: {
@@ -172,6 +184,29 @@ export const AGENT_TOOLS = Object.freeze([
     name: "make_qr",
     description: "A QR code for one of the site's pages (`page`: \"/menu\") or a web address (`url`): answers a picture address to put in an <img src> on a page.",
     input_schema: { type: "object", properties: { page: { type: "string" }, url: { type: "string" } } },
+  },
+  // THE ROUTER-ERA STEPS THE AGENT HAD LOST (2026-10-30, fix-all): a list's
+  // order on every page that reads it (the order step's `applySort`), the
+  // owner's own video and audio by their hosted address, and the site's address.
+  {
+    name: "sort_table",
+    description: "Change the order one of the site's tables is listed in, on EVERY page and component that reads it (`by`: one of its columns; `direction`: \"asc\" or \"desc\"). Checked against the table's columns and applied in your workspace at once; build afterwards.",
+    input_schema: { type: "object", properties: { table: { type: "string" }, by: { type: "string" }, direction: { type: "string", enum: ["asc", "desc"] } }, required: ["table", "by"] },
+  },
+  {
+    name: "attach_media",
+    description: "The hosted address of one of the owner's uploaded videos or recordings (`upload`: its name or /u/ address), to place with <video src controls> or <audio src controls> on a page. Answers the address, its kind and type.",
+    input_schema: { type: "object", properties: { upload: { type: "string" } }, required: ["upload"] },
+  },
+  {
+    name: "rename_site",
+    description: "Move the whole site to a new web address (`to`: the new name, lowercase letters, digits and -). Checked as free now, made when you finish and the change saves; the old address keeps sending visitors to the new one until the owner asks to forget it.",
+    input_schema: { type: "object", properties: { to: { type: "string" } }, required: ["to"] },
+  },
+  {
+    name: "forget_old_address",
+    description: "Make one of the site's OLD web addresses stop answering (`name`), so the name is free again. Never the current address. Made when you finish.",
+    input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
   },
   {
     name: "ask_owner",
@@ -380,7 +415,7 @@ const fileBlock = (k, src) => "=== " + k + " ===\n" + src;
  * the site's tables and their columns, and that the rules already say how a
  * page reads them. Only for a site with no files yet.
  */
-export function projectOverview(tables = [], { ownParts = false } = {}) {
+export function projectOverview(tables = [], { ownParts = false, unreadable = false } = {}) {
   const t = (Array.isArray(tables) ? tables : []).filter((x) => x && typeof x.name === "string");
   return [
     "THE PROJECT (you do not need to look around to learn this)",
@@ -390,11 +425,11 @@ export function projectOverview(tables = [], { ownParts = false } = {}) {
       ? "- This site writes its own parts: there is no kit to use, so there is nothing under @/components to look through."
       : "- The ready-made kit lives under @/components (ui, charts): use it as the rules above say; do not list or read its files.",
     "- The stylesheet is \"styles.css\". Data is read and written with useRows / useCreateRow from \"@/lib/rows\", as the rules above say; do not open @/lib.",
-    t.length ? "- The site's tables, already created: " + t.map((x) => x.name + " (" + (x.columns || []).join(", ") + ")").join("; ") + "." : "- The site has no tables.",
+    unreadable ? "- The site's tables could not be read just now: whether it has any is not known." : t.length ? "- The site's tables, already created: " + t.map((x) => x.name + " (" + (x.columns || []).join(", ") + ")").join("; ") + "." : "- The site has no tables.",
     "Start writing. Use commands only for what this does not tell you.",
   ].join("\n");
 }
-export function firstMessage({ request, map = null, ws, shown = [], history = "", tables = null, ownParts = false, attached = [], unread = [] }) {
+export function firstMessage({ request, map = null, ws, shown = [], history = "", tables = null, ownParts = false, attached = [], unread = [], unreadable = false }) {
   const index = !ws.keys().length ? "(none yet — this is a new site; write every page and the site's header and footer)" : ws.keys().map((k) => "- " + k + " (" + ws.get(k).length + " chars)" + (shown.includes(k) ? " [below]" : "")).join("\n");
   const mapText = map ? siteSlice(map, "site", { budget: 8000 }) : "";
   return [
@@ -403,7 +438,11 @@ export function firstMessage({ request, map = null, ws, shown = [], history = ""
     attachedList(attached, unread),
     mapText,
     "EVERY FILE OF THE SITE\n" + index,
-    !ws.keys().length ? projectOverview(tables || [], { ownParts }) : "",
+    !ws.keys().length ? projectOverview(tables || [], { ownParts, unreadable }) : "",
+    // CAN'T TELL (fix-all): said on every change, not only a first build.
+    unreadable && ws.keys().length ? "THE SITE'S TABLES\nThey could not be read just now: whether the site has any, and what they hold, is not known. Do not assume there are none." : "",
+    // THE TABLES' KEYS (fix-all): change_rows names a row by its table's key.
+    (tables || []).some((t) => t && t.pk && t.pk !== "id") ? "TABLE KEYS (change_rows' `id` is this column's value): " + tables.map((t) => t.name + ": " + (t.pk || "id")).join("; ") : "",
     shown.length ? "THE FILES MOST LIKELY NEEDED, AS THEY ARE NOW\n" + shown.map((k) => fileBlock(k, ws.get(k))).join("\n\n") : "",
   ].filter(Boolean).join("\n\n");
 }
@@ -478,7 +517,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -623,10 +662,15 @@ async function runTool(use, st, deps) {
     case "change_rows": {
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
       const t = typeof input.table === "string" ? input.table.trim() : "";
+      // CAN'T TELL IS NOT "NO TABLES" (2026-10-30, fix-all): when the tables
+      // could not be read, nothing is assumed about them.
+      if (st.unreadable) return { error: UNREADABLE_TABLES };
       const table = (st.tables || []).find((x) => x.name === t);
       if (!table) return { error: st.tables && st.tables.length ? "no such table; the site's tables are " + st.tables.map((x) => x.name).join(", ") : "this site has no tables" };
       const cols = new Set(table.columns);
-      const bad = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o).filter((k) => !cols.has(k) || k === "id") : ["(not an object)"]);
+      // THE TABLE'S OWN KEY (fix-all): never an assumed `id` column.
+      const pk = table.pk || "id";
+      const bad = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o).filter((k) => !cols.has(k) || k === pk) : ["(not an object)"]);
       const add = Array.isArray(input.add) ? input.add : [];
       const update = Array.isArray(input.update) ? input.update : [];
       const remove = Array.isArray(input.remove) ? input.remove : [];
@@ -638,7 +682,7 @@ async function runTool(use, st, deps) {
       ];
       if (wrong.length) return { error: "not columns of " + t + " (" + [...cols].join(", ") + "): " + [...new Set(wrong)].slice(0, 8).join("; ") };
       if (!add.length && !update.length && !remove.length) return { error: "nothing to change" };
-      st.rows.push({ table: t, add, update: update.map((u) => ({ id: u.id, set: u.set })), remove });
+      st.rows.push({ table: t, pk, add, update: update.map((u) => ({ id: u.id, set: u.set })), remove });
       return { text: "Queued for " + t + ": " + [add.length && add.length + " to add", update.length && update.length + " to update", remove.length && remove.length + " to remove"].filter(Boolean).join(", ") + ". Saved when you finish." };
     }
     case "read_table": {
@@ -749,11 +793,12 @@ async function runTool(use, st, deps) {
     case "change_schema": {
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
       if (typeof deps.applySchema !== "function") return { error: "the database cannot be changed here" };
+      if (st.unreadable) return { error: UNREADABLE_TABLES };
       const c = schemaChange(input, st.tables);
       if (!c.ok) return { error: c.why };
       st.schema.push(c.op);
       // What change_rows and the next change_schema see: the table as it will be.
-      if (c.op.create) st.tables.push({ name: c.op.table, columns: ["id", ...c.op.create.columns.map((x) => x.name)] });
+      if (c.op.create) st.tables.push({ name: c.op.table, pk: "id", columns: ["id", ...c.op.create.columns.map((x) => x.name)] });
       else { const t = st.tables.find((x) => x.name === c.op.table); if (t) t.columns = [...t.columns, ...c.op.add.map((x) => x.name)]; }
       return { text: (c.op.create ? "Queued: a new table " + c.op.table + " (" + c.op.create.columns.map((x) => x.name + " " + x.type).join(", ") + ")" : "Queued: new columns on " + c.op.table + " (" + c.op.add.map((x) => x.name + " " + x.type).join(", ") + ")") + ". Added to the database when you finish, before the table entries." };
     }
@@ -848,6 +893,49 @@ async function runTool(use, st, deps) {
       st.qrs++;
       return { text: "The QR code for " + r.text + " is this picture address; put it in an <img src> (with alt text saying where it leads):\n" + r.src };
     }
+    case "sort_table": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      if (st.unreadable) return { error: UNREADABLE_TABLES };
+      const t = typeof input.table === "string" ? input.table.trim() : "";
+      const by = typeof input.by === "string" ? input.by.trim() : "";
+      const dir = typeof input.direction === "string" && SORT_DIRS.includes(input.direction.trim()) ? input.direction.trim() : "asc";
+      const cols = sortColumns(st.tables, t);
+      if (!cols) return { error: st.tables.length ? "no such table; the site's tables are " + st.tables.map((x) => x.name).join(", ") : "this site has no tables" };
+      if (!cols.includes(by)) return { error: sortRefusal({ table: t, column: by, columns: cols }) };
+      // EVERY PAGE AND COMPONENT THAT READS THE TABLE, as the order step did.
+      const files = st.ws.keys().filter((k) => k !== CSS_KEY).map((k) => ({ path: k, source: st.ws.get(k) }));
+      const r = applySort(files, t, by, dir);
+      for (const k of r.changed) { const why = outOfScope(deps, k); if (why) return { error: why }; }
+      for (const f of r.pages) if (r.changed.includes(f.path)) { st.ws.set(f.path, f.source); st.written.add(f.path); }
+      if (r.changed.length) st.dirty = true;
+      st.sorts.push({ table: t, by, direction: dir, files: r.changed.slice(), refused: r.refused.length });
+      if (!r.changed.length && !r.refused.length) return { text: "No page or component reads " + t + " in another order: nothing changed (it may already be in that order, or nothing lists it yet)." };
+      return { text: "Ordered " + t + " by " + by + " (" + dir + ") in " + (r.changed.length ? r.changed.join(", ") : "no file") + (r.refused.length ? "; " + r.refused.length + " place(s) build their options in code and were left as they are: change those by hand" : "") + ". Build afterwards." };
+    }
+    case "attach_media": {
+      if (typeof deps.media !== "function") return { error: "the owner's videos and recordings cannot be reached here" };
+      const name = String(input.upload || "").split("?")[0].split("/").pop().trim();
+      if (!name) return { error: "name one of the owner's uploaded videos or recordings" };
+      let r;
+      try { r = await deps.media(name); } catch { r = { ok: false, why: "the owner's uploads could not be read just now" }; }
+      if (!r || r.ok !== true) return { error: String((r && r.why) || "that is not one of the owner's videos or recordings") };
+      st.media.push({ name: r.name || name, url: r.url, kind: r.kind });
+      return { text: "The " + r.kind + " " + (r.name || name) + " is hosted at " + r.url + (r.mime ? " (" + r.mime + ")" : "") + ". Place it with <" + (r.kind === "audio" ? "audio" : "video") + " src=\"" + r.url + "\" controls" + (r.kind === "audio" ? "" : " playsInline") + " />." };
+    }
+    case "rename_site":
+    case "forget_old_address": {
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      if (typeof deps.address !== "function") return { error: "the site's address cannot be changed here" };
+      const name = String(use.name === "rename_site" ? input.to : input.name || "").trim().toLowerCase().replace(/^https?:\/\//, "").split(".")[0];
+      if (!ADDRESS.test(name)) return { error: "an address is lowercase letters, digits and -, e.g. sunset-shoes" };
+      const action = use.name === "rename_site" ? "rename" : "forget";
+      let r;
+      try { r = await deps.address({ action, name, check: true }); } catch { r = { ok: false, why: "the address could not be checked just now" }; }
+      if (!r || r.ok !== true) return { error: String((r && r.why) || "that address cannot be used") };
+      if (action === "rename") st.address = { action, name, from: r.from || "" };
+      else if (!st.forget.includes(name)) st.forget.push(name);
+      return { text: action === "rename" ? "Queued: the site moves to " + name + " when you finish and the change saves; the old address will send visitors there." : "Queued: " + name + " stops answering when you finish and the change saves." };
+    }
     case "ask_owner": {
       if (st.onlyWrite) return { error: "a helper cannot ask the owner" };
       const r = readAskInput(input);
@@ -922,6 +1010,10 @@ export function roundFacts(outcomes) {
     else if (use.name === "set_site_settings" || use.name === "set_logo" || use.name === "set_languages") queued.push(...(r.settings || []).map((k) => SETTING_SAID[k] || "the site's settings"));
     else if (use.name === "rename_page") wrote.push("the page address " + String(i.from).trim() + " (now " + String(i.to).trim() + ")");
     else if (use.name === "make_qr") out.push(fact("prepared", "Made a QR code."));
+    else if (use.name === "sort_table") wrote.push("the order of the " + i.table + " list (by " + i.by + ")");
+    else if (use.name === "attach_media") looked.push("the owner's file " + String(i.upload || "").split("/").pop().slice(0, 60));
+    else if (use.name === "rename_site") queued.push("the site's address (to " + String(i.to || "").trim().slice(0, 63) + ")");
+    else if (use.name === "forget_old_address") queued.push("the old address " + String(i.name || "").trim().slice(0, 63));
     else if (use.name === "build") out.push(/^The build passed\.$/.test(r.text) ? fact("applied", "Built the site; it compiled cleanly.") : /^The build passed/.test(r.text) ? fact("doing", "Built the site; its server code failed a test run, fixing it.") : fact("doing", "Built the site; the compiler found errors, fixing them."));
   }
   if (reads.length) out.unshift(fact("prepared", "Read " + listed([...new Set(reads)]) + "."));
@@ -941,7 +1033,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "" } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "", unreadable = false } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -949,11 +1041,11 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const ws = makeWorkspace(pages, parts, css);
   const tables = spec && Array.isArray(spec.tables)
     ? spec.tables.filter((t) => t && typeof t.name === "string" && Array.isArray(t.columns))
-      .map((t) => ({ name: t.name, columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
+      .map((t) => ({ name: t.name, pk: tableKey(t), columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
     : [];
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
-  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, request: String(request || ""),
+  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], unreadable: unreadable === true, request: String(request || ""),
     ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
@@ -970,7 +1062,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     deps = { ...deps, helpers: (tasks, cur) => Promise.all(tasks.map(async (t) => {
       try {
         const left = Math.max(60000, maxMs - (now() - started));
-        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, log: (e) => log({ ...e, helper: 1 }) }, {
+        const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, log: (e) => log({ ...e, helper: 1 }) }, {
           request: "YOU ARE A HELPER. Another agent is building this site and has handed you ONE page to write: " + t.file + ". Write that page, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first. Then finish with one line on what the page holds.\n\nYOUR PAGE'S BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST FOR THE WHOLE SITE\n" + String(request || ""),
           pages: cur.pages(), parts: cur.parts(), css: cur.css(), map, spec, kind, ownParts, model, maxRounds: HELPER_ROUNDS, maxMs: left, onlyWrite: t.file,
         });
@@ -982,12 +1074,27 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     })) };
   }
   const tools = onlyWrite ? toolsFor(deps).filter((t) => t.name !== "build") : toolsFor(deps);
-  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread }), cache_control: { type: "ephemeral" } }] }];
+  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }), cache_control: { type: "ephemeral" } }] }];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
   let rounds = 0;
   let lastCost = 0;
+  // STOP (2026-10-30, fix-all): the owner's Stop is read at the top of every
+  // round and before every batch of tools, and a model call in flight is
+  // abandoned (its transport aborted where it takes a signal).
+  const halted = async () => {
+    if (typeof deps.beat === "function") { try { await deps.beat(); } catch { /* a blink is not a stop */ } }
+    try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; }
+  };
+  // CREDITS (fix-all): asked before the first round and every
+  // CREDIT_CHECK_EVERY rounds whether what this run has spent is covered.
+  const covered = async (credits) => {
+    if (typeof deps.affords !== "function") return true;
+    try { return (await deps.affords(credits)) !== false; } catch { return true; }
+  };
   while (!st.done) {
+    if (await halted()) { stopped = "cancelled"; break; }
+    if (rounds % CREDIT_CHECK_EVERY === 0 && !(await covered(Math.ceil(spent() + lastCost)))) { stopped = "no-credits"; st.paused = true; break; }
     if (rounds >= maxRounds) { stopped = "rounds"; break; }
     if (now() - started > maxMs) { stopped = "time"; break; }
     if (spent() + lastCost > creditCap) { stopped = "credits"; break; }
@@ -1009,8 +1116,11 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     rounds++;
     let j;
     try {
-      j = await deps.send({ model, max_tokens: AGENT_MAX_TOKENS, system, tools, cacheKey: "site-agent", messages });
-    } catch (e) { stopped = "send"; log({ event: "send-failed", why: String((e && e.message) || e).slice(0, 200) }); break; }
+      j = await sendStoppable(deps, { model, max_tokens: AGENT_MAX_TOKENS, system, tools, cacheKey: "site-agent", messages });
+    } catch (e) {
+      if (e && e.name === "AgentStopped") { stopped = "cancelled"; break; }
+      stopped = "send"; log({ event: "send-failed", why: String((e && e.message) || e).slice(0, 200) }); break;
+    }
     const u = usageOf(j, model);
     usage.push(u);
     lastCost = pageCost(u) / CREDIT_USD;
@@ -1023,11 +1133,13 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // changed, the text is the agent's answer; otherwise it stopped mid-work.
     if (!uses.length) {
       const said = content.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text.trim()).filter(Boolean).join("\n\n");
-      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length && !st.rules.length && !Object.keys(st.settings).length) { st.done = true; st.summary = said.slice(0, 4000); break; }
+      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length && !st.rules.length && !st.address && !st.forget.length && !Object.keys(st.settings).length) { st.done = true; st.summary = said.slice(0, 4000); break; }
       stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break;
     }
     const ids = uses.map((b, i) => (typeof b.id === "string" && b.id ? b.id : "t" + rounds + "_" + i));
     messages.push({ role: "assistant", content: content.map((b) => (b && b.type === "tool_use" ? { ...b, id: ids[uses.indexOf(b)] } : b)) });
+    // A STOP WHILE THE MODEL ANSWERED: its tools are not run.
+    if (await halted()) { stopped = "cancelled"; break; }
     const results = [];
     const outcomes = [];
     const images = [];
@@ -1059,11 +1171,37 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // THE OLD STEPS' QUEUED SAVES (2026-10-30): saved by the caller with the files.
     settings: st.ask ? {} : { ...st.settings }, rules: st.ask ? [] : st.rules.slice(), redirects: st.ask ? {} : { ...st.redirects },
     ask: st.ask,
+    // THE ROUTER-ERA STEPS (fix-all): orders applied, media placed, the address.
+    sorts: st.sorts.slice(), media: st.media.slice(), address: st.ask ? null : st.address, forget: st.ask ? [] : st.forget.slice(),
+    paused: st.paused === true,
     looked: [...st.looked],
     summary: st.summary,
     lastBuild: st.lastBuild,
     usage, credits, rounds, builds: st.builds,
   };
+}
+
+/**
+ * ONE MODEL CALL THAT A STOP CAN END (2026-10-30, fix-all). The transport is
+ * handed an AbortSignal as its second argument (one that takes it aborts the
+ * request); whichever transport, the call is abandoned when `deps.stopped()`
+ * turns true, read every `STOP_POLL_MS`. Throws `AgentStopped` then.
+ */
+export const STOP_POLL_MS = 1000;
+export function sendStoppable(deps, req) {
+  if (typeof deps.stopped !== "function") return deps.send(req);
+  const ac = typeof AbortController === "function" ? new AbortController() : null;
+  let timer = null;
+  const stop = new Promise((_, reject) => {
+    timer = setInterval(() => {
+      Promise.resolve().then(() => deps.stopped()).then((s) => {
+        if (s !== true) return;
+        try { if (ac) ac.abort(); } catch { /* never */ }
+        const e = new Error("stopped by the owner"); e.name = "AgentStopped"; reject(e);
+      }).catch(() => { /* a read that fails is not a stop */ });
+    }, STOP_POLL_MS);
+  });
+  return Promise.race([Promise.resolve().then(() => deps.send(req, ac ? { signal: ac.signal } : undefined)), stop]).finally(() => clearInterval(timer));
 }
 
 /** The agent takes every site's edit and addition whole (2026-10-28, the owner: no switch). */
@@ -1086,10 +1224,12 @@ export function stoppedFacts(r) {
   const why = {
     rounds: "it reached its limit of steps before finishing",
     credits: "it reached its spending limit before finishing",
+    "no-credits": "the account ran out of credits before it finished",
     time: "it ran out of time before finishing",
     send: "the AI model could not be reached",
     "no-tool": "the model stopped answering with actions",
     "too-long": "the model's answer was cut off for length",
+    cancelled: "the owner stopped it",
   }[r && r.stopped] || "it did not finish";
   return "The site agent stopped: " + why + ". Nothing on the site was changed" +
     (r && r.lastBuild === "fail" ? "; its last build had errors" : "") + ".";

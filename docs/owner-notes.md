@@ -1,5 +1,24 @@
 # Owner Notes
 
+## 2026-10-30 — The site agent gets back what the old router and steps did (branch `agent-fix-all`, from `combine-agent-server` `57a828560`; not merged, not deployed, nothing paid)
+
+**What changed** (`builder/site-agent.mjs`, the new `builder/agent-outcome.mjs`, `runAgentChange` in `worker.js`):
+1. **Stop works.** The agent checks for your Stop before every round and before running a round's tools, and abandons a model call in flight. A stopped change saves nothing and charges nothing, as every cancel did. A first build's agent reads the build's own stop.
+2. **Credits.** The balance is checked before the first round and every 5 rounds against what the run has spent. If it runs out, the agent stops and answers the request flow's own "out of credits" pause, so that part waits for a top-up and runs again from the site as it is (nothing of the stopped run was saved or charged). A balance that cannot be read never stops the work. The check reads the balance; it does not reserve mid-run.
+3. **Charged only for a change that saved.** Without a queued job, the charge is taken only after the save lands. Under a job the reserve still comes before the publish (the publish gate needs it), and every failure reports cost 0; the job's end refunds it, as before. A save retried after a failed compile is still never charged twice.
+4. **Honest replies.** The reply's facts come from what happened: the files saved and removed, the table entries the database answered, settings, rules, page moves, list orders, media, address changes, database additions, missing keys. The agent's own summary comes last, marked as its own words.
+5. **Table entries.** Written before the publish, one statement each with its own journal key (a re-run of the same job writes nothing twice), by the table's real key column (not an assumed `id`), and only while the job still holds the site. If the save then fails, every entry is put back and the reply says so. Under draft-first they are still written to the live database, not held in the draft: that is a follow-up.
+6. **Database and keys.** On a site with no database, the agent may add tables; the database is made first, as the add-on route made it. Keys that the finished server code needs and you have not set are listed in the reply.
+7. **"Can't tell" is not "no tables".** When the site's database or schema cannot be read, the agent is told exactly that and refuses to change entries or tables.
+8. **`sort_table`**: changes a list's order on every page and component that reads it, checked against the table's columns (the old order step's code).
+9. **`attach_media`**: gives the agent the hosted `/u/` address of your uploaded video or recording, so it can place it.
+10. **Progress lines** are recorded whenever the job keeps a progress record, as the old steps did; a plan line and the applied facts are added.
+11. **`rename_site` / `forget_old_address`**: the old rename step's checks and alias writes (held in the draft under draft-first), made only after the save landed. The old address keeps forwarding until you forget it.
+
+**Tests:** `test/agent-fixall.test.mjs` (19 cases, most through the real edit route with supplied answers; 13 fail on the old code, and the rest test the new modules). Three guards were updated for the intended changes: the charge order and rows-before-save in `test/site-agent.test.mjs`, and the count of address writers in `test/audit-r2-g3.test.mjs`.
+
+**Nothing spent, no model calls, no live writes.**
+
 ## 2026-10-30 — Seven branches combined into one (`combine-agent-server`, not merged, not deployed)
 
 **What it is:** `projects-page-2`, `sites-server-side`, `account-state-server`, `agent-server-tools`, `agent-input-tools`, `agent-old-steps` and `agent-guardrails`, merged in that order onto `claude/nice-ramanujan-9ry8wy`. Every branch's behaviour is kept: the agent is offered all its tools (the server tools, the input tools and the old steps' tools), and the site agent's change runs inside the guardrails (one check before finishing, a part's scope, one retry, the version's name, the cheap text rung, the undo facts) with every input the other branches wired (attachments, imported sites, screen sizes, earlier answers, questions to you) and every save they added (database additions, settings, page moves, table rules).

@@ -230,9 +230,13 @@ test("SA13 both routes hand this turn's part to the agent when it is on, before 
 test("SA14 the build tool compiles only: answered before the repair, the staging and the publish", () => {
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
   assert.match(fn, /build: \(w\) => recompileAndPublish\(env, \{[^}]*compileOnly: true/);
-  // charged only when there is something to save, before the save
-  const bill = fn.indexOf("await bill(ag.usage)"), save = fn.indexOf("slug, pages: r.pages, parts: r.parts, label,"), stop = fn.indexOf("if (!ag.ok) {");
-  assert.ok(stop > 0 && bill > stop && save > bill);
+  // FIX-ALL (2026-10-30): charged only after a run that finished; under a job
+  // before the save (the publish gate needs the reserve, a job that did not
+  // ship is refunded whole), otherwise only once the save landed.
+  const bill = fn.indexOf("await bill(billUsage)"), save = fn.indexOf("slug, pages: r.pages, parts: r.parts, label,"), stop = fn.indexOf("if (!ag.ok) {");
+  const jobFirst = fn.indexOf("if (job) await charge();"), landed = fn.indexOf("// THE SAVE LANDED");
+  const saveCall = fn.indexOf("out = await save(ag);");
+  assert.ok(stop > 0 && bill > stop && jobFirst > bill && save > jobFirst && saveCall > 0 && landed > saveCall, [stop, bill, jobFirst, save, saveCall, landed].join());
   const spine = between("async function recompileAndPublish(env, {", "\n}\n");
   assert.match(spine, /if \(!compileOnly && job && job\.beside/);
   const only = spine.indexOf("if (compileOnly) {"), first = spine.indexOf("let built = await compile();");
@@ -247,7 +251,7 @@ test("SA15 no switch and no cap reach the deploy or the job", () => {
   const K = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
   // THE AGENT AND EVERY MODULE IT LOADS ride the one COPY line into ./worker/builder/ (combined 2026-10-30: not necessarily last).
   const line = K.split("\n").find((l) => /^COPY .*\.\/worker\/builder\/$/.test(l)) || "";
-  for (const m of ["site-agent", "agent-server-tools", "pdf-text", "agent-steps", "agent-guard"]) assert.match(line, new RegExp("builder/" + m + "\\.mjs "));
+  for (const m of ["site-agent", "agent-server-tools", "pdf-text", "agent-steps", "agent-guard", "agent-outcome"]) assert.match(line, new RegExp("builder/" + m + "\\.mjs "));
 });
 
 test("SA16 a failed build never opens finish", async () => {
@@ -325,7 +329,7 @@ test("SA20 change_rows queues only real columns of real tables, by id; finishing
   const r = await runSiteAgent({ send: s.send, build: async () => { built++; return { ok: true }; } }, { request: "r", pages: PAGES, spec });
   assert.equal(r.ok, true);
   assert.equal(built, 0);
-  assert.deepEqual(r.rows, [{ table: "menu", add: [{ name: "Rye", price: 5 }], update: [{ id: 4, set: { price: 42 } }], remove: [7] }]);
+  assert.deepEqual(r.rows, [{ table: "menu", pk: "id", add: [{ name: "Rye", price: 5 }], update: [{ id: 4, set: { price: 42 } }], remove: [7] }]);
   const res = s.sent[1].messages.at(-1).content;
   assert.ok(!res[0].is_error);
   assert.match(res[1].content, /not columns of menu.*add: colour/);
@@ -356,12 +360,14 @@ test("SA21 each round's facts come from the tools' outcomes, for the live progre
   assert.deepEqual(marks, [["agent", ["Wrote the /about page."]], ["agent", ["Built the site; it compiled cleanly."]]]);
 });
 
-test("SA22 the save: stylesheet stored before the publish and put back if it fails; rows written after; only real compile-only css", () => {
+test("SA22 the save: stylesheet stored before the publish and put back if it fails; rows written BEFORE the save (fix-all); only real compile-only css", () => {
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
-  const store = fn.indexOf("patchSiteConfig(env, slug, cfgDb, { css: r.css }"), pub = fn.indexOf("slug, pages: r.pages, parts: r.parts, label,"), back = fn.indexOf("{ css: cssBefore }"), rows = fn.indexOf("THE TABLE ENTRIES");
-  assert.ok(store > 0 && pub > store && back > pub && rows > back);
+  const store = fn.indexOf("patchSiteConfig(env, slug, cfgDb, { css: r.css }"), pub = fn.indexOf("slug, pages: r.pages, parts: r.parts, label,"), back = fn.indexOf("{ css: cssBefore }"), rows = fn.indexOf("rowsOut = await writeAgentRows(");
+  const saveCall = fn.indexOf("out = await save(ag);");
+  assert.ok(store > 0 && pub > store && back > pub && rows > 0 && saveCall > rows);
   assert.match(fn, /cssOverride: typeof w\.css === "string" \? w\.css : null/);
   assert.match(fn, /progress: \(stage, facts\) => \{ if \(talk\) job\.progress\.mark\(stage, facts\); \}/);
+  assert.match(fn, /const talk = !!\(job && job\.progress && typeof job\.progress\.mark === "function"\);/);
   assert.match(W, /if \(compileOnly && typeof cssOverride === "string"\) css = cssOverride;/);
 });
 

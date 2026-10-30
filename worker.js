@@ -227,6 +227,7 @@ import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer, ag
 import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { pdfText } from "./builder/pdf-text.mjs";
 import { fileMap, workspaceDiff, changeReport, reviewNote, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
+import { writeAgentRows, undoRows, outcomeFacts, keyFacts, pickMedia } from "./builder/agent-outcome.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
 import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBookings, canWriteAccess } from "./site-access.mjs";
@@ -17263,19 +17264,134 @@ function agentInputDeps(env, slug) {
   };
 }
 
-async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false, scope = null, look = false }) {
+/**
+ * THE SITE'S ADDRESS FOR THE AGENT (2026-10-30, fix-all: the router's `rename`
+ * lane, reused). `check` answers whether a move or a forget can be made now
+ * (the lane's own checks: the same name, a reserved or taken name, an old
+ * address that is not this site's, QR codes on a forgotten host); `apply`
+ * makes it after the save landed: held in the draft under draft-first, as the
+ * lane holds it, else the alias rows (`applyHeldAlias`) and, for a move, the
+ * sidecar's origin. Never throws.
+ */
+/** An async stop read asked at most once every `ms` (the agent polls each second). */
+function throttledStop(read, ms = 10000) {
+  let at = 0, last = false, busy = null;
+  return async () => {
+    if (last) return true;
+    if (busy) return busy;
+    if (Date.now() - at < ms) return last;
+    at = Date.now();
+    busy = Promise.resolve().then(read).then((v) => (last = v === true)).catch(() => last).finally(() => { busy = null; });
+    return busy;
+  };
+}
+
+/**
+ * THE CREDITS CHECK THE AGENT ASKS (2026-10-30, fix-all): is the balance at
+ * least what the run has spent so far, and never under one credit (the
+ * cheapest edit's reserve)? A balance that cannot be read answers yes: a
+ * ledger blink never stops the work (the charge itself is still refused). By
+ * uid, a missing row is CAN'T TELL here, never a balance of zero.
+ */
+function agentAffords(env, { uid = "", auth = "" } = {}) {
+  const byUid = async () => {
+    if (!env.SUPABASE_SERVICE_KEY || !uid) return NaN;
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${encodeURIComponent(uid)}&select=balance`, { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return NaN;
+    const rows = await r.json().catch(() => null);
+    const b = Array.isArray(rows) && rows[0] ? Number(rows[0].balance) : NaN;
+    return b;
+  };
+  return async (credits) => {
+    let bal;
+    try { bal = auth ? await readCredits(auth) : await byUid(); } catch { return true; }
+    if (!Number.isFinite(bal)) return true;
+    return bal >= Math.max(1, Number(credits) || 0);
+  };
+}
+
+function agentAddress(env, slug, uid, job) {
+  let current = null;
+  const cur = async () => {
+    if (current !== null) return current;
+    const live = await publicNameFor(env, slug);
+    let view = null;
+    try { const w = await backendWriter(env, slug); if (w.on) view = await draftView(env, slug); } catch { view = null; }
+    current = view ? addressOverlay(live, view.ops) : live;
+    return current;
+  };
+  const check = async ({ action, name }) => {
+    const now = await cur();
+    if (action === "rename") {
+      if (name === now) return { ok: false, why: aliasRefusal(name, { same: true }) };
+      if (!siteHostFor(name)) return { ok: false, why: aliasRefusal(name, { reserved: true }) };
+      const taken = await addressTaken(env, slug, name);
+      if (taken) return { ok: false, why: taken === "could not be checked" ? "whether " + name + " is free could not be checked just now" : aliasRefusal(name, { taken: true }) };
+      if (!renameRows({ slug, uid, from: now, to: name })) return { ok: false, why: aliasRefusal(name, {}) || "that name will not work as a web address" };
+      return { ok: true, from: now };
+    }
+    if (name === now) return { ok: false, why: aliasRefusal(name, { live: true }) };
+    const row = await aliasRowFor(env, name, { fresh: true });
+    if (row === null) return { ok: false, why: "the site's old addresses could not be read just now" };
+    if (!(row && row !== NO_ALIAS && row.slug === slug)) return { ok: false, why: aliasRefusal(name, { stranger: true }) };
+    try {
+      const c = await readSiteConfig(env, slug, null);
+      if (!c.ok) return { ok: false, why: "the site's QR codes could not be read just now" };
+      const codes = qrCodesOnHost(c.config && c.config.look && c.config.look.qr, siteHostFor(name));
+      if (codes.length) return { ok: false, why: qrForgetRefusal(siteHostFor(name) || name, codes) };
+    } catch { return { ok: false, why: "the site's QR codes could not be read just now" }; }
+    return { ok: true };
+  };
+  const apply = async ({ action, name, from }) => {
+    try {
+      const w = await backendWriter(env, slug);
+      if (w.holding) {
+        w.hold.add(action === "rename" ? { kind: "alias", action: "rename", from, to: name } : { kind: "alias", action: "forget", name });
+        const sealed = await sealHeld(env, slug, w, { job: job ? String(job.id) : null });
+        return sealed.ok ? { ok: true, held: true } : { ok: false, why: "draft" };
+      }
+      const r = await applyHeldAlias(env, slug, action === "rename" ? { action, from, to: name } : { action, name }, { uid });
+      if (!r.ok) return { ok: false, why: r.error };
+      if (action === "rename") {
+        try {
+          const o = await env.SITES_BUCKET.get(siteMetaKey(slug));
+          const side = sidecarOf(o ? await o.text() : null);
+          side.origin = addressOf(name);
+          rehostShareImage(side, name);
+          await env.SITES_BUCKET.put(siteMetaKey(slug), JSON.stringify(side), { httpMetadata: { contentType: "application/json" } }); await ownBucketMarker(env, slug, "sync");
+        } catch (e) { console.error("agent rename: sidecar not patched", slug, errorClassForLog(e)); }
+      }
+      return { ok: true, held: false };
+    } catch (e) { return { ok: false, why: errorClassForLog(e) }; }
+  };
+  return { check, apply };
+}
+
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false, scope = null, look = false, refund = null, affords = null, rowKey = "" }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
   const models = modelsFor(picker);
   let map = null;
   try { map = await currentSiteMap(env, slug); } catch { map = null; }
-  let spec = null, conn = null;
-  try { const back = await siteBackendDetail(env, slug); conn = back && back.conn ? back.conn : null; if (conn) { const rd = await specForAddon(conn); if (rd.ok) spec = rd.spec; } } catch { spec = null; }
+  // CAN'T TELL IS NOT "NO TABLES" (2026-10-30, fix-all): a backend or schema
+  // read that fails is `unreadable`, told to the agent as such; only a site
+  // the store says has no database is one with none.
+  let spec = null, conn = null, unreadable = false, noDb = false;
+  try {
+    const back = await siteBackendDetail(env, slug);
+    conn = back && back.conn ? back.conn : null;
+    if (back && back.state === "unreadable") unreadable = true;
+    else if (!conn) noDb = !!(back && back.state === "none");
+    if (conn) { const rd = await specForAddon(conn); if (rd.ok) spec = rd.spec; else unreadable = true; }
+  } catch { spec = null; unreadable = true; }
   // THE STYLESHEET, or null when the config cannot be read (then not offered).
   let css = null, cfgDb = null;
   try { cfgDb = await siteBackendBySlug(env, slug); const cfg = await readSiteConfig(env, slug, cfgDb); if (cfg.ok) css = typeof cfg.config.css === "string" ? cfg.config.css : ""; } catch { css = null; }
-  const talk = !!(job && job.progress && job.progress.talk);
+  // PROGRESS AS THE OLD STEPS SHOWED IT (fix-all): recorded whenever the job
+  // keeps a progress record (the lanes marked plan, applied and publish with
+  // or without the talk), not only when the talk is on.
+  const talk = !!(job && job.progress && typeof job.progress.mark === "function");
   // WHAT WAS SAID BEFORE (2026-10-28): the chat's recent messages, so "make it
   // bigger" and the answer to an earlier question mean what they meant.
   let history = "";
@@ -17327,19 +17443,33 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     },
     progress: (stage, facts) => { if (talk) job.progress.mark(stage, facts); },
     log: (e) => tm("agent:" + e.event, "ok", e),
+    // STOP (fix-all): the owner's cancel, picked up by the job's heartbeat.
+    // Each round renews the lease once, so a Stop is read within a round.
+    ...(job && typeof job.cancelled === "function" ? { stopped: () => job.cancelled() === true, beat: () => (typeof job.beat === "function" ? job.beat(null) : null) } : {}),
+    // CREDITS (fix-all): asked before the first round and every few rounds.
+    ...(typeof affords === "function" ? { affords } : {}),
+    // THE ROUTER-ERA STEPS (fix-all): a list's order, the owner's media, the address.
+    sortTables: () => true,
+    ...(env.SITES_BUCKET ? { media: async (name) => pickMedia(await siteMediaFiles(env, slug), name) } : {}),
+    ...(uid ? { address: (a) => address.check(a) } : {}),
     // THE SERVER TOOLS (2026-10-30): trying a function and reading docs always;
     // the error log, the key names and additions to the database only on a
     // site that has one.
     callFunction: agentCall(env, slug),
     fetchDocs: agentFetchDocs,
     ...(conn ? { readErrors: agentReadErrors(env, slug), listKeys: agentListKeys(env, slug), applySchema: (ops) => applyAgentSchema(env, slug, conn, ops, job) } : {}),
+    // A SITE WITH NO DATABASE GETS ONE (fix-all, the add-on route's own
+    // `ensureSiteBackend`): additions are offered, and the database is made
+    // when the agent finishes, before they are applied.
+    ...(!conn && noDb && uid && neonConfigured(env) ? { applySchema: () => true } : {}),
     review: (w) => reviewNote(changeReport(before, w, words)),
     ...(mayWrite ? { mayWrite } : {}),
   }, {
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
     attached: inFiles.files, unread: inFiles.skipped,
-    ownParts: ownPartsSite(pages, parts), model: models.pages,
+    ownParts: ownPartsSite(pages, parts), model: models.pages, unreadable,
   });
+  const address = agentAddress(env, slug, uid, job);
   // THE CHANGE IS ALWAYS MEASURED FROM THE SITE AS IT WAS, so a second run
   // that started from the first one's files still saves the first one's work.
   const settle = (r) => { const d = workspaceDiff(before, { pages: r.pages, parts: r.parts, css: r.css }); return { ...r, changed: d.changed, removed: d.removed, cssChanged: d.cssChanged }; };
@@ -17358,39 +17488,76 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   }
   tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length, retried });
   const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed, ...(retried ? { retried } : {}) };
+  // STOPPED BY THE OWNER (fix-all): nothing saved, nothing charged (a
+  // cancelled job's reserves are refunded whole, as every cancel was).
+  if (ag.stopped === "cancelled") {
+    return { status: 410, body: { ok: false, error: "stopped", cancelled: true, layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [], msg: STOPPED_LINE } };
+  }
+  // OUT OF CREDITS PART-WAY (fix-all): the request flow's own pause
+  // (`unbilled` + `insufficient`): the part waits for a top-up and runs again
+  // from the site as it is (nothing of this run was saved or charged).
+  if (ag.stopped === "no-credits") {
+    return { status: 402, body: { ok: false, error: "unbilled", detail: "insufficient", layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [],
+      msg: stoppedFacts(ag) + " Nothing was charged; it can run again once credits are added." } };
+  }
   if (!ag.ok) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
       msg: (retried ? "It was tried twice. " : "") + stoppedFacts(ag) + " Nothing was charged." } };
   }
-  let took = Number(await bill(ag.usage)) || 0;
+  // CHARGED ONLY FOR WORK THAT LANDED (fix-all). Under a job the reserve must
+  // stand before the publish (the publish gate grants only a reserved job),
+  // so it is taken first, and every failure below reports cost 0: a job that
+  // did not ship is refunded whole at its end (`edit_refund`). Without a job
+  // nothing stands in the way, so the charge waits for the save; and anything
+  // charged before a failure is handed back (`refund`).
+  const billUsage = ag.usage;
+  let took = 0, billed = false;
+  const charge = async () => { if (!billed) { billed = true; took = Number(await bill(billUsage)) || 0; } return took; };
+  const fail = async (status, body) => {
+    if (billed && took > 0 && typeof refund === "function") { try { await refund(took); } catch { /* the job's end or the ledger settles it */ } }
+    return { status, body: { ...body, cost: 0 } };
+  };
+  if (job) await charge();
   // A QUESTION FOR THE OWNER (`ask_owner`): nothing saved; the ending keeps it
   // as the site's live question (`askReport`) and their answer resumes the
   // agent with the question and the answer beside the request. Charged for
   // what the agent spent reaching it, as every agent turn is, nothing more.
   if (ag.ask) {
     tm("agent:ask", "ok", { options: ag.ask.options.length });
-    return { status: 200, body: { ok: false, error: "clarify", layer: "agent", cost: took, unchanged: true, ask: ag.ask, msg: ag.ask.text, agent: steps, deferred: [] } };
+    return { status: 200, body: { ok: false, error: "clarify", layer: "agent", cost: await charge(), unchanged: true, ask: ag.ask, msg: ag.ask.text, agent: steps, deferred: [] } };
   }
   const setKeys = Object.keys(ag.settings || {});
   let renames = Object.entries(ag.redirects || {});
   // A QUESTION, OR NOTHING TO CHANGE: the agent's own answer, nothing saved.
   const schemaOps = Array.isArray(ag.schema) ? ag.schema : [];
-  if (!ag.changed.length && !ag.rows.length && !schemaOps.length && !setKeys.length && !(ag.rules || []).length) {
-    return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", cost: took, agent: steps } };
+  const addressOps = [...(ag.address ? [ag.address] : []), ...(ag.forget || []).map((name) => ({ action: "forget", name }))];
+  if (!ag.changed.length && !ag.rows.length && !schemaOps.length && !setKeys.length && !(ag.rules || []).length && !addressOps.length) {
+    return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: (ag.summary || "Nothing needed changing.") + " Nothing on the site was changed.", facts: ["Nothing on the site was changed."], cost: await charge(), agent: steps } };
   }
+  if (talk) { try { job.progress.mark("plan", [{ state: "doing", text: "Saving the change: " + [ag.changed.length && ag.changed.length + " file" + (ag.changed.length === 1 ? "" : "s"), ag.rows.length && "table entries", schemaOps.length && "database additions", setKeys.length && "settings", addressOps.length && "the site's address"].filter(Boolean).join(", ") + "." }]); } catch { /* the record never costs the change */ } }
   // THE DATABASE'S ADDITIONS FIRST (2026-10-30, `change_schema`): the pages and
   // the table entries may use them. Additions only, judged twice (the module
   // and `applyAgentSchema`); a failure stops the save before anything else.
+  // A SITE WITHOUT A DATABASE GETS ONE FIRST (fix-all), as the add-on route
+  // made it (`ensureSiteBackend`).
   const schemaFacts = [];
+  let provisioned = false;
+  if (schemaOps.length && !conn && noDb && uid) {
+    try { conn = await ensureSiteBackend(env, slug, uid, "", (n) => tm("agent:prov:" + n, "ok")); provisioned = !!conn; }
+    catch (e) { conn = null; tm("agent:prov", "fail", { why: errorClassForLog(e) }); }
+    if (!conn) return fail(503, { ok: false, error: "agent-database", ours: true, layer: "agent", agent: steps, deferred: [],
+      msg: "A database for the site's new tables could not be made just now, so nothing was saved." });
+  }
   if (schemaOps.length) {
     let sr;
     try { sr = await applyAgentSchema(env, slug, conn, schemaOps, job); }
     catch (e) { sr = { ok: false, why: errorClassForLog(e) }; }
     tm("agent:schema", sr.ok ? "ok" : "fail", { ops: schemaOps.length, added: sr.ok ? sr.added.length : 0, skipped: sr.ok ? sr.skipped.length : 0 });
     if (!sr.ok) {
-      return { status: 503, body: { ok: false, error: "agent-schema", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
-        msg: "The site agent's additions to your database could not be made, so nothing was saved." } };
+      return fail(503, { ok: false, error: "agent-schema", ours: true, layer: "agent", agent: steps, deferred: [],
+        msg: "The site agent's additions to your database could not be made, so nothing was saved." });
     }
+    if (provisioned) schemaFacts.push("The site had no database, so one was made for it.");
     if (sr.added.length) schemaFacts.push("Added to the database: " + sr.added.join(", ") + (sr.revision ? " (saved to your draft; it goes live when you publish)." : "."));
   }
   // THE VERSION'S NAME (2026-10-30): the agent's own summary, first clause.
@@ -17410,11 +17577,31 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
       const w = await patchSiteConfig(env, slug, cfgDb, patch, jobFence(env, job));
       if (!w.ok) throw new Error(w.error);
     } catch (e) {
-      return { status: 503, body: { ok: false, error: "agent-settings", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
-        msg: "The site agent's settings could not be stored, so nothing was saved." } };
+      return fail(503, { ok: false, error: "agent-settings", ours: true, layer: "agent", agent: steps, deferred: [],
+        msg: "The site agent's settings could not be stored, so nothing was saved." });
     }
   }
   const putBack = async () => { if (cfgBefore) { try { await patchSiteConfig(env, slug, cfgDb, cfgBefore, jobFence(env, job)); } catch { /* told below */ } } };
+  // THE TABLE ENTRIES, BEFORE THE PUBLISH (fix-all), each one statement with
+  // its own journal key (a re-run of this job writes nothing twice), named by
+  // the table's own key, and only while this job still holds the site. A save
+  // that then fails puts every entry back.
+  let rowsOut = { done: [], failed: 0, facts: [] };
+  const rowConn = ag.rows.length ? await ownerRowConn(env, slug).catch(() => null) : null;
+  const rowQuery = (q, p) => sqlQuery(rowConn, q, p || []);
+  if (ag.rows.length) {
+    if (!rowConn) rowsOut = { done: [], failed: ag.rows.reduce((n, op) => n + op.add.length + op.update.length + op.remove.length, 0), facts: ["The table entries could not be saved: the site's database could not be reached."] };
+    else {
+      const fenceOk = () => { const f = jobFence(env, job); return !(f && f.lost) && !(job && typeof job.cancelled === "function" && job.cancelled()); };
+      rowsOut = await writeAgentRows({ ops: ag.rows, query: rowQuery, fence: fenceOk, key: job && job.id ? String(job.id) : String(rowKey || "") });
+    }
+    tm("agent:rows", rowsOut.failed ? "fail" : "ok", { done: rowsOut.done.length, failed: rowsOut.failed });
+  }
+  const undoEntries = async () => {
+    if (!rowsOut.done.length) return "";
+    const u = await undoRows({ done: rowsOut.done, query: rowQuery });
+    return u.ok ? "The table entries it had saved were put back." : u.left + " table " + (u.left === 1 ? "entry" : "entries") + " it had saved could not be put back.";
+  };
   const save = async (r) => {
     const files = r.changed.filter((k) => k !== "styles.css");
     let cssBefore = null;
@@ -17441,18 +17628,24 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     out = await save(ag);
     // A SAVE THAT FAILED ON THE AGENT'S OWN CODE gets the same one retry, with
     // the compiler's words, from the files it tried to save. That second run
-    // is NOT billed: the failed save was, and a save is never charged twice.
-    // The first run's database additions and settings are already stored and
-    // stay; its queued entries, rules and page moves are kept unless the second
-    // run queued its own (combined 2026-10-30).
+    // is NOT billed: only the first run's usage is ever charged (`billUsage`),
+    // once. The first run's database additions, settings and entries are
+    // already stored and stay; its rules, orders and page moves are kept
+    // unless the second run queued its own (combined 2026-10-30).
     if (out && !out.cssFailed && !out.ok && !retried && retryableSave(out)) {
       retried = "save";
       steps.retried = retried;
       tm("agent:retry", "start", { why: "save" });
       const again = settle(await runOnce(agentRetryRequest(request, "its save did not compile: " + String(out.detail || out.error || "").slice(0, 1500)), { pages: ag.pages, parts: ag.parts, css: ag.css }));
+      if (again.stopped === "cancelled") {
+        await putBack();
+        const rb = await undoEntries();
+        return { status: 410, body: { ok: false, error: "stopped", cancelled: true, layer: "agent", cost: 0, unchanged: !rb || /put back\.$/.test(rb), agent: steps, deferred: [], msg: STOPPED_LINE + (rb ? " " + rb : "") } };
+      }
       if (again.ok && !again.ask && again.changed.length) {
         const keep = (a, b) => (Array.isArray(a) && a.length ? a : b);
-        ag = { ...again, rows: keep(again.rows, ag.rows), rules: keep(again.rules, ag.rules || []),
+        ag = { ...again, rows: ag.rows, rules: keep(again.rules, ag.rules || []), sorts: keep(again.sorts, ag.sorts || []), media: keep(again.media, ag.media || []),
+          address: again.address || ag.address, forget: keep(again.forget, ag.forget || []),
           redirects: Object.keys(again.redirects || {}).length ? again.redirects : (ag.redirects || {}), settings: ag.settings, schema: ag.schema };
         renames = Object.entries(ag.redirects || {});
         Object.assign(steps, { rounds: steps.rounds + again.rounds, builds: steps.builds + again.builds, changed: ag.changed, removed: ag.removed });
@@ -17461,44 +17654,19 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     }
     if (out && out.cssFailed) {
       await putBack();
-      return { status: 503, body: { ok: false, error: "agent-css", ours: true, layer: "agent", cost: took, agent: steps, deferred: [],
-        msg: "The site agent's stylesheet could not be stored, so nothing was saved." } };
+      const rb = await undoEntries();
+      return fail(503, { ok: false, error: "agent-css", ours: true, layer: "agent", agent: steps, deferred: [],
+        msg: "The site agent's stylesheet could not be stored, so nothing was saved." + (rb ? " " + rb : "") });
     }
     if (!out.ok) {
       await putBack();
-      return { status: 422, body: { ok: false, error: lostOr(out, "compile"), layer: "agent", cost: took, agent: steps, deferred: [],
-        msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched."), detail: out.detail } };
+      const rb = await undoEntries();
+      return fail(422, { ok: false, error: lostOr(out, "compile"), layer: "agent", agent: steps, deferred: [],
+        msg: compileMsg(out, "The site agent's change did not compile when it was saved, so the site is untouched.") + (rb ? " " + rb : ""), detail: out.detail });
     }
   }
-  // THE TABLE ENTRIES, written last and to the live database, as the data step does.
-  const rowFacts = [];
-  let rowsRemoved = 0;
-  if (ag.rows.length) {
-    const c = await ownerRowConn(env, slug).catch(() => null);
-    for (const op of ag.rows) {
-      const T = sqlIdent(op.table);
-      let added = 0, changed = 0, removed = 0, failed = 0;
-      if (!c) { failed = op.add.length + op.update.length + op.remove.length; }
-      else {
-        for (const row of op.add) {
-          const ks = Object.keys(row);
-          try { await sqlExec(c, "insert into " + T + " (" + ks.map(sqlIdent).join(", ") + ") values (" + ks.map(() => "?").join(", ") + ")", ks.map((k) => row[k])); added++; } catch { failed++; }
-        }
-        for (const u of op.update) {
-          const ks = Object.keys(u.set);
-          try { const r = await sqlExec(c, "update " + T + " set " + ks.map((k) => sqlIdent(k) + " = ?").join(", ") + " where id = ?", [...ks.map((k) => u.set[k]), u.id]); if (r.changes) changed++; else failed++; } catch { failed++; }
-        }
-        for (const id of op.remove) {
-          try { const r = await sqlExec(c, "delete from " + T + " where id = ?", [id]); if (r.changes) removed++; else failed++; } catch { failed++; }
-        }
-      }
-      rowsRemoved += removed;
-      const did = [added && "added " + added, changed && "changed " + changed, removed && "removed " + removed].filter(Boolean);
-      if (did.length) rowFacts.push("In the " + op.table + " table it " + did.join(", ") + (did.length === 1 && (added + changed + removed) === 1 ? " entry" : " entries") + ".");
-      if (failed) rowFacts.push(failed + (failed === 1 ? " entry" : " entries") + " in the " + op.table + " table could not be saved.");
-    }
-    tm("agent:rows", "ok", { facts: rowFacts.length });
-  }
+  // THE SAVE LANDED (or there was no file to save): now the charge.
+  await charge();
   // THE TABLE RULES, applied to the live database as the rules step applies them.
   const ruleFacts = [];
   if ((ag.rules || []).length) {
@@ -17519,18 +17687,43 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     }
     tm("agent:rules", "ok", { facts: ruleFacts.length });
   }
+  // THE SITE'S ADDRESS, AFTER THE SAVE (fix-all): the router's rename lane.
+  const addressFacts = [];
+  for (const a of addressOps) {
+    const r = await address.apply(a);
+    const host = siteHostFor(a.name) || a.name;
+    if (!r.ok) addressFacts.push(a.action === "rename" ? "The site's address could not be moved to " + host + " just now." : host + " could not be made to stop answering just now.");
+    else if (a.action === "rename") addressFacts.push(r.held ? "When the owner publishes, the site moves to " + host + "; the old address will send visitors there." : "The site is now at " + host + "; the old address still works and sends visitors there until the owner asks to forget it.");
+    else addressFacts.push(r.held ? "When the owner publishes, " + host + " stops answering." : host + " no longer answers; anyone can claim that name now.");
+  }
+  // THE KEYS THE FINISHED SERVER CODE NEEDS (fix-all), from `list_keys`' names.
+  let keysOut = [];
+  if (ag.parts.some((p) => p && typeof p.name === "string" && p.name.startsWith("server-"))) {
+    let names = null;
+    if (conn) { try { names = (await agentListKeys(env, slug)()).map((r) => r && r.name).filter((n) => typeof n === "string"); } catch { names = null; } }
+    keysOut = keyFacts(ag.parts, names);
+  }
   const setFacts = setKeys.length ? ["Saved the site's settings: " + setKeys.join(", ") + "."] : [];
   const moveFacts = renames.map(([a, b]) => "The page at " + a + " is now at " + b + "; the old address sends visitors there.");
   // WHAT ELSE CHANGED AND WHAT CAN BE UNDONE (2026-10-30), as facts.
   const after = { pages: ag.pages, parts: ag.parts, css: ag.css };
   const report = changeReport(before, after, words);
+  const rowsRemoved = rowsOut.done.filter((d) => d.kind === "remove").length;
   const undo = undoFacts({ before, after, version: out ? restoreTo : "", rowsRemoved });
-  const msg = [ag.summary || "The change was made.", ...setFacts, ...moveFacts, ...schemaFacts, ...rowFacts, ...ruleFacts, reportFacts(report), undoSentence(undo)].filter(Boolean).join(" ");
-  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg,
+  // THE REPLY'S FACTS COME FROM WHAT HAPPENED (fix-all): the files the save
+  // wrote, the entries the database answered, what was applied; the agent's
+  // own summary last, as its words. The reply is written from these.
+  const facts = outcomeFacts({ changed: out ? ag.changed : [], removed: out ? ag.removed : [], out, rows: rowsOut.facts, settings: setFacts, moves: out ? moveFacts : [], schema: schemaFacts, rules: ruleFacts,
+    sorts: out ? ag.sorts || [] : [], media: out ? ag.media || [] : [], address: addressFacts, keys: keysOut, report: reportFacts(report), undo: undoSentence(undo), summary: ag.summary });
+  if (talk) { try { job.progress.mark("applied", facts.slice(0, 6).map((text) => ({ state: "applied", text }))); } catch { /* never */ } }
+  const partial = rowsOut.failed > 0 || addressFacts.some((f) => /could not/.test(f)) || ruleFacts.some((f) => /could not|refused/.test(f));
+  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts,
+    ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
     ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),
     ...(setKeys.length ? { settings: setKeys } : {}), ...(renames.length ? { moved: Object.fromEntries(renames) } : {}),
     ...((ag.rules || []).length ? { applied: ag.rules.map((r) => ({ table: r.table })) } : {}),
+    ...(rowsOut.done.length || rowsOut.failed ? { rows: { saved: rowsOut.done.length, failed: rowsOut.failed } } : {}),
     preserved: { files: report.files, unasked: report.unasked.slice(0, 20) },
     ...(Object.keys(undo).length ? { undo } : {}),
     ...(undo.photosTakenOff ? { photosTakenOff: undo.photosTakenOff } : {}),
@@ -19440,6 +19633,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         fetchDocs: agentFetchDocs,
         progress: (stage, facts) => { try { if (typeof say === "function") say(stage, facts); } catch { /* the talk never costs the build */ } },
         log: (e) => { try { mark?.("agent:" + e.event, e); } catch { /* a trace must never break a build */ } },
+        // STOP (2026-10-30, fix-all): the build's own stop read, at most every 10 s.
+        ...(typeof stopCheck === "function" ? { stopped: throttledStop(stopCheck) } : {}),
       }, {
         request: briefWithLayout({ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes }),
         pages: revise && Array.isArray(priorPages) ? priorPages : [],
@@ -19452,6 +19647,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         helpers: !revise && !priorPages,
       });
       try { mark?.("agent", { ok: ag.ok, rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped }); } catch { /* a trace must never break a build */ }
+      // A STOPPED AGENT STOPS THE BUILD, as the publish's own stop read does.
+      if (ag.stopped === "cancelled") throw Object.assign(new Error("the build was stopped before it was published"), { stopped: true });
       return asWriterAnswer(ag, agModel);
     } : null,
     generate: async () => {
@@ -36610,6 +36807,12 @@ async function handleRequest(request, env, ctx) {
                 slug: ownerSlug, words: eRun, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat, images: eb && eb.images,
                 bill: (usage) => eCharge(...usage), billLang: (usage) => eCharge({ langUsage: usage }), charges: eCharges,
+                // FIX-ALL (2026-10-30): a charge taken before a failure goes back
+                // (a job's end refunds its own reserves); the balance is asked
+                // as the agent works; a retry key names its entries' journal.
+                refund: eJob ? null : async (n) => { if (await refundCredits(env, ou.id, n)) syncLedger.taken = Math.max(0, syncLedger.taken - n); },
+                affords: agentAffords(env, { uid: ou && typeof ou.id === "string" ? ou.id : "", auth: eJob ? "" : eAuth }),
+                rowKey: eb && typeof eb.idem === "string" ? eb.idem : "",
                 // THE OLD STEPS' INPUTS (2026-10-30): the screen sizes, what the
                 // owner already answered, and a question kept by this ending.
                 devices: eDevices, context: eCtxAll, canAsk: !!eRun,
@@ -42991,6 +43194,9 @@ async function handleRequest(request, env, ctx) {
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: ab && ab.chat, images: ab && ab.images,
                 bill: (usage) => aCharge(pageCredits(...usage), ++aAgSeq), billLang: (usage) => (usage && usage.length ? aCharge(pageCredits(...usage), ++aAgSeq) : 0), charges: aCharges,
                 devices: aDevices,
+                refund: aJob ? null : (n) => refundCredits(env, ou.id, n),
+                affords: agentAffords(env, { uid: ou && typeof ou.id === "string" ? ou.id : "", auth: aJob ? "" : aAuth }),
+                rowKey: ab && typeof ab.idem === "string" ? ab.idem : "",
               });
               return Response.json(ag.body, { status: ag.status });
             }
