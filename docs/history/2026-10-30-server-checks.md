@@ -111,4 +111,11 @@ answer 502 with a clear message.
 
 ## The full suite
 
-Full suite (`GF_OLD_LANES=1`, as `npm test`): running at the time of this commit; counts follow in the next commit.
+Full suite (`GF_OLD_LANES=1`, as `npm test`) on `222f0bca`: `12549 / 12542 / 4 / 3`
+(tests / pass / fail / skipped). The four: the shallow clone's ancestry case
+(red on the starting branch too), and three tree scans (`isibi_slug` ×2, the
+`node_modules` ignore case) that trip on this worktree's `node_modules`
+symlink; run without it, their files pass. Two guards moved with this work and
+were updated in `222f0bca`: the pinned page-writer requests (only the `server`
+field's two descriptions differ, checked key by key) and the closure block's
+window in `kit-closure`.
