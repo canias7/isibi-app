@@ -1,5 +1,18 @@
 # Owner Notes
 
+## 2026-10-30 — Your chats, upload records and builder settings follow your account; the offer countdown is gone (you: "EVERYTHING SERVER")
+
+**What changed (branch `account-state-server`, not merged or deployed):**
+- **Chats.** The server was already where chats are kept, but two gaps let a chat live in one browser only. Opening a project straight from its address (a reload of `/projects/<id>`) never asked the server, so the browser's copy was shown and never replaced; now every open project asks the server once, and the server's copy replaces what the browser had cached. And a chat the server refused to save was silently forgotten; now the screen says "This chat is not saved to your account yet — trying again", it is sent again (5 s, doubling to 2 minutes, and at once when the connection returns), and "Chat saved to your account." when it lands. A chat the server could not be asked about is asked again the same way.
+- **Upload records, Builder, Effort, site-or-app.** These already went to the account's settings record on the server (`/api/site/account-state`, one file per account); now proven on two devices.
+- **Credit gauge.** Its "most you have held" mark is the account's: the server keeps the larger value, whichever device wrote last, so a phone that only saw 20 credits no longer shrinks the gauge a laptop drew against 8,000.
+- **Offer countdown removed.** The pricing page's Days/Hours/Min/Sec timer restarted in every browser, so it is gone, with its styles and its stored date. The server drops that old date if an open older page still sends it, so that page's other settings still save.
+- **Welcome note** (the one-time "welcome" overlay) already follows the account; kept.
+
+**No database change.** Everything uses the existing per-account files in R2.
+
+**Tests:** a new browser test with two fresh "devices" on one account, driving the real Worker routes; three new Worker route cases; one guard updated (the retired offer key out, the site-or-app key in). They fail on the old code. Mutation sweep 4 of 4 killed, comment control survived.
+
 ## 2026-10-30 — The landing's look across the whole signed-in app (you: "u see how with the new design colors looks better, please put this design in the entire platform please")
 
 **What changed:** the app now wears the signed-out landing's colours and type: warm paper (#fbfaf8) instead of plain white, navy ink (#0d1b2a) instead of black, soft beige lines (#e6e2db), white cards, and the Geist / Geist Mono faces (added to the app's Google Fonts link; the landing named Geist but the page never loaded it). The palette tokens at the top of `public/styles.css` hold the landing's values, the landing's own token names (`--ink`, `--card`, `--coral`, `--ok`, `--display`, `--mono`) are on `:root`, and one block at the end re-points the rules that wrote colours, faces or heavy black shadows out by hand: the header and credits pill, the start box, site cards, chat bubbles, the composer and send button, Share / device buttons, the profile menu, the slash and context pop-ups, the "are you sure?" dialog (its danger button is now a darker coral, #c4462e, white text 4.9:1), and the out-of-credits bar. Layout, sizes, wording and behaviour are unchanged; published customer sites are untouched.

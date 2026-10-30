@@ -215,7 +215,8 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     await page.fill("#stRevise", "What fonts is the site using?");
     await page.press("#stRevise", "Enter");
     await page.waitForFunction(() => [...document.querySelectorAll("#stThread .st-msg.a")].some((m) => m.textContent.includes("Libre Baskerville")), null, { timeout: 20000 });
-    const after = app.calls.slice(before);
+    // THE CHAT SAVED TO THE ACCOUNT (2026-10-30, `chatOpenCheck`: a reloaded project now reads and writes its chat) is not work.
+    const after = app.calls.slice(before).filter((c) => !(c.method === "PUT" && c.path.startsWith("/api/site/chat/")));
     assert.deepEqual(after.map((c) => c.method + " " + c.path), ["POST /api/site/route"], "the question touched the running work: " + JSON.stringify(after));
     assert.equal(after[0].body.message, "What fonts is the site using?");
     assert.ok(await page.$(".st-bg-pill"), "the pill went away for a question");

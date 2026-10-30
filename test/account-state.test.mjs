@@ -91,7 +91,7 @@ test("a question's files are kept a day under the account, and removed", async (
 
 test("the page sends every listed key, reads the account before it lands, and never sends a wipe", () => {
   const src = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  for (const k of ["zephyr_build_picker_v1", "zephyr_build_effort_v2", "zephyr_view_v1", "zephyr_side_v1", "zephyr_cred_max_v1", "zephyr_offer_end_v1", "zephyr_welcome_v1", "gf.edit.watch.v1", "gf-media-uploads"]) {
+  for (const k of ["zephyr_build_picker_v1", "zephyr_build_effort_v2", "zephyr_view_v1", "zephyr_side_v1", "zephyr_cred_max_v1", "zephyr_welcome_v1", "zephyr_build_kind_v1", "gf.edit.watch.v1", "gf-media-uploads"]) {
     assert.ok(new RegExp("'" + k.replace(/\./g, "\\.") + "'").test(src.slice(src.indexOf("const ACCT_KEYS = {"), src.indexOf("const ACCT_AT_KEY"))), k);
   }
   const names = [.../const ACCT_KEYS = \{([\s\S]*?)\};/.exec(src)[1].matchAll(/(\w+):\s*'/g)].map((m) => m[1]);
@@ -106,4 +106,40 @@ test("the page sends every listed key, reads the account before it lands, and ne
   assert.match(src, /askFilesServer\(id, 'PUT', list\)/);
   assert.match(src, /askFilesServer\(id, 'GET'\)/);
   assert.match(src, /askFilesServer\(id, 'DELETE'\)/);
+});
+
+// ── 2026-10-30, owner: "everything server" ──────────────────────────────────
+test("the credit gauge's mark is the most the account has held, whichever device wrote last", async () => {
+  const env = { SITES_BUCKET: bucket() }; signIn("u1");
+  await call(env, "PUT", "/api/site/account-state", { set: { credMax: { v: "8000", at: 100 } } });
+  // A second device that saw only the grant writes later: the higher mark stands.
+  let r = await call(env, "PUT", "/api/site/account-state", { set: { credMax: { v: "20", at: 500 } } });
+  assert.equal(r.status, 200);
+  assert.deepEqual((await r.json()).state.credMax, { v: "8000", at: 500 }, "the answer carries the account's mark back to the device");
+  await call(env, "PUT", "/api/site/account-state", { set: { credMax: { v: null, at: 900 } } });
+  assert.equal((await (await call(env, "GET", "/api/site/account-state")).json()).state.credMax.v, "8000", "a wipe never lowers it");
+  await call(env, "PUT", "/api/site/account-state", { set: { credMax: { v: "9000", at: 50 } } });
+  assert.equal((await (await call(env, "GET", "/api/site/account-state")).json()).state.credMax.v, "9000", "a higher mark is kept even when written with an older time");
+});
+
+test("the retired offer date is dropped, never refused, and never kept", async () => {
+  const env = { SITES_BUCKET: bucket() }; signIn("u1");
+  env.SITES_BUCKET.m.set("acct/u1.json", { body: JSON.stringify({ v: 1, state: { offerEnd: { v: "1", at: 1 } } }), etag: "e0" });
+  let r = await call(env, "PUT", "/api/site/account-state", { set: { offerEnd: { v: "123", at: 10 }, effort: { v: "low", at: 10 } } });
+  assert.equal(r.status, 200, "an older page's write still lands");
+  r = await call(env, "PUT", "/api/site/account-state", { set: { offerEnd: { v: "123", at: 11 } } });
+  assert.equal(r.status, 200, "a write of the retired name alone is not a 400 retried forever");
+  const st = (await (await call(env, "GET", "/api/site/account-state")).json()).state;
+  assert.equal(st.effort.v, "low");
+  assert.ok(!("offerEnd" in st), "the old stored date is gone too");
+  assert.ok(!api.ACCT_STATE_NAMES.includes("offerEnd"));
+});
+
+test("the offer countdown is gone from the page, its styles and the pricing page", () => {
+  const read = (f) => readFileSync(new URL("../public/" + f, import.meta.url), "utf8");
+  const src = read("chat.js"), css = read("styles.css");
+  assert.ok(src.includes("function openCredits("), "the pricing overlay this reads is still there");
+  for (const gone of ["upcD", "OFFER_KEY", "OFFER_WINDOW_DAYS", "up-promo-timer", "offerEnd:"]) assert.ok(!src.includes(gone), gone);
+  for (const gone of [".up-seg", ".up-promo", ".up-colon"]) assert.ok(!css.includes(gone), gone);
+  for (const f of ["pricing.html", "index.html"]) assert.ok(!/countdown|upcD|offer_end/i.test(read(f)), f);
 });

@@ -970,24 +970,41 @@ function readChatPut(b) {
 // stored, so two devices settle on the last choice made. The names are a fixed
 // list: nothing else is stored.
 const acctStateKey = (uid) => "acct/" + uid + ".json";
-const ACCT_STATE_NAMES = ["picker", "effort", "view", "side", "credMax", "offerEnd", "welcome", "editWatch", "mediaUploads", "kind"];
+const ACCT_STATE_NAMES = ["picker", "effort", "view", "side", "credMax", "welcome", "editWatch", "mediaUploads", "kind"];
+// RETIRED NAMES (2026-10-30): the launch-offer countdown is gone, so its end
+// date is no longer kept. A page still open from before may send it: it is
+// dropped, never refused, so the rest of that write still lands.
+const ACCT_RETIRED_NAMES = ["offerEnd"];
 const ACCT_VALUE_MAX = 200_000;
 /** A write's values, read strictly: `{ name: { v: string|null, at: ms } }`, known names only. Null for anything else. */
 function readAcctPut(b) {
   if (!b || typeof b !== "object" || Array.isArray(b) || !b.set || typeof b.set !== "object" || Array.isArray(b.set)) return null;
   const out = {};
+  let retired = false;
   for (const [k, e] of Object.entries(b.set)) {
+    if (ACCT_RETIRED_NAMES.includes(k)) { retired = true; continue; }
     if (!ACCT_STATE_NAMES.includes(k)) return null;
     if (!e || typeof e !== "object" || !Number.isFinite(e.at) || e.at <= 0) return null;
     if (e.v !== null && (typeof e.v !== "string" || e.v.length > ACCT_VALUE_MAX)) return null;
     out[k] = { v: e.v, at: Math.floor(e.at) };
   }
-  return Object.keys(out).length ? out : null;
+  return Object.keys(out).length || retired ? out : null;
 }
 /** The stored values with the newer of each laid over them. */
 function mergeAcctState(cur, incoming) {
   const next = { ...(cur || {}) };
-  for (const [k, e] of Object.entries(incoming)) if (!next[k] || !(next[k].at > e.at)) next[k] = e;
+  for (const n of ACCT_RETIRED_NAMES) delete next[n];
+  for (const [k, e] of Object.entries(incoming)) {
+    // THE CREDIT GAUGE'S MARK (2026-10-30): the most the account has held, so
+    // the larger value stands whichever device wrote last; a removal (null)
+    // never lowers it.
+    if (k === "credMax" && next[k]) {
+      const have = parseFloat(next[k].v) || 0, got = parseFloat(e.v) || 0;
+      next[k] = { v: got > have ? e.v : next[k].v, at: Math.max(next[k].at, e.at) };
+      continue;
+    }
+    if (!next[k] || !(next[k].at > e.at)) next[k] = e;
+  }
   return next;
 }
 // ── A QUESTION'S FILES, ON THE SERVER (2026-10-20) ──────────────────────────
