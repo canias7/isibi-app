@@ -24054,6 +24054,10 @@ async function runRequestPrep(env, ctx, task) {
           if (step.ok) { work = step.work; outcome = "run"; } else outcome = "routed";
         }
       } else outcome = "run";
+      // THE SITE AGENT RUNS A PART'S STEP (2026-10-30, parallel agents): it
+      // reads the site as it is when its job runs, so nothing of it is
+      // prepared ahead — only the part's routing is. No old lane is asked.
+      if (outcome === "run" && agentTakes()) outcome = "routed";
       if (outcome === "run") {
         const { url, body } = jobBody(work, n, "run", key + "-prep" + seq);
         const runPhase = A.phase("run");
@@ -33077,7 +33081,16 @@ async function handleRequest(request, env, ctx) {
       //     (the card comes off) and sent on as the message it is — the agent
       //     reads the question and the answer in the conversation.
       // No routing call and nothing charged.
-      if (agentTakes() && !rJob && ru) {
+      // ── …BUT A SITE'S MESSAGE KEEPS ITS PARTS SIDE BY SIDE (2026-10-30, the
+      // owner: "i still want parallel agents tho, so make it work how it used
+      // to work"). Where the request flow takes the message (its key, the flow
+      // on, edits queued), the router splits it into parts as before and each
+      // part's job is run by the site agent with that part's words only
+      // (the edit and add-on routes below). Only where the flow cannot take
+      // it does the agent take the whole message without a routing call.
+      const rKey = !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
+        editAsyncFor(env, { uid: ru.id, slug: rKeySlug }) ? rb.idem : "";
+      if (agentTakes() && !rJob && ru && !rKey) {
         if (rb.firstBuild === true) return Response.json({ ok: true, intent: "build", cost: 0, agent: true });
         if (rb.hasSite === true && rKeySlug) {
           const words = String(rb.message || "").trim();
@@ -33086,11 +33099,6 @@ async function handleRequest(request, env, ctx) {
             ...(answered ? { ask: { answered: true, round: 1, putOff: [], context: [] }, instruction: words } : {}) });
         }
       }
-      // THE SITE AGENT TAKES THE WHOLE MESSAGE (2026-10-28, the owner: "just
-      // have it on … is the way we gonna do things now"): a site's message is
-      // never split into a request of parts, so this flow no longer starts.
-      const rKey = agentTakes() ? "" : !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
-        editAsyncFor(env, { uid: ru.id, slug: rKeySlug }) ? rb.idem : "";
       if (rKey) {
         let prior = null;
         try { prior = await loadRequest(env, rKeySlug, rKey); } catch (e) { console.error("request read:", rKeySlug, errorClassForLog(e)); }
@@ -36018,8 +36026,11 @@ async function handleRequest(request, env, ctx) {
             // `builder/site-agent.mjs`.
             if (agentTakes() && !(eJob && eJob.prepare === true)) {
               const agParts = await editParts();
+              // ONLY THIS TURN'S PART (2026-10-30, parallel agents): what the
+              // router held back for another part is taken out (`eRun`), so a
+              // part's agent never does another part's work.
               const ag = await runAgentChange(env, {
-                slug: ownerSlug, words: eMessage, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
+                slug: ownerSlug, words: eRun, pages: eSrc, parts: agParts.ok ? agParts.parts : null, job: eJob, picker: eb && eb.picker, trace: editTrace,
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: eb && eb.chat,
                 bill: (usage) => eCharge(...usage), billLang: (usage) => eCharge({ langUsage: usage }), charges: eCharges,
               });
@@ -42392,7 +42403,7 @@ async function handleRequest(request, env, ctx) {
               let aAgSeq = 60;
               const aAgParts = await readSiteParts(env, ownerSlug);
               const ag = await runAgentChange(env, {
-                slug: ownerSlug, words: aAsked, pages: aSrc, parts: aAgParts.ok ? aAgParts.parts : null, job: aJob, picker: ab && ab.picker, trace: editTrace,
+                slug: ownerSlug, words: aInstruction, pages: aSrc, parts: aAgParts.ok ? aAgParts.parts : null, job: aJob, picker: ab && ab.picker, trace: editTrace,
                 uid: ou && typeof ou.id === "string" ? ou.id : "", chat: ab && ab.chat,
                 bill: (usage) => aCharge(pageCredits(...usage), ++aAgSeq), billLang: (usage) => (usage && usage.length ? aCharge(pageCredits(...usage), ++aAgSeq) : 0), charges: aCharges,
               });

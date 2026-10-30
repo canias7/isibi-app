@@ -1,0 +1,51 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the parallel-agents split",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "      // owner: \"i still want parallel agents tho, so make it work how it used",
+    "to": "      // owner: \"i still want parallel agents tho, so make it work as it used"
+  },
+  {
+    "label": "the agent short-circuit takes every site message again (no router split)",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (agentTakes() && !rJob && ru && !rKey) {",
+    "to": "      if (agentTakes() && !rJob && ru) {"
+  },
+  {
+    "label": "the request flow stays off under the agent",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      const rKey = !rJob && requestFlowOn(env) && rb.hasSite",
+    "to": "      const rKey = !agentTakes() && !rJob && requestFlowOn(env) && rb.hasSite"
+  },
+  {
+    "label": "an edit part's agent is handed the whole message, held-back parts included",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                slug: ownerSlug, words: eRun, pages: eSrc,",
+    "to": "                slug: ownerSlug, words: eMessage, pages: eSrc,"
+  },
+  {
+    "label": "an addition part's agent is handed the whole message",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                slug: ownerSlug, words: aInstruction, pages: aSrc,",
+    "to": "                slug: ownerSlug, words: aAsked, pages: aSrc,"
+  },
+  {
+    "label": "a part's preparation runs the old lanes under the agent",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (outcome === \"run\" && agentTakes()) outcome = \"routed\";",
+    "to": "      if (outcome === \"run\" && false) outcome = \"routed\";"
+  }
+]

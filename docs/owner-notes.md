@@ -1,5 +1,17 @@
 # Owner Notes
 
+## 2026-10-30 — Parallel agents: the router splits a message again, and each part is run by the site agent (you: "i still want parallel agents tho, so make it work how it used to work")
+
+**What changed:** a message on an existing site goes to the router again, which splits it into parts, exactly as before the one-big-agent switch: the same request record, the same side-by-side running (`PARALLEL_WRITES`), the same waits ("waiting for X"), the same draft saves, the same card and background-work panel. The difference is who does each part: **the site agent**, handed only that part's words (what the router held back for other parts is taken out first), instead of the old lanes. First builds are unchanged. Where the request flow cannot take a message (no message key, the flow off, edits not queued), the agent still takes the whole message with no routing call, as on 2026-10-28.
+
+**What a part's preparation does now:** a part waiting its turn still has its routing prepared ahead; its edit is no longer prepared ahead (the agent reads the site as it is when its turn comes), so no old lane is ever asked.
+
+**When two agents change the same file:** the later save is refused as an overlap (`conflict`), its reserve is given back, and that part runs again alone on the site as the first part left it, so both changes land. Two parts the router says touch the same page never run side by side; they wait in order.
+
+**Cost:** the routing call is back for site messages: about 1–2 credits for the message, plus about 1 for each further part's own routing, then each part's agent run, priced by its own rounds (as one agent run is today). A one-change message therefore costs the routing call more than on 2026-10-28. Not measured live.
+
+**Code:** `worker.js` (the routing route's agent short-circuit now applies only when no request is taken; the request flow is no longer switched off under the agent; the edit and add-on routes hand the agent `eRun` / `aInstruction`, the part's own words; a preparation stops at the routing under the agent). Tests: `test/parallel-agents.test.mjs` (4 cases: split and each agent's own words; an overlap refused and re-run alone; same-page parts in order; one-at-a-time with the preparation), `test/site-agent.test.mjs` SA13 and SA25 updated. Sweep `scripts/mutants/parallel-agents.json`: 5 of 5 killed, the comment-only control survived. Branch only, not merged or deployed.
+
 ## 2026-10-30 — Helper agents on a new site (you: "do it for now")
 
 **What it does:** on a first build, the site agent now has a `helpers` tool. It writes the shared files itself (header, footer, stylesheet, shared components) and the home page, then hands every other page to helper agents in one call, up to 6 at once. The helpers write their pages at the same time; the main agent then builds, looks and fixes as before.

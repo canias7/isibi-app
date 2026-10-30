@@ -215,15 +215,16 @@ test("SA12 no switch and no spending limit", () => {
 const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const between = (a, b) => { const i = W.indexOf(a); assert.ok(i >= 0, "landmark: " + a); const j = W.indexOf(b, i); assert.ok(j > i, "landmark: " + b); return W.slice(i, j); };
 
-test("SA13 both routes hand the whole message to the agent when it is on, before any lane", () => {
+test("SA13 both routes hand this turn's part to the agent when it is on, before any lane (2026-10-30: the part's own words, held-back parts taken out)", () => {
   const edit = between("// ── THE SITE AGENT (2026-10-28", "// ── THE SEVENTEEN LANES ARE THE FRONT DOOR");
   assert.match(edit, /if \(agentTakes\(\) && !\(eJob && eJob\.prepare === true\)\) \{\n\s+const agParts/);
-  assert.match(edit, /runAgentChange\(env, \{[^]*words: eMessage/);
+  assert.match(edit, /runAgentChange\(env, \{[^]*words: eRun,/);
   const add = between("// ── THE SITE AGENT TAKES AN ADDITION TOO", "// ── AN ENTRY THIS REQUEST HAS ALREADY SAVED");
   assert.match(add, /if \(agentTakes\(\) && !\(aJob && aJob\.prepare === true\)\) \{/);
-  assert.match(add, /runAgentChange\(env, \{[^]*words: aAsked/);
-  // and the router never splits such a site's message into parts
-  assert.match(W, /const rKey = agentTakes\(\) \? "" : /);
+  assert.match(add, /runAgentChange\(env, \{[^]*words: aInstruction,/);
+  // and the router splits a site's message into parts again (parallel agents, 2026-10-30)
+  assert.doesNotMatch(W, /const rKey = agentTakes\(\)/);
+  assert.match(W, /const rKey = !rJob && requestFlowOn\(env\)/);
 });
 
 test("SA14 the build tool compiles only: answered before the repair, the staging and the publish", () => {
@@ -391,9 +392,9 @@ test("SA24 look's facts for the progress lines", () => {
   assert.deepEqual(roundFacts([{ use: use("look", { page: "/about" }), r: { text: "…" } }]), [{ state: "prepared", text: "Looked at the /about page in a browser." }]);
 });
 
-test("SA25 the router is skipped for a site's message; the look tool is wired to compile-only screenshots", () => {
-  const route = between('if (url.pathname === "/api/site/route" && request.method === "POST") {', "const rKey = ");
-  assert.match(route, /if \(agentTakes\(\) && !rJob && ru\) \{\n\s+if \(rb\.firstBuild === true\) return Response\.json\(\{ ok: true, intent: "build", cost: 0, agent: true \}\);/);
+test("SA25 the router is skipped for a site's message the request flow cannot take; the look tool is wired to compile-only screenshots", () => {
+  const route = between('if (url.pathname === "/api/site/route" && request.method === "POST") {', "if (rKey) {");
+  assert.match(route, /if \(agentTakes\(\) && !rJob && ru && !rKey\) \{\n\s+if \(rb\.firstBuild === true\) return Response\.json\(\{ ok: true, intent: "build", cost: 0, agent: true \}\);/);
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
   assert.match(fn, /look: \(w, route\) => recompileAndPublish\(env, \{[^}]*compileOnly: true[^}]*shotRoutes: \[route\]/);
   assert.match(W, /shots: \(compileOnly && Array\.isArray\(shotRoutes\) && shotRoutes\.length \? shotRoutes : vrShots\) \|\| undefined,/);
