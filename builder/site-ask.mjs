@@ -2542,6 +2542,8 @@ export function heldList(v) {
  * number … in the header." ran on "…to the café menu, , and ."). Only the
  * separators and joining words at the gaps go — commas, semicolons and a
  * dangling "and"/"then"/"also" — never a word of the customer's own request.
+ * A caller that finds the run again by position in the message (the request
+ * planner) asks for it untidied (`{ tidy: false }`).
  */
 export function tidyJoins(run) {
   return String(run || "")
@@ -2555,7 +2557,7 @@ export function tidyJoins(run) {
     .trim();
 }
 
-export function heldParts(message, later) {
+export function heldParts(message, later, { tidy = true } = {}) {
   const text = typeof message === "string" ? message : "";
   const parts = heldList(later);
   if (parts === null) return { ok: false, run: text, held: [] };
@@ -2584,7 +2586,8 @@ export function heldParts(message, later) {
     run += text.slice(at, Math.max(s, at));
     at = e;
   }
-  run = tidyJoins((run + text.slice(at)).replace(/[ \t]{2,}/g, " ").trim());
+  run = (run + text.slice(at)).replace(/[ \t]{2,}/g, " ").trim();
+  if (tidy) run = tidyJoins(run);
   if (!WORD_CHAR.test(run)) return { ok: false, run: text, held: [] };
   return { ok: true, run, held: [...new Set(held)] };
 }

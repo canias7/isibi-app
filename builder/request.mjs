@@ -464,7 +464,7 @@ export function planParts(message, routed, { putOff = [] } = {}) {
     if (!w) return { ok: false, why: "held-not-found" };
     held.push(w);
   }
-  const split = heldParts(text, listed);
+  const split = heldParts(text, listed, { tidy: false });
   if (!split.ok) return { ok: false, why: "held-not-found" };
   const parts = [newPart(0, split.run, { at: -1, source: "message", route: routeOf(routed), phase: "run" })];
   // PART 0 RUNS AS THE PAGE WOULD HAVE SENT IT: the whole message, with the
