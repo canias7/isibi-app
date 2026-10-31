@@ -149,9 +149,9 @@ test("heldReport adds the parts to every JSON ending, keeps its status and heade
 
 test("heldParts takes out every part, names a part inside another once, and refuses rather than guess", () => {
   assert.deepEqual(heldParts("Make it blue, add a map, and add a QR code.", ["add a map", "add a QR code"]),
-    { ok: true, run: "Make it blue, , and .", held: ["add a map", "add a QR code"] });
+    { ok: true, run: "Make it blue.", held: ["add a map", "add a QR code"] });
   // IN THE CUSTOMER'S OWN SPELLING, which is what a later step finds again.
-  assert.deepEqual(heldParts("Make it blue, Add A Map.", "add a map"), { ok: true, run: "Make it blue, .", held: ["Add A Map"] });
+  assert.deepEqual(heldParts("Make it blue, Add A Map.", "add a map"), { ok: true, run: "Make it blue.", held: ["Add A Map"] });
   // A PART LYING INSIDE ANOTHER IS THAT PART: taken out, named once.
   assert.deepEqual(heldParts("Make it blue and add a map.", ["a map", "add a map"]).held, ["add a map"]);
   assert.deepEqual(heldParts("A map here. Make it blue and add a map.", ["add a map", "a map"]).held, ["add a map", "A map"],

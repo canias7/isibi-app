@@ -2001,7 +2001,7 @@ test("it is bounded ON THE SCREEN — one more sentence, not a second brief — 
   assert.ok(clause.length > MAX_ALSO_CHARS, "the clause must be longer than the screen shows");
   assert.equal(readAlso({ alsoAsked: clause }).alsoAsked, clause, "a long copy was cut");
   const message = "Make the headings dark green. " + clause + ".";
-  assert.equal(heldBack(message, readAlso({ alsoAsked: clause }).alsoAsked).run, "Make the headings dark green. .", "a long held-back part left words in the turn");
+  assert.equal(heldBack(message, readAlso({ alsoAsked: clause }).alsoAsked).run, "Make the headings dark green.", "a long held-back part left words in the turn");
   // A COPY NO MESSAGE COULD HOLD IS NOT ONE: dropped, never cut.
   // (One message of the size policy, 2026-10-03; it was 2,000.)
   assert.deepEqual(readAlso({ alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), {});

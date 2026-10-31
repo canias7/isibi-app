@@ -801,7 +801,7 @@ test("heldBack: the held part taken out wherever it stands, or refused — never
   const r = heldBack(RUN52, VISIT_WORDS);
   assert.equal(r.ok, true);
   assert.equal(r.held, VISIT_WORDS);
-  assert.equal(r.run, DESC_WORDS + " Then, .");
+  assert.equal(r.run, DESC_WORDS.trimEnd() + ".");
   assert.ok(!r.run.includes("Order a collection"), "the held part is still in what runs");
   // NOTHING HELD BACK: the message itself, untouched — whitespace and all.
   assert.deepEqual(heldBack("  Make it blue.  ", undefined), { ok: true, run: "  Make it blue.  ", held: "" });

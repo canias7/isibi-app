@@ -2536,6 +2536,25 @@ export function heldList(v) {
  * EVERY OCCURRENCE OF EVERY PART GOES, and parts that overlap are taken out
  * once, as one stretch of the message.
  */
+/**
+ * THE JOINS A TAKEN-OUT PART LEAVES BEHIND, TIDIED (2026-10-31, live: the
+ * flat-white part of "Add a flat white…, add a Gallery page, and put our phone
+ * number … in the header." ran on "…to the café menu, , and ."). Only the
+ * separators and joining words at the gaps go — commas, semicolons and a
+ * dangling "and"/"then"/"also" — never a word of the customer's own request.
+ */
+export function tidyJoins(run) {
+  return String(run || "")
+    .replace(/\s+([,;.!?])/g, "$1")
+    .replace(/([,;])(?:\s*[,;])+/g, "$1")
+    .replace(/[,;]\s*([.!?]|$)/g, "$1")
+    .replace(/[,;]?\s*\b(?:and|then|also|plus)\b\s*([.!?]|$)/gi, "$1")
+    .replace(/([.!?])(?:\s*[.!?])+/g, "$1")
+    .replace(/^(?:\s*(?:[,;]|\b(?:and|then|also|plus)\b))+\s*/i, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 export function heldParts(message, later) {
   const text = typeof message === "string" ? message : "";
   const parts = heldList(later);
@@ -2565,7 +2584,7 @@ export function heldParts(message, later) {
     run += text.slice(at, Math.max(s, at));
     at = e;
   }
-  run = (run + text.slice(at)).replace(/[ \t]{2,}/g, " ").trim();
+  run = tidyJoins((run + text.slice(at)).replace(/[ \t]{2,}/g, " ").trim());
   if (!WORD_CHAR.test(run)) return { ok: false, run: text, held: [] };
   return { ok: true, run, held: [...new Set(held)] };
 }
