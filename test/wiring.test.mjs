@@ -1214,36 +1214,19 @@ test("a failed build's own diagnosis reaches the screen", () => {
   // `if (false && Array.isArray(d.problems))` leaves `d.problems` right there in
   // the source and survived a first sweep — the same trap this repo records
   // against message strings, one field over.
-  for (const field of ["cited", "problems", "functionErrors"]) {
-    assert.ok(new RegExp(`if \\(Array\\.isArray\\(d\\.${field}\\)\\)`).test(body)
-      || new RegExp(`if \\(Array\\.isArray\\(d\\.${field}\\)\\s*&&`).test(body),
-      `buildWhy no longer guards on d.${field} being an array — it is either ignored or unguarded`);
-  }
+  // The compiler's cited lines show only when the build produced no site.
+  assert.match(body, /if \(d\.page === 'placeholder' && Array\.isArray\(d\.cited\)\)/,
+    "buildWhy no longer reads the cited lines of a failed build");
   for (const field of ["stage", "error"]) {
     assert.ok(new RegExp(`typeof d\\.${field} === 'string'`).test(body), `buildWhy ignores ${field}`);
   }
-  // The lint's findings and a failed function are NOT gated on the placeholder:
-  // a site can publish while carrying either, and those are the failures nobody
-  // would otherwise notice, because the site looks fine until a visitor hits the
-  // broken part.
-  // Extracted by brace matching rather than by regex: `problems` and
-  // `functionErrors` must sit OUTSIDE the placeholder branch, because a site can
-  // publish while carrying either — a page the lint refused, or a confirmation
-  // function that never got created — and those are the failures nobody would
-  // otherwise notice, since the site looks fine until a visitor hits the broken
-  // part.
-  const ph = body.indexOf("if (d.page === 'placeholder') {");
-  assert.ok(ph > 0, "the placeholder branch is gone");
-  let depth = 0, close = ph;
-  for (let k = ph; k < body.length; k++) {
-    if (body[k] === "{") depth++;
-    else if (body[k] === "}" && --depth === 0) { close = k; break; }
-  }
-  const inside = body.slice(ph, close);
+  // NO DEVELOPER NOTES (2026-10-31, the owner): the lint's findings and failed
+  // functions never reach the customer's reply; they stay in the response.
+  const code = body.replace(/\/\/[^\n]*/g, "");
   for (const field of ["problems", "functionErrors"]) {
-    assert.ok(!inside.includes("d." + field),
-      `${field} is trapped inside the placeholder branch — a site that PUBLISHED never reports it`);
+    assert.ok(!code.includes("d." + field), `buildWhy shows ${field} to the customer again`);
   }
+  assert.ok(!code.includes("'lint: '"), "buildWhy prints lint lines to the customer again");
 
   // 3. IT IS CALLED. A helper that is defined and never invoked is the same bug
   //    wearing a fix — asserted apart from its definition, the Bookmarks lesson.

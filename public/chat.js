@@ -10713,17 +10713,13 @@ function buildWhy(d) {
       for (const l of first) out.push(line(l, 300));
     }
   }
-  if (Array.isArray(d.cited)) for (const c of d.cited.slice(0, 4)) out.push(line(c));
-  // These two are NOT gated on the placeholder: a site can publish with a page
-  // the lint refused, or with a confirmation function that never got created —
-  // and those are exactly the failures nobody would otherwise notice, because
-  // the site looks fine until a visitor hits the broken part.
-  if (Array.isArray(d.problems)) for (const p of d.problems.slice(0, 4)) out.push('lint: ' + line(p));
-  if (Array.isArray(d.functionErrors)) {
-    for (const f of d.functionErrors.slice(0, 3)) {
-      out.push('function ' + line(f && f.name, 40) + ': ' + line(f && f.error, 160));
-    }
-  }
+  if (d.page === 'placeholder' && Array.isArray(d.cited)) for (const c of d.cited.slice(0, 4)) out.push(line(c));
+  // NO DEVELOPER NOTES UNDER A SITE THAT BUILT (2026-10-31, the owner: the
+  // Northline build's reply ended in raw "lint: … Add `head: () => …`" lines).
+  // The lint's findings and failed functions (`problems`, `functionErrors`)
+  // are the agent's to act on, never the customer's to read; they stay in the
+  // response and the build record. Only a build that produced no site shows
+  // the reason it stopped.
   return out.join('\n');
 }
 
