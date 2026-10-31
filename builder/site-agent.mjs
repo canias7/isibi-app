@@ -231,6 +231,11 @@ export const AGENT_TOOLS = Object.freeze([
     input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 } }, required: ["question", "options"] },
   },
   {
+    name: "restore_starter_file",
+    description: "Put one starter or kit file of the project (e.g. \"src/lib/rows.ts\", \"src/components/ui/button.tsx\") back to its starter copy, when a build failure names that file and says this site's copy differs from the starter's. Build afterwards.",
+    input_schema: { type: "object", properties: { file: { type: "string" } }, required: ["file"] },
+  },
+  {
     name: "finish",
     description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer.",
     input_schema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
@@ -543,7 +548,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address", restore_starter_file: "restoreStarter" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -947,6 +952,17 @@ async function runTool(use, st, deps) {
       if (c.op.create) st.tables.push({ name: c.op.table, pk: "id", columns: ["id", ...c.op.create.columns.map((x) => x.name)] });
       else { const t = st.tables.find((x) => x.name === c.op.table); if (t) t.columns = [...t.columns, ...c.op.add.map((x) => x.name)]; }
       return { text: (c.op.create ? "Queued: a new table " + c.op.table + " (" + c.op.create.columns.map((x) => x.name + " " + x.type).join(", ") + ")" : "Queued: new columns on " + c.op.table + " (" + c.op.add.map((x) => x.name + " " + x.type).join(", ") + ")") + ". Added to the database when you finish, before the table entries." };
+    }
+    case "restore_starter_file": {
+      // THE WAY BACK FOR A STARTER FILE (2026-10-31, the owner's fix 3).
+      if (typeof deps.restoreStarter !== "function") return { error: "starter files cannot be restored here" };
+      const f = typeof input.file === "string" ? input.file.trim() : "";
+      if (!f) return { error: "name the file" };
+      let r = null;
+      try { r = await deps.restoreStarter(f); } catch (e) { r = { ok: false, why: String((e && e.message) || e).slice(0, 160) }; }
+      if (!r || r.ok !== true) return { error: (r && r.why) || "the file could not be restored" };
+      st.dirty = true; st.built = false;
+      return { text: f + " is back to its starter copy. Build to check it." };
     }
     case "read_docs": {
       if (typeof deps.fetchDocs !== "function") return { error: "documentation cannot be read here" };

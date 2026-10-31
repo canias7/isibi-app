@@ -23,8 +23,8 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
-  PROJECT_LIST_KEY, PROJECT_FILE_KEY, safeProjectPath, projectFileKind, overlayable, collectProject,
-  applyOverlay, restoreOverlay, readProjectList, saveProject, readProjectFiles, overlayEntries, mirrorWanted,
+  PROJECT_LIST_KEY, PROJECT_BLOB_KEY, safeProjectPath, projectFileKind, overlayable, collectProject,
+  applyOverlay, restoreOverlay, readProjectList, saveProject, readProjectFiles, overlayEntries, mirrorWanted, restoreStarterEntry,
 } from "../builder/project-files.mjs";
 import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { runSiteAgent } from "../builder/site-agent.mjs";
@@ -87,12 +87,17 @@ test("CM1 the snapshot is the project: template files, the kit closure, pages, p
     }
     // THE IMAGE FLAG: on starter and kit files only, true when nothing replaced them.
     const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
-    assert.equal(by["src/router.tsx"].image, true);
-    assert.equal(by["src/components/ui/button.tsx"].image, true);
-    for (const p of ["src/routes/index.tsx", "src/styles.css", "src/site-brand.ts", "public/fonts/inter.woff2"]) assert.equal(by[p].image, undefined, p);
-    // A REPLACED FILE says it is not the image's copy.
-    const replaced = collectProject({ app, fs, path, hash: sha, kitPaths: [], pristine: new Map([["src/router.tsx", Buffer.from("the image's router\n")]]) });
-    assert.equal(replaced.files.find((f) => f.path === "src/router.tsx").image, false);
+    // THE STARTER VERSION (fix 4): on starter and kit files only, the image's hash.
+    assert.equal(by["src/router.tsx"].starter, by["src/router.tsx"].sha256);
+    assert.equal(by["src/components/ui/button.tsx"].starter, by["src/components/ui/button.tsx"].sha256);
+    assert.equal(by["src/router.tsx"].starterBase64, undefined, "an unchanged starter file carried its starter bytes twice");
+    for (const p of ["src/routes/index.tsx", "src/styles.css", "src/site-brand.ts", "public/fonts/inter.woff2"]) assert.equal(by[p].starter, undefined, p);
+    // A REPLACED FILE records the image's hash and carries the image's bytes.
+    const img = Buffer.from("the image's router\n");
+    const replaced = collectProject({ app, fs, path, hash: sha, kitPaths: [], pristine: new Map([["src/router.tsx", img]]) });
+    const r2 = replaced.files.find((f) => f.path === "src/router.tsx");
+    assert.equal(r2.starter, sha(img));
+    assert.deepEqual(Buffer.from(r2.starterBase64, "base64"), img);
   } finally { fs.rmSync(app, { recursive: true, force: true }); }
 });
 
@@ -155,7 +160,9 @@ function memBucket({ failPut = null } = {}) {
     async delete(key) { log.push(["delete", key]); store.delete(key); meta.delete(key); },
   };
 }
-const snapOf = (files) => ({ ok: true, files: Object.entries(files).map(([p, s]) => { const b = Buffer.from(s); return { path: p, size: b.length, sha256: sha(b), base64: b.toString("base64"), ...(overlayable(p) ? { image: true } : {}) }; }) });
+const snapOf = (files) => ({ ok: true, files: Object.entries(files).map(([p, s]) => { const b = Buffer.from(s); return { path: p, size: b.length, sha256: sha(b), base64: b.toString("base64"), ...(overlayable(p) ? { starter: sha(b), starterSize: b.length } : {}) }; }) });
+/** The keys under the site's blob folder, as hashes. */
+const blobKeys = (b, slug) => [...b.store.keys()].filter((k) => k.startsWith("source/" + slug + "/blobs/")).map((k) => k.split("/").pop()).sort();
 
 test("CM4 the store uploads only what changed, writes the list last, and deletes what the list no longer names", async () => {
   const b = memBucket();
@@ -164,21 +171,21 @@ test("CM4 the store uploads only what changed, writes the list last, and deletes
   assert.deepEqual(b.log.filter((l) => l[0] === "put").at(-1), ["put", PROJECT_LIST_KEY("new-site")], "the list is written last");
   b.log.length = 0;
   const second = await saveProject(b, "new-site", snapOf({ "src/router.tsx": "r1", "src/routes/index.tsx": "home v2" }));
-  assert.deepEqual(second, { ok: true, files: 2, uploaded: 1, removed: 1 });
-  assert.deepEqual(b.log.filter((l) => l[0] === "put").map((l) => l[1]), [PROJECT_FILE_KEY("new-site", "src/routes/index.tsx"), PROJECT_LIST_KEY("new-site")], "only the changed file went up");
-  assert.ok(!b.store.has(PROJECT_FILE_KEY("new-site", "src/routes/old.tsx")), "the removed page's file is gone");
+  // The old index bytes and /old's bytes both go, once the list no longer names them.
+  assert.deepEqual(second, { ok: true, files: 2, uploaded: 1, removed: 2 });
+  assert.deepEqual(b.log.filter((l) => l[0] === "put").map((l) => l[1]), [PROJECT_BLOB_KEY("new-site", sha(Buffer.from("home v2"))), PROJECT_LIST_KEY("new-site")], "only the changed file went up");
+  assert.ok(!b.store.has(PROJECT_BLOB_KEY("new-site", sha(Buffer.from("old")))), "the removed page's bytes are still kept");
   const list = await readProjectList(b, "new-site");
   assert.equal(list.state, "read");
   assert.deepEqual(list.files.map((f) => f.path), ["src/router.tsx", "src/routes/index.tsx"]);
   // THE FOLDER IS THE LIST, EXACTLY: every key under it is named, every name has a key.
-  const keys = [...b.store.keys()].filter((k) => k.startsWith("source/new-site/files/")).map((k) => k.slice("source/new-site/files/".length)).sort();
-  assert.deepEqual(keys, list.files.map((f) => f.path).sort());
+  assert.deepEqual(blobKeys(b, "new-site"), [...new Set(list.files.flatMap((f) => [f.sha256, f.starter].filter(Boolean)))].sort());
   const got = await readProjectFiles(b, "new-site", list.files);
   assert.deepEqual(got.map((f) => f.source), ["r1", "home v2"]);
 });
 
 test("CM5 a failed save writes no list: a failed upload, a malformed snapshot, a failed compile", async () => {
-  const b = memBucket({ failPut: (k) => k.endsWith("index.tsx") });
+  const b = memBucket({ failPut: (k) => k.endsWith(sha(Buffer.from("h"))) });
   const r = await saveProject(b, "s", snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "h" }));
   assert.equal(r.ok, false);
   assert.ok(!b.store.has(PROJECT_LIST_KEY("s")), "a list was written over a project that did not store");
@@ -363,8 +370,10 @@ test("CM13 the overlay lays stored starter and kit files over the template and p
     assert.deepEqual(o.refused.sort(), ["../escape.txt", "src/routes/index.tsx", "src/site-brand.ts", "src/styles.css"]);
     // THE SNAPSHOT TAKEN NOW SAYS THE ROUTER IS NOT THE IMAGE'S COPY.
     const snap = collectProject({ app, fs, path, hash: sha, kitPaths: ["src/components/ui/new.tsx"], pristine: o.pristine });
-    assert.equal(snap.files.find((f) => f.path === "src/router.tsx").image, false);
-    assert.equal(snap.files.find((f) => f.path === "src/components/ui/new.tsx").image, false, "a file the image lacks read as the image's");
+    const rr = snap.files.find((f) => f.path === "src/router.tsx");
+    assert.equal(rr.starter, sha(Buffer.from("router\n")));
+    assert.notEqual(rr.sha256, rr.starter);
+    assert.equal(snap.files.find((f) => f.path === "src/components/ui/new.tsx").starter, undefined, "a file the image lacks was given a starter version");
     restoreOverlay({ app, fs, path, pristine: o.pristine });
     assert.equal(fs.readFileSync(path.join(app, "src/router.tsx"), "utf8"), "router\n", "the image's own file was not put back");
     assert.ok(!fs.existsSync(path.join(app, "src/components/ui/new.tsx")), "a file the image never had was left for the next site");
@@ -373,8 +382,8 @@ test("CM13 the overlay lays stored starter and kit files over the template and p
 
 test("CM14 what the next compile is sent: stored starter and kit files that are not the image's copy, and only those", async () => {
   const files = [
-    { path: "src/router.tsx", image: true }, { path: "src/lib/rows.ts", image: false },
-    { path: "src/components/ui/a.tsx", image: false }, { path: "src/routes/index.tsx" }, { path: "src/styles.css" },
+    { path: "src/router.tsx", sha256: "a", starter: "a" }, { path: "src/lib/rows.ts", sha256: "b", starter: "a" },
+    { path: "src/components/ui/a.tsx", sha256: "c" }, { path: "src/routes/index.tsx", sha256: "d" }, { path: "src/styles.css", sha256: "e" },
   ];
   assert.deepEqual(overlayEntries(files).map((f) => f.path), ["src/lib/rows.ts", "src/components/ui/a.tsx"]);
   const { codeMirrorApi } = await loadWorkerModule();
@@ -382,12 +391,12 @@ test("CM14 what the next compile is sent: stored starter and kit files that are 
   const lib = Buffer.from("changed rows");
   await saveProject(b, "ov", { ok: true, files: [
     ...snapOf({ "src/router.tsx": "router" }).files,
-    { path: "src/lib/rows.ts", size: lib.length, sha256: sha(lib), base64: lib.toString("base64"), image: false },
+    { path: "src/lib/rows.ts", size: lib.length, sha256: sha(lib), base64: lib.toString("base64"), starter: sha(Buffer.from("rows")), starterSize: 4, starterBase64: Buffer.from("rows").toString("base64") },
   ] });
   b.log.length = 0;
   const m = await codeMirrorApi.projectMirror({ SITES_BUCKET: b }, "ov");
   assert.deepEqual(m.overlay, [{ path: "src/lib/rows.ts", base64: lib.toString("base64") }]);
-  assert.ok(!b.log.some((l) => l[1] === PROJECT_FILE_KEY("ov", "src/router.tsx")), "an image-identical file was read for the overlay");
+  assert.ok(!b.log.some((l) => l[1] === PROJECT_BLOB_KEY("ov", sha(Buffer.from("router")))), "a file the site never changed was read for the overlay");
   // THE CONTAINER APPLIES IT AFTER THE RESET AND PUTS IT BACK IN `finally`.
   const SERVER = bare(read("../builder/build-server.mjs"));
   const m2 = /\n      resetRoutes\(\);\s*overlay = applyOverlay\(\{ app: APP, fs, path, files: payload\.projectFiles \}\);/.exec(SERVER);
@@ -472,8 +481,7 @@ test("CM17 DRIVEN: two parts saved side by side from the same list, each adding 
   assert.equal(bb.ok, true, bb.why);
   const list = await readProjectList(b, "par");
   assert.deepEqual(list.files.map((f) => f.path), ["src/router.tsx", "src/routes/about.tsx", "src/routes/index.tsx", "src/routes/menu.tsx"], "a part's list dropped the other's file, or kept a removed one");
-  const keys = [...b.store.keys()].filter((k) => k.startsWith("source/par/files/")).map((k) => k.slice(17)).sort();
-  assert.deepEqual(keys, list.files.map((f) => f.path), "the folder and its list disagree");
+  assert.deepEqual(blobKeys(b, "par"), [...new Set(list.files.flatMap((f) => [f.sha256, f.starter].filter(Boolean)))].sort(), "the folder and its list disagree");
 });
 
 test("CM18 the list write is conditional: a list that moved between the read and the write is read again and merged", async () => {
@@ -488,11 +496,191 @@ test("CM18 the list write is conditional: a list that moved between the read and
         const o = await b.get(PROJECT_LIST_KEY("race"));
         const cur = await readProjectList(b, "race");
         if (!raced) { raced = true; await saveProject(b, "race", snapOf({ "src/routes/index.tsx": "home", "src/routes/b.tsx": "b" }), { base }); }
-        if (await b.put(PROJECT_LIST_KEY("race"), JSON.stringify({ v: 1, files: merge(cur.files) }), { onlyIf: { etagMatches: o.etag } })) return true;
+        if (await b.put(PROJECT_LIST_KEY("race"), JSON.stringify({ v: 2, files: merge(cur.files) }), { onlyIf: { etagMatches: o.etag } })) return true;
       }
       return false;
     },
   });
   assert.equal(r.ok, true);
   assert.deepEqual((await readProjectList(b, "race")).files.map((f) => f.path), ["src/routes/a.tsx", "src/routes/b.tsx", "src/routes/index.tsx"]);
+});
+
+// ── FIXES 2–7 AND THE SAME-PATH RACE (2026-10-31, the owner) ────────────────
+
+const listBytes = (b, slug) => Buffer.from(b.store.get(PROJECT_LIST_KEY(slug))).toString();
+
+test("CM19 fix 2: an interrupted save leaves the old list and every object it names untouched", async () => {
+  let fail = false;
+  const b = memBucket({ failPut: (k) => fail && k.endsWith(sha(Buffer.from("new b"))) });
+  await saveProject(b, "half", snapOf({ "src/routes/a.tsx": "old a", "src/routes/b.tsx": "old b" }));
+  const before = listBytes(b, "half");
+  const blobsBefore = blobKeys(b, "half");
+  fail = true;
+  const r = await saveProject(b, "half", snapOf({ "src/routes/a.tsx": "new a", "src/routes/b.tsx": "new b" }));
+  assert.equal(r.ok, false);
+  assert.equal(listBytes(b, "half"), before, "the list moved under a save that did not finish");
+  for (const k of blobsBefore) assert.ok(blobKeys(b, "half").includes(k), "an object the old list names was touched");
+  const got = await readProjectFiles(b, "half", (await readProjectList(b, "half")).files);
+  assert.deepEqual(got.map((f) => f.source), ["old a", "old b"], "the old project no longer reads whole");
+});
+
+test("CM20 the same-path race: two saves of one path leave a list whose entry names bytes that are stored and match", async () => {
+  const b = memBucket();
+  await saveProject(b, "sp", snapOf({ "src/routes/index.tsx": "v0" }));
+  const base = await readProjectList(b, "sp");
+  await Promise.all([
+    saveProject(b, "sp", snapOf({ "src/routes/index.tsx": "from A" }), { base }),
+    saveProject(b, "sp", snapOf({ "src/routes/index.tsx": "from B" }), { base }),
+  ]);
+  const list = await readProjectList(b, "sp");
+  const [f] = await readProjectFiles(b, "sp", list.files);
+  assert.ok(!f.missing, "the list names bytes that are not stored, or do not match");
+  assert.ok(["from A", "from B"].includes(f.source));
+});
+
+test("CM21 fix 5: nothing re-uploaded when nothing changed, and a compile of an unchanged site costs one read", async () => {
+  const { codeMirrorApi } = await loadWorkerModule();
+  const b = memBucket();
+  await saveProject(b, "cost", snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "h", "src/lib/rows.ts": "rows" }));
+  b.log.length = 0;
+  const again = await saveProject(b, "cost", snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "h", "src/lib/rows.ts": "rows" }));
+  assert.equal(again.uploaded, 0);
+  assert.deepEqual(b.log.filter((l) => l[0] === "put").map((l) => l[1]), [PROJECT_LIST_KEY("cost")], "an unchanged file was uploaded again");
+  b.log.length = 0;
+  const m = await codeMirrorApi.projectMirror({ SITES_BUCKET: b }, "cost");
+  assert.deepEqual(m.overlay, []);
+  assert.deepEqual(b.log, [["get", PROJECT_LIST_KEY("cost")]], "an unchanged site's compile read more than its list");
+});
+
+/** A list holding one starter file the site changed, its bytes stored. */
+async function changedStarter(b, slug, { blob = true, corrupt = false } = {}) {
+  const mine = Buffer.from("site's rows"), start = Buffer.from("starter rows");
+  await saveProject(b, slug, { ok: true, files: [
+    ...snapOf({ "src/routes/index.tsx": "h" }).files,
+    { path: "src/lib/rows.ts", size: mine.length, sha256: sha(mine), base64: mine.toString("base64"), starter: sha(start), starterSize: start.length, starterBase64: start.toString("base64") },
+  ] });
+  if (!blob) b.store.delete(PROJECT_BLOB_KEY(slug, sha(mine)));
+  if (corrupt) b.store.set(PROJECT_BLOB_KEY(slug, sha(mine)), new TextEncoder().encode("tampered"));
+  return { mine, start };
+}
+
+test("CM22 fix 6 (and 3's hash check): a listed file that cannot be read, or whose bytes do not match, stops the compile by name; one blip is retried", async () => {
+  const { codeMirrorApi } = await loadWorkerModule();
+  const gone = memBucket(); await changedStarter(gone, "g1", { blob: false });
+  const m1 = await codeMirrorApi.projectMirror({ SITES_BUCKET: gone }, "g1");
+  assert.match(m1.blocked, /src\/lib\/rows\.ts could not be read/);
+  assert.deepEqual(codeMirrorApi.projectBlocked(m1), { ok: false, stage: "project", error: m1.blocked, projectUnreadable: true });
+  const bad = memBucket(); await changedStarter(bad, "g2", { corrupt: true });
+  assert.match((await codeMirrorApi.projectMirror({ SITES_BUCKET: bad }, "g2")).blocked, /src\/lib\/rows\.ts/, "bytes that do not match the list were laid over the template");
+  const flaky = memBucket(); const { mine } = await changedStarter(flaky, "g3");
+  const real = flaky.get; let blip = true;
+  flaky.get = async (k) => { if (blip && k.includes("/blobs/")) { blip = false; throw new Error("blip"); } return real(k); };
+  const m3 = await codeMirrorApi.projectMirror({ SITES_BUCKET: flaky }, "g3");
+  assert.equal(m3.blocked, undefined, "one blip stopped the compile");
+  assert.deepEqual(m3.overlay, [{ path: "src/lib/rows.ts", base64: mine.toString("base64") }]);
+  // BOTH COMPILES ASK BEFORE THE CONTAINER IS CALLED.
+  const W = bare(read("../worker.js"));
+  for (const [v, payload] of [["mirror", "const cPayload = JSON.stringify({"], ["bMirror", "const bPayload = JSON.stringify({"]]) {
+    const at = W.indexOf(payload); const no = W.lastIndexOf("projectBlocked(" + v + ")", at);
+    assert.ok(no > 0 && at - no < 400, "the " + v + " compile does not stop on an unreadable file");
+  }
+});
+
+test("CM23 fix 3: a failed compile naming a changed starter file says so; the agent and the owner can put it back", async () => {
+  const { codeMirrorApi } = await loadWorkerModule();
+  const mirror = { overlay: [{ path: "src/lib/rows.ts", base64: "" }] };
+  const failed = codeMirrorApi.noteProjectSuspects(mirror, { ok: false, error: "src/lib/rows.ts(3,1): error TS2322" });
+  assert.deepEqual(failed.projectSuspects, ["src/lib/rows.ts"]);
+  assert.match(failed.error, /restore_starter_file/);
+  assert.equal(codeMirrorApi.noteProjectSuspects(mirror, { ok: false, error: "index.tsx(1,1): TS2322" }).projectSuspects, undefined, "a file the error does not name was blamed");
+  assert.equal(codeMirrorApi.noteProjectSuspects(mirror, { ok: true }).projectSuspects, undefined);
+  // THE RESTORE: the list entry takes the starter's hash, and its bytes read.
+  const b = memBucket(); const { start } = await changedStarter(b, "rs");
+  assert.equal((await codeMirrorApi.restoreStarterFile({ SITES_BUCKET: b }, "rs", "src/routes/index.tsx")).ok, false, "a page was 'restored'");
+  assert.equal(restoreStarterEntry([{ path: "src/routes/index.tsx", size: 1, sha256: "b".repeat(64), starter: "a".repeat(64) }], "src/routes/index.tsx").ok, false, "a page carrying a starter hash was put back to it");
+  const r = await codeMirrorApi.restoreStarterFile({ SITES_BUCKET: b }, "rs", "src/lib/rows.ts");
+  assert.equal(r.ok, true, r.why);
+  const list = await readProjectList(b, "rs");
+  const e = list.files.find((f) => f.path === "src/lib/rows.ts");
+  assert.equal(e.sha256, sha(start));
+  assert.equal((await readProjectFiles(b, "rs", [e]))[0].source, "starter rows");
+  assert.deepEqual((await codeMirrorApi.projectMirror({ SITES_BUCKET: b }, "rs")).overlay, [], "a restored file is still laid over the template");
+  // THE AGENT'S TOOL: offered only when wired, and it calls the restore.
+  const asked = [];
+  const rounds = [answer(use("restore_starter_file", { file: "src/lib/rows.ts" })), answer(use("finish", { summary: "s" }))];
+  let i = 0; const sent = [];
+  await runSiteAgent({ send: async (q) => { sent.push(JSON.parse(JSON.stringify(q))); return rounds[Math.min(i++, rounds.length - 1)]; }, build: async () => ({ ok: true }), restoreStarter: async (p) => { asked.push(p); return { ok: true }; } },
+    { request: "r", pages: [{ path: "index.tsx", source: "H" }], maxRounds: 2 });
+  assert.deepEqual(asked, ["src/lib/rows.ts"]);
+  assert.ok(sent[0].tools.some((t) => t.name === "restore_starter_file"));
+  const { toolsFor } = await import("../builder/site-agent.mjs");
+  assert.ok(!toolsFor({}).some((t) => t.name === "restore_starter_file"), "the tool was offered with nothing behind it");
+});
+
+test("CM24 DRIVEN: the owner's restore route is the owner's only", async () => {
+  const b = memBucket(); await changedStarter(b, "own-rs");
+  const worker = await loadWorker();
+  const call = async (owner) => {
+    const real = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const u = String((input && input.url) || input || "");
+      const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { "content-type": "application/json" } });
+      if (u.includes("/auth/v1/user")) return json({ id: "u-owner" });
+      if (u.includes("/rest/v1/site_backends")) return json([{ uid: owner }]);
+      return new Response("x", { status: 503 });
+    };
+    try {
+      const res = await worker.fetch(new Request("https://gofarther.dev/api/site/source/restore", { method: "POST", headers: { Authorization: "Bearer t", "content-type": "application/json" }, body: JSON.stringify({ slug: owner === "u-owner" ? "own-rs" : "own-rs-x", path: "src/lib/rows.ts" }) }), { SUPABASE_SERVICE_KEY: "svc", SITES_BUCKET: b }, makeCtx());
+      return { status: res.status, body: await res.json() };
+    } finally { globalThis.fetch = real; }
+  };
+  const before = listBytes(b, "own-rs");
+  assert.equal((await call("someone-else")).status, 404);
+  assert.equal(listBytes(b, "own-rs"), before);
+  const ok = await call("u-owner");
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.notEqual(listBytes(b, "own-rs"), before);
+});
+
+test("CM25 fix 4: a starter file the site never changed follows the image's newer copy; one it changed is kept", async () => {
+  const b = memBucket();
+  const s1 = Buffer.from("starter v1"), s2 = Buffer.from("starter v2"), mine = Buffer.from("site's own");
+  await saveProject(b, "up", { ok: true, files: [
+    { path: "src/router.tsx", size: s1.length, sha256: sha(s1), base64: s1.toString("base64"), starter: sha(s1), starterSize: s1.length },
+    { path: "src/lib/rows.ts", size: mine.length, sha256: sha(mine), base64: mine.toString("base64"), starter: sha(s1), starterSize: s1.length, starterBase64: s1.toString("base64") },
+  ] });
+  const list = await readProjectList(b, "up");
+  assert.deepEqual(overlayEntries(list.files).map((f) => f.path), ["src/lib/rows.ts"], "the unchanged file would hold the image's fix back, or the changed one would be lost");
+  // THE IMAGE MOVED TO v2: the compile used it for the unchanged file, and the save records it.
+  const app = fakeApp();
+  try {
+    fs.writeFileSync(path.join(app, "src/router.tsx"), s2);
+    const o = applyOverlay({ app, fs, path, files: [{ path: "src/lib/rows.ts", base64: mine.toString("base64") }] });
+    const snap = collectProject({ app, fs, path, hash: sha, pristine: o.pristine });
+    const r = snap.files.find((f) => f.path === "src/router.tsx");
+    assert.deepEqual([r.sha256, r.starter], [sha(s2), sha(s2)]);
+    const k = snap.files.find((f) => f.path === "src/lib/rows.ts");
+    assert.equal(k.sha256, sha(mine), "the site's change was lost");
+    assert.notEqual(k.starter, k.sha256);
+  } finally { fs.rmSync(app, { recursive: true, force: true }); }
+});
+
+test("CM26 fix 7: the agent's shell starts from the site's folder", () => {
+  const W = bare(read("../worker.js"));
+  const at = W.indexOf("function agentShell(env, slug) {");
+  const body = W.slice(at, W.indexOf("\n}", at));
+  assert.match(body, /mirrorP = projectMirror\(env, slug\)/);
+  assert.match(body, /if \(mirror\.blocked\) return \{ ok: false, error: mirror\.blocked \};/, "a shell would start without an unreadable file");
+  assert.match(body, /projectFiles: mirror\.overlay/);
+  const S = bare(read("../builder/build-server.mjs"));
+  const r = S.slice(S.indexOf('req.url === "/agent-run"'), S.indexOf('req.url === "/agent-call"'));
+  const w = r.indexOf("writeSiteFiles(dir"), a = r.indexOf("applyOverlay({ app: dir, fs, path, files: p.projectFiles");
+  const run = r.indexOf("runCommand(dir");
+  assert.ok(w > 0 && a > w && run > a, "the shell's copy is not overlaid before the command runs");
+  // DRIVEN: the overlay lands in a session folder.
+  const dir = fakeApp();
+  try {
+    applyOverlay({ app: dir, fs, path, files: [{ path: "src/lib/rows.ts", base64: Buffer.from("site rows").toString("base64") }] });
+    assert.equal(fs.readFileSync(path.join(dir, "src/lib/rows.ts"), "utf8"), "site rows");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

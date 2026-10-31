@@ -57,3 +57,12 @@ tab is compared, file by file, with its folder.
 - Should the customer (or the agent) later be able to edit the starter files
   too? This plan keeps them read-only, but stores them, so allowing it later
   is a small change.
+
+## The risks fixed before any live run (owner, 2026-10-31)
+
+- **Stale or parallel saves**: every write under the folder is fenced like `kit.json`; the list is merged onto the latest stored one in a conditional write (parallel parts that add different files are both listed).
+- **A save cut halfway**: file bytes are stored by their hash (`source/<slug>/blobs/<sha256>`); the list (v2) names each path's hash and is switched in one conditional write at the end; old bytes are deleted only after the switch and only when the list as it then stands no longer names them. An interrupted save leaves the old list and its objects untouched. Two saves of one path can never leave the list naming bytes that are not stored.
+- **Cost**: only hashes the list did not already hold are uploaded (bounded concurrency); an unchanged site's compile reads only the list.
+- **Starter fixes**: each starter or kit file records its starter version (the image's hash, and the image's bytes when the site's copy differs). A file the site never changed is not laid over the template, so the image's newer copy compiles and the next save records it; a file the site changed is kept.
+- **A bad stored file**: only bytes that match the list's hash are laid over the template; a listed file that cannot be read (after one retry) stops the compile by name. A failed compile that names a starter file the site changed says so, and `restore_starter_file` (agent) or `POST /api/site/source/restore` (owner) puts it back to its starter copy.
+- **The agent's shell** starts from the site's folder: the same stored files are laid over its copy.

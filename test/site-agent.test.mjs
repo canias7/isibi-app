@@ -474,7 +474,8 @@ test("SA29 the container is wired: a work folder per agent run, in the site's la
   const fn = between("function agentShell(env, slug) {", "async function runAgentChange(");
   assert.match(fn, /getContainer\(env\.SITE_BUILD_CONTAINER, laneName\(slug\)\)/);
   assert.match(fn, /new Request\("http:\/\/build\/agent-run"/);
-  assert.match(fn, /body: JSON\.stringify\(\{ session, command, files \}\)/);
+  // 2026-10-31 (the owner's fix 7): the shell is also sent the site's stored files to lay over its copy.
+  assert.match(fn, /body: JSON\.stringify\(\{ session, command, files, \.\.\.\(mirror\.overlay\.length \? \{ projectFiles: mirror\.overlay \} : \{\}\) \}\)/);
   assert.match(between("async function runAgentChange(", "async function recompileAndPublish(env, {"), /run: agentShell\(env, slug\),/);
   assert.match(between("    agentWrite: agentTakes()", "    generate: async () => {"), /run: agentShell\(env, slug\),/);
   const B = readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");

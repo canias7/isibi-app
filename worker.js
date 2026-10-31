@@ -221,7 +221,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 // Generated from the template by `builder/gen-foundation.mjs` and bundled,
 // because a Worker has no filesystem and the template lives in the image.
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
-import { readProjectList, readProjectFiles, saveProject, overlayEntries, mirrorWanted, isBinaryPath, PROJECT_LIST_KEY } from "./builder/project-files.mjs";
+import { readProjectList, readProjectFiles, saveProject, overlayEntries, mirrorWanted, isBinaryPath, PROJECT_LIST_KEY, PROJECT_LIST_VERSION, projectSuspects, restoreStarterEntry } from "./builder/project-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
@@ -1219,7 +1219,7 @@ const actionRoom = (id) => "act:" + id;
 export const customerEffortApi = { withCustomerEffort: (e, r) => withCustomerEffort(e, r), withBuildEffort: (q, e) => withBuildEffort(q, e), withEffortAll: (e, r) => withEffortAll(e, r) };
 export const talkEffortApi = { withTalkEffort: (what, req, env) => withTalkEffort(what, req, env), withKeptEffort: (env, job) => withKeptEffort(env, job), withJobEffort: (env, body) => withJobEffort(env, body), get TALK_EFFORT() { return TALK_EFFORT; } };
 export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, roomWriter, streamFromRoom, actionRoom, replyLiveWriter, roomLiveWriter, ROOM_KEEP_MS };
-export const codeMirrorApi = { projectMirror: (env, slug, o) => projectMirror(env, slug, o), storeProjectFolder: (env, slug, m, b, f) => storeProjectFolder(env, slug, m, b, f), projectFileReader: (env, slug) => projectFileReader(env, slug) };
+export const codeMirrorApi = { projectMirror: (env, slug, o) => projectMirror(env, slug, o), storeProjectFolder: (env, slug, m, b, f) => storeProjectFolder(env, slug, m, b, f), projectFileReader: (env, slug) => projectFileReader(env, slug), restoreStarterFile: (env, slug, p) => restoreStarterFile(env, slug, p), noteProjectSuspects: (m, b) => noteProjectSuspects(m, b), projectBlocked: (m) => projectBlocked(m), agentShell: (env, slug) => agentShell(env, slug) };
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
@@ -13193,10 +13193,54 @@ async function projectMirror(env, slug, { firstBuild = false } = {}) {
     const want = overlayEntries(list.files);
     if (want.length) {
       const got = await readProjectFiles(env.SITES_BUCKET, slug, want, { raw: true });
-      overlay = got.filter((f) => f && !f.missing && typeof f.base64 === "string").map((f) => ({ path: f.path, base64: f.base64 }));
+      // A LISTED FILE THAT CANNOT BE READ, OR WHOSE BYTES DO NOT MATCH THE
+      // LIST'S HASH, STOPS THE COMPILE BY NAME (the owner's fixes 3 and 6):
+      // the site is never built without one of its own files.
+      const bad = got.filter((f) => !f || f.missing || typeof f.base64 !== "string").map((f) => (f && f.path) || "?");
+      if (bad.length) return { on, overlay: [], list, blocked: "the stored project file" + (bad.length > 1 ? "s " : " ") + bad.join(", ") + (bad.length > 1 ? " could" : " could") + " not be read, so the site was not built without " + (bad.length > 1 ? "them" : "it") + "; nothing was changed" };
+      overlay = got.map((f) => ({ path: f.path, base64: f.base64 }));
     }
   }
   return { on, overlay, list };
+}
+
+/** A compile refused before it ran, because a stored file could not be read. */
+const projectBlocked = (mirror) => (mirror && mirror.blocked ? { ok: false, stage: "project", error: mirror.blocked, projectUnreadable: true } : null);
+
+/**
+ * A FAILED COMPILE THAT NAMES A STORED STARTER FILE (the owner's fix 3): the
+ * files laid over the template that the compiler's words mention are said by
+ * name, with the way back (`restore_starter_file`, or the owner's restore).
+ */
+function noteProjectSuspects(mirror, built) {
+  if (!built || typeof built !== "object" || built.ok !== false || !mirror || !mirror.overlay || !mirror.overlay.length) return built;
+  const sus = projectSuspects(mirror.overlay, String(built.error || "") + "\n" + String(built.typeErrors || ""));
+  if (!sus.length) return built;
+  built.projectSuspects = sus;
+  built.error = String(built.error || "") + "\n\nThis site's own copy of " + sus.join(", ") + " differs from the starter copy and is named above; it can be put back to the starter copy (restore_starter_file).";
+  return built;
+}
+
+/**
+ * PUT ONE STORED STARTER FILE BACK TO ITS STARTER COPY (the owner's fix 3),
+ * for the agent's `restore_starter_file` and the owner's restore route: the
+ * list entry takes the starter's hash (whose bytes every save keeps), in one
+ * conditional write; the next compile then uses the image's copy.
+ */
+async function restoreStarterFile(env, slug, p) {
+  if (!env.SITES_BUCKET) return { ok: false, why: "no store" };
+  const key = PROJECT_LIST_KEY(slug);
+  for (let i = 0; i < 4; i++) {
+    const o = await env.SITES_BUCKET.get(key);
+    if (!o) return { ok: false, why: "this site has no project folder" };
+    const cur = await readProjectList({ get: async () => o }, slug);
+    if (cur.state !== "read") return { ok: false, why: "the project's list could not be read" };
+    const r = restoreStarterEntry(cur.files, String(p || ""));
+    if (!r.ok) return r;
+    const put = await env.SITES_BUCKET.put(key, JSON.stringify({ v: PROJECT_LIST_VERSION, files: r.files }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: o.etag } });
+    if (put) return { ok: true, path: p };
+  }
+  return { ok: false, why: "the project's list kept changing; try again" };
 }
 
 /**
@@ -13246,7 +13290,7 @@ async function storeProjectFolder(env, slug, mirror, built, fence = null) {
         if (cur.state !== "read") return false;
         latest = cur.files;
       }
-      const body = JSON.stringify({ v: 1, files: merge(latest) });
+      const body = JSON.stringify({ v: PROJECT_LIST_VERSION, files: merge(latest) });
       const cond = o && o.etag ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" };
       const put = fence
         ? await fencedPut(env, listKey, body, { fence, onlyIf: cond })
@@ -17236,13 +17280,20 @@ function agentBuildAnswer(r) {
 
 function agentShell(env, slug) {
   const session = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  // THE SHELL STARTS FROM THE SITE'S FOLDER (the owner's fix 7): the stored
+  // files the compile lays over the template are laid over the shell's copy
+  // too, read once per run; a file that cannot be read is said, never skipped.
+  let mirrorP = null;
   return async (files, command) => {
     if (!env.SITE_BUILD_CONTAINER) return { ok: false, error: "no build container" };
+    if (!mirrorP) mirrorP = projectMirror(env, slug);
+    const mirror = await mirrorP;
+    if (mirror.blocked) return { ok: false, error: mirror.blocked };
     try {
       const c = getContainer(env.SITE_BUILD_CONTAINER, laneName(slug));
       const r = await c.fetch(new Request("http://build/agent-run", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session, command, files }), signal: AbortSignal.timeout(150000),
+        body: JSON.stringify({ session, command, files, ...(mirror.overlay.length ? { projectFiles: mirror.overlay } : {}) }), signal: AbortSignal.timeout(150000),
       }));
       const j = await r.json().catch(() => null);
       return j && typeof j === "object" ? j : { ok: false, error: "the container answered " + r.status };
@@ -17532,8 +17583,10 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   try { const ptr = await readPointer(buildDeps(env), slug); restoreTo = ptr && typeof ptr.version === "string" ? ptr.version : ""; } catch { restoreTo = ""; }
   const runOnce = (ask, from) => runSiteAgent({
     ...agentInputDeps(env, slug),
-    // THE PROJECT FOLDER, READ ONLY (2026-10-31, the code mirror).
+    // THE PROJECT FOLDER, READ ONLY (2026-10-31, the code mirror), and the
+    // one way back for a starter file the site changed (the owner's fix 3).
     projectFile: projectFileReader(env, slug),
+    restoreStarter: (p) => restoreStarterFile(env, slug, p),
     ...(css !== null && env.SITES_BUCKET ? { saveSettings: () => true, checkUpload } : {}),
     ...(conn && spec ? { saveRules: () => true } : {}),
     saveRedirects: () => true,
@@ -18389,6 +18442,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // see `withRoom` below the payload.
       // NAMED, so its steps can be watched while it runs (2026-10-19).
       const cStageId = crypto.randomUUID();
+      // A STORED FILE THAT COULD NOT BE READ STOPS THE COMPILE, BY NAME.
+      { const no = projectBlocked(mirror); if (no) { tm("container", "fail", { why: "project-unreadable" }); return no; } }
       const cPayload = JSON.stringify({
           stageId: cStageId,
           files, slug, title: (look && look.brand) || slug,
@@ -18577,7 +18632,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       const body = JSON.parse(rr.text) || {};
       tm("container", body && body.ok ? "ok" : "fail",
         { returned: true, status: (rr && rr.status) || 0, stage: String((body && body.stage) || ""), files: body && body.files ? Object.keys(body.files).length : 0 });
-      return body;
+      return noteProjectSuspects(mirror, body);
     } catch (e) {
       // TIMED OUT OR DISCONNECTED, told apart by the error's class rather than
       // its message, which differs between runtimes.
@@ -20373,6 +20428,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       const bStageId = crypto.randomUUID();
       // THE PROJECT FOLDER (2026-10-31): a first build starts it, a revise of a site that has one keeps it.
       if (!bMirror) bMirror = await projectMirror(env, slug, { firstBuild: !revise });
+      { const no = projectBlocked(bMirror); if (no) return no; }
       const bPayload = JSON.stringify({ stageId: bStageId, files, slug, title: brand,
           project: bMirror.on || undefined,
           projectFiles: bMirror.overlay.length ? bMirror.overlay : undefined,
@@ -20509,6 +20565,7 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         if (built && typeof built === "object" && Array.isArray(built.kit)) kitBuilt = built.kit;
         // AND THE PROJECT AS IT COMPILED, on the same rule: the last call's.
         if (built && typeof built === "object") projectBuilt = built.project || null;
+        noteProjectSuspects(bMirror, built);
         return built;
       }
       catch {
@@ -33121,6 +33178,20 @@ async function handleRequest(request, env, ctx) {
     // `pages.json`, and answering the 404 above would say "not your site" about
     // a site they own — the recorded "a failure that cannot name itself". It is
     // `ok: true` with empty lists and a sentence saying which.
+    // POST /api/site/source/restore {slug, path} — THE OWNER'S WAY BACK (the
+    // owner's fix 3, 2026-10-31): one stored starter file put back to its
+    // starter copy. Owner only; a stranger gets the 404 a missing site gets.
+    if (url.pathname === "/api/site/source/restore" && request.method === "POST") {
+      const ru = await authUser(request);
+      if (!ru) return UNAUTHED();
+      let rb = null; try { rb = await request.json(); } catch { rb = null; }
+      const rslug = String((rb && rb.slug) || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
+      if (!rslug || typeof (rb && rb.path) !== "string") return Response.json({ ok: false, error: "a slug and a path" }, { status: 400 });
+      const rown = await siteOwnerBySlug(rslug, env);
+      if (!rown || rown !== ru.id) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+      const r = await restoreStarterFile(env, rslug, rb.path);
+      return Response.json(r.ok ? { ok: true, path: r.path } : { ok: false, error: r.why }, { status: r.ok ? 200 : 409 });
+    }
     if (url.pathname === "/api/site/source" && request.method === "GET") {
       const su = await authUser(request);
       if (!su) return UNAUTHED();

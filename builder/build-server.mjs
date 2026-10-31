@@ -2391,6 +2391,11 @@ const server = http.createServer((req, res) => {
         const as = renderAs();
         prepareSandbox(dir, { app: APP, routesBase: ROUTES_BASE, owner: as });
         writeSiteFiles(dir, p.files || {}, { routesBase: ROUTES_BASE, stylesBase: STYLES_BASE, owner: as });
+        // THE SITE'S STORED FILES OVER THE SHELL'S COPY (2026-10-31, the owner's
+        // fix 7), as the compile lays them over the template: the shell starts
+        // from the site's folder, not the image's stock files. The copy is the
+        // session's own, so nothing is put back.
+        applyOverlay({ app: dir, fs, path, files: p.projectFiles, chown: as ? (f) => fs.lchownSync(f, as.uid, as.gid) : null });
         const r = await runCommand(dir, p.command, { as });
         return send(res, 200, { ok: true, code: r.code, output: r.output, timedOut: r.timedOut, asUser: !!as, files: readSiteFiles(dir, { routesBase: ROUTES_BASE }) });
       } catch (e) {

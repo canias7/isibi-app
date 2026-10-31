@@ -17,6 +17,15 @@
 
 **Fix 1 (your approval, same day): the folder's writes are fenced and the list is merged.** Every upload and delete under `source/<site>/files/` first checks that the save still holds the site (its fence not lost; neither the list nor the editable copy written by a newer holder), and `files.json` is written with `fencedPut`, only if the list has not moved since it was read; if it moved it is read again and merged. A stale save writes nothing. The list is merged onto the latest stored one: a save sets the files it changed, removes the ones it took away, and keeps everything else, so two parts saved side by side that each added a file both end up listed. Tests CM16–CM18 (fail before the fix); sweep 7 of 7 killed, comment-only control survived.
 
+**The remaining risks, fixed (your approval, same day):**
+- **A save cut halfway / the same file saved twice at once:** each file's bytes are now stored by their fingerprint (`source/<site>/blobs/<hash>`), and the list names each file's fingerprint; it is switched in one write at the end, and old bytes are deleted only afterwards. A cut save leaves the old project whole; the list can never name bytes that are not there.
+- **Cost:** only new bytes are uploaded; an unchanged site's compile reads one object.
+- **Starter fixes:** each starter file remembers which starter version it came from. One the site never changed follows our newer copy automatically; one it changed is kept.
+- **A bad stored file:** a file whose bytes do not match, or that cannot be read after one retry, stops the build and is named. A failed build that points at a starter file the site changed says so, and it can be put back: the agent's new `restore_starter_file`, or for you `POST /api/site/source/restore`.
+- **The agent's shell** now starts from the site's folder, not our stock copy.
+
+Tests: `test/code-mirror.test.mjs` now 26 cases (CM19–CM26 new); `test/site-agent.test.mjs`'s shell landmark updated. Sweep: 16 of 16 killed, comment-only control survived. Related files: 308 tests, 0 failures.
+
 **Not done yet:** no live build has been compared file by file with its folder (the plan's first live check, which costs a build: needs your approval). The agent's `run` sandbox still starts from the image's template (the same files as the folder while no starter file is changed).
 
 ## 2026-10-31 — A paused part keeps going from where it left off (branch `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
