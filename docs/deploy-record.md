@@ -1729,6 +1729,13 @@ missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
 
+## Deploy 2295 — 2026-10-31 01:21 UTC (`3357ec12d`)
+
+A fast-forward from `f02ef0f58`, on the owner's word ("Deploy it"): pre-test fixes (credit backstop for first builds and helpers, compile-only builds no longer translate or charge, no stylesheet in new-site wording, part scope allows site chrome and new pages, cheap text conflict hands back) and dependency-aware helpers (wait-or-start scheduling in builds and edits). Full suite locally in two halves: 12,710 tests, 2 known local failures; unit CI 41142244625 green on `3357ec12d`, site build 41140641334 green on `8e6d7331c` (test-only change since). One deploy run (41154663120), green, 01:18–01:21 UTC.
+
+- **SiteBuildContainer:** `b7f1cfdd88a40486` (253 inputs, computed from the commit).
+- **Deployed, not runtime-confirmed.** Owed: the owner's free canary press.
+
 ## Deploy 2294 — 2026-10-30 21:40 UTC (`f02ef0f58`)
 
 A fast-forward from `cfb2bd39f`, on the owner's word ("fix all and then merge and deploy"): branch `final-combine` — projects-page delete fixes, the server-side project list, chats/settings/credits on the account, the agent's server tools, input tools (attachments, import, bulk rows), the old router steps ported to the agent, guardrails, fix-all (Stop, credit checks, charge after save, honest replies, safe rows, sort/media/site-address tools), the secure key card, and no fixed time limit (15-minute no-progress watchdog). Full suite locally 12,683 in two halves (3 known local failures); unit CI 41130673898 and site build 41130673994 green on `f02ef0f58`. One deploy run (41132375209), green, 21:37–21:40 UTC.
