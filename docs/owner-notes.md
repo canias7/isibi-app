@@ -1,5 +1,15 @@
 # Owner Notes
 
+## 2026-10-31 — A paused part keeps going from where it left off (branch `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
+
+**What you saw live.** The Northline Climbing test (the test account, three changes in one message): the Gallery part ran out of credits after 6 minutes, paused, and after the top-up restarted on its own (auto-resume works) but from a blank sheet: its first 6 minutes were thrown away. The phone-number part finished its work, then the save was refused for credits and it ended with "send it again", losing the work.
+
+**What changed.** When a part stops for credits, mid-work or at the save, the files it wrote are kept beside that request part (`carry/<site>/<part>.json` in storage), each with the site text it started from. When the part runs again it opens them, is told "keep going from where it left off", and only finishes what is missing. A file another part saved over in between is not overwritten: the site's newer text wins and the agent redoes that file. The carry is used once. A save refused for credits now pauses like a stop mid-work instead of ending the request.
+
+**Tests.** `test/agent-carry.test.mjs` (7 cases); one landmark in `test/agent-guardrails.test.mjs` updated. Sweep: 4 of 4 mutants killed, the comment-only control survived.
+
+**Also found in the same test (not fixed here):** the build cost 86 credits and never used helpers; the classes booking form writes to a closed table; the final reply showed raw check output; a flat white that already existed cost 15 credits to find.
+
 ## 2026-10-30 — Helpers wait only for what they need (branch `helper-deps`, from `main` `f02ef0f58`; not merged, not deployed, nothing paid)
 
 **Your rule:** "a task that needs a previous task waits; a task that doesn't need one starts right away", everywhere, including inside a build.

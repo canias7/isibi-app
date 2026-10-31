@@ -235,7 +235,7 @@ test("G6 a removed page and a photograph taken off reach the reply as undo facts
   assert.deepEqual(r.reply.undo.pagesRemoved, ["/menu"]);
   // the version before is read before the agent runs, and handed to the facts only when a save landed
   const fn = W.slice(W.indexOf("async function runAgentChange("), W.indexOf("async function recompileAndPublish(env, {"));
-  const ptr = fn.indexOf("readPointer(buildDeps(env), slug)"), run = fn.indexOf("await runOnce(request, { pages, parts, css })"); // the first run (combined 2026-10-30: the request carries the old steps' context)
+  const ptr = fn.indexOf("readPointer(buildDeps(env), slug)"), run = fn.indexOf("await runOnce(ask0, start)"); // the first run (combined 2026-10-30: the request carries the old steps' context); from the carry when one waits (2026-10-31)
   assert.ok(ptr > 0 && run > ptr);
   assert.match(fn, /undoFacts\(\{ before, after, version: out \? restoreTo : ""/);
   assert.match(undoSentence({ pagesRemoved: ["/menu"], restoreTo: PREV }), new RegExp("previous version \\(" + PREV + "\\)"));

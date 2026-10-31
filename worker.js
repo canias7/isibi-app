@@ -228,6 +228,7 @@ import { noteProgress } from "./builder/job-progress.mjs";
 import { runSiteAgent, stoppedFacts, agentTakes, historyText, asWriterAnswer, agentAttachments, agentAttachmentsFromBlocks } from "./builder/site-agent.mjs";
 import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { pdfText } from "./builder/pdf-text.mjs";
+import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "./builder/agent-carry.mjs";
 import { fileMap, workspaceDiff, changeReport, reviewNote, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
 import { writeAgentRows, undoRows, outcomeFacts, keyFacts, pickMedia } from "./builder/agent-outcome.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
@@ -17489,7 +17490,21 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // THE CHANGE IS ALWAYS MEASURED FROM THE SITE AS IT WAS, so a second run
   // that started from the first one's files still saves the first one's work.
   const settle = (r) => { const d = workspaceDiff(before, { pages: r.pages, parts: r.parts, css: r.css }); return { ...r, changed: d.changed, removed: d.removed, cssChanged: d.cssChanged }; };
-  let ag = settle(await runOnce(request, { pages, parts, css }));
+  // KEEP GOING FROM WHERE IT LEFT OFF (2026-10-31, `builder/agent-carry.mjs`):
+  // a part that paused for credits left its unsaved files beside the part;
+  // this attempt starts from them, the site's newer text winning.
+  const cKey = env.SITES_BUCKET ? carryKey(slug, rowKey) : "";
+  let start = { pages, parts, css }, ask0 = request, carried = null;
+  if (cKey) {
+    try {
+      const o = await env.SITES_BUCKET.get(cKey);
+      const c = o ? JSON.parse(await o.text()) : null;
+      const ap = c ? applyCarry(c, before) : null;
+      if (ap && ap.files) { start = fromFileMap(ap.files, css); ask0 = carryRequest(request, ap, c.note); carried = { kept: ap.kept, stale: ap.stale }; tm("agent:carry", "ok", carried); }
+    } catch { carried = null; }
+  }
+  let ag = settle(await runOnce(ask0, start));
+  if (carried) ag = { ...ag, carried };
   // ONE AUTOMATIC RETRY (2026-10-30): a run that stopped short for a reason
   // another run can get past goes once more, from the files it left, before
   // the customer is told. Billed like any run (the stopped one never was).
@@ -17502,6 +17517,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     // were never built has not finished the change: still a stop.
     if (ag.ok && !ag.ask && ag.changed.length && !ag.builds) ag = { ...ag, ok: false, stopped: "no-tool" };
   }
+  // A CARRY IS USED ONCE: any ending but another pause clears it.
+  if (cKey && ag.stopped !== "no-credits") { try { await env.SITES_BUCKET.delete(cKey); } catch { /* an old carry's files only win where the site still matches */ } }
   tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length, retried });
   const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed, ...(retried ? { retried } : {}) };
   // STOPPED BY THE OWNER (fix-all): nothing saved, nothing charged (a
@@ -17510,9 +17527,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     return { status: 410, body: { ok: false, error: "stopped", cancelled: true, layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [], msg: STOPPED_LINE } };
   }
   // OUT OF CREDITS PART-WAY (fix-all): the request flow's own pause
-  // (`unbilled` + `insufficient`): the part waits for a top-up and runs again
-  // from the site as it is (nothing of this run was saved or charged).
+  // (`unbilled` + `insufficient`): the part waits for a top-up. Nothing of
+  // this run is saved to the site or charged; its files wait as the part's
+  // carry, and the resumed part keeps going from them (2026-10-31).
   if (ag.stopped === "no-credits") {
+    if (cKey) { try { const c = makeCarry(before, ag, stoppedFacts(ag)); if (c) await env.SITES_BUCKET.put(cKey, JSON.stringify(c), { httpMetadata: { contentType: "application/json" } }); } catch { /* the part still pauses; it starts again from the site */ } }
     return { status: 402, body: { ok: false, error: "unbilled", detail: "insufficient", layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [],
       msg: stoppedFacts(ag) + " Nothing was charged; it can run again once credits are added." } };
   }
@@ -17681,6 +17700,17 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
       const rb = await undoEntries();
       return fail(503, { ok: false, error: "agent-css", ours: true, layer: "agent", agent: steps, deferred: [],
         msg: "The site agent's stylesheet could not be stored, so nothing was saved." + (rb ? " " + rb : "") });
+    }
+    // OUT OF CREDITS AT THE SAVE (2026-10-31, live: northline-climbing's
+    // header part finished its work and the save's charge was refused, so the
+    // part ended "send it again" and the work was lost). The same pause as a
+    // stop mid-work: the files wait as the part's carry for the top-up.
+    if (!out.ok && out.detail === "insufficient") {
+      await putBack();
+      const rb = await undoEntries();
+      if (cKey) { try { const c = makeCarry(before, ag, "it finished the change and only the save was left"); if (c) await env.SITES_BUCKET.put(cKey, JSON.stringify(c), { httpMetadata: { contentType: "application/json" } }); } catch { /* the part still pauses */ } }
+      return fail(402, { ok: false, error: "unbilled", detail: "insufficient", layer: "agent", unchanged: !rb || /put back\.$/.test(rb), agent: steps, deferred: [],
+        msg: "The site agent finished, but the account ran out of credits before it could save. Nothing was charged; it keeps going from its finished files once credits are added." + (rb ? " " + rb : "") });
     }
     if (!out.ok) {
       await putBack();
