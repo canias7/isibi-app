@@ -9,7 +9,9 @@
 // resumed part (the same request part, a later attempt) opens the carry and
 // starts from those files. A file the site has changed since (another part
 // saved over it) is NOT carried: the site's newer text wins, and the agent is
-// told to redo that file. Pure: storage is the caller's.
+// told to redo that file. Pure: storage is the caller's. The key lives under
+// the site's own `source/` prefix: a container job's storage gateway refuses
+// any other (live, 2026-10-31: a `carry/` key was refused, so nothing carried).
 
 import { fileMap } from "./agent-guard.mjs";
 
@@ -17,7 +19,7 @@ import { fileMap } from "./agent-guard.mjs";
 export function carryKey(slug, idem) {
   const m = /^([A-Za-z0-9_-]+-p\d+)-\d+$/.exec(String(idem || ""));
   const s = String(slug || "");
-  return m && /^[a-z0-9-]+$/.test(s) ? "carry/" + s + "/" + m[1] + ".json" : "";
+  return m && /^[a-z0-9-]+$/.test(s) ? "source/" + s + "/carry/" + m[1] + ".json" : "";
 }
 
 /**

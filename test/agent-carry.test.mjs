@@ -3,6 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "../builder/agent-carry.mjs";
 
 const HOME = "home v1", HEAD = "header v1";
@@ -10,11 +11,12 @@ const site = { pages: [{ path: "index.tsx", source: HOME }], parts: [{ name: "si
 const stopped = { pages: [{ path: "index.tsx", source: HOME }, { path: "gallery.tsx", source: "gallery half" }], parts: [{ name: "site-header", source: "header + Gallery link" }], css: "a{}", changed: ["gallery.tsx", "-parts/site-header"], removed: [] };
 
 test("AC1 the carry is keyed by the request part, the same for every attempt", () => {
-  assert.equal(carryKey("northline-climbing", "771846a2-p1-2"), "carry/northline-climbing/771846a2-p1.json");
+  assert.equal(carryKey("northline-climbing", "771846a2-p1-2"), "source/northline-climbing/carry/771846a2-p1.json");
   assert.equal(carryKey("northline-climbing", "771846a2-p1-7"), carryKey("northline-climbing", "771846a2-p1-2"));
   assert.notEqual(carryKey("s", "k-p0-1"), carryKey("s", "k-p1-1"));
   assert.equal(carryKey("s", "8367ff86"), "", "a key that is not a part's carries nothing");
   assert.equal(carryKey("../x", "k-p1-1"), "");
+  assert.ok(allowedJobKey("northline-climbing", "job1", carryKey("northline-climbing", "k-p1-2")), "a container job's gateway lets it read and write the carry");
 });
 
 test("AC2 the carry holds each written file with the site text it started from", () => {
