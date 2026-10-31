@@ -254,9 +254,9 @@ test("the build's refs: one per debit, the job's id under the queue, carried to 
   // rather than writing a look without the owner's logo (audit A26-1).
   // THIRTEEN SINCE 2026-10-24: a first build whose page writer asks a question
   // gives back everything it took (build questions), as the design question does.
-  assert.equal((route.match(/const back = await refundFields\(\);/g) || []).length, 13,
-    "the thirteen refusals no longer all reverse through the ledger of refs");
-  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 14,
+  assert.equal((route.match(/const back = await refundFields\(\);/g) || []).length, 14,
+    "the fourteen refusals (the fourteenth: the agent's credit backstop, pretest-fixes) no longer all reverse through the ledger of refs");
+  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 15,
     "a reversal was added or removed outside the ten refusals — say which, here");
   // What the reply carries.
   assert.match(route, /exempt: \(exempt \|\| \(pages && pages\.exempt === true\)\) \? true : undefined,/, "the reply does not carry exempt");

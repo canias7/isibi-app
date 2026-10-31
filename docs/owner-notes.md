@@ -1,5 +1,33 @@
 # Owner Notes
 
+## 2026-10-30 — Helpers wait only for what they need (branch `helper-deps`, from `main` `f02ef0f58`; not merged, not deployed, nothing paid)
+
+**Your rule:** "a task that needs a previous task waits; a task that doesn't need one starts right away", everywhere, including inside a build.
+
+**What changed** (`builder/site-agent.mjs`, one line in `runAgentChange` in `worker.js`):
+1. **A helper task can say what it waits for** (`after`: another task in the same call, by its file or id, or a file that must exist). Every task with nothing to wait for starts at once; when a task finishes, its file goes into the shared workspace straight away and every task now free starts, reading that file.
+2. **Refused before anything runs:** tasks that wait for each other in a circle, a task waiting for itself, and a wait for something that is neither a task nor an existing file. The agent is told why.
+3. **A task whose dependency was not written is skipped**, and the agent is told which one and why, so it decides what to do. Unrelated tasks still run.
+4. **Six helpers run at once (as before), but one call can now hold 24 tasks**; the rest wait for a free helper.
+5. **Helpers may now write a component used by one page or a server function**, not only pages. Never the stylesheet.
+6. **Your live progress shows each helper:** "The /menu page: waiting for the "site-header" component.", "started.", "done (N characters).", or "skipped".
+7. **Edits get helpers too**, for a change with several independent pieces. A helper keeps the change's scope: a file outside the part asked for is refused both when the task is handed over and when the helper writes.
+
+**Tests:** `test/site-agent-helper-deps.test.mjs`, 8 cases (all fail on `main`): independent tasks run together, a dependent waits and reads its dependency's file, a chain runs in order, cycles and unknown names are refused, a failed dependency skips its dependents, the progress lines, at most six at once, and edits get helpers that obey the scope guard. One older case updated (components are now allowed). Mutation sweep 12 of 12 killed, comment-only control survived. **Nothing spent, no model calls.**
+
+## 2026-10-30 — Fixes before the paid live test (branch `pretest-fixes`, from `main` `f02ef0f58`; not merged, not deployed, nothing paid)
+
+**What changed:**
+1. **A first build now has a credit check.** The site agent writing a new site was never asked whether the balance covered it, so it had no spending stop at all. It is now asked before its first round and every 5 rounds, the same check edits use (by account under a queued job). Helpers get the same check. If the credits run out, the build stops: nothing is published, every credit the build took is given back, and the reply says the account ran out of credits (402).
+2. **The agent's test builds no longer translate or charge.** On a site with extra languages, each "build" or "look" the agent did while working translated the pages, charged for it and wrote the language cache, even though nothing was published. Now only the real save translates, charges and writes.
+3. **New sites: no stylesheet to write.** A new site's agent was told to write the stylesheet first, but a first build makes the stylesheet from the design and the agent could not write it ("could not be read"). The instructions no longer mention it for a new site, and the refusal now says plainly that the build makes it from the design and to style with classes. (Chosen over carrying the agent's stylesheet into the build, which would change the build's design and publish path.)
+4. **A part's scope is less strict.** A part limited to some pages may now also create a page at its own address that does not exist yet, and change the site's shared header, footer and menu components (those the home page imports, or that two or more pages import). Unrelated pages are still refused.
+5. **The cheap wording path** now hands back a save lost to another part's turn, so the request re-runs it, instead of starting the full agent on a lost turn.
+
+**Tests:** `test/pretest-fixes.test.mjs` (6 cases, red on `main`). Mutation sweep: 13 mutants, all killed; the comment-only control survived. Two source-reading tests were updated for the new refusal (the build route now has 14 refusals that give credits back).
+
+**Nothing spent, no model calls, no live writes.**
+
 ## 2026-10-30 — The final combination before deploy (branch `final-combine`, not merged, not deployed, nothing paid)
 
 **What it is:** `key-card` (which already holds `agent-fix-all` and `combine-agent-server`) with `no-time-limit` merged on top. Everything from each branch is kept:

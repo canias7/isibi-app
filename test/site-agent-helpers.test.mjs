@@ -3,7 +3,7 @@
 // writes only its own page, and their cost joins the run's.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runSiteAgent, toolsFor, MAX_HELPERS } from "../builder/site-agent.mjs";
+import { runSiteAgent, toolsFor, MAX_HELPERS, MAX_HELPER_TASKS } from "../builder/site-agent.mjs";
 
 const use = (name, input) => ({ type: "tool_use", name, input });
 const answer = (...uses) => ({ content: uses, usage: { input_tokens: 1000, output_tokens: 200 }, stop_reason: "tool_use" });
@@ -18,7 +18,7 @@ function router(main, helperScripts, { gate = null } = {}) {
     seen,
     send: async (req) => {
       const first = req.messages[0].content[0].text;
-      const m = /handed you ONE page to write: (\S+)\. /.exec(first);
+      const m = /handed you ONE file to write: (\S+)\. /.exec(first);
       const who = m ? m[1] : "main";
       seen.push({ who, tools: req.tools.map((t) => t.name) });
       if (who !== "main" && gate) await gate(who);
@@ -68,7 +68,7 @@ test("HLP2 a helper writes only its own page; what it could not write comes back
   const refused = [];
   const send = async (req) => {
     const last = req.messages[req.messages.length - 1];
-    if (/handed you ONE page/.test(req.messages[0].content[0].text) && last.role === "user" && Array.isArray(last.content)) for (const b of last.content) if (b.type === "tool_result" && b.is_error) refused.push(String(b.content));
+    if (/handed you ONE file/.test(req.messages[0].content[0].text) && last.role === "user" && Array.isArray(last.content)) for (const b of last.content) if (b.type === "tool_result" && b.is_error) refused.push(String(b.content));
     if (last.role === "user" && Array.isArray(last.content)) for (const b of last.content) if (b.type === "tool_result" && /helpers are back/.test(String(b.content))) told = b.content;
     return s.send(req);
   };
@@ -80,19 +80,18 @@ test("HLP2 a helper writes only its own page; what it could not write comes back
   assert.ok(!r.parts.length, "the helper wrote a shared component");
 });
 
-test("HLP3 the tasks are checked: pages only, no duplicates, a brief each, at most MAX_HELPERS", async () => {
+test("HLP3 the tasks are checked: never the stylesheet, no duplicates, a brief each, at most MAX_HELPER_TASKS", async () => {
   const bad = [
-    { tasks: [{ file: "-parts/x", brief: "b" }] },
     { tasks: [{ file: "styles.css", brief: "b" }] },
     { tasks: [{ file: "a.tsx", brief: "b" }, { file: "a.tsx", brief: "c" }] },
     { tasks: [{ file: "a.tsx", brief: "" }] },
-    { tasks: Array.from({ length: MAX_HELPERS + 1 }, (_, i) => ({ file: "p" + i + ".tsx", brief: "b" })) },
+    { tasks: Array.from({ length: MAX_HELPER_TASKS + 1 }, (_, i) => ({ file: "p" + i + ".tsx", brief: "b" })) },
   ];
   for (const input of bad) {
     let err = null;
     let helperRan = false;
     const send = async (req) => {
-      if (/handed you ONE page/.test(req.messages[0].content[0].text)) { helperRan = true; return answer(use("finish", { summary: "" })); }
+      if (/handed you ONE file/.test(req.messages[0].content[0].text)) { helperRan = true; return answer(use("finish", { summary: "" })); }
       const last = req.messages[req.messages.length - 1];
       for (const b of Array.isArray(last.content) ? last.content : []) if (b.type === "tool_result") err = b;
       return err ? answer(use("finish", { summary: "" })) : answer(use("helpers", input));

@@ -100,7 +100,9 @@ test("PA1 a two-change message is split by the router and each part is run by th
     assert.equal(seen.length, 2, "two agents: " + JSON.stringify(seen.map((s) => s.who)));
     const forA = seen.find((s) => s.who === A), forB = seen.find((s) => s.who === B.slice(1));
     assert.ok(forA && forB, "an agent was not run for each part");
-    const req = (s) => s.text.slice(s.text.indexOf("THE OWNER'S REQUEST"));
+    // ONLY THE REQUEST'S OWN WORDS: the site map below them may already show the
+    // other part's saved change when that part finished first (CI, 2026-10-30).
+    const req = (s) => { const at = s.text.indexOf("THE OWNER'S REQUEST"); assert.ok(at >= 0, "no request section"); const rest = s.text.slice(at); const end = rest.indexOf("\n\n"); return end > 0 ? rest.slice(0, end) : rest; };
     assert.ok(!req(forA).includes("Baked at dawn"), "part 0's agent was handed part 1's words: " + req(forA));
     assert.ok(!req(forB).includes("Find us"), "part 1's agent was handed part 0's words: " + req(forB));
     // THE ROUTER RAN (once per part); NO OLD LANE WAS ASKED.
