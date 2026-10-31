@@ -7317,7 +7317,13 @@ const ST_ROW_ACTS = [
   ['path', 'Copy path', 'code'],
   ['text', 'Copy contents', 'doc'],
   ['file', 'Download', 'download'],
+  // THE ONE WRITE, AND ONLY WHERE IT MEANS SOMETHING (owner, 2026-10-31): a
+  // starter or kit file whose stored copy differs from its starter version
+  // can be put back to it. Hidden on every other row (`stRowRestorable`).
+  ['restore', 'Restore original', 'history'],
 ];
+/** Whether a row's file is a changed starter file the menu may restore. */
+function stRowRestorable(f) { return !!(f && f.kind === 'project' && f.changed === true); }
 // ONE MENU FOR THE WHOLE TREE, moved to whichever row asked for it. Twenty-eight
 // rows would otherwise carry twenty-eight hidden menus, and only one can ever be
 // open — the extra twenty-seven are markup nobody reads and a second place for
@@ -7400,7 +7406,7 @@ function stSrcFiles(src) {
       const note = f.missing ? 'This file is in the project but could not be read just now.'
         : bin ? 'A binary file (' + (Number(f.size) || 0) + ' bytes). It is in the download.' : '';
       out.push(Object.assign({ name: f.path, text: typeof f.source === 'string' ? f.source : '', kind: 'project', note: note },
-        bin ? { base64: f.base64 } : {}, f.missing ? { missing: true } : {}));
+        bin ? { base64: f.base64 } : {}, f.missing ? { missing: true } : {}, f.changed === true ? { changed: true } : {}));
     }
     return out;
   }
@@ -7770,6 +7776,7 @@ function drawSiteCode(src) {
       if (was || !menu) return;                       // a second press shuts it
       menuFor = b.dataset.srcmore;
       b.setAttribute('aria-expanded', 'true');
+      { const rs = menu.querySelector('[data-act="restore"]'); if (rs) rs.hidden = !stRowRestorable(files.find((x) => x.name === menuFor)); }
       // POSITIONED OFF THE HANDLE'S OWN RECT, and flipped up when there is not
       // room below — a menu on the last row of a long tree would otherwise open
       // past the bottom of the panel with its entries unreachable.
@@ -7842,6 +7849,19 @@ function drawSiteCode(src) {
       // Closing over the file object would hand back whatever the tree held when
       // the menu was drawn, and a rebuild between the two is an ordinary thing.
       const f = files.find((x) => x.name === menuFor);
+      // RESTORE ORIGINAL: the owner's restore route, then the tab read again,
+      // so what it shows is the folder as it now stands.
+      if (it.dataset.act === 'restore') {
+        closeMenu();
+        if (!stRowRestorable(f)) return;
+        apiFetch('/api/site/source/restore', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug: src.slug, path: f.name }) })
+          .then((r) => r.json().catch(() => ({})).then((d) => {
+            if (r.ok && d && d.ok) { if (typeof sbToast === 'function') sbToast(f.name.split('/').pop() + ' is back to its original. It is used from the next build.'); loadSiteCode({ slug: src.slug }); }
+            else if (typeof sbToast === 'function') sbToast('Couldn\u2019t restore ' + f.name.split('/').pop() + (d && d.error ? ': ' + d.error : '') + '.');
+          }))
+          .catch(() => { if (typeof sbToast === 'function') sbToast('Couldn\u2019t restore it just now \u2014 try again in a moment.'); });
+        return;
+      }
       const said = stRowMenuAct(it.dataset.act, f, {
         copy: (t) => { try { navigator.clipboard.writeText(t); } catch (err) {} },
         save: (t, n) => stSaveBlob(new Blob([t], { type: 'text/plain' }), n),

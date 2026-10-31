@@ -171,15 +171,16 @@ test("CM4 the store uploads only what changed, writes the list last, and deletes
   assert.deepEqual(b.log.filter((l) => l[0] === "put").at(-1), ["put", PROJECT_LIST_KEY("new-site")], "the list is written last");
   b.log.length = 0;
   const second = await saveProject(b, "new-site", snapOf({ "src/router.tsx": "r1", "src/routes/index.tsx": "home v2" }));
-  // The old index bytes and /old's bytes both go, once the list no longer names them.
-  assert.deepEqual(second, { ok: true, files: 2, uploaded: 1, removed: 2 });
+  // The old index bytes and /old's bytes are RETIRED, never deleted by the save that unreferenced them (fix A).
+  assert.deepEqual(second, { ok: true, files: 2, uploaded: 1, removed: 0 });
   assert.deepEqual(b.log.filter((l) => l[0] === "put").map((l) => l[1]), [PROJECT_BLOB_KEY("new-site", sha(Buffer.from("home v2"))), PROJECT_LIST_KEY("new-site")], "only the changed file went up");
-  assert.ok(!b.store.has(PROJECT_BLOB_KEY("new-site", sha(Buffer.from("old")))), "the removed page's bytes are still kept");
+  assert.ok(b.store.has(PROJECT_BLOB_KEY("new-site", sha(Buffer.from("old")))), "the save that unreferenced the bytes deleted them");
   const list = await readProjectList(b, "new-site");
   assert.equal(list.state, "read");
   assert.deepEqual(list.files.map((f) => f.path), ["src/router.tsx", "src/routes/index.tsx"]);
   // THE FOLDER IS THE LIST, EXACTLY: every key under it is named, every name has a key.
-  assert.deepEqual(blobKeys(b, "new-site"), [...new Set(list.files.flatMap((f) => [f.sha256, f.starter].filter(Boolean)))].sort());
+  assert.deepEqual(blobKeys(b, "new-site"), [...new Set([...list.files.flatMap((f) => [f.sha256, f.starter].filter(Boolean)), ...Object.keys(list.retired)])].sort());
+  assert.deepEqual(Object.keys(list.retired).sort(), [sha(Buffer.from("home")), sha(Buffer.from("old"))].sort());
   const got = await readProjectFiles(b, "new-site", list.files);
   assert.deepEqual(got.map((f) => f.source), ["r1", "home v2"]);
 });
@@ -481,7 +482,7 @@ test("CM17 DRIVEN: two parts saved side by side from the same list, each adding 
   assert.equal(bb.ok, true, bb.why);
   const list = await readProjectList(b, "par");
   assert.deepEqual(list.files.map((f) => f.path), ["src/router.tsx", "src/routes/about.tsx", "src/routes/index.tsx", "src/routes/menu.tsx"], "a part's list dropped the other's file, or kept a removed one");
-  assert.deepEqual(blobKeys(b, "par"), [...new Set(list.files.flatMap((f) => [f.sha256, f.starter].filter(Boolean)))].sort(), "the folder and its list disagree");
+  assert.deepEqual(blobKeys(b, "par"), [...new Set([...list.files.flatMap((f) => [f.sha256, f.starter].filter(Boolean)), ...Object.keys(list.retired)])].sort(), "the folder and its list disagree");
 });
 
 test("CM18 the list write is conditional: a list that moved between the read and the write is read again and merged", async () => {
@@ -496,7 +497,7 @@ test("CM18 the list write is conditional: a list that moved between the read and
         const o = await b.get(PROJECT_LIST_KEY("race"));
         const cur = await readProjectList(b, "race");
         if (!raced) { raced = true; await saveProject(b, "race", snapOf({ "src/routes/index.tsx": "home", "src/routes/b.tsx": "b" }), { base }); }
-        if (await b.put(PROJECT_LIST_KEY("race"), JSON.stringify({ v: 2, files: merge(cur.files) }), { onlyIf: { etagMatches: o.etag } })) return true;
+        if (await b.put(PROJECT_LIST_KEY("race"), JSON.stringify({ v: 2, ...merge(cur) }), { onlyIf: { etagMatches: o.etag } })) return true;
       }
       return false;
     },
@@ -683,4 +684,130 @@ test("CM26 fix 7: the agent's shell starts from the site's folder", () => {
     applyOverlay({ app: dir, fs, path, files: [{ path: "src/lib/rows.ts", base64: Buffer.from("site rows").toString("base64") }] });
     assert.equal(fs.readFileSync(path.join(dir, "src/lib/rows.ts"), "utf8"), "site rows");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── FIX A (2026-10-31, the owner): RETIRED, THEN DELETED BY A LATER SAVE ────
+
+test("CMA1 a hash no entry names is retired with its time, deleted only by a later save over an hour on, and un-retired when named again", async () => {
+  const b = memBucket();
+  let t = 1_000_000;
+  const clock = () => t;
+  await saveProject(b, "ret", snapOf({ "src/routes/index.tsx": "v1" }), { now: clock });
+  const v1 = sha(Buffer.from("v1"));
+  await saveProject(b, "ret", snapOf({ "src/routes/index.tsx": "v2" }), { now: clock });
+  assert.equal((await readProjectList(b, "ret")).retired[v1], t, "the unreferenced hash was not retired with its time");
+  assert.ok(b.store.has(PROJECT_BLOB_KEY("ret", v1)));
+  t += 30 * 60 * 1000;
+  await saveProject(b, "ret", snapOf({ "src/routes/index.tsx": "v2", "src/routes/a.tsx": "a" }), { now: clock });
+  assert.ok(b.store.has(PROJECT_BLOB_KEY("ret", v1)), "deleted before its hour was up");
+  t += 31 * 60 * 1000;
+  const r = await saveProject(b, "ret", snapOf({ "src/routes/index.tsx": "v2", "src/routes/a.tsx": "a" }), { now: clock });
+  assert.equal(r.removed, 1);
+  assert.ok(!b.store.has(PROJECT_BLOB_KEY("ret", v1)), "a hash retired over an hour ago was kept");
+  assert.equal((await readProjectList(b, "ret")).retired[v1], undefined, "a deleted hash stayed on the map");
+  // UN-RETIRED: bytes named again come off the map and are never deleted.
+  const v2 = sha(Buffer.from("v2"));
+  await saveProject(b, "ret", snapOf({ "src/routes/index.tsx": "v3", "src/routes/a.tsx": "a" }), { now: clock });
+  assert.ok(Object.hasOwn((await readProjectList(b, "ret")).retired, v2));
+  t += 10 * 60 * 1000; // within the hour, so only the un-retire can take it off the map
+  await saveProject(b, "ret", snapOf({ "src/routes/index.tsx": "v2", "src/routes/a.tsx": "a" }), { now: clock });
+  const after = await readProjectList(b, "ret");
+  assert.equal(after.retired[v2], undefined, "a hash named again stayed retired");
+  assert.ok(b.store.has(PROJECT_BLOB_KEY("ret", v2)), "bytes named again were deleted");
+  const [f] = await readProjectFiles(b, "ret", after.files.filter((x) => x.path === "src/routes/index.tsx"));
+  assert.equal(f.source, "v2");
+});
+
+test("CMA2 the race: a save writing the same bytes during another save's cleanup keeps its blob", async () => {
+  const b = memBucket();
+  let t = 0;
+  const clock = () => t;
+  const X = "the same bytes", hx = sha(Buffer.from(X));
+  await saveProject(b, "rc", snapOf({ "src/routes/index.tsx": X }), { now: clock });
+  await saveProject(b, "rc", snapOf({ "src/routes/index.tsx": "other" }), { now: clock });
+  t += 2 * 60 * 60 * 1000;
+  // SAVE B starts from a list that does not name X, so it uploads X's bytes ...
+  const baseB = await readProjectList(b, "rc");
+  // ... and SAVE A's cleanup deletes X right after B's upload, before B's switch.
+  const realPut = b.put.bind(b);
+  let cleanupRan = false;
+  b.put = async (k, body, o) => {
+    const r = await realPut(k, body, o);
+    if (!cleanupRan && k === PROJECT_BLOB_KEY("rc", hx)) {
+      cleanupRan = true;
+      await saveProject(b, "rc", snapOf({ "src/routes/index.tsx": "other", "src/routes/z.tsx": "z" }), { now: clock });
+      assert.ok(!b.store.has(PROJECT_BLOB_KEY("rc", hx)), "the race was not staged: A's cleanup did not delete X");
+    }
+    return r;
+  };
+  const r = await saveProject(b, "rc", snapOf({ "src/routes/index.tsx": "other", "src/routes/z.tsx": "z", "src/routes/x.tsx": X }), { base: baseB, now: clock });
+  assert.equal(r.ok, true, r.why);
+  assert.ok(b.store.has(PROJECT_BLOB_KEY("rc", hx)), "B's blob was lost to A's cleanup");
+  const list = await readProjectList(b, "rc");
+  const got = await readProjectFiles(b, "rc", list.files);
+  assert.ok(got.every((f) => !f.missing), "the list names bytes that are not stored");
+  assert.equal(list.retired[hx], undefined);
+});
+
+// ── FIX B (2026-10-31, the owner): "RESTORE ORIGINAL" IN THE CODE TAB ───────
+
+test("CMB1 DRIVEN: the route marks a starter file the site changed, and only that one", async () => {
+  const slug = "gf-mirror-" + (++caseNo);
+  const b = memBucket();
+  await changedStarter(b, slug);
+  // AND AN UNCHANGED STARTER FILE beside it (its bytes are its starter version).
+  const extra = snapOf({ "src/router.tsx": "r" }).files[0];
+  const cur = await readProjectList(b, slug);
+  await b.put(PROJECT_BLOB_KEY(slug, extra.sha256), Buffer.from("r"));
+  await b.put(PROJECT_LIST_KEY(slug), JSON.stringify({ v: 2, files: [...cur.files, { path: extra.path, size: extra.size, sha256: extra.sha256, starter: extra.starter, starterSize: 1 }], retired: {} }));
+  const r = await callSource(b, slug);
+  const by = Object.fromEntries(r.body.project.map((f) => [f.path, f]));
+  assert.equal(by["src/lib/rows.ts"].changed, true);
+  assert.equal(by["src/router.tsx"].changed, undefined, "an unchanged starter file was offered a restore");
+  assert.equal(by["src/routes/index.tsx"].changed, undefined, "a page was offered a restore");
+});
+
+test("CMB2 the menu offers Restore original on a changed starter file only, and it calls the owner's restore then reloads the tab", () => {
+  const tree = new Function(fn("function stRowRestorable(") + "\n" + fn("function stSrcFiles(") + "\n" + fn("function stSrcPath(") + "\nreturn { stRowRestorable, stSrcFiles };")();
+  const files = tree.stSrcFiles({ project: [
+    { path: "src/lib/rows.ts", size: 1, sha256: "b".repeat(64), changed: true, source: "x" },
+    { path: "src/lib/utils.ts", size: 1, sha256: "d".repeat(64), source: "y" },
+  ] });
+  assert.equal(tree.stRowRestorable(files[0]), true, "the changed file lost its restore");
+  assert.equal(tree.stRowRestorable(files[1]), false);
+  assert.equal(tree.stRowRestorable({ kind: "kit", changed: true }), false, "an old site's row was offered a restore");
+  assert.match(CHAT, /\['restore', 'Restore original', 'history'\]/);
+  // THE OPENER HIDES IT PER ROW, AND THE PRESS CALLS THE ROUTE, THEN READS THE TAB AGAIN.
+  assert.match(CHAT, /if \(rs\) rs\.hidden = !stRowRestorable\(files\.find\(\(x\) => x\.name === menuFor\)\);/);
+  const at = CHAT.indexOf("if (it.dataset.act === 'restore') {");
+  assert.ok(at > 0);
+  const body = CHAT.slice(at, CHAT.indexOf("return;\n      }", at));
+  assert.match(body, /if \(!stRowRestorable\(f\)\) return;/);
+  assert.match(body, /apiFetch\('\/api\/site\/source\/restore', \{ method: 'POST'/);
+  assert.match(body, /JSON\.stringify\(\{ slug: src\.slug, path: f\.name \}\)/);
+  assert.match(body, /loadSiteCode\(\{ slug: src\.slug \}\)/);
+  assert.match(read("../public/styles.css"), /\.st-row-item\[hidden\] \{ display: none; \}/, "a hidden entry would still show");
+});
+
+test("CMA3 the race after the switch: bytes another save names again between this save's switch and its cleanup are kept", async () => {
+  const b = memBucket();
+  let t = 0;
+  const clock = () => t;
+  const X = "old bytes", hx = sha(Buffer.from(X));
+  await saveProject(b, "rc2", snapOf({ "src/routes/index.tsx": X }), { now: clock });
+  await saveProject(b, "rc2", snapOf({ "src/routes/index.tsx": "new" }), { now: clock });
+  t += 2 * 60 * 60 * 1000;
+  // THIS SAVE'S LIST WRITE DOOMS X; RIGHT AFTER IT, ANOTHER SAVE'S LIST NAMES X AGAIN.
+  const r = await saveProject(b, "rc2", snapOf({ "src/routes/index.tsx": "new", "src/routes/b.tsx": "b" }), {
+    now: clock,
+    putList: async (m) => {
+      const cur = await readProjectList(b, "rc2");
+      const next = m(cur);
+      await b.put(PROJECT_LIST_KEY("rc2"), JSON.stringify({ v: 2, ...next }));
+      await b.put(PROJECT_LIST_KEY("rc2"), JSON.stringify({ v: 2, files: [...next.files, { path: "src/routes/x.tsx", size: 9, sha256: hx }], retired: next.retired }));
+      return true;
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.ok(b.store.has(PROJECT_BLOB_KEY("rc2", hx)), "bytes the current list names were deleted by the cleanup");
 });

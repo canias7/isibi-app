@@ -2223,6 +2223,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-row-menu { position: fixed; display: none; z-index: 60; min-width: 170px; padding: .3rem; background: var(--bg); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.22); }
 .st-row-menu.open { display: block; }
 .st-row-item { display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left; font: inherit; font-size: .8rem; color: var(--text); background: none; border: none; border-radius: 8px; padding: .4rem .55rem; cursor: pointer; white-space: nowrap; }
+.st-row-item[hidden] { display: none; }
 .st-row-item:hover, .st-row-item:focus-visible { background: var(--panel-2); }
 .st-row-ic { display: flex; color: var(--muted); }
 /* A file the store has and we could not place. Shown rather than dropped, and

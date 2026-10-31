@@ -228,7 +228,13 @@ export async function readProjectList(bucket, slug) {
     if (!v || v.v !== PROJECT_LIST_VERSION || !Array.isArray(v.files)) return { state: "unreadable", files: [] };
     const files = v.files.map(cleanEntry);
     if (files.some((f) => !f)) return { state: "unreadable", files: [] };
-    return { state: "read", files };
+    // THE RETIRED HASHES (the owner's fix A): bytes no entry names any more,
+    // with when they stopped being named; deleted by a LATER save, an hour on.
+    const retired = {};
+    if (v.retired && typeof v.retired === "object" && !Array.isArray(v.retired)) {
+      for (const [h, at] of Object.entries(v.retired)) if (/^[0-9a-f]{64}$/.test(h) && Number.isFinite(at)) retired[h] = at;
+    }
+    return { state: "read", files, retired };
   } catch { return { state: "unreadable", files: [] }; }
 }
 
@@ -259,7 +265,11 @@ const bytesToB64 = (u) => {
  * directly. A snapshot that fails its shape, a refused guard or a failed
  * upload writes no list.
  */
-export async function saveProject(bucket, slug, snapshot, { base = null, guard = null, putList = null, concurrency = 8 } = {}) {
+/** How long a hash no entry names is kept before a later save may delete its bytes. */
+export const RETIRE_MS = 60 * 60 * 1000;
+const namedShas = (files) => new Set((Array.isArray(files) ? files : []).flatMap((f) => [f.sha256, f.starter].filter(Boolean)));
+
+export async function saveProject(bucket, slug, snapshot, { base = null, guard = null, putList = null, concurrency = 8, now = () => Date.now() } = {}) {
   if (!bucket) return { ok: false, why: "no bucket" };
   if (!snapshot || snapshot.ok !== true || !Array.isArray(snapshot.files) || !snapshot.files.length) return { ok: false, why: (snapshot && snapshot.why) || "no snapshot" };
   const from = base || await readProjectList(bucket, slug);
@@ -281,20 +291,35 @@ export async function saveProject(bucket, slug, snapshot, { base = null, guard =
     if (e.starter && e.starter !== e.sha256 && !heldShas.has(e.starter)) blobs.set(e.starter, f.starterBase64);
   }
   const dropped = new Set([...had.keys()].filter((p) => !set.has(p)));
+  // THE NEW LIST, MERGED ONTO THE LATEST: `latest` is the list as read
+  // ({files, retired}), and the answer is the list to write. Hashes the base
+  // named that the new files do not are RETIRED with the time (never deleted
+  // by this save: the owner's fix A); a retired hash the new files name again
+  // is un-retired; a hash retired over RETIRE_MS ago and still named by
+  // nothing is taken off the map, and its bytes are deleted after the switch.
+  let doomed = [];
   const merge = (latest) => {
     const out = new Map();
-    for (const f of Array.isArray(latest) ? latest : []) if (!dropped.has(f.path)) out.set(f.path, f);
+    for (const f of (latest && Array.isArray(latest.files)) ? latest.files : []) if (!dropped.has(f.path)) out.set(f.path, f);
     // A file this save changed wins; one it left as it was keeps the latest
     // entry (another part may have changed it since); one the latest list
     // lacks but this save holds unchanged is added back from the snapshot.
     for (const [p, e] of set) if (changed.has(p) || !out.has(p)) out.set(p, e);
-    return [...out.values()].sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+    const files = [...out.values()].sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+    const named = namedShas(files);
+    const at = now();
+    const retired = {};
+    for (const [h, t] of Object.entries((latest && latest.retired) || {})) if (!named.has(h)) retired[h] = t;
+    for (const h of heldShas) if (!named.has(h) && !Object.hasOwn(retired, h)) retired[h] = at;
+    doomed = Object.keys(retired).filter((h) => at - retired[h] > RETIRE_MS);
+    for (const h of doomed) delete retired[h];
+    return { files, retired };
   };
   const writeList = putList || (async (m) => {
     const o = await bucket.get(PROJECT_LIST_KEY(slug));
-    let latest = [];
-    if (o) { const cur = await readProjectList({ get: async () => o }, slug); if (cur.state !== "read") return false; latest = cur.files; }
-    const put = await bucket.put(PROJECT_LIST_KEY(slug), JSON.stringify({ v: PROJECT_LIST_VERSION, files: m(latest) }), {
+    let latest = { files: [], retired: {} };
+    if (o) { const cur = await readProjectList({ get: async () => o }, slug); if (cur.state !== "read") return false; latest = cur; }
+    const put = await bucket.put(PROJECT_LIST_KEY(slug), JSON.stringify({ v: PROJECT_LIST_VERSION, ...m(latest) }), {
       httpMetadata: { contentType: "application/json" }, onlyIf: o && o.etag ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" } });
     return !!put;
   });
@@ -313,21 +338,29 @@ export async function saveProject(bucket, slug, snapshot, { base = null, guard =
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, one));
     if (guard) await guard();
-    let files = null;
-    const ok = await writeList((latest) => (files = merge(latest)));
+    let next = null;
+    const ok = await writeList((latest) => (next = merge(latest)));
     if (!ok) return { ok: false, why: "the list could not be written" };
-    listed = files;
+    listed = next.files;
   } catch (err) { return { ok: false, why: "store: " + String((err && err.message) || err).slice(0, 120) }; }
-  // AFTER THE SWITCH, AND AGAINST THE LIST AS IT NOW STANDS: a blob the base
-  // named that no current entry names (as its bytes or its starter) goes.
+  // AFTER THE SWITCH: the bytes this save uploaded are checked to be there
+  // (another save's cleanup may have deleted the same hash between this
+  // save's upload and its switch) and put back if not; then only the hashes
+  // retired over an hour ago, and still named by nothing now, are deleted.
   let removed = 0;
   try {
-    const now = await readProjectList(bucket, slug);
-    if (now.state === "read") {
-      const named = new Set(now.files.flatMap((f) => [f.sha256, f.starter].filter(Boolean)));
-      for (const sha of heldShas) {
-        if (named.has(sha)) continue;
-        try { if (guard) await guard(); await bucket.delete(PROJECT_BLOB_KEY(slug, sha)); removed++; } catch { /* an orphan blob, never named */ }
+    for (const [sha, b64] of blobs) {
+      const there = typeof bucket.head === "function" ? await bucket.head(PROJECT_BLOB_KEY(slug, sha)) : await bucket.get(PROJECT_BLOB_KEY(slug, sha));
+      if (!there) { if (guard) await guard(); await bucket.put(PROJECT_BLOB_KEY(slug, sha), b64ToBytes(b64), { httpMetadata: { contentType: "application/octet-stream" }, customMetadata: { sha256: sha } }); }
+    }
+    if (doomed.length) {
+      const cur = await readProjectList(bucket, slug);
+      if (cur.state === "read") {
+        const named = namedShas(cur.files);
+        for (const sha of doomed) {
+          if (named.has(sha)) continue;
+          try { if (guard) await guard(); await bucket.delete(PROJECT_BLOB_KEY(slug, sha)); removed++; } catch { /* an orphan blob, never named */ }
+        }
       }
     }
   } catch { /* cleanup is best effort; the list is already right */ }
