@@ -814,7 +814,7 @@ test("heldBack: the held part taken out wherever it stands, or refused — never
   // SAID TWICE, TAKEN OUT TWICE: a clause cannot survive once and run.
   const twice = heldBack("Add a booking form. Make it blue. Add a booking form.", "add a booking form");
   assert.equal(twice.ok, true);
-  assert.equal(twice.run, ". Make it blue. .");
+  assert.equal(twice.run, "Make it blue.");
   assert.equal(twice.held, "Add a booking form");
   // NOT FOUND, OR THE WHOLE MESSAGE: refused, and the message comes back whole
   // so no caller can mistake it for a run.

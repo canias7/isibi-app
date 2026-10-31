@@ -2552,7 +2552,7 @@ export function tidyJoins(run) {
     .replace(/[,;]\s*([.!?]|$)/g, "$1")
     .replace(/[,;]?\s*\b(?:and|then|also|plus)\b\s*([.!?]|$)/gi, "$1")
     .replace(/([.!?])(?:\s*[.!?])+/g, "$1")
-    .replace(/^(?:\s*(?:[,;]|\b(?:and|then|also|plus)\b))+\s*/i, "")
+    .replace(/^(?:\s*(?:[,;.!?]|\b(?:and|then|also|plus)\b))+\s*/i, "")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
