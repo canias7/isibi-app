@@ -2279,3 +2279,10 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 - Unit CI green on `feb07fb43` (run 41172369190). Deploy run 41173588564 green; image predicted `b81354b645ec6388`.
 - **Runtime-confirmed** by the owner's canary run 41179063754 (07:04 UTC, expect_deploy `feb07fb43`, expect_image `b81354b645ec6388`).
 - **Live proof (test account, northline-climbing):** "Add a Coaching page…" paused for credits at round 5 (07:10, nothing charged) with `coaching.tsx`, the header and the footer written; after the 07:14 top-up it resumed on its own and the trace logged `agent:carry` kept `[-parts/site-footer, -parts/site-header, coaching.tsx]`, stale `[]`; saved at 07:22 for 14 credits (the Events part that started over cost 23).
+
+## Deploy 2298 — 2026-10-31 23:51 UTC (`52963a064`)
+
+- Fast-forward of `main` from `feb07fb43` on the owner's word ("Deploy it"): the Code tab mirrors the site's folder (new sites; `code-mirror` through `ea45639ce`), no developer notes under a site that built, clean part sentences (with the planner reading the untidied run).
+- Unit CI green on `52963a064` (run 41253284296); the three runs before it were red and each was fixed (41251426400, 41252370743).
+- Deploy run 41254117705, green. Image predicted `3f5324d9f2febba3` (256 inputs).
+- Deployed, not runtime-confirmed: the canary press is owed (after ~00:10 UTC, once the image has rolled).
