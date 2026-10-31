@@ -26,6 +26,12 @@
 
 Tests: `test/code-mirror.test.mjs` now 26 cases (CM19–CM26 new); `test/site-agent.test.mjs`'s shell landmark updated. Sweep: 16 of 16 killed, comment-only control survived. Related files: 308 tests, 0 failures.
 
+**Two more (same day):**
+- **No delete in the save that dropped the bytes.** A file's old bytes are now *retired* in `files.json` with the time (`retired: {hash: time}`); a later save deletes only bytes retired over an hour ago that nothing names now. Bytes named again are un-retired. After its switch, a save checks that the bytes it uploaded are still there and puts them back if another save's cleanup took them.
+- **"Restore original" in the Code tab.** A starter or kit file this site changed (the route now marks it `changed: true`) has a "Restore original" entry in its ··· menu; it calls `POST /api/site/source/restore` and reloads the tab. Every other row's menu is unchanged.
+
+Tests CMA1–CMA3, CMB1–CMB2 (fail before); `test/site-source.test.mjs` pins the restore's reload as the tab's one new fetch. Sweep 11 of 11 killed, control survived.
+
 **Not done yet:** no live build has been compared file by file with its folder (the plan's first live check, which costs a build: needs your approval). The agent's `run` sandbox still starts from the image's template (the same files as the folder while no starter file is changed).
 
 ## 2026-10-31 — A paused part keeps going from where it left off (branch `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)

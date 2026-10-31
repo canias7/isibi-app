@@ -13237,7 +13237,7 @@ async function restoreStarterFile(env, slug, p) {
     if (cur.state !== "read") return { ok: false, why: "the project's list could not be read" };
     const r = restoreStarterEntry(cur.files, String(p || ""));
     if (!r.ok) return r;
-    const put = await env.SITES_BUCKET.put(key, JSON.stringify({ v: PROJECT_LIST_VERSION, files: r.files }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: o.etag } });
+    const put = await env.SITES_BUCKET.put(key, JSON.stringify({ v: PROJECT_LIST_VERSION, files: r.files, retired: cur.retired || {} }), { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: o.etag } });
     if (put) return { ok: true, path: p };
   }
   return { ok: false, why: "the project's list kept changing; try again" };
@@ -13284,13 +13284,13 @@ async function storeProjectFolder(env, slug, mirror, built, fence = null) {
   const putList = async (merge) => {
     for (let i = 0; i < 5; i++) {
       const o = await env.SITES_BUCKET.get(listKey);
-      let latest = [];
+      let latest = { files: [], retired: {} };
       if (o) {
         const cur = await readProjectList({ get: async () => o }, slug);
         if (cur.state !== "read") return false;
-        latest = cur.files;
+        latest = cur;
       }
-      const body = JSON.stringify({ v: PROJECT_LIST_VERSION, files: merge(latest) });
+      const body = JSON.stringify({ v: PROJECT_LIST_VERSION, ...merge(latest) });
       const cond = o && o.etag ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" };
       const put = fence
         ? await fencedPut(env, listKey, body, { fence, onlyIf: cond })
@@ -33221,7 +33221,9 @@ async function handleRequest(request, env, ctx) {
           pages: Array.isArray(pRead.pages) ? pRead.pages : [],
           parts: Array.isArray(pPartsRead.parts) ? pPartsRead.parts : [],
           reads: { pages: pRead.ok === true, parts: pPartsRead.ok === true, project: pFiles.every((f) => !f.missing) },
-          project: pFiles,
+          // WHICH STARTER FILES THE SITE CHANGED (2026-10-31): the tab's
+          // "Restore original" is offered on these only.
+          project: pFiles.map((f) => (overlayEntries([f]).length && typeof f.starter === "string" ? { ...f, changed: true } : f)),
         });
       }
       // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers

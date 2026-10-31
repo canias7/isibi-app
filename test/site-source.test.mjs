@@ -1169,15 +1169,23 @@ test("the source is fetched once the host is on the page, and the download asks 
   // back through the network to change which file was highlighted. Being three
   // was never the property; being the only thing that ASKS THE SERVER is, and
   // that is what makes the count worth keeping now rather than before.
+  // RE-ANCHORED 2026-10-31: a third, and it does ask the server on purpose —
+  // "Restore original" CHANGED the folder, so the tab is read again after it.
+  // Pinned so a fourth (a display control re-fetching) still goes red.
+  assert.match(BARE, /sbToast\(f\.name\.split\('\/'\)\.pop\(\) \+ ' is back to its original\. It is used from the next build\.'\); loadSiteCode\(\{ slug: src\.slug \}\);/);
   const calls = [...BARE.matchAll(/loadSiteCode\(/g)];
-  assert.equal(calls.length, 2, "expected the definition and the render hook; found " + calls.length);
+  assert.equal(calls.length, 3, "expected the definition, the render hook and the restore's reload; found " + calls.length);
   // AND THE REDRAW NEVER FETCHES. A fold and a file pick are display changes, so
   // a blip on a re-fetch must not be able to replace the panel with "couldn't
   // read your code just now" — which is what routing either back through
   // `loadSiteCode` would do. Both handlers redraw from the answer in hand.
   const draw = fn("function drawSiteCode(src)");
   assert.ok(draw.length > 800, "re-derive the draw function's window");
-  assert.ok(!/loadSiteCode\(/.test(draw), "a click in the Code tab goes back to the network");
+  // RE-ANCHORED 2026-10-31: the one fetch inside the draw is the restore's
+  // reload (pinned above), after a write; every display control still redraws
+  // from the answer in hand.
+  assert.equal([...draw.matchAll(/loadSiteCode\(/g)].length, 1, "a click in the Code tab goes back to the network");
+  assert.ok(draw.includes("loadSiteCode({ slug: src.slug })"), "the draw's one fetch is not the restore's reload");
   // RE-ANCHORED 2026-09-12, not appeased. This asked each handler for
   // `drawSiteCode(src)` by name, and that spelling moved for a reason: rebuilding
   // the panel re-ran the entrance animation `styles.css` puts on `.st-code`, so
