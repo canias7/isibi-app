@@ -15,6 +15,8 @@
 
 **Tests:** `test/code-mirror.test.mjs`, 15 cases; 7 fail on the branch it came from (the ones for each wiring step), the module's own pass there. Updated: `test/site-source.test.mjs` (one more read, one more cannot-tell flag, the route's window bound) and `test/site-busy.test.mjs` (two more read-only source reads, each pinned). Sweep: 18 of 18 mutants killed, the comment-only control survived. Related files run: same failures as before this change (all pre-existing), none new.
 
+**Fix 1 (your approval, same day): the folder's writes are fenced and the list is merged.** Every upload and delete under `source/<site>/files/` first checks that the save still holds the site (its fence not lost; neither the list nor the editable copy written by a newer holder), and `files.json` is written with `fencedPut`, only if the list has not moved since it was read; if it moved it is read again and merged. A stale save writes nothing. The list is merged onto the latest stored one: a save sets the files it changed, removes the ones it took away, and keeps everything else, so two parts saved side by side that each added a file both end up listed. Tests CM16–CM18 (fail before the fix); sweep 7 of 7 killed, comment-only control survived.
+
 **Not done yet:** no live build has been compared file by file with its folder (the plan's first live check, which costs a build: needs your approval). The agent's `run` sandbox still starts from the image's template (the same files as the folder while no starter file is changed).
 
 ## 2026-10-31 — A paused part keeps going from where it left off (branch `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)

@@ -227,39 +227,71 @@ const bytesToB64 = (u) => {
 };
 
 /**
- * Store a snapshot the container sent: the files whose hash changed (or that
- * are new) are uploaded, the list is written LAST, and the files the new list
- * no longer names are deleted after it. A snapshot that fails its shape, or an
- * upload that fails, writes no list, so the stored list never names a project
- * that did not finish storing.
+ * Store a snapshot the container sent, MERGED onto the latest stored list
+ * (2026-10-31, the owner's fix 1). `base` is the list this save's compile
+ * started from: a file the snapshot changed or added against it is uploaded
+ * and set in the list; a file of `base` the snapshot no longer has is taken
+ * out; every other entry of the LATEST list is kept as it is, so two parts
+ * saved side by side that added different files both end up listed.
+ *
+ * `guard()` is asked before every upload and every delete and throws when
+ * this save may no longer write (the turn's fence); `putList(merge)` writes
+ * the list as a read-modify-write (`merge(latestFiles)` gives the new files)
+ * and answers false when it could not. Without them the bucket is used
+ * directly. A snapshot that fails its shape, a refused guard or a failed
+ * upload writes no list.
  */
-export async function saveProject(bucket, slug, snapshot, { prev = null } = {}) {
+export async function saveProject(bucket, slug, snapshot, { base = null, guard = null, putList = null } = {}) {
   if (!bucket) return { ok: false, why: "no bucket" };
   if (!snapshot || snapshot.ok !== true || !Array.isArray(snapshot.files) || !snapshot.files.length) return { ok: false, why: (snapshot && snapshot.why) || "no snapshot" };
-  const before = prev || await readProjectList(bucket, slug);
-  const had = new Map((before.state === "read" ? before.files : []).map((f) => [f.path, f.sha256]));
-  const list = [];
+  const from = base || await readProjectList(bucket, slug);
+  if (from.state === "unreadable") return { ok: false, why: "the list this save started from could not be read" };
+  const had = new Map((from.state === "read" ? from.files : []).map((f) => [f.path, f.sha256]));
+  const set = new Map();
   const puts = [];
-  const seen = new Set();
   for (const f of snapshot.files) {
     const e = cleanEntry(f);
-    if (!e || typeof f.base64 !== "string" || seen.has(e.path)) return { ok: false, why: "a file of the snapshot is malformed" };
-    seen.add(e.path);
-    list.push(e);
+    if (!e || typeof f.base64 !== "string" || set.has(e.path)) return { ok: false, why: "a file of the snapshot is malformed" };
+    set.set(e.path, e);
     if (had.get(e.path) !== e.sha256) puts.push({ e, base64: f.base64 });
   }
+  const dropped = new Set([...had.keys()].filter((p) => !set.has(p)));
+  const changed = new Map(puts.map(({ e }) => [e.path, e]));
+  const merge = (latest) => {
+    const out = new Map();
+    for (const f of Array.isArray(latest) ? latest : []) if (!dropped.has(f.path)) out.set(f.path, f);
+    // A file this save changed wins; one it left as it was keeps the latest
+    // entry (another part may have changed it since); one the latest list
+    // lacks but this save holds unchanged is added back from the snapshot.
+    for (const [p, e] of set) if (changed.has(p) || !out.has(p)) out.set(p, e);
+    return [...out.values()].sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+  };
+  const writeList = putList || (async (m) => {
+    const cur = await readProjectList(bucket, slug);
+    if (cur.state === "unreadable") return false;
+    await bucket.put(PROJECT_LIST_KEY(slug), JSON.stringify({ v: 1, files: m(cur.files) }), { httpMetadata: { contentType: "application/json" } });
+    return true;
+  });
+  let listed = null;
   try {
     for (const { e, base64 } of puts) {
+      if (guard) await guard();
       await bucket.put(PROJECT_FILE_KEY(slug, e.path), b64ToBytes(base64), {
         httpMetadata: { contentType: isBinaryPath(e.path) ? "application/octet-stream" : "text/plain; charset=utf-8" },
         customMetadata: { sha256: e.sha256 },
       });
     }
-    await bucket.put(PROJECT_LIST_KEY(slug), JSON.stringify({ v: 1, files: list }), { httpMetadata: { contentType: "application/json" } });
+    let files = null;
+    const ok = await writeList((latest) => (files = merge(latest)));
+    if (!ok) return { ok: false, why: "the list could not be written" };
+    listed = files;
   } catch (err) { return { ok: false, why: "store: " + String((err && err.message) || err).slice(0, 120) }; }
-  const gone = [...had.keys()].filter((p) => !seen.has(p));
-  for (const p of gone) { try { await bucket.delete(PROJECT_FILE_KEY(slug, p)); } catch { /* an orphan file, never named by the list */ } }
-  return { ok: true, files: list.length, uploaded: puts.length, removed: gone.length };
+  const named = new Set(listed.map((f) => f.path));
+  const gone = [...dropped].filter((p) => !named.has(p));
+  for (const p of gone) {
+    try { if (guard) await guard(); await bucket.delete(PROJECT_FILE_KEY(slug, p)); } catch { /* an orphan file, never named by the list */ }
+  }
+  return { ok: true, files: listed.length, uploaded: puts.length, removed: gone.length };
 }
 
 /**

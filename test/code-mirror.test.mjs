@@ -120,24 +120,39 @@ test("CM3 paths: only the project's own, never above it", () => {
   assert.equal(projectFileKind("src/lib/rows.ts"), "starter");
 });
 
-/** An in-memory bucket that records what it was asked. */
+/** An in-memory bucket that records what it was asked, with etags, `onlyIf` and custom metadata as R2 keeps them. */
 function memBucket({ failPut = null } = {}) {
   const store = new Map();
+  const meta = new Map();
   const log = [];
+  let n = 0;
+  const etagOf = (key) => { if (!meta.has(key)) meta.set(key, { etag: "e" + (++n), custom: {} }); return meta.get(key); };
+  const obj = (key) => {
+    const v = store.get(key);
+    const m = etagOf(key);
+    return { etag: m.etag, customMetadata: m.custom, text: async () => new TextDecoder().decode(v), arrayBuffer: async () => v.slice().buffer };
+  };
   return {
-    store, log,
+    store, log, meta,
+    async head(key) { log.push(["head", key]); return store.has(key) ? obj(key) : null; },
     async get(key) {
       log.push(["get", key]);
-      if (!store.has(key)) return null;
-      const v = store.get(key);
-      return { text: async () => new TextDecoder().decode(v), arrayBuffer: async () => v.slice().buffer };
+      return store.has(key) ? obj(key) : null;
     },
-    async put(key, body) {
+    async put(key, body, opts = {}) {
       log.push(["put", key]);
       if (failPut && failPut(key)) throw new Error("r2 down");
+      const c = opts.onlyIf;
+      if (c) {
+        const cur = store.has(key) ? etagOf(key).etag : null;
+        if (c.etagMatches != null && cur !== c.etagMatches) return null;
+        if (c.etagDoesNotMatch === "*" && cur) return null;
+      }
       store.set(key, typeof body === "string" ? new TextEncoder().encode(body) : new Uint8Array(body));
+      meta.set(key, { etag: "e" + (++n), custom: { ...((opts && opts.customMetadata) || {}) } });
+      return { etag: meta.get(key).etag };
     },
-    async delete(key) { log.push(["delete", key]); store.delete(key); },
+    async delete(key) { log.push(["delete", key]); store.delete(key); meta.delete(key); },
   };
 }
 const snapOf = (files) => ({ ok: true, files: Object.entries(files).map(([p, s]) => { const b = Buffer.from(s); return { path: p, size: b.length, sha256: sha(b), base64: b.toString("base64"), ...(overlayable(p) ? { image: true } : {}) }; }) });
@@ -218,7 +233,7 @@ test("CM8 the wiring: the container sends a snapshot only when asked and only af
     assert.ok(body.includes("projectFiles: " + v + ".overlay.length ? " + v + ".overlay : undefined"), name + " does not send the overlay");
   }
   // THE EDIT PATH STORES IT ONLY WHEN THE EDITABLE COPY STORED, INSIDE afterActivate.
-  const ea = W.indexOf("const pr = await storeProjectFolder(env, slug, mirror, built);");
+  const ea = W.indexOf("const pr = await storeProjectFolder(env, slug, mirror, built, fence);");
   assert.ok(ea > 0);
   assert.match(W.slice(ea - 200, ea), /if \(!unsaved\.length\) \{\s*$/, "the edit path stores the folder over a failed save");
   // THE BUILD PATH STORES IT AFTER THE MARKER, which a failed save returns before.
@@ -260,7 +275,7 @@ test("CM9 DRIVEN: a site with a list gets exactly its folder: no bundled starter
   const r = await callSource(b, slug);
   assert.equal(r.status, 200);
   assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.project.map((f) => f.path), ["package.json", "src/router.tsx", "src/routes/index.tsx", "src/styles.css", "public/fonts/a.woff2"]);
+  assert.deepEqual(r.body.project.map((f) => f.path), ["package.json", "public/fonts/a.woff2", "src/router.tsx", "src/routes/index.tsx", "src/styles.css"]);
   assert.equal(r.body.project.find((f) => f.path === "src/routes/index.tsx").source, "home");
   assert.equal(r.body.project.find((f) => f.path === "public/fonts/a.woff2").base64, font.toString("base64"), "a binary file is not carried as its bytes");
   for (const k of ["shared", "kit", "assets"]) assert.equal(r.body[k], undefined, k + " was assembled beside the folder");
@@ -414,4 +429,70 @@ test("CM15 the agent reads a project file by its path, read only; without a fold
   fb.log.length = 0;
   assert.equal(await codeMirrorApi.projectFileReader({ SITES_BUCKET: fb }, "fb")("public/fonts/a.woff2"), null);
   assert.deepEqual(fb.log.map((l) => l[1]), [PROJECT_LIST_KEY("fb")], "a binary file was fetched for the agent");
+});
+
+// ── FIX 1 (2026-10-31, the owner): THE FOLDER'S WRITES ARE FENCED AND THE LIST IS MERGED ──
+
+test("CM16 DRIVEN: a save whose turn was taken writes nothing under the folder, and never the list", async () => {
+  const { codeMirrorApi } = await loadWorkerModule();
+  const b = memBucket();
+  const env = { SITES_BUCKET: b };
+  await saveProject(b, "fz", snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "home" }));
+  const m = await codeMirrorApi.projectMirror(env, "fz");
+  // A NEWER HOLDER (fence 7) HAS WRITTEN THE EDITABLE COPY since this save (fence 3) began.
+  await b.put("source/fz/pages.json", "[]", { customMetadata: { fence: "7" } });
+  const listBefore = Buffer.from(b.store.get(PROJECT_LIST_KEY("fz"))).toString();
+  b.log.length = 0;
+  const r = await codeMirrorApi.storeProjectFolder(env, "fz", m, { project: snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "STALE", "src/routes/new.tsx": "n" }) }, { gen: 3, lost: false });
+  assert.equal(r.ok, false, "a stale save stored its folder");
+  assert.deepEqual(b.log.filter((l) => l[0] === "put" || l[0] === "delete"), [], "a stale save wrote under the folder");
+  assert.equal(Buffer.from(b.store.get(PROJECT_LIST_KEY("fz"))).toString(), listBefore, "the newer list was overwritten");
+  // A FENCE ALREADY LOST is refused before anything is read or written.
+  b.log.length = 0;
+  const lost = await codeMirrorApi.storeProjectFolder(env, "fz", m, { project: snapOf({ "src/routes/index.tsx": "x" }) }, { gen: 9, lost: true });
+  assert.equal(lost.ok, false);
+  assert.deepEqual(b.log.filter((l) => l[0] === "put" || l[0] === "delete"), []);
+  // THE HOLDER ITSELF (fence 7) WRITES, and its list carries its fence.
+  const own = await codeMirrorApi.storeProjectFolder(env, "fz", m, { project: snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "v2" }) }, { gen: 7, lost: false });
+  assert.equal(own.ok, true, own.why);
+  assert.equal(b.meta.get(PROJECT_LIST_KEY("fz")).custom.fence, "7", "the list was not written under the fence");
+});
+
+test("CM17 DRIVEN: two parts saved side by side from the same list, each adding a different file, both end up listed", async () => {
+  const { codeMirrorApi } = await loadWorkerModule();
+  const b = memBucket();
+  const env = { SITES_BUCKET: b };
+  await saveProject(b, "par", snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "home", "src/routes/old.tsx": "old" }));
+  const mA = await codeMirrorApi.projectMirror(env, "par");
+  const mB = await codeMirrorApi.projectMirror(env, "par");
+  // Part A adds /about; part B adds /menu and takes /old off. Neither saw the other's file.
+  const a = await codeMirrorApi.storeProjectFolder(env, "par", mA, { project: snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "home", "src/routes/old.tsx": "old", "src/routes/about.tsx": "about" }) }, { gen: 4, lost: false });
+  const bb = await codeMirrorApi.storeProjectFolder(env, "par", mB, { project: snapOf({ "src/router.tsx": "r", "src/routes/index.tsx": "home", "src/routes/menu.tsx": "menu" }) }, { gen: 4, lost: false });
+  assert.equal(a.ok, true, a.why);
+  assert.equal(bb.ok, true, bb.why);
+  const list = await readProjectList(b, "par");
+  assert.deepEqual(list.files.map((f) => f.path), ["src/router.tsx", "src/routes/about.tsx", "src/routes/index.tsx", "src/routes/menu.tsx"], "a part's list dropped the other's file, or kept a removed one");
+  const keys = [...b.store.keys()].filter((k) => k.startsWith("source/par/files/")).map((k) => k.slice(17)).sort();
+  assert.deepEqual(keys, list.files.map((f) => f.path), "the folder and its list disagree");
+});
+
+test("CM18 the list write is conditional: a list that moved between the read and the write is read again and merged", async () => {
+  const b = memBucket();
+  await saveProject(b, "race", snapOf({ "src/routes/index.tsx": "home" }));
+  const base = await readProjectList(b, "race");
+  let raced = false;
+  const r = await saveProject(b, "race", snapOf({ "src/routes/index.tsx": "home", "src/routes/a.tsx": "a" }), {
+    base,
+    putList: async (merge) => {
+      for (let i = 0; i < 3; i++) {
+        const o = await b.get(PROJECT_LIST_KEY("race"));
+        const cur = await readProjectList(b, "race");
+        if (!raced) { raced = true; await saveProject(b, "race", snapOf({ "src/routes/index.tsx": "home", "src/routes/b.tsx": "b" }), { base }); }
+        if (await b.put(PROJECT_LIST_KEY("race"), JSON.stringify({ v: 1, files: merge(cur.files) }), { onlyIf: { etagMatches: o.etag } })) return true;
+      }
+      return false;
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual((await readProjectList(b, "race")).files.map((f) => f.path), ["src/routes/a.tsx", "src/routes/b.tsx", "src/routes/index.tsx"]);
 });

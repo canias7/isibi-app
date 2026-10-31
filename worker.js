@@ -221,7 +221,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 // Generated from the template by `builder/gen-foundation.mjs` and bundled,
 // because a Worker has no filesystem and the template lives in the image.
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
-import { readProjectList, readProjectFiles, saveProject, overlayEntries, mirrorWanted, isBinaryPath } from "./builder/project-files.mjs";
+import { readProjectList, readProjectFiles, saveProject, overlayEntries, mirrorWanted, isBinaryPath, PROJECT_LIST_KEY } from "./builder/project-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
@@ -1219,7 +1219,7 @@ const actionRoom = (id) => "act:" + id;
 export const customerEffortApi = { withCustomerEffort: (e, r) => withCustomerEffort(e, r), withBuildEffort: (q, e) => withBuildEffort(q, e), withEffortAll: (e, r) => withEffortAll(e, r) };
 export const talkEffortApi = { withTalkEffort: (what, req, env) => withTalkEffort(what, req, env), withKeptEffort: (env, job) => withKeptEffort(env, job), withJobEffort: (env, body) => withJobEffort(env, body), get TALK_EFFORT() { return TALK_EFFORT; } };
 export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, roomWriter, streamFromRoom, actionRoom, replyLiveWriter, roomLiveWriter, ROOM_KEEP_MS };
-export const codeMirrorApi = { projectMirror: (env, slug, o) => projectMirror(env, slug, o), storeProjectFolder: (env, slug, m, b) => storeProjectFolder(env, slug, m, b), projectFileReader: (env, slug) => projectFileReader(env, slug) };
+export const codeMirrorApi = { projectMirror: (env, slug, o) => projectMirror(env, slug, o), storeProjectFolder: (env, slug, m, b, f) => storeProjectFolder(env, slug, m, b, f), projectFileReader: (env, slug) => projectFileReader(env, slug) };
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
@@ -13196,7 +13196,7 @@ async function projectMirror(env, slug, { firstBuild = false } = {}) {
       overlay = got.filter((f) => f && !f.missing && typeof f.base64 === "string").map((f) => ({ path: f.path, base64: f.base64 }));
     }
   }
-  return { on, overlay };
+  return { on, overlay, list };
 }
 
 /**
@@ -13219,9 +13219,43 @@ function projectFileReader(env, slug) {
 }
 
 /** Stores the snapshot a mirrored compile sent; answers null when there is nothing to store. */
-async function storeProjectFolder(env, slug, mirror, built) {
+async function storeProjectFolder(env, slug, mirror, built, fence = null) {
   if (!mirror || mirror.on !== true || !built || !built.project) return null;
-  const r = await saveProject(env.SITES_BUCKET, slug, built.project);
+  const listKey = PROJECT_LIST_KEY(slug);
+  // UNDER A TURN'S FENCE (2026-10-31, the owner's fix 1), as `kit.json` is:
+  // every upload and delete under the folder asks first whether this save
+  // still holds the site (its fence not lost, and neither the list nor the
+  // editable copy written by a newer holder), and the list is written with
+  // `fencedPut`, conditional on the etag it was merged onto, so a stale save
+  // writes nothing and never overwrites a newer list.
+  const guard = fence ? async () => {
+    if (fence.lost) throw fenceRefused(listKey);
+    for (const k of [listKey, SOURCE_KEY(slug)]) {
+      const o = await env.SITES_BUCKET.head(k);
+      if (o && storedFence(o) > fence.gen) throw fenceRefused(k);
+    }
+  } : null;
+  // THE LIST, READ-MODIFY-WRITE: merged onto the latest stored list and
+  // written only if that list has not moved since; a move re-reads and merges again.
+  const putList = async (merge) => {
+    for (let i = 0; i < 5; i++) {
+      const o = await env.SITES_BUCKET.get(listKey);
+      let latest = [];
+      if (o) {
+        const cur = await readProjectList({ get: async () => o }, slug);
+        if (cur.state !== "read") return false;
+        latest = cur.files;
+      }
+      const body = JSON.stringify({ v: 1, files: merge(latest) });
+      const cond = o && o.etag ? { etagMatches: o.etag } : { etagDoesNotMatch: "*" };
+      const put = fence
+        ? await fencedPut(env, listKey, body, { fence, onlyIf: cond })
+        : await env.SITES_BUCKET.put(listKey, body, { httpMetadata: { contentType: "application/json" }, onlyIf: cond });
+      if (put) return true;
+    }
+    return false;
+  };
+  const r = await saveProject(env.SITES_BUCKET, slug, built.project, { base: mirror.list && mirror.list.state !== "unreadable" ? mirror.list : null, guard, putList });
   if (!r.ok) console.error("project save failed:", slug, r.why);
   return r;
 }
@@ -19207,7 +19241,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // its marker: the folder is what the Code tab shows, never what the next
       // edit reads, so a folder that failed to store must not hold the copy back.
       if (!unsaved.length) {
-        const pr = await storeProjectFolder(env, slug, mirror, built);
+        const pr = await storeProjectFolder(env, slug, mirror, built, fence);
         if (pr) tm("r2:project", pr.ok ? "ok" : "fail", pr.ok ? { files: pr.files, uploaded: pr.uploaded, removed: pr.removed } : { why: pr.why });
       }
       tm("r2:source", unsaved.length ? "fail" : "ok", unsaved.length ? { why: unsaved.join(",") } : undefined);
