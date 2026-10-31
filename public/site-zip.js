@@ -129,8 +129,16 @@
       var f = arr[i];
       if (!f || typeof f !== "object") continue;
       var name = safeName(f.name);
-      if (!name || typeof f.text !== "string") continue;
-      var body = utf8(f.text);
+      // A FILE OF THE PROJECT FOLDER THAT COULD NOT BE READ is never zipped as
+      // an empty one (2026-10-31); a binary one (a font) carries its bytes.
+      if (!name || f.missing === true) continue;
+      var body;
+      if (typeof f.base64 === "string") {
+        var bin; try { bin = atob(f.base64); } catch (e) { continue; }
+        body = new Uint8Array(bin.length);
+        for (var b = 0; b < bin.length; b++) body[b] = bin.charCodeAt(b);
+      } else if (typeof f.text === "string") body = utf8(f.text);
+      else continue;
       list.push({ nameBytes: utf8(name), body: body, crc: crc32(body) });
     }
 

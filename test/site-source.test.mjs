@@ -436,6 +436,10 @@ test("DRIVEN: the owner gets their pages and their own parts", async () => {
     // cannot build. A fourth READ, and this census is the right place for it to
     // have to be written down: the route's cost per Code-tab open is a fact
     // worth going red over.
+    // THE PROJECT FOLDER'S LIST (2026-10-31, the code mirror): read first; a
+    // site that has one is answered from it, and an old site (no list) costs
+    // this one read more and keeps the rest of its answer.
+    "source/" + r.body.slug + "/files.json",
     "source/" + r.body.slug + "/kit.json",
     "source/" + r.body.slug + "/pages.json",
     "source/" + r.body.slug + "/parts.json",
@@ -496,7 +500,9 @@ test("DRIVEN: the answer says which of its stores it really read", async () => {
   // A BUCKET THAT THREW: all three false, and the lists still empty and still
   // 200 — which is the whole point, because the two used to be one answer.
   const dead = await callSource({ bucketFails: true });
-  assert.deepEqual(dead.body.reads, { pages: false, parts: false, assets: false }, JSON.stringify(dead.body.reads));
+  // AND THE PROJECT FOLDER'S LIST (2026-10-31, the code mirror): a list that
+  // could not be read is said, never read as "this site has no folder".
+  assert.deepEqual(dead.body.reads, { pages: false, parts: false, assets: false, project: false }, JSON.stringify(dead.body.reads));
   assert.equal(dead.body.ok, true, "the explorer stopped getting an answer");
 
   // AN ABSENT OBJECT IS A READ THAT SUCCEEDED. A site that has never published
@@ -546,7 +552,10 @@ test("the route READS and never repairs — it takes no lease and moves nothing"
   // RE-MEASURED 2026-10-14: the by-job read's call (three lines, 209 chars;
   // its body is `siteSourceByJob`, outside this window) took the route from
   // 7,909 to 8,118 characters — its own code, not a neighbour's.
-  assert.ok(block.length > 200 && block.length < 9000, "re-derive this window (" + block.length + " chars)");
+  // RE-MEASURED 2026-10-31: the project folder's answer (the code mirror,
+  // `readProjectList` and its early return, 1,459 characters of code and
+  // blanked prose) took it to 9,577 — its own code, not a neighbour's.
+  assert.ok(block.length > 200 && block.length < 10500, "re-derive this window (" + block.length + " chars)");
   // RE-ANCHORED, NOT APPEASED (2026-09-18): this was `loadSiteSource(env, sslug)`
   // and the route reads `readSiteSource` now — the three-state reader, whose
   // `{ok, pages, why}` is what lets the answer say which stores it really

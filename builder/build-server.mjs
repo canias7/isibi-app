@@ -80,6 +80,7 @@ import { routeOf, fileForRoute } from "./site-addon.mjs";
 import { readCss, aliasFonts, selectorsToJudge, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 import { runFanout, fanoutTally, MAX_FANOUT_REQS } from "./model-fanout.mjs";
 import { kitClosure } from "./kit-closure.mjs";
+import { collectProject, applyOverlay, restoreOverlay } from "./project-files.mjs";
 import { markPending, fillPending, frameParser } from "./pending-frames.mjs";
 
 const APP = process.env.APP_DIR || "/app";
@@ -2390,6 +2391,11 @@ const server = http.createServer((req, res) => {
         const as = renderAs();
         prepareSandbox(dir, { app: APP, routesBase: ROUTES_BASE, owner: as });
         writeSiteFiles(dir, p.files || {}, { routesBase: ROUTES_BASE, stylesBase: STYLES_BASE, owner: as });
+        // THE SITE'S STORED FILES OVER THE SHELL'S COPY (2026-10-31, the owner's
+        // fix 7), as the compile lays them over the template: the shell starts
+        // from the site's folder, not the image's stock files. The copy is the
+        // session's own, so nothing is put back.
+        applyOverlay({ app: dir, fs, path, files: p.projectFiles, chown: as ? (f) => fs.lchownSync(f, as.uid, as.gid) : null });
         const r = await runCommand(dir, p.command, { as });
         return send(res, 200, { ok: true, code: r.code, output: r.output, timedOut: r.timedOut, asUser: !!as, files: readSiteFiles(dir, { routesBase: ROUTES_BASE }) });
       } catch (e) {
@@ -2491,9 +2497,15 @@ const server = http.createServer((req, res) => {
       while (BUILD_STAGES.size >= 64) BUILD_STAGES.delete(BUILD_STAGES.keys().next().value);
       BUILD_STAGES.set(stageId, { stage: "queued", at: Date.now() });
     }
+    let overlay = null;
     return oneAtATime(async () => {
     try {
       resetRoutes();
+      // THE SITE'S STORED FILES OVER THE TEMPLATE (2026-10-31, the code
+      // mirror): the starter and kit files the Worker found stored and not the
+      // image's own copy. Put back after the build (`finally` below), so one
+      // site's files never reach the next build in this long-lived container.
+      overlay = applyOverlay({ app: APP, fs, path, files: payload.projectFiles });
       // ONE writer for all four, because they land in ONE generated module and
       // two writers of one file is one of them silently losing.
       // ONE READING OF THE STYLE PATCH, and this is the whole reason it is
@@ -2889,6 +2901,19 @@ const server = http.createServer((req, res) => {
         const k = siteKitFiles();
         kitOut = { kit: k.files, ...(k.missing.length ? { kitMissing: k.missing } : {}), ...(k.capped ? { kitCapped: true } : {}) };
       } catch (e) { kitOut = { kitError: String((e && e.message) || e).slice(0, 300) }; }
+      // THE PROJECT AS IT COMPILED (2026-10-31, the code mirror), only when the
+      // Worker asks (`payload.project`: a site whose folder it keeps). Read
+      // here, after a successful compile, before the overlay is put back, so
+      // what is stored is exactly what ran. A failed compile returns above and
+      // sends none, so a failed save writes nothing.
+      let projectOut = {};
+      if (payload.project === true) {
+        try {
+          const snap = collectProject({ app: APP, fs, path, hash: (b) => createHash("sha256").update(b).digest("hex"),
+            kitPaths: Array.isArray(kitOut.kit) ? kitOut.kit.map((f) => f && f.path) : [], pristine: overlay ? overlay.pristine : new Map() });
+          projectOut = { project: snap };
+        } catch (e) { projectOut = { project: { ok: false, why: String((e && e.message) || e).slice(0, 300) } }; }
+      }
       // THE SITE'S OWN SERVER CODE, RUN ONCE IN ITS SANDBOX (2026-10-28): the
       // server's counterpart of the render check. Evidence, never a refusal here.
       let serverTests = null;
@@ -2905,9 +2930,11 @@ const server = http.createServer((req, res) => {
           serverTests = mergeBundleResults(serverTests, await bundleCheckServerParts(SERVER_BUNDLE, payload.slug, sp));
         }
       } catch (e) { serverTests = { ran: false, why: String((e && e.message) || e).slice(0, 120), results: [] }; }
-      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), ...(serverTests ? { serverTests } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, ...(shots.length ? { shots } : {}), ...(layout.length ? { layout } : {}), worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut });
+      return send(res, 200, { ok: true, files: dist, ms: Date.now() - t0, ...times, templateId: TEMPLATE_ID, ...(typeErrors ? { typeErrors } : {}), ...(serverTests ? { serverTests } : {}), fonts: fontsUsed, theme: themeUsed, tokens: tokensUsed, pageTokens: pageTokensUsed, brand: brandUsed, render, ...(shots.length ? { shots } : {}), ...(layout.length ? { layout } : {}), worker, card: cardMade, touchIcon: touchMade, ...(cssUsed.applied ? { css: cssUsed } : {}), ...(ssr.unprivileged ? {} : { ssrUnprivileged: false }), ...kitOut, ...projectOut });
     } catch (e) {
       return send(res, 200, { ok: false, stage: "build", error: String((e && e.message) || e).slice(0, 2000), ms: Date.now() - t0, ...times });
+    } finally {
+      if (overlay) restoreOverlay({ app: APP, fs, path, pristine: overlay.pristine });
     }
     });
   });

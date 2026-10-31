@@ -7390,6 +7390,20 @@ function stFindNone(q) {
 function stSrcFiles(src) {
   const out = [];
   let lost = 0;
+  // THE PROJECT FOLDER, WHEN THE SITE HAS ONE (2026-10-31, the code mirror):
+  // the list as stored, file for file, and nothing added or composed beside
+  // it. The four groups below are the older sites' answer, kept unchanged.
+  if (src && Array.isArray(src.project)) {
+    for (const f of src.project) {
+      if (!f || typeof f.path !== 'string' || !f.path) continue;
+      const bin = typeof f.base64 === 'string';
+      const note = f.missing ? 'This file is in the project but could not be read just now.'
+        : bin ? 'A binary file (' + (Number(f.size) || 0) + ' bytes). It is in the download.' : '';
+      out.push(Object.assign({ name: f.path, text: typeof f.source === 'string' ? f.source : '', kind: 'project', note: note },
+        bin ? { base64: f.base64 } : {}, f.missing ? { missing: true } : {}));
+    }
+    return out;
+  }
   const add = (list, kind, key) => {
     for (const p of (src && Array.isArray(src[key])) ? src[key] : []) {
       if (!p || typeof p.source !== 'string') continue;
