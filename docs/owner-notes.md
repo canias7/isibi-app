@@ -1,5 +1,9 @@
 # Owner Notes
 
+## 2026-10-31 — Keep-going proven live (deploy 2297)
+
+The first live try started over: the container's storage gateway refused the `carry/` key, so nothing was saved. The key now lives under the site's own `source/` folder. Live on the test account: a Coaching page change ran out of credits at round 5, the top-up restarted it on its own, and it picked up its three saved files (the page, header and footer) and finished for 14 credits, against 23 for the Events change that had started over.
+
 ## 2026-10-31 — A paused part keeps going from where it left off (branch `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
 
 **What you saw live.** The Northline Climbing test (the test account, three changes in one message): the Gallery part ran out of credits after 6 minutes, paused, and after the top-up restarted on its own (auto-resume works) but from a blank sheet: its first 6 minutes were thrown away. The phone-number part finished its work, then the save was refused for credits and it ended with "send it again", losing the work.

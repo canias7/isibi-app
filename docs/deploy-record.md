@@ -2272,3 +2272,10 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 - Unit CI green on `dd700bd94` (run 41166236333); the run before it (41161914224 on `4aadceac`) was red on `dockerfile.test.mjs` (the new module was not in the image), fixed by `dd700bd94`.
 - Deploy run 41166959546, green. Image predicted `5caa33aea87fc11e` (254 inputs); the log reads `built isibi-app-sitebuildcontainer:5caa33aea87fc11e` (registry 404), as predicted. App-build image reused.
 - **Runtime-confirmed** by the owner's canary run 41169869835 (04:45 UTC, green, with expect_deploy `dd700bd94` and expect_image `5caa33aea87fc11e`).
+
+## Deploy 2297 — 2026-10-31 05:44 UTC (`feb07fb43`)
+
+- Fast-forward from `dd700bd94` on the owner's word ("Deploy it"): the carry key moves under the site's `source/` prefix (the container job gateway refused `carry/`, so deploy 2296's carry was never written; live Events test, 23 credits, started over).
+- Unit CI green on `feb07fb43` (run 41172369190). Deploy run 41173588564 green; image predicted `b81354b645ec6388`.
+- **Runtime-confirmed** by the owner's canary run 41179063754 (07:04 UTC, expect_deploy `feb07fb43`, expect_image `b81354b645ec6388`).
+- **Live proof (test account, northline-climbing):** "Add a Coaching page…" paused for credits at round 5 (07:10, nothing charged) with `coaching.tsx`, the header and the footer written; after the 07:14 top-up it resumed on its own and the trace logged `agent:carry` kept `[-parts/site-footer, -parts/site-header, coaching.tsx]`, stale `[]`; saved at 07:22 for 14 credits (the Events part that started over cost 23).
