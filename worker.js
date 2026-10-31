@@ -221,6 +221,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 // Generated from the template by `builder/gen-foundation.mjs` and bundled,
 // because a Worker has no filesystem and the template lives in the image.
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
+import { readProjectList, readProjectFiles, saveProject, overlayEntries, mirrorWanted, isBinaryPath } from "./builder/project-files.mjs";
 import { runNavEdit, applyAdditions, menuLinksKept } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { writtenFrame, ownPartsSite, runFrameEdit, addFrameLinks, FRAME_PARTS, frameTables } from "./builder/site-frame.mjs";
@@ -1218,6 +1219,7 @@ const actionRoom = (id) => "act:" + id;
 export const customerEffortApi = { withCustomerEffort: (e, r) => withCustomerEffort(e, r), withBuildEffort: (q, e) => withBuildEffort(q, e), withEffortAll: (e, r) => withEffortAll(e, r) };
 export const talkEffortApi = { withTalkEffort: (what, req, env) => withTalkEffort(what, req, env), withKeptEffort: (env, job) => withKeptEffort(env, job), withJobEffort: (env, body) => withJobEffort(env, body), get TALK_EFFORT() { return TALK_EFFORT; } };
 export const talkRoomApi = { TalkRoom, readRoomSay, mergeRoomSay, roomMessage, tellRoom, openRoomWatch, roomWriter, streamFromRoom, actionRoom, replyLiveWriter, roomLiveWriter, ROOM_KEEP_MS };
+export const codeMirrorApi = { projectMirror: (env, slug, o) => projectMirror(env, slug, o), storeProjectFolder: (env, slug, m, b) => storeProjectFolder(env, slug, m, b), projectFileReader: (env, slug) => projectFileReader(env, slug) };
 
 // Site build-service container. The image (./builder/Dockerfile) bakes the React
 // template and its dependencies, so a per-site build is only `tsr generate` →
@@ -13168,6 +13170,62 @@ async function loadSiteKit(env, slug) {
   } catch (e) { console.error("kit read failed:", slug, e && e.message); return []; }
 }
 
+/**
+ * THE SITE'S PROJECT FOLDER (2026-10-31, `docs/plans/2026-10-31-code-mirror.md`):
+ * whether this save keeps it, and what the compile must be sent. A site that has
+ * `source/<slug>/files.json` keeps it; a FIRST build (no list, and no page source
+ * stored: nothing of the site yet) starts it; every other site is an old one and
+ * is left exactly as it was. The overlay is the stored starter and kit files that
+ * are not the image's own copy (`overlayEntries`): none on an ordinary site, so
+ * an ordinary compile costs one read here.
+ */
+async function projectMirror(env, slug, { firstBuild = false } = {}) {
+  if (!env.SITES_BUCKET) return { on: false, overlay: [] };
+  const list = await readProjectList(env.SITES_BUCKET, slug);
+  let first = false;
+  if (list.state === "absent" && firstBuild === true) {
+    const src = await readSiteSource(env, slug);
+    first = src.ok === true && !src.pages.length;
+  }
+  const on = mirrorWanted(list.state, { firstBuild: first });
+  let overlay = [];
+  if (on && list.state === "read") {
+    const want = overlayEntries(list.files);
+    if (want.length) {
+      const got = await readProjectFiles(env.SITES_BUCKET, slug, want, { raw: true });
+      overlay = got.filter((f) => f && !f.missing && typeof f.base64 === "string").map((f) => ({ path: f.path, base64: f.base64 }));
+    }
+  }
+  return { on, overlay };
+}
+
+/**
+ * The site agent's read of its project folder (2026-10-31): a text file the
+ * stored list names, by its path, or null (no folder, not listed, binary, or not
+ * readable). The list is read once per run, on the first ask.
+ */
+function projectFileReader(env, slug) {
+  let listP = null;
+  return async (p) => {
+    if (!env.SITES_BUCKET || typeof p !== "string") return null;
+    if (!listP) listP = readProjectList(env.SITES_BUCKET, slug);
+    const list = await listP;
+    if (list.state !== "read") return null;
+    const e = list.files.find((f) => f.path === p);
+    if (!e || isBinaryPath(e.path)) return null;
+    const [got] = await readProjectFiles(env.SITES_BUCKET, slug, [e]);
+    return got && typeof got.source === "string" ? got.source : null;
+  };
+}
+
+/** Stores the snapshot a mirrored compile sent; answers null when there is nothing to store. */
+async function storeProjectFolder(env, slug, mirror, built) {
+  if (!mirror || mirror.on !== true || !built || !built.project) return null;
+  const r = await saveProject(env.SITES_BUCKET, slug, built.project);
+  if (!r.ok) console.error("project save failed:", slug, r.why);
+  return r;
+}
+
 function versionDeps(env) {
   return {
     list: async (prefix) => {
@@ -17440,6 +17498,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   try { const ptr = await readPointer(buildDeps(env), slug); restoreTo = ptr && typeof ptr.version === "string" ? ptr.version : ""; } catch { restoreTo = ""; }
   const runOnce = (ask, from) => runSiteAgent({
     ...agentInputDeps(env, slug),
+    // THE PROJECT FOLDER, READ ONLY (2026-10-31, the code mirror).
+    projectFile: projectFileReader(env, slug),
     ...(css !== null && env.SITES_BUCKET ? { saveSettings: () => true, checkUpload } : {}),
     ...(conn && spec ? { saveRules: () => true } : {}),
     saveRedirects: () => true,
@@ -18282,6 +18342,8 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   let parentVersion = "";
   try { const p = await readPointer(buildDeps(env), slug); parentVersion = p ? p.version : ""; }
   catch (e) { console.error("pointer unreadable before compile:", slug, e && e.message); parentVersion = ""; }
+  // THE PROJECT FOLDER (2026-10-31): kept for a site that has one, never started on an old site here.
+  const mirror = await projectMirror(env, slug);
   const compile = async () => {
     try {
       // KEYED BY SLUG, so two customers editing two sites compile at the same
@@ -18299,6 +18361,9 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // THE PREFIX THIS SCRIPT WILL SERVE (stage 7) and the one it may fall
           // back to, baked as `SITE_VERSION` / `SITE_PARENT`.
           version, parent: parentVersion || undefined,
+          // THE PROJECT FOLDER (2026-10-31): ask for the snapshot, and lay the stored files over the template.
+          project: mirror.on || undefined,
+          projectFiles: mirror.overlay.length ? mirror.overlay : undefined,
           // THE SITE'S OWN LANGUAGE, out of the same stored look as everything
           // else here. Absent on every site built before 2026-08-12, and
           // `applyIdentity` leaves the attribute alone rather than guessing —
@@ -19138,6 +19203,13 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
       // pointed at what the project DEPENDS on rather than what it renders.
       if (Array.isArray(built.kit)) saved.kit = await saveSiteKit(env, slug, built.kit, fence);
       const unsaved = Object.keys(saved).filter((k) => saved[k] !== true);
+      // AND THE PROJECT FOLDER (2026-10-31), after the editable copy and outside
+      // its marker: the folder is what the Code tab shows, never what the next
+      // edit reads, so a folder that failed to store must not hold the copy back.
+      if (!unsaved.length) {
+        const pr = await storeProjectFolder(env, slug, mirror, built);
+        if (pr) tm("r2:project", pr.ok ? "ok" : "fail", pr.ok ? { files: pr.files, uploaded: pr.uploaded, removed: pr.removed } : { why: pr.why });
+      }
       tm("r2:source", unsaved.length ? "fail" : "ok", unsaved.length ? { why: unsaved.join(",") } : undefined);
       // AND THE MAP OF WHAT THE PUBLISHED PAGE CONTAINS, for the next edit to
       // aim by. After the source, deliberately: the source is what the next
@@ -19404,6 +19476,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
   // closure. Captured from the CONTAINER'S OWN REPLY rather than from what we
   // sent, because the closure is resolved over the files as they landed on disk.
   let kitBuilt = [];
+  let projectBuilt = null;
+  let bMirror = null;
   // ── THE FAMILIES THE MODEL'S OWN STYLESHEET NAMES ──────────────────────────
   //
   // A face that is not one of the 24 installed is DOWNLOADED here, before any
@@ -20263,7 +20337,11 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
       // see `withRoom` below the payload.
       // NAMED, so its steps can be watched while it runs (2026-10-19).
       const bStageId = crypto.randomUUID();
+      // THE PROJECT FOLDER (2026-10-31): a first build starts it, a revise of a site that has one keeps it.
+      if (!bMirror) bMirror = await projectMirror(env, slug, { firstBuild: !revise });
       const bPayload = JSON.stringify({ stageId: bStageId, files, slug, title: brand,
+          project: bMirror.on || undefined,
+          projectFiles: bMirror.overlay.length ? bMirror.overlay : undefined,
           // SCREENSHOTS FOR THE VISUAL REVIEW, asked only when it will run;
           // or the routes the site agent's `look` asked to see (2026-10-29).
           shots: (cOpts && Array.isArray(cOpts.shots) && cOpts.shots.length ? cOpts.shots : visualOn) || undefined,
@@ -20395,6 +20473,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         // Assigned on EVERY call, a salvage retry included, so what is stored is
         // what the published build actually needed — `partsBuilt`'s own rule.
         if (built && typeof built === "object" && Array.isArray(built.kit)) kitBuilt = built.kit;
+        // AND THE PROJECT AS IT COMPILED, on the same rule: the last call's.
+        if (built && typeof built === "object") projectBuilt = built.project || null;
         return built;
       }
       catch {
@@ -20577,6 +20657,8 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
             return;
           }
           await writeHead(buildDeps(env), slug, bVersion);
+          // AND THE PROJECT FOLDER (2026-10-31), only once the editable copy stored.
+          await storeProjectFolder(env, slug, bMirror, { project: projectBuilt });
         },
       });
       _pointerCache.delete(slug);
@@ -33015,6 +33097,28 @@ async function handleRequest(request, env, ctx) {
       // ONE JOB'S OWN OUTPUT (`?job=`, 2026-10-14): `siteSourceByJob` says why.
       const sJob = (url.searchParams.get("job") || "").toLowerCase();
       if (sJob) return siteSourceByJob(env, sslug, sJob);
+      // THE PROJECT FOLDER, WHEN THE SITE HAS ONE (2026-10-31, the code
+      // mirror): the answer is that list and its files, as they are stored,
+      // and nothing assembled beside it: no bundled starter files, no kit list,
+      // no assets derived from the config. The tab then shows exactly the
+      // site's folder. A site with no list (every site built before this) keeps
+      // the answer below, unchanged; a list that cannot be read is said
+      // (`reads.project: false`) and the old answer is given beside it.
+      const sProject = await readProjectList(env.SITES_BUCKET, sslug);
+      if (sProject.state === "read") {
+        const [pRead, pPartsRead, pFiles] = await Promise.all([
+          readSiteSource(env, sslug), readSiteParts(env, sslug),
+          readProjectFiles(env.SITES_BUCKET, sslug, sProject.files),
+        ]);
+        return Response.json({
+          ok: true,
+          slug: sslug,
+          pages: Array.isArray(pRead.pages) ? pRead.pages : [],
+          parts: Array.isArray(pPartsRead.parts) ? pPartsRead.parts : [],
+          reads: { pages: pRead.ok === true, parts: pPartsRead.ok === true, project: pFiles.every((f) => !f.missing) },
+          project: pFiles,
+        });
+      }
       // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers
       // that go on to PUBLISH what they read; this one only shows it, so it
       // takes no lease, moves nothing, and cannot make a site busy.
@@ -33090,6 +33194,9 @@ async function handleRequest(request, env, ctx) {
           // route dropped it on the floor — the value computed and never
           // forwarded, in the half that carries a customer's QR codes.
           assets: !!(sCfg && sCfg.ok === true),
+          // THE PROJECT FOLDER'S LIST, when it could not be read (2026-10-31):
+          // cannot-tell, said, never read as "this site has no folder".
+          ...(sProject.state === "unreadable" ? { project: false } : {}),
         },
         // THE FILES THE BUILD MADE, AND NOT ONE NEW BYTE STORED FOR THEM
         // (owner, 2026-09-11: *"we do have a favicon but it doesnt show in the

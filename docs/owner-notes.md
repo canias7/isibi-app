@@ -1,5 +1,22 @@
 # Owner Notes
 
+## 2026-10-31 — The Code tab shows exactly the site's folder (branch `code-mirror`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
+
+**Your rule:** the Code tab and the site's files in storage are the same set, "no one side having more than another". New sites only (`docs/plans/2026-10-31-code-mirror.md`).
+
+**What changed, in the plan's order:**
+1. **The folder.** After every successful save of a new site, the build stores the whole project it compiled in `source/<site>/files/<path>` (one file each) and the list in `source/<site>/files.json` (path, size, hash): the template files, the kit components the site uses, the pages and components, `src/styles.css` as a real file, and the files the build writes itself (brand, fonts, icons, route tree). Never `node_modules`, the compiled output or the unused kit. Only changed files are uploaded; the list is written last; files the list no longer names are deleted. A failed build or save writes nothing. New module `builder/project-files.mjs` (added to both Dockerfile COPY lines).
+2. **The route.** `GET /api/site/source` answers from that list when the site has one (no bundled starter files, no kit list, no assets from the config). A site without a list (every site today) gets exactly the old answer.
+3. **The tab and Download** show that list as it is; a font is downloaded byte for byte; a file that could not be read is said, never zipped empty.
+4. **The compile starts from the folder.** Stored template and kit files that differ from the image's copy are laid over the template before the build and put back after it (so nothing leaks to the next build). Today none differ, so this costs one read.
+5. **The site agent** can read any file of the folder by its path (read only); what it may write is unchanged.
+
+**Who gets a folder:** a first build (nothing stored for the site yet) starts one; a site that has one keeps it; an old site never gets one.
+
+**Tests:** `test/code-mirror.test.mjs`, 15 cases; 7 fail on the branch it came from (the ones for each wiring step), the module's own pass there. Updated: `test/site-source.test.mjs` (one more read, one more cannot-tell flag, the route's window bound) and `test/site-busy.test.mjs` (two more read-only source reads, each pinned). Sweep: 18 of 18 mutants killed, the comment-only control survived. Related files run: same failures as before this change (all pre-existing), none new.
+
+**Not done yet:** no live build has been compared file by file with its folder (the plan's first live check, which costs a build: needs your approval). The agent's `run` sandbox still starts from the image's template (the same files as the folder while no starter file is changed).
+
 ## 2026-10-31 — A paused part keeps going from where it left off (branch `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
 
 **What you saw live.** The Northline Climbing test (the test account, three changes in one message): the Gallery part ran out of credits after 6 minutes, paused, and after the top-up restarted on its own (auto-resume works) but from a blank sheet: its first 6 minutes were thrown away. The phone-number part finished its work, then the save was refused for credits and it ended with "send it again", losing the work.

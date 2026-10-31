@@ -34,6 +34,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
+- **2026-10-31: the Code tab mirrors the site's folder** (new sites only: `source/<slug>/files/` + `files.json`, written after a successful save; the route, the tab, the compile's overlay and the agent's reads use it) is on `code-mirror`, not merged, no live run: `docs/plans/2026-10-31-code-mirror.md`, owner-notes 2026-10-31.
+
 - **2026-10-28: the site agent** (one model with tools takes every message: first builds, edits, additions, questions; no router, no credit cap; owner's cost rules 1, 3 and 4) is on `claude/nice-ramanujan-9ry8wy`, **always on** (no switch, owner's word; the older steps run only in the unit suite via `GF_OLD_LANES=1`), not merged, no live run: `docs/history/2026-10-28-site-agent.md`.
 - **2026-10-24: deploy 2266 (`692087cde`, combine-c, canary 40053450252) and deploy 2267 (`1b16aaba0`, combine-d, canary 40102642196) are on `main`, both runtime-confirmed.** Candidate `combine-e` (provider wait, retry with reason, auto-split, no-ask after charge, grok-4.7) is not merged: `docs/history/2026-10-24-combine-e.md`.
 - **2026-10-23, 23:11 UTC: `main` is `6b980ae15` (deploy 2265, green; runtime-confirmed by canary run 40039829521).** The evening batch: `docs/history/2026-10-23-combine-b.md`. Next: compile repair everywhere, progress voice, background work (branches).

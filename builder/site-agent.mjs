@@ -96,7 +96,7 @@ export const MAX_TOOL_TEXT = 40000;
 export const AGENT_TOOLS = Object.freeze([
   {
     name: "read_files",
-    description: "Read files of this site, as they are in your workspace now (your own writes included). Keys exactly as listed: a page is its file name (\"about.tsx\"), a component or server function \"-parts/<name>\".",
+    description: "Read files of this site, as they are in your workspace now (your own writes included). Keys exactly as listed: a page is its file name (\"about.tsx\"), a component or server function \"-parts/<name>\". Any other file of the project is read (read only) by its path, e.g. \"src/lib/rows.ts\".",
     input_schema: { type: "object", properties: { files: { type: "array", items: { type: "string" }, maxItems: MAX_READ } }, required: ["files"] },
   },
   {
@@ -756,8 +756,23 @@ async function runTool(use, st, deps) {
       const want = (Array.isArray(input.files) ? input.files : []).filter((f) => typeof f === "string").slice(0, MAX_READ);
       if (!want.length) return { error: "name at least one file" };
       const found = want.filter((k) => st.ws.has(k));
-      const missing = want.filter((k) => !st.ws.has(k));
-      const text = found.map((k) => fileBlock(k, st.ws.get(k))).join("\n\n") + (missing.length ? "\n\nNo such file: " + missing.join(", ") : "");
+      let missing = want.filter((k) => !st.ws.has(k));
+      // THE REST OF THE SITE'S PROJECT FOLDER, READ ONLY (2026-10-31, the code
+      // mirror): a file that is not a page, a component or the stylesheet is
+      // read from the stored project by its path ("src/lib/rows.ts"), exactly
+      // as the Code tab shows it. What may be written is unchanged.
+      const extra = [];
+      if (missing.length && typeof deps.projectFile === "function") {
+        const still = [];
+        for (const k of missing) {
+          let src = null;
+          try { src = await deps.projectFile(k); } catch { src = null; }
+          if (typeof src === "string") extra.push(fileBlock(k, src) + "\n(read only: part of the project the site is built from)");
+          else still.push(k);
+        }
+        missing = still;
+      }
+      const text = found.map((k) => fileBlock(k, st.ws.get(k))).concat(extra).join("\n\n") + (missing.length ? "\n\nNo such file: " + missing.join(", ") : "");
       return { text, reads: found };
     }
     case "write_file": {
