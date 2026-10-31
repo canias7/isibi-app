@@ -2271,4 +2271,4 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 - A fast-forward of `main` from `3357ec12d` on the owner's word ("Deploy it"): a part paused for credits keeps going from where it left off (`builder/agent-carry.mjs`), and a save refused for credits pauses instead of ending.
 - Unit CI green on `dd700bd94` (run 41166236333); the run before it (41161914224 on `4aadceac`) was red on `dockerfile.test.mjs` (the new module was not in the image), fixed by `dd700bd94`.
 - Deploy run 41166959546, green. Image predicted `5caa33aea87fc11e` (254 inputs); the log reads `built isibi-app-sitebuildcontainer:5caa33aea87fc11e` (registry 404), as predicted. App-build image reused.
-- Deployed, not runtime-confirmed: the canary press is owed. Wait 15–20 minutes after 04:07 before container work must run the new code.
+- **Runtime-confirmed** by the owner's canary run 41169869835 (04:45 UTC, green, with expect_deploy `dd700bd94` and expect_image `5caa33aea87fc11e`).
