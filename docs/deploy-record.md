@@ -2280,6 +2280,11 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 - **Runtime-confirmed** by the owner's canary run 41179063754 (07:04 UTC, expect_deploy `feb07fb43`, expect_image `b81354b645ec6388`).
 - **Live proof (test account, northline-climbing):** "Add a Coaching page…" paused for credits at round 5 (07:10, nothing charged) with `coaching.tsx`, the header and the footer written; after the 07:14 top-up it resumed on its own and the trace logged `agent:carry` kept `[-parts/site-footer, -parts/site-header, coaching.tsx]`, stale `[]`; saved at 07:22 for 14 credits (the Events part that started over cost 23).
 
+
+## Deploy 2299 (`b7aa8c129`, 2026-11-01 05:02 UTC)
+
+Fast-forward of 4 commits from `52963a064`: key box on every ending (pause, stop, failure), one outcome per message (no stray "couldn't work out" line), the agent asks which provider instead of assuming one. Image predicted `3f5324d9f2febba3` → `15175785f248acc4` (256 inputs). Deploy run 41275343301 green. **Runtime-confirmed** by canary run 41279445244 (06:06 UTC, free): both readers `b7aa8c129c6f`, cold container `15175785f248acc4`, async and runner on, all free checks passed, nothing charged.
+
 ## Deploy 2298 — 2026-10-31 23:51 UTC (`52963a064`)
 
 - Fast-forward of `main` from `feb07fb43` on the owner's word ("Deploy it"): the Code tab mirrors the site's folder (new sites; `code-mirror` through `ea45639ce`), no developer notes under a site that built, clean part sentences (with the planner reading the untidied run).
