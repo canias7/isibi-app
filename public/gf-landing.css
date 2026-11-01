@@ -160,3 +160,10 @@
 #authGate .auth-submit:hover{background:#1c2b3c}
 #authGate .auth-links{margin-top:22px;padding-top:18px;border-top:1px solid #e6e2db;font-size:14px;color:#55606d}
 #authGate .auth-link{color:#0d1b2a;font-weight:600}#authGate .auth-link:hover{color:#e2583e}
+
+/* Desktop app downloads (2026-11-01, owner: "for the look of it" — not wired yet). */
+#marketing .gfl .nl .dl-apps{display:flex;gap:8px;align-items:center}
+#marketing .gfl .nl .dl-app{display:inline-flex;align-items:center;gap:8px;background:#0d0d0f;color:#fff;border:1px solid #0d0d0f;border-radius:999px;padding:8px 14px 8px 12px;font-size:14px;font-weight:500;line-height:1;cursor:default;box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 6px 16px -8px rgba(0,0,0,.45);transition:background .15s,transform .15s}
+#marketing .gfl .nl .dl-app:hover{background:#26262b;color:#fff;transform:translateY(-1px)}
+#marketing .gfl .nl .dl-app svg{width:15px;height:15px;flex:none}
+@media (max-width:900px){#marketing .gfl .nl .dl-app span{display:none}#marketing .gfl .nl .dl-app{padding:8px 10px}}

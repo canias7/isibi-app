@@ -4,6 +4,11 @@
 
 
 
+
+## 2026-11-01: Download for Mac / Windows buttons on the landing page
+
+On your word, the landing page's top bar now has two black pill buttons, "Download for Mac" (Apple logo) and "Download for Windows" (Windows logo), before Pricing. They are for the look only: they do nothing yet (marked "Coming soon"). On a phone they shrink to just the two logos. `public/index.html`, `public/gf-landing.css`. Not deployed yet.
+
 ## 2026-11-01: one reply per message, model-written (plan)
 
 You agreed to fix the root cause of the wrong messages: one reply per message, written by a model from what really happened (the site before and after, every task's ending, the credits charged), checked before it is shown. Plan: `docs/plans/2026-11-01-one-reply.md`. Nothing built or spent yet.
