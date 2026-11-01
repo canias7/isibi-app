@@ -2281,6 +2281,10 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 - **Live proof (test account, northline-climbing):** "Add a Coaching page…" paused for credits at round 5 (07:10, nothing charged) with `coaching.tsx`, the header and the footer written; after the 07:14 top-up it resumed on its own and the trace logged `agent:carry` kept `[-parts/site-footer, -parts/site-header, coaching.tsx]`, stale `[]`; saved at 07:22 for 14 credits (the Events part that started over cost 23).
 
 
+## Deploy 2300 (`a8ff0b51b`, 2026-11-01)
+
+Fast-forward from `b7aa8c129`: the key box's names no longer blanked by the typing effect, a model's `\u00a3` shown as £, and the site agent's questions kept (`agent` added to the question store's steps). Image predicted `15175785f248acc4` → `d2fa53453d8b0db7`. **Runtime-confirmed** by canary run 41357564780 (22:31 UTC, free): both readers `a8ff0b51b804`, cold container `d2fa53453d8b0db7`, async and runner on, all free checks passed, nothing charged.
+
 ## Deploy 2299 (`b7aa8c129`, 2026-11-01 05:02 UTC)
 
 Fast-forward of 4 commits from `52963a064`: key box on every ending (pause, stop, failure), one outcome per message (no stray "couldn't work out" line), the agent asks which provider instead of assuming one. Image predicted `3f5324d9f2febba3` → `15175785f248acc4` (256 inputs). Deploy run 41275343301 green. **Runtime-confirmed** by canary run 41279445244 (06:06 UTC, free): both readers `b7aa8c129c6f`, cold container `15175785f248acc4`, async and runner on, all free checks passed, nothing charged.
