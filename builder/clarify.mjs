@@ -127,7 +127,10 @@ export const QUESTION_KEY = (slug) => "source/" + String(slug || "").toLowerCase
 export const ASK_STATUSES = Object.freeze(["pending", "answered", "cancelled", "superseded"]);
 
 /** Which step asked: the router, one of the nine edit steps, or the add-on. */
-export const ASK_STAGES = Object.freeze(["route", ...EDIT_LAYERS, "addon"]);
+// "agent": the site agent's own `ask_owner` (2026-11-01). Left out, every
+// question the agent asked was dropped as "couldn't keep track of the question"
+// (live, northline-climbing, 2026-10-31), since the agent takes every message.
+export const ASK_STAGES = Object.freeze(["route", ...EDIT_LAYERS, "addon", "agent"]);
 /** One call inside a step, by name — `add:component` (`packAsk`'s `by`). */
 export const ASKER_RE = /^[a-z]+:[a-z]{1,24}$/;
 

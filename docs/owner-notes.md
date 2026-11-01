@@ -2,6 +2,11 @@
 
 
 
+
+## 2026-11-01: the agent's questions were always thrown away
+
+Why "couldn't keep track of the question" happened (northline-climbing, 31 Oct: "Which page should be linked in the header?", 5 credits): the site agent's answers are labelled `agent`, and the question store only accepted the older step names (route, text, look, …, addon). So every question the agent asked, alone or as part of a split message, was refused before being saved. Since the agent takes every message, the agent could never ask you anything. Fixed in `builder/clarify.mjs` (`agent` added to `ASK_STAGES`). Your answer goes back through the normal message path with the request and what you said, so nothing else depended on the label. Test: `test/agent-ask-kept.test.mjs` (fails on the old code). The clarify suites pass with `GF_OLD_LANES=1` (383/383). Not deployed. Not yet seen live: the question card appearing and the answer resuming the agent.
+
 ## 2026-11-01: the key box's names were blank
 
 Live on northline-climbing, the key box appeared (deploy 2299) but its key names and notes were empty. The word-by-word typing effect blanked them and lost track of them when the chat redrew. Fixed in `public/chat.js`: the key box is never typed, and a text blanked mid-typing is always finished. Checked on the real Northline page with the fixed file: RESEND_API_KEY, STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET all show. Test: `test/type-in.test.mjs` (fails on the old code). Also fixed: a reason line showed `\\u00a38` instead of `£8` (the model wrote a JSON escape); `builder/key-card.mjs` now reads such escapes back as the character (test in `test/key-card.test.mjs`). Not deployed yet.
