@@ -2285,4 +2285,4 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 - Fast-forward of `main` from `feb07fb43` on the owner's word ("Deploy it"): the Code tab mirrors the site's folder (new sites; `code-mirror` through `ea45639ce`), no developer notes under a site that built, clean part sentences (with the planner reading the untidied run).
 - Unit CI green on `52963a064` (run 41253284296); the three runs before it were red and each was fixed (41251426400, 41252370743).
 - Deploy run 41254117705, green. Image predicted `3f5324d9f2febba3` (256 inputs).
-- Deployed, not runtime-confirmed: the canary press is owed (after ~00:10 UTC, once the image has rolled).
+- **Runtime-confirmed** by the owner's canary run 41262026955 (2026-11-01 01:40 UTC, green, expect_deploy `52963a064`, expect_image `3f5324d9f2febba3`).
