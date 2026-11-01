@@ -7,7 +7,7 @@
 
 ## 2026-11-01: Download for Mac / Windows buttons on the landing page
 
-On your word, the landing page now has two black pill buttons, under the top bar on the right below Sign in (moved there on your word),, "Download for Mac" (Apple logo) and "Download for Windows" (Windows logo),. They are for the look only: they do nothing yet (marked "Coming soon"). On a phone they shrink to just the two logos. `public/index.html`, `public/gf-landing.css`. Not deployed yet.
+On your word, the landing page now has two black pill buttons, under the top bar on the right below Sign in (moved there on your word),, "Download for Mac" (Apple logo) and "Download for Windows" (Windows logo),. They are for the look only: they do nothing yet (marked "Coming soon"). They are hidden on phones (your word). `public/index.html`, `public/gf-landing.css`. Not deployed yet.
 
 ## 2026-11-01: one reply per message, model-written (plan)
 
