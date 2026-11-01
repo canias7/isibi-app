@@ -617,13 +617,24 @@ function hideAuthGate() {
   if (shell) shell.inert = false;
 }
 
-// Wordmark → back to the landing page (owner 2026-07-16), in its signed-in
-// form when a session exists: profile pill top-right stays live, and the
-// landing chatbox drops back into the studio. Nothing in the app is lost —
-// chats/attachments keep their state behind the (inert) shell.
+// Wordmark → the landing page when signed out (owner 2026-07-16). SIGNED IN,
+// IT GOES HOME, to `/home` (owner 2026-11-01, "Yes do it with /home"): the
+// landing in a signed-in state (profile pill over the marketing page) was an
+// in-between screen and is gone.
 function goLanding() {
-  try { if (Auth.email && Auth.email()) enterLandingAuthed(); } catch (e) {}
+  let signedIn = false;
+  try { signedIn = !!(window.Auth && Auth.isSignedIn && Auth.isSignedIn()); } catch (e) {}
+  if (signedIn) { goHome(); return; }
   showMarketing();
+}
+// The signed-in home: the sites screen with no project open, at `/home`.
+function goHome() {
+  hideMarketing();
+  hideAuthGate();
+  const shell = document.querySelector('.shell');
+  if (shell) { shell.style.display = ''; shell.inert = false; }
+  if (typeof showView === 'function') showView('sites');
+  openProject(null, 'push');
 }
 
 // Public marketing landing (logged-out default). CTAs reveal the auth gate;
@@ -669,8 +680,10 @@ function finishAuth() {
     const prev = localStorage.getItem('zephyr_owner_v1');
     switched = !!(uid && prev && prev !== uid);
   } catch {}
-  if (authEntry === 'app' || switched) enterApp();
-  else enterLandingAuthed();
+  // Both entries land in the app now (2026-11-01): signing in from the
+  // landing's nav goes to `/home`, never to the landing in a signed-in state.
+  void switched;
+  enterApp();
 }
 
 // One flow: email + password → emailed code → in.
@@ -947,6 +960,8 @@ function enterApp() {
   // fresh session or anything unknown).
   let lastView = 'sites';
   try { lastView = localStorage.getItem(VIEW_KEY) || 'sites'; } catch {}
+  // SIGNED IN, `/` AND BARE `/projects` ARE `/home` (2026-11-01).
+  appHomeAddress();
   // A PROJECT ADDRESS BEATS THE REMEMBERED VIEW, and that order is the whole
   // point of having addresses. `/projects/<id>` is a link somebody followed or
   // a tab they reloaded; localStorage is a preference this browser happened to
@@ -967,28 +982,6 @@ function enterApp() {
     if (bootProject !== undefined) { siteOpenId = bootProject; lastView = 'sites'; }
     showView(lastView);
   });
-}
-
-// Signed in via the nav buttons (not the chatbox): stay on the landing but flip
-// it to a logged-in page — the top-right becomes the same profile menu the app
-// uses. The chatbox still drops them into the studio on Enter. Account cache is
-// left for enterApp() to reconcile (it does the account-switch wipe on entry).
-function enterLandingAuthed() {
-  hideAuthGate();
-  const email = Auth.email();
-  const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
-  const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
-  const initial = (name[0] || '·').toUpperCase();
-  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-  set('authEmailBadge', email); set('sideName', name); set('sideAvatar', initial); set('profileBtnAv', initial);
-  // The profile cluster lives inside the app shell (inert while the landing is
-  // up); move it to <body> so it's interactive over the landing, then show it.
-  const so = document.getElementById('signOutRow');
-  if (so) { if (so.parentElement !== document.body) document.body.appendChild(so); so.style.display = ''; }
-  // Swap the landing's Sign in / Sign up / Pricing nav for the profile menu.
-  // The new landing's nav (`.gfl .nl`, 2026-10-30) too: its Sign in stayed up.
-  document.querySelectorAll('#marketing .mkt-links, #marketing .gfl .nl').forEach((n) => { n.style.display = 'none'; });
-  fetchCredits();
 }
 
 async function doSignOut(everywhere) {
@@ -1038,6 +1031,8 @@ async function doSignOut(everywhere) {
   } catch {}
   if (everywhere) await Auth.signOutEverywhere();
   else await Auth.signOut();
+  // SIGN OUT LANDS ON THE LANDING, at `/` (2026-11-01), not on `/home`.
+  try { history.replaceState(null, '', '/'); } catch (e) {}
   location.reload();
 }
 
@@ -3438,7 +3433,13 @@ function initAuthGate() {
     }, { passive: true });
   }
   if (window.Auth && Auth.isSignedIn()) enterApp();
-  else showMarketing();
+  else {
+    // Signed out, an app address shows the landing at `/` (2026-11-01).
+    if (HOME_PATH.test(location.pathname) || PROJECT_PATH.test(location.pathname)) {
+      try { history.replaceState(null, '', '/' + location.search + location.hash); } catch (e) {}
+    }
+    showMarketing();
+  }
 }
 
 // Marketing: each how-it-works step (.mkt-rotate) cycles through its inner
@@ -4115,6 +4116,21 @@ let siteOpenId = null;      // project open in the workspace (null → project l
 // does not exist until the build finishes, which is the eight-minute window
 // where a stable address is worth the most. The id has neither problem.
 const PROJECT_PATH = /^\/projects(?:\/([A-Za-z0-9_-]{1,120}))?\/?$/;
+// THE SIGNED-IN HOME HAS ITS OWN ADDRESS (2026-11-01, owner: "Yes do it with
+// /home"): the sites screen with no project open. Kept in step with the
+// Worker's copy by test/project-url.test.mjs, like PROJECT_PATH.
+const HOME_PATH = /^\/home\/?$/;
+
+/**
+ * Signed in, `/` and the bare list `/projects` are corrected to `/home` —
+ * replaceState, so Back never returns to an address that only redirects.
+ */
+function appHomeAddress() {
+  const p = location.pathname;
+  if (p === '/' || p === '' || (PROJECT_PATH.test(p) && projectFromPath() === null && !HOME_PATH.test(p))) {
+    try { history.replaceState({ project: null }, '', '/home' + location.search + location.hash); } catch (e) {}
+  }
+}
 
 /**
  * Which project the current URL names.
@@ -4126,6 +4142,7 @@ const PROJECT_PATH = /^\/projects(?:\/([A-Za-z0-9_-]{1,120}))?\/?$/;
  * ordinary page load navigate to the sites screen.
  */
 function projectFromPath() {
+  if (HOME_PATH.test(location.pathname)) return null;
   const m = PROJECT_PATH.exec(location.pathname);
   return m ? (m[1] || null) : undefined;
 }
@@ -4179,7 +4196,7 @@ function openProject(id, mode) {
     const os = id ? siteById(id) : null;
     if (os) Promise.resolve(chatPull(os)).catch(() => {}).then(() => { try { appPreviewPull(os); } catch (e) { /* the phones keep what they show */ } });
   } catch (e) { /* the local copy stands */ }
-  const path = siteOpenId ? '/projects/' + siteOpenId : '/projects';
+  const path = siteOpenId ? '/projects/' + siteOpenId : '/home';
   // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that
   // is already open (the Data button on the open project, a re-render) would
   // otherwise stack identical entries and Back would appear to do nothing for
@@ -6128,7 +6145,7 @@ function renderSites() {
   // Back would have to walk through — and openProject calls this very function,
   // which would recurse.
   if (siteOpenId && PROJECT_PATH.test(location.pathname)) {
-    try { history.replaceState({ project: null }, '', '/projects'); } catch (e) {}
+    try { history.replaceState({ project: null }, '', '/home'); } catch (e) {}
   }
   siteSlotSwap(siteOpenId, null);
   siteOpenId = null;

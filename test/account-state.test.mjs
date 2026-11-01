@@ -100,7 +100,7 @@ test("the page sends every listed key, reads the account before it lands, and ne
   assert.match(src, /if \(!name \|\| !acctFor \|\| acctApplying\) return;/);
   assert.match(src, /acctFor = ''; \/\/ nothing the wipe below removes/);
   assert.match(src, /acctFor = ''; \/\/ the wipe below is never sent/);
-  const enter = src.slice(src.indexOf("function enterApp("), src.indexOf("function enterLandingAuthed("));
+  const enter = src.slice(src.indexOf("function enterApp("), src.indexOf("async function doSignOut("));
   assert.match(enter, /acctPull\(uid\)\.then\(\(\) => \{[\s\S]*showView\(lastView\);\s*\}\);/);
   assert.equal((src.match(/\[SITES_KEY, CRED_MAX_KEY, WELCOME_KEY, VIEW_KEY, \.\.\.acctWipeKeys\(\),/g) || []).length, 2, "both wipes clear the account's keys, so the next account never inherits them");
   assert.match(src, /askFilesServer\(id, 'PUT', list\)/);

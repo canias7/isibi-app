@@ -2118,6 +2118,10 @@ function upstreamKind(detail, status) {
 // The id charset admits no slash and no dot, so no path here can climb out of
 // /projects/ toward another asset.
 const PROJECT_PATH = /^\/projects(?:\/([A-Za-z0-9_-]{1,120}))?\/?$/;
+// THE SIGNED-IN HOME (2026-11-01, owner: "Yes do it with /home"): `/home` is
+// the sites screen with no project open, served as the app shell like a
+// project address. Kept identical to the browser's copy by the same guard.
+const HOME_PATH = /^\/home\/?$/;
 
 function harden(res, request) {
   // A REFUSAL WE COULD NOT MAKE IS NOT A REFUSAL. If `authUser` never got an
@@ -50607,7 +50611,7 @@ async function handleRequest(request, env, ctx) {
     // already does — and the shell it serves is the same bytes as `/`, which is
     // public anyway. What the pattern DOES exclude is a path with a slash or a
     // dot in the id, so nothing here can reach for another asset.
-    if (PROJECT_PATH.test(url.pathname)) {
+    if (PROJECT_PATH.test(url.pathname) || HOME_PATH.test(url.pathname)) {
       return env.ASSETS.fetch(new URL("/", request.url));
     }
 

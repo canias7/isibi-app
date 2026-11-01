@@ -5,6 +5,10 @@
 
 
 
+## 2026-11-01: the signed-in home lives at /home
+
+On your word ("Yes do it with /home"), the signed-in home (the "What are we building?" screen with Your sites) now has its own address, `gofarther.dev/home`. Signed in, opening `/` or signing in from the landing's Sign in button takes you straight there; the landing is never shown in its signed-in state any more (that in-between screen with your profile over the marketing page is gone). Pressing the logo while signed in goes to `/home`; signed out it still shows the landing at `/`. The old `/projects` address still works and is shown as `/home`; a project stays at `/projects/<id>`, and Back and Forward move between them. Signing out lands on `/`. The Worker serves the app for `/home`. Branch `home-route` (from `claude/nice-ramanujan-9ry8wy`); not merged, not deployed, nothing spent.
+
 ## 2026-11-01: Download for Mac / Windows buttons on the landing page
 
 On your word, the landing page now has two black pill buttons, under the top bar on the right below Sign in (moved there on your word),, "Download for Mac" (Apple logo) and "Download for Windows" (Windows logo),. They are for the look only: they do nothing yet (marked "Coming soon"). They are hidden on phones (your word). `public/index.html`, `public/gf-landing.css`. Not deployed yet.

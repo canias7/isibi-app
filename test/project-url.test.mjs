@@ -48,6 +48,21 @@ test("ONE rule, two files: the browser's pattern and the Worker's are identical"
     "the two PROJECT_PATH patterns have drifted — the browser would push addresses the Worker 404s");
 });
 
+// HOME_PATH (2026-11-01, "Yes do it with /home"): the signed-in home has its
+// own address, served by the Worker and read by the browser, so it is one rule
+// in two files exactly like PROJECT_PATH.
+const homeIn = (src, what) => {
+  const m = /const HOME_PATH = (\/\^.*\/);/.exec(src);
+  assert.ok(m, "HOME_PATH is gone from " + what);
+  return m[1];
+};
+test("ONE home rule, two files: the browser's HOME_PATH and the Worker's are identical", () => {
+  assert.equal(homeIn(chat, "public/chat.js"), homeIn(worker, "worker.js"));
+  const re = new RegExp(homeIn(worker, "worker.js").slice(1, -1));
+  for (const p of ["/home", "/home/"]) assert.ok(re.test(p), p);
+  for (const p of ["/", "/homes", "/home/x", "/projects"]) assert.ok(!re.test(p), p);
+});
+
 test("DRIVEN: the pattern admits a project address and refuses everything else", () => {
   const re = new RegExp(patternIn(worker, "worker.js").slice(1, -1));
   // The list, and one project — including a trailing slash, which a browser
@@ -93,6 +108,7 @@ function loadRouter(pathname) {
   let api = null;
   const fn = new Function("location", "history", "renderSites", "state",
     chat.slice(pAt, pEnd) + "\n" +
+    (() => { const h = chat.indexOf("const HOME_PATH = "); assert.ok(h > 0, "HOME_PATH is gone from chat.js"); return chat.slice(h, chat.indexOf("\n", h)); })() + "\n" +
     "let siteOpenId = null;\n" +
     "let siteBusy = false, siteBusyFor = null, siteBuild = null, siteTicker = null;\n" + BUSY_SLOTS + "\n" +
     cut("function projectFromPath(") + "\n" +
@@ -111,6 +127,8 @@ test("DRIVEN: the path has THREE answers, and the third is why it is not a boole
   // `null` — the project list.
   assert.equal(loadRouter("/projects").api.projectFromPath(), null);
   assert.equal(loadRouter("/projects/").api.projectFromPath(), null);
+  // `/home` is the list too (2026-11-01).
+  assert.equal(loadRouter("/home").api.projectFromPath(), null);
   // A project.
   assert.equal(loadRouter("/projects/site_1784380035480_w53jb").api.projectFromPath(),
     "site_1784380035480_w53jb");
@@ -122,7 +140,8 @@ test("DRIVEN: opening a project moves the URL, and going back to the list moves 
   assert.equal(r.api.id(), "site_1_abcde", "the state did not move");
   assert.deepEqual(r.calls.at(-1), ["push", "/projects/site_1_abcde"], "the URL did not move");
   r.api.openProject(null, "push");
-  assert.deepEqual(r.calls.at(-1), ["push", "/projects"], "the list has no address");
+  // The list's address is `/home` since 2026-11-01 (was `/projects`).
+  assert.deepEqual(r.calls.at(-1), ["push", "/home"], "the list has no address");
 });
 
 test("DRIVEN: opening a project RE-DRAWS, and draws the project it just opened", () => {
@@ -165,7 +184,7 @@ test("DRIVEN: 'none' touches history at all — which is what stops Back becomin
   // …and 'replace' corrects the address without adding an entry.
   const r2 = loadRouter("/projects/dead");
   r2.api.openProject(null, "replace");
-  assert.deepEqual(r2.calls, [["replace", "/projects"]]);
+  assert.deepEqual(r2.calls, [["replace", "/home"]]);
 });
 
 // ── THE WIRING ──────────────────────────────────────────────────────────────
@@ -243,10 +262,10 @@ function loadBoot(pathname, storedView) {
   const shown = [];
   // `siteOpenId` is a module variable in chat.js; declared here so the block's
   // own assignment lands somewhere a test can read rather than on the global.
-  const fn = new Function("projectFromPath", "localStorage", "VIEW_KEY", "showView", "acctPull", "uid",
+  const fn = new Function("projectFromPath", "localStorage", "VIEW_KEY", "showView", "acctPull", "uid", "appHomeAddress",
     "let siteOpenId = null;\n" + body + "\nreturn siteOpenId;");
   const id = fn(() => (pathname === undefined ? undefined : pathname),
-    { getItem: () => storedView }, "zephyr_view_v1", (v) => shown.push(v), () => ({ then: (f) => f() }), "u1");
+    { getItem: () => storedView }, "zephyr_view_v1", (v) => shown.push(v), () => ({ then: (f) => f() }), "u1", () => {});
   return { id, shown, body };
 }
 
@@ -346,7 +365,8 @@ test("an id that names nothing corrects the address instead of leaving it lying"
 
 test("the Worker serves the app for a project address, before the asset handler 404s it", () => {
   const src = bare(worker);
-  const route = src.indexOf("if (PROJECT_PATH.test(url.pathname))");
+  // `|| HOME_PATH.test(...)` joined the condition on 2026-11-01 (/home).
+  const route = src.indexOf("if (PROJECT_PATH.test(url.pathname) || HOME_PATH.test(url.pathname))");
   assert.ok(route > 0, "the Worker has no project route — every /projects URL is a 404");
   assert.match(src.slice(route, route + 200), /ASSETS\.fetch\(new URL\("\/", request\.url\)\)/,
     "the project route does not hand back the app's own shell");

@@ -103,7 +103,7 @@ async function run({ cutReconcile }) {
         if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 48 });
         return json(route, { ok: true });
       }
-      const file = p === "/" || p.startsWith("/projects") ? "/index.html" : p;
+      const file = p === "/" || p.startsWith("/projects") || /^\/home\/?$/.test(p) ? "/index.html" : p;
       if (file === "/chat.js") {
         // THE RECONCILE CUT, FOR THE SECOND TAB ALONE.
         const body = cutReconcile && tabOf(req) === 2 ? CHAT_CUT : CHAT;
