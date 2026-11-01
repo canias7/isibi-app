@@ -1,5 +1,10 @@
 # Owner Notes
 
+
+## 2026-11-01: the agent asks which service, never assumes one
+
+You noticed a request for "email" made the agent pick Resend on its own. Now, when a message names only a kind of service (email, payments, texts, AI) and not the company, the agent asks you which one you use (e.g. Resend, SendGrid, Mailgun, Postmark) before writing its code or asking for its key. If it can't ask at that moment, it writes no provider's code and says it needs you to say which. It can now also read Mailgun, Postmark, PayPal, Square and Vonage's official docs. On branch `key-card-now`, not deployed. Tests: `test/provider-choice.test.mjs` (2).
+
 ## 2026-11-01 — The key box on every ending, and one outcome per message (branch `key-card-now`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
 
 Two live bugs on `northline-climbing` (test account).
