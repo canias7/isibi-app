@@ -12747,6 +12747,29 @@ function siteBgLine(it, now) {
   if (it.state === 'done') return (siteParTag(p, it.parts, 'done') === 'saved as draft' ? 'Saved as draft' : 'Done') + ' · ' + siteBgWhen(it.doneAt, now);
   return siteSaidFor(p.said, 'notdone') || 'Didn’t work';
 }
+// THE PILL COUNTS EACH PART BY ITS REAL ENDING (2026-11-01, one reply): when
+// nothing is running, "3 tasks · 2 finished, 1 paused for credits", never
+// "3 tasks finished" over a part that paused, stopped or failed.
+const SITE_BG_ENDING = { cancelled: 'stopped', 'not-run': 'not done', failed: 'failed', expired: 'not done', refused: 'not done', 'needs-rewrite': 'not done' };
+function siteBgEnding(it) {
+  if (it.build) return it.p.buildState === 'done' ? 'finished' : it.p.buildState === 'stopped' ? 'stopped' : 'failed';
+  const s = it.p && typeof it.p.status === 'string' ? it.p.status : '';
+  if (s === 'done' || s === 'partial') return 'finished';
+  if (s === 'credits') return 'paused for credits';
+  if (s === 'waiting' || s === 'approval') return 'waiting for your answer';
+  if (it.state === 'run') return 'in progress';
+  if (it.state === 'wait') return 'waiting';
+  return Object.hasOwn(SITE_BG_ENDING, s) ? SITE_BG_ENDING[s] : 'failed';
+}
+function siteBgEndings(items) {
+  const order = ['finished', 'in progress', 'waiting for your answer', 'waiting', 'paused for credits', 'stopped', 'failed', 'not done'];
+  const n = {};
+  for (const it of items) { const e = siteBgEnding(it); n[e] = (n[e] || 0) + 1; }
+  const keys = order.filter((k) => n[k]);
+  const total = items.length + (items.length === 1 ? ' task' : ' tasks');
+  if (keys.length === 1) return total + ' ' + keys[0];
+  return total + ' · ' + keys.map((k) => n[k] + ' ' + k).join(', ');
+}
 /** The pill and, when open, the panel: the list, or one part's own view. */
 function siteBgHTML(site, now) {
   const items = siteBgItems(site, now);
@@ -12764,7 +12787,7 @@ function siteBgHTML(site, now) {
   if (!ui.open) {
     const waitCred = typeof siteCreditsOf === 'function' ? siteCreditsOf(site).paused : 0;
     return '<button type="button" class="st-bg-pill" data-bg="open" aria-expanded="false">' + (working ? '<span class="st-par-dot st-bg-spin"></span>' : '') +
-      esc(waitCred ? things(waitCred) + ' waiting for credits' : active ? activeSaid : things(items.length) + ' finished') + ' ▾</button>';
+      esc(active ? (waitCred ? things(waitCred) + ' waiting for credits' : activeSaid) : siteBgEndings(items)) + ' ▾</button>';
   }
   const it = ui.job ? items.find((x) => x.key + '|' + x.n === ui.job) : null;
   // A JOB NOT LISTED (yet, after a reload, or no more) shows the list; the choice is kept.

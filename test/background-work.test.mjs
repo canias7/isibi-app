@@ -46,8 +46,8 @@ function cutConst(head) {
 }
 const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParState", "siteParTitle", "siteParTag", "siteParSnap",
   "siteRequestWorking", "siteRunningWork", "siteBusyHere", "siteComposerStops",
-  "siteBgState", "siteBgKeep", "siteBgHolds", "siteReqCardHTML", "siteReqCardShows", "siteParView", "siteReqKeys", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
-const CONSTS = ["const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi =", "const SITE_BG_KEEP_KEY =", "const siteParOpen ="];
+  "siteBgState", "siteBgKeep", "siteBgHolds", "siteReqCardHTML", "siteReqCardShows", "siteParView", "siteReqKeys", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgEnding", "siteBgEndings", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
+const CONSTS = ["const SITE_BG_ENDING =", "const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi =", "const SITE_BG_KEEP_KEY =", "const siteParOpen ="];
 const SRC = [...FNS.map((n) => cut("function " + n + "(")), ...CONSTS.map(cutConst)].join("\n");
 
 const said = (title, doing) => ({ planned: "p", doing: doing || "d", waiting: "w", unconfirmed: "u", done: "I've done " + title + ".", partial: "pa", notdone: "I couldn't do " + title + ".", title });
@@ -508,4 +508,14 @@ test("P — parts waiting on the customer are counted as 'need you', apart from 
   const only = { id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
     requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: [{ n: 0, words: "w", status: "waiting", jobs: [], question: { text: "Q?" }, said: said("One") }] } } } };
   assert.equal(text(load(only).html(1000)), "1 needs you ▾");
+});
+
+// THE PILL COUNTS EACH PART BY ITS REAL ENDING (2026-11-01, one reply): it
+// read "3 tasks finished" over a part paused for credits.
+test("Q — once nothing runs, the pill counts each part by its real ending", () => {
+  const mk = (statuses) => ({ id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
+    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: statuses.map((s, n) => ({ n, words: "w" + n, status: s, jobs: [], said: said("T" + n) })) } } } });
+  assert.equal(text(load(mk(["done", "done", "credits"])).html(1000)), "3 tasks · 2 finished, 1 paused for credits ▾");
+  assert.equal(text(load(mk(["done", "cancelled", "failed"])).html(1000)), "3 tasks · 1 finished, 1 stopped, 1 failed ▾");
+  assert.equal(text(load(mk(["done", "done"])).html(1000)), "2 tasks finished ▾");
 });
