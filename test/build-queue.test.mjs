@@ -35,28 +35,8 @@ test("the producer and the consumer name the SAME queue", () => {
   // THE FAILURE THIS CATCHES IS A TYPO. Cloudflare does not refuse a producer
   // pointed at a queue with no consumer — the messages are simply never
   // delivered, and every build vanishes with no error anywhere.
-  // RE-ANCHORED, NOT APPEASED, and the hazard above is exactly why. A producer may
-  // now legitimately name ANOTHER Worker's queue — `/api/agent/send` rings the agent
-  // engine's `agent-runs`, which that product's own deployment consumes — so the rule
-  // is not "consumed here" but "consumed SOMEWHERE, proved from the config that does
-  // it". An unconsumed queue is still silent data loss; what changed is where the
-  // consumer may live, and a wrong name still fails this.
-  const ENGINE = JSON.parse(fs.readFileSync(new URL("../agent-builder/wrangler.jsonc", import.meta.url), "utf8")
-    .replace(/^\s*\/\/.*$/gm, ""));
-  const elsewhere = (ENGINE.queues?.consumers || []).map((c) => c.queue);
-  assert.ok(elsewhere.length, "the engine's config declares no consumer, so the check below is vacuous");
   for (const name of produced) {
-    assert.ok(consumed.includes(name) || elsewhere.includes(name),
-      `nothing consumes "${name}" — every message written to it is lost with no error`);
-  }
-  // AND THIS WORKER MUST NOT CONSUME THE ENGINE'S QUEUE. A consumer here would be a
-  // second executor of other people's runs, which is the one way this binding could
-  // do harm rather than merely be late.
-  for (const name of elsewhere) {
-    if (produced.includes(name)) {
-      assert.ok(!consumed.includes(name),
-        `this Worker consumes "${name}", which belongs to the agent engine`);
-    }
+    assert.ok(consumed.includes(name), `nothing consumes "${name}" — every message written to it is lost with no error`);
   }
 });
 
