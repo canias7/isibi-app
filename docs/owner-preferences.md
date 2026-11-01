@@ -1487,3 +1487,5 @@ When a model's answer fails a check, retry once with the reason, on the **same m
   no hours, prices, dates, contact details, names, numbers, reviews or
   policies the owner did not give; a missing fact is a clearly marked
   placeholder, named in the reply.
+
+- **One reply per message, model-written by the chosen builder model (2026-11-01).** "yes do it, also the model thing is made by whatever model is chosen there". One reply after every task has ended, written from what really happened; task lines show progress only. Plan: `docs/plans/2026-11-01-one-reply.md`.
