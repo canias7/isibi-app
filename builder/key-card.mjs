@@ -32,7 +32,11 @@ export function serviceOf(name) {
   return hit ? hit[1] : "";
 }
 
-const plain = (v) => typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, TEXT_MAX) : "";
+// A model sometimes writes JSON's escapes into its words ("\\u00a38" for "£8",
+// live on northline-climbing, 2026-11-01): they are read back as the character.
+// Control characters it names are still removed by the next step.
+const unescape = (v) => v.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+const plain = (v) => typeof v === "string" ? unescape(v).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, TEXT_MAX) : "";
 
 /**
  * One `request_key` call, judged. Answers `{ ok:true, key }` or `{ ok:false, why }`.

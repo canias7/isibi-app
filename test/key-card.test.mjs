@@ -361,3 +361,11 @@ test("every ending of runAgentChange carries the asked keys: the stop, the pause
   const failAt = fn.indexOf("const fail = async (status, body) =>");
   assert.ok(failAt > 0 && fn.slice(failAt, fn.indexOf("};", failAt)).includes("await askedKeys()"), "the save failures carry no asked keys");
 });
+
+// "£8" shown in the key box (live, northline-climbing, 2026-11-01).
+test("a JSON escape the model wrote in a key's reason is shown as its character", async () => {
+  const { keyAsk } = await import("../builder/key-card.mjs");
+  const r = keyAsk({ name: "STRIPE_SECRET_KEY", why: "Take the \\u00a38 Kids' club payment" });
+  assert.equal(r.key.why, "Take the £8 Kids' club payment");
+  assert.equal(keyAsk({ name: "X_KEY", why: "a\\u0000b" }).key.why, "a b", "an escaped control character is still removed");
+});

@@ -4,7 +4,7 @@
 
 ## 2026-11-01: the key box's names were blank
 
-Live on northline-climbing, the key box appeared (deploy 2299) but its key names and notes were empty. The word-by-word typing effect blanked them and lost track of them when the chat redrew. Fixed in `public/chat.js`: the key box is never typed, and a text blanked mid-typing is always finished. Checked on the real Northline page with the fixed file: RESEND_API_KEY, STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET all show. Test: `test/type-in.test.mjs` (fails on the old code). Seen but not fixed: one reason line shows `\u00a38` instead of `£8` (the model's own text). Not deployed yet.
+Live on northline-climbing, the key box appeared (deploy 2299) but its key names and notes were empty. The word-by-word typing effect blanked them and lost track of them when the chat redrew. Fixed in `public/chat.js`: the key box is never typed, and a text blanked mid-typing is always finished. Checked on the real Northline page with the fixed file: RESEND_API_KEY, STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET all show. Test: `test/type-in.test.mjs` (fails on the old code). Also fixed: a reason line showed `\\u00a38` instead of `£8` (the model wrote a JSON escape); `builder/key-card.mjs` now reads such escapes back as the character (test in `test/key-card.test.mjs`). Not deployed yet.
 
 ## 2026-11-01: the agent asks which service, never assumes one
 
