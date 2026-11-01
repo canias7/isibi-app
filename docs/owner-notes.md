@@ -1,6 +1,11 @@
 # Owner Notes
 
 
+
+## 2026-11-01: the key box's names were blank
+
+Live on northline-climbing, the key box appeared (deploy 2299) but its key names and notes were empty. The word-by-word typing effect blanked them and lost track of them when the chat redrew. Fixed in `public/chat.js`: the key box is never typed, and a text blanked mid-typing is always finished. Checked on the real Northline page with the fixed file: RESEND_API_KEY, STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET all show. Test: `test/type-in.test.mjs` (fails on the old code). Seen but not fixed: one reason line shows `\u00a38` instead of `£8` (the model's own text). Not deployed yet.
+
 ## 2026-11-01: the agent asks which service, never assumes one
 
 You noticed a request for "email" made the agent pick Resend on its own. Now, when a message names only a kind of service (email, payments, texts, AI) and not the company, the agent asks you which one you use (e.g. Resend, SendGrid, Mailgun, Postmark) before writing its code or asking for its key. If it can't ask at that moment, it writes no provider's code and says it needs you to say which. It can now also read Mailgun, Postmark, PayPal, Square and Vonage's official docs. On branch `key-card-now`, not deployed. Tests: `test/provider-choice.test.mjs` (2).

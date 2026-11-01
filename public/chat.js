@@ -19066,7 +19066,7 @@ const TypeIn = (() => {
   let frame = 0;
   const reduce = () => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
   // .st-par: a split message's parallel card (2026-10-23), drawn like .st-req.
-  const SKIP = 'ul.st-req-prog, .st-req, .st-par, .st-acts, .st-opts, .st-pick, .st-think, details, .st-note, button';
+  const SKIP = 'ul.st-req-prog, .st-req, .st-par, .st-acts, .st-opts, .st-pick, .st-think, details, .st-note, button, [data-keycard]';
   function targets(thread) {
     const out = [];
     thread.querySelectorAll('ul.st-req-prog > li').forEach((li) => out.push(li));
@@ -19077,7 +19077,8 @@ const TypeIn = (() => {
     const nodes = [];
     // 4, 2, 1: NodeFilter's SHOW_TEXT, FILTER_REJECT and FILTER_ACCEPT, written as numbers.
     const walk = document.createTreeWalker(el, 4, { acceptNode: (n) => (isMsg && n.parentElement && n.parentElement.closest(SKIP) && el.contains(n.parentElement.closest(SKIP))) ? 2 : 1 });
-    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.nodeValue && n.nodeValue.trim()) nodes.push(n);
+    // A node blanked mid-reveal (its __typeFull kept) is still a target: dropping it left it empty for good (the key box's names, 2026-11-01).
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) if ((n.nodeValue && n.nodeValue.trim()) || (n.__typeFull != null && n.__typeFull.trim())) nodes.push(n);
     return nodes;
   }
   function sweep() {
