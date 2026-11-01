@@ -167,6 +167,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // COMMENTS HERE AND CALLED IN NONE. It decided the PAGES charge inside
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
+import { requestFacts, writeOneReply, fallbackReply as fallbackOneReply, oneReplyNext, oneReplyOn, readOneReply } from "./builder/one-reply.mjs";
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, filingIsFree, filingFloorRefusal, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 // `countImageSlots` IS NOT IMPORTED ANY MORE, and its absence is the record of
 // why: it counts `@@IMG:` TOKENS, which both the edit page rung and the addon
@@ -26390,6 +26391,8 @@ function requestReplyPlace(rec) {
  * status as it is.
  */
 async function requestReply(env, rec) {
+  // THE MESSAGE'S ONE REPLY TAKES ITS PLACE (2026-11-01): never both.
+  if (oneReplyOn()) return null;
   if (!repliesOn(env) || !env.SITES_BUCKET) return null;
   const place = requestReplyPlace(rec);
   if (!place) return null;
@@ -26431,6 +26434,61 @@ async function writeRequestReply(env, task) {
   const view = requestView(rec);
   await partChecksFor(env, rec, view);
   return settleReply(env, k, claim, task, await composeModelReply(env, "request", view, ask, { background: true }));
+}
+
+/**
+ * THE MESSAGE'S ONE REPLY (2026-11-01, `builder/one-reply.mjs`): written once
+ * per round (`replyRound`: the request's end, or its pause for credits), by
+ * the customer's chosen builder model at low effort, from the whole
+ * request's facts, checked, and stored on the request record. ONE WRITER: the
+ * claim is a conditional write of the record (`writing`, with a claim id), so
+ * two polls that race find one claim; a claim left by a writer that died is
+ * taken over after `ONE_REPLY_CLAIM_MS`. Charged by the tokens it used, under
+ * a ref of the request and round, so a repeat never charges twice; a charge
+ * that fails never holds the reply back. Never throws.
+ */
+async function oneReplyFor(env, ctx, rec, { auth = "" } = {}) {
+  try {
+    if (!oneReplyOn() || !env.SITES_BUCKET || !rec) return;
+    if (oneReplyNext(rec).act !== "claim") return;
+    const at = await loadRequest(env, rec.slug, rec.key);
+    if (!at || !at.rec || !at.etag) return;
+    const next = oneReplyNext(at.rec);
+    if (next.act !== "claim") return;
+    const by = crypto.randomUUID();
+    const claimed = { ...at.rec, oneReply: { for: next.round, state: "writing", by, at: Date.now() } };
+    const etag = await saveRequestRecord(env, claimed, at.etag);
+    if (!etag) return;
+    const work = writeOneReplyNow(env, claimed, next.round, by, auth);
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work); else await work;
+  } catch (e) { console.error("one reply: claim failed", errorClassForLog(e)); }
+}
+
+async function writeOneReplyNow(env, rec, round, by, auth) {
+  let out;
+  try {
+    const missingKeys = await keysAskedNeed(env, rec.slug).catch(() => null);
+    const facts = requestFacts(requestView(rec), { missingKeys: Array.isArray(missingKeys) && missingKeys.length ? missingKeys : null });
+    const model = modelsFor(rec.picker).quick;
+    out = await writeOneReply({ send: quickSend(env, "reply"), message: rec.message, facts, model });
+    console.log("one reply:", rec.key, round, out.source, out.why || "");
+    if (auth && out.usage.length) {
+      try { await debitCredits(auth, pageCredits(...out.usage), "reply:" + rec.key + ":" + round, "reply", true); }
+      catch (e) { console.error("one reply: charge failed", errorClassForLog(e)); }
+    }
+  } catch (e) {
+    console.error("one reply: writer threw", errorClassForLog(e));
+    out = { text: fallbackOneReply(requestFacts(requestView(rec))), source: "fallback", why: "threw" };
+  }
+  for (let i = 0; i < 4; i++) {
+    let cur = null;
+    try { cur = await loadRequest(env, rec.slug, rec.key); } catch { cur = null; }
+    if (!cur || !cur.rec || !cur.etag) return;
+    const o = readOneReply(cur.rec.oneReply);
+    if (!o || o.for !== round || o.state !== "writing" || o.by !== by) return;
+    const saved = await saveRequestRecord(env, { ...cur.rec, oneReply: { for: round, state: "written", text: out.text, source: out.source, at: Date.now() } }, cur.etag);
+    if (saved) return;
+  }
 }
 
 /**
@@ -35312,7 +35370,13 @@ async function handleRequest(request, env, ctx) {
         const moved = request.method === "DELETE"
           ? await stopRequest(env, ctx, qSlug, qKey, qu.id)
           : await advanceRequest(env, ctx, qSlug, qKey, "look");
-        const qRec = moved || found.rec;
+        let qRec = moved || found.rec;
+        // THE MESSAGE'S ONE REPLY (2026-11-01): claimed and written once its
+        // round comes (ended, or paused for credits); the view carries it.
+        if (request.method === "GET" && oneReplyOn() && oneReplyNext(qRec).act === "claim") {
+          await oneReplyFor(env, ctx, qRec, { auth: request.headers.get("Authorization") || "" });
+          try { const again = await loadRequest(env, qSlug, qKey); if (again && again.rec && again.rec.uid === qu.id) qRec = again.rec; } catch { /* the view as read */ }
+        }
         // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);

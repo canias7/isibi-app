@@ -4,6 +4,18 @@
 
 
 
+## 2026-11-01: one reply per message, built (branch `one-reply`, not merged, not deployed)
+
+Each message now gets one reply, written once every task in it has ended (or when it pauses for credits), by the builder model you picked in the chat, at low effort, and charged by the tokens it uses like every call. It is written from facts the code gathers over the whole message: how each task ended and why, the pages and parts added, changed or removed (by name, never file paths), table entries, rules and tables, keys still missing, draft or published, and the credits charged. Nothing is taken from what a task said about itself, so one task can no longer say "linking it in the header was not done" when another task did it.
+
+Before it is shown, the reply is checked: if it names a page, table or key that is not in the facts, shows a file path, says something was not done when everything finished, or forgets to point to the key box when keys are missing, a plain reply made from the facts is shown instead. The same plain reply is used if the model call fails.
+
+It is written once and kept on the request: two page readings at the same moment still make one call, and reading again shows the same reply. A paused message gets a reply saying it is paused and carries on after a top-up; when it finishes after the top-up, a new reply is written.
+
+On the page: the task line shows progress only (working, waiting for your answer, paused for credits, stopped, finished), then the one reply, then the key box. The tasks' own replies are no longer shown; a question a task asks still is.
+
+Code: `builder/one-reply.mjs` (new), `builder/request.mjs` (each task keeps what its step did), `worker.js` (the request reading writes and stores the reply; the older end-of-request reply stands down), `public/chat.js`. Tests: `test/one-reply.test.mjs` (11) and `test/one-reply-browser.test.mjs` (1, real page). Nothing spent, no live run. Not yet seen live.
+
 ## 2026-11-01: one reply per message, model-written (plan)
 
 You agreed to fix the root cause of the wrong messages: one reply per message, written by a model from what really happened (the site before and after, every task's ending, the credits charged), checked before it is shown. Plan: `docs/plans/2026-11-01-one-reply.md`. Nothing built or spent yet.

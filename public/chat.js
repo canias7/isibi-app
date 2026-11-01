@@ -11845,7 +11845,7 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
     for (const p of view.parts) {
       for (const job of Array.isArray(p.jobs) ? p.jobs : []) {
         if (st.shown.includes(job)) continue;
-        if (!(await siteRequestJobReply(origin, key, p, job))) { all = false; break; }
+        if (!(await siteRequestJobReply(origin, key, p, job, view.one === true))) { all = false; break; }
       }
       if (!all) break;
     }
@@ -11868,15 +11868,22 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   // THE REQUEST'S OWN REPLIES, EACH ONCE: one while it waits on a go-ahead,
   // one when it has ended — named by the server (`replyFor`), so a page opened
   // later or on another device shows each once too.
-  const rf = typeof replyFor === 'string' && replyFor ? replyFor : (view.ended ? 'end' : '');
+  // ONE REPLY PER MESSAGE (2026-11-01): the server's one reply for this
+  // round (`view.reply`: its end, or its pause for credits) is the message's
+  // only conclusion, said once per round after the task line; the parts'
+  // own replies are not said (`siteRequestJobReply`).
+  const one = view.one === true;
+  const or = one && view.reply && typeof view.reply.text === 'string' && view.reply.text && typeof view.reply.for === 'string' ? view.reply : null;
+  const rf = one ? (or ? or.for : '') : typeof replyFor === 'string' && replyFor ? replyFor : (view.ended ? 'end' : '');
   if (!Array.isArray(st.replies)) st.replies = [];
-  const said = st.replies.includes(rf) || (rf === 'end' && st.replied) || s.msgs.some((m) => m && m.req === key && m.for === rf);
-  if (all && reply && rf && !said) {
+  const said = st.replies.includes(rf) || (!one && rf === 'end' && st.replied) || s.msgs.some((m) => m && m.req === key && m.for === rf);
+  const text = one ? (or ? or.text : '') : reply;
+  if (all && text && rf && !said) {
     st.replies.push(rf);
     if (rf === 'end') st.replied = true;
-    siteReqPut(s, key, { r: 'a', t: reply, for: rf });
+    siteReqPut(s, key, one ? { r: 'a', t: text, for: rf, one: true } : { r: 'a', t: text, for: rf });
   }
-  const done = view.ended && all && replyState !== 'pending';
+  const done = view.ended && all && (one ? !!or && or.for.startsWith('end:') : replyState !== 'pending');
   if (done) st.closed = true;
   siteParSnap(s, key);
   s.updatedAt = Date.now();
@@ -11885,7 +11892,7 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   return done;
 }
 /** One part's reply from its job, read as a message's own; true when it is shown (or has nothing to show). */
-async function siteRequestJobReply(origin, key, part, job) {
+async function siteRequestJobReply(origin, key, part, job, one) {
   const s = siteById(origin);
   if (!s || !s.slug) return false;
   let r = null;
@@ -11922,7 +11929,10 @@ async function siteRequestJobReply(origin, key, part, job) {
   // SAID WITH ITS REQUEST, UNDER ITS JOB (2026-10-05): after the request's own
   // messages, never at the bottom of the thread.
   const say = (t) => siteReqSay(origin, t, { key, job });
-  const finish = held && replyTellsEnding(!!r.ok, body, addon) ? editReplyHold(origin, job, e, say) : say;
+  // ONE REPLY PER MESSAGE (2026-11-01): a part's own reply is not a
+  // conclusion any more; only a question it asks is said here.
+  const asks = !!(body && (body.clarify || body.error === 'clarify' || body.intent === 'clarify' || body.ask));
+  const finish = one ? (asks ? say : () => {}) : held && replyTellsEnding(!!r.ok, body, addon) ? editReplyHold(origin, job, e, say) : say;
   // WHAT THE READER MAY APPLY (2026-10-05, corrected the same day after the
   // owner's review). The reader — the outcome as this page's own, with its
   // undo offer, words for the message box, block and question — runs only for
@@ -12211,6 +12221,11 @@ function siteLookAgain() {
 document.addEventListener('visibilitychange', siteLookAgain);
 // WHAT EACH PART'S STATUS IS CALLED ON ITS CARD. Labels, not explanations: what
 // happened and why is said by each part's own reply and the request's.
+// ONE REPLY PER MESSAGE (2026-11-01): the ended states as progress words.
+const SITE_REQ_ONE = {
+  done: 'Finished', partial: 'Finished', failed: 'Stopped', 'not-run': 'Stopped', cancelled: 'Stopped', refused: 'Stopped',
+  expired: 'Stopped', 'needs-rewrite': 'Stopped', credits: 'Paused for credits', waiting: 'Waiting for your answer',
+};
 const SITE_REQ_STATUS = {
   blocked: 'Waiting for another part', ready: 'Next', queued: 'Queued', started: 'In progress',
   waiting: 'Waiting for your answer', unverified: 'Checking it published', done: 'Done', partial: 'Partly done', failed: 'Not done',
@@ -12292,6 +12307,9 @@ function siteRequestHTML(m, site) {
     if (status === 'unverified' && p.why === 'rewrite-recovering') label = 'Recovering an interrupted rewrite';
     const drafted = (status === 'done' || status === 'partial') && p.draft && Number.isInteger(p.draft.revision) && p.draft.revision > 0;
     if (drafted) label = (status === 'partial' ? 'Partly done \u00b7 saved as a draft' : 'Saved as a draft') + (p.draft.preview === 'pending' ? ' \u00b7 preview updating' : '');
+    // ONE REPLY PER MESSAGE (2026-11-01): progress only; the one reply says how it went.
+    const oneLabel = v.one === true && Object.hasOwn(SITE_REQ_ONE, status) ? SITE_REQ_ONE[status] : '';
+    if (oneLabel) label = oneLabel;
     // ITS GO-AHEAD, while it waits for one; gone while a press is in flight.
     const pressing = (st.approving || []).includes(p.n);
     const rewrite = status === 'approval'
@@ -12309,7 +12327,7 @@ function siteRequestHTML(m, site) {
     const again = held === 'unknown' && p.buyAgain !== false
       ? (buying ? '<span class="st-req-status">Starting…</span>'
         : '<button type="button" class="st-opt st-req-go" data-req-buy="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Buy the picture again (may cost again)</span></button>') : '';
-    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(siteSaidFor(p.said, left ? left.said : prep ? 'doing' : SITE_SAID_FOR[status]) || String(p.words || '')) + '</span>' +
+    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc((oneLabel ? '' : siteSaidFor(p.said, left ? left.said : prep ? 'doing' : SITE_SAID_FOR[status])) || String(p.words || '')) + '</span>' +
       '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + again + progressListHTML(p.progress, status === 'started') + '</li>';
   }).join('');
   // NO STOP ON THE CARD (2026-10-21, owner: "instead of stop the rest, lets
@@ -12342,8 +12360,11 @@ const SITE_PAR_STATE = {
   waiting: 'ask', approval: 'ask',
   blocked: 'wait', ready: 'wait', queued: 'wait',
   failed: 'bad', 'not-run': 'bad', cancelled: 'bad', expired: 'bad', refused: 'bad', 'needs-rewrite': 'bad',
+  credits: 'paused',
 };
-const SITE_PAR_LABEL = { done: 'done', run: 'working…', ask: 'needs you', wait: 'waiting', bad: 'didn’t work' };
+const SITE_PAR_LABEL = { done: 'done', run: 'working…', ask: 'needs you', wait: 'waiting', bad: 'didn’t work', paused: 'paused for credits' };
+// ONE REPLY PER MESSAGE (2026-11-01): a row's tag is progress only, never a conclusion.
+const SITE_PAR_ONE = { done: 'finished', ask: 'waiting for your answer', bad: 'stopped', paused: 'paused for credits' };
 // Which rows the customer opened or closed, by the state they were in then: a
 // row that moves on (working to done) goes back to its own default.
 const siteParOpen = new Map();
@@ -12389,7 +12410,7 @@ function siteParSnap(s, key) {
   const m = s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.request === key) : null;
   if (!m || !v || !Array.isArray(v.parts) || !v.parts.length) return;
   m.rq = {
-    ended: v.ended === true, ...(typeof v.opening === 'string' && v.opening ? { opening: v.opening } : {}),
+    ended: v.ended === true, ...(v.one === true ? { one: true } : {}), ...(typeof v.opening === 'string' && v.opening ? { opening: v.opening } : {}),
     parts: v.parts.map((p) => ({
       n: p.n, words: String(p.words || ''), status: String(p.status || ''),
       ...(p.prep ? { prep: p.prep } : {}), ...(Array.isArray(p.needs) ? { needs: p.needs.slice() } : {}),
@@ -12406,7 +12427,7 @@ function siteParHidden(m, site) {
   const card = (site.msgs || []).find((x) => x && x.request === m.req);
   const v = card ? siteParView(card, site) : null;
   if (!v) return false;
-  if (m.for === 'end') return true;
+  if (m.for === 'end' || m.one === true) return true;
   if (m.ask) return !!(site.ask && site.ask.id === m.ask);
   return !!m.job && v.parts.some((p) => Array.isArray(p.jobs) && p.jobs.includes(m.job));
 }
@@ -12446,7 +12467,11 @@ function siteReqCardHTML(m, site) {
   const done = states.filter((x) => x === 'done').length;
   const bad = states.filter((x) => x === 'bad').length;
   const ended = v.ended === true;
-  const head = '<div class="st-par-head"><b>' + (ended ? '' : 'Working on ') + v.parts.length + ' changes</b><span> · ' + done + ' done' + (ended && bad ? ' · ' + bad + ' didn’t work' : '') + '</span></div>';
+  // ONE REPLY PER MESSAGE (2026-11-01): the card shows progress only; the one reply is the conclusion.
+  const one = v.one === true;
+  const head = one
+    ? '<div class="st-par-head"><b>' + (ended ? '' : 'Working on ') + v.parts.length + ' changes</b><span> · ' + done + ' finished</span></div>'
+    : '<div class="st-par-head"><b>' + (ended ? '' : 'Working on ') + v.parts.length + ' changes</b><span> · ' + done + ' done' + (ended && bad ? ' · ' + bad + ' didn’t work' : '') + '</span></div>';
   const rows = v.parts.map((p, i) => {
     const state = states[i];
     // A PART PREPARED BESIDE THE JOB OF ANOTHER PART: the chip of the single-part card is its label.
@@ -12456,9 +12481,9 @@ function siteReqCardHTML(m, site) {
     const pw = typeof siteParWait === 'function' ? siteParWait(p, st) : null;
     const o = siteParOpen.get(site.id + '|' + key + '|' + p.n);
     const open = o && o.state === state ? o.open : state === 'run';
-    const replies = own.filter((x) => x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job));
+    const replies = own.filter((x) => x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job) && (!one || x.ask));
     let body = (pw && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(pw) : '') + progressListHTML(p.progress, state === 'run') + replies.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
-    if (!replies.length && !(Array.isArray(p.progress) && p.progress.length) && state !== 'run') {
+    if (!one && !replies.length && !(Array.isArray(p.progress) && p.progress.length) && state !== 'run') {
       const line = siteSaidFor(p.said, SITE_SAID_FOR[p.status]);
       if (line) body += '<div class="st-par-said">' + link(line) + '</div>';
     }
@@ -12469,12 +12494,12 @@ function siteReqCardHTML(m, site) {
     // what the part said stays on the page for whoever reads it.
     return '<div class="st-par-part st-par-' + state + (open ? ' open' : '') + '">' +
       '<div class="st-par-row" data-par-row="' + esc(key) + '" data-par-n="' + esc(String(p.n)) + '" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-      '<span class="st-par-dot"></span><span class="st-par-title">' + esc(title) + '</span><span class="st-par-tag">' + (pw && pw.kind === 'provider-wait' && typeof siteParWaitTag === 'function' ? siteParWaitTag(title, pw) : esc(prep ? SITE_REQ_PREP[prep] : siteParTag(p, v.parts, state))) + '</span><span class="st-par-car">' + (open ? '▾' : '▸') + '</span></div>' +
+      '<span class="st-par-dot"></span><span class="st-par-title">' + esc(title) + '</span><span class="st-par-tag">' + (pw && pw.kind === 'provider-wait' && typeof siteParWaitTag === 'function' ? siteParWaitTag(title, pw) : esc(prep ? SITE_REQ_PREP[prep] : one && Object.hasOwn(SITE_PAR_ONE, state) ? SITE_PAR_ONE[state] : siteParTag(p, v.parts, state))) + '</span><span class="st-par-car">' + (open ? '▾' : '▸') + '</span></div>' +
       '<div class="st-par-body"' + (open ? '' : ' hidden') + '>' + (body || '<div class="st-par-said st-par-none">…</div>') + '</div></div>';
   }).join('');
   // THE SOFT BOX: the live question, else the request's own reply once ended.
   const q = own.find((x) => x.ask && site.ask && site.ask.id === x.ask);
-  const end = own.filter((x) => x.for === 'end').pop();
+  const end = own.filter((x) => (one ? x.one === true : x.for === 'end')).pop();
   const box = q ? '<div class="st-par-box">' + siteMsgText(q, link) + siteAskHTML(q, site) + '</div>'
     : end ? '<div class="st-par-box">' + siteMsgText(end, link) + '</div>' : '';
   return (typeof v.opening === 'string' && v.opening ? '<div class="st-par-opening">' + link(v.opening) + '</div>' : '') +
