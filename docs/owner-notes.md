@@ -3,6 +3,11 @@
 
 
 
+
+## 2026-11-01: one reply per message, model-written (plan)
+
+You agreed to fix the root cause of the wrong messages: one reply per message, written by a model from what really happened (the site before and after, every task's ending, the credits charged), checked before it is shown. Plan: `docs/plans/2026-11-01-one-reply.md`. Nothing built or spent yet.
+
 ## 2026-11-01: the agent's questions were always thrown away
 
 Why "couldn't keep track of the question" happened (northline-climbing, 31 Oct: "Which page should be linked in the header?", 5 credits): the site agent's answers are labelled `agent`, and the question store only accepted the older step names (route, text, look, …, addon). So every question the agent asked, alone or as part of a split message, was refused before being saved. Since the agent takes every message, the agent could never ask you anything. Fixed in `builder/clarify.mjs` (`agent` added to `ASK_STAGES`). Your answer goes back through the normal message path with the request and what you said, so nothing else depended on the label. Test: `test/agent-ask-kept.test.mjs` (fails on the old code). The clarify suites pass with `GF_OLD_LANES=1` (383/383). Not deployed. Not yet seen live: the question card appearing and the answer resuming the agent.
