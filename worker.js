@@ -17641,7 +17641,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     // `ensureSiteBackend`): additions are offered, and the database is made
     // when the agent finishes, before they are applied.
     ...(!conn && noDb && uid && neonConfigured(env) ? { applySchema: () => true } : {}),
-    review: (w) => reviewNote(changeReport(before, w, words)),
+    review: (w) => reviewNote(changeReport(before, w, request)),
     ...(mayWrite ? { mayWrite } : {}),
   }, {
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
@@ -17943,7 +17943,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const moveFacts = renames.map(([a, b]) => "The page at " + a + " is now at " + b + "; the old address sends visitors there.");
   // WHAT ELSE CHANGED AND WHAT CAN BE UNDONE (2026-10-30), as facts.
   const after = { pages: ag.pages, parts: ag.parts, css: ag.css };
-  const report = changeReport(before, after, words);
+  // The request as the agent was given it: the owner's answers name things too.
+  const report = changeReport(before, after, request);
   const rowsRemoved = rowsOut.done.filter((d) => d.kind === "remove").length;
   const undo = undoFacts({ before, after, version: out ? restoreTo : "", rowsRemoved });
   // THE REPLY'S FACTS COME FROM WHAT HAPPENED (fix-all): the files the save
