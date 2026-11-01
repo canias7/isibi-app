@@ -938,7 +938,13 @@ async function runTool(use, st, deps) {
       // `needKeys`, and the owner's browser sends the value to the site's keys.
       const k = keyAsk(input);
       if (!k.ok) return { error: k.why };
-      if (!st.keysAsked.some((x) => x.name === k.key.name)) st.keysAsked.push(k.key);
+      if (!st.keysAsked.some((x) => x.name === k.key.name)) {
+        st.keysAsked.push(k.key);
+        // SAID AT ONCE (2026-11-01, northline-climbing): the owner sees the box
+        // while the run goes on, not only from its reply, which a pause for
+        // credits or a failure never carried. Names only; never costs the run.
+        if (typeof deps.onKeyAsk === "function") { try { await deps.onKeyAsk({ ...k.key }); } catch { /* the reply still carries it */ } }
+      }
       return { text: "The owner will be shown a secure box for " + k.key.name + " in the chat. You will not see its value. Make the code read it with site.hasKey/site.key, and carry on." };
     }
     case "change_schema": {

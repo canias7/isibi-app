@@ -11377,7 +11377,16 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     }
     // CHECKED BEFORE ANYTHING IS SENT. Past this line a live site's answer is a
     // decision every branch below can act on as it stands.
-    if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);
+    // A REQUEST THE SERVER TOOK ON IS FOLLOWED, whatever else its answer
+    // carries (2026-11-01): the server finishes it either way, so saying it
+    // failed would be a second, wrong outcome for the same message.
+    if (!isBuild && !(r.ok && routeActionable(d, site))) {
+      if (r.ok && d && d.ok === true && d.failed !== true && siteRequestOf(d)) {
+        if (d.ask && d.ask.waiting !== true) siteAskClear(origin);
+        return siteRequestStart(origin, d, sendImgs, key);
+      }
+      return lost(r);
+    }
     // A FIRST BUILD'S KEPT QUESTION THAT IS NO LONGER LIVE (2026-10-24):
     // answered on another device, or past its day. Nothing is built from this
     // answer — closed once, as an edit's question is — and the round ends.
@@ -11802,6 +11811,8 @@ function siteRequestFollow(origin, key) {
       return;
     }
     misses = 0;
+    // THE KEYS ASKED FOR, WHILE IT RUNS AND HOWEVER IT ENDS (2026-11-01).
+    if (typeof siteReqKeyCard === 'function') siteReqKeyCard(origin, b);
     const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor, b.replyState);
     if (done) { stop(); return; }
     // A REQUEST WAITING ONLY ON AN ANSWER is looked at seldom: the answer comes
@@ -12138,6 +12149,7 @@ function siteRequestsCheck(site, again) {
     if (!r.ok || !b || b.ok !== true || !Array.isArray(b.requests)) return;
     const s = siteById(origin);
     if (!s) return;
+    if (typeof siteReqKeyCard === 'function') siteReqKeyCard(origin, b);
     for (const v of b.requests) {
       if (!siteRequestOf({ request: v })) continue;
       const known = s.requests && s.requests[v.key];
@@ -18053,6 +18065,20 @@ function siteKeyCardOffer(siteId, list, extra) {
   siteKeyCardDraw(siteId);
   siteKeyCardAttach();
   siteKeyCardRead(siteId);
+}
+// A REQUEST READING'S KEYS (2026-11-01, northline-climbing): the site's keys
+// asked for and not set (`needKeys`), and each part's own, whatever its ending
+// (finished, paused for credits, failed, stopped). Only names the card does not
+// hold yet are offered, so a poll does not re-read the keys every time.
+function siteReqKeyCard(siteId, b) {
+  if (!b || typeof b !== 'object') return;
+  const list = Array.isArray(b.needKeys) ? b.needKeys.slice() : [];
+  const views = b.request ? [b.request] : Array.isArray(b.requests) ? b.requests : [];
+  for (const v of views) for (const p of (v && Array.isArray(v.parts) ? v.parts : [])) if (p && Array.isArray(p.needKeys)) list.push(...p.needKeys);
+  if (!list.length) return;
+  const c = siteKeyCards.get(siteId);
+  const fresh = list.filter((k, i) => k && typeof k.name === 'string' && list.findIndex((y) => y && y.name === k.name) === i && !(c && c.keys.some((x) => x.name === k.name)));
+  if (fresh.length) siteKeyCardOffer(siteId, fresh);
 }
 // Which of the names are already set: the keys route's list, names only.
 async function siteKeyCardRead(siteId) {

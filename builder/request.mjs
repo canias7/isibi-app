@@ -1360,6 +1360,11 @@ function recoverHeld(p, job, ans, error, why, now) {
  */
 function settle(rec, p, job, row, now) {
   const ans = answerOf(row);
+  // THE KEYS ITS STEP ASKED THE OWNER FOR, ON EVERY ENDING (2026-11-01,
+  // northline-climbing: a part paused for credits carried its key request
+  // nowhere). Names only, kept on the part for the card.
+  const nk = ans ? partNeedKeys(ans.body) : [];
+  if (nk.length) p.needKeys = nk;
   // WHAT IT WAS CHARGED, AS ITS ROW SAYS — its reserves once finalized, and
   // nothing for one refunded, exempt or never reserved — so a part's money is
   // read from the ledger's own record, never assumed from how it ended.
@@ -1634,6 +1639,18 @@ function settle(rec, p, job, row, now) {
     return;
   }
   endUnfinished(p, "", "unreadable", { job: job.id, kind: "unreadable" });
+}
+
+/** A job answer's `needKeys`, read strictly: `{ name, service?, why? }` each, names that look like key names, at most 8. */
+export function partNeedKeys(body) {
+  const list = plain(body) && Array.isArray(body.needKeys) ? body.needKeys : [];
+  const out = [];
+  for (const k of list) {
+    if (!plain(k) || typeof k.name !== "string" || !/^[A-Z][A-Z0-9_]{1,63}$/.test(k.name) || out.some((o) => o.name === k.name)) continue;
+    out.push({ name: k.name, ...(typeof k.service === "string" && k.service ? { service: k.service.slice(0, 60) } : {}), ...(typeof k.why === "string" && k.why ? { why: k.why.slice(0, 200) } : {}) });
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 
 /** The marked frames an addition published waiting on a purchase, read strictly: `{ id, d, k, file, why }` each. */
@@ -2826,6 +2843,8 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
     ...(said && typeof said === "object" && typeof said.opening === "string" && said.opening.trim() ? { opening: said.opening.trim() } : {}),
     parts: rec.parts.map((p) => ({
       n: p.n, words: typeof p.shown === "string" && p.shown ? p.shown : p.words, status: p.status,
+      // THE KEYS ITS STEP ASKED FOR (2026-11-01), names only, whatever its ending.
+      ...(Array.isArray(p.needKeys) && p.needKeys.length ? { needKeys: p.needKeys.slice(0, 8) } : {}),
       // BEING PREPARED, OR PREPARED AND WAITING ITS TURN TO BE APPLIED
       // (2026-10-08): its work has started; it is never done until its own
       // job has applied it and said so.

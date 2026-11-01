@@ -17349,6 +17349,35 @@ function publishNeedKeys(parts) {
 }
 
 /** `list_keys`: the NAMES of the site's keys. Only the name column is selected: no cipher, no hint. */
+/**
+ * THE KEYS THE AGENT ASKED THE OWNER FOR (2026-11-01, northline-climbing): a
+ * `request_key` is kept beside the site the moment it is asked, names only,
+ * so the chat's secure box reaches the owner while the part runs and after
+ * any ending (finished, paused for credits, failed, stopped), never only from
+ * a finished reply. A week at most; a key set since is left out when read.
+ */
+const KEYS_ASKED_MS = 7 * 24 * 60 * 60 * 1000;
+const keysAskedKey = (slug) => "keys-asked/" + slug + ".json";
+async function rememberKeyAsked(env, slug, key, now = Date.now()) {
+  if (!env || !env.SITES_BUCKET || !slug || !key || typeof key.name !== "string") return false;
+  let list = [];
+  try { const o = await env.SITES_BUCKET.get(keysAskedKey(slug)); const v = o ? JSON.parse(await o.text()) : null; list = v && Array.isArray(v.keys) ? v.keys : []; } catch { list = []; }
+  list = list.filter((k) => k && typeof k.name === "string" && Number.isFinite(k.at) && now - k.at < KEYS_ASKED_MS && k.name !== key.name);
+  list.push({ name: key.name, ...(typeof key.service === "string" && key.service ? { service: key.service } : {}), ...(typeof key.why === "string" && key.why ? { why: key.why } : {}), at: now });
+  await env.SITES_BUCKET.put(keysAskedKey(slug), JSON.stringify({ keys: list.slice(-8) }), { httpMetadata: { contentType: "application/json" } });
+  return true;
+}
+/** The asked keys still to add, as `needKeys` (names only); [] when none or unreadable. */
+async function keysAskedNeed(env, slug, now = Date.now()) {
+  if (!env || !env.SITES_BUCKET || !slug) return [];
+  let asked = [];
+  try { const o = await env.SITES_BUCKET.get(keysAskedKey(slug)); const v = o ? JSON.parse(await o.text()) : null; asked = v && Array.isArray(v.keys) ? v.keys.filter((k) => k && typeof k.name === "string" && Number.isFinite(k.at) && now - k.at < KEYS_ASKED_MS) : []; } catch { asked = []; }
+  if (!asked.length) return [];
+  let names = null;
+  try { names = (await agentListKeys(env, slug)()).map((r) => r && r.name).filter((n) => typeof n === "string"); } catch { names = null; }
+  return needKeysOf({ asked: asked.map((k) => ({ name: k.name, service: k.service, why: k.why })), keysSet: names });
+}
+
 function agentListKeys(env, slug) {
   return async () => {
     const logConn = await siteRowConn(env, slug);
@@ -17602,6 +17631,12 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
       return sqlQuery(c, "select * from " + sqlIdent(t) + " limit " + (Number(n) || 20));
     },
     progress: (stage, facts) => { if (talk) job.progress.mark(stage, facts); },
+    // A KEY ASKED FOR IS SAID AT ONCE (2026-11-01): kept beside the site
+    // (names only) for the request's reads, and a line on the part's record.
+    onKeyAsk: async (k) => {
+      try { await rememberKeyAsked(env, slug, k); } catch (e) { console.error("agent keys asked:", slug, errorClassForLog(e)); }
+      if (talk) { try { job.progress.mark("keys", [{ state: "doing", text: "Asked you for " + k.name + " in a secure box in the chat; the builder never sees it." }]); } catch { /* never */ } }
+    },
     log: (e) => tm("agent:" + e.event, "ok", e),
     // STOP (fix-all): the owner's cancel, picked up by the job's heartbeat.
     // Each round renews the lease once, so a Stop is read within a round.
@@ -17668,10 +17703,20 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   if (cKey && ag.stopped !== "no-credits") { try { await env.SITES_BUCKET.delete(cKey); } catch { /* an old carry's files only win where the site still matches */ } }
   tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length, retried });
   const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed, ...(retried ? { retried } : {}) };
+  // A KEY ASKED FOR REACHES THE OWNER ON EVERY ENDING (2026-11-01,
+  // northline-climbing: the part paused for credits and the box never showed).
+  // Names only, less the keys already set; `{}` when none was asked.
+  const askedKeys = async () => {
+    if (!Array.isArray(ag.keysAsked) || !ag.keysAsked.length) return {};
+    let names = null;
+    if (conn) { try { names = (await agentListKeys(env, slug)()).map((r) => r && r.name).filter((n) => typeof n === "string"); } catch { names = null; } }
+    const nk = needKeysOf({ asked: ag.keysAsked, keysSet: names });
+    return nk.length ? { needKeys: nk } : {};
+  };
   // STOPPED BY THE OWNER (fix-all): nothing saved, nothing charged (a
   // cancelled job's reserves are refunded whole, as every cancel was).
   if (ag.stopped === "cancelled") {
-    return { status: 410, body: { ok: false, error: "stopped", cancelled: true, layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [], msg: STOPPED_LINE } };
+    return { status: 410, body: { ok: false, error: "stopped", cancelled: true, layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [], msg: STOPPED_LINE, ...(await askedKeys()) } };
   }
   // OUT OF CREDITS PART-WAY (fix-all): the request flow's own pause
   // (`unbilled` + `insufficient`): the part waits for a top-up. Nothing of
@@ -17680,11 +17725,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   if (ag.stopped === "no-credits") {
     if (cKey) { try { const c = makeCarry(before, ag, stoppedFacts(ag)); if (c) await env.SITES_BUCKET.put(cKey, JSON.stringify(c), { httpMetadata: { contentType: "application/json" } }); } catch { /* the part still pauses; it starts again from the site */ } }
     return { status: 402, body: { ok: false, error: "unbilled", detail: "insufficient", layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [],
-      msg: stoppedFacts(ag) + " Nothing was charged; it can run again once credits are added." } };
+      msg: stoppedFacts(ag) + " Nothing was charged; it can run again once credits are added.", ...(await askedKeys()) } };
   }
   if (!ag.ok) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
-      msg: (retried ? "It was tried twice. " : "") + stoppedFacts(ag) + " Nothing was charged." } };
+      msg: (retried ? "It was tried twice. " : "") + stoppedFacts(ag) + " Nothing was charged.", ...(await askedKeys()) } };
   }
   // CHARGED ONLY FOR WORK THAT LANDED (fix-all). Under a job the reserve must
   // stand before the publish (the publish gate grants only a reserved job),
@@ -17697,7 +17742,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const charge = async () => { if (!billed) { billed = true; took = Number(await bill(billUsage)) || 0; } return took; };
   const fail = async (status, body) => {
     if (billed && took > 0 && typeof refund === "function") { try { await refund(took); } catch { /* the job's end or the ledger settles it */ } }
-    return { status, body: { ...body, cost: 0 } };
+    return { status, body: { ...body, cost: 0, ...(body && body.needKeys ? {} : await askedKeys()) } };
   };
   if (job) await charge();
   // A QUESTION FOR THE OWNER (`ask_owner`): nothing saved; the ending keeps it
@@ -35247,7 +35292,9 @@ async function handleRequest(request, env, ctx) {
           // finds the work the page-driven path filed too. Absent with
           // progress off, so the answer is as it was.
           const qJobs = progressOn(env) ? await standaloneJobsFor(env, qu.id, qSlug) : null;
-          return Response.json({ ok: true, requests: views, ...(qJobs ? { jobs: qJobs } : {}) });
+          // THE KEYS ASKED FOR ON THE SITE AND NOT SET YET (2026-11-01), names only.
+          const lNeed = await keysAskedNeed(env, qSlug).catch(() => []);
+          return Response.json({ ok: true, requests: views, ...(qJobs ? { jobs: qJobs } : {}), ...(lNeed.length ? { needKeys: lNeed } : {}) });
         }
         if (request.method !== "GET" && request.method !== "DELETE") return Response.json({ error: "method not allowed" }, { status: 405 });
         const qKey = rqm[2];
@@ -35269,7 +35316,11 @@ async function handleRequest(request, env, ctx) {
         // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);
-        const qOut = { ok: true, request: await withPartWaits(env, requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) })) };
+        // AND THE KEYS ASKED FOR ON THE SITE AND NOT SET YET (2026-11-01,
+        // northline-climbing): the secure box shows while the part runs, and
+        // after it pauses for credits, fails or is stopped. Names only.
+        const qNeed = await keysAskedNeed(env, qSlug).catch(() => []);
+        const qOut = { ok: true, request: await withPartWaits(env, requestView(qRec, { progress: await progressForRequest(env, qRec), said: await saidForRequest(env, qRec), runs: await runsForRequest(env, qRec), prepUse: await prepUseForRequest(env, qRec) })), ...(qNeed.length ? { needKeys: qNeed } : {}) };
         // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
         // while it is `pending`, and says the statuses as they are once failed.
         if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text, reply.suggested), replyFor: reply.for });

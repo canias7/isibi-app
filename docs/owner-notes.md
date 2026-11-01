@@ -1,5 +1,20 @@
 # Owner Notes
 
+## 2026-11-01 — The key box on every ending, and one outcome per message (branch `key-card-now`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
+
+Two live bugs on `northline-climbing` (test account).
+
+**A. The key box never showed.** The site agent asked for `RESEND_API_KEY` (`request_key`), then its part paused for credits. The pause's answer (`runAgentChange`, 402) carried no `needKeys`, and the request kept nothing of the ask, so the chat never drew the secure box. Now:
+- the moment the agent calls `request_key`, the name (never a value) is kept beside the site (`keys-asked/<slug>.json`, a week at most) and a line goes on the part's progress record;
+- the site's request reads (`GET /api/site/request/<slug>/<key>` and `/api/site/requests/<slug>`) answer `needKeys`: the names asked, less the keys already set;
+- the stop, the pause for credits, the failure and the save failures carry `needKeys` as a finished reply does;
+- a part keeps the `needKeys` its step's answer names on any ending, and the request's view shows them;
+- the page offers the key card from any reading of a request (each name once). Screenshot: a paused part's card, with the box above the "Out of credits" bar.
+
+**B. The stray failure line.** The routing answer carried the request the server had taken on, but the page checked it as a one-step decision first and, finding a shape it does not act on, said "I couldn't work out what to do with that just now…" and put the message back in the box; the request then ran anyway. A routing answer that carries a request (ok, not the router's own failure, a 2xx) is now followed as that request; nothing else changes. Which shape the live answer had is not recorded; the test supplies three (an empty `ask`, a question the page cannot draw, an unknown step).
+
+**Tests:** `test/request-one-outcome.test.mjs` (7: 3 fail on the old page, 4 controls pass), `test/key-card-request.test.mjs` (5), 3 new cases in `test/key-card.test.mjs` (fail on the old Worker), `test/key-card-paused-browser.test.mjs` (real Chromium, fails on the old page). Sweep: 15 of 15 killed, the comment-only control survived. Supplied model answers only.
+
 ## 2026-10-31 — Keep-going proven live (deploy 2297)
 
 The first live try started over: the container's storage gateway refused the `carry/` key, so nothing was saved. The key now lives under the site's own `source/` folder. Live on the test account: a Coaching page change ran out of credits at round 5, the top-up restarted it on its own, and it picked up its three saved files (the page, header and footer) and finished for 14 credits, against 23 for the Events change that had started over.

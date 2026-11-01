@@ -375,7 +375,9 @@ test("the composer asks before it builds: an empty project falls through to the 
   // ON A LIVE SITE that same fall-through was the rewrite of every page, bought
   // by a dropped request or an unreadable answer. The check has to come BEFORE
   // anything that sends: before the fall-through, the edit and the add-on.
-  const check = block.indexOf("if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);");
+  const check = block.indexOf("if (!isBuild && !(r.ok && routeActionable(d, site))) {");
+  // (2026-11-01) inside it, only a request the server took on is followed; every other answer still stops.
+  assert.ok(block.indexOf("      return lost(r);\n    }", check) > check, "the stop inside the check is gone");
   const sends = ["return go()", "siteEdit(", "siteAddon("].map((s) => block.indexOf(s));
   assert.ok(check > 0, "the live site's check on the routing answer is gone");
   for (const at of sends) assert.ok(at > check, "something that sends work now runs before the live site's check");

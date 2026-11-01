@@ -152,7 +152,7 @@ async function harness(fn) {
   const b = bucket(slug, chatKey);
   const secrets = new Map(); // the site's `_secrets`: name -> { cipher, hint }
   const seen = { model: [], pushed: [], outbound: [], rpc: [], logs: [] };
-  let rounds = [], n = 0, reserved = 0, failInsert = false;
+  let rounds = [], n = 0, reserved = 0, failInsert = false, balance = () => 500;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
@@ -171,7 +171,7 @@ async function harness(fn) {
       }
     }
     if (u.includes("/rpc/use_credits")) return json(Number(args.cost) || 0);
-    if (u.includes("/rpc/get_credits")) return json(500);
+    if (u.includes("/rpc/get_credits")) return json(balance(n));
     if (u.includes("/rpc/credit_back")) return new Response(null, { status: 204 });
     if (u.includes("/auth/v1/user")) return json(USER);
     if (u.includes("/rest/v1/site_project")) return json([{ uid: USER.id, neon_project: "p", neon_branch: "b", neon_role: "owner", neon_conn: SITE_CONN }]);
@@ -208,7 +208,14 @@ async function harness(fn) {
       await Promise.allSettled(ctx.pending);
       return { status: res.status, text };
     };
-    return await fn({ slug, chatKey, call, seen, secrets, store: b.store, setRounds: (r) => { rounds = r; n = 0; }, failInserts: () => { failInsert = true; } });
+    const get = async (path) => {
+      const ctx = makeCtx();
+      const res = await worker.fetch(new Request("https://gofarther.dev" + path, { method: "GET", headers: { Authorization: "Bearer t" } }), env, ctx);
+      const text = await res.text();
+      await Promise.allSettled(ctx.pending);
+      return { status: res.status, text };
+    };
+    return await fn({ slug, chatKey, call, get, seen, secrets, store: b.store, setRounds: (r) => { rounds = r; n = 0; }, failInserts: () => { failInsert = true; }, setBalance: (f) => { balance = f; } });
   } finally {
     c.uninstall();
     for (const [k, f] of logged) console[k] = f;
@@ -291,4 +298,66 @@ test("a stranger cannot save a key on someone else's site", async () => {
       assert.equal(seen.pushed.length, 0);
     } finally { globalThis.fetch = realFetch; }
   });
+});
+
+// ── THE KEY BOX ON EVERY ENDING (2026-11-01, northline-climbing) ────────────
+// The agent asked for RESEND_API_KEY, then its part paused for credits; the
+// pause's answer carried no `needKeys`, so the owner never saw the box. Now a
+// key request is kept beside the site the moment it is asked (names only),
+// read back by the request's own reads, and carried on the pause, the failure
+// and the stop as on a finished reply.
+test("A KEY ASKED FOR, THEN A PAUSE FOR CREDITS: the pause carries needKeys, the ask is kept at once, and the site's requests read names it", async () => {
+  await harness(async ({ slug, chatKey, call, get, seen, store, setRounds, setBalance }) => {
+    // Round 0 asks for the key; the balance is gone by the credit check at round 5.
+    setRounds([
+      [use("request_key", { name: "resend api key", service: "Resend", why: "Sends the booking emails" })],
+      [use("list_keys", {})], [use("list_keys", {})], [use("list_keys", {})], [use("list_keys", {})],
+      [use("finish", { summary: "Done." })],
+    ]);
+    setBalance((n) => (n >= 1 ? 0 : 500));
+    const ed = await call("/edit", "POST", { layer: "page", page: "/", instruction: "email me new bookings", picker: "sonnet", idem: "idem" + hex(8), chat: chatKey });
+    const body = JSON.parse(ed.text);
+    assert.equal(ed.status, 402, ed.text);
+    assert.equal(body.detail, "insufficient", "the run paused for credits");
+    assert.ok(seen.model.length >= 5, "the agent really ran: " + seen.model.length);
+    assert.deepEqual(body.needKeys, [{ name: "RESEND_API_KEY", service: "Resend", why: "Sends the booking emails" }]);
+    // KEPT AT ONCE, NAMES ONLY.
+    const kept = JSON.parse(store.get("keys-asked/" + slug + ".json"));
+    assert.deepEqual(kept.keys.map((k) => k.name), ["RESEND_API_KEY"]);
+    assert.ok(!Object.keys(kept.keys[0]).some((k) => /value|secret|cipher/i.test(k)), "the kept ask holds a value field");
+    // THE PAGE'S READ OF THE SITE'S REQUESTS NAMES IT.
+    const list = await get("/api/site/requests/" + slug);
+    assert.equal(list.status, 200, list.text);
+    assert.deepEqual(JSON.parse(list.text).needKeys, [{ name: "RESEND_API_KEY", service: "Resend", why: "Sends the booking emails" }]);
+  });
+});
+
+test("A KEY SET SINCE IS NO LONGER ASKED FOR: the site's requests read leaves it out (control: one not set stays)", async () => {
+  await harness(async ({ slug, get, secrets, store }) => {
+    const at = Date.now();
+    store.set("keys-asked/" + slug + ".json", JSON.stringify({ keys: [{ name: "RESEND_API_KEY", at }, { name: "STRIPE_SECRET_KEY", at }] }));
+    secrets.set("STRIPE_SECRET_KEY", { cipher: "c", hint: "h" });
+    const list = await get("/api/site/requests/" + slug);
+    assert.equal(list.status, 200, list.text);
+    assert.deepEqual(JSON.parse(list.text).needKeys.map((k) => k.name), ["RESEND_API_KEY"]);
+    // An ask older than the week is not read.
+    store.set("keys-asked/" + slug + ".json", JSON.stringify({ keys: [{ name: "RESEND_API_KEY", at: at - 8 * 24 * 60 * 60 * 1000 }] }));
+    const old = await get("/api/site/requests/" + slug);
+    assert.equal(JSON.parse(old.text).needKeys, undefined);
+  });
+});
+
+test("every ending of runAgentChange carries the asked keys: the stop, the pause, the failure and the save failures", () => {
+  const W = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const open = W.indexOf("async function runAgentChange(");
+  const shut = W.indexOf("\nasync function recompileAndPublish(", open);
+  assert.ok(open > 0 && shut > open, "runAgentChange is gone");
+  const fn = W.slice(open, shut);
+  for (const [name, mark] of [["stop", 'error: "stopped", cancelled: true, layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [], msg: STOPPED_LINE'], ["pause", 'it can run again once credits are added.'], ["failure", 'stoppedFacts(ag) + " Nothing was charged.']]) {
+    const at = fn.indexOf(mark);
+    assert.ok(at > 0, name + " ending is gone");
+    assert.ok(fn.slice(at, fn.indexOf("\n", at)).includes("await askedKeys()"), "the " + name + " ending carries no asked keys");
+  }
+  const failAt = fn.indexOf("const fail = async (status, body) =>");
+  assert.ok(failAt > 0 && fn.slice(failAt, fn.indexOf("};", failAt)).includes("await askedKeys()"), "the save failures carry no asked keys");
 });
