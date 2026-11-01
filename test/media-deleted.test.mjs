@@ -158,24 +158,13 @@ test("a retired feature's storage key is still cleared out of a browser", () => 
       }
       if (k === OWNER) {
         if (what === "sign-out") {
-          // **THE PROPERTY MOVED AND THIS ASSERTION MOVED WITH IT.** The marker
-          // used to sit in sign-out's list, removed unconditionally — which was
-          // the finding: it is the only thing in this browser that says whose the
-          // unstamped legacy agents are, and erasing it before recording that
-          // left records nothing could place, so the next account to sign in was
-          // shown them. It is removed a few lines BELOW the list now and only
-          // once ownership has been written down, so what has to hold here is the
-          // ORDER: the claim first, the forgetting after.
+          // The marker is removed a few lines below the list (it once waited on
+          // the agent builder's ownership claim; that feature was deleted on
+          // 2026-11-01). What has to hold is that sign-out still forgets it.
           const at = CHAT_CODE.indexOf("\n}\n", signOutAt);
           assert.ok(at > signOutAt, "sign-out's closing brace moved — re-read it");
           const fn = CHAT_CODE.slice(signOutAt, at);
-          assert.ok(!body.includes(k),
-            "sign-out clears the marker unconditionally again, so a refused ownership write loses it");
-          const forget = fn.indexOf(`removeItem('${k}')`);
-          const claim = fn.indexOf("agentsClaimFor(");
-          assert.ok(forget > 0, "sign-out no longer forgets which account this browser belonged to");
-          assert.ok(claim > 0, "sign-out clears the identity without recording ownership from it");
-          assert.ok(claim < forget, "sign-out forgets the account before recording what it owned");
+          assert.ok(fn.indexOf(`removeItem('${k}')`) > 0, "sign-out no longer forgets which account this browser belonged to");
         } else {
           assert.ok(!body.includes(k), "the account-switch wipe clears the owner key it is about to re-set");
         }

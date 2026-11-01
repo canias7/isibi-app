@@ -5,6 +5,10 @@
 
 
 
+## 2026-11-01: the Agent builder is deleted (branch `remove-agent-builder`)
+
+On your word ("delete that agent build thing ... completely"), the Agent builder is gone. The profile menu no longer has an "Agent builder" row; the Agents screen, its styles and its code in `chat.js` are removed; the Worker no longer answers `/api/agent/*` (it now answers 404 like any unknown address); `agent-store.mjs`, the `agent-runs` queue binding (wrangler and the deploy's queue step) and the whole separate `agent-builder/` folder with its own deploy workflow are deleted, with the tests that only tested it. The site agent that builds and edits websites is a different thing and is untouched. Sign-in and sign-out still forget the previous account's caches as before; the old "who owns these browser-saved agents" bookkeeping went with the feature. The container image's inputs change (the Dockerfile copied `agent-store.mjs`), so the next deploy of this rebuilds the image. Nothing in the database was touched: the `agent` schema in Supabase (agents, messages, runs, automations and their functions) is left in place for you to decide (backlog). Not merged, not deployed, nothing paid.
+
 ## 2026-11-01: Download for Mac / Windows buttons on the landing page
 
 On your word, the landing page now has two black pill buttons, under the top bar on the right below Sign in (moved there on your word),, "Download for Mac" (Apple logo) and "Download for Windows" (Windows logo),. They are for the look only: they do nothing yet (marked "Coming soon"). They are hidden on phones (your word). `public/index.html`, `public/gf-landing.css`. Not deployed yet.

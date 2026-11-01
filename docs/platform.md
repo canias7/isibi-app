@@ -64,12 +64,12 @@ unreachable CSS**. The law that survives:
 
 - **`public/`** — the frontend, plain HTML/CSS/JS, no build step: `index.html`
   (the chatbox, the only app page), `styles.css`, `chat.js` (the builder's
-  client and the agent builder's), `auth.js` (Supabase email/password +
+  client), `auth.js` (Supabase email/password +
   email-code via GoTrue fetch), `edit-poll.js`, `site-list.js`, `site-zip.js`,
   the marketing pages (`privacy`, `terms`, `confirm`, `data-deletion`) and the
   icon set.
 - **`worker.js`** — the Cloudflare Worker. Serves assets, and the builder's
-  whole `/api/site/*`, `/api/db/*` and `/api/agent/*` surface. **The media
+  whole `/api/site/*` and `/api/db/*` surface (the agent builder's `/api/agent/*` was deleted on 2026-11-01). **The media
   side's routes are GONE** — `/api/video|image|audio`, `/api/direct`,
   `/api/import/fetch` and `/api/save` occur nowhere in it but prose (checked,
   not assumed). **It CAN be imported by tests** — the belief that it could not

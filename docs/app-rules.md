@@ -16,16 +16,9 @@
 ## The builder app and the agent builder, in brief
 
 The full rules are `docs/app-rules.md`, with the model table (each model's
-context window, output limit and price); `agent-builder/CLAUDE.md` is the agent
-product's own record.
+context window, output limit and price); the agent builder was deleted on 2026-11-01.
 
-- **The agent builder is a third view (`agents`) in this app.** Its tenant is
-  `authUser(request).id` and nothing else; row-level security is the belt and
-  the URL's `tenant_id` filter is the wall (`service_role` bypasses RLS); a
-  forged agent reply is a row the database refuses (`role = 'user'`); the import
-  is one transaction keyed by the browser's own record id; old browser records
-  are claimed or sealed by one marker (`zephyr_owner_v1`), never shown to
-  another account.
+- **The agent builder was deleted on 2026-11-01** (see below).
 - **In the builder app**: typing in the start box is a fresh build, never a
   revise; a failed build reverses its design charge (by ref, never an amount);
   the preview panel runs the site's own JavaScript, sandboxed per URL
@@ -46,147 +39,7 @@ Each of these is shipped and live. What is kept is the RULE and the NUMBERS.
 
 ### The agent builder
 
-**THERE IS A THIRD VIEW: `agents`** (owner: *"under the A for the profile thing,
-put agent builder"*), a view in THIS app rather than a page on the agent
-Worker's own domain — which would have meant a second sign-in to reach a menu
-item. **`agent-builder/` IS A SEPARATE PRODUCT WITH ITS OWN CLAUDE.md**, and the
-full account of the engine, the step registry, the workflow executor, the
-scheduler and the DST arithmetic is there. What belongs here is the site's half:
-
-- **THE AGENTS ARE ON THE ACCOUNT**, in the `agent` schema — `agent.agents` and
-  `agent.agent_messages`, **separate from `agent.runs` and `agent.run_entries`
-  by construction**, with no foreign key between the halves: one is mutable prose
-  somebody wrote and edits, the other an append-only fenced journal of work that
-  ran. `agent-store.mjs` (root, dependency-free, on the Dockerfile's COPY line)
-  owns all of it.
-- **RLS IS THE BELT AND THE URL FILTER IS THE WALL, and only saying so keeps
-  them apart.** Policies key on `agent.tenant_id()`, which protects the
-  `authenticated` role and protects nothing on this path: `service_role` carries
-  BYPASSRLS, so the only thing between one customer and another's written
-  instructions is `tenant_id=eq.` in the query. **A suite that only ever signs in
-  as one account cannot see that**, so most guards read the REQUEST THAT WENT
-  OUT. Its consequence is the shape of `update`, `remove` and `ownsAgent`: the
-  tenant is in the FILTER, so "somebody else's id" and "an id that does not
-  exist" are one answer and one 404.
-- **THE TENANT IS `authUser(request).id` AND NOTHING ELSE.** No route reads an
-  account off the body or the query string, asserted as a census. **The block is
-  gated ONCE, above all the routes**, which is stricter than N gates — a new
-  route cannot be added ungated because there is nowhere to add it that is not
-  already behind it, and it is why adding seven automation routes needed no
-  change to `worker.js` at all.
-- **A REPLY IS IMPOSSIBLE RATHER THAN ABSENT.** `check (role = 'user')` on the
-  column, and no `role` is ever sent — a forged agent reply is *a row the
-  database refuses* rather than a bug for this code to prevent. The answer is
-  read from the RUN and never copied into a message row.
-- **`security_invoker = true` IS THE WHOLE SAFETY ARGUMENT** on
-  `agent.agent_overview` — without it the view runs as its OWNER and is a hole
-  through the RLS on both base tables. PostgREST could embed a child relation
-  with its own order and limit; it is not used because **nothing here can run
-  PostgREST**, so that query could only be asserted from documentation, while a
-  view is plain SQL a real PostgreSQL can drive.
-- **`agent.import_agent` IS ONE TRANSACTION BECAUSE THE IMPORT CAN BE PRESSED
-  TWICE**, and **ATOMIC IS NOT IDEMPOTENT**: the first version closed the
-  half-imported agent and left the one beside it open, so the obvious second
-  press made a second agent. The identity is the browser's own record id,
-  **scoped by tenant and enforced by a partial unique index**; the message loop
-  is skipped on the conflict path, because answering the right id while
-  re-running it doubles the conversation. **The four-argument signature is
-  DROPPED, not left as an overload** — Postgres would keep both.
-- **NOTHING DELETES WHAT SOMEBODY TYPED INTO A BROWSER**, and **whose the legacy
-  records are is decided by ONE marker**. `zephyr_owner_v1` is the only thing in
-  a browser that says which account was last in it, so both doors read it and
-  neither reads who is present: `enterApp` claims for `prevOwner` or SEALS, ABOVE
-  the `setItem` that moves the marker; `doSignOut` claims BEFORE the wipe and
-  takes the MARKER rather than `Auth.userId()` (**the two can disagree and that
-  case is driven**). **The marker never moves ahead of the ownership record** —
-  `agentsStore` READS THE VALUE BACK rather than trusting `setItem`.
-  **`agentOwns(a, uid)` is the one predicate** — `!!uid && !!a && a.uid === uid`,
-  no pass for an unstamped record — and **`AGENT_OWNER_UNKNOWN` (`'?unknown'`)
-  is a VALUE, not an absence**, so a sealed record can never be laundered one
-  sign-in later. **The cost, stated: a browser whose last sign-out ran the old
-  code has records preserved and PERMANENTLY HIDDEN, from everyone.** That is
-  the requirement met rather than a regression.
-- **THE IMPORT ASKS THE SAME PREDICATE AT THE POINT IT WOULD SEND**, reading the
-  STORE rather than the offer — the list asks "what may I show", this asks "may
-  I send THIS", and they are different questions with different consequences.
-  **Silent, deliberately**: naming the skips would tell the person that another
-  account has records in this browser.
-- **A FAILED READ IS NOT AN EMPTY ACCOUNT AND A FAILED SAVE KEEPS THE WORDS.**
-  `null` for "not asked yet" against `[]` for "this account has none" is what
-  makes loading, empty and failed three screens.
-- **A DELAYED ANSWER MUST LAND IN THE CONVERSATION THAT ASKED.** `agentBind()`
-  is taken before the request and `agentSame`/`agentSameEdit` asked after it,
-  comparing **both the conversation and the ACCOUNT**; nothing that fails may
-  write. Drafts are keyed by agent, and **the key is bound with the request** —
-  computing it from `agentUid()` when the answer arrives means a session that
-  expired mid-send deletes a key belonging to nobody. `undefined` (never falsy)
-  means "whoever is here now", because a signed-out `''` is a real answer.
-- **THE POLL DESTROYED WHAT WAS BEING TYPED.** `renderAgents` writes `innerHTML`
-  every `AGENT_POLL_MS` (2,500), so a sentence typed while waiting was destroyed
-  **EIGHT TIMES A MINUTE** with the caret and focus. It is a WRAPPER now
-  (`agentComposerRead` → `renderAgentsNow` → `agentComposerRestore`), so no
-  caller has to remember, and **the box's own `data-agent` attribute decides
-  whose words they are** — restoring into a conversation somebody has since
-  opened would move their caret, a worse bug than the one being fixed. The input
-  hook deliberately DRAWS NOTHING.
-- **A RETRY KEY MUST BE BOUND TO ITS PAYLOAD.** Held per conversation, a send
-  that committed with its response lost, then EDITED and pressed again, carried
-  the first message's key: the server absorbed it, answered the original body,
-  the browser read `ok` and cleared the box. `agentSendKeys` stores
-  `{key, body}`. *Retry safety was never about the conversation; it was always
-  about the payload.* **The key is minted per PRESS, not per request**, and
-  cleared **only on success**.
-- **A GENERATION NUMBER ON THE DRAWING.** A read-first door is correct until
-  something writes a value the DOM has never seen: a structural change to the
-  automation form wrote the new list and the read-back immediately overwrote it
-  with the stale DOM. `data-gen`, and **`|| '0'` on `getAttribute` read "no
-  attribute" as generation zero** — the one value a fresh draft always holds.
-- **`undefined !== null` IS TRUE**, so three optional lines gated on `!== null`
-  drew the literal word `undefined`, the last of them in the red error slot.
-  **No unit case could see it, because every fixture was the real producer's
-  output** — which is the right way to build a fixture and exactly why the new
-  guard's is deliberately not. `autoSaid` is the one test all three go through.
-- **THE ENGINE IS RUNG AFTER THE COMMIT, AND THE RING IS A DOORBELL AND NEVER
-  THE WORK.** A failed ring is logged and said (`notified: false`) and never
-  raised — the work is durable either way, and answering an error would tell a
-  customer their message failed when it is committed and will run. **An absorbed
-  press is rung too**, and a duplicate ring is harmless BY CONSTRUCTION (that is
-  `claim_run`'s property). **PRODUCER ONLY**: a consumer here would be a second
-  executor of other people's runs.
-- **THE CATALOG IS THE SERVER'S AND THE BROWSER ONLY DRAWS IT.** `AGENT_TOOLS`
-  rides on `/api/agent/list`'s answer, is a COPY of the engine's `OFFERED` names
-  **censused both ways**, and what lives here and not there is the WORDS: the
-  engine's `description` is for a MODEL deciding whether to call a thing,
-  `label`/`does` for a person deciding whether to allow it.
-- **A SELECTION IS A POSITIVE INTERSECTION AND A REFUSED NAME IS NAMED.**
-  `cleanTools` intersects, collapses duplicates and takes the CATALOG'S order, so
-  two saves of one selection are byte-identical; `readTools` refuses an unknown
-  name rather than storing less than was asked for. **The catalog is a
-  PARAMETER**, because with one tool on the platform the order rule is
-  undrivable and a sweep mutant taking the caller's order survived everything.
-- **ABSENT AND EMPTY ARE TWO DIFFERENT THINGS ON A SAVE.** `/api/agent/update`
-  is a PATCH: a tab opened before today saves a name and says nothing about the
-  settings, and filling them from a default would un-pause an agent from a
-  screen that never showed a pause control. **A status it cannot READ is a 400,
-  never a default.** `"active"` assigned in JavaScript would be a second copy of
-  the COLUMN's default in a second language — the copy that drifts is the one a
-  migration cannot move.
-- **`agentRow` FAILS CLOSED ON BOTH SETTINGS**: an unreadable status is `paused`
-  (being wrong costs a press of Resume; the other way is an agent taking work its
-  owner stopped) and an unreadable selection is empty.
-- **WHICHEVER SIDE DECIDES A THING MUST NOT GO OUT BEFORE THE SIDE THAT ACTS ON
-  IT.** The order for these three-part changes is **migration → engine → site**,
-  and the middle one is the one nearly got wrong: this product's note said the
-  two Workers were "order-free", which was true about PERMISSIONS and silent
-  about HONESTY — the live engine handed every authored run `tools: []`, so
-  shipping the settings form first would have put a tick on screen that saves,
-  draws, and can never be honoured. **Engine first is a MEASURED no-op.**
-- **ADDING A VIEW MEANS SATISFYING A PROPERTY, NOT A COUNT.** `KNOWN_VIEWS` was
-  pinned to an exact list, bought by a survivor that added a door to a deleted
-  screen — which froze the count and failed identically for every later
-  legitimate view. It forbids the deleted media views BY NAME, forbids
-  `home`/`landing` (aliases `showView` resolves, never views), and requires
-  **every** known view to have a `render…` call.
+**Deleted 2026-11-01 on the owner's word** (branch `remove-agent-builder`): the Agents view, `/api/agent/*`, `agent-store.mjs`, the `agent-runs` queue binding and the separate `agent-builder/` product are gone. Its rules as they stood are in history (`git show dc31084dc:docs/app-rules.md`).
 
 ### The rest
 

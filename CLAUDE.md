@@ -745,10 +745,9 @@ The owner's own words for each rule are in `docs/owner-preferences.md`.
 The full map is `docs/platform.md`.
 
 - **`public/`**: the browser app, plain HTML, CSS and JS with no build step —
-  `index.html`, `styles.css`, `chat.js` (the builder's client and the agent
-  builder's), `auth.js`, `edit-poll.js`, `site-list.js`, `site-zip.js`.
+  `index.html`, `styles.css`, `chat.js` (the builder's client), `auth.js`, `edit-poll.js`, `site-list.js`, `site-zip.js`.
 - **`worker.js`**: the Cloudflare Worker — the assets and the whole
-  `/api/site/*`, `/api/db/*` and `/api/agent/*` surface. Tests can import it.
+  `/api/site/*` and `/api/db/*` surface. Tests can import it.
 - **`builder/`**: the site builder. `lovable/template/` is the kit (React 19,
   Tailwind v4, TanStack Start, 2,112 components); `build-server.mjs` is the
   container's service; the rest are plain modules tested outside the Worker.
@@ -756,7 +755,7 @@ The full map is `docs/platform.md`.
   tables (`site_backends`, `site_project`, `site_builds`) and the edit queue.
   **Neon**: one project per site. **R2**: every published build, the live
   pointer `current/<slug>.json`, page source and uploads.
-- **`agent-builder/`** is a separate product with its own `CLAUDE.md`.
+- **The agent builder** (the Agents view, `/api/agent/*`, `agent-builder/`) was deleted on 2026-11-01 (`remove-agent-builder`).
 
 ## Deploying, in brief
 
@@ -962,7 +961,7 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/containers-and-jobs.md` | no clock in the container, the model-call transport, where a job ran, the probes |
 | `docs/build-path.md` | how a site gets built, the design call, the published site, the code explorer, the design and page splits |
 | `docs/instruments.md` | the free instruments, what a paid harness refuses, the edit canary and its modes |
-| `docs/app-rules.md` | the builder app's rules, the model table, and the agent builder's half in this app |
+| `docs/app-rules.md` | the builder app's rules and the model table |
 | `docs/platform.md` | the two halves, where the code lives, data, auth, payments and mail, credits |
 | `docs/deploy.md` | what a push starts, the paid workflows, the image predictor, runtime confirmation, the served-file check, secrets, rollback |
 | `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2173 (add new ones here) |
@@ -971,4 +970,3 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/history/` | dated records of every run and fix round, 2026-09-21 → 09-28, and the old status and live-state sections — indexed in `docs/history/README.md` |
 | `docs/investigations/` | the milestone, text-preservation and add-on escalation investigations |
 | `docs/components.md` | the kit's component list, generated (a test compares it byte for byte) |
-| `agent-builder/CLAUDE.md` | the agent product's own record |

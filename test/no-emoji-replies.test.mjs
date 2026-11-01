@@ -49,7 +49,6 @@ const ALLOWED = [
   'aria-label="Close">✕</button>',  // a dialog's close button
   'class="cp-close">✕</button>',    // the top-up panel's close button
   'class="cp-close up-close">✕</button>',
-  'aria-label="Remove" title="Remove">✕</button>', // removing an automation step
   "'Code re-sent ✓'",               // the sign-in form's own note
   // THE PROVIDER NOTICE (2026-10-24, provider-retry re-landed): fixed server
   // text, never model-written, whose exact symbols the owner wrote and approved
