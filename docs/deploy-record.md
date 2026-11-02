@@ -2285,7 +2285,7 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 
 Combined fast-forward: agents list (iMessage-style bar, Gloopy following the pointer, placeholder agents, Create an agent), workspace layout (projects on top), /home/projects addresses, Agent builder removed, faster load (versioned asset URLs, deferred scripts, Space Grotesk dropped), one reply per message, landing download buttons. Image predicted `d2fa53453d8b0db7` → `4d6647ca9db37120`. Deploy run 41387395897 green. Full suite on the head 12616 / 12611 / 2 fail (both pre-existing) / 3 skipped. **Runtime-confirmed** by canary run 41391535283 (05:00 UTC, free): both readers `68658b7fa265`, cold container `4d6647ca9db37120`, all free checks passed, nothing charged.
 
-**Live reading after the deploy:** `/` serves `/chat.js?v=68658b7fa265` (the URLs are versioned), but `/chat.js?v=…` still answers `cache-control: public, max-age=0, must-revalidate`, not the long immutable cache. Static assets are served by Cloudflare's asset layer before the Worker runs, so the Worker's cache step does not reach them. Nothing is broken (it behaves exactly as before); the returning-visitor speed-up is not in effect yet. Backlog.
+**Live reading after the deploy (GET):** `/` serves `/chat.js?v=68658b7fa265`, and `/chat.js?v=68658b7fa265` and `/styles.css?v=68658b7fa265` answer `cache-control: public, max-age=31536000, immutable`; unversioned `/chat.js` still answers `max-age=0, must-revalidate`, as designed. (An earlier reading said the cache was not in effect: it used a HEAD request, which `versionAppAsset` deliberately leaves untouched. Corrected.)
 
 ## Deploy 2300 (`a8ff0b51b`, 2026-11-01)
 
