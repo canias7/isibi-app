@@ -80,6 +80,7 @@ test("WL 1 — the projects strip sits above the toolbar, open, with the open pr
         openId: open && open[0] ? open[0].dataset.open : "",
         badge: open && open[0] ? (open[0].querySelector(".st-card-badge") || {}).textContent : "",
         border: open && open[0] ? getComputedStyle(open[0]).borderTopWidth : "",
+        badgeOffThumb: open && open[0] ? open[0].querySelector(".st-card-badge").getBoundingClientRect().top >= open[0].querySelector(".st-card-prev").getBoundingClientRect().bottom : false,
         oneRow: row ? new Set([...row.querySelectorAll(".st-pair")].map((p) => Math.round(p.getBoundingClientRect().top))).size : 0,
         sameWidth: row && row.querySelector(".st-pair") ? Math.round(row.querySelector(".st-pair").getBoundingClientRect().width) : 0,
       };
@@ -89,6 +90,7 @@ test("WL 1 — the projects strip sits above the toolbar, open, with the open pr
     assert.equal(r.cards, 5);
     assert.equal(r.openCount, 1); assert.equal(r.openId, SITES[0].id);
     assert.equal(r.badge, "Open"); assert.equal(r.border, "3px");
+    assert.equal(r.badgeOffThumb, true, "the Open mark covers the thumbnail");
     assert.equal(r.oneRow, 1);
     assert.equal(r.sameWidth, 349);
     assert.deepEqual(app.errors, []);
@@ -130,11 +132,28 @@ test("WL 4 — the conversations bar has exactly one entry, Sites agent, and clo
     const items = await app.page.$$eval("#stConv .st-conv-item .st-conv-name", (l) => l.map((x) => x.textContent.trim()));
     assert.equal(await app.page.$$eval("#stConv .st-conv-item", (l) => l.length), 1);
     assert.deepEqual(items, ["Sites agent"]);
-    const left = await app.page.evaluate(() => document.querySelector("#stConv").getBoundingClientRect().right <= document.querySelector(".st-rail").getBoundingClientRect().left);
-    assert.ok(left, "the bar is left of the chat");
+    // FAR LEFT, THE WHOLE PAGE'S HEIGHT (owner: "the conversations take the whole
+    // entire page"): from the very top to the bottom, left of the strip, the
+    // toolbar and the chat; the logo at its top; the top bar hidden beside it.
+    const place = await app.page.evaluate(() => {
+      const c = document.querySelector("#stConv").getBoundingClientRect();
+      const strip = document.querySelector("#stProjects").getBoundingClientRect();
+      const bar = document.querySelector(".st-topbar").getBoundingClientRect();
+      const logo = document.querySelector("#gfConvLogo");
+      return { top: c.top, bottom: innerHeight - c.bottom, left: c.left,
+        leftOf: c.right <= Math.min(strip.left, bar.left, document.querySelector(".st-rail").getBoundingClientRect().left),
+        logo: !!logo && logo.getBoundingClientRect().top < strip.top && logo.textContent.trim() === "Go Farther",
+        topNav: getComputedStyle(document.querySelector("#topNav")).display };
+    });
+    assert.ok(place.top <= 1 && place.left <= 1, "the bar does not start at the page's top left: " + JSON.stringify(place));
+    assert.ok(place.bottom <= 1, "the bar does not run to the bottom: " + JSON.stringify(place));
+    assert.ok(place.leftOf, "the strip, the toolbar or the chat is not to the bar's right");
+    assert.ok(place.logo, "the logo is not at the bar's top");
+    assert.equal(place.topNav, "none", "the top bar still shows beside the bar");
     await app.page.click("#gfConvClose");
     let s = await app.page.evaluate(() => ({ closed: document.querySelector("#stConv").classList.contains("closed"), w: document.querySelector("#stConv").getBoundingClientRect().width, open: getComputedStyle(document.querySelector("#gfConvOpen")).display, pref: localStorage.getItem("gf_conv_bar_v1") }));
     assert.ok(s.closed && s.w < 60 && s.open !== "none"); assert.equal(s.pref, "closed");
+    assert.ok(await app.page.evaluate(() => { const c = document.querySelector("#stConv").getBoundingClientRect(); return c.top <= 1 && innerHeight - c.bottom <= 1; }), "the closed strip does not run the whole height");
     await app.page.click("#gfConvOpen");
     s = await app.page.evaluate(() => ({ closed: document.querySelector("#stConv").classList.contains("closed"), w: document.querySelector("#stConv").getBoundingClientRect().width }));
     assert.ok(!s.closed && s.w > 150);
@@ -169,7 +188,11 @@ test("WL 6 — a new account at /home: forwarded to /home/projects, the empty st
       rail: !!document.querySelector(".st-rail"),
       hero: (document.querySelector(".st-hero h1") || {}).textContent || "",
       grid: !!document.querySelector(".st-grid"),
+      barTop: document.querySelector("#stConv").getBoundingClientRect().top,
+      logo: (document.querySelector("#gfConvLogo") || {}).textContent || "",
     }));
+    assert.ok(r.barTop <= 1, "the bar does not start at the page's top");
+    assert.equal(r.logo.trim(), "Go Farther");
     assert.equal(r.path, "/home/projects");
     assert.match(r.strip, /No projects yet/); assert.match(r.strip, /Your sites will appear here/);
     assert.deepEqual(r.agents, ["Sites agentReady when you are"]);

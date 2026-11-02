@@ -4150,17 +4150,26 @@ function siteProjectsStripHTML(site) {
 }
 function siteConvBarHTML() {
   const closed = siteConvClosed();
+  // THE WHOLE PAGE'S HEIGHT, THE LOGO AT ITS TOP (owner, 2026-11-01: "the
+  // conversations take the whole entire page"). The wordmark goes home, as
+  // the top bar's did; the top bar itself is hidden beside this (styles.css),
+  // except on a phone, where the bar is hidden and the top bar stays.
+  const mark = '<svg class="logo-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#gfMark" /></svg>';
+  const right = '<svg class="st-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
   return '<aside class="st-conv' + (closed ? ' closed' : '') + '" id="stConv" aria-label="Conversations">' +
     '<div class="st-conv-head">' +
-      '<span class="st-conv-title">Conversations</span>' +
+      '<div class="st-conv-logo" id="gfConvLogo" data-act="landing" role="button" tabindex="0" title="Back to your projects">' + mark + '<span>Go Farther</span></div>' +
       '<button type="button" class="st-icon" id="gfConvClose" title="Hide conversations" aria-label="Hide conversations">' + ic('chevronleft', 15) + '</button>' +
     '</div>' +
+    // AGENTS, NEVER SITES: one today, the builder's chat. Sites are the projects strip's.
     '<div class="st-conv-list" role="list">' +
       '<button type="button" class="st-conv-item on" role="listitem" aria-current="true" data-agent="sites">' + ic('globe', 15) + '<span class="st-conv-txt"><span class="st-conv-name">Sites agent</span><span class="st-conv-sub">Ready when you are</span></span></button>' +
     '</div>' +
+    // CLOSED: a thin strip the whole height, the logo, the way back open, the agent's icon.
     '<div class="st-conv-rail">' +
+      '<div class="st-conv-logo st-conv-logo-sm" id="gfConvLogoSm" data-act="landing" role="button" tabindex="0" title="Back to your projects">' + mark + '</div>' +
+      '<button type="button" class="st-icon" id="gfConvOpen" title="Show conversations" aria-label="Show conversations">' + right + '</button>' +
       '<span class="st-conv-ic" title="Sites agent">' + ic('globe', 16) + '</span>' +
-      '<button type="button" class="st-icon" id="gfConvOpen" title="Show conversations" aria-label="Show conversations"><svg class="st-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>' +
     '</div>' +
   '</aside>';
 }
@@ -4254,6 +4263,14 @@ function wireWorkspaceBars(view, site) {
     const set = (closed) => { conv.classList.toggle('closed', closed); wsPrefSet(CONV_KEY, closed ? 'closed' : 'open'); };
     const c = conv.querySelector('#gfConvClose'); if (c) c.onclick = () => set(true);
     const o = conv.querySelector('#gfConvOpen'); if (o) o.onclick = () => set(false);
+    // THE LOGO GOES HOME, as the top bar's wordmark does (`goLanding`: signed
+    // in, that is /home/projects). Bound here because `wireActions` runs at
+    // boot, before this markup exists; its own flag keeps it from binding twice.
+    conv.querySelectorAll('[data-act="landing"]').forEach((l) => {
+      if (l._w_click) return; l._w_click = true;
+      l.addEventListener('click', () => goLanding());
+      l.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goLanding(); } });
+    });
   }
 }
 // ONE SITE CARD, AND THE MOBILE APP BESIDE IT (2026-11-01, workspace layout):
@@ -4267,7 +4284,6 @@ function siteCardPairHTML(s, o) {
             '<div class="st-pair' + (open ? ' st-pair-open' : '') + '">' +
               (o.db === false ? '' : siteDbIcon(s)) +
               '<div class="st-card' + (open ? ' st-card-open' : '') + '" data-open="' + esc(s.id) + '" role="button" tabindex="0"' + (open ? ' aria-current="true"' : '') + '>' +
-                (open ? '<span class="st-card-badge">Open</span>' : '') +
                 // A CARD WITH NOTHING TO SHOW SAYS SO (2026-10-30): an unfinished
                 // build with no address and no stored page drew an empty white
                 // frame; it now names itself in the card's own words.
@@ -4276,6 +4292,8 @@ function siteCardPairHTML(s, o) {
                   : '<div class="st-card-prev"><iframe sandbox="" loading="lazy" title="' + esc(s.name) + '"' + (s.slug ? ' data-thumb="' + esc(s.slug) + '"' : '') + '></iframe></div>') +
                 '<div class="st-card-meta">' +
                   '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
+                    // THE OPEN MARK sits beside the name, never over the thumbnail's own words.
+                    (open ? '<span class="st-card-badge">Open</span>' : '') +
                     // NOT FINISHED (2026-10-21): a card with no address is a build
                     // this browser started that never reached the server, so no
                     // other device has it; it says so rather than looking like a site.
@@ -7386,6 +7404,10 @@ function renderSiteWorkspace(view, site) {
     // for a later edit to leave behind when the chain below changes.
     '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + (siteMobileOpen ? ' st-mob-open' : '') + (stageView === 'preview' ? ' st-pv' : '') + '"' +
       (Number.isFinite(siteMobileW) ? ' style="--mob-w:' + siteMobileW + 'px"' : '') + '>' +
+      // THE CONVERSATIONS BAR (owner, 2026-11-01): the full height, on the
+      // far left; agents, never sites. Everything else is the column beside it.
+      siteConvBarHTML() +
+      '<div class="st-wscol">' +
       // THE PROJECTS, ON TOP OF THE TOOLBAR (owner, 2026-11-01).
       siteProjectsStripHTML(site) +
       '<div class="st-topbar">' +
@@ -7585,8 +7607,6 @@ function renderSiteWorkspace(view, site) {
         '</div>' +
       '</div>' +
       '<div class="st-body">' +
-        // THE CONVERSATIONS BAR (owner, 2026-11-01): agents, never sites.
-        siteConvBarHTML() +
         '<div class="st-rail">' +
           (siteRail === 'history'
             ? siteHistoryRail(site)
@@ -7735,6 +7755,7 @@ function renderSiteWorkspace(view, site) {
         // positioned against that row's right edge, which when the panel is
         // closed is the stage's edge.
         '<button type="button" class="st-mob-tab" id="stMobileTab" title="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '" aria-label="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '">' + ic('chevronleft', 13) + '</button>' +
+      '</div>' +
       '</div>' +
     '</div>');
   bindSiteNav();
