@@ -1032,7 +1032,7 @@ test("the Code tab and the Download are drawn whether or not the site has built"
   // THE OBSERVER IS ALIVE: `isReact` still decides the two things it honestly
   // should — the Data tab (does this site have a database) and whether the
   // Download can act yet.
-  assert.match(bar, /isReact && site\.backend/, "the Data tab no longer asks whether there is a database");
+  assert.ok(!/data-view="data"/.test(bar), "the Data tab is gone (owner, 2026-11-02)");
   assert.match(bar, /id="stDl"[\s\S]{0,400}?\(isReact \? '' : ' disabled'\)/,
     "the Download is not dimmed before the first build, so it is a control that lies");
 });

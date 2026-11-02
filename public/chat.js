@@ -4678,7 +4678,7 @@ function wireSiteCards(view, sites, afterOpen) {
     // answer is still nothing. Written for a change that had not happened yet
     // and paid off when it did, which is the argument for keeping it positive.
     if (b.dataset.act !== 'data') return;
-    siteView = 'data';
+    siteView = 'preview'; // no Data panel (owner, 2026-11-02)
     openProject(rec.id, 'push');
   });
   // THE PHONE SWITCH, AND IT REPAINTS RATHER THAN RE-RENDERS. `renderSites()`
@@ -7736,7 +7736,7 @@ function renderSiteWorkspace(view, site) {
             // vanished the moment the site had code worth reading. It shows
             // always now and says which empty it is when there is nothing yet.
             '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">' + ic('code', 14) + ' Code</button>' +
-            ((isReact && site.backend) ? '<button type="button" class="st-vtab' + (siteView === 'data' ? ' on' : '') + '" data-view="data">' + ic('grid', 14) + ' Data</button>' : '') +
+            // NO DATA TAB (owner, 2026-11-02: 'i dont want the data panel at all').
             '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">' + ic('grid', 14) + ' More</button>' +
           '</div>' +
         '</div>' +
@@ -16454,7 +16454,7 @@ async function siteMembers(site) {
 async function siteDatabase(site) {
   // React sites: the site's real database is its own D1, shown in the Data panel —
   // just switch to it (no separate legacy-collections modal).
-  if (site.react && site.backend) { siteView = 'data'; renderSites(); return; }
+  if (site.react && site.backend) return; // no Data panel (owner, 2026-11-02)
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its collections show up here.'); return; }
   let box = document.getElementById('siteDbModal');

@@ -220,8 +220,10 @@ test("openProject is the ONE way a project opens — every navigation goes throu
   // The Data button opens a project too, and it is the one that also sets the
   // stage — so it is asserted as a PAIR, in order, or it would open the site on
   // whatever view was last.
-  const dataAt = src.indexOf("siteView = 'data';");
-  assert.ok(dataAt > 0, "the Data button no longer names its view");
+  // NO DATA PANEL (owner, 2026-11-02): the card's database button opens the
+  // project on Preview.
+  const dataAt = src.indexOf("siteView = 'preview'; // no Data panel");
+  assert.ok(dataAt > 0, "the database button no longer names its view");
   assert.match(src.slice(dataAt, dataAt + 120), /openProject\(rec\.id, 'push'\)/,
     "the Data button sets the view but does not route");
 });

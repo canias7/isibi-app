@@ -620,7 +620,8 @@ test("each button that ACTS goes somewhere that exists, and nothing else acts", 
   // this browser has never seen has no local record to act on.
   assert.ok(/siteAdopt\(cardEntry\(b\.dataset\.sid\)\)/.test(body), "adopts");
   assert.ok(/window\.open\(rec\.url/.test(body), "the live site opens at its own address");
-  assert.ok(/siteView = 'data'/.test(body), "the data button opens the Data view");
+  assert.ok(/siteView = 'preview'; \/\/ no Data panel/.test(body), "the database button opens Preview: no Data panel (owner, 2026-11-02)");
+  assert.ok(!/siteView = 'data'/.test(body), "the Data view is gone");
   // ONLY THE ACTS WE DRAW DO ANYTHING. The data branch was an `else` while the
   // phone button existed; leaving it one when that came off would have made any
   // unknown `data-act` open the Data view.
