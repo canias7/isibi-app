@@ -10,6 +10,17 @@
 
 On your word, the thin strip with the chat bubble (the chat column, closed) no longer shows when no site is open: there is no chat to open there. With a site open, the chat column and its close/open button are unchanged. Test updated: `test/workspace-layout-browser.test.mjs` (14/14). Not deployed.
 
+||||||| b70ff2f40
+## 2026-11-02: every message about a site now goes to the site agent (branch `agent-takes-all`, not merged, not deployed)
+
+On your word ("the agent is supposed to know if its just text or build something right" — "do it"). Live on northline-climbing, "I want to send emails to my customers" and "Text my customers a reminder the day before their class" were read by the router as conversation and answered by the talk-only reply, which even said texting might not be possible: about 5 credits each, nothing done.
+
+Now, on a site that already exists, a message the router calls conversation is handed to the site agent as one whole task instead. The agent decides: it does the work, or, when the message is only a question or a chat, answers it in plain words and changes nothing. Its instructions now say exactly that, and that emails and texts (Twilio or Vonage) can be sent from a server function on your own key, so it must never say texting is impossible; it still asks which service you use when you did not name one.
+
+The router still runs on these messages (1–2 credits) because it is what splits a longer message into parts that run side by side, asks its own questions, and takes your answer to a waiting question. The talk-only reply call is no longer made for an existing site; the agent's answer replaces it (at least one agent round). Messages before a site exists (the first build's box) work exactly as before. One difference: a side question asked while one of our questions is waiting now closes that question instead of leaving it open.
+
+Tests: `test/agent-takes-all.test.mjs` (the two live messages make an agent job and never call the talk-only reply; a pure question gets the agent's words with no files changed; a message with no site is unchanged). The first three fail on the old code.
+
 ## 2026-11-02: £8 in the key box, fixed where it is drawn
 
 The live test showed the key box still saying `\u00a38` for £8: that reason was saved before the earlier fix, and reached the page through the task's saved record. Now the page reads such codes back as the character at the one place every key reason is drawn, and the task record does the same. Checked on the real Northline page with the new file: "Take the £8 Kids' club payment…". Test: `test/key-why-text.test.mjs` (fails on the old code). Not deployed.

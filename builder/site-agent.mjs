@@ -296,6 +296,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
+- EVERY MESSAGE ABOUT THE SITE COMES TO YOU, questions and chat included. When the message is only a question or conversation (a greeting, thanks, "how does my booking form work?", "can my site send texts?"), answer it in plain words in finish and change nothing: no write_file, no build. Read what you need first when the answer depends on the site. When they ask whether the site can do something, say what it would take: email and text messages (SMS) can be sent by a server function on the owner's own key (texts: Twilio or Vonage; email: Resend, SendGrid, Mailgun or Postmark), so never tell them it is not possible. When the message asks for something to be done, do it.
 
 SERVER CODE is a component named "-parts/server-<name>":
 ` + SERVER_HOW + SERVER_PRACTICES + SERVER_RULES;
