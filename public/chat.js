@@ -16533,6 +16533,12 @@ async function siteKeyCardRead(siteId) {
     siteKeyCardDraw(siteId);
   } catch (e) { /* the card still saves; it just cannot say which are set */ }
 }
+// A key's reason as words: a model sometimes writes JSON escapes ("\\u00a38" for "£8"), and a
+// reason saved before the server read them back still carries them (live, northline, 2026-11-02).
+// Read back here, at the one place every reason is drawn; a control character becomes a space.
+function kcText(v) {
+  return String(v || '').replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+}
 function siteKeyCardDraw(siteId) {
   const c = siteKeyCards.get(siteId);
   if (!c) return;
@@ -16553,8 +16559,8 @@ function siteKeyCardDraw(siteId) {
       row = document.createElement('label');
       row.className = 'kc-row';
       row.setAttribute('data-kc-row', k.name);
-      row.innerHTML = '<span class="kc-label"><span class="kc-name">' + esc(k.name) + '</span>' + (k.service ? '<span class="kc-svc">' + esc(k.service) + '</span>' : '') + '</span>' +
-        (k.why ? '<span class="kc-why">' + esc(k.why) + '</span>' : '') +
+      row.innerHTML = '<span class="kc-label"><span class="kc-name">' + esc(k.name) + '</span>' + (k.service ? '<span class="kc-svc">' + esc(kcText(k.service)) + '</span>' : '') + '</span>' +
+        (k.why ? '<span class="kc-why">' + esc(kcText(k.why)) + '</span>' : '') +
         '<input class="st-in kc-in" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore placeholder="Paste the key">' +
         '<span class="kc-done" hidden></span>';
       rows.appendChild(row);

@@ -1653,7 +1653,7 @@ export function partNeedKeys(body) {
   const out = [];
   for (const k of list) {
     if (!plain(k) || typeof k.name !== "string" || !/^[A-Z][A-Z0-9_]{1,63}$/.test(k.name) || out.some((o) => o.name === k.name)) continue;
-    out.push({ name: k.name, ...(typeof k.service === "string" && k.service ? { service: k.service.slice(0, 60) } : {}), ...(typeof k.why === "string" && k.why ? { why: k.why.slice(0, 200) } : {}) });
+    out.push({ name: k.name, ...(typeof k.service === "string" && k.service ? { service: k.service.slice(0, 60) } : {}), ...(typeof k.why === "string" && k.why ? { why: k.why.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, 200) } : {}) });
     if (out.length >= 8) break;
   }
   return out;

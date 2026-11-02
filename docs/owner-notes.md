@@ -4,6 +4,11 @@
 
 
 
+
+## 2026-11-02: £8 in the key box, fixed where it is drawn
+
+The live test showed the key box still saying `\u00a38` for £8: that reason was saved before the earlier fix, and reached the page through the task's saved record. Now the page reads such codes back as the character at the one place every key reason is drawn, and the task record does the same. Checked on the real Northline page with the new file: "Take the £8 Kids' club payment…". Test: `test/key-why-text.test.mjs` (fails on the old code). Not deployed.
+
 ## 2026-11-02: one combined deploy is ready on `claude/nice-ramanujan-9ry8wy` (not merged, not deployed)
 
 On your word ("Yes go ahead"), three finished branches are merged into the working branch, so one deploy carries them all:
