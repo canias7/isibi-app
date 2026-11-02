@@ -11167,7 +11167,9 @@ function siteBgEndings(items) {
 /** The pill and, when open, the panel: the list, or one part's own view. */
 function siteBgHTML(site, now) {
   const items = siteBgItems(site, now);
-  if (!items.length) return '';
+  // ONE TASK IS JUST THE CHAT (owner, 2026-11-02): the task box repeats what the chat already
+  // shows, so it appears only when two or more agents run for this site.
+  if (items.length < 2) return '';
   const ui = siteBgState(site.id);
   const active = items.filter((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask').length;
   const working = items.filter((it) => it.state === 'run').length;

@@ -282,8 +282,8 @@ test("R — a reload keeps a single-part request's snapshot on its message, and 
   assert.ok(site.msgs[1].rq, "a single-part request kept no snapshot for a reload");
   const reloaded = { id: "s1", msgs: JSON.parse(JSON.stringify(site.msgs)) };
   const q = load(reloaded);
-  q.press({ "data-bg": "open" });
-  assert.match(text(q.html()), /1 task · 1 in progress .* Blue Picking the blue/);
+  // ONE TASK IS JUST THE CHAT (owner, 2026-11-02): no task box for a single part.
+  assert.equal(text(q.html()), "", "a single task is drawn as a task box");
 });
 
 // ── D: no duplicate display ─────────────────────────────────────────────────
@@ -507,7 +507,7 @@ test("P — parts waiting on the customer are counted as 'need you', apart from 
   // ONLY QUESTIONS LEFT: the pill says so, never "in progress".
   const only = { id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
     requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: [{ n: 0, words: "w", status: "waiting", jobs: [], question: { text: "Q?" }, said: said("One") }] } } } };
-  assert.equal(text(load(only).html(1000)), "1 needs you ▾");
+  assert.equal(text(load(only).html(1000)), "", "one task, even waiting on you, is just the chat (owner, 2026-11-02)");
 });
 
 // THE PILL COUNTS EACH PART BY ITS REAL ENDING (2026-11-01, one reply): it
@@ -518,4 +518,11 @@ test("Q — once nothing runs, the pill counts each part by its real ending", ()
   assert.equal(text(load(mk(["done", "done", "credits"])).html(1000)), "3 tasks · 2 finished, 1 paused for credits ▾");
   assert.equal(text(load(mk(["done", "cancelled", "failed"])).html(1000)), "3 tasks · 1 finished, 1 stopped, 1 failed ▾");
   assert.equal(text(load(mk(["done", "done"])).html(1000)), "2 tasks finished ▾");
+});
+
+test("ONE — the task box appears only with two or more tasks (owner, 2026-11-02)", () => {
+  const mk = (statuses) => ({ id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
+    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: statuses.map((s, n) => ({ n, words: "w" + n, status: s, jobs: [], said: said("T" + n) })) } } } });
+  assert.equal(text(load(mk(["started"])).html(1000)), "", "one running task drew a task box");
+  assert.match(text(load(mk(["started", "started"])).html(1000)), /2 tasks in progress/);
 });

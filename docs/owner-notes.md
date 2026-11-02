@@ -6,6 +6,11 @@
 
 
 
+
+## 2026-11-02: one task = no task box
+
+You spotted that with one agent running, the task box repeated what the chat already shows. Now the task box only appears when two or more tasks run for a site; with one, everything is just in the chat. Two old tests that expected a box for a single task were updated on your word; new test "ONE" in `test/background-work.test.mjs`. Not deployed.
+
 ## 2026-11-02: no closed-chat strip on the "What are we building?" screen
 
 On your word, the thin strip with the chat bubble (the chat column, closed) no longer shows when no site is open: there is no chat to open there. With a site open, the chat column and its close/open button are unchanged. Test updated: `test/workspace-layout-browser.test.mjs` (14/14). Not deployed.
