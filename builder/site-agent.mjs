@@ -69,6 +69,9 @@ const MAX_SHOTS = 2;
  *  (no limit since 2026-10-30: helpers run in parallel on copies and write
  *  only their own page, so a count adds no safety the watchdog lacks). */
 export const MAX_HELPERS = 6;
+/** How many parts one `split_work` call may hand out (2026-11-02, agent-only). */
+export const SPLIT_MIN = 2;
+export const SPLIT_MAX = 6;
 /** Tasks in one helpers call (2026-10-30, helper-deps): MAX_HELPERS is how
  *  many RUN AT ONCE; the rest wait their turn or their dependencies. */
 export const MAX_HELPER_TASKS = 24;
@@ -229,6 +232,20 @@ export const AGENT_TOOLS = Object.freeze([
     name: "ask_owner",
     description: "Ask the owner ONE question when the request cannot be done right without a detail or a choice only they can give (which service, which option), with two to four short answers they tap. Never put such a question in finish instead. This ends your turn: nothing you queued or wrote is saved, and you continue from their answer. Never ask what you can find out by reading the site.",
     input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 } }, required: ["question", "options"] },
+  },
+  // ── NO ROUTER (2026-11-02, the owner: "get rid of [the router] completely,
+  // just put it in the big agent") ───────────────────────────────────────────
+  // Splitting a message into parts that run side by side, and starting a new
+  // site's build, were the router's; they are the agent's own judgement now.
+  {
+    name: "split_work",
+    description: "Hand this request to " + SPLIT_MIN + " to " + SPLIT_MAX + " agents that work AT THE SAME TIME, one per independent part, instead of doing it all yourself. Use it only when the request holds several changes that do not depend on each other and touch different pages (for example three changes on three pages); one change, or changes on the same page, you do yourself. Call it BEFORE you change anything: it ends your turn, and each part is then done by its own agent, with its own instruction (complete and self-contained: that agent sees only it and the site) and the pages it alone owns. Two parts never own the same page. If part of the work is yours, list it as a part too.",
+    input_schema: { type: "object", properties: { parts: { type: "array", minItems: SPLIT_MIN, maxItems: SPLIT_MAX, items: { type: "object", properties: { instruction: { type: "string" }, pages: { type: "array", items: { type: "string" }, description: "The addresses this part alone changes, e.g. [\"/about\"]. [] when it changes no page (a table, a setting)." } }, required: ["instruction", "pages"] } } }, required: ["parts"] },
+  },
+  {
+    name: "start_build",
+    description: "There is no site yet. When the owner has described a business or site to make (enough to start), call this to start building it: the full build then runs with everything they said. Do not call it for a greeting or a question: answer those in plain words. `brief`: one or two lines of what they want built, in their terms.",
+    input_schema: { type: "object", properties: { brief: { type: "string" } }, required: ["brief"] },
   },
   {
     name: "restore_starter_file",
@@ -552,7 +569,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address", restore_starter_file: "restoreStarter" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", split_work: "split", start_build: "startBuild", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address", restore_starter_file: "restoreStarter" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -757,6 +774,36 @@ export function firstBuildSplitRefusal(tasks, st) {
   if (n < 2) return "one piece is not worth a helper: write it yourself";
   if (n > MAX_HELPERS) return "at most " + MAX_HELPERS + " helpers on a new site: give a helper a page and the component only it uses, and write the rest yourself";
   return "";
+}
+
+/**
+ * A `split_work` call's parts, checked (2026-11-02, agent-only): SPLIT_MIN to
+ * SPLIT_MAX, each a complete instruction and the pages it alone owns (paths,
+ * never two parts on one page). `{ parts: [{ instruction, pages }] }` or `{ error }`.
+ */
+export function readSplitWork(raw) {
+  const list = Array.isArray(raw) ? raw : null;
+  if (!list) return { error: "parts is a list of { instruction, pages }" };
+  if (list.length < SPLIT_MIN) return { error: "one part is not a split: do it yourself" };
+  if (list.length > SPLIT_MAX) return { error: "at most " + SPLIT_MAX + " parts in one split" };
+  const owned = new Map();
+  const parts = [];
+  for (const [i, p] of list.entries()) {
+    const instruction = p && typeof p.instruction === "string" ? p.instruction.trim() : "";
+    if (!instruction) return { error: "part " + (i + 1) + " has no instruction" };
+    if (instruction.length > 4000) return { error: "part " + (i + 1) + "'s instruction is too long (4,000 characters at most)" };
+    if (!p || !Array.isArray(p.pages) || p.pages.length > 12) return { error: "part " + (i + 1) + ": pages is a list of at most 12 addresses" };
+    const pages = [];
+    for (const g of p.pages) {
+      if (typeof g !== "string" || !/^\/[a-z0-9/_-]{0,80}$/i.test(g.trim())) return { error: "part " + (i + 1) + ": " + JSON.stringify(g).slice(0, 60) + " is not a page address like \"/about\"" };
+      const k = g.trim().replace(/(.)\/$/, "$1");
+      if (owned.has(k) && owned.get(k) !== i) return { error: "parts " + (owned.get(k) + 1) + " and " + (i + 1) + " both change " + k + ": one part per page, or do them together in one part" };
+      owned.set(k, i);
+      if (!pages.includes(k)) pages.push(k);
+    }
+    parts.push({ instruction, pages });
+  }
+  return { parts };
 }
 
 /** A helper's progress line: file names and numbers only. */
@@ -1129,6 +1176,22 @@ async function runTool(use, st, deps) {
       else if (!st.forget.includes(name)) st.forget.push(name);
       return { text: action === "rename" ? "Queued: the site moves to " + name + " when you finish and the change saves; the old address will send visitors there." : "Queued: " + name + " stops answering when you finish and the change saves." };
     }
+    case "split_work": {
+      if (st.onlyWrite) return { error: "a helper cannot split the work" };
+      if (st.written.size || st.dirty || st.rows.length || st.schema.length || st.rules.length || st.address || st.forget.length || Object.keys(st.settings).length) return { error: "split before you change anything: you have already started, so finish this request yourself" };
+      const r = readSplitWork(input && input.parts);
+      if (r.error) return { error: r.error };
+      st.split = r.parts;
+      st.done = true;
+      return { text: "Handed to " + r.parts.length + " agents. Your turn ends here." };
+    }
+    case "start_build": {
+      const brief = input && typeof input.brief === "string" ? input.brief.trim().slice(0, 2000) : "";
+      if (!brief) return { error: "say in one or two lines what to build" };
+      st.startBuild = brief;
+      st.done = true;
+      return { text: "The build starts. Your turn ends here." };
+    }
     case "ask_owner": {
       if (st.onlyWrite) return { error: "a helper cannot ask the owner" };
       const r = readAskInput(input);
@@ -1226,7 +1289,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, foundationFirst = false, onlyWrite = "", unreadable = false } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, foundationFirst = false, onlyWrite = "", unreadable = false, newProject = false } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -1241,7 +1304,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     : [];
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
-  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
+  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
@@ -1272,8 +1335,10 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       } catch (e) { return { file: t.file, source: "", why: "the helper failed: " + String((e && e.message) || e).slice(0, 120) }; }
     } };
   }
-  const tools = onlyWrite ? toolsFor(deps).filter((t) => t.name !== "build") : toolsFor(deps);
-  let messages = [{ role: "user", content: [{ type: "text", text: firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }), cache_control: { type: "ephemeral" } }] }];
+  // A NEW PROJECT WITH NO SITE YET (2026-11-02, agent-only): the agent answers
+  // in words, asks, or starts the build; it writes nothing itself here.
+  const tools = newProject ? toolsFor(deps).filter((t) => NEW_PROJECT_TOOLS.includes(t.name)) : onlyWrite ? toolsFor(deps).filter((t) => t.name !== "build") : toolsFor(deps);
+  let messages = [{ role: "user", content: [{ type: "text", text: newProject ? newProjectMessage({ request, history }) : firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }), cache_control: { type: "ephemeral" } }] }];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
   let rounds = 0;
@@ -1362,7 +1427,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
 
   const credits = usage.length ? Math.max(1, Math.ceil(spent())) : 0;
   return {
-    ok: st.done && (onlyWrite || !!st.ask ? true : !st.dirty && (st.built || !st.written.size)),
+    ok: st.done && (onlyWrite || !!st.ask || !!st.split || !!st.startBuild ? true : !st.dirty && (st.built || !st.written.size)),
     stopped: st.done ? "" : stopped,
     pages: ws.pages(), parts: ws.parts(),
     css: ws.css(), cssChanged: ws.cssChanged(),
@@ -1372,6 +1437,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // THE OLD STEPS' QUEUED SAVES (2026-10-30): saved by the caller with the files.
     settings: st.ask ? {} : { ...st.settings }, rules: st.ask ? [] : st.rules.slice(), redirects: st.ask ? {} : { ...st.redirects },
     ask: st.ask,
+    // NO ROUTER (2026-11-02): the parts it handed out, or the build it started.
+    split: st.split, startBuild: st.startBuild,
     // THE ROUTER-ERA STEPS (fix-all): orders applied, media placed, the address.
     sorts: st.sorts.slice(), media: st.media.slice(), address: st.ask ? null : st.address, forget: st.ask ? [] : st.forget.slice(),
     keysAsked: st.keysAsked.slice(),
@@ -1472,4 +1539,21 @@ export function asWriterAnswer(r, model) {
     usage,
     agent: { rounds: r.rounds, builds: r.builds, looked: Array.isArray(r.looked) ? r.looked : [], keysAsked: Array.isArray(r.keysAsked) ? r.keysAsked : [] },
   };
+}
+
+/** The tools a new project's agent is offered (2026-11-02, agent-only): no files to write yet. */
+export const NEW_PROJECT_TOOLS = Object.freeze(["start_build", "ask_owner", "finish"]);
+
+/**
+ * A NEW PROJECT'S FIRST MESSAGE (2026-11-02, agent-only; the owner: "get rid of
+ * [the router] completely, just put it in the big agent"): there is no site
+ * yet, so the agent either answers in words (a greeting, a question), asks
+ * the owner one thing with ask_owner, or starts the build with start_build.
+ */
+export function newProjectMessage({ request, history = "" } = {}) {
+  return [
+    history ? "THE CONVERSATION SO FAR (for what the message refers to)\n" + history : "",
+    "THE OWNER'S MESSAGE\n" + String(request || ""),
+    "THERE IS NO SITE YET. If the owner described a business or a site to make, call start_build. If they only greeted you or asked a question, answer in plain words (no tool) and build nothing. If you cannot start without one detail only they can give, ask it with ask_owner.",
+  ].filter(Boolean).join("\n\n");
 }

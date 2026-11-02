@@ -215,7 +215,10 @@ test("SAR5 the routing route answers a site's message with the agent's door: no 
     const d = await res.json();
     assert.deepEqual(d, { ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true });
     const ask = async (body) => (await (await worker.fetch(new Request("https://gofarther.dev/api/site/route", { method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer t" }, body: JSON.stringify(body) }), { SUPABASE_SERVICE_KEY: "svc" }, makeCtx())).json());
-    assert.deepEqual(await ask({ message: "A bakery called Harbour Loaf", firstBuild: true, picker: "sonnet" }), { ok: true, intent: "build", cost: 0, agent: true });
+    // A FIRST BUILD'S MESSAGE IS READ BY THE SITE AGENT NOW (2026-11-02,
+    // agent-only: `test/agent-only.test.mjs` AO2, AO5); an answer to the
+    // build's own page question still goes on to the build with no model call.
+    assert.deepEqual(await ask({ message: "the menu page", firstBuild: true, picker: "sonnet", ask: { id: "q1", chosen: true } }), { ok: true, intent: "build", cost: 0, agent: true });
     assert.deepEqual(await ask({ message: "the home page", slug: "agent-route-1", hasSite: true, firstBuild: false, ask: { id: "q1", chosen: false } }),
       { ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true, ask: { answered: true, round: 1, putOff: [], context: [] }, instruction: "the home page" });
     assert.ok(!calls.some((u) => u.includes("/v1/messages") || u.includes("x.ai") || u.includes("use_credits")), "no model call, no charge: " + calls.join(", "));

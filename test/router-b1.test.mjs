@@ -117,7 +117,7 @@ test("a caller with nobody to ask closes questions; a part of a request is offer
   // THE ROUTE NO LONGER CLOSES IT for a part's routing job (`rPart`).
   const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf("const rRoute = async (rDigest) => await routeMessage(");
-  const end = w.indexOf("let routed = await rRoute(rDigest);", at);
+  const end = w.indexOf("let routed = agentTakes() ? agentRouted({ waiting: rWaiting }) : await rRoute(rDigest);", at);
   assert.ok(at > 0 && end > at, "the route's landmarks moved");
   const call = w.slice(at, end);
   assert.match(call, /\n\s*canAsk: rLive,\n/);

@@ -662,6 +662,39 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], 
   return made;
 }
 
+// ── PARTS THE AGENT HANDED OUT (2026-11-02, agent-only) ─────────────────────
+
+/**
+ * THE AGENT'S OWN SPLIT (`split_work`, the owner: "get rid of [the router]
+ * completely, just put it in the big agent"): each `{ instruction, pages }`
+ * becomes a part of this request, run by the agent with that instruction as
+ * its words, already routed (no routing job, no routing call), owning the
+ * pages it names (`targets`, which the parallel writer's conflict check
+ * reads). Its parent is the part that split, so it runs once that part ended,
+ * and it never splits again (`partOf`'s `splitChild`). At most 6, read
+ * strictly; anything that does not read is not a part. Returns the new numbers.
+ */
+export function splitParts(rec, parentN, list) {
+  const parent = rec && Array.isArray(rec.parts) ? rec.parts[parentN] : null;
+  if (!parent || parent.source === "agent" || !Array.isArray(list) || list.length < 2 || list.length > 6) return [];
+  const made = [];
+  for (const it of list) {
+    const words = plain(it) && typeof it.instruction === "string" ? it.instruction.trim() : "";
+    if (!words || words.length > MAX_INPUT_CHARS) continue;
+    const pages = Array.isArray(it.pages) ? it.pages.filter((g) => typeof g === "string" && /^\/[a-z0-9/_-]{0,80}$/i.test(g)).slice(0, 12) : [];
+    const n = rec.parts.length;
+    const part = newPart(n, words, {
+      at: Math.max(0, parent.at), source: "agent", parent: parentN, phase: "run",
+      route: { op: "edit", intent: "edit", layer: "page", page: pages[0] || "/", remove: false, rename: "", tab: false, handOver: null, cost: 0, handedOff: false, fromAddon: false, agent: true },
+    });
+    if (pages.length) part.targets = { writes: pages.map((g) => "page:" + g), reads: [] };
+    part.status = "blocked";
+    rec.parts.push(part);
+    made.push(n);
+  }
+  return made;
+}
+
 // ── A CHANGE SENT WHILE THE REQUEST RUNS (2026-10-23, background work) ──────
 
 /**
@@ -1542,6 +1575,18 @@ function settle(rec, p, job, row, now) {
     if (to.act === "split") { endUnfinished(p, "", "too-big", { job: job.id, kind: "escalate" }); p.split = to.why; if (typeof read.reason === "string" && read.reason) p.splitReason = read.reason.slice(0, 40); return; }
     if (to.act === "stop") { endUnfinished(p, "", "handed-back", { job: job.id, kind: "escalate" }); return; }
     endUnfinished(p, "", "unreadable"); return;
+  }
+  // THE AGENT SPLIT ITS PART (2026-11-02, agent-only, `split_work`): nothing
+  // of it was saved; each part it named runs as a part of its own, side by
+  // side, with its own job, charge and credit pause. This part is done.
+  if (read.act === "success" && ans && Array.isArray(ans.body.split)) {
+    const made = splitParts(rec, p.n, ans.body.split);
+    if (made.length) {
+      p.status = "done"; p.why = null;
+      p.outcome = { job: job.id, kind: "split-work", parts: made.slice() };
+      p.done = "handed the work to " + made.length + " agents working at the same time";
+      return;
+    }
   }
   if (read.act === "recovered" && read.draft) { p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "draft", draft: read.draft }; p.done = SAVED_DONE(read.draft); return; }
   if (read.act === "recovered") { p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "recovered" }; p.done = "made the change (what it changed was not recorded)"; return; }
@@ -2570,6 +2615,8 @@ export function partOf(rec, n) {
     // own routing job is not charged again (live: 3 credits, nothing done).
     // Parts the message's own routing held back keep their charge, as before.
     ...(me && me.source === "carved" ? { carved: true } : {}),
+    // HANDED OUT BY THE AGENT'S OWN SPLIT (2026-11-02, agent-only): never split again.
+    ...(me && me.source === "agent" ? { splitChild: true } : {}),
     // ROUTED AGAIN TO SPLIT ITSELF (2026-10-24): the step's reason, so the
     // router is asked for parts it can do — and, the words already routed and
     // paid for, not charged again.
@@ -2763,7 +2810,7 @@ export function readRequestOf(v) {
   // many requirements it held — read strictly; anything else is none.
   const hf = plain(v.heldFrom) && typeof v.heldFrom.job === "string" && /^[0-9a-f]{8,64}$/.test(v.heldFrom.job) && Number.isInteger(v.heldFrom.count) && v.heldFrom.count >= 0
     ? { job: v.heldFrom.job, count: v.heldFrom.count } : null;
-  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}), ...(v.carved === true ? { carved: true } : {}), ...(readSplit(v.split) ? { split: readSplit(v.split) } : {}), ...(v.charged === true ? { charged: true } : {}) };
+  return { key: v.key, part: v.part, original, done, ...(others.length ? { others } : {}), context, ...(hf ? { heldFrom: hf } : {}), ...(v.paused === true ? { paused: true } : {}), ...(v.carved === true ? { carved: true } : {}), ...(v.splitChild === true ? { splitChild: true } : {}), ...(readSplit(v.split) ? { split: readSplit(v.split) } : {}), ...(v.charged === true ? { charged: true } : {}) };
 }
 
 /** A routing job's split ask (`partOf`'s `split`), read strictly: `{ why, reason? }`, or null. */

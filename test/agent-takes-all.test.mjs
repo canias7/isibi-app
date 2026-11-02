@@ -60,7 +60,8 @@ for (const [name, message, gist] of [
       assert.equal(log.converse, 0, "the talk-only reply was called");
       assert.ok(log.agent >= 1, "the agent never ran");
       assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts[0]));
-      assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, 1, "routed once");
+      // NO ROUTING CALL AT ALL (2026-11-02, agent-only): the supplied router answer is never asked for.
+      assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, 0, "a routing call was made");
     });
   });
 }
@@ -111,7 +112,9 @@ test("AT3 a pure question reaches the agent, its plain-words answer is the reply
   });
 });
 
-test("AT4 control: a message with no site yet keeps today's behaviour (conversation is answered in words)", async () => {
+// AT4, REVISED (2026-11-02, agent-only): a message with no site yet is read by
+// the site agent too (new-project tools), not the router and its talk-only reply.
+test("AT4 a message with no site yet is answered by the site agent in words: no routing call, no talk-only reply", async () => {
   const log = { agent: 0, converse: 0 };
   await withPlatform({ answers: { route: ASK("They ask what we can build."), "": model([{ content: [use("finish", { summary: "x" })] }], log) } }, async (P) => {
     const worker = await loadWorker();
@@ -126,7 +129,9 @@ test("AT4 control: a message with no site yet keeps today's behaviour (conversat
     });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.intent, "ask", JSON.stringify(res.body));
-    assert.equal(log.agent, 0, "the agent ran for a message with no site");
-    assert.equal(log.converse, 1, "the conversation reply was not written");
+    assert.equal(res.body.answer, "x", "the agent's own words");
+    assert.equal(log.agent, 1, "the agent did not read the message");
+    assert.equal(log.converse, 0, "the talk-only reply was written");
+    assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, 0, "a routing call was made");
   });
 });

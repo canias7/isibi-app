@@ -1748,6 +1748,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
 export const ROUTE_REASONS = Object.freeze({
   "no-message": Object.freeze({ kind: "rule", what: "the message was empty, so no model was asked" }),
   "no-credits": Object.freeze({ kind: "rule", what: "the balance read zero, so no model was asked" }),
+  "agent": Object.freeze({ kind: "rule", what: "no router: the site agent takes the whole message, so no routing model was asked (2026-11-02)" }),
   "request-failed": Object.freeze({ kind: "fallback", what: "the routing request could not be built" }),
   "send-failed": Object.freeze({ kind: "fallback", what: "the routing call failed" }),
   "no-tool-call": Object.freeze({ kind: "fallback", what: "the model's reply held no routing answer" }),
