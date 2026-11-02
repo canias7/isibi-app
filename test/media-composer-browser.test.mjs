@@ -90,7 +90,7 @@ async function openApp(browser, { worker, env, seen, gate, site, onRouted = () =
       if (p.endsWith("/share")) return json(route, { share: "" });
       return json(route, { ok: true });
     }
-    const file = p === "/" || p.startsWith("/projects") || /^\/home\/?$/.test(p) ? "/index.html" : p;
+    const file = p === "/" || p.startsWith("/projects") || /^\/home(\/|$)/.test(p) ? "/index.html" : p;
     const fp = path.join(PUB, file);
     if (!existsSync(fp)) return route.fulfill({ status: 404, body: "" });
     const ct = fp.endsWith(".js") ? "application/javascript" : fp.endsWith(".css") ? "text/css" : fp.endsWith(".html") ? "text/html" : fp.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";

@@ -230,9 +230,9 @@ test("the card markup actually draws it, exactly once", () => {
   // assertion about the icons stayed green with the icons off every card.
   // A function is not a feature until something calls it.
   const c = blankComments(read("../public/chat.js"));
-  const at = c.indexOf("'<div class=\"st-pair\">'");
+  const at = c.indexOf("'<div class=\"st-pair' + (open ? ' st-pair-open' : '')");
   assert.ok(at > 0, "the pair wrapper is gone from the card markup");
-  const to = c.indexOf(".join('')", at);
+  const to = c.indexOf("'</div>');", at);
   assert.ok(to > at, "the map's join is gone — re-anchor this window");
   const cell = c.slice(at, to);
   assert.equal((cell.match(/siteAppTile\(/g) || []).length, 1,
@@ -250,11 +250,11 @@ test("the phone is BESIDE the card, not inside it — the correction, asserted",
   // nested in the card satisfies "there is a phone somewhere" and is the exact
   // shape that was ruled out, so the sibling relationship is what is read here.
   const c = blankComments(read("../public/chat.js"));
-  const at = c.indexOf("'<div class=\"st-pair\">'");
-  const to = c.indexOf(".join('')", at);
+  const at = c.indexOf("'<div class=\"st-pair' + (open ? ' st-pair-open' : '')");
+  const to = c.indexOf("'</div>');", at);
   assert.ok(at > 0 && to > at, "the grid cell's landmarks moved — re-anchor this");
   const cell = c.slice(at, to);
-  const card = cell.indexOf('<div class="st-card"');
+  const card = cell.indexOf('<div class="st-card\'');
   const tile = cell.indexOf("siteAppTile(");
   assert.ok(card > 0 && tile > card, "the card or the tile moved — re-anchor this");
   // And the pair really opens before the card, so the card is inside the pair.
@@ -462,61 +462,27 @@ test("the card is still the width it was — the owner's instruction, as arithme
   // is more than three times it. A loose `/gap:/` matches `column-gap:` AND
   // `row-gap:` and takes whichever comes first, so it would be right only while
   // nobody reorders the declaration, and wrong silently after.
-  const gridGap = /column-gap:\s*([\d.]+)rem/.exec(rule(css, ".st-grid"));
+  // THE GRID WENT ON 2026-11-01 (the cards moved into the workspace's projects
+  // strip); the strip sets the pair's width in pixels, the grid's own number.
+  const stripPair = /flex:\s*0 0 ([\d.]+)px/.exec(rule(css, ".st-proj-row .st-pair"));
   const pairRule = rule(css, ".st-pair");
   // BY NAME here too. The pair gained a row when the database moved above it, so
   // it sets both axes, and `row-gap:` contains `gap:` — a loose match would take
   // whichever came first.
   const pairGap = /column-gap:\s*([\d.]+)rem/.exec(pairRule);
   const col = /1fr\s+([\d.]+)fr/.exec(pairRule);
-  assert.ok(gridGap && pairGap && col, "the grid's or the pair's spacing moved — re-anchor this");
+  assert.ok(stripPair && pairGap && col, "the grid's or the pair's spacing moved — re-anchor this");
 
-  const pair = (Number(page[1]) - 2 * Number(gridGap[1]) * 16) / 3;
+  const pair = Number(stripPair[1]);
   const card = (pair - Number(pairGap[1]) * 16) / (1 + Number(col[1]));
   assert.ok(Math.abs(card - 258) < 1,
     "a card comes out " + card.toFixed(1) + "px where it measured 258 before the phone "
     + "was added beside it — the square changed size");
 });
 
-test("a row is set apart from the next one — more than a pair is from its neighbour", () => {
-  // Owner, 2026-09-09: "leave more space between every3" -> "i mean like floor
-  // one to floor 2". At a single `gap` the rows sat 16px apart, the same as the
-  // columns, so a row ran into the one below it and six columns read as six
-  // columns rather than three pairs.
-  //
-  // DERIVED, not pinned: the row gap must simply be MORE than the column gap.
-  // A number here would go stale the first time either is tuned, and the
-  // property is the separation, not the millimetre.
-  const grid = rule(read("../public/styles.css"), ".st-grid");
-  const rowGap = /row-gap:\s*([\d.]+)rem/.exec(grid);
-  const colGap = /column-gap:\s*([\d.]+)rem/.exec(grid);
-  assert.ok(rowGap && colGap,
-    "the grid sets one `gap` for both axes again, so a row sits as close to the "
-    + "next one as a pair does to its neighbour");
-  assert.ok(Number(rowGap[1]) > Number(colGap[1]) * 2,
-    "the rows are " + rowGap[1] + "rem apart against " + colGap[1] + "rem between "
-    + "columns — not enough to read as separate floors");
-  // AND THE SHORTHAND IS FORBIDDEN, because `row-gap:` contains `gap:`: a
-  // `gap: <row> <column>` here would be read by the card-width check above as a
-  // column gap of the ROW's value, and the card would be computed wrong without
-  // anything failing.
-  assert.ok(!/[;{]\s*gap:/.test(grid), "the grid uses the two-axis `gap` shorthand");
-});
-
-test("three pairs across, and two breakpoints under it", () => {
-  const css = read("../public/styles.css");
-  assert.match(rule(css, ".st-grid"), /grid-template-columns:\s*repeat\(3,\s*1fr\)/,
-    "the grid is not three across");
-  // The breakpoints are what stop three pairs putting a card under 200px on a
-  // laptop. Read as a pair and asserted to DESCEND, so an inverted or reordered
-  // set — which would give one column on a big screen — cannot pass.
-  const bps = [...css.matchAll(/@media \(max-width: (\d+)px\) \{ \.st-grid \{ grid-template-columns: ([^;]+); \} \}/g)]
-    .map((m) => ({ at: Number(m[1]), cols: m[2] }));
-  assert.equal(bps.length, 2, "the grid's breakpoints moved — re-anchor this");
-  assert.ok(bps[0].at > bps[1].at, "the breakpoints are out of order, so the wider one never applies");
-  assert.match(bps[0].cols, /repeat\(2,\s*1fr\)/, "two across on a laptop");
-  assert.match(bps[1].cols, /^1fr$/, "one across on a phone");
-});
+// THE GRID'S ROW GAP AND ITS THREE-ACROSS BREAKPOINTS went with the grid
+// (2026-11-01): the cards are one sideways row in the projects strip now,
+// covered by test/workspace-layout-browser.test.mjs.
 
 // ── THE DATABASE, ABOVE THE PAIR ────────────────────────────────────────────
 //
@@ -590,16 +556,16 @@ test("the database is drawn ABOVE the pair, exactly once", () => {
   // "on top of" — so it is asserted to come before the card opens, not merely to
   // exist somewhere in the cell.
   const c = blankComments(read("../public/chat.js"));
-  const at = c.indexOf("'<div class=\"st-pair\">'");
-  const to = c.indexOf(".join('')", at);
+  const at = c.indexOf("'<div class=\"st-pair' + (open ? ' st-pair-open' : '')");
+  const to = c.indexOf("'</div>');", at);
   assert.ok(at > 0 && to > at, "the grid cell's landmarks moved — re-anchor this");
   const cell = c.slice(at, to);
   assert.equal((cell.match(/siteDbIcon\(s\)/g) || []).length, 1,
     "the grid cell must call siteDbIcon exactly once");
-  assert.ok(cell.indexOf("siteDbIcon(s)") < cell.indexOf('<div class="st-card"'),
+  assert.ok(cell.indexOf("siteDbIcon(s)") < cell.indexOf('<div class="st-card\''),
     "the database is drawn after the card — it must come first, so it sits on top");
   // OUTSIDE THE SQUARE: it is a child of the pair, never of the card.
-  const card = cell.indexOf('<div class="st-card"');
+  const card = cell.indexOf('<div class="st-card\'');
   assert.ok(cell.indexOf("siteDbIcon(s)") < card, "the database is inside the card");
 });
 

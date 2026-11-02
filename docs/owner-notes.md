@@ -5,6 +5,22 @@
 
 
 
+## 2026-11-01: projects on top, a conversations bar on the left (branch `workspace-layout`)
+
+On your word ("the only thing that's changing is the projects are going to be on top, and there's going to be a conversations bar on the left"), the open-project workspace changed in exactly two places. Nothing else was restyled: the chat, the toolbar, the preview, /home and the landing page look as before.
+
+- **Projects on top.** A strip above Preview / Code / More shows the open site (a small thumbnail, its name, "N projects", and a ▾). Clicking it drops down one row of your site cards: the very same cards /home draws (the same code, the same 349px size), with the mobile-app phone beside each. The database icon and its lines are left off in the strip so the cards fit one row. The open project has a thick dark border and an "Open" badge, and the row scrolls to it when it opens. Clicking a card opens that project and closes the row. The row scrolls sideways with the mouse wheel, with click-and-drag (with a little momentum), and with a trackpad's sideways swipe. No scrollbar or arrows are shown. The strip's background is the app's faint warm grey (`--paper-2`) with a thin line under it. Whether it is open is remembered in this browser.
+- **Conversations bar, far left of the chat.** It is for agents, never for sites: sites appear only in the projects strip. For now it has exactly one entry, "Sites agent" (this builder's chat), selected. Future agents (an accounting agent, say) go here later. The ‹ closes it to a thin strip with its icon and a ›, and that choice is remembered in this browser. The chat column already closed and reopened from the toolbar's chat button, and that is kept as it was.
+- **Phones**: the conversations bar is hidden and the strip starts collapsed. The phone layout is otherwise as before.
+- **Addresses** (your later word): `/home` now forwards to `/home/projects`, the Sites agent's screen. `/home/projects/<site-id>` is that site open there; it replaces `/projects/<id>`. The old `/projects` and `/projects/<id>` still work and forward to the new addresses, and the forward adds no Back step. `/home/<name>` is kept as the place for later agents (for example `/home/accounting`). None are built yet, so for now any of them forwards to `/home/projects`. The logo, while you are signed in, goes to `/home/projects`. The Worker serves the app for all of these; its address rule and the browser's are still kept identical by the existing guard.
+- **The empty screen** (`/home/projects` with no site open) shows:
+  - the conversations bar with only "Sites agent", subtitled "Ready when you are";
+  - the chat closed to its thin strip;
+  - the projects strip on top, reading "No projects yet · Your sites will appear here" when there are no sites, or the "Your projects" tab and row when there are;
+  - today's "What are we building?" box, unchanged.
+  The "Your sites" grid that used to sit under the box is gone, because sites now appear only in the strip. When you send the first message, the build starts as before, the address moves to `/home/projects/<new site id>`, and the chat opens.
+- Only one server line changed: the Worker's `/home` address rule. There is a new browser test, `test/workspace-layout-browser.test.mjs` (7 cases, all failing on the old code). The address tests (`test/project-url.test.mjs`, `test/home-route.test.mjs`) were moved to the new addresses. Not merged, not deployed.
+
 ## 2026-11-01: the signed-in home lives at /home
 
 On your word ("Yes do it with /home"), the signed-in home (the "What are we building?" screen with Your sites) now has its own address, `gofarther.dev/home`. Signed in, opening `/` or signing in from the landing's Sign in button takes you straight there; the landing is never shown in its signed-in state any more (that in-between screen with your profile over the marketing page is gone). Pressing the logo while signed in goes to `/home`; signed out it still shows the landing at `/`. The old `/projects` address still works and is shown as `/home`; a project stays at `/projects/<id>`, and Back and Forward move between them. Signing out lands on `/`. The Worker serves the app for `/home`. Branch `home-route` (from `claude/nice-ramanujan-9ry8wy`); not merged, not deployed, nothing spent.

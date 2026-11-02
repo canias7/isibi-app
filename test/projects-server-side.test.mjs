@@ -177,7 +177,7 @@ async function device(browser, srv, { seed = null, holdList = null } = {}) {
       if (p === "/api/credits" || p === "/api/credits/balance") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ credits: 48 }) });
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
     }
-    const file = p === "/" || p.startsWith("/projects") || /^\/home\/?$/.test(p) ? "/index.html" : p;
+    const file = p === "/" || p.startsWith("/projects") || /^\/home(\/|$)/.test(p) ? "/index.html" : p;
     const fp = path.join(PUB, file);
     if (!existsSync(fp)) return route.fulfill({ status: 404, body: "" });
     const ct = fp.endsWith(".js") ? "application/javascript" : fp.endsWith(".css") ? "text/css" : fp.endsWith(".html") ? "text/html" : fp.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
@@ -227,11 +227,14 @@ test("BROWSER: send creates the project on the server before the build; a failed
     await shot(two.page, "after-device-2.png");
     // and it opens: the project's own chat is read
     await two.page.click('#viewSites .st-card[data-open="' + id + '"]');
-    await two.page.waitForFunction((want) => location.pathname === "/projects/" + want, id, { timeout: 10000 });
+    await two.page.waitForFunction((want) => location.pathname === "/home/projects/" + want, id, { timeout: 10000 });
     assert.ok(two.log.includes("GET /api/site/chat/" + id), "the second device never read the project's chat");
 
     // DELETED ON THE SECOND DEVICE, on the server
     await two.page.goto(ORIGIN + "/projects", { waitUntil: "load" });
+    // The cards live in the projects strip (2026-11-01), whose row a card's open closed; open it again.
+    await two.page.waitForSelector("#stProjTab");
+    if (await two.page.evaluate(() => document.querySelector("#stProjRow").hidden)) await two.page.click("#stProjTab");
     await waitCards(two.page, () => document.querySelectorAll("#viewSites .st-card").length === 2);
     await two.page.click('#viewSites .st-card-del[data-del="' + id + '"]');
     await two.page.click(".go-confirm-yes");

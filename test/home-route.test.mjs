@@ -65,7 +65,7 @@ async function open(browser, startPath, signedIn) {
       if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 150 });
       return json(route, { ok: true });
     }
-    const file = p === "/" || p.startsWith("/projects") || /^\/home\/?$/.test(p) ? "/index.html" : p;
+    const file = p === "/" || p.startsWith("/projects") || /^\/home(\/|$)/.test(p) ? "/index.html" : p;
     const fp = path.join(PUB, file);
     if (!existsSync(fp)) return route.fulfill({ status: 404, body: "" });
     const ct = fp.endsWith(".js") ? "application/javascript" : fp.endsWith(".css") ? "text/css" : fp.endsWith(".html") ? "text/html" : fp.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
@@ -85,11 +85,11 @@ const shown = (page, sel) => page.evaluate((s) => { const e = document.querySele
 const pathOf = (page) => page.evaluate(() => location.pathname);
 const shot = async (page, name) => { if (!SHOTS) return; mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, name) }); };
 
-test("HR2 signed in on / → /home, the app shell shown and the landing hidden; bare /projects → /home", { skip: SKIP, timeout: 90000 }, async () => {
+test("HR2 signed in on / → /home/projects, the app shell shown and the landing hidden; bare /projects and /home → /home/projects", { skip: SKIP, timeout: 90000 }, async () => {
   const browser = await chromium.launch({ executablePath: EXE });
   try {
     const A = await open(browser, "/", true);
-    await until(async () => (await pathOf(A.page)) === "/home", 15000, "/home");
+    await until(async () => (await pathOf(A.page)) === "/home/projects", 15000, "/home/projects");
     assert.equal(await shown(A.page, "#marketing"), false, "the landing is shown signed in");
     assert.equal(await shown(A.page, ".shell"), true, "the app shell is hidden");
     await until(() => A.page.evaluate(() => document.getElementById("viewSites")?.classList.contains("active")), 10000, "the sites view");
@@ -98,27 +98,32 @@ test("HR2 signed in on / → /home, the app shell shown and the landing hidden; 
     console.log("# HR2 URL " + A.page.url());
     assert.deepEqual(A.errors, []);
     await A.ctx.close();
-    const B = await open(browser, "/projects", true);
-    await until(async () => (await pathOf(B.page)) === "/home", 15000, "/projects → /home");
-    await B.ctx.close();
+    // 2026-11-01: every old address forwards to the Sites agent's, adding no entry.
+    for (const [from, to] of [["/projects", "/home/projects"], ["/home", "/home/projects"], ["/home/accounting", "/home/projects"], ["/projects/" + SITE_ID, "/home/projects/" + SITE_ID]]) {
+      const B = await open(browser, from, true);
+      await until(async () => (await pathOf(B.page)) === to, 15000, from + " → " + to);
+      // A new page holds about:blank and the address it opened: 2. A forward that pushed would make it 3.
+      assert.equal(await B.page.evaluate(() => history.length), 2, from + " forwarded with a new history entry");
+      await B.ctx.close();
+    }
   } finally { await browser.close(); }
 });
 
-test("HR3 signed in, the logo goes to /home (push), never the landing; Back returns to the project", { skip: SKIP, timeout: 90000 }, async () => {
+test("HR3 signed in, the logo goes to /home/projects (push), never the landing; Back returns to the project", { skip: SKIP, timeout: 90000 }, async () => {
   const browser = await chromium.launch({ executablePath: EXE });
   try {
-    const A = await open(browser, "/projects/" + SITE_ID, true);
-    await until(async () => (await pathOf(A.page)) === "/projects/" + SITE_ID, 15000, "the project");
+    const A = await open(browser, "/home/projects/" + SITE_ID, true);
+    await until(async () => (await pathOf(A.page)) === "/home/projects/" + SITE_ID, 15000, "the project");
     await A.page.waitForTimeout(500);
     await A.page.locator('[data-act="landing"]:visible').first().click();
-    await until(async () => (await pathOf(A.page)) === "/home", 5000, "the logo to reach /home");
+    await until(async () => (await pathOf(A.page)) === "/home/projects", 5000, "the logo to reach /home/projects");
     assert.equal(await shown(A.page, "#marketing"), false, "the logo showed the landing while signed in");
     assert.equal(await shown(A.page, ".shell"), true, "the app shell is hidden after the logo");
     await A.page.waitForTimeout(600);
     await shot(A.page, "home-route-2.png");
     console.log("# HR3 URL " + A.page.url());
     await A.page.goBack();
-    await until(async () => (await pathOf(A.page)) === "/projects/" + SITE_ID, 5000, "Back to the project");
+    await until(async () => (await pathOf(A.page)) === "/home/projects/" + SITE_ID, 5000, "Back to the project");
     assert.deepEqual(A.errors, []);
     await A.ctx.close();
   } finally { await browser.close(); }

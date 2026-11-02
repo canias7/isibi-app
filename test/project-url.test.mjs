@@ -59,8 +59,9 @@ const homeIn = (src, what) => {
 test("ONE home rule, two files: the browser's HOME_PATH and the Worker's are identical", () => {
   assert.equal(homeIn(chat, "public/chat.js"), homeIn(worker, "worker.js"));
   const re = new RegExp(homeIn(worker, "worker.js").slice(1, -1));
-  for (const p of ["/home", "/home/"]) assert.ok(re.test(p), p);
-  for (const p of ["/", "/homes", "/home/x", "/projects"]) assert.ok(!re.test(p), p);
+  // `/home/projects[/<id>]` and the agent slot `/home/<agent>` (2026-11-01).
+  for (const p of ["/home", "/home/", "/home/projects", "/home/projects/", "/home/projects/site_1_abcde", "/home/accounting"]) assert.ok(re.test(p), p);
+  for (const p of ["/", "/homes", "/home/X", "/home/projects/a/b", "/home/projects/x.js", "/home/../etc", "/projects"]) assert.ok(!re.test(p), p);
 });
 
 test("DRIVEN: the pattern admits a project address and refuses everything else", () => {
@@ -109,6 +110,7 @@ function loadRouter(pathname) {
   const fn = new Function("location", "history", "renderSites", "state",
     chat.slice(pAt, pEnd) + "\n" +
     (() => { const h = chat.indexOf("const HOME_PATH = "); assert.ok(h > 0, "HOME_PATH is gone from chat.js"); return chat.slice(h, chat.indexOf("\n", h)); })() + "\n" +
+    (() => { const h = chat.indexOf("const SITES_HOME = "); assert.ok(h > 0, "SITES_HOME is gone from chat.js"); return chat.slice(h, chat.indexOf("\n", h)); })() + "\n" +
     "let siteOpenId = null;\n" +
     "let siteBusy = false, siteBusyFor = null, siteBuild = null, siteTicker = null;\n" + BUSY_SLOTS + "\n" +
     cut("function projectFromPath(") + "\n" +
@@ -127,8 +129,12 @@ test("DRIVEN: the path has THREE answers, and the third is why it is not a boole
   // `null` — the project list.
   assert.equal(loadRouter("/projects").api.projectFromPath(), null);
   assert.equal(loadRouter("/projects/").api.projectFromPath(), null);
-  // `/home` is the list too (2026-11-01).
+  // `/home` is the list too (2026-11-01), and `/home/projects` is its address;
+  // `/home/projects/<id>` is a project, and another agent's slot is not one.
   assert.equal(loadRouter("/home").api.projectFromPath(), null);
+  assert.equal(loadRouter("/home/projects").api.projectFromPath(), null);
+  assert.equal(loadRouter("/home/projects/site_1_abcde").api.projectFromPath(), "site_1_abcde");
+  assert.equal(loadRouter("/home/accounting").api.projectFromPath(), null);
   // A project.
   assert.equal(loadRouter("/projects/site_1784380035480_w53jb").api.projectFromPath(),
     "site_1784380035480_w53jb");
@@ -138,10 +144,11 @@ test("DRIVEN: opening a project moves the URL, and going back to the list moves 
   const r = loadRouter("/projects");
   r.api.openProject("site_1_abcde", "push");
   assert.equal(r.api.id(), "site_1_abcde", "the state did not move");
-  assert.deepEqual(r.calls.at(-1), ["push", "/projects/site_1_abcde"], "the URL did not move");
+  // `/home/projects/<id>` since 2026-11-01 (was `/projects/<id>`).
+  assert.deepEqual(r.calls.at(-1), ["push", "/home/projects/site_1_abcde"], "the URL did not move");
   r.api.openProject(null, "push");
-  // The list's address is `/home` since 2026-11-01 (was `/projects`).
-  assert.deepEqual(r.calls.at(-1), ["push", "/home"], "the list has no address");
+  // The list's address is `/home/projects` since 2026-11-01 (was `/projects`, then `/home`).
+  assert.deepEqual(r.calls.at(-1), ["push", "/home/projects"], "the list has no address");
 });
 
 test("DRIVEN: opening a project RE-DRAWS, and draws the project it just opened", () => {
@@ -169,7 +176,7 @@ test("DRIVEN: a push to the address we are already on REPLACES, so Back is never
   // Re-opening the project that is already open — the Data button on the open
   // site, a re-render — would otherwise stack identical entries, and Back would
   // appear dead for as many presses as the screen was re-entered.
-  const r = loadRouter("/projects/site_1_abcde");
+  const r = loadRouter("/home/projects/site_1_abcde");
   r.api.openProject("site_1_abcde", "push");
   assert.equal(r.calls.at(-1)[0], "replace", "an identical address was pushed as a new entry");
 });
@@ -184,7 +191,7 @@ test("DRIVEN: 'none' touches history at all — which is what stops Back becomin
   // …and 'replace' corrects the address without adding an entry.
   const r2 = loadRouter("/projects/dead");
   r2.api.openProject(null, "replace");
-  assert.deepEqual(r2.calls, [["replace", "/home"]]);
+  assert.deepEqual(r2.calls, [["replace", "/home/projects"]]);
 });
 
 // ── THE WIRING ──────────────────────────────────────────────────────────────
@@ -354,7 +361,7 @@ test("an id that names nothing corrects the address instead of leaving it lying"
   // A link to a deleted project, or one belonging to another account. The list
   // is the right screen; a URL still naming the dead id is not.
   const src = bare(chat);
-  const at = src.indexOf("if (siteOpenId && PROJECT_PATH.test(location.pathname))");
+  const at = src.indexOf("if (siteOpenId && (PROJECT_PATH.test(location.pathname) || HOME_PATH.test(location.pathname)))");
   assert.ok(at > 0, "the repair no longer corrects the URL");
   const body = src.slice(at, at + 200);
   assert.match(body, /replaceState/, "the repair does not correct the address");

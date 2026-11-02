@@ -92,7 +92,8 @@ test("every render applies a cached draft, and 'not ready' is never cached as fi
 
 test("thumbnails run no scripts, and an unfinished card is a placeholder, not a blank frame", () => {
   const c = code(CHAT);
-  const at = c.indexOf('<div class="st-grid-h">Your sites</div>');
+  // The card is drawn by `siteCardPairHTML` (2026-11-01), for /home's strip and the workspace's.
+  const at = c.indexOf('function siteCardPairHTML(');
   const end = c.indexOf('class="st-card-meta"', at);
   assert.ok(at > 0 && end > at);
   const card = c.slice(at, end);

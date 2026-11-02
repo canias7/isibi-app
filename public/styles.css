@@ -897,7 +897,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-gen:hover { transform: translateY(-1px); box-shadow: 0 9px 26px -4px rgba(0,0,0, .7); }
 .st-gen svg { display: block; }
 .st-price, .st-arrow { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; }
-.st-grid-h { margin: 2rem 0 .8rem; font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 /* THREE PAIRS ACROSS, NOT FOUR CARDS (owner, 2026-09-09: "instead of 4 , just 3
    horizontally , so one square with the site , and one wiht the mobile app").
    `auto-fill`/`minmax` filled the 1080px page with four 258px cards; each cell
@@ -914,9 +913,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    `row-gap:` CONTAINS `gap:`, so a guard reading the column gap out of this rule
    would match whichever came first and silently take the wrong number into the
    card-width arithmetic below. Naming both removes the question. */
-.st-grid { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 1rem; row-gap: 6.5rem; }
-@media (max-width: 1180px) { .st-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 760px) { .st-grid { grid-template-columns: 1fr; } }
 /* THE PHONE IS THE SITE SQUARE'S HEIGHT BY ARITHMETIC, NOT BY A NUMBER TYPED IN
    (owner: "the phone same height as the square"). Two ratios decide it and the
    column is their product:
@@ -5211,3 +5207,52 @@ body { font-family: var(--display); color: var(--ink); -webkit-font-smoothing: a
 .kc-warn button { font: inherit; font-size: .78rem; font-weight: 650; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); padding: .25rem .6rem; cursor: pointer; }
 .kc-warn .kc-x { border: 0; background: none; font-size: 1rem; padding: 0 .3rem; }
 .st-keycard .kc-done::after { content: " \2713"; }
+
+/* ── THE WORKSPACE'S PROJECTS STRIP AND CONVERSATIONS BAR (2026-11-01) ──────
+   Owner: the projects on top of the toolbar, a conversations bar on the left
+   (agents, never sites). The cards in the strip are the /home cards
+   (`siteCardPairHTML`) at the /home pair width (349px at 1440). */
+.st-projects { flex: 0 0 auto; background: var(--paper-2); border-bottom: 1px solid var(--line); border-radius: 12px 12px 0 0; padding: .4rem .6rem; }
+.st-projects.open { padding-bottom: .9rem; }
+.st-proj-tab { display: inline-flex; align-items: center; gap: .55rem; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line-2); border-radius: 10px; padding: .25rem .6rem .25rem .3rem; cursor: pointer; }
+.st-proj-tab:hover { border-color: rgba(0, 0, 0, .5); }
+.st-proj-thumb { width: 40px; height: 25px; border-radius: 5px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); position: relative; flex: 0 0 auto; }
+.st-proj-thumb iframe { position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; transform: scale(.03125); transform-origin: 0 0; pointer-events: none; }
+.st-proj-name { font-weight: 700; font-size: .86rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-proj-count { font-size: .74rem; color: var(--muted); }
+.st-proj-cv { font-size: .72rem; color: var(--muted); transition: transform .15s ease; }
+.st-projects.open .st-proj-cv { transform: rotate(180deg); }
+.st-proj-row { display: flex; gap: 1rem; margin-top: .7rem; padding: 4px 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; cursor: grab; user-select: none; }
+.st-proj-row::-webkit-scrollbar { display: none; }
+.st-proj-row.dragging { cursor: grabbing; }
+.st-proj-row[hidden] { display: none; }
+/* 349px: the pair's width in the old three-across /home grid (1080px page,
+   1rem gaps), so a card is the 258px it always measured. */
+.st-proj-row .st-pair { flex: 0 0 349px; row-gap: 0; grid-template-rows: auto; }
+.st-proj-row iframe { pointer-events: none; }
+.st-card.st-card-open { border: 3px solid var(--ink); }
+.st-card-badge { position: absolute; top: 10px; left: 10px; z-index: 2; background: var(--ink); color: #fff; font-size: .7rem; font-weight: 700; border-radius: 999px; padding: .15rem .55rem; pointer-events: none; }
+.st-conv { flex: 0 0 200px; margin-right: .7rem; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); overflow: hidden; }
+.st-conv-head { display: flex; align-items: center; justify-content: space-between; padding: .55rem .5rem .4rem .8rem; }
+.st-conv-title { font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.st-conv-list { display: flex; flex-direction: column; gap: .2rem; padding: 0 .45rem; }
+.st-conv-item { display: flex; align-items: center; gap: .5rem; width: 100%; font: inherit; font-size: .86rem; font-weight: 600; color: var(--text); text-align: left; background: transparent; border: 1px solid transparent; border-radius: 9px; padding: .45rem .55rem; cursor: pointer; }
+.st-conv-item.on { background: var(--panel-2); border-color: var(--line); }
+.st-conv-rail { display: none; flex-direction: column; align-items: center; gap: .6rem; padding: .6rem 0; }
+.st-conv-ic { color: var(--text); display: inline-flex; }
+.st-conv.closed { flex-basis: 44px; }
+.st-conv.closed .st-conv-head, .st-conv.closed .st-conv-list { display: none; }
+.st-conv.closed .st-conv-rail { display: flex; }
+@media (max-width: 760px) { .st-conv { display: none; } .st-proj-name { max-width: 120px; } }
+/* The Sites agent's screen with no site open (/home/projects, 2026-11-01). */
+.view-sites.st-home-open { padding: .8rem 1rem 1rem; overflow: hidden; }
+.st-homews { display: flex; width: 100%; height: calc(100vh - 88px); min-height: 480px; }
+.st-chatstrip { flex: 0 0 44px; margin-right: .7rem; display: flex; justify-content: center; padding-top: .7rem; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); color: var(--muted); }
+.st-homecol { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.st-homemain { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 1rem 2rem; }
+.st-projects.st-proj-none { display: flex; align-items: center; gap: .7rem; }
+.st-proj-empty { cursor: default; font-weight: 700; font-size: .86rem; padding: .3rem .8rem; }
+.st-proj-hint { font-size: .78rem; color: var(--muted); }
+.st-conv-txt { display: flex; flex-direction: column; min-width: 0; }
+.st-conv-sub { font-size: .72rem; font-weight: 500; color: var(--muted); }
+@media (max-width: 760px) { .st-chatstrip { display: none; } .st-homemain { padding: 0 .2rem 2rem; } }

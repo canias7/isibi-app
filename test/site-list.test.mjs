@@ -676,7 +676,7 @@ test("the card actually draws them — the one hop every other guard misses", ()
   // and the three icons off every card: the wiring trap in its purest form —
   // the function perfect, the hop gone, nothing failing.
   const c = blankComments(read("../public/chat.js"));
-  const at = c.indexOf("'<div class=\"st-card\" data-open=");
+  const at = c.indexOf("'<div class=\"st-card' + (open ? ' st-card-open' : '') + '\" data-open=");
   assert.ok(at > 0, "the card markup is gone");
   const to = c.indexOf('class="sch-del st-card-del"', at);
   assert.ok(to > at, "the delete button is gone — re-anchor this window");

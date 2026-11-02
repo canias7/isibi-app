@@ -2097,7 +2097,9 @@ const PROJECT_PATH = /^\/projects(?:\/([A-Za-z0-9_-]{1,120}))?\/?$/;
 // THE SIGNED-IN HOME (2026-11-01, owner: "Yes do it with /home"): `/home` is
 // the sites screen with no project open, served as the app shell like a
 // project address. Kept identical to the browser's copy by the same guard.
-const HOME_PATH = /^\/home\/?$/;
+// `/home/projects[/<id>]` (the Sites agent, a site open in it) and
+// `/home/<agent>` (2026-11-01) are served the same shell.
+const HOME_PATH = /^\/home(?:\/([a-z][a-z0-9-]{0,39})(?:\/([A-Za-z0-9_-]{1,120}))?)?\/?$/;
 
 function harden(res, request) {
   // A REFUSAL WE COULD NOT MAKE IS NOT A REFUSAL. If `authUser` never got an

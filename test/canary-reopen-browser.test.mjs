@@ -40,6 +40,10 @@ try { ({ chromium } = await import("playwright-core")); } catch { chromium = nul
 const HAVE = !!chromium && existsSync(EXE);
 const SKIP = !HAVE && "no browser here (playwright-core and Chromium are not installed)";
 
+// THE PROJECTS STRIP'S THUMBNAILS (2026-11-01) are frames on the same address;
+// only the preview frame's own loads are counted. A frame already detached
+// when its request is read was thrown away before its load landed: not counted.
+const isPreviewReq = async (req) => { try { const fe = await req.frame().frameElement(); return (await fe.evaluate((e) => e.id)) === "stFrame"; } catch (e) { return !/detached/i.test(String(e)); } };
 const ORIGIN = "https://gofarther.test";
 const SLUG = "reopen-bakery";
 const SITE_ID = "site_1727000000000_reopen";
@@ -82,7 +86,7 @@ async function run({ cutReconcile }) {
       const url = new URL(req.url());
       if (url.hostname === SLUG + ".gofarther.app") {
         // EVERY ADDRESS A PREVIEW FRAME ASKS FOR, by the tab that asked — the canary's own record.
-        frameLoads.push({ tab: tabOf(req), path: url.pathname + url.search });
+        if (await isPreviewReq(req)) frameLoads.push({ tab: tabOf(req), path: url.pathname + url.search });
         return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Harbour Loaf</title><h1>Harbour Loaf " + url.search + "</h1>" });
       }
       if (url.origin !== ORIGIN) return json(route, {});
@@ -103,7 +107,7 @@ async function run({ cutReconcile }) {
         if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 48 });
         return json(route, { ok: true });
       }
-      const file = p === "/" || p.startsWith("/projects") || /^\/home\/?$/.test(p) ? "/index.html" : p;
+      const file = p === "/" || p.startsWith("/projects") || /^\/home(\/|$)/.test(p) ? "/index.html" : p;
       if (file === "/chat.js") {
         // THE RECONCILE CUT, FOR THE SECOND TAB ALONE.
         const body = cutReconcile && tabOf(req) === 2 ? CHAT_CUT : CHAT;

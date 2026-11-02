@@ -1963,7 +1963,13 @@ const PROJECT_PATH = /^\/projects(?:\/([A-Za-z0-9_-]{1,120}))?\/?$/;
 // THE SIGNED-IN HOME HAS ITS OWN ADDRESS (2026-11-01, owner: "Yes do it with
 // /home"): the sites screen with no project open. Kept in step with the
 // Worker's copy by test/project-url.test.mjs, like PROJECT_PATH.
-const HOME_PATH = /^\/home\/?$/;
+// AND EACH AGENT HAS ITS PLACE UNDER IT (owner, 2026-11-01): `/home/projects`
+// is the Sites agent, `/home/projects/<id>` one site open in it, and
+// `/home/<agent>` the slot later agents take (none yet). `/home` itself,
+// `/projects` and `/projects/<id>` forward here.
+const HOME_PATH = /^\/home(?:\/([a-z][a-z0-9-]{0,39})(?:\/([A-Za-z0-9_-]{1,120}))?)?\/?$/;
+// The Sites agent's own address.
+const SITES_HOME = '/home/projects';
 
 /**
  * Signed in, `/` and the bare list `/projects` are corrected to `/home` —
@@ -1971,8 +1977,16 @@ const HOME_PATH = /^\/home\/?$/;
  */
 function appHomeAddress() {
   const p = location.pathname;
-  if (p === '/' || p === '' || (PROJECT_PATH.test(p) && projectFromPath() === null && !HOME_PATH.test(p))) {
-    try { history.replaceState({ project: null }, '', '/home' + location.search + location.hash); } catch (e) {}
+  const pm = PROJECT_PATH.exec(p);
+  const hm = HOME_PATH.exec(p);
+  // `/`, `/home`, `/projects`, `/projects/<id>`, and an agent not built yet,
+  // forward to the Sites agent's address: replaceState, never a new entry.
+  let to = null;
+  if (p === '/' || p === '') to = SITES_HOME;
+  else if (pm) to = SITES_HOME + (pm[1] ? '/' + pm[1] : '');
+  else if (hm && hm[1] !== 'projects') to = SITES_HOME;
+  if (to) {
+    try { history.replaceState({ project: pm && pm[1] ? pm[1] : null }, '', to + location.search + location.hash); } catch (e) {}
   }
 }
 
@@ -1986,7 +2000,8 @@ function appHomeAddress() {
  * ordinary page load navigate to the sites screen.
  */
 function projectFromPath() {
-  if (HOME_PATH.test(location.pathname)) return null;
+  const h = HOME_PATH.exec(location.pathname);
+  if (h) return h[1] === 'projects' ? (h[2] || null) : null;
   const m = PROJECT_PATH.exec(location.pathname);
   return m ? (m[1] || null) : undefined;
 }
@@ -2040,7 +2055,7 @@ function openProject(id, mode) {
     const os = id ? siteById(id) : null;
     if (os) Promise.resolve(chatPull(os)).catch(() => {}).then(() => { try { appPreviewPull(os); } catch (e) { /* the phones keep what they show */ } });
   } catch (e) { /* the local copy stands */ }
-  const path = siteOpenId ? '/projects/' + siteOpenId : '/home';
+  const path = siteOpenId ? SITES_HOME + '/' + siteOpenId : SITES_HOME;
   // A PUSH TO THE PATH WE ARE ALREADY ON IS A REPLACE. Re-opening the site that
   // is already open (the Data button on the open project, a re-render) would
   // otherwise stack identical entries and Back would appear to do nothing for
@@ -3568,12 +3583,29 @@ function paintWorkspace(view, html) {
   if (oldPath[top].parentElement !== view || oldPath.length !== newPath.length ||
       oldPath.some((n, i) => n.tagName !== newPath[i].tagName)) { view.innerHTML = html; return; }
   // AT EACH LEVEL everything beside the path is replaced, the path's own element staying where it is.
+  // AND THE PROJECTS STRIP (2026-11-01) is kept the same way when the new
+  // markup draws the same strip (`data-sig`: the site, open or closed, the
+  // list), so its thumbnails are not loaded again on every repaint.
   const besides = (parent, keep, nodes, newKeep) => {
-    for (const c of [...parent.childNodes]) if (c !== keep) c.remove();
-    const at = nodes.indexOf(newKeep);
-    keep.before(...nodes.slice(0, at));
-    keep.after(...nodes.slice(at + 1));
+    const kept = new Set([keep]);
+    const idOf = (n) => (n && typeof n.getAttribute === 'function' ? n.getAttribute('id') : null);
+    const seq = nodes.map((n) => {
+      if (n === newKeep) return keep;
+      if (idOf(n) === 'stProjects') {
+        const old = [...parent.childNodes].find((c) => idOf(c) === 'stProjects');
+        if (old && old.getAttribute('data-sig') && old.getAttribute('data-sig') === n.getAttribute('data-sig')) { kept.add(old); return old; }
+      }
+      return n;
+    });
+    for (const c of [...parent.childNodes]) if (!kept.has(c)) c.remove();
+    let pending = [], last = null;
+    for (const n of seq) {
+      if (kept.has(n)) { if (pending.length) n.before(...pending); pending = []; last = n; }
+      else pending.push(n);
+    }
+    if (pending.length && last) last.after(...pending);
   };
+
   besides(view, oldPath[top], [...tpl.content.childNodes], newPath[top]);
   for (let k = top; k >= 1; k--) {
     const o = oldPath[k], n = newPath[k];
@@ -3976,6 +4008,7 @@ function renderSites() {
   if (!view) return;
   const open = siteOpenId && siteById(siteOpenId);
   view.classList.toggle('ws-open', !!open);
+  view.classList.remove('st-home-open');
   // THE OPEN SITE PICKS ITS RUNNING EDIT BACK UP before it is drawn (stage 2b,
   // 2026-09-05): a refresh mid-edit used to lose sight of the job for good.
   // Idempotent — a job already watched is refused inside — so this is safe on
@@ -3988,8 +4021,8 @@ function renderSites() {
   // this is a correction rather than a navigation, so it must not add an entry
   // Back would have to walk through — and openProject calls this very function,
   // which would recurse.
-  if (siteOpenId && PROJECT_PATH.test(location.pathname)) {
-    try { history.replaceState({ project: null }, '', '/home'); } catch (e) {}
+  if (siteOpenId && (PROJECT_PATH.test(location.pathname) || HOME_PATH.test(location.pathname))) {
+    try { history.replaceState({ project: null }, '', SITES_HOME); } catch (e) {}
   }
   siteSlotSwap(siteOpenId, null);
   siteOpenId = null;
@@ -4003,7 +4036,16 @@ function renderSites() {
   // dress the cards the server names (`SiteList.projects`).
   if (sitesRemote === null) sitesRemote = sitesListCacheLoad();
   const sites = SiteList.projects(sitesRemote, sitesLoad(), sitesDeletedSlugs);
+  // THE SITES AGENT'S SCREEN WITH NO SITE OPEN (owner, 2026-11-01): the
+  // conversations bar, the chat closed to its strip, the projects strip on
+  // top, and today's "What are we building?" box. Sites are listed only in
+  // the strip; the grid that stood under the box is the strip's row now.
+  view.classList.add('st-home-open');
   view.innerHTML =
+    '<div class="st-homews">' + siteConvBarHTML() +
+    '<div class="st-chatstrip" title="The chat opens when your first site starts"><svg class="st-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></div>' +
+    '<div class="st-homecol">' + siteProjectsStripHTML(null) +
+    '<div class="st-homemain">' +
     '<div class="st-page">' +
       '<div class="st-hero">' +
         '<h1>What are we <span class="st-grad">building</span>?</h1>' +
@@ -4021,52 +4063,10 @@ function renderSites() {
           '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
       '</div></div>' +
-      (sites.length
-        // THE THUMBNAILS KEEP THE TIGHT SANDBOX, DELIBERATELY: `sandbox=""`, no
-        // flags at all (2026-10-30: it said `allow-scripts` for a React site,
-        // which with no `allow-same-origin` let a script start and fail
-        // instead of leaving the server-rendered HTML alone), so the site's own
-        // scripts never run and the picture is its server-rendered HTML. That is the RIGHT trade
-        // here and the wrong one there. This screen draws one frame per site —
-        // 51 on the owner's own account — and letting each run its whole app
-        // would start fifty-one React bundles to paint fifty-one postage
-        // stamps. The workspace preview is ONE frame the customer is looking
-        // at; the difference is the number, not the principle. If a thumbnail
-        // ever needs to be true rather than cheap, `loadSiteFrame` is the
-        // function to point it at, and the cost has to be measured first.
-        // THE GRID CELL IS A PAIR, NOT A CARD: the site, and the mobile app
-        // beside it. The card itself is untouched by this — same width (258 at
-        // three across, which is what it measured at four), same 16/10
-        // thumbnail, same meta row — because the owner's instruction was to
-        // leave the square as it is and add the phone next to it. What makes
-        // that possible on the existing 1080px page is the pair's own column
-        // arithmetic; `.st-pair` in styles.css carries the derivation.
-        ? '<div class="st-grid-h">Your sites</div><div class="st-grid">' + sites.map((s) =>
-            '<div class="st-pair">' +
-              siteDbIcon(s) +
-              '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
-                // A CARD WITH NOTHING TO SHOW SAYS SO (2026-10-30): an unfinished
-                // build with no address and no stored page drew an empty white
-                // frame; it now names itself in the card's own words.
-                (!s.slug && SiteList.cardThumb(s, '', (() => { const h = siteActivePage(s) || sitePages(s)[0]; return h && h.html; })()).kind === 'empty'
-                  ? '<div class="st-card-prev"><div class="st-card-names" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px"><span class="st-card-name">' + esc(s.name || 'Untitled') + '</span><span class="st-card-sub">Not finished</span></div></div>'
-                  : '<div class="st-card-prev"><iframe sandbox="" loading="lazy" title="' + esc(s.name) + '"' + (s.slug ? ' data-thumb="' + esc(s.slug) + '"' : '') + '></iframe></div>') +
-                '<div class="st-card-meta">' +
-                  '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
-                    // NOT FINISHED (2026-10-21): a card with no address is a build
-                    // this browser started that never reached the server, so no
-                    // other device has it; it says so rather than looking like a site.
-                    // ONE LABEL PER STATE (2026-10-30): a project on the server
-                    // with no address yet is being built or was not finished; a
-                    // record not yet saved to the account says so until it is.
-                    '<span class="st-card-sub">' + (s.localOnly ? 'Not saved to your account yet \u00b7 ' : !s.slug ? ((siteBusy && (siteOpenId === s.id || siteOpenId === s.localId)) ? 'Building \u00b7 ' : 'Not built yet \u00b7 ') : '') + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
-                  cardActs(s) +
-                '</div>' +
-                '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
-              '</div>' +
-              siteAppTile(s.id, cardOs(s.id)) +
-            '</div>').join('') + '</div>'
-        : '');
+      // THE GRID OF CARDS MOVED INTO THE PROJECTS STRIP (2026-11-01): the
+      // same cards (`siteCardPairHTML`), drawn there. Their thumbnails keep the
+      // tight sandbox (`sandbox=""`): one frame per site, no site scripts run.
+      '</div></div></div>';
   const gen = document.getElementById('stGen');
   const ta = document.getElementById('stPrompt');
   if (gen && ta) {
@@ -4097,11 +4097,211 @@ function renderSites() {
   // so every one of these three (the thumbnail, the click, the delete) would
   // have found nothing and done nothing. They resolve through the MERGED list
   // and adopt on first touch instead.
+  wireWorkspaceBars(view, null);
+}
+// ── THE WORKSPACE'S PROJECTS STRIP AND CONVERSATIONS BAR (2026-11-01) ───────
+// Owner: "the projects are going to be on top. And there's going to be a
+// conversations [bar] on the left that would have different agents there
+// later." The strip sits above the toolbar: a tab naming the open site, and,
+// when opened, one row of the SAME cards /home draws (`siteCardPairHTML`,
+// wired by `wireSiteCards`), the database icon left off so they fit one row.
+// The bar lists AGENTS, never sites: today one entry, "Sites agent" (this
+// builder's chat). Both remember open/closed per browser.
+const STRIP_KEY = 'gf_projects_strip_v1';
+const CONV_KEY = 'gf_conv_bar_v1';
+function wsNarrow() { try { return !!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches); } catch (e) { return false; } }
+function wsPref(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+function wsPrefSet(key, v) { try { localStorage.setItem(key, v); } catch (e) { /* private window: not remembered */ } }
+// Open by default on a wide screen, collapsed on a phone; a choice made here wins.
+function siteStripOpen() { const v = wsPref(STRIP_KEY); return v === 'open' ? true : v === 'closed' ? false : !wsNarrow(); }
+function siteConvClosed() { return wsPref(CONV_KEY) === 'closed'; }
+// The same list /home draws (`renderSites`), from the same three sources.
+function siteStripSites() {
+  if (sitesRemote === null) sitesRemote = sitesListCacheLoad();
+  return SiteList.projects(sitesRemote, sitesLoad(), sitesDeletedSlugs);
+}
+function siteStripIsOpenSite(s, site) {
+  return !!(s && site && (s.id === site.id || (s.localId && s.localId === site.id) || (s.slug && site.slug && s.slug === site.slug)));
+}
+function siteStripRowHTML(site, sites) {
+  return sites.map((s) => siteCardPairHTML(s, { db: false, open: siteStripIsOpenSite(s, site) })).join('');
+}
+function siteProjectsStripHTML(site) {
+  // Fire-and-forget, sixty-second TTL: the list repaints when it lands.
+  sitesFetchRemote();
+  const sites = siteStripSites();
+  const open = siteStripOpen();
+  const n = sites.length;
+  if (!site && !n) {
+    return '<div class="st-projects st-proj-none" id="stProjects" data-sig="none">' +
+      '<span class="st-proj-tab st-proj-empty">No projects yet</span>' +
+      '<span class="st-proj-hint">Your sites will appear here</span></div>';
+  }
+  const sig = [site ? site.id : '', open ? 1 : 0, site ? site.name : ''].concat(sites.map((s) => [s.id, s.slug, s.name, s.updatedAt].join(':'))).join('|');
+  return '<div class="st-projects' + (open ? ' open' : '') + '" id="stProjects" data-sig="' + esc(sig) + '">' +
+    '<button type="button" class="st-proj-tab" id="stProjTab" aria-expanded="' + (open ? 'true' : 'false') + '" aria-controls="stProjRow" title="' + (open ? 'Hide your projects' : 'Show your projects') + '">' +
+      (site ? '<span class="st-proj-thumb"><iframe sandbox="" tabindex="-1" aria-hidden="true" title=""></iframe></span>' : '') +
+      '<span class="st-proj-name">' + (site ? esc(site.name || 'Untitled') : 'Your projects') + '</span>' +
+      '<span class="st-proj-count">' + n + (n === 1 ? ' project' : ' projects') + '</span>' +
+      '<span class="st-proj-cv" aria-hidden="true">▾</span>' +
+    '</button>' +
+    '<div class="st-proj-row" id="stProjRow"' + (open ? '' : ' hidden') + '>' + (open ? siteStripRowHTML(site, sites) : '') + '</div>' +
+  '</div>';
+}
+function siteConvBarHTML() {
+  const closed = siteConvClosed();
+  return '<aside class="st-conv' + (closed ? ' closed' : '') + '" id="stConv" aria-label="Conversations">' +
+    '<div class="st-conv-head">' +
+      '<span class="st-conv-title">Conversations</span>' +
+      '<button type="button" class="st-icon" id="gfConvClose" title="Hide conversations" aria-label="Hide conversations">' + ic('chevronleft', 15) + '</button>' +
+    '</div>' +
+    '<div class="st-conv-list" role="list">' +
+      '<button type="button" class="st-conv-item on" role="listitem" aria-current="true" data-agent="sites">' + ic('globe', 15) + '<span class="st-conv-txt"><span class="st-conv-name">Sites agent</span><span class="st-conv-sub">Ready when you are</span></span></button>' +
+    '</div>' +
+    '<div class="st-conv-rail">' +
+      '<span class="st-conv-ic" title="Sites agent">' + ic('globe', 16) + '</span>' +
+      '<button type="button" class="st-icon" id="gfConvOpen" title="Show conversations" aria-label="Show conversations"><svg class="st-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>' +
+    '</div>' +
+  '</aside>';
+}
+// FREE SIDEWAYS SCROLLING: the wheel turns into sideways, a press-and-drag
+// moves the row with a little momentum, a trackpad's own sideways swipe is the
+// browser's. A drag that moved swallows the click that ends it.
+function wireStripScroll(row) {
+  if (!row || row.dataset.scrollWired) return;
+  row.dataset.scrollWired = '1';
+  row.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;   // a sideways swipe scrolls natively
+    const max = row.scrollWidth - row.clientWidth;
+    if (max <= 0) return;
+    e.preventDefault();
+    row.scrollLeft = Math.max(0, Math.min(max, row.scrollLeft + e.deltaY * (e.deltaMode === 1 ? 32 : 1)));
+  }, { passive: false });
+  let down = null, moved = false, v = 0, raf = 0;
+  row.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    cancelAnimationFrame(raf);
+    down = { x: e.clientX, left: row.scrollLeft, lastX: e.clientX, lastT: performance.now(), id: e.pointerId };
+    moved = false; v = 0;
+  });
+  row.addEventListener('pointermove', (e) => {
+    if (!down || e.pointerId !== down.id) return;
+    const dx = e.clientX - down.x;
+    if (!moved && Math.abs(dx) > 5) { moved = true; try { row.setPointerCapture(e.pointerId); } catch (err) {} row.classList.add('dragging'); }
+    if (!moved) return;
+    const now = performance.now();
+    v = (down.lastX - e.clientX) / Math.max(1, now - down.lastT);
+    down.lastX = e.clientX; down.lastT = now;
+    row.scrollLeft = down.left - dx;
+  });
+  const up = () => {
+    if (!down) return;
+    down = null;
+    row.classList.remove('dragging');
+    if (!moved) return;
+    let vel = v * 16;
+    const step = () => { if (Math.abs(vel) < 0.5) return; row.scrollLeft += vel; vel *= 0.92; raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+  };
+  row.addEventListener('pointerup', up);
+  row.addEventListener('pointercancel', up);
+  row.addEventListener('click', (e) => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
+}
+function wireWorkspaceBars(view, site) {
+  const strip = view.querySelector('#stProjects');
+  const tab = view.querySelector('#stProjTab');
+  const row = view.querySelector('#stProjRow');
+  // A STRIP KEPT FROM THE LAST PAINT (`paintWorkspace`) is already wired.
+  if (strip && tab && row && strip.dataset.wired !== strip.dataset.sig) {
+    strip.dataset.wired = strip.dataset.sig;
+    const sites = siteStripSites();
+    // The tab's thumbnail: the card's own rule (`SiteList.cardThumb`).
+    const me = site ? (sites.find((s) => siteStripIsOpenSite(s, site)) || site) : null;
+    const tfr = me && tab.querySelector('iframe');
+    const home = me && (siteActivePage(me) || sitePages(me)[0]);
+    if (tfr) {
+      const t = SiteList.cardThumb(me, me.slug ? cardThumbSeen.get(me.slug) : '', home && home.html);
+      if (t.kind === 'src') tfr.src = t.value; else if (t.kind === 'srcdoc') tfr.srcdoc = t.value;
+    }
+    const closeRow = () => {
+      strip.classList.remove('open'); row.hidden = true; row.innerHTML = '';
+      tab.setAttribute('aria-expanded', 'false'); tab.title = 'Show your projects';
+    };
+    const fill = (scroll) => {
+      const list = siteStripSites();
+      row.innerHTML = siteStripRowHTML(site, list);
+      // A card opens its project and the row closes behind it.
+      wireSiteCards(row, list, () => { wsPrefSet(STRIP_KEY, 'closed'); closeRow(); });
+      wireStripScroll(row);
+      const mine = row.querySelector('.st-pair-open');
+      if (scroll && mine) {
+        const r = mine.offsetLeft - (row.clientWidth - mine.offsetWidth) / 2;
+        row.scrollLeft = Math.max(0, r);
+      }
+    };
+    if (!row.hidden) fill(true);
+    tab.onclick = () => {
+      const open = row.hidden;
+      wsPrefSet(STRIP_KEY, open ? 'open' : 'closed');
+      if (!open) { closeRow(); return; }
+      strip.classList.add('open'); row.hidden = false;
+      tab.setAttribute('aria-expanded', 'true'); tab.title = 'Hide your projects';
+      fill(true);
+    };
+  }
+  const conv = view.querySelector('#stConv');
+  if (conv) {
+    const set = (closed) => { conv.classList.toggle('closed', closed); wsPrefSet(CONV_KEY, closed ? 'closed' : 'open'); };
+    const c = conv.querySelector('#gfConvClose'); if (c) c.onclick = () => set(true);
+    const o = conv.querySelector('#gfConvOpen'); if (o) o.onclick = () => set(false);
+  }
+}
+// ONE SITE CARD, AND THE MOBILE APP BESIDE IT (2026-11-01, workspace layout):
+// the /home grid and the workspace's projects strip draw the SAME card from
+// here. `o.db === false` leaves the database icon off (the strip is one row);
+// `o.open` marks the project open in the workspace.
+function siteCardPairHTML(s, o) {
+  o = o || {};
+  const open = !!o.open;
+  return (
+            '<div class="st-pair' + (open ? ' st-pair-open' : '') + '">' +
+              (o.db === false ? '' : siteDbIcon(s)) +
+              '<div class="st-card' + (open ? ' st-card-open' : '') + '" data-open="' + esc(s.id) + '" role="button" tabindex="0"' + (open ? ' aria-current="true"' : '') + '>' +
+                (open ? '<span class="st-card-badge">Open</span>' : '') +
+                // A CARD WITH NOTHING TO SHOW SAYS SO (2026-10-30): an unfinished
+                // build with no address and no stored page drew an empty white
+                // frame; it now names itself in the card's own words.
+                (!s.slug && SiteList.cardThumb(s, '', (() => { const h = siteActivePage(s) || sitePages(s)[0]; return h && h.html; })()).kind === 'empty'
+                  ? '<div class="st-card-prev"><div class="st-card-names" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:12px"><span class="st-card-name">' + esc(s.name || 'Untitled') + '</span><span class="st-card-sub">Not finished</span></div></div>'
+                  : '<div class="st-card-prev"><iframe sandbox="" loading="lazy" title="' + esc(s.name) + '"' + (s.slug ? ' data-thumb="' + esc(s.slug) + '"' : '') + '></iframe></div>') +
+                '<div class="st-card-meta">' +
+                  '<div class="st-card-names"><span class="st-card-name">' + esc(s.name) + '</span>' +
+                    // NOT FINISHED (2026-10-21): a card with no address is a build
+                    // this browser started that never reached the server, so no
+                    // other device has it; it says so rather than looking like a site.
+                    // ONE LABEL PER STATE (2026-10-30): a project on the server
+                    // with no address yet is being built or was not finished; a
+                    // record not yet saved to the account says so until it is.
+                    '<span class="st-card-sub">' + (s.localOnly ? 'Not saved to your account yet \u00b7 ' : !s.slug ? ((siteBusy && (siteOpenId === s.id || siteOpenId === s.localId)) ? 'Building \u00b7 ' : 'Not built yet \u00b7 ') : '') + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
+                  cardActs(s) +
+                '</div>' +
+                '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
+              '</div>' +
+              siteAppTile(s.id, cardOs(s.id)) +
+            '</div>');
+}
+// THE CARDS' WIRING, for whichever screen drew them (`siteCardPairHTML`):
+// the thumbnails, the open, the card's actions, the phone switch, the delete.
+// `afterOpen` runs as a card opens its project, before the redraw (the strip
+// closes its row).
+function wireSiteCards(view, sites, afterOpen) {
+  if (!view) return;
   const cardEntry = (id) => sites.find((s) => s.id === id) || null;
   let cardThumbAsked = 0;
   const cardOpen = (id) => {
     const rec = siteAdopt(cardEntry(id));
     if (!rec) return;
+    if (typeof afterOpen === 'function') afterOpen(rec);
     openProject(rec.id, 'push');
   };
   // thumbnails: srcdoc set via property (attribute-escaping-proof), inert
@@ -7186,6 +7386,8 @@ function renderSiteWorkspace(view, site) {
     // for a later edit to leave behind when the chain below changes.
     '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + (siteMobileOpen ? ' st-mob-open' : '') + (stageView === 'preview' ? ' st-pv' : '') + '"' +
       (Number.isFinite(siteMobileW) ? ' style="--mob-w:' + siteMobileW + 'px"' : '') + '>' +
+      // THE PROJECTS, ON TOP OF THE TOOLBAR (owner, 2026-11-01).
+      siteProjectsStripHTML(site) +
       '<div class="st-topbar">' +
         '<div class="st-tb-left">' +
           '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">' + ic('back', 18) + '</button>' +
@@ -7383,6 +7585,8 @@ function renderSiteWorkspace(view, site) {
         '</div>' +
       '</div>' +
       '<div class="st-body">' +
+        // THE CONVERSATIONS BAR (owner, 2026-11-01): agents, never sites.
+        siteConvBarHTML() +
         '<div class="st-rail">' +
           (siteRail === 'history'
             ? siteHistoryRail(site)
@@ -7682,6 +7886,8 @@ function renderSiteWorkspace(view, site) {
     railTog.classList.toggle('on', !siteRailHidden);
     railTog.title = siteRailHidden ? 'Show chat' : 'Hide chat';
   };
+  // The projects strip and the conversations bar (2026-11-01).
+  wireWorkspaceBars(view, site);
   // Open/close the mobile app column, the same way and for the same reason: a
   // class on `.st-ws`, never a re-render, so the preview iframe does not reload
   // and a half-typed message survives.

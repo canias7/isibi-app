@@ -43,6 +43,10 @@ try { ({ chromium } = await import("playwright-core")); } catch { chromium = nul
 const HAVE = !!chromium && existsSync(EXE);
 const SKIP = !HAVE && "no browser here (playwright-core and Chromium are not installed)";
 
+// THE PROJECTS STRIP'S THUMBNAILS (2026-11-01) are frames on the same address;
+// only the preview frame's own loads are counted. A frame already detached
+// when its request is read was thrown away before its load landed: not counted.
+const isPreviewReq = async (req) => { try { const fe = await req.frame().frameElement(); return (await fe.evaluate((e) => e.id)) === "stFrame"; } catch (e) { return !/detached/i.test(String(e)); } };
 const ORIGIN = "https://gofarther.test";
 
 /**
@@ -98,7 +102,7 @@ async function openApp({ site, request = null, extraSites = [] }) {
     const url = new URL(route.request().url());
     if (hosts.has(url.hostname)) {
       // EVERY LOAD OF A PREVIEW ADDRESS, as the browser asked for it.
-      frameLoads.push({ host: url.hostname, path: url.pathname + url.search, at: Date.now() });
+      if (await isPreviewReq(route.request())) frameLoads.push({ host: url.hostname, path: url.pathname + url.search, at: Date.now() });
       const v = url.searchParams.get("v") || "?";
       return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: previewPage(hosts.get(url.hostname).name, v, done) });
     }
@@ -120,7 +124,7 @@ async function openApp({ site, request = null, extraSites = [] }) {
       if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 48 });
       return json(route, { ok: true });
     }
-    const file = p === "/" || p.startsWith("/projects") || /^\/home\/?$/.test(p) ? "/index.html" : p;
+    const file = p === "/" || p.startsWith("/projects") || /^\/home(\/|$)/.test(p) ? "/index.html" : p;
     const fp = path.join(PUB, file);
     if (!existsSync(fp)) return route.fulfill({ status: 404, body: "" });
     const ct = fp.endsWith(".js") ? "application/javascript" : fp.endsWith(".css") ? "text/css" : fp.endsWith(".html") ? "text/html" : fp.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
