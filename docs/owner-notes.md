@@ -10,6 +10,14 @@
 
 
 
+
+## 2026-11-02 — Gloopy floats, no top band
+
+The owner: "instead of making an entire section for it there just have it floating", "not in the bottom right",
+then chose "Top, centred". The white 74px band above the projects strip is gone. Gloopy and "Sites agent" float
+centred at the top of the workspace column, with no background, and the strip moves up. WL 4 and WL 9 were updated;
+91 of 91 related tests pass. Not deployed.
+
 ## 2026-11-02 — The router no longer asks its own questions
 
 Live on copper-kettle-pottery, a payments-and-emails request got the router's own question ("Which should take

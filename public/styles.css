@@ -5335,9 +5335,11 @@ svg.st-gloopy{cursor:pointer}
 .st-conv.closed .st-conv-search { display: none; }
 .st-conv-ic { background: none; border: 0; padding: 4px; border-radius: 12px; cursor: pointer; }
 .st-conv-ic.on { background: #0d1b2a; }
-.st-agenthead { flex: 0 0 74px; height: 74px; box-sizing: border-box; background: #fff; border-bottom: 1px solid #e6e2db; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #0d1b2a; font-family: Inter, -apple-system, system-ui, sans-serif; }
+/* FLOATING, NO BAND OF ITS OWN (owner, 2026-11-02: "instead of making an entire section for it there just have it floating"). */
+.st-agenthead { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 40; pointer-events: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #0d1b2a; font-family: Inter, -apple-system, system-ui, sans-serif; }
 .st-agenthead-name { font-size: 13px; font-weight: 700; }
-.st-wscol > .st-agenthead { margin: -.8rem -1rem 0 -.7rem; }
+.st-wscol > .st-agenthead { margin: 0; }
+.st-wscol, .st-agentmain { position: relative; }
 .st-agentmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .st-agentbody { flex: 1 1 auto; min-height: 0; display: flex; gap: .7rem; }
 .st-soon { flex: 1; display: flex; flex-direction: column; background: #faf9f7; font-family: Inter, -apple-system, system-ui, sans-serif; color: #0d1b2a; }

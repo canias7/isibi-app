@@ -142,7 +142,7 @@ test("WL 4 — the conversations bar lists the five agents, Sites agent first, a
       const logo = document.querySelector("#gfConvLogo");
       return { top: c.top, bottom: innerHeight - c.bottom, left: c.left,
         leftOf: c.right <= Math.min(strip.left, bar.left, document.querySelector(".st-rail").getBoundingClientRect().left),
-        logo: !!logo && logo.getBoundingClientRect().top < strip.top && logo.textContent.trim() === "Go Farther",
+        logo: !!logo && logo.getBoundingClientRect().top < 80 && logo.textContent.trim() === "Go Farther",
         topNav: getComputedStyle(document.querySelector("#topNav")).display };
     });
     assert.ok(place.top <= 1 && place.left <= 1, "the bar does not start at the page's top left: " + JSON.stringify(place));
@@ -259,7 +259,7 @@ test("WL 8 — /home/projects: five rows in order, Sites agent selected, each wi
   } finally { await app.close(); }
 });
 
-test("WL 9 — Gloopy, full body with no circle and no background, in the Sites agent's row and the header; the header names the agent above the projects strip", { skip: SKIP, timeout: 60000 }, async () => {
+test("WL 9 — Gloopy, full body with no circle and no background, in the Sites agent's row and floating on the page with its name, no band", { skip: SKIP, timeout: 60000 }, async () => {
   const app = await openApp();
   try {
     const r = await app.page.evaluate(() => {
@@ -277,7 +277,8 @@ test("WL 9 — Gloopy, full body with no circle and no background, in the Sites 
       const sym = document.getElementById("gfGloopy");
       return { row: look(document.querySelector('#stConv .st-conv-item[data-agent="sites"]')), head: look(head),
         headName: head ? head.textContent.trim() : "", headH: head ? Math.round(head.getBoundingClientRect().height) : 0,
-        headBg: head ? getComputedStyle(head).backgroundColor : "",
+        headBg: head ? getComputedStyle(head).backgroundColor : "", headPos: head ? getComputedStyle(head).position : "",
+        stripTop: strip ? Math.round(strip.getBoundingClientRect().top) : -1,
         above: !!(head && strip && head.getBoundingClientRect().bottom <= strip.getBoundingClientRect().top + 1),
         sym: !!sym && sym.tagName.toLowerCase() === "symbol", ids: document.querySelectorAll("[id='gfGloopy']").length,
         anim: sym ? getComputedStyle(sym.querySelector(".gg-bob")).animationName : "" };
@@ -291,8 +292,10 @@ test("WL 9 — Gloopy, full body with no circle and no background, in the Sites 
     assert.equal(r.row.h, 48); assert.equal(r.head.h, 40);
     assert.ok(r.sym && r.ids === 1, "the symbol is not on the page exactly once");
     assert.equal(r.anim, "gg-bob");
-    assert.equal(r.headName, "Sites agent"); assert.equal(r.headH, 74); assert.equal(r.headBg, "rgb(255, 255, 255)");
-    assert.ok(r.above, "the header is not above the projects strip");
+    // FLOATING, NO BAND (owner, 2026-11-02): Gloopy and the name float on the
+    // page with no white band of their own, and the projects strip moves up.
+    assert.equal(r.headName, "Sites agent"); assert.equal(r.headPos, "absolute"); assert.equal(r.headBg, "rgba(0, 0, 0, 0)");
+    assert.ok(r.stripTop < 40, "the projects strip still sits under a band: " + r.stripTop);
     assert.deepEqual(app.errors, []);
   } finally { await app.close(); }
 });
