@@ -1,4 +1,5 @@
 import { hostIsBlocked, resolvesBlocked } from "./site-ssrf.mjs";
+import { versionAppAsset } from "./app-asset-cache.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
 // every Cloudflare custom-hostname call the platform made threw before it could
@@ -50608,8 +50609,11 @@ async function handleRequest(request, env, ctx) {
     // public anyway. What the pattern DOES exclude is a path with a slash or a
     // dot in the id, so nothing here can reach for another asset.
     if (PROJECT_PATH.test(url.pathname)) {
-      return env.ASSETS.fetch(new URL("/", request.url));
+      return versionAppAsset(request, env, await env.ASSETS.fetch(new URL("/", request.url)));
     }
 
-    return env.ASSETS.fetch(request);
+    // THE APP'S OWN FILES: the shell's HTML names its scripts and stylesheets
+    // with this deploy's id, and those exact URLs are cached for a year; all
+    // else is answered as the asset handler answers it (app-asset-cache.mjs).
+    return versionAppAsset(request, env, await env.ASSETS.fetch(request));
 }

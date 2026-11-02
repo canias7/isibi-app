@@ -352,7 +352,7 @@ test("the Worker serves the app for a project address, before the asset handler 
     "the project route does not hand back the app's own shell");
   // ORDER IS THE WHOLE THING: the bare `ASSETS.fetch(request)` below would 404
   // a path with no file behind it, so a route placed after it never runs.
-  const fallthrough = src.indexOf("return env.ASSETS.fetch(request);", route);
+  const fallthrough = src.indexOf("await env.ASSETS.fetch(request))", route);
   assert.ok(fallthrough > route,
     "the project route sits after the asset fallthrough, where it can never run");
   // And it must not be mistaken for an API miss on the way down.

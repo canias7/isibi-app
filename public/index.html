@@ -22,7 +22,7 @@
   <meta name="twitter:image" content="https://gofarther.dev/icon-512.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;900&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;900&family=Space+Grotesk:wght@400;500;600;700&family=Caveat:wght@500;600;700&family=Patrick+Hand&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;900&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;900&family=Caveat:wght@500;600;700&family=Patrick+Hand&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/gf-landing.css" />
 </head>
@@ -423,31 +423,31 @@ Go Farther</div><div class="nl"><a href="/pricing.html">Pricing</a><button type=
     </main>
   </div>
 
-  <script src="/auth.js"></script>
+  <script src="/auth.js" defer></script>
   <!-- The queued-edit watcher's decisions, in a file that also runs under
        node --test: chat.js touches `document` at load and can only ever be
        asserted by reading, and every judgement in here is one where a wrong
        answer costs a customer money or a site. Loaded BEFORE chat.js, which
        calls into it. -->
-  <script src="/edit-poll.js"></script>
+  <script src="/edit-poll.js" defer></script>
   <!-- The key card's decisions (2026-10-30): which names, what looks like a
        key, where a value goes. Runs under node --test too. -->
-  <script src="/key-card.js"></script>
-  <script src="/chat-talk.js"></script>
-  <script src="/site-media.js"></script>
+  <script src="/key-card.js" defer></script>
+  <script src="/chat-talk.js" defer></script>
+  <script src="/site-media.js" defer></script>
   <!-- Which sites are yours: the server's list merged with this browser's, in
        a file that also runs under node --test, for the same reason as the one
        above. Loaded BEFORE chat.js, which calls into it on every render of the
        start screen. -->
-  <script src="/site-list.js"></script>
+  <script src="/site-list.js" defer></script>
   <!-- The zip the Download button writes, in a file that also runs under
        node --test — and here the reason is stronger than for the two above: a
        zip is bytes at offsets, so a header written one field short still looks
        like an archive and fails only when somebody opens it a week later. Its
        guard round-trips the bytes through Python's own zipfile. -->
-  <script src="/site-zip.js"></script>
-  <script src="/vendor/qrcode.js"></script>
-  <script src="/chat.js"></script>
-  <script src="/gf-landing.js"></script>
+  <script src="/site-zip.js" defer></script>
+  <script src="/vendor/qrcode.js" defer></script>
+  <script src="/chat.js" defer></script>
+  <script src="/gf-landing.js" defer></script>
 </body>
 </html>

@@ -5,6 +5,18 @@
 
 
 
+## 2026-11-02 — The app loads faster for returning visitors (branch `faster-load`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
+
+On your word ("do it, but do it carefully"), steps 1–3 only; splitting chat.js up (step 4) is not started.
+
+1. **Caching.** The app's page now names each of its scripts and stylesheets with the deploy's id (`/chat.js?v=<first 12 of the commit>`), added by the Worker as it serves the page (`app-asset-cache.mjs`). Only a file asked for with the *current* deploy's id is kept by the browser for a year; every other request (no id, an old id, a hand deploy with no id) is answered exactly as today (`max-age=0, must-revalidate`). The page itself is still checked every visit, and its ETag carries the deploy id, so a deploy that changes only chat.js can never be answered "not modified" with the old page: the next visit after a deploy always gets new URLs. During a rollout an old Worker version answering a new URL does not promise it for a year (the id must match its own).
+2. **Scripts.** All ten scripts carry `defer`, in the same order (defer keeps the order). index.html has no inline scripts or handlers (the CSP forbids them) and no script uses document.write, currentScript or the loading state.
+3. **Fonts.** Space Grotesk is out of the Google Fonts link: no `font-family` in styles.css, gf-landing.css, index.html or any app script names it (only four comments do, and `--display` is Geist); the two vendored demos that use it load their own link. Geist, Geist Mono, Inter, Caveat and Patrick Hand are used and kept with their weights; `display=swap` and both preconnects stay. Customer-site fonts (builder/) untouched.
+
+**Measured (Fast 3G, Chromium, signed out, median of 3).** Live today: first visit FCP about 4.8 s, repeat 1.3–1.4 s with 13 revalidations. Locally through the real Worker with a Cloudflare-like asset stub: repeat-visit first paint 1.83 s → 0.85 s (desktop) and 1.86 s → 0.78 s (phone), 13 revalidations → 1 (the page itself); first visits unchanged (about 4.5–4.7 s, chat.js's size). Screenshots of the landing and the signed-in home, desktop and phone, are byte-identical before and after.
+
+**Deploy note:** worker.js imports the new module, so the Dockerfile's worker line carries `app-asset-cache.mjs` and the site image will rebuild and roll on merge (wait 15–20 minutes before container work). Tests: `test/app-load-speed.test.mjs` (8), one anchor in `test/project-url.test.mjs` updated; sweep 11 of 11 killed, the comment control survived.
+
 ## 2026-11-01: Download for Mac / Windows buttons on the landing page
 
 On your word, the landing page now has two black pill buttons, under the top bar on the right below Sign in (moved there on your word),, "Download for Mac" (Apple logo) and "Download for Windows" (Windows logo),. They are for the look only: they do nothing yet (marked "Coming soon"). They are hidden on phones (your word). `public/index.html`, `public/gf-landing.css`. Not deployed yet.
