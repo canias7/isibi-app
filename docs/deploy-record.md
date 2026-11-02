@@ -2309,3 +2309,7 @@ A fast-forward of 2 commits from `cf8365957` on the owner's word "deploy what we
 ## Deploy (2026-11-02, `34b0baa1c`)
 
 A fast-forward of 4 commits from `e230b4409`, on the owner's "Deploy it". It carries: the router's own questions go to the agent, with no capabilities list in the router; payments are not Stripe-only; Gloopy floats at the top centre. Image predicted `818e7e43b308a13e` → `8fa9afba5a1c8a6f` (257 inputs). Served `chat.js?v=34b0baa1c417`. Deployed, not runtime-confirmed (canary press owed). The `parallel-build` and `agent-only` branches are not included.
+
+## Deploy (2026-11-02, `15b8da1c1`)
+
+On the owner's "Deploy it": `agent-only` (no router: the agent decides, asks and splits with `split_work`; a new project goes to the agent) plus `parallel-build` (joinable requests, a paused part no longer holds the reply, questions with buttons, a foundation-first parallel first build), merged on top of `34b0baa1c`. Full suite `12650 / 12640 / 8 / 2`. The 8 failures are environmental: 3 PANEL, W stop-panel, css-reachable x2, the browser media mode, and the site-secrets scan reading local agent worktrees. Image predicted `8fa9afba5a1c8a6f` → `0624975f53116b3c`. Served `chat.js?v=15b8da1c1958`. Deployed, not runtime-confirmed.
