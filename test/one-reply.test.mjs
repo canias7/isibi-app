@@ -238,3 +238,29 @@ test("partWork reads files, rows, rules and tables from an answer's fields, neve
   assert.deepEqual(O.fileName("src/routes/index.tsx"), { kind: "page", name: "/" });
   assert.deepEqual(O.fileName("src/components/site-header.tsx"), { kind: "component", name: "site-header" });
 });
+
+// ── REPLY TRUTH (2026-11-02): THE OWNER'S ANSWERS NAME THINGS TOO ───────────
+// What the owner named only in an answer to a builder question was asked for:
+// a reply naming it is not refused as unasked (the same wiring bug as
+// `changeReport` reading the bare message, worker G8).
+test("REPLY TRUTH: a name the owner gave only in an answer may be named in the one reply", async () => {
+  const { rec } = drive(SIBLING_MSG, SIBLING_ROUTED, SIBLING, { key: "rqonereply0000041" });
+  const text = "Your opening times are now on the Workshop page.";
+  const bare = O.requestFacts(requestView(rec));
+  assert.equal(O.checkReply(text, bare).ok, false, "the observer is alive: the bare message does not name Workshop");
+  const withAns = O.requestFacts(requestView(rec), { answers: [{ q: "Which page should the opening times go on?", a: "The Workshop page" }] });
+  assert.deepEqual(withAns.answered, ["The Workshop page"]);
+  assert.equal(O.checkReply(text, withAns).ok, true, JSON.stringify(O.checkReply(text, withAns)));
+  assert.equal(O.checkReply("Your opening times are now on the Bakery page.", withAns).ok, false, "a name nobody gave is still refused");
+  const atAddr = O.requestFacts(requestView(rec), { answers: [{ q: "Where should it live?", a: "At /workshop please" }] });
+  assert.equal(O.checkReply("See /workshop for the times.", bare).ok, false);
+  assert.equal(O.checkReply("See /workshop for the times.", atAddr).ok, true, "an address the answer named");
+  // Read strictly: a malformed answers list adds nothing.
+  assert.equal(O.requestFacts(requestView(rec), { answers: [{ q: 1, a: "Workshop" }] }).answered, undefined);
+  // The worker passes the record's own answers to the facts.
+  const h = harness({ ...rec, context: [{ q: "Which page should the opening times go on?", a: "The Workshop page" }] },
+    () => ({ content: [{ type: "text", text }], usage: { input_tokens: 800, output_tokens: 20 } }));
+  await h.run();
+  assert.equal(h.rec.oneReply.source, "model", JSON.stringify(h.rec.oneReply));
+  assert.equal(h.rec.oneReply.text, text);
+});

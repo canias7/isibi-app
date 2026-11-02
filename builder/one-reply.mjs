@@ -135,7 +135,7 @@ function reasonOf(p) {
  * set). Never from the message's wording: a part's `words` are only the name
  * of what it asked for; whether it was done comes from its status.
  */
-export function requestFacts(view, { missingKeys = null } = {}) {
+export function requestFacts(view, { missingKeys = null, answers = null } = {}) {
   const parts = plain(view) && Array.isArray(view.parts) ? view.parts.filter((p) => plain(p) && typeof p.status === "string") : [];
   const files = { added: [], changed: [], removed: [] };
   const data = { saved: 0, failed: 0, rules: [], tables: [], settings: [] };
@@ -175,6 +175,11 @@ export function requestFacts(view, { missingKeys = null } = {}) {
     ? clean(asked)
     : clean((Array.isArray(missingKeys) ? missingKeys : []).map((k) => (typeof k === "string" ? k : plain(k) ? k.name : "")).filter((k) => typeof k === "string" && KEY_RE.test(k)));
   const paused = out.filter((p) => p.ending === "paused for credits").length;
+  // THE OWNER'S ANSWERS TO THE BUILDER'S QUESTIONS (2026-11-02, reply truth):
+  // what they named there was asked for, as much as the message's own words.
+  // Read strictly: a list that does not read whole adds nothing.
+  const ans = Array.isArray(answers) && answers.every((c) => plain(c) && typeof c.q === "string" && typeof c.a === "string")
+    ? clean(answers.map((c) => c.a.trim().slice(0, 300))) : [];
   return {
     ended: plain(view) && view.ended === true,
     parts: out,
@@ -183,6 +188,7 @@ export function requestFacts(view, { missingKeys = null } = {}) {
     keysMissing: missing,
     site: drafts && live ? "some published, some saved as a draft" : drafts ? "saved as a draft, not published" : live ? "published" : "unchanged",
     credits: chargeKnown ? charged : null,
+    ...(ans.length ? { answered: ans } : {}),
     ...(paused ? { paused, resumes: !(plain(view) && view.credits && view.credits.auto === false) } : {}),
   };
 }
@@ -246,6 +252,7 @@ function knownNames(facts) {
   for (const t of facts.keysMissing || []) addWords(t);
   // WHAT WAS ASKED MAY BE NAMED: a reply says "the Events page you asked for was not made".
   for (const p of facts.parts || []) for (const w of String(p.asked || "").toLowerCase().match(/[a-z0-9][a-z0-9-]*/g) || []) k.add(w);
+  for (const a of facts.answered || []) for (const w of String(a).toLowerCase().match(/[a-z0-9][a-z0-9-]*/g) || []) k.add(w);
   return k;
 }
 const pagePaths = (facts) => new Set([...(facts.files.added || []), ...(facts.files.changed || []), ...(facts.files.removed || [])].filter((n) => n.startsWith("/")).map((n) => n.toLowerCase()));
@@ -265,7 +272,7 @@ export function checkReply(text, facts) {
   if (/\bsrc\/|\.(?:tsx|jsx|ts|mjs|css|json)\b|\broutes\/|\bcomponents\//i.test(text)) return { ok: false, why: "file-path" };
   const known = knownNames(facts);
   const paths = pagePaths(facts);
-  const askedText = facts.parts.map((p) => String(p.asked || "").toLowerCase()).join(" ");
+  const askedText = [...facts.parts.map((p) => p.asked), ...(facts.answered || [])].map((x) => String(x || "").toLowerCase()).join(" ");
   for (const m of text.matchAll(/(?:^|[\s(“"'])(\/[a-z0-9][a-z0-9/_-]*)/gi)) {
     const pth = m[1].replace(/[/.]+$/, "").toLowerCase();
     if (!paths.has(pth) && !askedText.includes(pth)) return { ok: false, why: "page:" + pth };

@@ -26452,7 +26452,8 @@ async function writeOneReplyNow(env, rec, round, by, auth) {
   let out;
   try {
     const missingKeys = await keysAskedNeed(env, rec.slug).catch(() => null);
-    const facts = requestFacts(requestView(rec), { missingKeys: Array.isArray(missingKeys) && missingKeys.length ? missingKeys : null });
+    // The owner's answers to its questions are part of what was asked (reply truth).
+    const facts = requestFacts(requestView(rec), { missingKeys: Array.isArray(missingKeys) && missingKeys.length ? missingKeys : null, answers: rec.context });
     const model = modelsFor(rec.picker).quick;
     out = await writeOneReply({ send: quickSend(env, "reply"), message: rec.message, facts, model });
     console.log("one reply:", rec.key, round, out.source, out.why || "");
@@ -26462,7 +26463,7 @@ async function writeOneReplyNow(env, rec, round, by, auth) {
     }
   } catch (e) {
     console.error("one reply: writer threw", errorClassForLog(e));
-    out = { text: fallbackOneReply(requestFacts(requestView(rec))), source: "fallback", why: "threw" };
+    out = { text: fallbackOneReply(requestFacts(requestView(rec), { answers: rec.context })), source: "fallback", why: "threw" };
   }
   for (let i = 0; i < 4; i++) {
     let cur = null;
