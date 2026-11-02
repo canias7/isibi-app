@@ -5,6 +5,11 @@
 
 
 
+
+## 2026-11-02: no closed-chat strip on the "What are we building?" screen
+
+On your word, the thin strip with the chat bubble (the chat column, closed) no longer shows when no site is open: there is no chat to open there. With a site open, the chat column and its close/open button are unchanged. Test updated: `test/workspace-layout-browser.test.mjs` (14/14). Not deployed.
+
 ## 2026-11-02: £8 in the key box, fixed where it is drawn
 
 The live test showed the key box still saying `\u00a38` for £8: that reason was saved before the earlier fix, and reached the page through the task's saved record. Now the page reads such codes back as the character at the one place every key reason is drawn, and the task record does the same. Checked on the real Northline page with the new file: "Take the £8 Kids' club payment…". Test: `test/key-why-text.test.mjs` (fails on the old code). Not deployed.

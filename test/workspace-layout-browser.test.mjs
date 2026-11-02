@@ -197,7 +197,7 @@ test("WL 6 — a new account at /home: forwarded to /home/projects, the empty st
     assert.match(r.strip, /No projects yet/); assert.match(r.strip, /Your sites will appear here/);
     assert.equal(r.agents.length, 5);
     assert.equal(r.agents[0], "Sites agentReady when you are");
-    assert.equal(r.chatStrip, true); assert.equal(r.rail, false);
+    assert.equal(r.chatStrip, false, "no closed-chat strip with no site open (owner, 2026-11-02)"); assert.equal(r.rail, false);
     assert.equal(r.hero, "What are we building?");
     assert.equal(r.grid, false, "sites are listed only in the strip");
     assert.deepEqual(app.errors, []);

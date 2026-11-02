@@ -4047,7 +4047,7 @@ function renderSites() {
   view.innerHTML =
     '<div class="st-homews">' + siteConvBarHTML() +
     '<div class="st-agentmain">' + agentHeadHTML() + '<div class="st-agentbody">' +
-    '<div class="st-chatstrip" title="The chat opens when your first site starts"><svg class="st-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></div>' +
+    // No closed-chat strip here (owner, 2026-11-02): with no site open there is no chat to open.
     '<div class="st-homecol">' + siteProjectsStripHTML(null) +
     '<div class="st-homemain">' +
     '<div class="st-page">' +
