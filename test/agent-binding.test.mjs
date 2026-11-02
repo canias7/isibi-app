@@ -31,7 +31,7 @@ const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf
  * signed in has to be a lever the test can pull.
  */
 const PAGE_SCRIPTS = [...fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8")
-  .matchAll(/<script src="\/([a-z0-9/.-]+\.js)"><\/script>/g)].map((m) => m[1]);
+  .matchAll(/<script src="\/([a-z0-9/.-]+\.js)"(?: defer)?><\/script>/g)].map((m) => m[1]);
 assert.ok(PAGE_SCRIPTS.length >= 5, `the page's script list read as ${PAGE_SCRIPTS.length} — re-read index.html`);
 assert.ok(PAGE_SCRIPTS.includes("chat.js"), "the script census did not find chat.js");
 

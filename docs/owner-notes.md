@@ -15,7 +15,7 @@ On your word ("do it, but do it carefully"), steps 1–3 only; splitting chat.js
 
 **Measured (Fast 3G, Chromium, signed out, median of 3).** Live today: first visit FCP about 4.8 s, repeat 1.3–1.4 s with 13 revalidations. Locally through the real Worker with a Cloudflare-like asset stub: repeat-visit first paint 1.83 s → 0.85 s (desktop) and 1.86 s → 0.78 s (phone), 13 revalidations → 1 (the page itself); first visits unchanged (about 4.5–4.7 s, chat.js's size). Screenshots of the landing and the signed-in home, desktop and phone, are byte-identical before and after.
 
-**Deploy note:** worker.js imports the new module, so the Dockerfile's worker line carries `app-asset-cache.mjs` and the site image will rebuild and roll on merge (wait 15–20 minutes before container work). Tests: `test/app-load-speed.test.mjs` (8), one anchor in `test/project-url.test.mjs` updated; sweep 11 of 11 killed, the comment control survived.
+**Deploy note:** worker.js imports the new module, so the Dockerfile's worker line carries `app-asset-cache.mjs` and the site image will rebuild and roll on merge (wait 15–20 minutes before container work). Tests: `test/app-load-speed.test.mjs` (8), one anchor in `test/project-url.test.mjs` and the script census in `test/agent-binding.test.mjs` (it now reads `defer`) updated; sweep 11 of 11 killed, the comment control survived.
 
 ## 2026-11-01: Download for Mac / Windows buttons on the landing page
 
