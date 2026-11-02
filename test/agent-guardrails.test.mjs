@@ -270,3 +270,21 @@ test("G7 the module: names, retries, diffs and the check's observers are alive",
   assert.notEqual(g("index.tsx"), "");
   assert.equal(scopeGuard({ pages: [], routes: null }), null);
 });
+
+// ── G8 (reply-truth, 2026-11-01) ───────────────────────────────────────────
+// The owner's answers to the agent's earlier questions are part of what they
+// asked for. Text they named only in an answer was reported "not named in the
+// request" and sent back as unasked, because the check read the message's
+// words alone, not the request the agent was given.
+test("G8 words the owner named in an answer count as asked: not sent back, not reported as unasked", async () => {
+  const NOHOURS = HOME.replace("<p>Open 7am to 4pm.</p>", "");
+  const r = await drive({ ask: "Take that line off the home page.", body: { context: [{ q: "Which line should come off?", a: "Open 7am to 4pm." }] }, rounds: [
+    [use("write_file", { file: "index.tsx", source: NOHOURS })], [use("build", {})], [use("finish", { summary: "Took the opening hours line off." })],
+  ] });
+  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
+  assert.ok(JSON.stringify(r.seen.agent[0].messages).includes("WHAT THE OWNER ALREADY ANSWERED"), "the answer reached the agent (observer alive)");
+  assert.equal(r.home, NOHOURS);
+  assert.equal(sentBack(r), false, "an answered removal is never questioned");
+  assert.deepEqual(r.reply.preserved.unasked, [], "nothing is reported as not named");
+  assert.doesNotMatch(String(r.reply.msg || ""), /not named in the request/);
+});

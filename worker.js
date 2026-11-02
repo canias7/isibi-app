@@ -17641,7 +17641,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     // `ensureSiteBackend`): additions are offered, and the database is made
     // when the agent finishes, before they are applied.
     ...(!conn && noDb && uid && neonConfigured(env) ? { applySchema: () => true } : {}),
-    review: (w) => reviewNote(changeReport(before, w, words)),
+    review: (w) => reviewNote(changeReport(before, w, request)),
     ...(mayWrite ? { mayWrite } : {}),
   }, {
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
@@ -17943,7 +17943,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const moveFacts = renames.map(([a, b]) => "The page at " + a + " is now at " + b + "; the old address sends visitors there.");
   // WHAT ELSE CHANGED AND WHAT CAN BE UNDONE (2026-10-30), as facts.
   const after = { pages: ag.pages, parts: ag.parts, css: ag.css };
-  const report = changeReport(before, after, words);
+  // The request as the agent was given it: the owner's answers name things too.
+  const report = changeReport(before, after, request);
   const rowsRemoved = rowsOut.done.filter((d) => d.kind === "remove").length;
   const undo = undoFacts({ before, after, version: out ? restoreTo : "", rowsRemoved });
   // THE REPLY'S FACTS COME FROM WHAT HAPPENED (fix-all): the files the save
@@ -26451,7 +26452,8 @@ async function writeOneReplyNow(env, rec, round, by, auth) {
   let out;
   try {
     const missingKeys = await keysAskedNeed(env, rec.slug).catch(() => null);
-    const facts = requestFacts(requestView(rec), { missingKeys: Array.isArray(missingKeys) && missingKeys.length ? missingKeys : null });
+    // The owner's answers to its questions are part of what was asked (reply truth).
+    const facts = requestFacts(requestView(rec), { missingKeys: Array.isArray(missingKeys) && missingKeys.length ? missingKeys : null, answers: rec.context });
     const model = modelsFor(rec.picker).quick;
     out = await writeOneReply({ send: quickSend(env, "reply"), message: rec.message, facts, model });
     console.log("one reply:", rec.key, round, out.source, out.why || "");
@@ -26461,7 +26463,7 @@ async function writeOneReplyNow(env, rec, round, by, auth) {
     }
   } catch (e) {
     console.error("one reply: writer threw", errorClassForLog(e));
-    out = { text: fallbackOneReply(requestFacts(requestView(rec))), source: "fallback", why: "threw" };
+    out = { text: fallbackOneReply(requestFacts(requestView(rec), { answers: rec.context })), source: "fallback", why: "threw" };
   }
   for (let i = 0; i < 4; i++) {
     let cur = null;

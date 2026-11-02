@@ -9,6 +9,16 @@
 
 The live test showed the key box still saying `\u00a38` for £8: that reason was saved before the earlier fix, and reached the page through the task's saved record. Now the page reads such codes back as the character at the one place every key reason is drawn, and the task record does the same. Checked on the real Northline page with the new file: "Take the £8 Kids' club payment…". Test: `test/key-why-text.test.mjs` (fails on the old code). Not deployed.
 
+||||||| c53e4c29b
+## 2026-11-02: your answers to the builder's questions count as what you asked (branch `reply-truth-2`, not merged, not deployed)
+
+When the builder asked you a question and you named something in your answer (a page, a heading, some wording), two places still judged only your first message:
+
+- **The site agent's check of its own work** treated wording you gave only in an answer as "not named in the request", and sent the agent back to undo it. Now it reads the request the agent was given, answers included. (This is the earlier `reply-truth` fix, carried onto the current working branch.)
+- **The one reply per message** refused a reply that named something you gave only in an answer (for example "the Workshop page"), and showed the plain fallback instead. Now your answers are part of the reply's facts, so the reply may name them; a name nobody gave is still refused.
+
+Code: `worker.js` (the agent's change report and the one reply's facts), `builder/one-reply.mjs`. Tests: G8 in `test/agent-guardrails.test.mjs` and a new case in `test/one-reply.test.mjs`, both red on the old code. Mutation sweep: 8 of 8 killed, the comment-only control survived. The site image changes (`4d6647ca9db37120` -> `bf0b698a73165bb7`); the app-builder image does not. Nothing spent, no live run.
+
 ## 2026-11-02: one combined deploy is ready on `claude/nice-ramanujan-9ry8wy` (not merged, not deployed)
 
 On your word ("Yes go ahead"), three finished branches are merged into the working branch, so one deploy carries them all:
