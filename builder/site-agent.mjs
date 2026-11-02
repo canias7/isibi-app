@@ -227,7 +227,7 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "ask_owner",
-    description: "Ask the owner ONE question when the request cannot be done right without a detail only they know, with two to four short answers they tap. This ends your turn: nothing you queued or wrote is saved, and you continue from their answer. Never ask what you can find out by reading the site.",
+    description: "Ask the owner ONE question when the request cannot be done right without a detail or a choice only they can give (which service, which option), with two to four short answers they tap. Never put such a question in finish instead. This ends your turn: nothing you queued or wrote is saved, and you continue from their answer. Never ask what you can find out by reading the site.",
     input_schema: { type: "object", properties: { question: { type: "string" }, options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 4 } }, required: ["question", "options"] },
   },
   {
@@ -274,7 +274,8 @@ export const SERVER_RULES = `
 SERVER CODE: THE OWNER'S RULES (these come first):
 1. SECURITY FIRST. Before a function writes or reveals anything, check who is calling: the signed-in visitor or the record they claim, looked up with site.sql, and answer 401 or 403 when they may not. Validate every input (each field's presence, type, size and allowed values) and answer 400 when it is wrong. Never put a key, token or secret in page code: only server code holds keys, through site.key. Every function is already limited per visitor per minute; a public endpoint that can be abused (a form, a sign-up, a booking) also limits itself: count recent requests from the caller's address (request.headers.get("cf-connecting-ip")) in a site table, and answer 429 past the limit.
 2. KEYS. An outside service (payments, email, text messages, AI and the rest) always runs on the owner's own key from the site's secrets: site.hasKey("NAME") first, then site.key("NAME"). When it is missing, the function answers 503 with a clear "not set up yet", and finish names exactly which key the owner must add. Never build something that fails silently. When list_keys is offered, use it to see which keys are set. When the owner still has to add a key, call request_key with its name: the chat collects the value in a secure box you never see. Never ask the owner to type or paste a key into the chat.
-   WHICH SERVICE. Never choose the provider yourself. When the request names only a kind of service ("email", "payments", "texts", "AI") and not which company, do not assume one (not Resend, not Stripe, not Twilio, not any): when ask_owner is offered, ask which one they use before you write its code or request its key, with the common ones as answers (email: Resend, SendGrid, Mailgun, Postmark; payments: Stripe, PayPal, Square; texts: Twilio, Vonage). When ask_owner is not offered, write no provider's code and request no key: say in finish that the owner must say which service they use. Use the provider the owner named, or the one the site's code or set keys already use.
+   WHICH SERVICE. Never choose the provider yourself. When the request names only a kind of service ("email", "payments", "texts", "AI") and not which company, do not assume one (not Resend, not Stripe, not Twilio, not any): when ask_owner is offered, CALL ask_owner to ask which one they use before you write its code or request its key, with the common ones as its options (email: Resend, SendGrid, Mailgun, Postmark; payments: Stripe, PayPal, Square; texts: Twilio, Vonage). When ask_owner is not offered, write no provider's code and request no key: say in finish that the owner must say which service they use. Use the provider the owner named, or the one the site's code or set keys already use.
+   ASK WITH ask_owner, NEVER IN finish. Whenever the owner must choose (which service, which of two pages, which option), and ask_owner is offered, call ask_owner with the choices as its options: a question written in finish reaches them with no answers to tap and nothing waits for their answer.
 3. WEBHOOKS. Verify the signature with site.verify before trusting anything in the message. The same event can arrive twice: store each event's id in a site table (a unique column) and do nothing for one already stored, so the work is never done twice.
 4. DATABASE CHANGES ADD, NEVER DESTROY. Never drop, rename or change the type of a table or column, and never delete stored data to make a change fit. A change that could lose data is not made: say in finish what it would need.
 5. ERRORS. Every server function answers a failure with a clear status and a short message, and records it in the site's error log, where the owner sees it: an error it does not catch is recorded for you; one it catches, it records itself with site.sql("INSERT INTO _errors (at, message, route, source) VALUES (to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'), ?, ?, 'server')", [message, "fn/<name>"]), never with a key or a visitor's private details in the message.
@@ -292,6 +293,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - Every command is a round, and every round costs the owner money: put everything you want to look at in ONE command (join them with ;), never one look per round.
 - Plan first: work out every change, then write all the files, then build once. Fix what the build reports and build again.
 - Every round costs the owner money, so do as much as you can in each one: call several tools in the same answer. Write every file you already know in ONE answer (several write_file calls side by side), read every file you need in one read_files call, and never spend a round on one small file when more are ready.
+- A NEW SITE WITH SEVERAL PAGES IS BUILT IN PARALLEL when the helpers tool is offered: first lay the foundation yourself (the shared header with a menu naming every page you plan, the footer, shared components, the home page) and build it; then, when your own plan of the site has two or more other pages, hand each of them (at most ` + MAX_HELPERS + `) to helpers in ONE helpers call; a site with fewer you write yourself.
 - When the helpers tool is offered: write the shared files first (header, footer, shared components) yourself, then hand the independent pieces (each other page, a component only one page uses, a server function) to helpers in ONE helpers call. A task that needs another's file names it in "after"; everything else starts at once. Only real dependencies go in "after". On an edit, use helpers only when the change has several independent pieces. Then build, look and fix.
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
@@ -744,6 +746,19 @@ export async function runHelperPlan(tasks, run, { max = MAX_HELPERS, land = () =
   return tasks.map((t) => out.get(t.id) || { file: t.file, source: "", why: "never started" });
 }
 
+/**
+ * WHY A NEW SITE'S HELPERS CALL IS REFUSED, or "" (2026-11-02): before the
+ * foundation is built (a passing build with a home page written), with fewer
+ * than two pieces (one agent writes a small site), or more than MAX_HELPERS.
+ */
+export function firstBuildSplitRefusal(tasks, st) {
+  const n = Array.isArray(tasks) ? tasks.length : 0;
+  if (!st || !st.built || st.dirty || !st.ws.has("index.tsx")) return "lay the foundation first: write the shared header, footer and the home page, build until it passes, then hand the other pages to helpers";
+  if (n < 2) return "one piece is not worth a helper: write it yourself";
+  if (n > MAX_HELPERS) return "at most " + MAX_HELPERS + " helpers on a new site: give a helper a page and the component only it uses, and write the rest yourself";
+  return "";
+}
+
 /** A helper's progress line: file names and numbers only. */
 export function helperFact(e) {
   const who = fileName(e.file);
@@ -895,9 +910,17 @@ async function runTool(use, st, deps) {
     }
     case "helpers": {
       if (typeof deps.helpers !== "function") return { error: "helpers cannot be used here" };
+      // A NEW SITE'S PARTS (2026-11-02, the owner: "parallel agents can be on
+      // when doing a build the first time"): the foundation first, built;
+      // then two to MAX_HELPERS pieces, each one helper; fewer are written here.
+      if (st.ws.fresh) {
+        const why = firstBuildSplitRefusal(input.tasks, st);
+        if (why) return { error: why };
+      }
       const plan = helperPlan(input.tasks, st.ws, deps);
       if (plan.error) return { error: plan.error };
-      const say = (text, state) => { try { if (typeof st.progress === "function") st.progress("agent", [fact(state, text)]); } catch { /* never costs the run */ } };
+      // EACH HELPER IS A TASK ON THE PAGE (`agent-part`, read back by `buildPartsOf`).
+      const say = (text, state) => { try { if (typeof st.progress === "function") st.progress("agent-part", [fact(state, text)]); } catch { /* never costs the run */ } };
       const done = await runHelperPlan(plan.tasks, (t) => deps.helpers(t, st.ws), {
         max: MAX_HELPERS,
         // A FINISHED HELPER'S FILE LANDS AT ONCE, so a task after it reads it.

@@ -265,13 +265,14 @@ import {
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, visualReviewFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
   addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts, salvageFacts,
+  buildPartsOf,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, joinableRequest, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -9668,11 +9669,12 @@ export async function runProgressSweep(env) {
  * another owner's record.
  */
 async function progressViewFor(env, job, uid) {
-  const none = { lines: [], said: null, op: null };
+  const none = { lines: [], said: null, op: null, parts: [] };
   if (!progressOn(env) || !env || !env.SITES_BUCKET || !isJobId(job)) return none;
   const at = await progressRecordAt(env, job);
   if (!at.rec || at.rec.uid !== uid) return none;
-  return { lines: linesOf(at.rec), said: saidOf(at.rec, 0), op: at.rec.op === "edit" || at.rec.op === "addon" ? at.rec.op : null };
+  // A FIRST BUILD'S PARALLEL PARTS (2026-11-02, `buildPartsOf`), for the task box.
+  return { lines: linesOf(at.rec), said: saidOf(at.rec, 0), op: at.rec.op === "edit" || at.rec.op === "addon" ? at.rec.op : null, parts: at.rec.op === "build" ? buildPartsOf(at.rec) : [] };
 }
 
 /**
@@ -25803,7 +25805,8 @@ async function joinLiveRequest(env, ctx, { uid, slug, key, message, out }) {
     if (Array.isArray(found.rec.joined) && found.rec.joined.some((j) => j && j.key === key)) {
       return { ...out, request: requestView(found.rec), joined: found.rec.key, duplicate: true };
     }
-    if (!found.rec.ended && !found.rec.stop) live.push({ key: at.key, at: mark.at });
+    // ONLY A REQUEST STILL RUNNING WITH EVERY PART ACTIVE (2026-11-02, `joinableRequest`).
+    if (joinableRequest(found.rec)) live.push({ key: at.key, at: mark.at });
   }
   live.sort((a, b) => b.at - a.at);
   const into = live[0];
@@ -35381,6 +35384,7 @@ async function handleRequest(request, env, ctx) {
           {
             const pv = await progressViewFor(env, job, bu.id);
             if (pv.lines.length) item.progress = pv.lines;
+            if (pv.parts.length) item.parts = pv.parts;
           }
           out.push(item);
         }
@@ -35587,6 +35591,7 @@ async function handleRequest(request, env, ctx) {
         // THE BUILD'S LIVE LINES (round 5), the model's own, from its real steps.
         const pv = await progressViewFor(env, jid, bu.id);
         if (pv.lines.length) pend.progress = pv.lines;
+        if (pv.parts.length) pend.parts = pv.parts;
         // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice.
         const bWait = await readNotice(env, jid);
         if (bWait) { pend.wait = bWait; pend.now = Date.now(); }

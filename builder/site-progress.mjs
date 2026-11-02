@@ -2108,3 +2108,26 @@ export function salvageFacts(s) {
   if (stand.length) out.push(fact("decided", "The new " + stand.join(", ") + " would not compile, so an empty stand-in holds its place."));
   return out;
 }
+
+/**
+ * A FIRST BUILD'S PARTS FOR THE TASK BOX (2026-11-02, parallel first build):
+ * each helper the build's agent handed a page to, by its name, with its
+ * latest state (`wait`, `run`, `done`, `bad`), read from the record's
+ * `agent-part` marks (`helperFact`'s lines). In the order first seen; [] when
+ * the build split nothing.
+ */
+export function buildPartsOf(rec) {
+  const out = new Map();
+  for (const m of rec && Array.isArray(rec.marks) ? rec.marks : []) {
+    if (!m || m.stage !== "agent-part" || !Array.isArray(m.facts)) continue;
+    for (const f of m.facts) {
+      const r = /^(.{1,120}?): (waiting|started|done|skipped|not written)\b/.exec(f && typeof f.text === "string" ? f.text : "");
+      if (!r) continue;
+      const title = r[1].replace(/^the /i, "").replace(/^\/(?=[a-z0-9])/i, "").replace(/^./, (c) => c.toUpperCase());
+      const state = r[2] === "waiting" ? "wait" : r[2] === "started" ? "run" : r[2] === "done" ? "done" : "bad";
+      if (!out.has(title) && out.size >= 24) continue;
+      out.set(title, state);
+    }
+  }
+  return [...out].map(([title, state]) => ({ title, state }));
+}

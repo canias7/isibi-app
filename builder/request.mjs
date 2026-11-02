@@ -678,6 +678,22 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], 
  * `{ ok: false, why }`: `ended` (the request ended or was stopped: the message
  * becomes a request of its own), or the plan's own refusal.
  */
+/** The part states that keep a request from taking a new message: paused (credits, a purchase), waiting on the owner, or ended. */
+export const NOT_JOINABLE = Object.freeze(["credits", "waiting", "approval", "uncertain", ...PART_TERMINAL]);
+
+/**
+ * WHETHER A NEW MESSAGE MAY JOIN THIS REQUEST (2026-11-02, the owner: "a new
+ * message starts its own request"). Joining (2026-10-23, background work) is
+ * kept only for a request genuinely still running: not ended or stopped, and
+ * no part paused for credits, waiting on a question or go-ahead, or ended.
+ * Live: a message joined a request whose part was paused for credits, and its
+ * answer waited behind that part for ever.
+ */
+export function joinableRequest(rec) {
+  if (!rec || !Array.isArray(rec.parts) || !rec.parts.length || rec.ended || rec.stop) return false;
+  return rec.parts.every((p) => p && !NOT_JOINABLE.includes(p.status));
+}
+
 export function appendParts(rec, { key, message, routed, at = Date.now() } = {}) {
   if (!rec || !Array.isArray(rec.parts)) return { ok: false, why: "no-request" };
   if (!isRequestKey(key)) return { ok: false, why: "key" };
@@ -685,6 +701,10 @@ export function appendParts(rec, { key, message, routed, at = Date.now() } = {})
   const had = joined.find((j) => j && j.key === key);
   if (had) return { ok: true, rec, parts: had.parts.slice(), duplicate: true };
   if (rec.ended || rec.stop) return { ok: false, why: "ended" };
+  // ONLY A REQUEST STILL RUNNING WITH EVERY PART ACTIVE TAKES A NEW MESSAGE
+  // (2026-11-02, northline-climbing): a part paused for credits, waiting on
+  // the owner, or ended makes the message a request of its own.
+  if (!joinableRequest(rec)) return { ok: false, why: "not-running" };
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > MAX_INPUT_CHARS) return { ok: false, why: "message" };
   const planned = planParts(text, routed);
