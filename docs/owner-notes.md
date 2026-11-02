@@ -5,6 +5,10 @@
 
 
 
+## 2026-11-02: the agents list, iMessage style, and Create an agent (branch `agents-list`)
+
+The conversations bar is now the approved iMessage-style list: "Go Farther" with a round "+", a Search box (it filters by name), and five agents. The Sites agent wears Gloopy (the animated figure, full body, no circle) and shows the open site's latest message; Accounting, Email, Marketing and Support are placeholders (one `AGENTS` list in `chat.js`) that open a "coming soon" screen at /home/accounting, /home/email, /home/marketing and /home/support. A white header above the projects strip names the selected agent. Collapsed, the bar shows the avatars only; phones are unchanged. The "+" opens "Create an agent" (/home/new): icon, name, what it should do, when it should run. A saved agent is kept in this browser only (`gf_custom_agents_v1`), listed under the five, and has its own page (/home/agent-<id>) with Edit and Delete. Nothing runs yet: no model or server call. Not merged or deployed.
+
 ## 2026-11-01: projects on top, a conversations bar on the left (branch `workspace-layout`)
 
 On your word ("the only thing that's changing is the projects are going to be on top, and there's going to be a conversations bar on the left"), the open-project workspace changed in exactly two places. Nothing else was restyled: the chat, the toolbar, the preview, /home and the landing page look as before.

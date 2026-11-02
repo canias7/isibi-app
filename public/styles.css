@@ -5284,3 +5284,95 @@ body { font-family: var(--display); color: var(--ink); -webkit-font-smoothing: a
   .st-chatstrip { margin: .8rem 0 1rem .7rem; }
   .st-conv { border-radius: 0; border-width: 0 1px 0 0; }
 }
+
+/* ── GLOOPY'S MOTION (owner-approved, 2026-11-02): the figure's own keyframes,
+   prefixed gg- so no other rule can clash. The defs are in index.html. */
+.gg-bob{animation:gg-bob 2.2s ease-in-out infinite;transform-box:view-box;transform-origin:100px 219px}
+.gg-ant{animation:gg-sway 2.6s ease-in-out infinite;transform-box:view-box;transform-origin:99.2px 59px}
+.gg-wave{animation:gg-wave .7s ease-in-out infinite alternate;transform-box:view-box;transform-origin:45.6px 139.2px}
+.gg-eyes{animation:gg-blink 3.8s infinite;transform-box:view-box;transform-origin:99px 93px}
+.gg-pup{animation:gg-look 5s ease-in-out infinite}
+.gg-hl{transform-box:fill-box;transform-origin:center;transform:scale(var(--hl,1))}
+@keyframes gg-bob{0%,100%{transform:none}50%{transform:translateY(-3px) scale(1.012,.988)}}
+@keyframes gg-sway{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+@keyframes gg-wave{from{transform:rotate(-14deg)}to{transform:rotate(16deg)}}
+@keyframes gg-blink{0%,92%,100%{transform:scaleY(1)}95.5%{transform:scaleY(.06)}}
+@keyframes gg-look{0%,35%,100%{transform:none}50%,80%{transform:translate(2.2px,.6px)}}
+@media (prefers-reduced-motion:reduce){.gg-bob,.gg-ant,.gg-wave,.gg-eyes,.gg-pup{animation:none}}
+
+/* ── THE CONVERSATIONS BAR AS AN iMESSAGE-STYLE LIST (owner-approved mock-up,
+   2026-11-02): #f4f3f0, 320px, the selected row #0d1b2a with white text,
+   rounded 12px; avatars 44px; the selected agent's header (74px, white) on top
+   of the right-hand area. LAST IN THE FILE: it overrides the 2026-11-01 bar. */
+.st-conv { flex: 0 0 320px; background: #f4f3f0; color: #0d1b2a; font-family: Inter, -apple-system, system-ui, sans-serif; }
+.st-conv-head { padding: 18px 16px 10px; }
+.st-conv-logo { font-size: 20px; padding: 0; height: 32px; }
+.st-conv-logo .logo-mark { width: 26px; height: 26px; }
+.st-conv-acts { display: inline-flex; align-items: center; gap: 4px; }
+.st-conv-new { width: 32px; height: 32px; border-radius: 50%; border: 0; background: #0d1b2a; color: #fff; display: grid; place-items: center; font: 400 20px/1 Inter, system-ui, sans-serif; cursor: default; padding: 0; }
+.st-conv-search { margin: 4px 16px 10px; }
+.st-conv-search input { width: 100%; box-sizing: border-box; background: #e9e6e0; border: 0; border-radius: 10px; padding: 8px 12px; font: 14px/1.4 Inter, -apple-system, system-ui, sans-serif; color: #0d1b2a; outline: none; }
+.st-conv-search input::placeholder { color: #8e8a82; }
+.st-conv-list { gap: 0; padding: 0; overflow-y: auto; }
+.st-conv-item { gap: 12px; padding: 10px 12px; margin: 0 8px; width: auto; border: 0; border-radius: 12px; font: 14px/1.4 Inter, -apple-system, system-ui, sans-serif; color: #0d1b2a; }
+.st-conv-item[hidden] { display: none; }
+.st-conv-item.on { background: #0d1b2a; color: #fff; }
+.st-conv-txt { flex: 1; min-width: 0; }
+.st-conv-l1 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.st-conv-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-conv-time { font-size: 12px; font-weight: 400; color: #8e8a82; flex: none; }
+.st-conv-sub { display: block; font-size: 13px; font-weight: 400; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-conv-item.on .st-conv-sub, .st-conv-item.on .st-conv-time { color: #c9ced6; }
+.st-av { flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff; line-height: 1; }
+/* Gloopy: free-floating, the full body, no circle and no background. */
+.st-av.st-av-gloopy { border-radius: 0; background: none; overflow: visible; }
+.st-gloopy { display: block; overflow: visible; }
+.st-conv.closed { flex-basis: 68px; }
+.st-conv.closed .st-conv-search { display: none; }
+.st-conv-ic { background: none; border: 0; padding: 4px; border-radius: 12px; cursor: pointer; }
+.st-conv-ic.on { background: #0d1b2a; }
+.st-agenthead { flex: 0 0 74px; height: 74px; box-sizing: border-box; background: #fff; border-bottom: 1px solid #e6e2db; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #0d1b2a; font-family: Inter, -apple-system, system-ui, sans-serif; }
+.st-agenthead-name { font-size: 13px; font-weight: 700; }
+.st-wscol > .st-agenthead { margin: -.8rem -1rem 0 -.7rem; }
+.st-agentmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.st-agentbody { flex: 1 1 auto; min-height: 0; display: flex; gap: .7rem; }
+.st-soon { flex: 1; display: flex; flex-direction: column; background: #faf9f7; font-family: Inter, -apple-system, system-ui, sans-serif; color: #0d1b2a; }
+.st-soon-mid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.st-soon-name { font-size: 24px; }
+.st-soon-sub { color: #6b7280; font-size: 15px; max-width: 440px; text-align: center; }
+.st-soon-notify { margin-top: 6px; border: 1px solid #e6e2db; border-radius: 999px; padding: 7px 16px; font: 13px Inter, system-ui, sans-serif; background: #fff; color: #0d1b2a; cursor: default; }
+.st-soon-foot { display: flex; gap: 10px; align-items: center; padding: 14px 24px 22px; }
+.st-soon-plus { width: 34px; height: 34px; border-radius: 50%; border: 1px solid #e6e2db; display: grid; place-items: center; color: #aaa; flex: none; box-sizing: border-box; }
+.st-soon-in { flex: 1; border: 1px solid #e6e2db; border-radius: 18px; padding: 10px 16px; font: 14px Inter, system-ui, sans-serif; background: #fff; }
+.st-soon-in::placeholder { color: #b5b1aa; }
+@media (min-width: 761px) {
+  .st-agentmain > .st-agentbody > .st-homecol { padding-top: .8rem; }
+}
+@media (max-width: 760px) { .st-agenthead { display: none; } }
+/* THE CREATE-AN-AGENT FORM AND A SAVED AGENT'S SCREEN (owner-approved mock-up, 2026-11-02). */
+.st-conv-new.on { outline: 2px solid #0d1b2a; outline-offset: 2px; }
+.st-av.st-av-plus { background: #e9e6e0; color: #0d1b2a; font-weight: 400; }
+.st-conv-item .st-av[style*="#e9e6e0"], .st-conv-ic .st-av[style*="#e9e6e0"] { color: #0d1b2a; }
+.st-agentform-wrap { flex: 1; overflow-y: auto; background: #faf9f7; display: flex; justify-content: center; padding: 34px 16px; font-family: Inter, -apple-system, system-ui, sans-serif; color: #0d1b2a; }
+.st-agentform { width: 620px; max-width: 100%; display: flex; flex-direction: column; gap: 18px; }
+.st-agentform label { display: block; }
+.st-af-title { font-size: 24px; }
+.st-af-sub { color: #6b7280; margin-top: 4px; font-size: 14px; }
+.st-af-lbl { font-size: 12px; font-weight: 600; letter-spacing: .04em; color: #6b7280; text-transform: uppercase; margin-bottom: 6px; }
+.st-af-icons { display: flex; gap: 10px; }
+.st-af-icon { width: 44px; height: 44px; border-radius: 50%; border: 0; background: #e9e6e0; font-size: 20px; display: grid; place-items: center; cursor: pointer; padding: 0; }
+.st-af-icon.on { background: #0d1b2a; outline: 2px solid #0d1b2a; outline-offset: 2px; }
+.st-af-fld { width: 100%; box-sizing: border-box; background: #fff; border: 1px solid #e6e2db; border-radius: 12px; padding: 11px 14px; font: 14.5px/1.4 Inter, -apple-system, system-ui, sans-serif; color: #0d1b2a; outline: none; }
+.st-af-fld:focus { border-color: #0d1b2a; }
+.st-af-ta { height: 150px; line-height: 1.55; resize: vertical; }
+.st-af-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.st-af-pill { border: 1px solid #e6e2db; border-radius: 999px; padding: 7px 14px; font: 13px Inter, system-ui, sans-serif; background: #fff; color: #0d1b2a; cursor: pointer; }
+.st-af-pill.on { background: #0d1b2a; color: #fff; border-color: #0d1b2a; }
+.st-af-err { color: #b42318; font-size: 14px; }
+.st-af-err[hidden] { display: none; }
+.st-af-btns { display: flex; gap: 10px; margin-top: 4px; }
+.st-af-go { background: #0d1b2a; color: #fff; border: 0; border-radius: 12px; padding: 11px 20px; font: 600 14.5px Inter, system-ui, sans-serif; cursor: pointer; }
+.st-af-cancel { border: 1px solid #e6e2db; border-radius: 12px; padding: 11px 20px; background: #fff; color: #0d1b2a; font: 14.5px Inter, system-ui, sans-serif; cursor: pointer; }
+.st-soon-do { max-width: 520px; text-align: center; font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
+.st-soon-sched { color: #6b7280; font-size: 14px; }
+.st-soon .st-soon-notify { cursor: pointer; }

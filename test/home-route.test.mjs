@@ -99,13 +99,18 @@ test("HR2 signed in on / → /home/projects, the app shell shown and the landing
     assert.deepEqual(A.errors, []);
     await A.ctx.close();
     // 2026-11-01: every old address forwards to the Sites agent's, adding no entry.
-    for (const [from, to] of [["/projects", "/home/projects"], ["/home", "/home/projects"], ["/home/accounting", "/home/projects"], ["/projects/" + SITE_ID, "/home/projects/" + SITE_ID]]) {
+    for (const [from, to] of [["/projects", "/home/projects"], ["/home", "/home/projects"], ["/home/not-an-agent", "/home/projects"], ["/projects/" + SITE_ID, "/home/projects/" + SITE_ID]]) {
       const B = await open(browser, from, true);
       await until(async () => (await pathOf(B.page)) === to, 15000, from + " → " + to);
       // A new page holds about:blank and the address it opened: 2. A forward that pushed would make it 3.
       assert.equal(await B.page.evaluate(() => history.length), 2, from + " forwarded with a new history entry");
       await B.ctx.close();
     }
+    // 2026-11-02: a placeholder agent's own address stays (its coming-soon screen).
+    const C = await open(browser, "/home/accounting", true);
+    await until(() => C.page.evaluate(() => !!document.getElementById("stSoon")), 15000, "the coming-soon screen");
+    assert.equal(await pathOf(C.page), "/home/accounting");
+    await C.ctx.close();
   } finally { await browser.close(); }
 });
 

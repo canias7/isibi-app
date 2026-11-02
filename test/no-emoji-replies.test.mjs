@@ -71,6 +71,9 @@ const ALLOWED = [
   // (docs/backlog.md).
   '<span class="st-step-tick">✓</span>',
   '<span class="st-step-fail">✕</span>',
+  // THE AGENTS' AVATAR ICONS (owner-approved mock-ups, 2026-11-02): pictures in
+  // the conversations bar and the Create-an-agent icon picker, never a reply.
+  "const AGENT_ICONS = { accounting: '\\u{1F4CA}'",
 ];
 
 test("the scanner is alive: it finds a tick, a warning sign and an escaped one, and skips comments", () => {

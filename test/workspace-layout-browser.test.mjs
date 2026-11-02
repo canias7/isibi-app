@@ -23,6 +23,7 @@ const SKIP = !HAVE && "no browser here (playwright-core and Chromium are not ins
 const ORIGIN = "https://gofarther.test";
 
 const mk = (i, slug, name) => ({ id: "site_17270000000" + i + "_wl", chat: "site_17270000000" + i + "_wl", slug, react: true, name, url: "https://" + slug + ".gofarther.app/", pages: [{ path: "/", name: "Home" }], msgs: [{ r: "u", t: "Make " + name }, { r: "a", t: "Draft of " + name + "." }], updatedAt: Date.now() - i * 3600e3, createdAt: Date.now() - i * 3600e3 });
+const AGENT_NAMES = ["Sites agent", "Accounting agent", "Email agent", "Marketing agent", "Support agent"];
 const SITES = [mk(1, "wl-bakery", "Harbour Loaf"), mk(2, "wl-florist", "Willow Florist"), mk(3, "wl-guitar", "Fretwork Guitar"), mk(4, "wl-cafe", "Oak and Ash"), mk(5, "wl-barber", "Sharp Barber")];
 
 async function openApp({ width = 1440, height = 860, ls = {}, sites = SITES, start = "/projects/" + SITES[0].id } = {}) {
@@ -126,12 +127,11 @@ test("WL 3 — the mouse wheel scrolls the row sideways, with no scrollbar showi
   } finally { await app.close(); }
 });
 
-test("WL 4 — the conversations bar has exactly one entry, Sites agent, and closes and reopens (remembered)", { skip: SKIP, timeout: 60000 }, async () => {
+test("WL 4 — the conversations bar lists the five agents, Sites agent first, and closes and reopens (remembered)", { skip: SKIP, timeout: 60000 }, async () => {
   const app = await openApp();
   try {
     const items = await app.page.$$eval("#stConv .st-conv-item .st-conv-name", (l) => l.map((x) => x.textContent.trim()));
-    assert.equal(await app.page.$$eval("#stConv .st-conv-item", (l) => l.length), 1);
-    assert.deepEqual(items, ["Sites agent"]);
+    assert.deepEqual(items, AGENT_NAMES);
     // FAR LEFT, THE WHOLE PAGE'S HEIGHT (owner: "the conversations take the whole
     // entire page"): from the very top to the bottom, left of the strip, the
     // toolbar and the chat; the logo at its top; the top bar hidden beside it.
@@ -152,7 +152,7 @@ test("WL 4 — the conversations bar has exactly one entry, Sites agent, and clo
     assert.equal(place.topNav, "none", "the top bar still shows beside the bar");
     await app.page.click("#gfConvClose");
     let s = await app.page.evaluate(() => ({ closed: document.querySelector("#stConv").classList.contains("closed"), w: document.querySelector("#stConv").getBoundingClientRect().width, open: getComputedStyle(document.querySelector("#gfConvOpen")).display, pref: localStorage.getItem("gf_conv_bar_v1") }));
-    assert.ok(s.closed && s.w < 60 && s.open !== "none"); assert.equal(s.pref, "closed");
+    assert.ok(s.closed && s.w < 80 && s.open !== "none"); assert.equal(s.pref, "closed");
     assert.ok(await app.page.evaluate(() => { const c = document.querySelector("#stConv").getBoundingClientRect(); return c.top <= 1 && innerHeight - c.bottom <= 1; }), "the closed strip does not run the whole height");
     await app.page.click("#gfConvOpen");
     s = await app.page.evaluate(() => ({ closed: document.querySelector("#stConv").classList.contains("closed"), w: document.querySelector("#stConv").getBoundingClientRect().width }));
@@ -177,7 +177,7 @@ test("WL 5 — the chat column closes and reopens; on a phone the bar is hidden 
   } finally { await phone.close(); }
 });
 
-test("WL 6 — a new account at /home: forwarded to /home/projects, the empty strip, one agent, the chat closed to its strip, today's box", { skip: SKIP, timeout: 60000 }, async () => {
+test("WL 6 — a new account at /home: forwarded to /home/projects, the empty strip, the five agents, the chat closed to its strip, today's box", { skip: SKIP, timeout: 60000 }, async () => {
   const app = await openApp({ sites: [], start: "/home" });
   try {
     const r = await app.page.evaluate(() => ({
@@ -195,7 +195,8 @@ test("WL 6 — a new account at /home: forwarded to /home/projects, the empty st
     assert.equal(r.logo.trim(), "Go Farther");
     assert.equal(r.path, "/home/projects");
     assert.match(r.strip, /No projects yet/); assert.match(r.strip, /Your sites will appear here/);
-    assert.deepEqual(r.agents, ["Sites agentReady when you are"]);
+    assert.equal(r.agents.length, 5);
+    assert.equal(r.agents[0], "Sites agentReady when you are");
     assert.equal(r.chatStrip, true); assert.equal(r.rail, false);
     assert.equal(r.hero, "What are we building?");
     assert.equal(r.grid, false, "sites are listed only in the strip");
@@ -213,5 +214,224 @@ test("WL 7 — the first message moves the address to /home/projects/<the new si
     const r = await app.page.evaluate(() => ({ path: location.pathname, open: siteOpenId, user: (document.querySelector("#stThread") || {}).textContent || "" }));
     assert.equal(r.path, "/home/projects/" + r.open);
     assert.match(r.user, /bakery/);
+  } finally { await app.close(); }
+});
+
+// ── THE iMESSAGE-STYLE AGENTS LIST (owner-approved mock-ups, 2026-11-02) ──
+test("WL 8 — /home/projects: five rows in order, Sites agent selected, each with avatar, name, time and preview; + and Search present", { skip: SKIP, timeout: 60000 }, async () => {
+  const app = await openApp({ start: "/home/projects" });
+  try {
+    const r = await app.page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#stConv .st-conv-list .st-conv-item")];
+      const conv = document.querySelector("#stConv");
+      const plus = document.querySelector("#gfConvNew");
+      const search = document.querySelector("#gfConvSearch");
+      return {
+        path: location.pathname,
+        names: rows.map((x) => x.querySelector(".st-conv-name").textContent),
+        on: rows.filter((x) => x.classList.contains("on")).map((x) => x.dataset.agent),
+        onBg: getComputedStyle(rows[0]).backgroundColor, onColor: getComputedStyle(rows[0]).color, radius: getComputedStyle(rows[0]).borderTopLeftRadius,
+        parts: rows.every((x) => x.querySelector(".st-av") && x.querySelector(".st-conv-time") && x.querySelector(".st-conv-sub")),
+        avW: rows.map((x) => Math.round(x.querySelector(".st-av").getBoundingClientRect().width)),
+        ellipsis: getComputedStyle(rows[1].querySelector(".st-conv-sub")).textOverflow,
+        preview: rows[1].querySelector(".st-conv-sub").textContent,
+        barBg: getComputedStyle(conv).backgroundColor, barW: Math.round(conv.getBoundingClientRect().width),
+        plus: !!plus && plus.textContent.trim() === "+" && /Create an agent/.test(plus.title) && getComputedStyle(plus).borderTopLeftRadius === "50%",
+        search: !!search && search.placeholder === "Search",
+        logo: (document.querySelector("#gfConvLogo") || {}).textContent,
+      };
+    });
+    assert.equal(r.path, "/home/projects");
+    assert.deepEqual(r.names, AGENT_NAMES);
+    assert.deepEqual(r.on, ["sites"]);
+    assert.equal(r.onBg, "rgb(13, 27, 42)"); assert.equal(r.onColor, "rgb(255, 255, 255)"); assert.equal(r.radius, "12px");
+    assert.ok(r.parts, "a row lacks its avatar, time or preview");
+    assert.deepEqual(r.avW, [44, 44, 44, 44, 44]);
+    assert.equal(r.ellipsis, "ellipsis");
+    assert.equal(r.preview, "Your October books are ready to check");
+    assert.equal(r.barBg, "rgb(244, 243, 240)"); assert.equal(r.barW, 320);
+    assert.ok(r.plus, "the round + is missing"); assert.ok(r.search, "the Search box is missing");
+    assert.equal(r.logo.trim(), "Go Farther");
+    // Search filters the list by name.
+    await app.page.fill("#gfConvSearch", "mail");
+    assert.deepEqual(await app.page.$$eval("#stConv .st-conv-list .st-conv-item:not([hidden]) .st-conv-name", (l) => l.map((x) => x.textContent)), ["Email agent"]);
+    assert.deepEqual(app.errors, []);
+  } finally { await app.close(); }
+});
+
+test("WL 9 — Gloopy, full body with no circle and no background, in the Sites agent's row and the header; the header names the agent above the projects strip", { skip: SKIP, timeout: 60000 }, async () => {
+  const app = await openApp();
+  try {
+    const r = await app.page.evaluate(() => {
+      const look = (el) => {
+        const av = el && el.querySelector(".st-av");
+        const svg = av && av.querySelector("svg.st-gloopy");
+        const use = svg && svg.querySelector("use");
+        const cs = av && getComputedStyle(av);
+        return { svg: !!svg, href: use ? use.getAttribute("href") : "", vb: svg ? svg.getAttribute("viewBox") : "",
+          h: svg ? Math.round(svg.getBoundingClientRect().height) : 0,
+          bg: cs ? cs.backgroundColor : "", radius: cs ? cs.borderTopLeftRadius : "", img: cs ? cs.backgroundImage : "", ov: svg ? getComputedStyle(svg).overflow : "" };
+      };
+      const head = document.querySelector("#stAgentHead");
+      const strip = document.querySelector("#stProjects");
+      const sym = document.getElementById("gfGloopy");
+      return { row: look(document.querySelector('#stConv .st-conv-item[data-agent="sites"]')), head: look(head),
+        headName: head ? head.textContent.trim() : "", headH: head ? Math.round(head.getBoundingClientRect().height) : 0,
+        headBg: head ? getComputedStyle(head).backgroundColor : "",
+        above: !!(head && strip && head.getBoundingClientRect().bottom <= strip.getBoundingClientRect().top + 1),
+        sym: !!sym && sym.tagName.toLowerCase() === "symbol", ids: document.querySelectorAll("[id='gfGloopy']").length,
+        anim: sym ? getComputedStyle(sym.querySelector(".gg-bob")).animationName : "" };
+    });
+    for (const k of ["row", "head"]) {
+      const g = r[k];
+      assert.ok(g.svg, k + ": no Gloopy svg"); assert.equal(g.href, "#gfGloopy"); assert.equal(g.vb, "0 0 200 230");
+      assert.equal(g.bg, "rgba(0, 0, 0, 0)", k + ": Gloopy sits on a background"); assert.equal(g.img, "none", k + ": Gloopy sits on a gradient");
+      assert.equal(g.radius, "0px", k + ": Gloopy sits in a circle"); assert.equal(g.ov, "visible");
+    }
+    assert.equal(r.row.h, 48); assert.equal(r.head.h, 40);
+    assert.ok(r.sym && r.ids === 1, "the symbol is not on the page exactly once");
+    assert.equal(r.anim, "gg-bob");
+    assert.equal(r.headName, "Sites agent"); assert.equal(r.headH, 74); assert.equal(r.headBg, "rgb(255, 255, 255)");
+    assert.ok(r.above, "the header is not above the projects strip");
+    assert.deepEqual(app.errors, []);
+  } finally { await app.close(); }
+});
+
+test("WL 10 — Accounting goes to /home/accounting: its header, the coming-soon screen and no projects strip; Sites agent restores the workspace", { skip: SKIP, timeout: 60000 }, async () => {
+  const app = await openApp();
+  try {
+    await app.page.click('#stConv .st-conv-item[data-agent="accounting"]');
+    await app.page.waitForFunction(() => location.pathname === "/home/accounting", null, { timeout: 5000 });
+    const r = await app.page.evaluate(() => ({
+      on: [...document.querySelectorAll("#stConv .st-conv-item.on")].map((x) => x.dataset.agent),
+      head: (document.querySelector("#stAgentHead") || {}).textContent || "",
+      soon: (document.querySelector("#stSoon") || {}).textContent || "",
+      bigAv: document.querySelector("#stSoon .st-av") ? Math.round(document.querySelector("#stSoon .st-av").getBoundingClientRect().width) : 0,
+      input: document.querySelector("#stSoon input") ? { dis: document.querySelector("#stSoon input").disabled, ph: document.querySelector("#stSoon input").placeholder } : null,
+      strip: !!document.querySelector("#stProjects"), bar: !!document.querySelector(".st-topbar"),
+    }));
+    assert.deepEqual(r.on, ["accounting"]);
+    assert.match(r.head, /Accounting agent/);
+    assert.match(r.soon, /Coming soon\. This agent will keep your books, track what comes in and goes out, and get your numbers ready\./);
+    assert.match(r.soon, /Notify me when it.s ready/);
+    assert.equal(r.bigAv, 84);
+    assert.deepEqual(r.input, { dis: true, ph: "Message Accounting agent — available soon" });
+    assert.equal(r.strip, false, "the projects strip shows on a placeholder agent");
+    assert.equal(r.bar, false);
+    await app.page.click('#stConv .st-conv-item[data-agent="sites"]');
+    await app.page.waitForFunction((id) => location.pathname === "/home/projects/" + id, SITES[0].id, { timeout: 5000 });
+    await app.page.waitForSelector(".st-topbar", { timeout: 5000 });
+    const b = await app.page.evaluate(() => ({ name: document.querySelector(".st-ws-name").textContent, strip: !!document.querySelector("#stProjects"), soon: !!document.querySelector("#stSoon"), head: document.querySelector("#stAgentHead").textContent.trim() }));
+    assert.equal(b.name, "Harbour Loaf"); assert.equal(b.strip, true); assert.equal(b.soon, false); assert.equal(b.head, "Sites agent");
+    // Back returns to the placeholder.
+    await app.page.goBack();
+    await app.page.waitForSelector("#stSoon", { timeout: 5000 });
+    assert.equal(await app.page.evaluate(() => location.pathname), "/home/accounting");
+    assert.deepEqual(app.errors, []);
+  } finally { await app.close(); }
+});
+
+test("WL 11 — collapsed, the bar shows the five avatars only", { skip: SKIP, timeout: 60000 }, async () => {
+  const app = await openApp({ ls: { gf_conv_bar_v1: "closed" } });
+  try {
+    const r = await app.page.evaluate(() => ({
+      avatars: [...document.querySelectorAll("#stConv .st-conv-rail .st-conv-ic")].filter((x) => x.offsetParent).map((x) => x.dataset.agent),
+      list: getComputedStyle(document.querySelector("#stConv .st-conv-list")).display,
+      search: getComputedStyle(document.querySelector("#stConv .st-conv-search")).display,
+    }));
+    assert.deepEqual(r.avatars, ["sites", "accounting", "email", "marketing", "support"]);
+    assert.equal(r.list, "none"); assert.equal(r.search, "none");
+  } finally { await app.close(); }
+});
+
+// ── CREATE AN AGENT (owner-approved mock-up, 2026-11-02): saved in this browser, nothing runs ──
+test("WL 12 — + opens Create an agent at /home/new; empty fields are refused in a sentence; Cancel returns to the agent before", { skip: SKIP, timeout: 60000 }, async () => {
+  const app = await openApp();
+  try {
+    await app.page.click("#gfConvNew");
+    await app.page.waitForFunction(() => location.pathname === "/home/new", null, { timeout: 5000 });
+    const r = await app.page.evaluate(() => ({
+      head: document.querySelector("#stAgentHead").textContent.trim(),
+      icons: document.querySelectorAll("#stAgentForm .st-af-icon").length,
+      firstOn: document.querySelector("#stAgentForm .st-af-icon").classList.contains("on"),
+      pills: [...document.querySelectorAll("#stAgentForm .st-af-pill")].map((x) => x.textContent),
+      pillOn: document.querySelectorAll("#stAgentForm .st-af-pill.on").length,
+      btns: [...document.querySelectorAll("#stAgentForm .st-af-btns button")].map((x) => x.textContent),
+      strip: !!document.querySelector("#stProjects"),
+    }));
+    assert.equal(r.head, "+New agent");
+    assert.equal(r.icons, 6); assert.equal(r.firstOn, true);
+    assert.deepEqual(r.pills, ["When I message it", "Every day", "Every week", "When something happens"]); assert.equal(r.pillOn, 1);
+    assert.deepEqual(r.btns, ["Create agent", "Cancel"]);
+    assert.equal(r.strip, false);
+    await app.page.click("#stAgentSave");
+    assert.equal(await app.page.textContent("#stAgentErr"), "Give your agent a name and say what it should do.");
+    await app.page.fill("#stAgentName", "Reviews agent");
+    await app.page.click("#stAgentSave");
+    assert.equal(await app.page.textContent("#stAgentErr"), "Say what your agent should do.");
+    assert.equal(await app.page.evaluate(() => localStorage.getItem("gf_custom_agents_v1")), null, "an invalid agent was saved");
+    await app.page.click("#stAgentCancel");
+    await app.page.waitForFunction((id) => location.pathname === "/home/projects/" + id, SITES[0].id, { timeout: 5000 });
+    assert.deepEqual(app.errors, []);
+  } finally { await app.close(); }
+});
+
+test("WL 13 — Create agent saves it, lists it under the five, selects it, shows its screen; it survives a reload; Edit and Delete work", { skip: SKIP, timeout: 90000 }, async () => {
+  const app = await openApp();
+  try {
+    const DO = "Every morning, read the new Google reviews for my bakery and send me a summary.";
+    await app.page.click("#gfConvNew");
+    await app.page.waitForSelector("#stAgentForm");
+    await app.page.click("#stAgentForm .st-af-icon:nth-child(4)");
+    await app.page.fill("#stAgentName", "Reviews agent");
+    await app.page.fill("#stAgentDo", DO);
+    await app.page.click('#stAgentForm .st-af-pill[data-sched="daily"]');
+    await app.page.click("#stAgentSave");
+    await app.page.waitForFunction(() => /^\/home\/agent-[a-z0-9]+$/.test(location.pathname), null, { timeout: 5000 });
+    const read = () => app.page.evaluate(() => ({
+      path: location.pathname,
+      names: [...document.querySelectorAll("#stConv .st-conv-list .st-conv-item .st-conv-name")].map((x) => x.textContent),
+      on: [...document.querySelectorAll("#stConv .st-conv-item.on .st-conv-name")].map((x) => x.textContent),
+      preview: (document.querySelector("#stConv .st-conv-list .st-conv-item:last-child .st-conv-sub") || {}).textContent,
+      ellipsis: getComputedStyle(document.querySelector("#stConv .st-conv-list .st-conv-item:last-child .st-conv-sub")).textOverflow,
+      icon: (document.querySelector("#stConv .st-conv-list .st-conv-item:last-child .st-av") || {}).textContent,
+      head: (document.querySelector("#stAgentHead") || {}).textContent || "",
+      soon: (document.querySelector("#stSoon") || {}).textContent || "",
+      stored: JSON.parse(localStorage.getItem("gf_custom_agents_v1") || "[]"),
+    }));
+    let r = await read();
+    assert.deepEqual(r.names, AGENT_NAMES.concat(["Reviews agent"]));
+    assert.deepEqual(r.on, ["Reviews agent"]);
+    assert.equal(r.preview, DO); assert.equal(r.ellipsis, "ellipsis");
+    assert.equal(r.icon, "⭐");
+    assert.match(r.head, /Reviews agent/);
+    assert.ok(r.soon.includes(DO)); assert.match(r.soon, /Every day/);
+    assert.match(r.soon, /This agent is saved\. It will start working once agents are switched on\./);
+    assert.equal(r.stored.length, 1); assert.equal(r.path, "/home/agent-" + r.stored[0].id);
+    // A reload keeps it, at its own address.
+    await app.page.reload({ waitUntil: "load" });
+    await app.page.waitForSelector("#stSoon", { timeout: 15000 });
+    r = await read();
+    assert.equal(r.path, "/home/agent-" + r.stored[0].id); assert.deepEqual(r.on, ["Reviews agent"]); assert.ok(r.soon.includes(DO));
+    // Edit reopens the form filled in.
+    await app.page.click("#stAgentEdit");
+    await app.page.waitForSelector("#stAgentForm");
+    const filled = await app.page.evaluate(() => ({ name: document.querySelector("#stAgentName").value, do: document.querySelector("#stAgentDo").value, sched: document.querySelector(".st-af-pill.on").dataset.sched, icon: document.querySelector(".st-af-icon.on").dataset.icon }));
+    assert.deepEqual(filled, { name: "Reviews agent", do: DO, sched: "daily", icon: "⭐" });
+    await app.page.fill("#stAgentName", "Review replies");
+    await app.page.click("#stAgentSave");
+    await app.page.waitForSelector("#stSoon");
+    r = await read();
+    assert.deepEqual(r.names.slice(-1), ["Review replies"]); assert.equal(r.stored.length, 1); assert.equal(r.stored[0].name, "Review replies");
+    // Delete asks first; dismissing keeps it, accepting removes it.
+    app.page.once("dialog", (d) => d.dismiss());
+    await app.page.click("#stAgentDel");
+    assert.equal((await read()).stored.length, 1);
+    app.page.once("dialog", (d) => d.accept());
+    await app.page.click("#stAgentDel");
+    await app.page.waitForFunction(() => location.pathname.startsWith("/home/projects"), null, { timeout: 5000 });
+    r = await read();
+    assert.deepEqual(r.names, AGENT_NAMES); assert.equal(r.stored.length, 0);
+    assert.deepEqual(app.errors, []);
   } finally { await app.close(); }
 });

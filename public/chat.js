@@ -1984,7 +1984,7 @@ function appHomeAddress() {
   let to = null;
   if (p === '/' || p === '') to = SITES_HOME;
   else if (pm) to = SITES_HOME + (pm[1] ? '/' + pm[1] : '');
-  else if (hm && hm[1] !== 'projects') to = SITES_HOME;
+  else if (hm && hm[1] !== 'projects' && !agentFromPath()) to = SITES_HOME;
   if (to) {
     try { history.replaceState({ project: pm && pm[1] ? pm[1] : null }, '', to + location.search + location.hash); } catch (e) {}
   }
@@ -4014,6 +4014,9 @@ function renderSites() {
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
   siteBuildsCheck();
+  // A PLACEHOLDER AGENT'S ADDRESS (/home/accounting ...) draws its coming-soon screen.
+  const soon = !open && agentFromPath();
+  if (soon) { renderAgentSoon(view, soon); return; }
   if (open) { chatOpenCheck(open); resumeOpenSite(open); siteHeldRepliesCheck(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
   // AN ID THAT NAMES NOTHING FALLS BACK TO THE LIST, AND THE URL STOPS LYING.
   // A pasted link to a deleted project, or one belonging to another account,
@@ -4043,6 +4046,7 @@ function renderSites() {
   view.classList.add('st-home-open');
   view.innerHTML =
     '<div class="st-homews">' + siteConvBarHTML() +
+    '<div class="st-agentmain">' + agentHeadHTML() + '<div class="st-agentbody">' +
     '<div class="st-chatstrip" title="The chat opens when your first site starts"><svg class="st-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></div>' +
     '<div class="st-homecol">' + siteProjectsStripHTML(null) +
     '<div class="st-homemain">' +
@@ -4066,7 +4070,7 @@ function renderSites() {
       // THE GRID OF CARDS MOVED INTO THE PROJECTS STRIP (2026-11-01): the
       // same cards (`siteCardPairHTML`), drawn there. Their thumbnails keep the
       // tight sandbox (`sandbox=""`): one frame per site, no site scripts run.
-      '</div></div></div>';
+      '</div></div></div></div></div>';
   const gen = document.getElementById('stGen');
   const ta = document.getElementById('stPrompt');
   if (gen && ta) {
@@ -4148,30 +4152,267 @@ function siteProjectsStripHTML(site) {
     '<div class="st-proj-row" id="stProjRow"' + (open ? '' : ' hidden') + '>' + (open ? siteStripRowHTML(site, sites) : '') + '</div>' +
   '</div>';
 }
+// THE AGENTS (owner-approved iMessage-style list, 2026-11-02). One array, in
+// the bar's order. `slug` is the agent's address under /home. ONLY THE SITES
+// AGENT IS REAL: the other four are PLACEHOLDERS (their `time` and `preview`
+// are mock-up text, not data) and open a "coming soon" screen.
+// THE AGENTS' ICONS, owner-approved avatars (2026-11-02), never a reply's words:
+// the four placeholders', then the six the Create-an-agent form offers.
+const AGENT_ICONS = { accounting: '\u{1F4CA}', email: '\u2709\uFE0F', marketing: '\u{1F4E3}', support: '\u{1F4AC}', pick: ['\u{1F916}', '\u{1F9FE}', '\u{1F4C5}', '\u2B50', '\u{1F4E6}', '\u{1F9D1}\u200D\u{1F373}'] };
+const AGENTS = [
+  { id: 'sites', slug: 'projects', name: 'Sites agent' },
+  // PLACEHOLDERS: edit freely; nothing reads these but the bar and the coming-soon screen.
+  { id: 'accounting', slug: 'accounting', name: 'Accounting agent', color: '#0f766e', emoji: AGENT_ICONS.accounting, time: 'Yesterday', preview: 'Your October books are ready to check', placeholder: true,
+    blurb: 'keep your books, track what comes in and goes out, and get your numbers ready.' },
+  { id: 'email', slug: 'email', name: 'Email agent', color: '#7c3aed', emoji: AGENT_ICONS.email, time: 'Mon', preview: '3 replies drafted for you', placeholder: true,
+    blurb: 'sort your inbox, draft replies in your voice, and flag what needs you.' },
+  { id: 'marketing', slug: 'marketing', name: 'Marketing agent', color: '#c2410c', emoji: AGENT_ICONS.marketing, time: 'Sun', preview: 'Instagram post scheduled for Friday', placeholder: true,
+    blurb: 'plan your posts, write them, and put them out on the days that work.' },
+  { id: 'support', slug: 'support', name: 'Support agent', color: '#334155', emoji: AGENT_ICONS.support, time: 'Sat', preview: 'Answered 12 customer questions', placeholder: true,
+    blurb: 'answer your customers’ questions and pass you the ones that need you.' },
+];
+// ── AGENTS THE CUSTOMER MAKES (owner, 2026-11-02: "I know it's not really
+// working, but just the code for the agent builder is going to be there").
+// Kept in THIS BROWSER only, behind one small store so it can move to the
+// account later; nothing runs, no model or server is called.
+const CUSTOM_AGENTS_KEY = 'gf_custom_agents_v1';
+const AGENT_SCHEDULES = [
+  { id: 'message', label: 'When I message it' },
+  { id: 'daily', label: 'Every day' },
+  { id: 'weekly', label: 'Every week' },
+  { id: 'event', label: 'When something happens' },
+];
+const CustomAgents = {
+  list() {
+    try {
+      const v = JSON.parse(localStorage.getItem(CUSTOM_AGENTS_KEY) || '[]');
+      return Array.isArray(v) ? v.filter((a) => a && typeof a.id === 'string' && /^[a-z0-9]{1,30}$/.test(a.id) && typeof a.name === 'string') : [];
+    } catch (e) { return []; }
+  },
+  write(list) { try { localStorage.setItem(CUSTOM_AGENTS_KEY, JSON.stringify(list)); return true; } catch (e) { return false; } },
+  get(id) { return this.list().find((a) => a.id === id) || null; },
+  // Name and instructions are required; the answer says which is missing.
+  check(d) {
+    const name = String((d && d.name) || '').trim(), instructions = String((d && d.instructions) || '').trim();
+    if (!name && !instructions) return 'Give your agent a name and say what it should do.';
+    if (!name) return 'Give your agent a name.';
+    if (!instructions) return 'Say what your agent should do.';
+    return '';
+  },
+  save(d) {
+    const list = this.list();
+    const rec = { id: d.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)), name: String(d.name).trim().slice(0, 60), instructions: String(d.instructions).trim().slice(0, 4000),
+      icon: AGENT_ICONS.pick.includes(d.icon) ? d.icon : AGENT_ICONS.pick[0], schedule: AGENT_SCHEDULES.some((x) => x.id === d.schedule) ? d.schedule : 'message', createdAt: d.createdAt || Date.now() };
+    const i = list.findIndex((a) => a.id === rec.id);
+    if (i >= 0) list[i] = rec; else list.push(rec);
+    return this.write(list) ? rec : null;
+  },
+  remove(id) { return this.write(this.list().filter((a) => a.id !== id)); },
+};
+// A saved agent as a row: under the placeholders, its instructions as the preview.
+function customAgentRow(c) {
+  return { id: 'agent-' + c.id, slug: 'agent-' + c.id, name: c.name, emoji: c.icon, color: '#e9e6e0', time: '', preview: c.instructions, custom: c };
+}
+function agentsAll() { return AGENTS.concat(CustomAgents.list().map(customAgentRow)); }
+// The "Create an agent" screen's own entry (/home/new).
+const AGENT_NEW = { id: 'new', slug: 'new', name: 'New agent', plus: true };
+// While a saved agent's form is open for editing (its own address stays).
+let agentEditing = null;
+// The agent the address names (/home/<slug>) other than the Sites agent, or null.
+function agentFromPath() {
+  const h = HOME_PATH.exec(location.pathname);
+  if (!h || !h[1] || h[2]) return null;
+  if (h[1] === 'new') return AGENT_NEW;
+  return agentsAll().find((a) => (a.placeholder || a.custom) && a.slug === h[1]) || null;
+}
+// GLOOPY, full body, free-floating: no circle, no background (defs in index.html).
+function gloopyHTML(h) {
+  return '<svg class="st-gloopy" viewBox="0 0 200 230" width="' + Math.round(h * 200 / 230) + '" height="' + h + '" aria-hidden="true" focusable="false"><use href="#gfGloopy"/></svg>';
+}
+function agentAvatarHTML(a, size) {
+  if (a.plus) return '<span class="st-av st-av-plus" style="width:' + size + 'px;height:' + size + 'px;font-size:' + Math.round(size * .55) + 'px">+</span>';
+  if (a.id === 'sites') return '<span class="st-av st-av-gloopy" style="width:' + size + 'px;height:' + size + 'px">' + gloopyHTML(Math.round(size * (size >= 44 ? 48 / 44 : 1))) + '</span>';
+  return '<span class="st-av" style="width:' + size + 'px;height:' + size + 'px;background:' + a.color + ';font-size:' + Math.round(size * .43) + 'px">' + a.emoji + '</span>';
+}
+// The selected agent: the placeholder the address names, else the Sites agent.
+function agentCurrent() { return agentFromPath() || AGENTS[0]; }
+// The site the Sites agent last had open, so coming back to it restores the workspace.
+let agentLastSite = null;
+function agentClock(t) {
+  const d = new Date(t); if (!t || isNaN(d)) return '';
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
+  if (now - d < 6 * 864e5) return d.toLocaleDateString([], { weekday: 'short' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+// The Sites agent's row: the open site's real latest message, else "Ready when you are".
+function agentSitesLine() {
+  const site = (siteOpenId && siteById(siteOpenId)) || (agentLastSite && siteById(agentLastSite)) || null;
+  const msgs = site && Array.isArray(site.msgs) ? site.msgs : [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const t = msgs[i] && typeof msgs[i].t === 'string' ? msgs[i].t.replace(/\s+/g, ' ').trim() : '';
+    if (t) return { time: agentClock(site.updatedAt || site.createdAt), preview: t };
+  }
+  return { time: '', preview: 'Ready when you are' };
+}
+// THE HEADER ON TOP OF THE RIGHT-HAND AREA, like an iMessage contact: the
+// selected agent's avatar and name, centred. Room is left for settings later.
+function agentHeadHTML() {
+  const a = agentCurrent();
+  return '<div class="st-agenthead" id="stAgentHead">' + agentAvatarHTML(a, 40) + '<b class="st-agenthead-name">' + esc(a.name) + '</b></div>';
+}
+// A PLACEHOLDER AGENT'S SCREEN: coming soon, nothing works yet.
+function agentSoonHTML(a) {
+  return '<div class="st-soon" id="stSoon" data-agent="' + esc(a.id) + '">' +
+    '<div class="st-soon-mid">' + agentAvatarHTML(a, 84) +
+      '<b class="st-soon-name">' + esc(a.name) + '</b>' +
+      '<div class="st-soon-sub">Coming soon. This agent will ' + esc(a.blurb) + '</div>' +
+      '<button type="button" class="st-soon-notify">Notify me when it’s ready</button>' +
+    '</div>' +
+    '<div class="st-soon-foot"><span class="st-soon-plus" aria-hidden="true">+</span>' +
+      '<input class="st-soon-in" type="text" disabled placeholder="Message ' + esc(a.name) + ' — available soon" aria-label="Message ' + esc(a.name) + ' (available soon)"></div>' +
+  '</div>';
+}
 function siteConvBarHTML() {
   const closed = siteConvClosed();
+  const cur = agentCurrent();
   // THE WHOLE PAGE'S HEIGHT, THE LOGO AT ITS TOP (owner, 2026-11-01: "the
   // conversations take the whole entire page"). The wordmark goes home, as
   // the top bar's did; the top bar itself is hidden beside this (styles.css),
   // except on a phone, where the bar is hidden and the top bar stays.
   const mark = '<svg class="logo-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#gfMark" /></svg>';
   const right = '<svg class="st-svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+  const sitesLine = agentSitesLine();
+  const all = agentsAll();
+  const row = (a) => {
+    const line = a.id === 'sites' ? sitesLine : a;
+    const on = a.id === cur.id;
+    return '<button type="button" class="st-conv-item' + (on ? ' on' : '') + '" role="listitem"' + (on ? ' aria-current="true"' : '') + ' data-agent="' + esc(a.id) + '">' +
+      agentAvatarHTML(a, 44) +
+      '<span class="st-conv-txt"><span class="st-conv-l1"><span class="st-conv-name">' + esc(a.name) + '</span><span class="st-conv-time">' + esc(line.time || '') + '</span></span>' +
+      '<span class="st-conv-sub">' + esc(line.preview || '') + '</span></span></button>';
+  };
+  // THE iMESSAGE-STYLE LIST (owner-approved mock-up, 2026-11-02).
   return '<aside class="st-conv' + (closed ? ' closed' : '') + '" id="stConv" aria-label="Conversations">' +
     '<div class="st-conv-head">' +
       '<div class="st-conv-logo" id="gfConvLogo" data-act="landing" role="button" tabindex="0" title="Back to your projects">' + mark + '<span>Go Farther</span></div>' +
-      '<button type="button" class="st-icon" id="gfConvClose" title="Hide conversations" aria-label="Hide conversations">' + ic('chevronleft', 15) + '</button>' +
+      '<span class="st-conv-acts">' +
+        '<button type="button" class="st-icon st-conv-hide" id="gfConvClose" title="Hide conversations" aria-label="Hide conversations">' + ic('chevronleft', 15) + '</button>' +
+        '<button type="button" class="st-conv-new' + (cur.id === 'new' ? ' on' : '') + '" id="gfConvNew" title="Create an agent" aria-label="Create an agent">+</button>' +
+      '</span>' +
     '</div>' +
-    // AGENTS, NEVER SITES: one today, the builder's chat. Sites are the projects strip's.
-    '<div class="st-conv-list" role="list">' +
-      '<button type="button" class="st-conv-item on" role="listitem" aria-current="true" data-agent="sites">' + ic('globe', 15) + '<span class="st-conv-txt"><span class="st-conv-name">Sites agent</span><span class="st-conv-sub">Ready when you are</span></span></button>' +
-    '</div>' +
-    // CLOSED: a thin strip the whole height, the logo, the way back open, the agent's icon.
+    '<div class="st-conv-search"><input type="search" id="gfConvSearch" placeholder="Search" aria-label="Search agents" autocomplete="off"></div>' +
+    // AGENTS, NEVER SITES. Sites are the projects strip's.
+    '<div class="st-conv-list" role="list">' + all.map(row).join('') + '</div>' +
+    // CLOSED: a thin strip the whole height, the logo, the way back open, the avatars only.
     '<div class="st-conv-rail">' +
       '<div class="st-conv-logo st-conv-logo-sm" id="gfConvLogoSm" data-act="landing" role="button" tabindex="0" title="Back to your projects">' + mark + '</div>' +
       '<button type="button" class="st-icon" id="gfConvOpen" title="Show conversations" aria-label="Show conversations">' + right + '</button>' +
-      '<span class="st-conv-ic" title="Sites agent">' + ic('globe', 16) + '</span>' +
+      all.map((a) => '<button type="button" class="st-conv-ic' + (a.id === cur.id ? ' on' : '') + '" data-agent="' + esc(a.id) + '" title="' + esc(a.name) + '" aria-label="' + esc(a.name) + '">' + agentAvatarHTML(a, 44) + '</button>').join('') +
     '</div>' +
   '</aside>';
+}
+// Selecting an agent in the bar: a placeholder gets its own address and the
+// coming-soon screen; the Sites agent goes back to the site it had open.
+function agentSelect(id) {
+  const a = id === 'new' ? AGENT_NEW : agentsAll().find((x) => x.id === id);
+  if (!a) return;
+  agentEditing = null;
+  if (a.id === 'sites') {
+    if (!agentFromPath()) return;
+    const back = agentLastSite && siteById(agentLastSite) ? agentLastSite : null;
+    openProject(back, 'push');
+    return;
+  }
+  // Where Cancel on the form goes back to: the agent selected before it.
+  if (a.id === 'new') { const cur = agentCurrent(); agentBeforeNew = cur.id === 'new' ? agentBeforeNew : cur.id; }
+  if (siteOpenId) agentLastSite = siteOpenId;
+  const path = '/home/' + a.slug;
+  try { if (location.pathname !== path) history.pushState({ project: null }, '', path); } catch (e) {}
+  openProject(null, 'none');
+}
+let agentBeforeNew = 'sites';
+// THE CREATE-AN-AGENT FORM (owner-approved mock-up, 2026-11-02); `c` fills it to edit.
+function agentFormHTML(c) {
+  const icon = c ? c.icon : AGENT_ICONS.pick[0];
+  const sched = c ? c.schedule : 'message';
+  return '<div class="st-agentform-wrap"><form class="st-agentform" id="stAgentForm" novalidate>' +
+    '<div><b class="st-af-title">' + (c ? 'Edit ' + esc(c.name) : 'Create an agent') + '</b><div class="st-af-sub">Tell it what to do in plain words. You can change any of this later.</div></div>' +
+    '<div><div class="st-af-lbl">Icon</div><div class="st-af-icons" role="radiogroup" aria-label="Icon">' +
+      AGENT_ICONS.pick.map((e) => '<button type="button" class="st-af-icon' + (e === icon ? ' on' : '') + '" role="radio" aria-checked="' + (e === icon) + '" data-icon="' + esc(e) + '">' + e + '</button>').join('') +
+    '</div></div>' +
+    '<label><div class="st-af-lbl">Name</div><input class="st-af-fld" id="stAgentName" type="text" maxlength="60" autocomplete="off" value="' + esc(c ? c.name : '') + '"></label>' +
+    '<label><div class="st-af-lbl">What should it do?</div><textarea class="st-af-fld st-af-ta" id="stAgentDo" maxlength="4000">' + esc(c ? c.instructions : '') + '</textarea></label>' +
+    '<div><div class="st-af-lbl">When should it run?</div><div class="st-af-pills" role="radiogroup" aria-label="When should it run?">' +
+      AGENT_SCHEDULES.map((x) => '<button type="button" class="st-af-pill' + (x.id === sched ? ' on' : '') + '" role="radio" aria-checked="' + (x.id === sched) + '" data-sched="' + x.id + '">' + esc(x.label) + '</button>').join('') +
+    '</div></div>' +
+    '<div class="st-af-err" id="stAgentErr" role="alert" hidden></div>' +
+    '<div class="st-af-btns"><button type="submit" class="st-af-go" id="stAgentSave">' + (c ? 'Save changes' : 'Create agent') + '</button><button type="button" class="st-af-cancel" id="stAgentCancel">Cancel</button></div>' +
+  '</form></div>';
+}
+function wireAgentForm(view, c) {
+  const f = view.querySelector('#stAgentForm');
+  if (!f) return;
+  const pick = (sel, attr) => f.querySelectorAll(sel).forEach((b) => { b.onclick = () => { f.querySelectorAll(sel).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); }); }; });
+  pick('.st-af-icon'); pick('.st-af-pill');
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const d = { id: c ? c.id : undefined, createdAt: c ? c.createdAt : undefined,
+      name: f.querySelector('#stAgentName').value, instructions: f.querySelector('#stAgentDo').value,
+      icon: (f.querySelector('.st-af-icon.on') || {}).dataset?.icon, schedule: (f.querySelector('.st-af-pill.on') || {}).dataset?.sched };
+    const err = f.querySelector('#stAgentErr');
+    const why = CustomAgents.check(d);
+    if (why) { err.textContent = why; err.hidden = false; return; }
+    const rec = CustomAgents.save(d);
+    if (!rec) { err.textContent = 'This browser would not save your agent. Try again in a normal window.'; err.hidden = false; return; }
+    agentEditing = null;
+    const path = '/home/agent-' + rec.id;
+    try { if (location.pathname !== path) history.pushState({ project: null }, '', path); } catch (e2) {}
+    openProject(null, 'none');
+  };
+  f.querySelector('#stAgentCancel').onclick = () => {
+    if (c) { agentEditing = null; openProject(null, 'none'); return; }
+    agentSelect(agentsAll().some((a) => a.id === agentBeforeNew) ? agentBeforeNew : 'sites');
+    if (agentFromPath() === AGENT_NEW) { const back = agentLastSite && siteById(agentLastSite) ? agentLastSite : null; openProject(back, 'push'); }
+  };
+}
+// A SAVED AGENT'S SCREEN: like the placeholders', with its own words.
+function agentCustomHTML(a) {
+  const c = a.custom;
+  const sched = (AGENT_SCHEDULES.find((x) => x.id === c.schedule) || AGENT_SCHEDULES[0]).label;
+  return '<div class="st-soon" id="stSoon" data-agent="' + esc(a.id) + '">' +
+    '<div class="st-soon-mid">' + agentAvatarHTML(a, 84) +
+      '<b class="st-soon-name">' + esc(c.name) + '</b>' +
+      '<div class="st-soon-do" id="stAgentInstr">' + esc(c.instructions) + '</div>' +
+      '<div class="st-soon-sched">Runs: <b>' + esc(sched) + '</b></div>' +
+      '<div class="st-soon-sub">This agent is saved. It will start working once agents are switched on.</div>' +
+      '<div class="st-af-btns"><button type="button" class="st-soon-notify" id="stAgentEdit">Edit</button><button type="button" class="st-soon-notify st-af-del" id="stAgentDel">Delete</button></div>' +
+    '</div>' +
+    '<div class="st-soon-foot"><span class="st-soon-plus" aria-hidden="true">+</span>' +
+      '<input class="st-soon-in" type="text" disabled placeholder="Message ' + esc(c.name) + ' \u2014 available soon" aria-label="Message ' + esc(c.name) + ' (available soon)"></div>' +
+  '</div>';
+}
+// THE PLACEHOLDER AGENT'S WHOLE SCREEN: the bar, its header, coming soon.
+function renderAgentSoon(view, a) {
+  view.classList.add('st-home-open');
+  const editing = a.custom && agentEditing === a.custom.id;
+  const body = a.plus ? agentFormHTML(null) : editing ? agentFormHTML(a.custom) : a.custom ? agentCustomHTML(a) : agentSoonHTML(a);
+  view.innerHTML = '<div class="st-homews">' + siteConvBarHTML() +
+    '<div class="st-agentmain">' + agentHeadHTML() + body + '</div></div>';
+  wireWorkspaceBars(view, null);
+  if (a.plus || editing) wireAgentForm(view, editing ? a.custom : null);
+  const ed = view.querySelector('#stAgentEdit');
+  if (ed) ed.onclick = () => { agentEditing = a.custom.id; openProject(null, 'none'); };
+  const del = view.querySelector('#stAgentDel');
+  if (del) del.onclick = () => {
+    if (!window.confirm('Delete ' + a.custom.name + '? This cannot be undone.')) return;
+    CustomAgents.remove(a.custom.id);
+    agentEditing = null;
+    // Back to the Sites agent (its address no longer names an agent).
+    openProject(agentLastSite && siteById(agentLastSite) ? agentLastSite : null, 'push');
+  };
 }
 // FREE SIDEWAYS SCROLLING: the wheel turns into sideways, a press-and-drag
 // moves the row with a little momentum, a trackpad's own sideways swipe is the
@@ -4263,6 +4504,13 @@ function wireWorkspaceBars(view, site) {
     const set = (closed) => { conv.classList.toggle('closed', closed); wsPrefSet(CONV_KEY, closed ? 'closed' : 'open'); };
     const c = conv.querySelector('#gfConvClose'); if (c) c.onclick = () => set(true);
     const o = conv.querySelector('#gfConvOpen'); if (o) o.onclick = () => set(false);
+    conv.querySelectorAll('[data-agent]').forEach((b) => { b.onclick = () => agentSelect(b.dataset.agent); });
+    const nw = conv.querySelector('#gfConvNew'); if (nw) nw.onclick = () => agentSelect('new');
+    const q = conv.querySelector('#gfConvSearch');
+    if (q) q.oninput = () => {
+      const t = q.value.trim().toLowerCase();
+      conv.querySelectorAll('.st-conv-list .st-conv-item').forEach((b) => { const a = agentsAll().find((x) => x.id === b.dataset.agent); b.hidden = !!t && !(a && a.name.toLowerCase().includes(t)); });
+    };
     // THE LOGO GOES HOME, as the top bar's wordmark does (`goLanding`: signed
     // in, that is /home/projects). Bound here because `wireActions` runs at
     // boot, before this markup exists; its own flag keeps it from binding twice.
@@ -7408,6 +7656,8 @@ function renderSiteWorkspace(view, site) {
       // far left; agents, never sites. Everything else is the column beside it.
       siteConvBarHTML() +
       '<div class="st-wscol">' +
+      // THE SELECTED AGENT'S HEADER, ABOVE THE PROJECTS STRIP (2026-11-02).
+      agentHeadHTML() +
       // THE PROJECTS, ON TOP OF THE TOOLBAR (owner, 2026-11-01).
       siteProjectsStripHTML(site) +
       '<div class="st-topbar">' +
