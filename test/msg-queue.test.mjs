@@ -169,6 +169,72 @@ test("MQ5 ✕ on a queued message: the request's stop ends it with no job and no
   });
 });
 
+/** A sent ("add a gallery"), then paused as `nextStep` records it (`status`), its job gone; B ("hey") then goes ahead and its job is filed. */
+async function pausedThenB(P, status) {
+  const a = await sendMessage(P, { message: "add a gallery" });
+  const rec = P.record(a.key);
+  rec.parts[0].status = status;
+  // ITS JOB ENDED WHEN IT PAUSED; the next try is a new job (`seq`).
+  rec.parts[0].jobs = rec.parts[0].jobs.map((j) => ({ ...j, end: j.end || { state: "failed", at: P.now(), cost: 0 } }));
+  if (status === "waiting") rec.parts[0].question = { id: "q1", text: "Which photos?", options: ["All"] };
+  await P.env.SITES_BUCKET.put(RQ.recordKey(P.slug, a.key), JSON.stringify(RQ.settleState(rec)));
+  P.queue.length = 0;
+  for (const j of P.jobsOf(a.key)) { j.state = "cancelled"; j.updated_at = P.now(); }
+  const b = await sendMessage(P, { message: "hey" });
+  assert.ok(!b.body.request.queued, "B waited behind a paused A");
+  assert.equal(P.jobsOf(b.key).length, 1, "B did not go ahead");
+  return { a, b };
+}
+
+test("MQ6 A paused for credits, B goes ahead and runs; credits added → A waits (front of the line) until B ends, then resumes", async () => {
+  const log = { calls: [], other: 0 };
+  await withPlatform({ answers: { "": model(plainAnswer, log) } }, async (P) => {
+    const { a, b } = await pausedThenB(P, "credits");
+    const jobsA = P.jobsOf(a.key).length;
+    const c = await sendMessage(P, { message: "change the footer" });
+    assert.equal(c.body.request.queued, true);
+    // THE TOP-UP: Continue (the route) and the tick's auto-resume both go through the same line.
+    const r = await call(P, "POST", "/api/site/request/" + P.slug + "/" + a.key + "/credits", { resume: true });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    await tick(P);
+    const ra = P.record(a.key);
+    assert.equal(ra.queued, true, "A resumed beside the running B: " + JSON.stringify(ra.parts.map((p) => p.status)));
+    assert.equal(ra.resumed, true);
+    assert.equal(P.jobsOf(a.key).length, jobsA, "A filed a job while B ran");
+    // B ENDS: A (resumed, older work) goes before C, the new message.
+    await settle(P, b.key, { rounds: 20 });
+    assert.equal(P.record(b.key).ended, true);
+    assert.equal(P.jobsOf(a.key).length, jobsA + 1, "A did not resume when B ended");
+    assert.ok(!P.jobsOf(c.key).length || P.jobsOf(c.key)[0].created_at >= P.jobsOf(a.key).at(-1).updated_at, "C went ahead of the resumed A");
+    assert.ok(P.jobsOf(a.key).at(-1).created_at >= P.jobsOf(b.key)[0].updated_at);
+    await settle(P, a.key, { rounds: 20 });
+    await settle(P, c.key, { rounds: 20 });
+    assert.equal(P.record(c.key).ended, true);
+  });
+});
+
+test("MQ7 A waiting on the owner's question, B goes ahead; the answer → A waits until B ends, then resumes", async () => {
+  const log = { calls: [], other: 0 };
+  await withPlatform({ answers: { "": model(plainAnswer, log) } }, async (P) => {
+    const { a, b } = await pausedThenB(P, "waiting");
+    const jobsA = P.jobsOf(a.key).length;
+    // THE ANSWER, AS THE ANSWER ROUTE RECORDS IT (`answerPart`, then `resumeInLine`), then the next step.
+    const rec = P.record(a.key);
+    rec.parts[0].status = "ready"; rec.parts[0].question = null;
+    await P.env.SITES_BUCKET.put(RQ.recordKey(P.slug, a.key), JSON.stringify(RQ.resumeInLine(RQ.settleState(rec), P.now())));
+    await tick(P);
+    assert.equal(P.record(a.key).queued, true, "A resumed beside the running B");
+    assert.equal(P.jobsOf(a.key).length, jobsA, "A filed a job while B ran");
+    await settle(P, b.key, { rounds: 20 });
+    assert.equal(P.jobsOf(a.key).length, jobsA + 1, "A did not resume when B ended");
+    assert.equal(P.record(a.key).queued, false);
+  });
+  // AND THE ANSWER ROUTE PUTS IT BACK IN LINE (the wiring, by its own line).
+  const src = (await import("node:fs")).readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(src, /resumeInLine\(r\) : r\)\)\(answerPart\(at\.rec, n,/);
+  assert.match(src, /const r = resumeCredits\(rec\); return r \? resumeInLine\(r\) : rec;/);
+});
+
 test("MQ4 the rule: running and earlier-queued requests hold the line; credits, questions, ended and old ones do not; FIFO", () => {
   const now = Date.now();
   const R = (key, at, status, extra = {}) => RQ.settleState({ key, slug: "s", uid: "u", at, parts: [{ n: 0, status, jobs: [] }], ...extra }, now);
@@ -179,7 +245,7 @@ test("MQ4 the rule: running and earlier-queued requests hold the line; credits, 
   assert.deepEqual(RQ.queueBlockers(late, [R("rqa", now - 5, "done")]), []);
   assert.deepEqual(RQ.queueBlockers(late, [R("rqa", now - RQ.QUEUE_HOLD_MS - 1, "started")]), [], "a request stuck past the hold keeps the line for ever");
   assert.deepEqual(RQ.queueBlockers(late, [{ ...R("rqa", now - 5, "ready"), queued: true }]), ["rqa"], "an earlier queued one keeps its place");
-  assert.deepEqual(RQ.queueBlockers(late, [R("rqb", now + 5, "started")]), [], "a later request held an earlier one");
+  assert.deepEqual(RQ.queueBlockers(late, [R("rqb", now + 5, "started")]), ["rqb"], "one request at a time: any running request holds the line");
   assert.deepEqual(RQ.queueBlockers(late, [{ ...R("rqa", now - 5, "started"), uid: "other" }]), []);
   assert.deepEqual(RQ.queueBlockers({ ...late, queued: false }, [R("rqa", now - 5, "started")]), [], "a request already started never waits");
   const out = RQ.releaseQueue(late, now);

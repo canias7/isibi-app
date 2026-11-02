@@ -759,18 +759,50 @@ export function queuedBefore(other, rec) {
   return a < b || (a === b && String(other.key) < String(rec.key));
 }
 
-/** The keys of the requests `rec` waits behind, among `others` (records of its site). */
+/**
+ * Whether queued `o` is ahead of queued `rec` in the line (2026-11-02, the
+ * owner: one request runs at a time). A RESUMED request (credits topped up, or
+ * the owner answered its question: `resumed`) is older work and goes to the
+ * FRONT, ahead of every new message; resumed ones among themselves by when
+ * they became ready again (`queuedAt`); new messages by when they were accepted.
+ */
+export function aheadInLine(o, rec) {
+  if (!o || !rec || o.key === rec.key || o.queued !== true) return false;
+  const ro = o.resumed === true, rr = rec.resumed === true;
+  if (ro !== rr) return ro;
+  if (ro) {
+    const a = Number(o.queuedAt), b = Number(rec.queuedAt);
+    if (Number.isFinite(a) && Number.isFinite(b) && a !== b) return a < b;
+  }
+  return queuedBefore(o, rec);
+}
+
+/**
+ * The keys of the requests `rec` waits behind, among `others` (records of its
+ * site): AT MOST ONE REQUEST RUNS ON A SITE AT A TIME, so any other request now
+ * running (not in line, `holdsQueue`) holds it, whenever it arrived; and so does
+ * any request in line ahead of it (`aheadInLine`).
+ */
 export function queueBlockers(rec, others, now = Date.now()) {
   if (!rec || rec.queued !== true) return [];
   return (Array.isArray(others) ? others : [])
-    .filter((o) => o && o.slug === rec.slug && o.uid === rec.uid && queuedBefore(o, rec) && holdsQueue(o, now))
+    .filter((o) => o && o.key !== rec.key && o.slug === rec.slug && o.uid === rec.uid && !o.ended
+      && ((o.queued !== true && holdsQueue(o, now)) || aheadInLine(o, rec)))
     .map((o) => o.key);
 }
 
-/** The record let out of the line: it starts now. Null when it was not queued. */
+/** The record let out of the line: it starts (or resumes) now. Null when it was not queued. */
 export function releaseQueue(rec, now = Date.now()) {
   if (!rec || rec.queued !== true) return null;
-  return { ...rec, queued: false, startedAt: now, updatedAt: now };
+  const out = { ...rec, queued: false, startedAt: now, updatedAt: now };
+  delete out.resumed; delete out.queuedAt;
+  return out;
+}
+
+/** A request that became ready again (credits added, an answer), put back in line at the front; it starts at once when nothing else runs. */
+export function resumeInLine(rec, now = Date.now()) {
+  if (!rec || rec.ended) return rec;
+  return { ...rec, queued: true, resumed: true, queuedAt: now };
 }
 
 export function appendParts(rec, { key, message, routed, at = Date.now() } = {}) {
@@ -2957,9 +2989,9 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
   return {
     key: rec.key, state: rec.state, ended: rec.ended === true, stop: rec.stop === true, at: rec.at, updatedAt: rec.updatedAt,
     // WAITING IN LINE BEHIND AN EARLIER MESSAGE (2026-11-02, the message queue).
-    ...(rec.queued === true && rec.ended !== true ? { queued: true } : {}),
+    ...(rec.queued === true && rec.ended !== true ? { queued: true, ...(rec.resumed === true ? { resumed: true } : {}) } : {}),
     // …AND ONE CANCELLED WHILE IT WAITED: it never started, so it is never shown on the thread.
-    ...(rec.queued === true && rec.ended === true ? { dropped: true } : {}),
+    ...(rec.queued === true && rec.resumed !== true && rec.ended === true ? { dropped: true } : {}),
     // OUT OF CREDITS, PAUSED (2026-10-26): how many parts wait, the owner's tick, and whether credits were added since.
     ...((n) => (n ? { credits: { paused: n, auto: creditsAuto(rec), ready: !!(rec.credits && rec.credits.ready === true) } } : {}))(creditsPaused(rec).length),
     ...(Number.isFinite(rec.creditsResumedAt) ? { creditsResumedAt: rec.creditsResumedAt } : {}),

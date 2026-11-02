@@ -61,7 +61,7 @@ test("MQB queued messages are chips in the typing box, not bubbles; ✕ cancels 
       if (url.origin !== ORIGIN) return json(route, {});
       const p = url.pathname;
       if (p.startsWith("/api/")) {
-        if (req.method() !== "GET") calls.push([req.method(), p]);
+        if (req.method() !== "GET" && p.startsWith("/api/site/request/")) calls.push([req.method(), p]);
         if (p === "/api/site/requests/" + SLUG) return json(route, { ok: true, requests: [viewA(), viewB(S), ...(S.cancelled ? [] : [viewC(S)])] });
         if (p === "/api/site/request/" + SLUG + "/" + KA) return json(route, { ok: true, request: viewA() });
         if (p === "/api/site/request/" + SLUG + "/" + KB) return json(route, { ok: true, request: viewB(S) });
@@ -83,8 +83,9 @@ test("MQB queued messages are chips in the typing box, not bubbles; ✕ cancels 
     await page.waitForFunction(() => document.querySelectorAll(".st-comp #stQueue .st-qchip").length === 2, null, { timeout: 20000 });
     // THE CHIPS, IN ORDER, INSIDE THE BOX ABOVE THE PLACEHOLDER.
     const chips = await page.$$eval("#stQueue .st-qchip", (els) => els.map((e) => e.textContent.trim()));
-    assert.equal(chips[0], "⏱ hey ✕");
-    assert.match(chips[1], /^⏱ Change the button colour to… ✕$/);
+    assert.equal(chips[0], "hey");
+    assert.deepEqual(await page.$eval(".st-qchip", (e) => [getComputedStyle(e, "::before").content, getComputedStyle(e.querySelector(".st-qx"), "::after").content]), ["\"\u23f1\"", "\"\u2715\""], "the chip is not ⏱ … ✕");
+    assert.equal(chips[1], "Change the button colour to\u2026");
     assert.equal(await page.$eval("#stQueue", (q) => q.nextElementSibling.id), "stRevise", "the chips are not above the text box");
     const bg = await page.$eval(".st-qchip", (e) => getComputedStyle(e).backgroundColor);
     assert.equal(bg, "rgb(240, 236, 230)");
@@ -99,6 +100,19 @@ test("MQB queued messages are chips in the typing box, not bubbles; ✕ cancels 
     await page.waitForFunction(() => document.querySelectorAll("#stQueue .st-qchip").length === 1, null, { timeout: 10000 });
     for (let i = 0; i < 40 && !calls.length; i++) await page.waitForTimeout(50);
     assert.deepEqual(calls, [["DELETE", "/api/site/request/" + SLUG + "/" + KC]]);
+    // THE COMPOSER'S STOP STOPS THE RUNNING ONE (the gallery), never the queued hey, though hey is newer.
+    calls.length = 0;
+    await page.evaluate((id) => siteStopWork(siteById(id)), SITE_ID);
+    for (let i = 0; i < 40 && !calls.length; i++) await page.waitForTimeout(50);
+    assert.deepEqual(calls, [["DELETE", "/api/site/request/" + SLUG + "/" + KA]], "Stop picked a queued request");
+    // …AND WITH NOTHING RUNNING, ONLY A QUEUED ONE, STOP HAS NOTHING TO STOP (only its ✕ cancels it).
+    const onlyQueued = await page.evaluate(({ id, ka }) => {
+      const s = siteById(id);
+      const copy = { ...s, requests: { ...s.requests, [ka]: { ...s.requests[ka], view: { ...s.requests[ka].view, ended: true, state: "done" } } } };
+      const w = siteRunningWork(copy);
+      return w && w.kind === "request" ? w.key : null;
+    }, { id: SITE_ID, ka: KA });
+    assert.equal(onlyQueued, null, "Stop would stop a queued message");
     // HEY'S TURN: its chip goes, it is a bubble with its working line.
     S.started = true;
     await page.waitForFunction(() => !document.querySelector("#stQueue .st-qchip") && document.querySelectorAll("#stThread .st-req-working").length === 2, null, { timeout: 30000 });

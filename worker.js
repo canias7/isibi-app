@@ -273,7 +273,7 @@ import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
   nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, joinableRequest, questionsToOffer, noteOffered,
-  queueBlockers, releaseQueue, holdsQueue,
+  queueBlockers, releaseQueue, holdsQueue, resumeInLine, aheadInLine,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -25591,7 +25591,7 @@ async function siteQueueAhead(env, rec) {
 async function startNextInLine(env, ctx, rec) {
   const open = await siteOpenRequests(env, rec.slug, rec.uid);
   if (!open) return;
-  const waiting = open.filter((o) => o.queued === true && o.key !== rec.key).sort((a, b) => (a.at - b.at) || (a.key < b.key ? -1 : 1));
+  const waiting = open.filter((o) => o.queued === true && o.key !== rec.key).sort((a, b) => (aheadInLine(a, b) ? -1 : aheadInLine(b, a) ? 1 : 0));
   if (waiting.length) await advanceRequest(env, ctx, rec.slug, waiting[0].key, "queue");
 }
 
@@ -25609,12 +25609,8 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       // it waiting; the sweep looks again within two minutes.
       // A QUEUED MESSAGE CANCELLED (its ✕, the request's stop) is not let out:
       // it ends as stopped with no job ever filed, so nothing is charged.
-      if (rec.queued === true && !rec.stop) {
-        const ahead = await siteQueueAhead(env, rec);
-        if (ahead === null || ahead.length) return rec;
-        const out = releaseQueue(rec);
-        if (out) { base = out; console.log("request queue:", slug, key, "started after the line cleared"); }
-      }
+      // (Read below, after the credits step: a top-up that resumes a paused
+      // request puts it back in line first, `resumeInLine`.)
       // A PART HELD ON A PURCHASE NOBODY COULD TELL (2026-10-09, round 3),
       // looked at again: moved on once every purchase it waits on is known —
       // found landed (its photograph is stored), ended, or released by the
@@ -25631,6 +25627,20 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       // parts when "Continue when topped up" is ticked, and only mark them
       // ready for the owner's Continue when it is not.
       base = await creditsStep(env, base);
+      // ONE REQUEST RUNS ON A SITE AT A TIME (2026-11-02, the owner): a queued
+      // request — a new message, or one that became ready again (credits added,
+      // an answer) — files nothing while another runs or is ahead of it in line.
+      if (base.queued === true && !base.stop) {
+        const ahead = await siteQueueAhead(env, base);
+        if (ahead === null || ahead.length) {
+          // ITS RESUME (or anything else this step changed) IS KEPT, still in line.
+          if (base !== rec && !(await saveRequestRecord(env, base, etag))) continue;
+          if (base !== rec) await settleRequestMarker(env, base);
+          return base;
+        }
+        const out = releaseQueue(base);
+        if (out) { base = out; console.log("request queue:", slug, key, "started after the line cleared"); }
+      }
       const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
       const rows = {};
       for (const id of liveJobIds(base)) {
@@ -26047,7 +26057,7 @@ async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, 
       if (was && was.status === "waiting" && was.question && was.question.id !== waiting.id) { gone = at.rec; break; }
       const next = out.intent === "clarify"
         ? askedAgain(at.rec, n, { ask: { ...(out.question || {}), request: waiting.request, stage: "route", round: waiting.round + 1 }, context: ask.context })
-        : answerPart(at.rec, n, { routed: out, resume: waiting.request, context: ask.context, round: waiting.round });
+        : ((r) => (r ? resumeInLine(r) : r))(answerPart(at.rec, n, { routed: out, resume: waiting.request, context: ask.context, round: waiting.round }));
       // THE PART NO LONGER WAITS — stopped, or past its day — so the answer
       // has nothing to resume: the request is shown as it is.
       if (!next) { gone = at.rec; break; }
@@ -26229,7 +26239,7 @@ export async function creditsStep(env, rec, readBalance = readCreditsFor) {
   let bal = NaN;
   try { bal = Number(await readBalance(env, rec.uid)); } catch (e) { console.error("request credits: balance", errorClassForLog(e)); return rec; }
   const d = creditsDecision(rec, bal, Date.now());
-  if (d.act === "resume") { console.log("request credits:", rec.slug, rec.key, "credits added — resuming"); return resumeCredits(rec) || rec; }
+  if (d.act === "resume") { console.log("request credits:", rec.slug, rec.key, "credits added — resuming"); const r = resumeCredits(rec); return r ? resumeInLine(r) : rec; }
   return d.rec || rec;
 }
 
@@ -26253,7 +26263,7 @@ export async function requestCredits(env, ctx, { slug, key, uid, auto, resume, r
       try { bal = Number(await readBalance(env, uid)); } catch { return { status: 503 }; }
       const base = next.credits && Number.isFinite(next.credits.base) ? next.credits.base : 0;
       if (!(next.credits && next.credits.ready === true) && !(Number.isFinite(bal) && bal > base)) return { status: 409, rec, error: "no-credits" };
-      next = resumeCredits(next);
+      next = resumeInLine(resumeCredits(next));
     }
     if (next === rec) { kept = rec; break; }
     if (await saveRequestRecord(env, { ...next, updatedAt: Date.now() }, etag)) kept = next;

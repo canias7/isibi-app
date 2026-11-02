@@ -10868,9 +10868,12 @@ function siteBgHolds(site, key) {
 function siteReqQueued(m, site) {
   const st = site && site.requests && m && m.request && typeof site.requests === 'object' ? site.requests[m.request] : null;
   const v = st && st.view ? st.view : m && m.rq ? m.rq : null;
-  return !!(v && ((v.queued === true && v.ended !== true) || v.dropped === true));
+  return !!(v && ((v.queued === true && v.resumed !== true && v.ended !== true) || v.dropped === true));
 }
+/** The line under a request that became ready again while another runs (2026-11-02): a UI label, not a reply. */
+const SITE_QUEUE_WAIT = 'Waiting for the current job to finish';
 /**
+ * (The chip's clock and its cancel mark are drawn by the stylesheet, `.st-qchip::before` and `.st-qx::after`.)
  * THE LINE, AS CHIPS IN THE TYPING BOX (2026-11-02, the owner's look, option
  * 1): one small pill per message waiting, oldest first, "⏱ <its words> ✕";
  * ✕ cancels it on the server (the request's stop). Empty when none waits.
@@ -10878,19 +10881,20 @@ function siteReqQueued(m, site) {
 function siteQueueHTML(site) {
   const reqs = site && site.requests && typeof site.requests === 'object' ? site.requests : {};
   const list = Object.keys(reqs).map((key) => ({ key, v: reqs[key] && reqs[key].view }))
-    .filter((x) => x.v && x.v.queued === true && x.v.ended !== true && x.v.stop !== true)
+    .filter((x) => x.v && x.v.queued === true && x.v.ended !== true && x.v.stop !== true && x.v.resumed !== true)
     .sort((a, b) => (Number(a.v.at) || 0) - (Number(b.v.at) || 0));
   return list.map((x) => {
     const sent = (site.msgs || []).find((m) => m && m.r === 'u' && m.req === x.key);
     const w = String((sent && sent.t) || (x.v.parts && x.v.parts[0] && x.v.parts[0].words) || '').trim();
     const short = w.length > 28 ? w.slice(0, 27) + '…' : w;
-    return '<span class="st-qchip" title="' + esc(w) + '">⏱ ' + esc(short) + ' <button type="button" class="st-qx" data-queue-cancel="' + esc(x.key) + '" aria-label="Cancel this queued message">✕</button></span>';
+    return '<span class="st-qchip" title="' + esc(w) + '">' + esc(short) + ' <button type="button" class="st-qx" data-queue-cancel="' + esc(x.key) + '" aria-label="Cancel this queued message"></button></span>';
   }).join('');
 }
 /** A one-part message whose request the server is working on now (one reply, not queued, not ended, its part running): its working line is shown under it. */
 function siteReqWorkingLine(m, site) {
   const st = site && site.requests && m && m.request && typeof site.requests === 'object' ? site.requests[m.request] : null;
   const v = st && st.view ? st.view : null;
+  if (v && v.queued === true && v.resumed === true && v.ended !== true && v.stop !== true) return 'wait';
   if (!v || v.one !== true || v.queued === true || v.ended === true || !Array.isArray(v.parts) || v.parts.length !== 1) return false;
   return ['ready', 'queued', 'started', 'recovering'].includes(v.parts[0] && v.parts[0].status);
 }
@@ -10901,7 +10905,7 @@ function siteReqCardShows(m, site) {
 /** The request's card: the parallel card for several parts, today's for one — or, while the panel holds it, only its opening line and soft box. */
 function siteReqCardHTML(m, site) {
   // ONCE STARTED (2026-11-02, the message queue), A ONE-PART MESSAGE'S WORKING LINE until its reply comes.
-  if (siteReqWorkingLine(m, site)) return '<div class="st-think st-req-working"><i></i>Working on it</div>';
+  { const wl = siteReqWorkingLine(m, site); if (wl === 'wait') return '<div class="st-think st-req-waiting">' + esc(SITE_QUEUE_WAIT) + '</div>'; if (wl) return '<div class="st-think st-req-working"><i></i>Working on it</div>'; }
   const v = siteParView(m, site);
   // HELD BY THE PANEL, the card's part list is kept in the page but not shown
   // (`hidden`): nothing of it is drawn, and the UI canary's reader
@@ -16088,7 +16092,7 @@ function siteRunningWork(site) {
   for (let i = keys.length - 1; i >= 0; i--) {
     const st = site.requests && typeof site.requests === 'object' ? site.requests[keys[i].key] : null;
     const v = st && st.view;
-    if (v && !v.ended && !v.stop && siteRequestWorking(v)) return { kind: 'request', key: keys[i].key };
+    if (v && !v.ended && !v.stop && v.queued !== true && siteRequestWorking(v)) return { kind: 'request', key: keys[i].key };
   }
   const cards = site.jobCards && typeof site.jobCards === 'object' && !Array.isArray(site.jobCards) ? site.jobCards : {};
   for (const k of Object.keys(cards)) {
