@@ -2305,3 +2305,7 @@ Fast-forward of 4 commits from `52963a064`: key box on every ending (pause, stop
 ## Deploy (2026-11-02, `e230b4409`)
 
 A fast-forward of 2 commits from `cf8365957` on the owner's word "deploy what we got". Only `public/chat.js` changed (the task box shows only for 2+ tasks; the Data tab is removed), so no container image roll. Served `chat.js?v=e230b4409fcc` read on gofarther.dev. Not runtime-confirmed by a canary press.
+
+## Deploy (2026-11-02, `34b0baa1c`)
+
+A fast-forward of 4 commits from `e230b4409`, on the owner's "Deploy it". It carries: the router's own questions go to the agent, with no capabilities list in the router; payments are not Stripe-only; Gloopy floats at the top centre. Image predicted `818e7e43b308a13e` → `8fa9afba5a1c8a6f` (257 inputs). Served `chat.js?v=34b0baa1c417`. Deployed, not runtime-confirmed (canary press owed). The `parallel-build` and `agent-only` branches are not included.
