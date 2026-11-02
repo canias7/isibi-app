@@ -9,6 +9,18 @@
 
 
 
+## 2026-11-02 — No router: every message goes to the site agent (branch `agent-only`, not merged, not deployed, nothing paid)
+
+On your word ("get rid of [the router] completely, just put it in the big agent"). No routing model call is made for any message any more, on a site or before one exists:
+
+- **A site's message** is one task for the site agent, with the whole message. The agent decides: answer in words ("hey", "what pages do I have?"), ask you with buttons (`ask_owner`, e.g. "Which payment service do you use?"; your tap resumes that task), do the work, or **split it** with its new tool `split_work`: 2 to 6 independent parts, each a full instruction and the pages it alone owns. Each part becomes its own task in the same request, run by its own agent at the same time, with its own job, charge and credit pause; you get one reply when they are all done. The agent that split hands off and ends (if some of the work is its own, it lists it as a part too), and a part never splits again. Two parts may not own the same page; changes on one page stay with one agent.
+- **Before a site exists**, the agent reads the message with three tools only: answer in words, ask with buttons, or `start_build`, which starts the build as before. A "hey" no longer starts a build.
+- **The first build** is unchanged: the agent writes the foundation (header with menu, footer, home), builds it, then hands the other pages to helpers inside the same build (`helpers`). I kept that rather than using `split_work` there, because a first build is one job (design, database, compile, browser check, publish), not a request of tasks. The trade-off stays as before: one bill for the build, and a credit pause stops the whole build, not one page.
+- **Credits**: the balance check still runs before anything (no model call); there is no routing charge. A site message is charged only for its agent's own work.
+- **Where the router's other duties went**: sign-in and the site-owner check, an answer to a waiting question (now always that answer), the message-size limit, the "only a running request takes a new message" rule (`joinableRequest`) and the start-before-credits check all stay in the route, unchanged. A security scan or a phone app is no longer guessed from a message: More → Security and the phone preview's "Get the app" buttons do them. The old router code stays only for the unit tests that run the older steps (`GF_OLD_LANES=1`); it is never reached in the app.
+- **The canary's expected-route box** now refuses any expectation against this code, because there is no router answer to check. Leave it blank.
+
+Tests (supplied model answers only; nothing proven live): `test/agent-only.test.mjs`, 9 cases through the real Worker and the real build route: "hey" on a site and on a new project, the payments question with buttons and its answer resuming the task, three changes split into three tasks side by side with one reply, a description starting the build, the foundation then parallel pages, and split_work's limits. None of them makes a routing call. All fail on the `parallel-build` branch. Updated to the new behaviour: `parallel-agents` (PA1–PA4 now split by the agent; PA3 now shows a same-page split refused and done by one agent), `agent-takes-all` (AT1, AT2: no routing call; AT4: a new project is answered by the agent), `site-agent-route` SAR5, `site-agent` SA25, `addon-existing` (a landmark), and one new canary case. Three source-reading tests had their landmarks moved to the new line (`router-b1`, `route-decision`, `site-map-everywhere`). Full suite (GF_OLD_LANES=1): 12,649 tests, 12,632 pass, 12 fail, 5 skipped; 5 of the 12 were those landmark tests, fixed after the run (passing now); the other 7 (build-panel browser cases, css-reachable, media browser mode, no-generated-deps, a stop-panel case) fail the same way on `parallel-build` in this container, so they are not from this change. The full suite was not re-run on the base. The site image changes (`9ba39b3a931797e3` -> see the branch record); the app-builder image does not.
 
 
 ## 2026-11-02 — Gloopy floats, no top band
@@ -18,6 +30,8 @@ then chose "Top, centred". The white 74px band above the projects strip is gone.
 centred at the top of the workspace column, with no background, and the strip moves up. WL 4 and WL 9 were updated;
 91 of 91 related tests pass. Not deployed.
 
+## 2026-11-02 — The router no longer asks its own questions
+||||||| 1e950dde9
 ## 2026-11-02 — The router no longer asks its own questions
 
 Live on copper-kettle-pottery, a payments-and-emails request got the router's own question ("Which should take
@@ -42,6 +56,18 @@ next to Preview, Code and More. The site card's database button now opens the
 project on Preview, and Cloud's database card no longer opens it. The site's
 database itself is unchanged. Tests: project-url, site-list and site-source are
 updated (175 of 175 related cases pass). Not deployed.
+
+||||||| parent of ac4cb2c77 (Parallel build: foundation-first only on a first build; PLACE 11 follows the no-join rule; owner notes)
+## 2026-11-02: four changes after northline-climbing (branch `parallel-build`, not merged, not deployed, nothing paid)
+
+What you saw on deploy 2302: "Text my customers a reminder the day before their class" was filed as part 3 of an older request whose part 2 was paused for credits. The agent answered correctly (asked Twilio or Vonage, changed nothing, 8 credits), but the answer never showed, and the question had no buttons.
+
+1. **A new message starts its own request.** Why it joined: joining a running request is a deliberate feature (background work, 2026-10-23), but it took any request that had not *ended*, and a request paused for credits never ends. Now a message joins only a request still running with every part active; a part paused for credits, waiting on a question or go-ahead, or already finished makes the message a request of its own (`joinableRequest`).
+2. **A paused part no longer holds the reply back.** The one reply is written once nothing is working: every part finished, paused for credits, or waiting on you. It says what is paused. When a paused part finishes later, a follow-up reply is written.
+3. **Questions come with buttons.** The agent is told to ask with `ask_owner` (tap-to-answer) whenever you must choose, never by writing the question in its summary; the "which service" rule is kept. `ask_owner` was already offered to a part; its question already pauses only that part and your answer resumes it (now tested).
+4. **Parallel agents on a first build.** The first build's agent lays the foundation first (header with the menu, footer, home page) and builds it; then, when its own plan has two or more other pages, it hands them (up to 6) to helper agents that write at the same time, each only its own page, reading the foundation's files. A small site is written by one agent. The task box shows each page as a task. **Limit**: the helpers run inside the build's one job (not separate request jobs), so their cost is the build's one bill and a credit pause stops the whole build, not one page.
+
+Proven with supplied model answers only (`test/parallel-build.test.mjs`, 14 cases), NOT proven live. Screenshots: the build's task box with four pages, the reply with a paused part, the question card with buttons.
 
 ## 2026-11-02: one task = no task box
 

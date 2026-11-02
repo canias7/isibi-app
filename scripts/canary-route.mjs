@@ -80,6 +80,13 @@ export function readExpectRoute(raw) {
  */
 export function routeVerdict(expect, answer) {
   const a = answer && typeof answer === "object" && !Array.isArray(answer) ? answer : {};
+  // NO ROUTER (2026-11-02, agent-only): the route answers for the site agent
+  // (`agent: true`), and no model chose a route, so no expectation about one
+  // can pass: its fixed `edit`/`page` would otherwise match `layer=page` by
+  // accident. Leave the box blank on a press against this code.
+  if (a.agent === true && Object.keys(expect || {}).length) {
+    return { ok: false, diffs: [{ key: "router", want: "a router's answer", got: "none (the site agent takes the whole message; there is no router)", readable: true }] };
+  }
   const diffs = [];
   for (const key of Object.keys(expect || {})) {
     const want = expect[key];

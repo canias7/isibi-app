@@ -9,7 +9,8 @@ test("PC1 the rules forbid choosing a provider and say to ask with ask_owner", (
   const r = SERVER_RULES.replace(/\s+/g, " ");
   assert.match(r, /Never choose the provider yourself/);
   assert.match(r, /names only a kind of service/);
-  assert.match(r, /when ask_owner is offered, ask which one they use before you write its code or request its key/);
+  assert.match(r, /when ask_owner is offered, CALL ask_owner to ask which one they use before you write its code or request its key/);
+  assert.match(r, /ASK WITH ask_owner, NEVER IN finish/);
   assert.match(r, /When ask_owner is not offered, write no provider's code and request no key/);
   for (const p of ["Resend", "SendGrid", "Mailgun", "Postmark", "PayPal", "Square", "Vonage"]) assert.ok(r.includes(p), p);
 });

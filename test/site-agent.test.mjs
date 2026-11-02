@@ -402,7 +402,9 @@ test("SA24 look's facts for the progress lines", () => {
 
 test("SA25 the router is skipped for a site's message the request flow cannot take; the look tool is wired to compile-only screenshots", () => {
   const route = between('if (url.pathname === "/api/site/route" && request.method === "POST") {', "if (rKey) {");
-  assert.match(route, /if \(agentTakes\(\) && !rJob && ru && !rKey\) \{\n\s+if \(rb\.firstBuild === true\) return Response\.json\(\{ ok: true, intent: "build", cost: 0, agent: true \}\);/);
+  assert.match(route, /if \(agentTakes\(\) && !rJob && ru && !rKey\) \{/);
+  // A NEW PROJECT IS THE AGENT'S (2026-11-02, agent-only); a build question's answer goes on to the build.
+  assert.match(route, /if \(rb\.firstBuild === true && answerClaim\(rb\) !== undefined\) return Response\.json\(\{ ok: true, intent: "build", cost: 0, agent: true \}\);\n\s+return Response\.json\(await newProjectTurn\(env,/);
   const fn = between("async function runAgentChange(", "async function recompileAndPublish(env, {");
   assert.match(fn, /look: \(w, route\) => recompileAndPublish\(env, \{[^}]*compileOnly: true[^}]*shotRoutes: \[route\]/);
   assert.match(W, /shots: \(compileOnly && Array\.isArray\(shotRoutes\) && shotRoutes\.length \? shotRoutes : vrShots\) \|\| undefined,/);

@@ -265,13 +265,14 @@ import {
   // THE BUILDER TALKS WHILE IT WORKS (2026-10-13), behind `PROGRESS_TALK`.
   talkOn, startFacts, spineCheckFacts, visualReviewFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S,
   addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts, salvageFacts,
+  buildPartsOf,
 } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
-  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, questionsToOffer, noteOffered,
+  nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, joinableRequest, questionsToOffer, noteOffered,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -9668,11 +9669,12 @@ export async function runProgressSweep(env) {
  * another owner's record.
  */
 async function progressViewFor(env, job, uid) {
-  const none = { lines: [], said: null, op: null };
+  const none = { lines: [], said: null, op: null, parts: [] };
   if (!progressOn(env) || !env || !env.SITES_BUCKET || !isJobId(job)) return none;
   const at = await progressRecordAt(env, job);
   if (!at.rec || at.rec.uid !== uid) return none;
-  return { lines: linesOf(at.rec), said: saidOf(at.rec, 0), op: at.rec.op === "edit" || at.rec.op === "addon" ? at.rec.op : null };
+  // A FIRST BUILD'S PARALLEL PARTS (2026-11-02, `buildPartsOf`), for the task box.
+  return { lines: linesOf(at.rec), said: saidOf(at.rec, 0), op: at.rec.op === "edit" || at.rec.op === "addon" ? at.rec.op : null, parts: at.rec.op === "build" ? buildPartsOf(at.rec) : [] };
 }
 
 /**
@@ -17536,7 +17538,7 @@ function agentAddress(env, slug, uid, job) {
   return { check, apply };
 }
 
-async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false, scope = null, look = false, refund = null, affords = null, rowKey = "" }) {
+async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false, scope = null, look = false, refund = null, affords = null, rowKey = "", canSplit = false }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
   tm("agent", "start", { pages: pages.length, parts: parts.length });
@@ -17605,6 +17607,9 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     saveRedirects: () => true,
     siteUrl: () => publicUrlFor(env, slug),
     ...(canAsk ? { canAsk: () => true } : {}),
+    // SPLITTING IS THE AGENT'S (2026-11-02, agent-only): offered to a request's
+    // own part only, never to a part a split handed out.
+    ...(canSplit ? { split: () => true } : {}),
     send: jobSend(job, quickSend(env, "agent", job && job.budget)),
     build: (w) => recompileAndPublish(env, { slug, pages: w.pages, parts: w.parts, label: "Agent build", job, compileOnly: true, cssOverride: typeof w.css === "string" ? w.css : null, charge: billLang, charges, trace }),
     run: agentShell(env, slug),
@@ -17733,6 +17738,14 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // as the site's live question (`askReport`) and their answer resumes the
   // agent with the question and the answer beside the request. Charged for
   // what the agent spent reaching it, as every agent turn is, nothing more.
+  // THE WORK HANDED TO AGENTS SIDE BY SIDE (`split_work`): nothing saved; the
+  // request makes each part a part of its own (`splitParts`), each run, billed
+  // and paused for credits on its own. Charged for what this run spent deciding.
+  if (Array.isArray(ag.split) && ag.split.length) {
+    tm("agent:split", "ok", { parts: ag.split.length });
+    return { status: 200, body: { ok: true, layer: "agent", unchanged: true, split: ag.split, deferred: [], agent: steps,
+      msg: "Handed to " + ag.split.length + " agents working at the same time.", facts: ["Nothing on the site was changed yet."], cost: await charge() } };
+  }
   if (ag.ask) {
     tm("agent:ask", "ok", { options: ag.ask.options.length });
     return { status: 200, body: { ok: false, error: "clarify", layer: "agent", cost: await charge(), unchanged: true, ask: ag.ask, msg: ag.ask.text, agent: steps, deferred: [] } };
@@ -19919,6 +19932,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         attached: agentAttachmentsFromBlocks(attachments, attachmentIds),
         // HELPERS ON A NEW SITE (2026-10-30, the owner): pages written at the same time.
         helpers: !revise && !priorPages,
+        // THE FOUNDATION FIRST, THEN THE PAGES IN PARALLEL (2026-11-02, the owner:
+        // "parallel agents can be on when doing a build the first time").
+        foundationFirst: !revise && !priorPages,
       });
       try { mark?.("agent", { ok: ag.ok, rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped }); } catch { /* a trace must never break a build */ }
       // A STOPPED AGENT STOPS THE BUILD, as the publish's own stop read does.
@@ -25657,6 +25673,52 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
  * true }` when our store failed around a usable answer: the message is held
  * for sending again, under the same key, which nothing charges twice.
  */
+/**
+ * A NEW PROJECT'S MESSAGE, READ BY THE SITE AGENT (2026-11-02, agent-only):
+ * one agent run with the new-project tools only (`NEW_PROJECT_TOOLS`): its
+ * plain words are the reply (`intent: "ask"`), its `ask_owner` the question
+ * card (`clarify`, with buttons), its `start_build` the build. Charged on the
+ * agent's own usage after the balance gate the route already read; a run that
+ * fails starts nothing and charges nothing, and the message stays in the box.
+ */
+async function newProjectTurn(env, { rb, auth }) {
+  const qa = Array.isArray(rb.qa) ? rb.qa.slice(-12).filter((x) => x && typeof x.q === "string" && typeof x.a === "string") : [];
+  const said = [];
+  for (const x of qa) { said.push({ r: "a", t: x.q }); said.push({ r: "u", t: x.a }); }
+  const brief = typeof rb.brief === "string" && rb.brief.trim() && rb.brief.trim() !== String(rb.message || "").trim() ? "Owner (earlier): " + rb.brief.trim().slice(0, 2000) + "\n" : "";
+  const model = modelsFor(rb && rb.picker).pages;
+  let ag = null;
+  try {
+    ag = await runSiteAgent({ send: quickSend(env, "agent"), canAsk: () => true, startBuild: () => true }, {
+      request: String(rb.message || "").trim(), pages: [], parts: [], history: brief + historyText(said), model, newProject: true, maxRounds: 4,
+    });
+  } catch (e) { console.error("new project agent:", errorClassForLog(e)); ag = null; }
+  if (!ag || !ag.ok) {
+    return { ok: true, intent: "build", cost: 0, failed: true, failure: routeFailure("send", null, { model }), agent: true, decision: routeDecision(["agent"]) };
+  }
+  let cost = 0;
+  try { cost = await collectCredits(auth, ag.credits); } catch { cost = 0; /* never fail the turn over the ledger */ }
+  const base = { ok: true, cost, agent: true, decision: routeDecision(["agent"]) };
+  if (ag.startBuild) return { ...base, intent: "build", brief: ag.startBuild };
+  if (ag.ask) return { ...base, intent: "clarify", question: { text: ag.ask.text, options: ag.ask.options } };
+  return { ...base, intent: "ask", answer: String(ag.summary || "").trim(), replyFrom: "agent" };
+}
+
+/**
+ * THE ROUTE WITH NO ROUTER (2026-11-02, agent-only): what the routing route
+ * acts on in the routing model's place, made from nothing but the message's
+ * situation. A site's message is one whole part for the site agent (no held
+ * parts, no question of its own); a message beside a waiting question is its
+ * answer. No model, no usage, nothing charged.
+ */
+function agentRouted({ waiting = null } = {}) {
+  return {
+    intent: "edit", layer: "page", page: "/", remove: false, agent: true, usage: null,
+    ...(waiting ? { answered: true } : {}),
+    decision: routeDecision(["agent"]),
+  };
+}
+
 async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction, join = false, auth = "" }) {
   if (waiting && waiting.requestKey && ask && ask.answered === true) {
     return resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images: rb.images, auth });
@@ -25803,7 +25865,8 @@ async function joinLiveRequest(env, ctx, { uid, slug, key, message, out }) {
     if (Array.isArray(found.rec.joined) && found.rec.joined.some((j) => j && j.key === key)) {
       return { ...out, request: requestView(found.rec), joined: found.rec.key, duplicate: true };
     }
-    if (!found.rec.ended && !found.rec.stop) live.push({ key: at.key, at: mark.at });
+    // ONLY A REQUEST STILL RUNNING WITH EVERY PART ACTIVE (2026-11-02, `joinableRequest`).
+    if (joinableRequest(found.rec)) live.push({ key: at.key, at: mark.at });
   }
   live.sort((a, b) => b.at - a.at);
   const into = live[0];
@@ -34175,7 +34238,16 @@ async function handleRequest(request, env, ctx) {
       const rKey = !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
         editAsyncFor(env, { uid: ru.id, slug: rKeySlug }) ? rb.idem : "";
       if (agentTakes() && !rJob && ru && !rKey) {
-        if (rb.firstBuild === true) return Response.json({ ok: true, intent: "build", cost: 0, agent: true });
+        // A NEW PROJECT (2026-11-02, agent-only; the owner: "get rid of [the
+        // router] completely, just put it in the big agent"): the site agent,
+        // not the router, reads the message. It answers a greeting or a
+        // question in words (nothing built), asks one thing with buttons
+        // (`ask_owner`), or starts the build (`start_build`). An answer to one
+        // of the build's own page questions goes on to the build, as before.
+        if (!(rb.hasSite === true && rb.firstBuild !== true)) {
+          if (rb.firstBuild === true && answerClaim(rb) !== undefined) return Response.json({ ok: true, intent: "build", cost: 0, agent: true });
+          return Response.json(await newProjectTurn(env, { rb, auth: request.headers.get("Authorization") || "" }));
+        }
         if (rb.hasSite === true && rKeySlug) {
           const words = String(rb.message || "").trim();
           const answered = !!(rb.ask && typeof rb.ask === "object");
@@ -34424,14 +34496,22 @@ async function handleRequest(request, env, ctx) {
           part: rPart ? { original: rPart.original, done: rPart.done, others: rPart.others } : null,
         },
       );
-      let routed = await rRoute(rDigest);
+      // ── NO ROUTER (2026-11-02, the owner: "get rid of [the router] completely,
+      // just put it in the big agent") ─────────────────────────────────────────
+      // No routing model call: a site's message is one part, run by the site
+      // agent with the whole message; the agent answers in words, asks with
+      // ask_owner, does the work, or splits it (`split_work`) into parts that
+      // run side by side in this same request. An answer to a waiting question
+      // is that answer (`answered`). The router runs only under the unit
+      // suite's GF_OLD_LANES=1 (`agentTakes`), for the older steps' tests.
+      let routed = agentTakes() ? agentRouted({ waiting: rWaiting }) : await rRoute(rDigest);
       // A SCOPED ANSWER THAT REACHES OUTSIDE ITS SCOPE IS ASKED AGAIN, of the
       // site as it is now (`routeInScope`): the scope saves a call, it never
       // decides a route. Both calls are billed, as every call the job made is.
       // …ONLY WHEN THE SITE'S PAGES ARE NO LONGER THE ONES IT WAS SHOWN: with
       // the same pages, the scoped request was already the one the whole site
       // would get, and its answer stands as any answer does.
-      if (rScope && routed.failed !== true && !routeInScope(rScope, routed)) {
+      if (!agentTakes() && rScope && routed.failed !== true && !routeInScope(rScope, routed)) {
         const whole = await routeDigest(env, ru, rb, { words: !rPart });
         if (samePages(rDigest.site, whole.site)) rJob.routeScope = "current";
         else {
@@ -34469,12 +34549,8 @@ async function handleRequest(request, env, ctx) {
       // in its `finish` summary with nothing changed, or does the work. The
       // router still splits work into parts, asks its own questions, takes an
       // answer to a waiting question, and decides a first build's messages.
-      if (agentTakes() && !rJob && rLive && routed.failed !== true && (routed.intent === "ask" || routed.intent === "clarify")) {
-        // AND THE ROUTER'S OWN QUESTION (owner, 2026-11-02): live on copper-kettle-pottery
-        // the router asked "Which should take Stripe…?" itself and the agent never saw
-        // the request. The agent asks, with buttons, when it needs to.
-        routed = { ...routed, intent: "edit", question: undefined, layer: "page", page: "/", answer: undefined, unclear: undefined, alsoAsked: undefined, targets: undefined, toAgent: "ask" };
-      }
+      // (The router's `ask` and `clarify` went to the agent here, 2026-11-02;
+      // with no router there is nothing to convert: `agentRouted`.)
       // ── THE ROUTER'S PROVIDER IS DOWN (owner, 2026-10-24) ──────────────────
       // A 503/502/504/500/429, an in-stream `unavailable` or a dropped
       // connection: nothing is routed, run or charged on the fallback. The
@@ -35381,6 +35457,7 @@ async function handleRequest(request, env, ctx) {
           {
             const pv = await progressViewFor(env, job, bu.id);
             if (pv.lines.length) item.progress = pv.lines;
+            if (pv.parts.length) item.parts = pv.parts;
           }
           out.push(item);
         }
@@ -35587,6 +35664,7 @@ async function handleRequest(request, env, ctx) {
         // THE BUILD'S LIVE LINES (round 5), the model's own, from its real steps.
         const pv = await progressViewFor(env, jid, bu.id);
         if (pv.lines.length) pend.progress = pv.lines;
+        if (pv.parts.length) pend.parts = pv.parts;
         // WAITING FOR ITS MODEL (owner, 2026-10-24): the fixed notice.
         const bWait = await readNotice(env, jid);
         if (bWait) { pend.wait = bWait; pend.now = Date.now(); }
@@ -37215,6 +37293,7 @@ async function handleRequest(request, env, ctx) {
                 // THE OLD STEPS' INPUTS (2026-10-30): the screen sizes, what the
                 // owner already answered, and a question kept by this ending.
                 devices: eDevices, context: eCtxAll, canAsk: !!eRun,
+                canSplit: !!(eJob && ePart && ePart.splitChild !== true),
                 scope: agScope && agScope.pages ? agScope.pages : null, look: eLayer === "look",
               });
               if (ag.body && ag.body.ask) eAskOut.request = eRun;

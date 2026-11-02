@@ -124,7 +124,8 @@ const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const at = (s, from = 0) => { const i = W.indexOf(s, from); assert.ok(i >= 0, "landmark missing: " + s); return i; };
 
 test("the router's answer is read against the site before anything uses it", () => {
-  const route = at("let routed = await rRoute(rDigest);");
+  // (2026-11-02, agent-only: no routing call unless GF_OLD_LANES=1; the answer is read the same way either way.)
+  const route = at("let routed = agentTakes() ? agentRouted({ waiting: rWaiting }) : await rRoute(rDigest);");
   const conv = at("routed = routeOnExisting(routed, rDigest.site, { reason: \"addon-existing\" });", route);
   const prep = at("if (rJob && rJob.prepare === true) {", route);
   const asking = at("const asking = routed.intent === \"clarify\" && rLive;", route);

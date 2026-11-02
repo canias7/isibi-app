@@ -350,9 +350,29 @@ export function replyRound(rec) {
   if (!plain(rec) || !Array.isArray(rec.parts) || !rec.parts.length) return "";
   const tail = rec.parts.length + ":" + (Number.isFinite(rec.creditsResumedAt) ? rec.creditsResumedAt : 0);
   if (rec.ended === true) return "end:" + tail;
-  if (rec.state === "credits" && !rec.stop) return "paused:" + tail;
-  return "";
+  if (rec.stop || rec.state === "running" || rec.state === "review") return "";
+  // A PAUSED PART DOES NOT HOLD THE REPLY BACK (2026-11-02, northline-climbing:
+  // a finished part's answer waited for ever behind a part paused for
+  // credits). Owed once nothing is working: every part ended, paused (credits,
+  // a purchase) or waiting on the owner, with at least one paused for credits
+  // or one ended (a request held only by its questions has their cards). The
+  // round names how many have ended, so a part that finishes later, after a
+  // top-up or an answer, owes a follow-up reply.
+  const ps = rec.parts.filter(plain);
+  if (ps.some((p) => ACTIVE.includes(p.status))) return "";
+  const ended = ps.filter((p) => TERMINAL.includes(p.status)).length;
+  const credits = ps.some((p) => p.status === "credits");
+  const held = ps.some((p) => ["credits", "waiting", "approval", "uncertain"].includes(p.status));
+  // A PART WAITING ON ANOTHER is held by a pause only when something is paused.
+  if (!held && ps.some((p) => p.status === "blocked")) return "";
+  if (!credits && !ended) return "";
+  return "paused:" + tail + ":" + ended;
 }
+
+/** Part states that mean work is still going (`settleState`'s running and review). */
+const ACTIVE = Object.freeze(["queued", "started", "ready", "recovering", "unverified"]);
+/** Part states that have ended (`PART_TERMINAL`). */
+const TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
 
 /** A request record's stored one reply, read strictly; null when none reads. */
 export function readOneReply(v) {

@@ -75,6 +75,7 @@ const EXEMPT = {
   quickSendLive: "the transport's own definition",
   pagesCall: "the transport's own definition",
   writePhoneApp: "the phone-app product, not a site",
+  newProjectTurn: "a new project has no site yet, so no site map (2026-11-02, agent-only)",
   chatWindowFor: "compacts the chat transcript, not the site",
   designRequest: "a first build's design: no site yet; a revise hands the current spec itself",
   designSiteSchema: "a first build's design: no site yet; a revise hands the current spec itself",

@@ -10998,6 +10998,22 @@ function siteBuildJobLines(origin, lines) {
   b.progress = list;
   if (siteOpenId === origin && typeof siteBgPaint === 'function') siteBgPaint(s);
 }
+/**
+ * A FIRST BUILD'S PARALLEL PARTS (2026-11-02, the owner: "parallel agents can
+ * be on when doing a build the first time"): each page the build's agent
+ * handed to a helper, `{ title, state }` (`wait`, `run`, `done`, `bad`), kept
+ * on the build's row so the task box lists them beside the build.
+ */
+function siteBuildJobParts(origin, parts) {
+  const s = typeof siteById === 'function' ? siteById(origin) : null;
+  const b = s && s.buildJob;
+  if (!b || !Array.isArray(parts)) return;
+  const list = parts.filter((x) => x && typeof x.title === 'string' && x.title && ['wait', 'run', 'done', 'bad'].includes(x.state)).slice(0, 24).map((x) => ({ title: x.title.slice(0, 80), state: x.state }));
+  if (JSON.stringify(b.parts || []) === JSON.stringify(list)) return;
+  b.parts = list;
+  sitesSave();
+  if (siteOpenId === origin && typeof siteBgPaint === 'function') siteBgPaint(s);
+}
 /** A build's job is known (its 202, or found again on open): the panel shows it. */
 function siteBuildJobBegin(origin, job, words) {
   const s = siteById(origin);
@@ -11085,7 +11101,15 @@ function siteBgItems(site, now) {
   const out = [];
   if (!site) return out;
   const bj = typeof siteBuildJobItem === 'function' ? siteBuildJobItem(site, at) : null;
-  if (bj) out.push(bj);
+  if (bj) {
+    out.push(bj);
+    // ITS PARALLEL PARTS, each a row (2026-11-02); a part still going when the build ended is not.
+    const bp = Array.isArray(site.buildJob.parts) ? site.buildJob.parts : [];
+    bp.forEach((x, i) => {
+      const state = x.state === 'run' || x.state === 'wait' ? (bj.state === 'run' ? x.state : 'bad') : x.state;
+      out.push({ key: 'build', n: i + 1, build: true, buildPart: true, parts: [], state, doneAt: bj.doneAt, title: x.title, p: { words: '', progress: [], buildState: bj.p.buildState, reply: '' } });
+    });
+  }
   for (const { key, m } of siteReqKeys(site)) {
     const st = site.requests && typeof site.requests === 'object' ? site.requests[key] : null;
     const v = st && st.view && Array.isArray(st.view.parts) ? st.view : m && m.rq && Array.isArray(m.rq.parts) ? m.rq : null;
@@ -11124,6 +11148,7 @@ function siteBgWhen(ms, now) {
 /** A row's one line: its newest progress line while it works, its model line otherwise; labels where nothing is written. */
 function siteBgLine(it, now) {
   const p = it.p;
+  if (it.buildPart) return it.state === 'run' ? 'Writing this page…' : it.state === 'wait' ? 'Waiting for its turn' : it.state === 'done' ? 'Done' : 'Didn’t finish';
   if (it.build) {
     if (p.buildState === 'stopping') return 'Stopping…';
     if (it.state === 'run') return p.progress.length ? p.progress[p.progress.length - 1].text : 'Working…';
@@ -14173,6 +14198,7 @@ function siteBuildTake(b) {
   if (b.state === 'running') {
     siteBuildStart(true, b.chat);
     if (Array.isArray(b.progress) && b.progress.length) setBuildProgress(b.chat, b.progress);
+    if (Array.isArray(b.parts)) siteBuildJobParts(b.chat, b.parts);
     sitesSave();
     renderSites();
   }
@@ -14743,6 +14769,8 @@ async function followBuildJob(job, signal, origin) {
         setBuildCode(origin, EditPoll.buildCode(p));
         // AND ITS LIVE LINES, the model's own, from the same envelope (round 5).
         if (Array.isArray(p.progress)) setBuildProgress(origin, p.progress);
+        // AND ITS PARALLEL PARTS (2026-11-02): each page a helper writes is a task.
+        if (Array.isArray(p.parts)) siteBuildJobParts(origin, p.parts);
       }
       continue;
     }

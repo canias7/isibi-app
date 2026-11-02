@@ -165,3 +165,12 @@ test("only the named fields are judged, and cannot-tell is a mismatch, never a v
   assert.equal(routeVerdict(expectOf("page=none alsoAsked=none"), { page: "", alsoAsked: "" }).ok, true);
   assert.equal(routeVerdict(expectOf("alsoAsked=none"), { alsoAsked: " " }).ok, false, "a held-back part that is only a space still counts");
 });
+
+// NO ROUTER (2026-11-02, agent-only): the route's agent answer never passes an expectation.
+test("CR-AO the route's agent answer (no router) is a mismatch for any expectation, said as such; a blank box is no check", () => {
+  const v = routeVerdict({ layer: "page" }, { ok: true, intent: "edit", layer: "page", page: "/", agent: true });
+  assert.equal(v.ok, false);
+  assert.match(mismatchSaid(v), /router: expected a router's answer, the router answered none \(the site agent takes the whole message/);
+  assert.equal(routeVerdict({ layer: "page" }, { ok: true, intent: "edit", layer: "page" }).ok, true, "the check is alive for a router answer");
+  assert.equal(routeVerdict({}, { agent: true }).ok, true);
+});
