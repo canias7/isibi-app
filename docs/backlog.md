@@ -3329,3 +3329,5 @@ visitor and check: the site's own checkout, Stripe's message to the site's
 Worker, the booking row in the site's own table, the owner's email. Also from
 that build: the 6-places-per-class limit was not built (ask for it as an
 addition); two pages have no `head`.
+
+- **Asset caching not in effect live (2026-11-02, deploy 2301):** versioned `?v=` URLs are served, but static assets still answer `max-age=0` because Cloudflare's asset layer serves them before the Worker. Fix: `_headers` file or `run_worker_first` for those paths, then re-read live.

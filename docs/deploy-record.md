@@ -2281,6 +2281,12 @@ at 19:10 it answered `cdb365078…` and `79a3905080404d4a`, `agentNet` blocked.
 - **Live proof (test account, northline-climbing):** "Add a Coaching page…" paused for credits at round 5 (07:10, nothing charged) with `coaching.tsx`, the header and the footer written; after the 07:14 top-up it resumed on its own and the trace logged `agent:carry` kept `[-parts/site-footer, -parts/site-header, coaching.tsx]`, stale `[]`; saved at 07:22 for 14 credits (the Events part that started over cost 23).
 
 
+## Deploy 2301 (`68658b7fa`, 2026-11-02 04:15 UTC)
+
+Combined fast-forward: agents list (iMessage-style bar, Gloopy following the pointer, placeholder agents, Create an agent), workspace layout (projects on top), /home/projects addresses, Agent builder removed, faster load (versioned asset URLs, deferred scripts, Space Grotesk dropped), one reply per message, landing download buttons. Image predicted `d2fa53453d8b0db7` → `4d6647ca9db37120`. Deploy run 41387395897 green. Full suite on the head 12616 / 12611 / 2 fail (both pre-existing) / 3 skipped. **Runtime-confirmed** by canary run 41391535283 (05:00 UTC, free): both readers `68658b7fa265`, cold container `4d6647ca9db37120`, all free checks passed, nothing charged.
+
+**Live reading after the deploy:** `/` serves `/chat.js?v=68658b7fa265` (the URLs are versioned), but `/chat.js?v=…` still answers `cache-control: public, max-age=0, must-revalidate`, not the long immutable cache. Static assets are served by Cloudflare's asset layer before the Worker runs, so the Worker's cache step does not reach them. Nothing is broken (it behaves exactly as before); the returning-visitor speed-up is not in effect yet. Backlog.
+
 ## Deploy 2300 (`a8ff0b51b`, 2026-11-01)
 
 Fast-forward from `b7aa8c129`: the key box's names no longer blanked by the typing effect, a model's `\u00a3` shown as £, and the site agent's questions kept (`agent` added to the question store's steps). Image predicted `15175785f248acc4` → `d2fa53453d8b0db7`. **Runtime-confirmed** by canary run 41357564780 (22:31 UTC, free): both readers `a8ff0b51b804`, cold container `d2fa53453d8b0db7`, async and runner on, all free checks passed, nothing charged.
