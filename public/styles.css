@@ -5287,12 +5287,16 @@ body { font-family: var(--display); color: var(--ink); -webkit-font-smoothing: a
 
 /* ── GLOOPY'S MOTION (owner-approved, 2026-11-02): the figure's own keyframes,
    prefixed gg- so no other rule can clash. The defs are in index.html. */
-.gg-bob{animation:gg-bob 2.2s ease-in-out infinite;transform-box:view-box;transform-origin:100px 219px}
+.gg-bob{animation:gg-bob 2.2s ease-in-out infinite;rotate:var(--tilt,0deg);transition:rotate .25s ease-out;transform-box:view-box;transform-origin:100px 219px}
 .gg-ant{animation:gg-sway 2.6s ease-in-out infinite;transform-box:view-box;transform-origin:99.2px 59px}
-.gg-wave{animation:gg-wave .7s ease-in-out infinite alternate;transform-box:view-box;transform-origin:45.6px 139.2px}
-.gg-eyes{animation:gg-blink 3.8s infinite;transform-box:view-box;transform-origin:99px 93px}
-.gg-pup{animation:gg-look 5s ease-in-out infinite}
+.gg-hd{transform-box:view-box;transform-origin:100px 150px;rotate:var(--ht,0deg);translate:var(--hx,0px) var(--hy,0px);transition:rotate .3s ease-out,translate .3s ease-out}
+/* THE WAVE IS ON A CLICK (owner, 2026-11-02): no wave of its own; a click on
+   Gloopy sets --wv to gg-wave for 2.2 s (chat.js, gloopyFollow). */
+.gg-wave{animation:var(--wv,none) .35s ease-in-out 6 alternate;transform-box:view-box;transform-origin:45.6px 139.2px}
+.gg-eyes{animation:gg-blink 3.8s infinite;translate:var(--ex,0px) var(--ey,0px);transition:translate .2s ease-out;transform-box:view-box;transform-origin:99px 93px}
+.gg-pup{animation:var(--lk,gg-look) 5s ease-in-out infinite;translate:var(--px,0px) var(--py,0px);transition:translate .12s linear}
 .gg-hl{transform-box:fill-box;transform-origin:center;transform:scale(var(--hl,1))}
+svg.st-gloopy{cursor:pointer}
 @keyframes gg-bob{0%,100%{transform:none}50%{transform:translateY(-3px) scale(1.012,.988)}}
 @keyframes gg-sway{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
 @keyframes gg-wave{from{transform:rotate(-14deg)}to{transform:rotate(16deg)}}

@@ -4,6 +4,17 @@
 
 
 
+## 2026-11-02: one combined deploy is ready on `claude/nice-ramanujan-9ry8wy` (not merged, not deployed)
+
+On your word ("Yes go ahead"), three finished branches are merged into the working branch, so one deploy carries them all:
+
+- **The agents list** (`agents-list`, which already holds `workspace-layout`, `home-route` and `remove-agent-builder`): the iMessage-style conversations bar with Gloopy, the agent header, placeholder agents and Create an agent; projects on top; the signed-in home at `/home` (`/home/projects`, `/home/<agent>`); the Agent builder deleted.
+- **Faster load** (`faster-load`): scripts and stylesheets named with the deploy's id and cached for a year, every script deferred in order, Space Grotesk dropped from the fonts link.
+- **One reply per message** (`one-reply`): one reply written once every task in a message has ended, and the task line counting each part by its real ending.
+- **Gloopy follows the pointer and waves on a click** (your approved sample, added here): the pupils, eyes, head and body lean toward the mouse; 2.5 s without movement (or the mouse leaving) brings back the idle animation; the arm no longer waves by itself, only for 2.2 s after a click, and clicking Gloopy in the agents list still selects the Sites agent. Not on touch-only devices, never with reduced motion. Browser test WL 14.
+- Already on the branch: the landing page's Download for Mac / Windows buttons, and the site agent.
+
+How the overlaps were settled: the Worker's `/home` and `/projects` shell addresses now go through the faster-load cache step too; the Dockerfile's worker line carries `app-asset-cache.mjs` and `builder/one-reply.mjs` and no longer `agent-store.mjs`; the old agent-builder test faster-load had edited stays deleted. The site image changes (`d2fa53453d8b0db7` -> `4d6647ca9db37120`); the app-builder image does not. `main` is an ancestor, so the deploy is a fast-forward. Not included: `reply-truth`; `claude/chat-session-0nndv1` stays parked.
 ## 2026-11-01: one reply per message, built (branch `one-reply`, not merged, not deployed)
 
 Each message now gets one reply, written once every task in it has ended (or when it pauses for credits), by the builder model you picked in the chat, at low effort, and charged by the tokens it uses like every call. It is written from facts the code gathers over the whole message: how each task ended and why, the pages and parts added, changed or removed (by name, never file paths), table entries, rules and tables, keys still missing, draft or published, and the credits charged. Nothing is taken from what a task said about itself, so one task can no longer say "linking it in the header was not done" when another task did it.

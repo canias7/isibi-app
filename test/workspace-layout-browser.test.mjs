@@ -430,8 +430,57 @@ test("WL 13 — Create agent saves it, lists it under the five, selects it, show
     app.page.once("dialog", (d) => d.accept());
     await app.page.click("#stAgentDel");
     await app.page.waitForFunction(() => location.pathname.startsWith("/home/projects"), null, { timeout: 5000 });
+    assert.ok(await app.page.evaluate(() => /Sites agent/.test((document.querySelector("#stConv .st-conv-item.is-active, #stConv .st-conv-item[aria-current]") || document.body).textContent)), "the Sites agent is selected");
     r = await read();
     assert.deepEqual(r.names, AGENT_NAMES); assert.equal(r.stored.length, 0);
     assert.deepEqual(app.errors, []);
+  } finally { await app.close(); }
+});
+
+// GLOOPY FOLLOWS AND WAVES ON A CLICK (owner, 2026-11-02). The animated parts
+// live inside <use>'s shadow tree, so the test reads what drives them: the
+// custom properties chat.js sets on each svg, and the stylesheet's rules.
+test("WL 14 — Gloopy turns its head toward the pointer, returns to idle, and waves only after a click (which still selects the Sites agent)", { skip: SKIP, timeout: 60000 }, async () => {
+  const app = await openApp();
+  try {
+    await app.page.click("#stConv .st-conv-item:nth-child(2)").catch(() => {});
+    const sel = "#stConv .st-conv-item svg.st-gloopy";
+    await app.page.waitForSelector(sel);
+    const box = await (await app.page.$(sel)).boundingBox();
+    const read = () => app.page.evaluate((s) => { const el = document.querySelector(s); return el ? { ht: el.style.getPropertyValue("--ht"), lk: el.style.getPropertyValue("--lk"), wv: el.style.getPropertyValue("--wv") } : null; }, sel);
+    const rules = await app.page.evaluate(() => {
+      const out = {};
+      for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch (e) { continue; } for (const r of rs) if (r.selectorText && /^\.gg-(wave|hd|pup)$/.test(r.selectorText)) out[r.selectorText] = r.style.cssText; }
+      return { out, hd: document.querySelectorAll("#gfGloopy .gg-hd").length };
+    });
+    assert.equal(rules.hd, 2, "the antenna and the head are wrapped");
+    assert.match(rules.out[".gg-wave"] || "", /var\(--wv, *none\)/, "the arm waves only when --wv names the keyframes");
+    assert.match(rules.out[".gg-hd"] || "", /var\(--ht, *0deg\)/);
+    assert.match(rules.out[".gg-pup"] || "", /var\(--lk, *gg-look\)/);
+    assert.equal((await read()).wv, "", "no wave before a click");
+    await app.page.mouse.move(box.x + box.width / 2 + 400, box.y + 20);
+    await app.page.mouse.move(box.x + box.width / 2 + 420, box.y + 22);
+    await app.page.waitForTimeout(150);
+    let r = await read();
+    assert.ok(parseFloat(r.ht) > 5, "the head turns right toward the pointer: " + r.ht); assert.equal(r.lk, "none");
+    await app.page.mouse.move(box.x - 5, box.y + 20);
+    await app.page.mouse.move(box.x - 8, box.y + 21);
+    await app.page.waitForTimeout(150);
+    r = await read();
+    assert.ok(parseFloat(r.ht) < 0, "and left when the pointer is left: " + r.ht);
+    await app.page.waitForTimeout(2900);
+    r = await read();
+    assert.equal(r.ht, "", "idle: the properties are removed"); assert.equal(r.lk, "");
+    await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await app.page.waitForTimeout(150);
+    const w = await read();
+    assert.ok(w, "Gloopy is still on screen after the click");
+    assert.equal(w.wv, "gg-wave", "a click waves");
+    await app.page.waitForFunction(() => location.pathname.startsWith("/home/projects"), null, { timeout: 5000 });
+    assert.ok(await app.page.evaluate(() => /Sites agent/.test((document.querySelector("#stConv .st-conv-item.is-active, #stConv .st-conv-item[aria-current]") || document.body).textContent)), "the Sites agent is selected");
+    await app.page.waitForTimeout(2300);
+    const end = await read();
+    if (end) assert.notEqual(end.wv, "gg-wave", "the wave ends after 2.2 s");
+    assert.deepEqual(app.errors.filter((e) => !/sandboxed/.test(e)), []);
   } finally { await app.close(); }
 });
