@@ -54,6 +54,7 @@ import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";
 import { outcomeOf } from "./site-reply.mjs";
 import { savedDraftOf } from "./check-evidence.mjs";
+import { partWork, readWork, oneReplyOn, oneReplyView } from "./one-reply.mjs";
 import { readHandTo } from "./addon-existing.mjs";
 import { readTargets, inferNeeds, neededFrom, applyOrder, clearToPrepare, clearToWrite, prepScope, addonScope, routeScope } from "./request-plan.mjs";
 
@@ -1365,6 +1366,11 @@ function settle(rec, p, job, row, now) {
   // nowhere). Names only, kept on the part for the card.
   const nk = ans ? partNeedKeys(ans.body) : [];
   if (nk.length) p.needKeys = nk;
+  // WHAT ITS STEP REALLY DID, BY ITS ANSWER'S FIELDS (2026-11-01, one reply):
+  // files, rows, rules, tables — the facts the message's one reply is written
+  // from, beside every other part's. Kept across tries: a later try adds.
+  const wk = ans ? partWork(ans.body) : null;
+  if (wk) p.work = readWork({ ...(p.work || {}), ...Object.fromEntries(Object.entries(wk).map(([k, v]) => [k, Array.isArray(v) ? [...new Set([...((p.work && Array.isArray(p.work[k])) ? p.work[k] : []), ...v])] : v])) });
   // WHAT IT WAS CHARGED, AS ITS ROW SAYS — its reserves once finalized, and
   // nothing for one refunded, exempt or never reserved — so a part's money is
   // read from the ledger's own record, never assumed from how it ended.
@@ -2838,6 +2844,9 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
     ...((n) => (n ? { credits: { paused: n, auto: creditsAuto(rec), ready: !!(rec.credits && rec.credits.ready === true) } } : {}))(creditsPaused(rec).length),
     ...(Number.isFinite(rec.creditsResumedAt) ? { creditsResumedAt: rec.creditsResumedAt } : {}),
     ...(rec.creditsAuto === false ? { creditsAuto: false } : {}),
+    // ONE REPLY PER MESSAGE (2026-11-01): the page shows it as the message's
+    // only conclusion; the parts' own replies are progress, never conclusions.
+    ...(oneReplyOn() ? { one: true, ...oneReplyView(rec, now) } : {}),
     routedUnsaid: !saidByPart0 && Number.isInteger(rec.routedCost) && rec.routedCost > 0 ? rec.routedCost : 0,
     // A SPLIT REQUEST'S OPENING LINE (2026-10-23), the model's own, when written.
     ...(said && typeof said === "object" && typeof said.opening === "string" && said.opening.trim() ? { opening: said.opening.trim() } : {}),
@@ -2845,6 +2854,8 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       n: p.n, words: typeof p.shown === "string" && p.shown ? p.shown : p.words, status: p.status,
       // THE KEYS ITS STEP ASKED FOR (2026-11-01), names only, whatever its ending.
       ...(Array.isArray(p.needKeys) && p.needKeys.length ? { needKeys: p.needKeys.slice(0, 8) } : {}),
+      // WHAT ITS STEP REALLY DID (2026-11-01, one reply), by its answer's fields.
+      ...((w) => (w ? { work: w } : {}))(readWork(p.work)),
       // BEING PREPARED, OR PREPARED AND WAITING ITS TURN TO BE APPLIED
       // (2026-10-08): its work has started; it is never done until its own
       // job has applied it and said so.

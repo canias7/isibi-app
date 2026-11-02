@@ -123,7 +123,7 @@ test("CREDIT PAUSE — the bar on top of the box, the pill, the stored tick (and
     assert.ok(Math.abs(geo.gap) <= 1, "the bar is not attached to the box: " + JSON.stringify(geo));
     assert.ok(geo.w <= 1, "the bar is not the box's width: " + JSON.stringify(geo));
     assert.equal(geo.bg, "rgb(13, 27, 42)"); // the landing's ink (owner, 2026-10-30), was #111
-    assert.equal((await page.textContent(".st-bg-pill")).trim(), "4 tasks waiting for credits ▾");
+    assert.equal((await page.textContent(".st-bg-pill")).trim(), "5 tasks · 1 finished, 4 paused for credits ▾");
     // THE CONTEXT LINE IS GONE; THE RING SITS JUST LEFT OF SEND.
     assert.equal(await page.$(".st-rail > .st-ctxl"), null, "the context line above the box is back");
     const order = await page.$$eval(".st-comp-row > *", (els) => els.map((e) => e.id || e.className));
