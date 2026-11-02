@@ -8,6 +8,15 @@
 
 
 
+
+## 2026-11-02 — "Only Stripe" was wrong
+
+When asked to take payments "not Stripe", the old question step answered "the only way this builder takes card
+payments is through your own Stripe account". Its list of what the builder can do (`builder/site-converse.mjs`)
+was out of date. It now says payments, email and texts go through whichever service the owner chooses, with the
+owner's own key, matching the agent's own rule (never pick the provider, ask the owner). The list's line about the
+removed Data panel is gone too. 629 related tests pass. Not deployed.
+
 ## 2026-11-02 — The Data tab is gone
 
 The owner: "i dont want the data panel at all." The Data tab is no longer drawn

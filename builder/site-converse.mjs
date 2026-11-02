@@ -181,12 +181,12 @@ export const CAPABILITIES =
   "the logo, the menu, a page's content or address, the entries in its lists (a menu, products, services, team), " +
   "and settings such as whether bookings are open. It can add pages and features, and remove them. Every change is " +
   "saved as a version that can be undone by asking.\n" +
-  "- Features a site can have: bookings and enquiries visitors send in, orders and payments through the owner's own " +
-  "Stripe account, email through the owner's own email key, sign-in for the site's members, spam protection, a " +
+  "- Features a site can have: bookings and enquiries visitors send in, orders and card payments through whichever " +
+  "payment service the owner chooses (Stripe, PayPal, Square or another, with the owner's own key), email and text " +
+  "messages through whichever service the owner chooses (with the owner's own key), sign-in for the site's members, spam protection, a " +
   "custom domain, a search-engine description, and redirects for moved pages.\n" +
   "- Files: the owner can upload pictures, documents, and video and audio files to the site's file library, and use " +
   "them on the site — a video or audio player on a page plays the owner's own file from its address.\n" +
-  "- The owner can see and edit the rows in the site's database tables in the Data panel.\n" +
   "NOT OFFERED today: visitors uploading video or audio, a mobile app in the app stores, email newsletters or " +
   "campaigns, editing video or audio, and writing code the owner runs elsewhere.\n" +
   "ANYTHING ELSE you are asked about is something you are not sure of: say so honestly — that you are not certain " +
