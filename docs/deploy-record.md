@@ -2313,3 +2313,5 @@ A fast-forward of 4 commits from `e230b4409`, on the owner's "Deploy it". It car
 ## Deploy (2026-11-02, `15b8da1c1`)
 
 On the owner's "Deploy it": `agent-only` (no router: the agent decides, asks and splits with `split_work`; a new project goes to the agent) plus `parallel-build` (joinable requests, a paused part no longer holds the reply, questions with buttons, a foundation-first parallel first build), merged on top of `34b0baa1c`. Full suite `12650 / 12640 / 8 / 2`. The 8 failures are environmental: 3 PANEL, W stop-panel, css-reachable x2, the browser media mode, and the site-secrets scan reading local agent worktrees. Image predicted `8fa9afba5a1c8a6f` → `0624975f53116b3c`. Served `chat.js?v=15b8da1c1958`. Deployed, not runtime-confirmed.
+
+Runtime-confirmed by canary run 41504349687 (18:50 UTC, free): both readers answered `15b8da1c1958`, a cold container got `0624975f53116b3c`, and the queued jobs and the runner were on. Balance 445. Nothing was charged.
