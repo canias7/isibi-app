@@ -152,7 +152,7 @@ test("the composer asks slashSend before siteSend, and the keys go to the menu f
   assert.match(w, /ta\.onkeydown = \(e\) => \{ if \(slashKey\(e, ta, site\)\) return;/);
   assert.match(w, /ta\.oninput = \(\) => \{ draft\.t = ta\.value; slashPaint\(ta\); \};/);
   assert.match(w, /slashMenu\.onmousedown/);
-  assert.match(SRC, /'<div class="st-slash" id="stSlash" role="listbox"[^']*hidden><\/div>' \+\n\s+'<textarea id="stRevise"/, "the menu sits above the site composer's box");
+  assert.match(SRC, /'<div class="st-slash" id="stSlash" role="listbox"[^']*hidden><\/div>' \+\n(?:\s*\/\/[^\n]*\n)?(?:\s+'<div class="st-queue" id="stQueue"><\/div>' \+\n)?\s+'<textarea id="stRevise"/, "the menu sits above the site composer's box (the waiting-message chips may sit between, 2026-11-02)");
 });
 
 // ── /sentinel IS A MESSAGE TO THE MODEL (owner, 2026-10-23) ────────────────
