@@ -2301,3 +2301,7 @@ Fast-forward of 4 commits from `52963a064`: key box on every ending (pause, stop
 - Unit CI green on `52963a064` (run 41253284296); the three runs before it were red and each was fixed (41251426400, 41252370743).
 - Deploy run 41254117705, green. Image predicted `3f5324d9f2febba3` (256 inputs).
 - **Runtime-confirmed** by the owner's canary run 41262026955 (2026-11-01 01:40 UTC, green, expect_deploy `52963a064`, expect_image `3f5324d9f2febba3`).
+
+## Deploy (2026-11-02, `e230b4409`)
+
+A fast-forward of 2 commits from `cf8365957` on the owner's word "deploy what we got". Only `public/chat.js` changed (the task box shows only for 2+ tasks; the Data tab is removed), so no container image roll. Served `chat.js?v=e230b4409fcc` read on gofarther.dev. Not runtime-confirmed by a canary press.
