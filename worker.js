@@ -34469,8 +34469,11 @@ async function handleRequest(request, env, ctx) {
       // in its `finish` summary with nothing changed, or does the work. The
       // router still splits work into parts, asks its own questions, takes an
       // answer to a waiting question, and decides a first build's messages.
-      if (agentTakes() && !rJob && rLive && routed.failed !== true && routed.intent === "ask") {
-        routed = { ...routed, intent: "edit", layer: "page", page: "/", answer: undefined, unclear: undefined, alsoAsked: undefined, targets: undefined, toAgent: "ask" };
+      if (agentTakes() && !rJob && rLive && routed.failed !== true && (routed.intent === "ask" || routed.intent === "clarify")) {
+        // AND THE ROUTER'S OWN QUESTION (owner, 2026-11-02): live on copper-kettle-pottery
+        // the router asked "Which should take Stripe…?" itself and the agent never saw
+        // the request. The agent asks, with buttons, when it needs to.
+        routed = { ...routed, intent: "edit", question: undefined, layer: "page", page: "/", answer: undefined, unclear: undefined, alsoAsked: undefined, targets: undefined, toAgent: "ask" };
       }
       // ── THE ROUTER'S PROVIDER IS DOWN (owner, 2026-10-24) ──────────────────
       // A 503/502/504/500/429, an in-stream `unavailable` or a dropped

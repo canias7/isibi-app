@@ -86,7 +86,8 @@ test("the capabilities say what is known, what is not offered, and to be honest 
   assert.match(CAPABILITIES, /never flatly say it is impossible when you only do not know/);
   assert.doesNotMatch(CAPABILITIES, /It cannot do anything else/, "the blanket refusal is back");
   // The router reads the same statement, so the two never describe two products.
-  assert.ok(askRequest({ message: "hi", site: {} }).system[0].text.includes(CAPABILITIES), "the router describes a different product");
+  // THE ROUTER HAS NO CAPABILITIES LIST (owner, 2026-11-02): it does not answer the owner.
+  assert.ok(!askRequest({ message: "hi", site: {} }).system[0].text.includes(CAPABILITIES), "the router describes the product again");
   assert.doesNotMatch(askRequest({ message: "hi", site: {} }).system[0].text, /It cannot do anything else/);
 });
 

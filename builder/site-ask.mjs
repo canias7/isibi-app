@@ -3,7 +3,7 @@ import { readTargets } from "./request-plan.mjs";
 import { modelsFor } from "./build-models.mjs";
 import { isXaiModel } from "./model-xai.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, echoTokens } from "./input-budget.mjs";
-import { CAPABILITIES, historyBlock, routerHistory, readHistory } from "./site-converse.mjs";
+import { historyBlock, routerHistory, readHistory } from "./site-converse.mjs";
 import { summaryBlock } from "./chat-context.mjs";// Telling a question from an instruction — and answering the question.
 //
 // THE BUILDER COULD NOT BE ASKED ANYTHING. `siteSend` had exactly one decision
@@ -1492,7 +1492,8 @@ const SYSTEM =
   "You are the assistant inside a website builder for small businesses. The person you are talking to owns the site. " +
   "Every message they send is either an instruction to build or change their site, or something else — a question, a " +
   "greeting, a thank-you. Your job is to say which, and to answer the ones that are not instructions.\n\n" +
-  CAPABILITIES + "\n\n" +
+  // NO CAPABILITIES LIST (owner, 2026-11-02): the router does not tell the owner
+  // what the builder can do; the agent does the work and says so.
   "Do not describe what you are about to do when the answer is \"build\" — the build reports itself. " +
   "Never claim the site has a page, a table, or a feature that is not named below.\n\n" +
   "CONVERSATION IS NOT WORK. A question, a plan they are thinking through, a request for ideas or a comparison, a " +

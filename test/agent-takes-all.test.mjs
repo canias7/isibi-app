@@ -65,6 +65,27 @@ for (const [name, message, gist] of [
   });
 }
 
+// THE ROUTER'S OWN QUESTION GOES TO THE AGENT TOO (owner, 2026-11-02). Live on
+// copper-kettle-pottery the router answered a payments-and-emails request with
+// its own question ("Which should take Stripe…?"), and the agent never saw it.
+test("AT5 a live message the router would ask about (clarify) makes an agent job instead: no router question is kept", async () => {
+  const log = { agent: 0, converse: 0 };
+  await withPlatform({
+    answers: { route: [{ intent: "clarify", question: { text: "Which should take Stripe before they are confirmed?", options: ["Class bookings", "Shop orders"] } }],
+      "": model([{ content: [use("finish", { summary: "Which payment service do you use?" })] }], log) },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "When someone books a class, take payment by card and email them a confirmation" });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.notEqual(r.body.intent, "clarify", "the router still asked: " + JSON.stringify(r.body));
+    assert.ok(!r.body.question, "a router question was kept: " + JSON.stringify(r.body));
+    assert.ok(r.body.request && r.body.request.parts.length === 1, "no request of one part: " + JSON.stringify(r.body));
+    const { rec } = await settle(P, r.key, { rounds: 20 });
+    assert.equal(log.converse, 0, "the talk-only reply was called");
+    assert.ok(log.agent >= 1, "the agent never ran");
+    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts[0]));
+  });
+});
+
 test("AT3 a pure question reaches the agent, its plain-words answer is the reply, and no file changes", async () => {
   const log = { agent: 0, converse: 0 };
   const ANSWER = "Your site has three pages: Home, Visit and Order.";

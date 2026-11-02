@@ -9,6 +9,16 @@
 
 
 
+
+## 2026-11-02 — The router no longer asks its own questions
+
+Live on copper-kettle-pottery, a payments-and-emails request got the router's own question ("Which should take
+Stripe before they are confirmed?"), and the agent never saw it: there was no agent job. On a site that exists,
+a router question (`clarify`) now goes to the agent as one part, the same as conversation (`ask`) since this
+morning; the agent asks with buttons when it needs to. The router's capabilities list is out of its prompt
+(owner: "thats gotta be deleted right?"). The first-build pins were regenerated: the request halves moved, all 42
+reading halves were unchanged. New test AT5: red on the old code, green now. Not deployed.
+
 ## 2026-11-02 — "Only Stripe" was wrong
 
 When asked to take payments "not Stripe", the old question step answered "the only way this builder takes card
