@@ -727,6 +727,52 @@ export function joinableRequest(rec) {
   return rec.parts.every((p) => p && !NOT_JOINABLE.includes(p.status));
 }
 
+// ── THE MESSAGE QUEUE (2026-11-02, owner: "lets bring back the message queue") ──
+//
+// A message accepted while another of the same owner's requests on the site is
+// still RUNNING waits in line (`rec.queued`): no job is filed for it, so
+// nothing is reserved or charged, until every earlier request that holds the
+// line has ended. Then it starts by itself (`releaseQueue`), first in, first
+// out. What holds the line, read from the earlier request's own record:
+//   - an earlier request still queued (so the order is kept), or
+//   - one whose state is "running" (a part ready, queued, started or
+//     recovering), for at most QUEUE_HOLD_MS since it started.
+// A request paused for credits ("credits"), waiting on the owner's answer or
+// go-ahead ("waiting"), in review or only blocked holds nothing: a paused or
+// asking request never keeps the next message waiting for ever.
+export const QUEUE_HOLD_MS = 60 * 60 * 1000;
+
+/** Whether an (earlier) request keeps later messages of its site waiting. */
+export function holdsQueue(rec, now = Date.now()) {
+  if (!rec || !Array.isArray(rec.parts) || rec.ended === true) return false;
+  if (rec.queued === true) return true;
+  const since = Number.isFinite(rec.startedAt) ? rec.startedAt : rec.at;
+  if (Number.isFinite(since) && now - since > QUEUE_HOLD_MS) return false;
+  return settleState(clone(rec), now).state === "running";
+}
+
+/** Whether `other` comes before `rec` in the site's line: accepted earlier, the key breaking a tie. */
+export function queuedBefore(other, rec) {
+  if (!other || !rec || other.key === rec.key) return false;
+  const a = Number(other.at), b = Number(rec.at);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return a < b || (a === b && String(other.key) < String(rec.key));
+}
+
+/** The keys of the requests `rec` waits behind, among `others` (records of its site). */
+export function queueBlockers(rec, others, now = Date.now()) {
+  if (!rec || rec.queued !== true) return [];
+  return (Array.isArray(others) ? others : [])
+    .filter((o) => o && o.slug === rec.slug && o.uid === rec.uid && queuedBefore(o, rec) && holdsQueue(o, now))
+    .map((o) => o.key);
+}
+
+/** The record let out of the line: it starts now. Null when it was not queued. */
+export function releaseQueue(rec, now = Date.now()) {
+  if (!rec || rec.queued !== true) return null;
+  return { ...rec, queued: false, startedAt: now, updatedAt: now };
+}
+
 export function appendParts(rec, { key, message, routed, at = Date.now() } = {}) {
   if (!rec || !Array.isArray(rec.parts)) return { ok: false, why: "no-request" };
   if (!isRequestKey(key)) return { ok: false, why: "key" };
@@ -2910,6 +2956,10 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
   const saidByPart0 = !!p0 && !p0.jobs.some((j) => j.kind === "route") && p0.jobs.some(shownRun);
   return {
     key: rec.key, state: rec.state, ended: rec.ended === true, stop: rec.stop === true, at: rec.at, updatedAt: rec.updatedAt,
+    // WAITING IN LINE BEHIND AN EARLIER MESSAGE (2026-11-02, the message queue).
+    ...(rec.queued === true && rec.ended !== true ? { queued: true } : {}),
+    // …AND ONE CANCELLED WHILE IT WAITED: it never started, so it is never shown on the thread.
+    ...(rec.queued === true && rec.ended === true ? { dropped: true } : {}),
     // OUT OF CREDITS, PAUSED (2026-10-26): how many parts wait, the owner's tick, and whether credits were added since.
     ...((n) => (n ? { credits: { paused: n, auto: creditsAuto(rec), ready: !!(rec.credits && rec.credits.ready === true) } } : {}))(creditsPaused(rec).length),
     ...(Number.isFinite(rec.creditsResumedAt) ? { creditsResumedAt: rec.creditsResumedAt } : {}),

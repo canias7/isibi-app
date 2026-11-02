@@ -5382,3 +5382,10 @@ svg.st-gloopy{cursor:pointer}
 .st-soon-do { max-width: 520px; text-align: center; font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
 .st-soon-sched { color: #6b7280; font-size: 14px; }
 .st-soon .st-soon-notify { cursor: pointer; }
+
+/* THE MESSAGE QUEUE (2026-11-02, the owner's look): messages waiting in line, as chips above the placeholder. */
+.st-queue { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+.st-queue[hidden] { display: none; }
+.st-qchip { display: inline-flex; align-items: center; gap: 4px; background: #f0ece6; color: #3a3530; border-radius: 999px; padding: 3px 6px 3px 9px; font-size: 11.5px; line-height: 1.4; max-width: 100%; white-space: nowrap; }
+.st-qx { border: none; background: none; padding: 0 2px; font-size: 11px; color: #7a7268; cursor: pointer; line-height: 1; }
+.st-qx:hover { color: #1a1a1a; }

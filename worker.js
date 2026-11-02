@@ -273,6 +273,7 @@ import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking,
   nextStep, readLabels, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, joinableRequest, questionsToOffer, noteOffered,
+  queueBlockers, releaseQueue, holdsQueue,
   approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
@@ -25550,6 +25551,50 @@ async function sendRequestPreps(env, rec, prepare) {
  * starts over — so two drivers at once file one job, under one key. Never
  * throws; answers the record as it left it, or `null`.
  */
+/**
+ * THE SITE'S UNENDED REQUESTS, read from their live markers (2026-11-02, the
+ * message queue): every record of this owner on the site whose marker has no
+ * end. Null when the listing cannot be read; a single record that will not
+ * read is left out (it can never keep the line waiting for good).
+ */
+async function siteOpenRequests(env, slug, uid) {
+  if (!env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return null;
+  const out = [];
+  let cursor;
+  try {
+    for (let page = 0; page < 5; page++) {
+      const listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT + slug + "/", limit: 100, ...(cursor ? { cursor } : {}) });
+      for (const o of (listed && listed.objects) || []) {
+        const at = parseLiveKey(o && o.key);
+        if (!at || at.slug !== slug) continue;
+        let mark = null;
+        try { const got = await env.SITES_BUCKET.get(o.key); mark = got ? JSON.parse(await got.text()) : null; } catch { mark = null; }
+        if (mark && mark.endedAt != null) continue;
+        let found = null;
+        try { found = await loadRequest(env, slug, at.key); } catch { found = null; }
+        if (found && found.rec && found.rec.uid === uid && !found.rec.ended) out.push(found.rec);
+      }
+      if (!(listed && listed.truncated === true && listed.cursor)) break;
+      cursor = listed.cursor;
+    }
+  } catch (e) { console.error("request queue: list", slug, errorClassForLog(e)); return null; }
+  return out;
+}
+
+/** The keys of the earlier requests `rec` waits behind; null when the line cannot be read. */
+async function siteQueueAhead(env, rec) {
+  const open = await siteOpenRequests(env, rec.slug, rec.uid);
+  return open === null ? null : queueBlockers(rec, open);
+}
+
+/** A request let go of the line: the first message waiting behind it on its site is moved on (it starts when nothing else holds it). */
+async function startNextInLine(env, ctx, rec) {
+  const open = await siteOpenRequests(env, rec.slug, rec.uid);
+  if (!open) return;
+  const waiting = open.filter((o) => o.queued === true && o.key !== rec.key).sort((a, b) => (a.at - b.at) || (a.key < b.key ? -1 : 1));
+  if (waiting.length) await advanceRequest(env, ctx, rec.slug, waiting[0].key, "queue");
+}
+
 async function advanceRequest(env, ctx, slug, key, why = "") {
   if (!env.SITES_BUCKET || !isRequestKey(key)) return null;
   try {
@@ -25558,6 +25603,18 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       if (!rec || !etag) return null;
       if (rec.ended) { await settleRequestMarker(env, rec); await requestReply(env, rec); return rec; }
       let base = rec;
+      // WAITING IN LINE (2026-11-02, the message queue): nothing is filed, so
+      // nothing is reserved, while an earlier request of this owner on the site
+      // still holds the line (`queueBlockers`). A line that cannot be read keeps
+      // it waiting; the sweep looks again within two minutes.
+      // A QUEUED MESSAGE CANCELLED (its ✕, the request's stop) is not let out:
+      // it ends as stopped with no job ever filed, so nothing is charged.
+      if (rec.queued === true && !rec.stop) {
+        const ahead = await siteQueueAhead(env, rec);
+        if (ahead === null || ahead.length) return rec;
+        const out = releaseQueue(rec);
+        if (out) { base = out; console.log("request queue:", slug, key, "started after the line cleared"); }
+      }
       // A PART HELD ON A PURCHASE NOBODY COULD TELL (2026-10-09, round 3),
       // looked at again: moved on once every purchase it waits on is known —
       // found landed (its photograph is stored), ended, or released by the
@@ -25654,6 +25711,10 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       const offered = await offerRequestQuestions(env, cur, tag);
       cur = offered.rec;
       await settleRequestMarker(env, cur);
+      // IT LET GO OF THE LINE (ended, paused for credits, waiting on the owner):
+      // the next message waiting behind it starts now (2026-11-02, the message
+      // queue). Lost here, the sweep starts it.
+      if (holdsQueue(rec) && !holdsQueue(cur)) await startNextInLine(env, ctx, cur);
       // ENDED, OR WAITING ON A GO-AHEAD: its reply is asked for now (2026-10-04),
       // whether or not anybody is reading.
       await requestReply(env, cur);
@@ -25722,7 +25783,7 @@ function agentRouted({ waiting = null } = {}) {
   };
 }
 
-async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction, join = false, auth = "" }) {
+async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction, join = false, queue = false, auth = "" }) {
   if (waiting && waiting.requestKey && ask && ask.answered === true) {
     return resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images: rb.images, auth });
   }
@@ -25775,6 +25836,10 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
     attempt,
   });
   if (!draft) return null;
+  // IN LINE (2026-11-02, the message queue): a new message (not an answer)
+  // is filed waiting; its first step (`advanceRequest`, below) starts it at
+  // once when nothing earlier holds the line.
+  if (queue && !answered) draft.queued = true;
   // THE MARKER BEFORE THE RECORD (2026-10-03, the owner's review): the sweep
   // finds a request only by its marker, so a record written first and an
   // invocation that died before its marker left a saved request nothing
@@ -35052,7 +35117,7 @@ async function handleRequest(request, env, ctx) {
         }
         let accepted = null;
         try {
-          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: !agentTakes(), auth: request.headers.get("Authorization") || "" });
+          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: !agentTakes(), queue: agentTakes(), auth: request.headers.get("Authorization") || "" });
         } catch (e) { console.error("request accept:", rKeySlug, errorClassForLog(e)); accepted = { failed: true }; }
         // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own
         // failure shape, so the page holds the message, key and all, for

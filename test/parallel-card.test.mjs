@@ -33,7 +33,7 @@ function cutConst(head) {
   if (!/\{\s*$/.test(line)) return line;
   return CHAT.slice(open, CHAT.indexOf("\n};\n", open) + 4);
 }
-const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParView", "siteParState", "siteParTitle", "siteParTag", "siteParSnap", "siteParHidden", "siteReqCardHTML", "siteParClick", "siteParRetry"];
+const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParView", "siteParState", "siteParTitle", "siteParTag", "siteParSnap", "siteParHidden", "siteReqQueued", "siteReqWorkingLine", "siteReqCardHTML", "siteParClick", "siteParRetry"];
 const CONSTS = ["const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const siteParOpen =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR ="];
 const SRC = [...FNS.map((n) => cut("function " + n + "(")), ...CONSTS.map(cutConst)].join("\n");
 

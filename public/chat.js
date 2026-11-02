@@ -7923,6 +7923,8 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-credits" id="stCredits"></div>' +
               '<div class="st-comp">' +
                 '<div class="st-slash" id="stSlash" role="listbox" aria-label="Commands" hidden></div>' +
+                // THE MESSAGES WAITING IN LINE (2026-11-02), as chips above the placeholder.
+                '<div class="st-queue" id="stQueue"></div>' +
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask Go Farther…"></textarea>' +
                 '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
@@ -8077,6 +8079,21 @@ function renderSiteWorkspace(view, site) {
           : '<div class="st-msg a st-busy">Working</div>')
       : '');
     thread.scrollTop = thread.scrollHeight;
+    // THE LINE'S CHIPS IN THE BOX; ✕ stops that queued request (nothing was charged for it).
+    const qbox = document.getElementById('stQueue');
+    if (qbox) {
+      qbox.innerHTML = siteQueueHTML(site);
+      qbox.hidden = !qbox.innerHTML;
+      qbox.onclick = (e) => {
+        const x = e.target.closest('[data-queue-cancel]');
+        if (!x) return;
+        const key = x.getAttribute('data-queue-cancel');
+        const st = site.requests && site.requests[key];
+        if (st && st.view) st.view = { ...st.view, stop: true };
+        x.closest('.st-qchip').remove();
+        siteRequestStop(site.id, key);
+      };
+    }
     // THE KEY CARD, back under the redrawn thread with whatever was typed in it.
     if (typeof siteKeyCardAttach === 'function') siteKeyCardAttach();
     thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
@@ -10809,7 +10826,7 @@ function siteParSnap(s, key) {
   const m = s && Array.isArray(s.msgs) ? s.msgs.find((x) => x && x.request === key) : null;
   if (!m || !v || !Array.isArray(v.parts) || !v.parts.length) return;
   m.rq = {
-    ended: v.ended === true, ...(v.one === true ? { one: true } : {}), ...(typeof v.opening === 'string' && v.opening ? { opening: v.opening } : {}),
+    ended: v.ended === true, ...(v.queued === true ? { queued: true } : {}), ...(v.dropped === true ? { dropped: true } : {}), ...(v.one === true ? { one: true } : {}), ...(typeof v.opening === 'string' && v.opening ? { opening: v.opening } : {}),
     parts: v.parts.map((p) => ({
       n: p.n, words: String(p.words || ''), status: String(p.status || ''),
       ...(p.prep ? { prep: p.prep } : {}), ...(Array.isArray(p.needs) ? { needs: p.needs.slice() } : {}),
@@ -10822,6 +10839,9 @@ function siteParSnap(s, key) {
 }
 /** Whether a message is drawn inside a parallel card rather than on the thread. */
 function siteParHidden(m, site) {
+  // A MESSAGE WAITING IN LINE (2026-11-02, the owner's look): not on the
+  // thread at all — its chip is in the typing box (`siteQueueHTML`) until it starts.
+  if (m && (m.req || m.request) && siteReqQueued({ request: m.request || m.req }, site)) return true;
   if (!m || m.r !== 'a' || !m.req || m.request) return false;
   const card = (site.msgs || []).find((x) => x && x.request === m.req);
   const v = card ? siteParView(card, site) : null;
@@ -10844,12 +10864,44 @@ function siteBgHolds(site, key) {
   if (v.ended === true) return true;
   return siteBgItems(site).some((it) => it.key === key);
 }
+/** Whether the server holds this message's request in line behind an earlier one (`queued`, 2026-11-02): its live view, else the snapshot kept with the chat. */
+function siteReqQueued(m, site) {
+  const st = site && site.requests && m && m.request && typeof site.requests === 'object' ? site.requests[m.request] : null;
+  const v = st && st.view ? st.view : m && m.rq ? m.rq : null;
+  return !!(v && ((v.queued === true && v.ended !== true) || v.dropped === true));
+}
+/**
+ * THE LINE, AS CHIPS IN THE TYPING BOX (2026-11-02, the owner's look, option
+ * 1): one small pill per message waiting, oldest first, "⏱ <its words> ✕";
+ * ✕ cancels it on the server (the request's stop). Empty when none waits.
+ */
+function siteQueueHTML(site) {
+  const reqs = site && site.requests && typeof site.requests === 'object' ? site.requests : {};
+  const list = Object.keys(reqs).map((key) => ({ key, v: reqs[key] && reqs[key].view }))
+    .filter((x) => x.v && x.v.queued === true && x.v.ended !== true && x.v.stop !== true)
+    .sort((a, b) => (Number(a.v.at) || 0) - (Number(b.v.at) || 0));
+  return list.map((x) => {
+    const sent = (site.msgs || []).find((m) => m && m.r === 'u' && m.req === x.key);
+    const w = String((sent && sent.t) || (x.v.parts && x.v.parts[0] && x.v.parts[0].words) || '').trim();
+    const short = w.length > 28 ? w.slice(0, 27) + '…' : w;
+    return '<span class="st-qchip" title="' + esc(w) + '">⏱ ' + esc(short) + ' <button type="button" class="st-qx" data-queue-cancel="' + esc(x.key) + '" aria-label="Cancel this queued message">✕</button></span>';
+  }).join('');
+}
+/** A one-part message whose request the server is working on now (one reply, not queued, not ended, its part running): its working line is shown under it. */
+function siteReqWorkingLine(m, site) {
+  const st = site && site.requests && m && m.request && typeof site.requests === 'object' ? site.requests[m.request] : null;
+  const v = st && st.view ? st.view : null;
+  if (!v || v.one !== true || v.queued === true || v.ended === true || !Array.isArray(v.parts) || v.parts.length !== 1) return false;
+  return ['ready', 'queued', 'started', 'recovering'].includes(v.parts[0] && v.parts[0].status);
+}
 /** Whether a request's card message shows anything once the panel holds it: its opening line, or its soft box. A message that shows nothing is drawn hidden. */
 function siteReqCardShows(m, site) {
-  return !siteBgHolds(site, m.request) || /class="st-par-(opening|box)"/.test(siteReqCardHTML(m, site));
+  return siteReqWorkingLine(m, site) || !siteBgHolds(site, m.request) || /class="st-par-(opening|box)"/.test(siteReqCardHTML(m, site));
 }
 /** The request's card: the parallel card for several parts, today's for one — or, while the panel holds it, only its opening line and soft box. */
 function siteReqCardHTML(m, site) {
+  // ONCE STARTED (2026-11-02, the message queue), A ONE-PART MESSAGE'S WORKING LINE until its reply comes.
+  if (siteReqWorkingLine(m, site)) return '<div class="st-think st-req-working"><i></i>Working on it</div>';
   const v = siteParView(m, site);
   // HELD BY THE PANEL, the card's part list is kept in the page but not shown
   // (`hidden`): nothing of it is drawn, and the UI canary's reader
