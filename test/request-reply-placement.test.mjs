@@ -692,14 +692,14 @@ test("PLACE 11 — a part's question replaced by a message typed beside it is ma
     await looks(b);
     assert.equal(b.ask() && b.ask().id, qb.id);
     // TYPED BESIDE THE CARD: not an answer, so the question is replaced and the card comes off.
-    // THE CHANGE JOINS THE WAITING REQUEST (2026-10-23, background work), whose
-    // step offers the part's question again in the same call: the replaced
-    // question is back as the same one, pending, while the page took it down.
+    // THE CHANGE IS A REQUEST OF ITS OWN (2026-11-02, the owner: a message
+    // never joins a request waiting on a question; it joined here before):
+    // the question is replaced, and its request keeps its one part.
     b.ctx.siteSend(MSGS[4]);
     await idle();
     assert.equal(P.question().id, qb.id);
-    assert.equal(P.question().status, "pending");
-    assert.equal(P.record(K2).parts.length, 2, "the change typed beside the question did not join its request");
+    assert.equal(P.question().status, "superseded");
+    assert.equal(P.record(K2).parts.length, 1, "the change typed beside the question joined the waiting request");
     assert.equal(b.ask(), null);
     // THE SERVER OFFERS IT AGAIN (its part still waits), and this page makes it live again.
     await pump(P);

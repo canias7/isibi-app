@@ -913,14 +913,14 @@ async function runTool(use, st, deps) {
       // A NEW SITE'S PARTS (2026-11-02, the owner: "parallel agents can be on
       // when doing a build the first time"): the foundation first, built;
       // then two to MAX_HELPERS pieces, each one helper; fewer are written here.
-      if (st.ws.fresh) {
+      if (st.foundationFirst && st.ws.fresh) {
         const why = firstBuildSplitRefusal(input.tasks, st);
         if (why) return { error: why };
       }
       const plan = helperPlan(input.tasks, st.ws, deps);
       if (plan.error) return { error: plan.error };
-      // EACH HELPER IS A TASK ON THE PAGE (`agent-part`, read back by `buildPartsOf`).
-      const say = (text, state) => { try { if (typeof st.progress === "function") st.progress("agent-part", [fact(state, text)]); } catch { /* never costs the run */ } };
+      // ON A FIRST BUILD EACH HELPER IS A TASK ON THE PAGE (`agent-part`, read back by `buildPartsOf`).
+      const say = (text, state) => { try { if (typeof st.progress === "function") st.progress(st.foundationFirst ? "agent-part" : "agent", [fact(state, text)]); } catch { /* never costs the run */ } };
       const done = await runHelperPlan(plan.tasks, (t) => deps.helpers(t, st.ws), {
         max: MAX_HELPERS,
         // A FINISHED HELPER'S FILE LANDS AT ONCE, so a task after it reads it.
@@ -1226,7 +1226,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, onlyWrite = "", unreadable = false } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, foundationFirst = false, onlyWrite = "", unreadable = false } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -1241,7 +1241,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     : [];
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
-  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""),
+  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];

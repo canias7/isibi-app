@@ -19921,6 +19921,9 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
         attached: agentAttachmentsFromBlocks(attachments, attachmentIds),
         // HELPERS ON A NEW SITE (2026-10-30, the owner): pages written at the same time.
         helpers: !revise && !priorPages,
+        // THE FOUNDATION FIRST, THEN THE PAGES IN PARALLEL (2026-11-02, the owner:
+        // "parallel agents can be on when doing a build the first time").
+        foundationFirst: !revise && !priorPages,
       });
       try { mark?.("agent", { ok: ag.ok, rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped }); } catch { /* a trace must never break a build */ }
       // A STOPPED AGENT STOPS THE BUILD, as the publish's own stop read does.

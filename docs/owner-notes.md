@@ -35,6 +35,18 @@ project on Preview, and Cloud's database card no longer opens it. The site's
 database itself is unchanged. Tests: project-url, site-list and site-source are
 updated (175 of 175 related cases pass). Not deployed.
 
+||||||| parent of ac4cb2c77 (Parallel build: foundation-first only on a first build; PLACE 11 follows the no-join rule; owner notes)
+## 2026-11-02: four changes after northline-climbing (branch `parallel-build`, not merged, not deployed, nothing paid)
+
+What you saw on deploy 2302: "Text my customers a reminder the day before their class" was filed as part 3 of an older request whose part 2 was paused for credits. The agent answered correctly (asked Twilio or Vonage, changed nothing, 8 credits), but the answer never showed, and the question had no buttons.
+
+1. **A new message starts its own request.** Why it joined: joining a running request is a deliberate feature (background work, 2026-10-23), but it took any request that had not *ended*, and a request paused for credits never ends. Now a message joins only a request still running with every part active; a part paused for credits, waiting on a question or go-ahead, or already finished makes the message a request of its own (`joinableRequest`).
+2. **A paused part no longer holds the reply back.** The one reply is written once nothing is working: every part finished, paused for credits, or waiting on you. It says what is paused. When a paused part finishes later, a follow-up reply is written.
+3. **Questions come with buttons.** The agent is told to ask with `ask_owner` (tap-to-answer) whenever you must choose, never by writing the question in its summary; the "which service" rule is kept. `ask_owner` was already offered to a part; its question already pauses only that part and your answer resumes it (now tested).
+4. **Parallel agents on a first build.** The first build's agent lays the foundation first (header with the menu, footer, home page) and builds it; then, when its own plan has two or more other pages, it hands them (up to 6) to helper agents that write at the same time, each only its own page, reading the foundation's files. A small site is written by one agent. The task box shows each page as a task. **Limit**: the helpers run inside the build's one job (not separate request jobs), so their cost is the build's one bill and a credit pause stops the whole build, not one page.
+
+Proven with supplied model answers only (`test/parallel-build.test.mjs`, 14 cases), NOT proven live. Screenshots: the build's task box with four pages, the reply with a paused part, the question card with buttons.
+
 ## 2026-11-02: one task = no task box
 
 You spotted that with one agent running, the task box repeated what the chat already shows. Now the task box only appears when two or more tasks run for a site; with one, everything is just in the chat. Two old tests that expected a box for a single task were updated on your word; new test "ONE" in `test/background-work.test.mjs`. Not deployed.

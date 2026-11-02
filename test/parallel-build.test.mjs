@@ -209,7 +209,7 @@ test("B1 a six-page description: the foundation first, built; then five parts in
     [use("b2", "build", {})],
     [use("fin", "finish", { summary: "Built six pages." })],
   ]);
-  const out = await runSiteAgent(deps, { request: DESC6, pages: [], parts: [], model: "claude-sonnet-5", ownParts: true, helpers: true });
+  const out = await runSiteAgent(deps, { request: DESC6, pages: [], parts: [], model: "claude-sonnet-5", ownParts: true, helpers: true, foundationFirst: true });
   assert.equal(out.ok, true, out.stopped);
   assert.deepEqual(calls.helpers.sort(), pages.map((p) => p + ".tsx").sort());
   assert.ok(calls.peak >= 2, "the parts did not run at the same time: peak " + calls.peak);
@@ -228,19 +228,21 @@ test("B2 the foundation comes first: helpers before a passing build with a home 
     [use("hp", "helpers", { tasks: [{ file: "a.tsx", brief: "a" }, { file: "b.tsx", brief: "b" }] })],
     FOUNDATION, [use("b1", "build", {})], [use("fin", "finish", { summary: "x" })],
   ]);
-  const out = await runSiteAgent(deps, { request: DESC6, pages: [], parts: [], model: "claude-sonnet-5", ownParts: true, helpers: true });
+  const out = await runSiteAgent(deps, { request: DESC6, pages: [], parts: [], model: "claude-sonnet-5", ownParts: true, helpers: true, foundationFirst: true });
   assert.equal(out.ok, true);
   assert.equal(calls.helpers.length, 0, "a helper ran before the foundation");
 });
 
 test("B3 a one-page description: one agent, no helpers; and the split's bounds (2 to " + MAX_HELPERS + ")", async () => {
   const { calls, deps } = firstBuild([[use("i", "write_file", { file: "index.tsx", source: tsx("/", "Solo") })], [use("b1", "build", {})], [use("fin", "finish", { summary: "One page." })]]);
-  const out = await runSiteAgent(deps, { request: "A one-page site for my dog walking", pages: [], parts: [], model: "claude-sonnet-5", ownParts: true, helpers: true });
+  const out = await runSiteAgent(deps, { request: "A one-page site for my dog walking", pages: [], parts: [], model: "claude-sonnet-5", ownParts: true, helpers: true, foundationFirst: true });
   assert.equal(out.ok, true);
   assert.equal(calls.helpers.length, 0);
   assert.deepEqual(buildPartsOf({ marks: calls.progress.map(([stage, facts], n) => ({ n, stage, facts })) }), []);
   const ws = { has: (k) => k === "index.tsx" };
   const st = { built: true, dirty: false, ws };
+  // THE WIRING: the first build asks for it.
+  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /helpers: !revise && !priorPages,\n(?:\s*\/\/.*\n)*\s*foundationFirst: !revise && !priorPages,/);
   assert.match(firstBuildSplitRefusal([{ file: "a.tsx" }], st), /write it yourself/);
   assert.match(firstBuildSplitRefusal(Array.from({ length: MAX_HELPERS + 1 }, (_, i) => ({ file: i + ".tsx" })), st), /at most/);
   assert.equal(firstBuildSplitRefusal([{ file: "a.tsx" }, { file: "b.tsx" }], st), "");
