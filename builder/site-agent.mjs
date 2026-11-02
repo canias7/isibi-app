@@ -450,8 +450,12 @@ export function writableKey(key, ws = null) {
  * one the required files (the targets, what they import, the header and
  * footer) and whatever the picker chose (`picked`, keys).
  */
-export function headStart({ pages = [], parts = [], targets = [], picked = null } = {}) {
+export function headStart({ pages = [], parts = [], targets = [], picked = null, lazy = false } = {}) {
   const ws = makeWorkspace(pages, parts);
+  // AN EDIT READS WHAT IT NEEDS (2026-11-02, reply-fix): with nothing named,
+  // its first message carries the index and the map, not every file's body.
+  // Live, "hey" sent a small site whole and cost 7 credits for one round.
+  if (lazy && !(Array.isArray(targets) && targets.length) && !(Array.isArray(picked) && picked.length)) return [];
   if (!overThreshold(pages, parts)) return ws.keys();
   const want = new Set(requiredFiles(pages, parts, targets));
   for (const k of Array.isArray(picked) ? picked : []) if (ws.has(k)) want.add(k);
@@ -1289,7 +1293,7 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
-export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, foundationFirst = false, onlyWrite = "", unreadable = false, newProject = false } = {}) {
+export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, foundationFirst = false, onlyWrite = "", unreadable = false, newProject = false, lazyFiles = false } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const progress = typeof deps.progress === "function" ? deps.progress : () => {};
@@ -1306,7 +1310,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
   const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
-  const shown = headStart({ pages, parts, targets, picked });
+  const shown = headStart({ pages, parts, targets, picked, lazy: lazyFiles === true });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
   // a first build was offered `look` with nothing behind it, tried it, was told

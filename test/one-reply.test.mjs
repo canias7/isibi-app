@@ -182,7 +182,7 @@ function harness(rec0, send) {
   const calls = { send: 0, debit: [] };
   const sandbox = {
     console: { log() {}, error() {} }, crypto: { randomUUID: () => "c" + Math.random().toString(16).slice(2) },
-    errorClassForLog: (e) => String(e && e.message), oneReplyOn: O.oneReplyOn, oneReplyNext: O.oneReplyNext, readOneReply: O.readOneReply,
+    errorClassForLog: (e) => String(e && e.message), oneReplyOn: O.oneReplyOn, oneReplyNext: O.oneReplyNext, readOneReply: O.readOneReply, agentReplyOf: O.agentReplyOf,
     requestFacts: O.requestFacts, writeOneReply: O.writeOneReply, fallbackOneReply: O.fallbackReply, requestView,
     keysAskedNeed: async () => [], modelsFor: (p) => ({ quick: p === "sonnet" ? "claude-sonnet-5" : "grok-4.7" }),
     quickSend: () => async (req) => { calls.send++; calls.model = req.model; await new Promise((r) => setTimeout(r, 5)); return send(req); },

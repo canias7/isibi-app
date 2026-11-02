@@ -144,7 +144,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // COMMENTS HERE AND CALLED IN NONE. It decided the PAGES charge inside
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
-import { requestFacts, writeOneReply, fallbackReply as fallbackOneReply, oneReplyNext, oneReplyOn, readOneReply } from "./builder/one-reply.mjs";
+import { requestFacts, writeOneReply, fallbackReply as fallbackOneReply, oneReplyNext, oneReplyOn, readOneReply, agentReplyOf } from "./builder/one-reply.mjs";
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, filingIsFree, filingFloorRefusal, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
 // `countImageSlots` IS NOT IMPORTED ANY MORE, and its absence is the record of
 // why: it counts `@@IMG:` TOKENS, which both the edit page rung and the addon
@@ -17652,6 +17652,9 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
     attached: inFiles.files, unread: inFiles.skipped,
     ownParts: ownPartsSite(pages, parts), model: models.pages, unreadable,
+    // FILES READ WHEN NEEDED (2026-11-02, reply-fix): the first round is the
+    // index and the map; a plain answer pays for no file bodies.
+    lazyFiles: true,
     // HELPERS ON AN EDIT TOO (2026-10-30, the owner: the parallel rule applies
     // everywhere): a change with several independent pieces; each helper keeps
     // this run's scope (`mayWrite`).
@@ -26518,7 +26521,10 @@ async function writeOneReplyNow(env, rec, round, by, auth) {
     // The owner's answers to its questions are part of what was asked (reply truth).
     const facts = requestFacts(requestView(rec), { missingKeys: Array.isArray(missingKeys) && missingKeys.length ? missingKeys : null, answers: rec.context });
     const model = modelsFor(rec.picker).quick;
-    out = await writeOneReply({ send: quickSend(env, "reply"), message: rec.message, facts, model });
+    // THE AGENT ANSWERED (2026-11-02, reply-fix): its own words, no model call.
+    const own = agentReplyOf(rec);
+    if (own) out = { text: own, source: "agent", usage: [] };
+    else out = await writeOneReply({ send: quickSend(env, "reply"), message: rec.message, facts, model });
     console.log("one reply:", rec.key, round, out.source, out.why || "");
     if (auth && out.usage.length) {
       try { await debitCredits(auth, pageCredits(...out.usage), "reply:" + rec.key + ":" + round, "reply", true); }
@@ -35025,6 +35031,11 @@ async function handleRequest(request, env, ctx) {
       // runs on the server; an answer to a part's question resumes that part.
       // Anything else — a question about the site, a question back, a failure,
       // a plan that cannot be read — is answered as it always was.
+      // EACH MESSAGE IS ITS OWN REQUEST (2026-11-02, reply-fix): under the
+      // site agent nothing joins a running request. Live, "hello" sent while
+      // "hey" still ran became part 1 of hey's request: one task box of two
+      // rows, one merged reply, and the page's own "couldn't work out" line
+      // under "hello". Only the agent's own split makes parts of one message.
       if (rKey && routed.failed !== true) {
         // THE FLOOR AT ACCEPTANCE (audit A13-2): work taken on here is filed
         // as jobs by the server with no one to ask again, so paid work below
@@ -35041,7 +35052,7 @@ async function handleRequest(request, env, ctx) {
         }
         let accepted = null;
         try {
-          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: true, auth: request.headers.get("Authorization") || "" });
+          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction !== undefined ? rInstruction : rOut.resolved, join: !agentTakes(), auth: request.headers.get("Authorization") || "" });
         } catch (e) { console.error("request accept:", rKeySlug, errorClassForLog(e)); accepted = { failed: true }; }
         // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own
         // failure shape, so the page holds the message, key and all, for

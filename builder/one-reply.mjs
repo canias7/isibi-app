@@ -369,6 +369,19 @@ export function replyRound(rec) {
   return "paused:" + tail + ":" + ended;
 }
 
+/**
+ * THE AGENT'S OWN WORDS AS THE REPLY (2026-11-02, reply-fix; live,
+ * copper-kettle-pottery: "hey" got a reply rewritten across two messages).
+ * A request of one part, which ended done with the agent's finish words, is
+ * answered with those words: no reply model, no rewrite. Null otherwise (a
+ * split, a failure, a step that said nothing): the writer runs as before.
+ */
+export function agentReplyOf(rec) {
+  if (!plain(rec) || !Array.isArray(rec.parts) || rec.parts.length !== 1) return null;
+  const p = rec.parts[0];
+  return plain(p) && p.status === "done" && !(Array.isArray(p.needKeys) && p.needKeys.length) && typeof p.agentSaid === "string" && p.agentSaid.trim() ? p.agentSaid.trim() : null;
+}
+
 /** Part states that mean work is still going (`settleState`'s running and review). */
 const ACTIVE = Object.freeze(["queued", "started", "ready", "recovering", "unverified"]);
 /** Part states that have ended (`PART_TERMINAL`). */
@@ -377,7 +390,7 @@ const TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancell
 /** A request record's stored one reply, read strictly; null when none reads. */
 export function readOneReply(v) {
   if (!plain(v) || typeof v.for !== "string" || !v.for) return null;
-  if (v.state === "written" && typeof v.text === "string" && v.text.trim() && (v.source === "model" || v.source === "fallback")) return { for: v.for, state: "written", text: v.text, source: v.source, at: Number(v.at) || 0 };
+  if (v.state === "written" && typeof v.text === "string" && v.text.trim() && (v.source === "model" || v.source === "fallback" || v.source === "agent")) return { for: v.for, state: "written", text: v.text, source: v.source, at: Number(v.at) || 0 };
   if (v.state === "writing" && typeof v.by === "string" && Number.isFinite(v.at)) return { for: v.for, state: "writing", by: v.by, at: v.at };
   return null;
 }

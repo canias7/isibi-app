@@ -42,7 +42,7 @@ function cutConst(head) {
 }
 const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParState", "siteParTitle", "siteParTag", "siteReqKeys",
   "siteRequestWorking", "siteRunningWork", "siteBusyHere", "siteComposerStops", "siteStopWork",
-  "siteBgState", "siteBgKeep", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
+  "siteBgState", "siteBgKeep", "siteBgItems", "siteBoxItems", "siteRowTitle", "siteBgWhen", "siteBgLine", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
 const CONSTS = ["const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi =", "const SITE_BG_KEEP_KEY =", "const siteParOpen ="];
 const SRC = [...FNS.map((n) => cut("function " + n + "(")), ...CONSTS.map(cutConst)].join("\n");
 
@@ -51,7 +51,7 @@ const said = (title) => ({ planned: "p", doing: "d", waiting: "w", unconfirmed: 
 /** One message's request of many parts — the shape `requestView` gives — and a thread of forty part replies with no card. */
 function siteOf({ parts = 32, card = false, empty = false } = {}) {
   const view = { key: KA, at: 1, updatedAt: 2, ended: false, stop: false, parts: empty ? [] : Array.from({ length: parts }, (_, n) => ({
-    n, words: "part " + n, status: n < 2 ? "done" : n < 6 ? "started" : "ready", jobs: n < 2 ? ["j" + n] : [], said: said("Part " + n),
+    n, parent: 0, words: "part " + n, status: n < 2 ? "done" : n < 6 ? "started" : "ready", jobs: n < 2 ? ["j" + n] : [], said: said("Part " + n),
   })) };
   const msgs = Array.from({ length: 40 }, (_, i) => ({ r: "a", t: "reply " + i, req: KA, job: "j" + i }));
   if (card) msgs.unshift({ r: "a", t: "", request: KA });

@@ -1423,6 +1423,9 @@ function settle(rec, p, job, row, now) {
   // files, rows, rules, tables — the facts the message's one reply is written
   // from, beside every other part's. Kept across tries: a later try adds.
   const wk = ans ? partWork(ans.body) : null;
+  // THE AGENT'S OWN FINISH WORDS (2026-11-02, reply-fix): when its step
+  // finished ok and was not a split, its words are the message's reply.
+  if (ans && plain(ans.body) && ans.body.ok === true && ans.body.layer === "agent" && !Array.isArray(ans.body.split) && typeof ans.body.msg === "string" && ans.body.msg.trim()) p.agentSaid = ans.body.msg.trim().slice(0, 4000);
   if (wk) p.work = readWork({ ...(p.work || {}), ...Object.fromEntries(Object.entries(wk).map(([k, v]) => [k, Array.isArray(v) ? [...new Set([...((p.work && Array.isArray(p.work[k])) ? p.work[k] : []), ...v])] : v])) });
   // WHAT IT WAS CHARGED, AS ITS ROW SAYS — its reserves once finalized, and
   // nothing for one refunded, exempt or never reserved — so a part's money is
@@ -2919,6 +2922,8 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
     ...(said && typeof said === "object" && typeof said.opening === "string" && said.opening.trim() ? { opening: said.opening.trim() } : {}),
     parts: rec.parts.map((p) => ({
       n: p.n, words: typeof p.shown === "string" && p.shown ? p.shown : p.words, status: p.status,
+      // A PART THE AGENT SPLIT OFF (2026-11-02, reply-fix): only these make task-box rows.
+      ...(Number.isInteger(p.parent) ? { parent: p.parent } : {}),
       // THE KEYS ITS STEP ASKED FOR (2026-11-01), names only, whatever its ending.
       ...(Array.isArray(p.needKeys) && p.needKeys.length ? { needKeys: p.needKeys.slice(0, 8) } : {}),
       // WHAT ITS STEP REALLY DID (2026-11-01, one reply), by its answer's fields.

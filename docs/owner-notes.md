@@ -9,6 +9,17 @@
 
 
 
+## 2026-11-02 — "hey" then "hello": two chats, two answers, no task box, cheaper (branch `reply-fix`, not merged, not deployed, nothing paid)
+
+What you saw on copper-kettle-pottery, and why:
+
+- **"hello" joined "hey".** "hello" arrived while hey's job was still running, and the old "a message sent while a request runs joins it" rule (2026-10-23) made it part 2 of hey's request. That one joining caused the rest: a task box of two rows, one combined reply ("we got your hey and hello"), and the page's own "I couldn't work out what to do with that" line under "hello" (that sentence is only written by the page when its message post fails or does not read; the joined post ran the joined request on the same call). **Fix:** under the site agent nothing joins any more; every message is its own request. Only the agent's own `split_work` makes several parts of one message.
+- **The reply was rewritten.** The one-reply writer was asked to write every reply from the facts, never from the agent's words, so a "hey" got a second model call that rewrote (and merged) it. **Fix:** a request of one part that the agent finished is answered with the agent's own words, with no extra model call and no charge. A split request still gets the one reply written over its parts.
+- **The task box.** Your rule, exactly: the box appears only when the agent split one message into two or more parts running at the same time (or a first build's parallel pages). Greetings, questions, answers in words and single changes are just chat bubbles, never rows. Row names are now the part's own words, not a model's title (that is where "A hello" came from).
+- **Cost.** "hey" cost 7 because the agent's first round was sent the whole site's files (a small site is sent whole: ~28,000 tokens at grok's $2 per million). Now an edit's first round carries the file list and the site map only, and the agent reads files when it needs them. Measured on the prompt (not live): the floor is the agent's own instructions and tools, ~14,000 tokens, so a cold "hey" should cost about **4 credits** and one right after it about **1–2** (the instructions are then cached). A change now usually takes one more round to read its files; that round is mostly cached.
+
+Tests (supplied model answers): new `test/reply-fix.test.mjs` (hey then hello 30 s apart through the real Worker: two requests, both done, each reply the agent's words, no reply-model call; red on the old code, where hello joined), new `ONE2` in `test/background-work.test.mjs` (hey/hello/a question: no box; a three-part split: three rows named by their words); `background-work` updated to the new box rule. Screenshot: hey + hello as two bubbles, no box.
+
 ## 2026-11-02 — No router: every message goes to the site agent (branch `agent-only`, not merged, not deployed, nothing paid)
 
 On your word ("get rid of [the router] completely, just put it in the big agent"). No routing model call is made for any message any more, on a site or before one exists:

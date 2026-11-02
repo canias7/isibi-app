@@ -44,7 +44,7 @@ function cutConst(head) {
   if (!/\{\s*$/.test(line)) return line;
   return CHAT.slice(open, CHAT.indexOf("\n};\n", open) + 4);
 }
-const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParState", "siteParTitle", "siteParTag", "siteParSnap",
+const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParState", "siteParTitle", "siteRowTitle", "siteBoxItems", "siteParTag", "siteParSnap",
   "siteRequestWorking", "siteRunningWork", "siteBusyHere", "siteComposerStops",
   "siteBgState", "siteBgKeep", "siteBgHolds", "siteReqCardHTML", "siteReqCardShows", "siteParView", "siteReqKeys", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgEnding", "siteBgEndings", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
 const CONSTS = ["const SITE_BG_ENDING =", "const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi =", "const SITE_BG_KEEP_KEY =", "const siteParOpen ="];
@@ -64,11 +64,11 @@ function siteOf({ endedB = false } = {}) {
     ],
     requests: {
       [KA]: { view: { key: KA, ended: false, stop: false, parts: [
-        { n: 0, words: "Add a Bookshop page", status: "started", jobs: [], said: said("Bookshop page"), progress: LINES(3) },
-        { n: 1, words: "Saturday hours to 8–7", status: "blocked", needs: [0], jobs: [], said: said("Saturday hours") },
-        { n: 2, words: "fill in a search description", status: "done", jobs: ["jc"], draft: { revision: 3 }, page: "/bookshop", said: said("Search description") },
+        { n: 0, parent: 0, words: "Add a Bookshop page", status: "started", jobs: [], said: said("Bookshop page"), progress: LINES(3) },
+        { n: 1, parent: 0, words: "Saturday hours to 8–7", status: "blocked", needs: [0], jobs: [], said: said("Saturday hours") },
+        { n: 2, parent: 0, words: "fill in a search description", status: "done", jobs: ["jc"], draft: { revision: 3 }, page: "/bookshop", said: said("Search description") },
       ] } },
-      [KB]: { view: { key: KB, ended: endedB, stop: false, parts: [{ n: 0, words: "make the buttons rounder", status: endedB ? "failed" : "started", jobs: [], said: said("Rounder buttons") }] } },
+      [KB]: { view: { key: KB, ended: endedB, stop: false, parts: [{ n: 0, parent: 0, words: "make the buttons rounder", status: endedB ? "failed" : "started", jobs: [], said: said("Rounder buttons") }] } },
     },
     jobCards: {},
   };
@@ -127,16 +127,16 @@ test("P — the pill counts the unfinished parts; open, the panel's header count
   const p = load(site);
   const pill = p.html(1000);
   assert.match(pill, /class="st-bg-pill" data-bg="open"/);
-  assert.equal(text(pill), "3 tasks in progress ▾");
+  // A SEPARATE MESSAGE (KB, one part) IS NEVER A ROW (owner, 2026-11-02, reply-fix).
+  assert.equal(text(pill), "2 tasks in progress ▾");
   p.press({ "data-bg": "open" });
   const panel = p.html(1000);
-  assert.match(text(panel), /^4 tasks · 2 in progress Stop all ▴/);
+  assert.match(text(panel), /^3 tasks · 1 in progress Stop all ▴/);
   const rows = [...panel.matchAll(/class="st-bg-row st-par-(\w+)" data-bg-row="([^"]+)"[^]*?st-bg-name">([^<]*)<\/span><span class="st-bg-sub">([^<]*)</g)].map((m) => [m[1], m[2], m[3], m[4]]);
   assert.deepEqual(rows, [
-    ["run", KA + "|0", "Bookshop page", "line 3"],
-    ["wait", KA + "|1", "Saturday hours", "Next — after Bookshop page"],
-    ["done", KA + "|2", "Search description", "Saved as draft · just now"],
-    ["run", KB + "|0", "Rounder buttons", "d"],
+    ["run", KA + "|0", "Add a Bookshop page", "line 3"],
+    ["wait", KA + "|1", "Saturday hours to 8–7", "Next — after Bookshop page"],
+    ["done", KA + "|2", "fill in a search description", "Saved as draft · just now"],
   ]);
   // ▴ CLOSES IT.
   p.press({ "data-bg": "close" });
@@ -150,12 +150,12 @@ test("P — a finished row stays a while, then drops off; a request first read a
   const p = load(site);
   p.press({ "data-bg": "open" });
   const t0 = Date.now() + 10;
-  assert.match(text(p.html(t0)), /Rounder buttons I couldn't do Rounder buttons\./, "a part that did not work is not listed with its line");
+  assert.doesNotMatch(text(p.html(t0)), /rounder/i, "a separate one-part message made a row");
   assert.match(text(p.html(t0 + 120_000)), /Saved as draft · 2 min ago/);
   const later = p.html(t0 + 5 * 60_000 + 1);
-  assert.doesNotMatch(later, /Search description|Rounder buttons/, "a finished row never dropped off");
+  assert.doesNotMatch(later, /search description/, "a finished row never dropped off");
   assert.match(later, /Bookshop page/);
-  const snapOnly = { id: "s2", msgs: [{ r: "a", t: "", request: KA, rq: { ended: true, parts: [{ n: 0, words: "x", status: "done", jobs: [] }] } }] };
+  const snapOnly = { id: "s2", msgs: [{ r: "a", t: "", request: KA, rq: { ended: true, parts: [{ n: 0, parent: 0, words: "x", status: "done", jobs: [] }] } }] };
   assert.equal(load(snapOnly).html(), "");
 });
 
@@ -191,13 +191,15 @@ test("J — a waiting part offers Remove and names what it starts after; a done 
   // SHOW ME: the preview, on that page.
   p.press({ "data-bg": "show", "data-bg-page": "/bookshop" });
   assert.equal(site.active, "/bookshop");
+  // A PART THAT DID NOT WORK, in a split: its line and Try again.
+  site.requests[KA].view.parts[1].status = "failed";
   p.press({ "data-bg": "back" });
-  p.press({ "data-bg-row": KB + "|0" });
+  p.press({ "data-bg-row": KA + "|1" });
   const bad = p.html();
-  assert.match(text(bad), /I couldn't do Rounder buttons\./);
+  assert.match(text(bad), /I couldn't do Saturday hours\./);
   assert.match(bad, /data-bg="retry"/);
-  p.press({ "data-bg": "retry", "data-bg-id": KB + "|0" });
-  assert.deepEqual(p.sent, [["make the buttons rounder", true]], "Try again did not send the part's own words again");
+  p.press({ "data-bg": "retry", "data-bg-id": KA + "|1" });
+  assert.deepEqual(p.sent, [["Saturday hours to 8–7", true]], "Try again did not send the part's own words again");
 });
 
 test("J — Stop and Remove post the per-part stop with that part; Stop all stops each request with work left, through its own stop", async () => {
@@ -276,7 +278,7 @@ test("S — the panel's box scrolls inside a bounded panel, its bar outside the 
 
 // ── R ───────────────────────────────────────────────────────────────────────
 test("R — a reload keeps a single-part request's snapshot on its message, and the panel reads it", () => {
-  const site = { id: "s1", msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], requests: { [KA]: { view: { key: KA, ended: false, parts: [{ n: 0, words: "make it blue", status: "started", jobs: [], progress: [{ text: "Picking the blue" }], said: said("Blue") }] } } } };
+  const site = { id: "s1", msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], requests: { [KA]: { view: { key: KA, ended: false, parts: [{ n: 0, parent: 0, words: "make it blue", status: "started", jobs: [], progress: [{ text: "Picking the blue" }], said: said("Blue") }] } } } };
   const p = load(site);
   p.ctx.siteParSnap(site, KA);
   assert.ok(site.msgs[1].rq, "a single-part request kept no snapshot for a reload");
@@ -437,8 +439,8 @@ test("SV — a joined change that refers to what a running part creates waits fo
 
 test("SV — appendParts: numbers after the parts there, keeps their needs and carving, idempotent, refuses an ended or stopped request", () => {
   const rec = { key: KA, message: "one", ended: false, stop: false, joined: [], parts: [
-    { n: 0, words: "one", at: -1, needs: [], held: ["x"], putOff: [], status: "started", jobs: [], targets: { writes: [], reads: ["page:/menu-page"] } },
-    { n: 1, words: "x", at: 0, parent: 0, needs: [], held: [], putOff: [], status: "blocked", jobs: [], targets: null },
+    { n: 0, parent: 0, words: "one", at: -1, needs: [], held: ["x"], putOff: [], status: "started", jobs: [], targets: { writes: [], reads: ["page:/menu-page"] } },
+    { n: 1, parent: 0, words: "x", at: 0, parent: 0, needs: [], held: [], putOff: [], status: "blocked", jobs: [], targets: null },
   ] };
   const r = RQ.appendParts(rec, { key: KB, message: "make /menu-page", routed: { intent: "edit", layer: "look", targets: [{ change: 0, writes: ["new-page:/menu-page"] }] } });
   assert.ok(r.ok, JSON.stringify(r));
@@ -498,15 +500,15 @@ test("SV — POST /stop with a part: a part not yet running is cancelled as stop
 test("P — parts waiting on the customer are counted as 'need you', apart from the work in progress", () => {
   const site = siteOf();
   const parts = site.requests[KA].view.parts;
-  parts.push({ n: 3, words: "which beginner lesson", status: "waiting", jobs: [], question: { text: "Which one?" }, said: said("Lesson price") });
-  parts.push({ n: 4, words: "which blocks", status: "waiting", jobs: [], question: { text: "Which blocks?" }, said: said("Reviews") });
+  parts.push({ n: 3, parent: 0, words: "which beginner lesson", status: "waiting", jobs: [], question: { text: "Which one?" }, said: said("Lesson price") });
+  parts.push({ n: 4, parent: 0, words: "which blocks", status: "waiting", jobs: [], question: { text: "Which blocks?" }, said: said("Reviews") });
   const p = load(site);
-  assert.equal(text(p.html(1000)), "2 need you · 3 in progress ▾");
+  assert.equal(text(p.html(1000)), "2 need you · 2 in progress ▾");
   p.press({ "data-bg": "open" });
-  assert.match(text(p.html(1000)), /^6 tasks · 2 need you · 2 in progress Stop all ▴/);
+  assert.match(text(p.html(1000)), /^5 tasks · 2 need you · 1 in progress Stop all ▴/);
   // ONLY QUESTIONS LEFT: the pill says so, never "in progress".
   const only = { id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
-    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: [{ n: 0, words: "w", status: "waiting", jobs: [], question: { text: "Q?" }, said: said("One") }] } } } };
+    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: [{ n: 0, parent: 0, words: "w", status: "waiting", jobs: [], question: { text: "Q?" }, said: said("One") }] } } } };
   assert.equal(text(load(only).html(1000)), "", "one task, even waiting on you, is just the chat (owner, 2026-11-02)");
 });
 
@@ -514,15 +516,34 @@ test("P — parts waiting on the customer are counted as 'need you', apart from 
 // read "3 tasks finished" over a part paused for credits.
 test("Q — once nothing runs, the pill counts each part by its real ending", () => {
   const mk = (statuses) => ({ id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
-    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: statuses.map((s, n) => ({ n, words: "w" + n, status: s, jobs: [], said: said("T" + n) })) } } } });
+    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: statuses.map((s, n) => ({ n, parent: 0, words: "w" + n, status: s, jobs: [], said: said("T" + n) })) } } } });
   assert.equal(text(load(mk(["done", "done", "credits"])).html(1000)), "3 tasks · 2 finished, 1 paused for credits ▾");
   assert.equal(text(load(mk(["done", "cancelled", "failed"])).html(1000)), "3 tasks · 1 finished, 1 stopped, 1 failed ▾");
   assert.equal(text(load(mk(["done", "done"])).html(1000)), "2 tasks finished ▾");
 });
 
+test("ONE2 — plain chat never makes a box: two one-part messages (hey, hello) and a question show nothing; a 3-part split shows 3 rows (owner, 2026-11-02)", () => {
+  const one = (k, w, st) => ({ view: { key: k, ended: false, stop: false, parts: [{ n: 0, words: w, status: st, jobs: [] }] } });
+  const chat = { id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "hey" }, { r: "a", t: "", request: KA }, { r: "u", t: "hello" }, { r: "a", t: "", request: KB }], jobCards: {},
+    requests: { [KA]: one(KA, "hey", "done"), [KB]: one(KB, "hello", "started") } };
+  assert.equal(text(load(chat).html(1000)), "", "hey + hello drew a task box");
+  chat.requests[KB] = one(KB, "what pages do I have?", "started");
+  assert.equal(text(load(chat).html(1000)), "", "a question drew a task box");
+  const split = { id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "three things" }, { r: "a", t: "", request: KA }], jobCards: {},
+    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: [
+      { n: 0, words: "three things", status: "done", jobs: [] },
+      ...["Add a Bookshop page", "Saturday hours to 8–7", "rounder buttons"].map((w, i) => ({ n: i + 1, parent: 0, words: w, status: "started", jobs: [] })),
+    ] } } } };
+  const p = load(split);
+  assert.equal(text(p.html(1000)), "3 tasks in progress ▾");
+  p.press({ "data-bg": "open" });
+  const names = [...p.html(1000).matchAll(/st-bg-name">([^<]*)</g)].map((m) => m[1]);
+  assert.deepEqual(names, ["Add a Bookshop page", "Saturday hours to 8–7", "rounder buttons"]);
+});
+
 test("ONE — the task box appears only with two or more tasks (owner, 2026-11-02)", () => {
   const mk = (statuses) => ({ id: "s1", slug: "shop", pages: [], msgs: [{ r: "u", t: "x" }, { r: "a", t: "", request: KA }], jobCards: {},
-    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: statuses.map((s, n) => ({ n, words: "w" + n, status: s, jobs: [], said: said("T" + n) })) } } } });
+    requests: { [KA]: { view: { key: KA, ended: false, stop: false, parts: statuses.map((s, n) => ({ n, parent: 0, words: "w" + n, status: s, jobs: [], said: said("T" + n) })) } } } });
   assert.equal(text(load(mk(["started"])).html(1000)), "", "one running task drew a task box");
   assert.match(text(load(mk(["started", "started"])).html(1000)), /2 tasks in progress/);
 });

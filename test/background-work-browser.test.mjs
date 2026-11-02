@@ -63,11 +63,11 @@ function viewA(S) {
     key: KA, state: "running", ended: false, stop: false, at: Date.now() - 300000, updatedAt: Date.now(),
     opening: "I'll work on these three side by side.",
     parts: [
-      { n: 0, words: "Add a Bookshop page with search and a reserve button", status: "started", ids: [J("a")], jobs: [], charged: 0, route: "addon", said: said("Bookshop page", "I'm adding your Bookshop page.", "I've added your Bookshop page."), progress: LONG.slice(0, S.lines).map((text, i) => ({ job: J("a"), n: i, ms: i * 1000, text })) },
-      { n: 1, words: "change Saturday hours to 8am–7pm", status: "blocked", needs: [0], ids: [], jobs: [], charged: 0, said: said("Saturday hours", "d", "Done.") },
-      { n: 2, words: "fill in a search description", status: "done", ids: [J("c")], jobs: [J("c")], charged: 1, route: "text", draft: { revision: 4, preview: "ready" }, said: said("Search description", "d", "I've written your search description.") },
+      { n: 0, parent: 0, words: "Add a Bookshop page with search and a reserve button", status: "started", ids: [J("a")], jobs: [], charged: 0, route: "addon", said: said("Bookshop page", "I'm adding your Bookshop page.", "I've added your Bookshop page."), progress: LONG.slice(0, S.lines).map((text, i) => ({ job: J("a"), n: i, ms: i * 1000, text })) },
+      { n: 1, parent: 0, words: "change Saturday hours to 8am–7pm", status: "blocked", needs: [0], ids: [], jobs: [], charged: 0, said: said("Saturday hours", "d", "Done.") },
+      { n: 2, parent: 0, words: "fill in a search description", status: "done", ids: [J("c")], jobs: [J("c")], charged: 1, route: "text", draft: { revision: 4, preview: "ready" }, said: said("Search description", "d", "I've written your search description.") },
       // A CHANGE SENT WHILE IT RUNS, JOINED AS A NEW PART that waits for the page it links to.
-      ...(S.joined ? [{ n: 3, words: "Put the Bookshop page in the menu", status: "blocked", needs: [0], ids: [], jobs: [], charged: 0, said: said("Bookshop in the menu", "d", "Done.") }] : []),
+      ...(S.joined ? [{ n: 3, parent: 0, words: "Put the Bookshop page in the menu", status: "blocked", needs: [0], ids: [], jobs: [], charged: 0, said: said("Bookshop in the menu", "d", "Done.") }] : []),
     ],
   };
 }
@@ -142,7 +142,8 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
   try {
     // THE PILL, once the requests list has brought both requests back.
     await page.waitForSelector(".st-bg-pill", { timeout: 20000 });
-    assert.equal((await page.textContent(".st-bg-pill")).trim(), "3 tasks in progress ▾");
+    // KB IS A SEPARATE ONE-PART MESSAGE: never a row (owner, 2026-11-02, reply-fix).
+    assert.equal((await page.textContent(".st-bg-pill")).trim(), "2 tasks in progress ▾");
     // SEND, NEVER STOP, while they run.
     assert.ok(await page.$("#stSend"), "the box has no Send while parts run");
     assert.equal(await page.$("#stStop"), null, "the box shows Stop while parts run");
@@ -153,10 +154,10 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     // THE PANEL.
     await page.click(".st-bg-pill");
     await page.waitForSelector(".st-bg-pane .st-bg-row");
-    assert.equal((await page.textContent(".st-bg-top > span")).trim(), "4 tasks · 2 in progress");
+    assert.equal((await page.textContent(".st-bg-top > span")).trim(), "3 tasks · 1 in progress");
     const rows = await page.$$eval(".st-bg-row", (els) => els.map((e) => ({ cls: e.className, name: e.querySelector(".st-bg-name").textContent, sub: e.querySelector(".st-bg-sub").textContent })));
-    assert.deepEqual(rows.map((r) => r.name), ["Bookshop page", "Saturday hours", "Search description", "Rounder buttons"]);
-    assert.deepEqual(rows.map((r) => r.cls.match(/st-par-(\w+)/)[1]), ["run", "wait", "done", "run"]);
+    assert.deepEqual(rows.map((r) => r.name), ["Add a Bookshop page with search and a reserve button", "change Saturday hours to 8am–7pm", "fill in a search description"]);
+    assert.deepEqual(rows.map((r) => r.cls.match(/st-par-(\w+)/)[1]), ["run", "wait", "done"]);
     assert.equal(rows[0].sub, LONG[11], "a working row does not show its newest line");
     assert.equal(rows[1].sub, "Next — after Bookshop page");
     assert.match(rows[2].sub, /^Saved as draft · just now$/);
@@ -228,11 +229,11 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     for (let i = 0; i < 40 && app.calls.filter((c) => c.method === "DELETE").length < 2; i++) await page.waitForTimeout(50);
     assert.deepEqual(app.calls.filter((c) => c.method === "DELETE").map((c) => c.path).sort(), ["/api/site/request/" + SLUG + "/" + KA, "/api/site/request/" + SLUG + "/" + KB].sort());
     // A RELOAD keeps the panel open on the job view shown.
-    await page.click('.st-bg-row[data-bg-row="' + KB + '|0"]');
+    await page.click('.st-bg-row[data-bg-row="' + KA + '|2"]');
     await page.waitForSelector(".st-bg-jobview");
     await page.reload({ waitUntil: "load" });
     await page.waitForSelector(".st-bg-jobview", { timeout: 20000 });
-    assert.match(await page.textContent(".st-bg-jobview .st-bg-top"), /‹ Back · Rounder buttons/, "a reload lost the job view");
+    assert.match(await page.textContent(".st-bg-jobview .st-bg-top"), /‹ Back · Search description/, "a reload lost the job view");
     // CLOSED, A RELOAD keeps it closed: the pill.
     await page.click('.st-bg-jobview [data-bg="back"]');
     await page.click('.st-bg-top [data-bg="close"]');
@@ -252,7 +253,7 @@ test("BACKGROUND WORK — a change sent while a request runs joins it: one more 
     await page.waitForSelector(".st-bg-pill", { timeout: 20000 });
     await page.fill("#stRevise", "Put the Bookshop page in the menu");
     await page.press("#stRevise", "Enter");
-    await page.waitForFunction(() => /4 tasks in progress/.test((document.querySelector(".st-bg-pill") || {}).textContent || ""), null, { timeout: 20000 });
+    await page.waitForFunction(() => /3 tasks in progress/.test((document.querySelector(".st-bg-pill") || {}).textContent || ""), null, { timeout: 20000 });
     await page.click(".st-bg-pill");
     await page.waitForSelector('.st-bg-row[data-bg-row="' + KA + '|3"]');
     const sub = await page.textContent('.st-bg-row[data-bg-row="' + KA + '|3"] .st-bg-sub');

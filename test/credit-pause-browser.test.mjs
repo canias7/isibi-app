@@ -34,8 +34,8 @@ const said = (title) => ({ title, planned: "p", doing: "d", waiting: "w", unconf
 
 function view(S) {
   const paused = S.resumed ? 0 : 4;
-  const parts = [{ n: 0, words: "Change the heading font", status: "done", jobs: [J("a")], charged: 2, route: "look", said: said("Heading font") }];
-  for (let i = 1; i <= 4; i++) parts.push({ n: i, words: "part " + i, status: S.resumed ? "ready" : "credits", why: S.resumed ? null : "insufficient", jobs: [], charged: 0, said: said(["Members area", "Reviews", "Map", "Countdown"][i - 1]) });
+  const parts = [{ n: 0, parent: 0, words: "Change the heading font", status: "done", jobs: [J("a")], charged: 2, route: "look", said: said("Heading font") }];
+  for (let i = 1; i <= 4; i++) parts.push({ n: i, parent: 0, words: "part " + i, status: S.resumed ? "ready" : "credits", why: S.resumed ? null : "insufficient", jobs: [], charged: 0, said: said(["Members area", "Reviews", "Map", "Countdown"][i - 1]) });
   return {
     key: K, state: S.resumed ? "running" : "credits", ended: false, stop: false, at: Date.now() - 300000, updatedAt: Date.now(), parts,
     ...(paused ? { credits: { paused, auto: S.auto, ready: S.ready } } : {}),

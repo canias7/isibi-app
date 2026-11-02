@@ -10775,6 +10775,11 @@ function siteParState(p) {
   if (status === 'waiting' && p.question && p.question.queued === true) return 'wait';
   return Object.hasOwn(SITE_PAR_STATE, status) ? SITE_PAR_STATE[status] : 'wait';
 }
+/** A task row's name (2026-11-02, reply-fix): the part's own words, never a model's title ("A hello"). */
+function siteRowTitle(p) {
+  const w = String((p && p.words) || '').trim();
+  return w ? (w.length > 70 ? w.slice(0, 69) + '\u2026' : w) : siteParTitle(p);
+}
 /** A part's short name on the card: the model's title, its line for its state, else its words. */
 function siteParTitle(p) {
   const said = EditPoll.taskSaid(p && p.said);
@@ -11189,9 +11194,23 @@ function siteBgEndings(items) {
   if (keys.length === 1) return total + ' ' + keys[0];
   return total + ' · ' + keys.map((k) => n[k] + ' ' + k).join(', ');
 }
+/**
+ * THE ROWS THE TASK BOX SHOWS (2026-11-02, the owner: the box appears only
+ * when the agent is making something with more than one job at the same
+ * time). A build's parallel pages, and the parts the agent itself split one
+ * message into (`parent` set) when there are two or more of them. A plain
+ * answer, a question, a single change, and separate messages never make rows
+ * (live, copper-kettle-pottery: "hey" and "hello" became a box of two).
+ */
+function siteBoxItems(items) {
+  const kids = new Map();
+  for (const it of items) if (!it.build && it.p && Number.isInteger(it.p.parent)) kids.set(it.key, (kids.get(it.key) || 0) + 1);
+  const buildFan = items.some((x) => x.buildPart);
+  return items.filter((it) => (it.build ? buildFan : !!(it.p && Number.isInteger(it.p.parent) && (kids.get(it.key) || 0) >= 2)));
+}
 /** The pill and, when open, the panel: the list, or one part's own view. */
 function siteBgHTML(site, now) {
-  const items = siteBgItems(site, now);
+  const items = siteBoxItems(siteBgItems(site, now));
   // ONE TASK IS JUST THE CHAT (owner, 2026-11-02): the task box repeats what the chat already
   // shows, so it appears only when two or more agents run for this site.
   if (items.length < 2) return '';
@@ -11214,7 +11233,7 @@ function siteBgHTML(site, now) {
   // A JOB NOT LISTED (yet, after a reload, or no more) shows the list; the choice is kept.
   if (it) return '<div class="st-bg-pane st-bg-jobview">' + siteBgJobHTML(site, it) + '</div>';
   const rows = items.map((x) => '<div class="st-bg-row st-par-' + x.state + '" data-bg-row="' + esc(x.key + '|' + x.n) + '" role="button" tabindex="0">' +
-    '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(x.build || x.whole ? x.title : siteParTitle(x.p)) + '</span>' +
+    '<span class="st-par-dot"></span><span class="st-bg-txt"><span class="st-bg-name">' + esc(x.build || x.whole ? x.title : siteRowTitle(x.p)) + '</span>' +
     '<span class="st-bg-sub">' + esc(siteBgLine(x, now)) + '</span></span><span class="st-bg-go">›</span></div>').join('');
   return '<div class="st-bg-pane">' +
     '<div class="st-bg-top"><span>' + esc(things(items.length)) + (needYou ? ' · ' + needYou + ' need' + (needYou === 1 ? 's' : '') + ' you' : '') + ' · ' + working + ' in progress</span><span class="st-bg-acts">' +

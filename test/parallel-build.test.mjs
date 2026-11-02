@@ -252,7 +252,7 @@ test("B3 a one-page description: one agent, no helpers; and the split's bounds (
 test("B4 the page: a build's parts are rows in the task box beside the build", () => {
   const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const cut = (h) => { const o = CHAT.indexOf("\n" + h); assert.ok(o > 0, h); return CHAT.slice(o, CHAT.indexOf("\n}\n", o) + 3); };
-  const src = ["siteBuildJobItem", "siteBgItems", "siteReqKeys", "siteBuildJobParts"].map((n) => cut("function " + n + "(")).join("\n");
+  const src = ["siteBuildJobItem", "siteBgItems", "siteBoxItems", "siteRowTitle", "siteReqKeys", "siteBuildJobParts"].map((n) => cut("function " + n + "(")).join("\n");
   const site = { id: "s1", msgs: [], requests: {}, buildJob: { job: "j1", state: "run", progress: [{ text: "Building Northline" }] } };
   let paints = 0;
   const ctx = vm.createContext({ SITE_BG_KEEP_MS: 60000, siteById: () => site, sitesSave: () => {}, siteOpenId: "s1", siteBgPaint: () => { paints++; }, siteParState: () => "run" });
