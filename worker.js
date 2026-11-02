@@ -34455,6 +34455,21 @@ async function handleRequest(request, env, ctx) {
       if (routed.failed !== true) {
         routed = routeOnExisting(routed, rDigest.site, { reason: "addon-existing" });
       }
+      // ── EVERY MESSAGE ABOUT A SITE REACHES THE SITE AGENT (2026-11-02,
+      //    agent-takes-all; the owner: "the agent is supposed to know if its
+      //    just text or build something right") ───────────────────────────────
+      // Live on northline-climbing (deploy 2301), "I want to send emails to my
+      // customers" and "Text my customers a reminder the day before their
+      // class" were read by the router as conversation and answered in words by
+      // the talk-only reply (`converse`), with no job and nothing done. On a
+      // site that exists the router no longer decides work or talk: its `ask`
+      // goes to the agent as one whole part, and the agent answers a question
+      // in its `finish` summary with nothing changed, or does the work. The
+      // router still splits work into parts, asks its own questions, takes an
+      // answer to a waiting question, and decides a first build's messages.
+      if (agentTakes() && !rJob && rLive && routed.failed !== true && routed.intent === "ask") {
+        routed = { ...routed, intent: "edit", layer: "page", page: "/", answer: undefined, unclear: undefined, alsoAsked: undefined, targets: undefined, toAgent: "ask" };
+      }
       // ── THE ROUTER'S PROVIDER IS DOWN (owner, 2026-10-24) ──────────────────
       // A 503/502/504/500/429, an in-stream `unavailable` or a dropped
       // connection: nothing is routed, run or charged on the fallback. The
