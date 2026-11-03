@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-03 — "Something else…" opens a box in the question card (branch `park-old-way`; not merged, not deployed, nothing paid)
+
+On the owner's word ("where it says something else is where it's gotta be"). Choosing "Something else…" opens a typing box inside the card; Continue (or Enter) sends what is typed as the answer to that question, exactly as a tapped option is sent. Picking an option closes it. Also: the first-build pages rule refuses `finish` once (it looped forever when the agent kept finishing) and applies only to real first builds (`foundationFirst`).
+
 ## 2026-11-03 — Three fixes: pages on a first build, keys said, queue never stuck (branch `park-old-way`; not merged, not deployed, nothing paid)
 
 On the owner's word. (1) A first build cannot finish without pages: `finish` is refused until the home page is written and a build passed, and an agent that only talks is told once to write the pages (Nimbus ended with none). (2) A reply for a change that still needs keys always names them after the agent's words ("To finish this, add your key `STRIPE_SECRET_KEY` (Stripe) in the key box below."); before, the agent's words were dropped and the reply could be empty. (3) A request that had already ended now starts the message waiting behind it when it is read ("hello ?" waited). Tests: `test/three-fixes.test.mjs` (4; 3 fail on the old code, as they should).

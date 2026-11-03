@@ -22,8 +22,8 @@ const cut = (head) => {
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 function card() {
   let focused = 0;
-  const ctx = vm.createContext({ esc, sitePicked: null, sitePickOwnKey: "", document: { querySelectorAll: () => [], getElementById: (id) => (id === "stRevise" ? { focus: () => { focused++; } } : null) } });
-  for (const n of ["sitePickKeyLive", "sitePickKeyFirst", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake"]) vm.runInContext(cut("function " + n + "("), ctx);
+  const ctx = vm.createContext({ CSS: { escape: (x) => String(x) }, esc, sitePicked: null, sitePickOwnKey: "", sitePickOwnText: { key: "", text: "" }, document: { querySelectorAll: () => [], getElementById: () => null, querySelector: (sel) => (String(sel).startsWith(".st-pick-owntext") ? { focus: () => { focused++; } } : null) } });
+  for (const n of ["sitePickKeyLive", "sitePickKeyFirst", "sitePickOwnSaid", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake"]) vm.runInContext(cut("function " + n + "("), ctx);
   return { ctx, focused: () => focused };
 }
 
@@ -68,12 +68,12 @@ test("CONTINUE — takes the pick once and only for its own question; nothing pi
   }
 });
 
-test("SOMETHING ELSE — clears the pick and puts the cursor in the composer for a typed answer", () => {
+test("SOMETHING ELSE — clears the pick and puts the cursor in the card's own answer box", () => {
   const { ctx, focused } = card();
   ctx.sitePick("live:q1", "Every loaf");
-  ctx.sitePickOwn();
+  ctx.sitePickOwn("live:q1");
   assert.equal(ctx.sitePickTake("live:q1"), null, "a pick survived Something else");
-  assert.equal(focused(), 1, "the composer was not handed the answer");
+  assert.equal(focused(), 1, "the card's answer box was not focused");
 });
 
 test("KEYS — the question's key comes from the site's state, the same one the card is drawn with", () => {
@@ -86,18 +86,25 @@ test("KEYS — the question's key comes from the site's state, the same one the 
 
 // "SOMETHING ELSE…" SHOWS IT WAS CHOSEN (2026-10-26, live test 11): the row was
 // clicked and nothing changed, so the answer typed below looked unconnected.
-test("SOMETHING ELSE — chosen, it is drawn checked with a line saying where the answer goes; a real pick clears it", () => {
+test("SOMETHING ELSE — chosen, a box opens in the card; what is typed there is the answer Continue sends; a real pick clears it", () => {
   const { ctx, focused } = card();
   const before = ctx.sitePickHTML("live", "live:q1", ["Every loaf"], "");
   assert.match(before, /st-pick-own" role="radio" aria-checked="false" data-ask-own="1" data-pick-key="live:q1"/);
-  assert.match(before, /<p class="st-pick-hint" data-pick-hint="live:q1" hidden>Type your answer in the box below and press send\.<\/p>/);
+  assert.match(before, /<div class="st-pick-hint st-pick-ownbox" data-pick-hint="live:q1" hidden><textarea class="st-pick-owntext"/);
   ctx.sitePickOwn("live:q1");
-  assert.equal(focused(), 1, "the box below was not focused");
+  assert.equal(focused(), 1, "the box was not focused");
   const on = ctx.sitePickHTML("live", "live:q1", ["Every loaf"], "");
   assert.match(on, /st-pick-own on" role="radio" aria-checked="true"/);
-  assert.match(on, /data-pick-hint="live:q1">Type your answer/, "the hint is still hidden");
-  assert.match(on, /disabled>Continue/, "Continue is not for a typed answer");
-  assert.doesNotMatch(ctx.sitePickHTML("live", "live:q2", ["x"], ""), /aria-checked="true"/, "another question shows this one's choice");
+  assert.match(on, /data-pick-hint="live:q1"><textarea/, "the box is still hidden");
+  assert.match(on, /disabled>Continue/, "Continue is on before anything is typed");
+  ctx.sitePickOwnText = { key: "live:q1", text: "  Brevo <3  " };
+  const typed = ctx.sitePickHTML("live", "live:q1", ["Every loaf"], "");
+  assert.match(typed, /data-pick-key="live:q1">Continue/, "Continue stayed off with an answer typed");
+  assert.match(typed, />  Brevo &lt;3  <\/textarea>/, "the typed answer is not kept, escaped, on a repaint");
+  assert.equal(ctx.sitePickTake("live:q2"), null, "another question took this answer");
+  assert.equal(ctx.sitePickTake("live:q1"), "Brevo <3", "Continue did not send the typed answer");
+  assert.equal(ctx.sitePickTake("live:q1"), null, "the typed answer was sent twice");
+  ctx.sitePickOwn("live:q1");
   ctx.sitePick("live:q1", "Every loaf");
   const picked = ctx.sitePickHTML("live", "live:q1", ["Every loaf"], "");
   assert.match(picked, /st-pick-own" role="radio" aria-checked="false"/, "a real pick left Something else checked");

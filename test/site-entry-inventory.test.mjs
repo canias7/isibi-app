@@ -120,7 +120,7 @@ const SRC = [
   ...ASK_FNS.map((n) => cut("function " + n + "(")),
   ...ASK_LINES.map(cutLine),
   // A QUESTION'S ANSWERS: PICK, THEN CONTINUE (option E, 2026-10-14).
-  ...["sitePickKeyLive", "sitePickKeyFirst", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake"].map((n) => cut("function " + n + "(")),
+  ...["sitePickKeyLive", "sitePickKeyFirst", "sitePickOwnSaid", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake"].map((n) => cut("function " + n + "(")),
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function reactSend("),
@@ -292,7 +292,7 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     sitesLoad: () => records,
     sitesCache: records,
     buildPicker: "grok",
-    siteBusy: false, sitePicked: null, sitePickOwnKey: "",
+    siteBusy: false, sitePicked: null, sitePickOwnKey: "", sitePickOwnText: { key: "", text: "" },
     siteBuild: null,
     siteTicker: null,
     siteOpenId: open,

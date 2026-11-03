@@ -15385,6 +15385,10 @@ let sitePicked = null;
 // nothing showed it, so the answer typed below looked unconnected. The row is
 // marked chosen and a line says where the answer goes, until another pick.
 let sitePickOwnKey = '';
+// THE ANSWER TYPED IN THE CARD ITSELF (owner, 2026-11-03: "where it says
+// something else is where it's gotta be"): kept by question, so a repaint keeps it.
+let sitePickOwnText = { key: '', text: '' };
+function sitePickOwnSaid(key) { return key && sitePickOwnKey === key && sitePickOwnText.key === key ? sitePickOwnText.text.trim() : ''; }
 function sitePickKeyLive(site) {
   return site && site.ask ? 'live:' + site.ask.id : '';
 }
@@ -15407,9 +15411,11 @@ function sitePickHTML(kind, key, opts, wayOut) {
     }).join('') +
     '<button type="button" class="st-pick-opt st-pick-own' + (ownOn ? ' on' : '') + '" role="radio" aria-checked="' + (ownOn ? 'true' : 'false') + '" ' + (kind === 'live' ? 'data-ask-own' : 'data-pick-own') + '="1" data-pick-key="' + esc(key) + '">' +
       '<span class="st-pick-dot" aria-hidden="true"></span><span>Something else&hellip;</span></button>' +
-    '<p class="st-pick-hint" data-pick-hint="' + esc(key) + '"' + (ownOn ? '' : ' hidden') + '>Type your answer in the box below and press send.</p>' +
+    '<div class="st-pick-hint st-pick-ownbox" data-pick-hint="' + esc(key) + '"' + (ownOn ? '' : ' hidden') + '>' +
+      '<textarea class="st-pick-owntext" rows="2" data-pick-text="' + esc(key) + '" placeholder="Type your answer&hellip;" aria-label="Your own answer">' +
+      esc(sitePickOwnText.key === key ? sitePickOwnText.text : '') + '</textarea></div>' +
     '<div class="st-pick-go">' +
-      '<button type="button" class="st-pick-continue" ' + (kind === 'live' ? 'data-ask-go' : 'data-pick-go') + '="1" data-pick-key="' + esc(key) + '"' + (sel === null ? ' disabled' : '') + '>Continue</button>' +
+      '<button type="button" class="st-pick-continue" ' + (kind === 'live' ? 'data-ask-go' : 'data-pick-go') + '="1" data-pick-key="' + esc(key) + '"' + (sel === null && !sitePickOwnSaid(key) ? ' disabled' : '') + '>Continue</button>' +
       wayOut +
     '</div>' +
   '</div>';
@@ -15422,7 +15428,7 @@ function sitePickPaint() {
       b.classList.toggle('on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
     }
-    for (const g of document.querySelectorAll('.st-pick-continue')) g.disabled = !(sitePicked && sitePicked.key === g.getAttribute('data-pick-key'));
+    for (const g of document.querySelectorAll('.st-pick-continue')) { const k = g.getAttribute('data-pick-key'); g.disabled = !((sitePicked && sitePicked.key === k) || sitePickOwnSaid(k)); }
     for (const o of document.querySelectorAll('.st-pick-own')) {
       const on = !!sitePickOwnKey && o.getAttribute('data-pick-key') === sitePickOwnKey;
       o.classList.toggle('on', on);
@@ -15442,10 +15448,13 @@ function sitePickOwn(key) {
   sitePick('', null);
   sitePickOwnKey = typeof key === 'string' ? key : '';
   sitePickPaint();
-  try { const ta = document.getElementById('stRevise'); if (ta) ta.focus(); } catch (e) { /* no composer */ }
+  if (sitePickOwnText.key !== sitePickOwnKey) sitePickOwnText = { key: sitePickOwnKey, text: '' };
+  try { const ta = document.querySelector('.st-pick-owntext[data-pick-text="' + CSS.escape(sitePickOwnKey) + '"]'); if (ta) ta.focus(); } catch (e) { /* no card */ }
 }
 /** Continue: the pick for the live question `key`, sent the way a click on the answer always was; nothing when nothing is picked. */
 function sitePickTake(key) {
+  const own = sitePickOwnSaid(key);
+  if (own) { sitePickOwnText = { key: '', text: '' }; sitePickOwnKey = ''; return own; }
   if (!key || !sitePicked || sitePicked.key !== key) return null;
   const v = sitePicked.value;
   sitePicked = null;
@@ -15497,6 +15506,20 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   sitePick(fkey, String(opts[n - 1]));
 });
+// TYPED IN THE CARD: Continue lights up; Enter sends it, Shift+Enter is a new line.
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t || !t.classList || !t.classList.contains('st-pick-owntext')) return;
+  sitePickOwnText = { key: t.getAttribute('data-pick-text') || '', text: t.value };
+  sitePickPaint();
+});
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (!t || !t.classList || !t.classList.contains('st-pick-owntext') || e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+  e.preventDefault();
+  const go = t.closest('.st-pick') && t.closest('.st-pick').querySelector('.st-pick-continue');
+  if (go && !go.disabled) go.click();
+}, true);
 
 // `picked` (2026-10-14): the answer came from the card — an option pressed, or
 // their own answer written into it and sent with Continue — and not typed into

@@ -1205,7 +1205,8 @@ async function runTool(use, st, deps) {
       return { text: "Asked. Your turn ends here." };
     }
     case "finish": {
-      if (st.needsPages && !hasPages(st)) return { error: NO_PAGES_YET };
+      // REFUSED ONCE; finishing again ends the run, and it ends not ok (no pages).
+      if (st.needsPages && !hasPages(st) && !st.pagesRefused) { st.pagesRefused = true; return { error: NO_PAGES_YET }; }
       if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
       // back to fix it; if it finishes again it is let go (it may not be able to),
@@ -1315,7 +1316,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
   const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
-    needsPages: (ws.fresh === true || foundationFirst === true) && !onlyWrite && newProject !== true,
+    needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked, lazy: lazyFiles === true });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];

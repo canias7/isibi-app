@@ -73,7 +73,7 @@ const FNS = [...new Set([
   "siteEdit", "editAsk", "editAskDone", "siteAddon", "addonAnswer", "readRouteReply",
   ...ASK_FNS, "siteAskHTML", "siteLiveAskHTML", "siteAskCancel", "siteAskCheck",
   // A QUESTION'S ANSWERS: PICK, THEN CONTINUE (option E, 2026-10-14).
-  "sitePickKeyLive", "sitePickKeyFirst", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake",
+  "sitePickKeyLive", "sitePickKeyFirst", "sitePickOwnSaid", "sitePickHTML", "sitePickPaint", "sitePick", "sitePickOwn", "sitePickTake",
   "readAddonReply", "readEditReply", "addonOutcomeMsg", "alsoTail",
   "reactSend", "buildCostWords", "buildErrOutcome",
   ...BROWSER_FNS, ...EDIT_BROWSER_FNS,
@@ -274,7 +274,7 @@ export function page({ site, answer = () => null, idb, timers = false, frame = f
     siteActivePage: () => null,
     paintAttachStrip: () => {},
     buildPicker: "grok",
-    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, sitePicked: null, sitePickOwnKey: "",
+    siteBusy: false, siteBusyFor: null, siteBuild: null, siteTicker: null, sitePicked: null, sitePickOwnKey: "", sitePickOwnText: { key: "", text: "" },
     siteOpenId: s.id,
     renderSites: () => {
       if (!frame) return;
