@@ -10003,6 +10003,44 @@ const SITE_REQ_MISSES = 30;
 // to run: the page only gives the go-ahead (`siteRequestApprove`), and the
 // request keeps its own files for it.
 const siteReqFollowing = new Set();
+/**
+ * A REQUEST PART'S LIVE TALK (2026-11-02, request-talk; the owner: progress
+ * lines never showed for a message on an existing site). Every message on a
+ * site is a request, and its part's job talks as a first build does: the view
+ * names the job running now (`live`), and the page follows that job's talk
+ * (`/api/site/build/<job>/stream`, `readTalkStream`) under the message — the
+ * lines so far and the sentence being written last — until the view no longer
+ * names it. In memory only: a reload follows it again from the request's
+ * reading. The request view's own `progress` lines are the poll beside it.
+ */
+const siteReqTalk = new Map();
+function siteReqTalkLive(origin, key, job) {
+  const s = siteById(origin);
+  const st = s && s.requests && s.requests[key];
+  const v = st && st.view;
+  return !!(v && v.ended !== true && Array.isArray(v.parts) && v.parts.some((p) => p && p.live === job));
+}
+function siteReqTalkFollow(origin, key, job) {
+  if (!job || siteReqTalk.has(job) || typeof ReadableStream === 'undefined' || typeof AbortController === 'undefined') return;
+  const t = { lines: [], live: '', ctl: new AbortController() };
+  siteReqTalk.set(job, t);
+  const going = () => siteReqTalkLive(origin, key, job);
+  const tick = setInterval(() => { if (!going()) { clearInterval(tick); t.ctl.abort(); } }, 1000);
+  readTalkStream('/api/site/build/' + encodeURIComponent(job) + '/stream', t.ctl.signal, going, (lines, live) => {
+    const was = JSON.stringify([t.lines, t.live]);
+    t.lines = lines.map((l) => ({ text: l.text, ...(typeof l.explain === 'string' && l.explain ? { explain: l.explain } : {}) }));
+    t.live = live || '';
+    if (JSON.stringify([t.lines, t.live]) !== was && siteOpenId === origin && going()) renderSites();
+  }).catch(() => {}).finally(() => { clearInterval(tick); siteReqTalk.delete(job); });
+}
+/** What a running part has said so far: its live talk when that has as much, else the view's lines for its running job; the sentence being written last. [] when it is not running. */
+function siteParLiveLines(p) {
+  if (!p || typeof p.live !== 'string' || !p.live) return [];
+  const polled = (Array.isArray(p.progress) ? p.progress : []).filter((l) => l && l.job === p.live && typeof l.text === 'string' && l.text);
+  const t = siteReqTalk.get(p.live);
+  const list = t && t.lines.length >= polled.length ? t.lines.slice() : polled.slice();
+  return t && t.live ? list.concat([{ text: t.live, writing: true }]) : list;
+}
 // The questions this page has made live, or found live, for a request: never
 // made live again by a later reading (`siteRequestShow`).
 const siteReqAsked = new Set();
@@ -10246,6 +10284,9 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   if (!s) return true;
   const st = siteReqState(origin, key, view);
   siteReqCard(s, key);
+  // EACH RUNNING PART'S LIVE TALK (2026-11-02, request-talk): a first part, a
+  // part resumed by an answer, a queued message whose turn came, each split part.
+  if (view.ended !== true) for (const p of view.parts) if (p && typeof p.live === 'string' && /^[0-9a-f]{32}$/.test(p.live)) siteReqTalkFollow(origin, key, p.live);
   // THIS PAGE'S FIRST LOOK AT IT: whatever had finished by now is history.
   if (!siteReqSeen.has(origin + '|' + key)) siteReqSeen.set(origin + '|' + key, new Set(view.parts.flatMap((p) => (p && Array.isArray(p.jobs) ? p.jobs : []))));
   // EACH PART'S OWN REPLY, ONCE, IN ORDER — and the preview moved once for
@@ -10905,7 +10946,9 @@ function siteReqCardShows(m, site) {
 /** The request's card: the parallel card for several parts, today's for one — or, while the panel holds it, only its opening line and soft box. */
 function siteReqCardHTML(m, site) {
   // ONCE STARTED (2026-11-02, the message queue), A ONE-PART MESSAGE'S WORKING LINE until its reply comes.
-  { const wl = siteReqWorkingLine(m, site); if (wl === 'wait') return '<div class="st-think st-req-waiting">' + esc(SITE_QUEUE_WAIT) + '</div>'; if (wl) return '<div class="st-think st-req-working"><i></i>Working on it</div>'; }
+  { const wl = siteReqWorkingLine(m, site); if (wl === 'wait') return '<div class="st-think st-req-waiting">' + esc(SITE_QUEUE_WAIT) + '</div>';
+    // …ITS LIVE STEPS ONCE IT TALKS (2026-11-02, request-talk), newest last, as a first build's.
+    if (wl) { const ll = typeof siteParLiveLines === 'function' ? siteParLiveLines(site.requests[m.request].view.parts[0]) : []; return ll.length ? '<div class="st-req-live">' + progressListHTML(ll, true) + '</div>' : '<div class="st-think st-req-working"><i></i>Working on it</div>'; } }
   const v = siteParView(m, site);
   // HELD BY THE PANEL, the card's part list is kept in the page but not shown
   // (`hidden`): nothing of it is drawn, and the UI canary's reader
@@ -10937,7 +10980,8 @@ function siteReqCardHTML(m, site) {
     const o = siteParOpen.get(site.id + '|' + key + '|' + p.n);
     const open = o && o.state === state ? o.open : state === 'run';
     const replies = own.filter((x) => x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job) && (!one || x.ask));
-    let body = (pw && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(pw) : '') + progressListHTML(p.progress, state === 'run') + replies.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
+    const pl = state === 'run' ? (typeof siteParLiveLines === 'function' ? siteParLiveLines(p) : []) : [];
+    let body = (pw && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(pw) : '') + progressListHTML(pl.length ? pl : p.progress, state === 'run') + replies.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
     if (!one && !replies.length && !(Array.isArray(p.progress) && p.progress.length) && state !== 'run') {
       const line = siteSaidFor(p.said, SITE_SAID_FOR[p.status]);
       if (line) body += '<div class="st-par-said">' + link(line) + '</div>';
@@ -11216,6 +11260,9 @@ function siteBgLine(it, now) {
     return (p.buildState === 'stopped' ? 'Stopped' : p.buildState === 'done' ? 'Done' : 'Didn’t finish') + ' · ' + siteBgWhen(it.doneAt, now);
   }
   if (it.state === 'run') {
+    // ITS LIVE TALK'S NEWEST LINE FIRST (2026-11-02, request-talk), the sentence being written included.
+    const ll = typeof siteParLiveLines === 'function' ? siteParLiveLines(p) : [];
+    if (ll.length) return ll[ll.length - 1].text;
     const prog = Array.isArray(p.progress) ? p.progress.filter((l) => l && typeof l.text === 'string' && l.text) : [];
     return prog.length ? prog[prog.length - 1].text : siteSaidFor(p.said, 'doing') || 'Working…';
   }
@@ -11322,7 +11369,8 @@ function siteBgJobHTML(site, it) {
     const tag = siteParTag(p, it.parts, 'wait');
     if (/^waiting for /.test(tag)) body += '<div class="st-bg-asked">Starts when ' + esc(tag.slice('waiting for '.length)) + ' is done</div>';
   }
-  body += '<div class="st-bg-lines">' + progressListHTML(p.progress, it.state === 'run', it.state === 'done' || it.state === 'bad') + '</div>';
+  const ll = it.state === 'run' ? (typeof siteParLiveLines === 'function' ? siteParLiveLines(p) : []) : [];
+  body += '<div class="st-bg-lines">' + progressListHTML(ll.length ? ll : p.progress, it.state === 'run', it.state === 'done' || it.state === 'bad') + '</div>';
   const own = (site.msgs || []).filter((x) => x && x.r === 'a' && x.req === it.key && !x.request && x.job && Array.isArray(p.jobs) && p.jobs.includes(x.job));
   const said = own.map((x) => '<div class="st-par-said">' + siteMsgText(x, link) + '</div>').join('');
   const line = (which) => { const t = siteSaidFor(p.said, which); return t ? '<div class="st-par-said">' + link(t) + '</div>' : ''; };

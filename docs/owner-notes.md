@@ -9,6 +9,15 @@
 
 
 
+
+## 2026-11-02 — Progress lines under a message on an existing site (branch `request-talk`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
+
+On your approval of the fix. What you saw on copper-kettle-pottery: after you answered "Stripe (recommended)", the job ran 7+ minutes and the chat said nothing.
+
+- **Why (confirmed): the page only.** Since today every message on a site is a request, and the page followed a request only for its final reply. It never opened the running job's live talk, and under a one-part message it drew a fixed "Working on it" even when the request's own reading already carried lines. The server side was checked, not assumed: the agent's job is the request part's edit job, its progress facts land on that job's own record (the same id), its writer commits the lines, and `/api/site/build/<that job>/stream` serves them (test RT1 through the real Worker).
+- **The fix.** The request's reading now names the job running now (`live`, only while the part is started or recovering). The page follows that job's talk under the message, exactly as a first build's: the lines so far, newest last, the sentence being written last; the reply replaces them when the job ends. When the talk connection is not there, the lines the request's reading carries for that job are shown (the poll). It covers a first part, a part resumed by your answer, a queued message whose turn came, and each split part (the task box's row shows its own newest line, and the row opened shows every line). A reload follows it again. A queued message that has not started stays a chip.
+- **Tests (supplied model answers):** `test/request-talk.test.mjs` (RT1, the real Worker) and `test/request-talk-browser.test.mjs` (RTB1 live lines then the reply, and a reload mid-run; RTB2 an answered-question resume from the poll; RTB3 a split's rows). All four fail on the base and pass on the branch.
+
 ## 2026-11-02 — The message queue is back: a message sent while the agent works waits in line (branch `msg-queue`, from `reply-fix`; not merged, not deployed, nothing paid)
 
 On your word ("lets bring back the message queue"). What you will see: send "add a gallery", then "hey" while the gallery is still being made. "hey" is **not** put on the chat while it waits (your look, option 1): it is a small beige chip inside the typing box, above "Ask Go Farther…", reading "⏱ hey ✕", one chip per waiting message, oldest first. **✕ cancels it** (on the server: it ends without ever starting, nothing charged, and it never appears on the chat). When the gallery is finished, "hey" starts by itself: its chip goes, it appears on the chat as a normal bubble with "Working on it", then the agent's own answer. The task box for a message the agent splits stays in the chat as today. Never both at once, always in the order you sent them, and each message is still its own chat with its own reply (no joining, no task box; the box is still only for one message the agent splits into parts).

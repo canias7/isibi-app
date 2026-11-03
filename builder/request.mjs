@@ -2904,6 +2904,7 @@ export function readSplit(v) {
 // ── WHAT THE PAGE AND THE REPLY ARE SHOWN ────────────────────────────────────
 
 /** A run job whose own reply explains its part: it ended with an answer, and was not a hand-over, nor a try lost to its own request's overlap (run again by the request, so its "Send it again." is not the owner's to follow: audit A14-2). */
+const isJobIdLike = (id) => typeof id === "string" && /^[0-9a-f]{32}$/.test(id);
 const shownRun = (j) => j.kind === "run" && !!j.id && !!j.end && !["hop", "climb", "answerless", "held-retry", "overlap"].includes(j.end.act);
 
 /**
@@ -3081,6 +3082,10 @@ export function requestView(rec, { progress = null, said = null, runs = null, pr
       // answer, never a hand-over (the page says nothing for one, as it never
       // did) or a job that ended without an answer.
       jobs: p.jobs.filter(shownRun).map((j) => j.id),
+      // ITS JOB RUNNING NOW (2026-11-02, request-talk): the page follows that
+      // job's live talk (`/api/site/build/<job>/stream`) under the message.
+      // The newest run job with no end, while the part itself is running.
+      ...((lj) => (lj ? { live: lj.id } : {}))(["started", "recovering"].includes(p.status) ? p.jobs.filter((j) => j && j.kind === "run" && isJobIdLike(j.id) && !j.end).pop() : null),
       // WHAT ITS JOBS WERE CHARGED, from their rows (`chargedOf`): its routing,
       // its runs, a hand-over's, whatever came back excluded.
       // A job whose cost cannot be told (a rewrite whose answer named none)
