@@ -1731,7 +1731,7 @@ and names the wrong person to go and ask.
 
 ## Deploy 2308 — 2026-11-03 21:46 UTC (`f41c94c25`)
 
-On the owner's word ("ok deploy it"). A fast-forward from `ad0be63bb`: the old way parked (`parked/old-way/`), the feature list and the second chat model removed, a first build must end with pages, keys still needed are always said, an ended request starts the next in line, "Something else…" answers in the card, and the type-in browser case checks for a browser. Unit CI green on `f41c94c25` (run 41723450767); site build green on `d3d41703a` (run 41721220534; tests only since). Deploy run 41724803409 green. Image predicted `3c94ef4d1a60e3c8` (257 inputs) → `ddb3c31db826e1c9` (253 inputs). Deployed, not runtime-confirmed: the owner's canary press is owed after 22:10 UTC.
+On the owner's word ("ok deploy it"). A fast-forward from `ad0be63bb`: the old way parked (`parked/old-way/`), the feature list and the second chat model removed, a first build must end with pages, keys still needed are always said, an ended request starts the next in line, "Something else…" answers in the card, and the type-in browser case checks for a browser. Unit CI green on `f41c94c25` (run 41723450767); site build green on `d3d41703a` (run 41721220534; tests only since). Deploy run 41724803409 green. Image predicted `3c94ef4d1a60e3c8` (257 inputs) → `ddb3c31db826e1c9` (253 inputs). **Runtime-confirmed by the owner's free canary press, run 192** (22:09 UTC): both readers answered `f41c94c25b78`, image `ddb3c31db826e1c9`, queued jobs and the runner on; balance 307; nothing charged.
 
 ## Deploy 2295 — 2026-10-31 01:21 UTC (`3357ec12d`)
 
