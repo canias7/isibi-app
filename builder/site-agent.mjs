@@ -1205,6 +1205,7 @@ async function runTool(use, st, deps) {
       return { text: "Asked. Your turn ends here." };
     }
     case "finish": {
+      if (st.needsPages && !hasPages(st)) return { error: NO_PAGES_YET };
       if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
       // back to fix it; if it finishes again it is let go (it may not be able to),
@@ -1293,6 +1294,10 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
+/** A new site has pages once its home page is written and a build has passed. */
+export const NO_PAGES_YET = "this is a new site and it has no pages yet: write the home page (index.tsx) and the other pages, build until it passes, then finish";
+function hasPages(st) { return !!(st.ws.has("index.tsx") && st.built && !st.dirty); }
+
 export async function runSiteAgent(deps, { request, pages, parts, css = null, history = "", map = null, spec = null, kind = "", ownParts = false, targets = [], picked = null, attached = [], unread = [], model, maxRounds = AGENT_MAX_ROUNDS, creditCap = AGENT_CREDIT_CAP, maxMs = AGENT_MAX_MS, helpers = false, foundationFirst = false, onlyWrite = "", unreadable = false, newProject = false, lazyFiles = false } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const log = typeof deps.log === "function" ? deps.log : () => {};
@@ -1309,6 +1314,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
   const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
+    // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
+    needsPages: (ws.fresh === true || foundationFirst === true) && !onlyWrite && newProject !== true,
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked, lazy: lazyFiles === true });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
@@ -1402,7 +1409,13 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // changed, the text is the agent's answer; otherwise it stopped mid-work.
     if (!uses.length) {
       const said = content.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text.trim()).filter(Boolean).join("\n\n");
-      if (said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length && !st.rules.length && !st.address && !st.forget.length && !Object.keys(st.settings).length) { st.done = true; st.summary = said.slice(0, 4000); break; }
+      if (st.needsPages && !hasPages(st) && !st.pagesNudged && j && j.stop_reason !== "max_tokens") {
+        st.pagesNudged = true;
+        messages.push({ role: "assistant", content });
+        messages.push({ role: "user", content: [{ type: "text", text: NO_PAGES_YET }] });
+        continue;
+      }
+      if (!st.needsPages && said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length && !st.rules.length && !st.address && !st.forget.length && !Object.keys(st.settings).length) { st.done = true; st.summary = said.slice(0, 4000); break; }
       stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break;
     }
     const ids = uses.map((b, i) => (typeof b.id === "string" && b.id ? b.id : "t" + rounds + "_" + i));
@@ -1431,7 +1444,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
 
   const credits = usage.length ? Math.max(1, Math.ceil(spent())) : 0;
   return {
-    ok: st.done && (onlyWrite || !!st.ask || !!st.split || !!st.startBuild ? true : !st.dirty && (st.built || !st.written.size)),
+    ok: st.done && (!st.needsPages || hasPages(st) || !!st.ask || !!st.split) && (onlyWrite || !!st.ask || !!st.split || !!st.startBuild ? true : !st.dirty && (st.built || !st.written.size)),
     stopped: st.done ? "" : stopped,
     pages: ws.pages(), parts: ws.parts(),
     css: ws.css(), cssChanged: ws.cssChanged(),

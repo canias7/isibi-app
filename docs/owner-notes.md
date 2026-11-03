@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-03 — Three fixes: pages on a first build, keys said, queue never stuck (branch `park-old-way`; not merged, not deployed, nothing paid)
+
+On the owner's word. (1) A first build cannot finish without pages: `finish` is refused until the home page is written and a build passed, and an agent that only talks is told once to write the pages (Nimbus ended with none). (2) A reply for a change that still needs keys always names them after the agent's words ("To finish this, add your key `STRIPE_SECRET_KEY` (Stripe) in the key box below."); before, the agent's words were dropped and the reply could be empty. (3) A request that had already ended now starts the message waiting behind it when it is read ("hello ?" waited). Tests: `test/three-fixes.test.mjs` (4; 3 fail on the old code, as they should).
+
 ## 2026-11-03 — No feature list, no second chat model (branch `park-old-way`; not merged, not deployed, nothing paid)
 
 On the owner's word ("do it, no limits"): the model builds whatever is asked, so there is no list of what the builder "can" do. Removed the talk-only reply (`converse`) that ran after the agent's own answer and replaced it, and its `CAPABILITIES` list (fixed features, a "not offered" list, and "say you're not sure" for anything else) and `HONESTY` block from `builder/site-converse.mjs`. The agent's own words are now the reply. Tests that pinned the removed code were removed (3 in `chat-context`, 1 in `conversation`).

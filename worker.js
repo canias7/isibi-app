@@ -24724,7 +24724,10 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
     for (let round = 0; round < 6; round++) {
       const { rec, etag } = await loadRequest(env, slug, key);
       if (!rec || !etag) return null;
-      if (rec.ended) { await settleRequestMarker(env, rec); await requestReply(env, rec); return rec; }
+      // AN ENDED REQUEST ALWAYS LETS THE NEXT ONE GO (owner, 2026-11-03: "hello ?"
+      // waited because a request that had already ended returned here without
+      // starting the message behind it).
+      if (rec.ended) { await settleRequestMarker(env, rec); await startNextInLine(env, ctx, rec); await requestReply(env, rec); return rec; }
       let base = rec;
       // WAITING IN LINE (2026-11-02, the message queue): nothing is filed, so
       // nothing is reserved, while an earlier request of this owner on the site

@@ -379,7 +379,15 @@ export function replyRound(rec) {
 export function agentReplyOf(rec) {
   if (!plain(rec) || !Array.isArray(rec.parts) || rec.parts.length !== 1) return null;
   const p = rec.parts[0];
-  return plain(p) && p.status === "done" && !(Array.isArray(p.needKeys) && p.needKeys.length) && typeof p.agentSaid === "string" && p.agentSaid.trim() ? p.agentSaid.trim() : null;
+  if (!plain(p) || p.status !== "done") return null;
+  const said = typeof p.agentSaid === "string" ? p.agentSaid.trim() : "";
+  // KEYS STILL NEEDED ARE SAID, NEVER SILENT (owner, 2026-11-03): the agent's
+  // words, then one plain line naming each key the site still waits for.
+  const keys = Array.isArray(p.needKeys) ? p.needKeys.filter((k) => plain(k) && typeof k.name === "string" && KEY_RE.test(k.name)) : [];
+  if (!keys.length) return said || null;
+  const names = keys.map((k) => "`" + k.name + "`" + (typeof k.service === "string" && k.service ? " (" + k.service + ")" : ""));
+  const line = "To finish this, add " + (names.length === 1 ? "your key " + names[0] : "these keys: " + names.join(", ")) + " in the key box below.";
+  return said ? said + "\n\n" + line : line;
 }
 
 /** Part states that mean work is still going (`settleState`'s running and review). */
