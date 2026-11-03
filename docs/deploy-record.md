@@ -2321,3 +2321,7 @@ Runtime-confirmed by canary run 41504349687 (18:50 UTC, free): both readers answ
 On the owner's "Deploy it": `reply-fix` (each message is its own request, the agent's own words, a lazy first round) and `msg-queue` (waiting messages as chips in the typing box; one request at a time per site, so a resumed request waits its turn; Stop stops only the running job). Merged onto the working branch. The full suite gave `12662 / 12649 / 11 / 2`. One failure was real, slash-commands, which pinned the menu right above the box; its test was updated (the chips sit between). Two were flaky and passed on a re-run. The other 8 are environmental and the same as before. Image predicted `0624975f53116b3c` → `abd34ceb3d7d1673`. Served `chat.js?v=a235cc13eea6`. Deployed, not runtime-confirmed.
 
 Runtime-confirmed by canary run 41536854569 (22:23 UTC, free): both readers answered `a235cc13eea6`, a cold container got `abd34ceb3d7d1673`, and the queued jobs and the runner were on. Balance 427. Nothing was charged.
+
+## Deploy (2026-11-03, `ad0be63bb`)
+
+On the owner's "deploy it": `request-talk`, which adds live progress lines for every request (one-part, answered resume, queued turn, split rows, reload); `requestView` carries `live`. Fast-forward. Full suite `12666 / 12656 / 8 / 2`, the same 8 environmental failures. Image predicted `abd34ceb3d7d1673` → `3c94ef4d1a60e3c8`. Served `chat.js?v=ad0be63bbbd9`. Deployed, not runtime-confirmed.
