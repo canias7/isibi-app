@@ -210,7 +210,7 @@ import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, 
 import { accessNameFor, accessLabel, unguardedBookings, canWriteAccess } from "./site-access.mjs";
 import { routeInventory } from "./builder/route-inventory.mjs";
 import { buildSiteMap, mapFor, siteSlice, mapSend, mapKey as siteMapKey, mapVersionKey as siteMapVersionKey, MAP_VERSION as SITE_MAP_VERSION } from "./builder/site-map.mjs";
-import { converse, readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
+import { readHistory, converseRequest, requestChars, CONTEXT_CHARS, converseTables } from "./builder/site-converse.mjs";
 import { planWindow, compact as compactChat, COMPACT_AT } from "./builder/chat-context.mjs";
 import { model3dPrice, model3dStart, model3dPoll } from "./builder/model3d-route.mjs";
 import { addonFailure, routeOf } from "./builder/site-addon.mjs";
@@ -33848,48 +33848,16 @@ async function handleRequest(request, env, ctx) {
       // an explanation or a plan, which no routing call is given. A part's
       // routing job never gets here: its answer is read, never shown.
       let rAnswer = routed.intent === "ask" ? routed.answer : undefined;
-      let rConverse = null;
-      let rCompact = null;
-      let rCompacted = false;
-      if (routed.failed !== true && routed.intent === "ask" && !rJob) {
-        const firstBuild = !(rb.hasSite === true && rb.firstBuild !== true);
-        const cctx = firstBuild
-          ? { exists: false, brief: typeof rb.brief === "string" ? rb.brief : "", qa: Array.isArray(rb.qa) ? rb.qa.slice(0, 12) : [] }
-          : await readConverseContext(env, ru, rb, rDigest);
-        const wq = rWaiting || rOpenQ;
-        const lastQ = firstBuild && rb.answering === true && Array.isArray(rb.qa) && rb.qa.length ? rb.qa[rb.qa.length - 1] : null;
-        const pending = wq && wq.question && typeof wq.question.text === "string" ? { question: wq.question.text, request: wq.request }
-          : lastQ && typeof lastQ.q === "string" ? { question: lastQ.q } : null;
-        // THE WHOLE CONVERSATION, FROM THE CHAT THE SERVER KEEPS (2026-10-20),
-        // compacted past 75% of the window; the page's own window when there is none.
-        let rWin = null;
-        try {
-          const bare = converseRequest({ message: rb.message, context: cctx, attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel });
-          const fixedChars = requestChars(bare);
-          rWin = ru && ru.id ? await chatWindowFor(env, ru.id, rb.chat, { model: rModel, fixedChars, current: rb.message, window: testWindowFor(ru.id, rb.testWindow) }) : null;
-        } catch (e) { console.error("chat window:", errorClassForLog(e)); rWin = null; }
-        rCompact = rWin && rWin.usage ? rWin.usage : null;
-        rCompacted = !!(rWin && rWin.compacted);
-        rConverse = await converse({ send: quickSend(env, "converse") }, {
-          message: rb.message, history: rWin ? rWin.history : readHistory(rb.history), summary: rWin ? rWin.summary : null, context: cctx,
-          // EACH CHAT ITS OWN CACHE LANE (2026-10-20): Grok keeps its prefix on one server.
-          cacheKey: typeof rb.chat === "string" && /^[A-Za-z0-9_-]{4,80}$/.test(rb.chat) ? "chat-" + rb.chat : "",
-          attached: Array.isArray(rb.files) ? rb.files : [], pending, gist: routed.answer, model: rModel,
-          // WHAT THE ROUTER COULD NOT PIN DOWN (2026-10-15): the reply asks about exactly it.
-          unclear: typeof routed.unclear === "string" ? routed.unclear : "",
-        });
-        if (rConverse.ok) rAnswer = rConverse.answer;
-        else console.error("converse failed:", rConverse.stage, rConverse.error ? errorClassForLog(rConverse.error) : "");
-      }
+      // NO SECOND CHAT MODEL (owner, 2026-11-03): the agent's own words are the
+      // reply. The old talk-only call (`converse`, with its fixed feature list)
+      // used to run after it and replace them; it is gone.
       let rCost = 0;
       // Billed only when the model actually answered. `routeMessage` returns a
       // null usage on the failure path precisely so this reads the same way the
       // build path does: our fault, our cost. THE REPLY'S CALL IS BILLED WITH
       // IT, under the same charge (2026-10-14), only when it answered.
       if (routed.usage) {
-        rCost = pageCredits(routed.usage) + (rConverse && rConverse.ok && rConverse.usage ? pageCredits(rConverse.usage) : 0)
-          // AND THE COMPACTION'S CALL (2026-10-20), every token of it, when it ran.
-          + (rCompact ? pageCredits(rCompact) : 0);
+        rCost = pageCredits(routed.usage);
         // ── CHARGED ONCE, HOWEVER OFTEN IT ARRIVES (2026-10-03) ─────────────
         //
         // A part's routing job pays through the job's own reserve (`job#1`):
@@ -33935,14 +33903,12 @@ async function handleRequest(request, env, ctx) {
         confirmed: routed.intent === "build" && routed.confirmed === true ? true : undefined,
         // WHICH CALL WROTE THE REPLY (2026-10-14): the conversation's own, or —
         // when it could not answer — the router's gist, said so.
-        replyFrom: routed.intent === "ask" && rConverse ? (rConverse.ok ? "conversation" : "router") : undefined,
-        replyCut: rConverse && rConverse.ok && rConverse.cut ? true : undefined,
+        replyFrom: routed.intent === "ask" ? (routed.replyFrom || undefined) : undefined,
         // THE CONVERSATION WAS COMPACTED FOR THIS REPLY (2026-10-20): the page says so on the thread.
-        compacted: rCompacted ? true : undefined,
         // THE TOKENS EACH CALL CARRIED, AND HOW MANY CAME FROM THE CACHE (2026-10-20,
         // owner: "yes do that"): counts only, the caller's own calls, so a live
         // test can see a cache hit instead of inferring one from the price.
-        tokens: routed.usage ? tokensReport({ route: routed.usage, reply: rConverse && rConverse.ok ? rConverse.usage : null, compact: rCompact }) : undefined,
+        tokens: routed.usage ? tokensReport({ route: routed.usage, reply: null, compact: null }) : undefined,
         // WHICH LAYER, AND WHICH PAGE — and without them the entire edit lane is
         // unreachable. Measured live 2026-08-11, first run of `edit smoke`:
         // `intent=edit layer=undefined`. `readEdit` decides the layer, this

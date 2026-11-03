@@ -142,18 +142,6 @@ test("SERVER: the page's write keeps the summary; the context route measures the
   assert.equal((await call(env, "GET", "/api/site/chat/site_abcd/context", null, "")).status, 401);
 });
 
-test("WIRING: the route reads the kept chat for the reply, bills the compaction, and tells the page", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /rWin = ru && ru\.id \? await chatWindowFor\(env, ru\.id, rb\.chat,/);
-  assert.match(src, /history: rWin \? rWin\.history : readHistory\(rb\.history\), summary: rWin \? rWin\.summary : null/);
-  assert.match(src, /\+ \(rCompact \? pageCredits\(rCompact\) : 0\);/);
-  assert.match(src, /compacted: rCompacted \? true : undefined,/);
-  const page = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  assert.match(page, /chatFlushFor\(siteById\(origin\) \|\| site\) : Promise\.resolve\(\)\)\.then\(\(\) => apiFetch\('\/api\/site\/route'/);
-  assert.match(page, /chat: \(typeof chatKeyOf === 'function' && chatKeyOf\(siteById\(origin\) \|\| site\)\) \|\| undefined,/);
-  assert.match(page, /if \(d && d\.compacted === true\)/);
-  assert.match(page, /'\/context\?picker='/);
-});
 
 // ── CACHING (2026-10-20, owner: "but the catching is in place too right?") ──
 import { historyBlock, historyParts, requestChars } from "../builder/site-converse.mjs";
@@ -194,12 +182,6 @@ test("CACHE: Grok gets the chat's own cache key; Anthropic never sees our field"
   assert.equal(anthropicWire(plain), plain);
 });
 
-test("CACHE WIRING: the reply is sent its chat's key, and the Anthropic call strips it", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /cacheKey: typeof rb\.chat === "string" && \/\^\[A-Za-z0-9_-\]\{4,80\}\$\/\.test\(rb\.chat\) \? "chat-" \+ rb\.chat : "",/);
-  const call = readFileSync(new URL("../builder/build-call.mjs", import.meta.url), "utf8");
-  assert.match(call, /JSON\.stringify\(streaming \? \{ \.\.\.anthropicWire\(req\), stream: true \} : anthropicWire\(req\)\)/);
-});
 
 // ── CACHING ON EVERY CALL (2026-10-20, owner: "go look for the caching and fix") ──
 import { promptKey } from "../builder/model-xai.mjs";
@@ -235,12 +217,6 @@ test("WIRING: the web research call goes through the same door", () => {
   assert.match(src, /body: JSON\.stringify\(anthropicWire\(\{\s*model: RESEARCH_MODEL,/);
 });
 
-test("CACHE HITS ARE REPORTED: each call's tokens, with what came from the cache", () => {
-  assert.deepEqual(api.tokensReport({ route: { in: 900, out: 40, cacheRead: 3100, cacheWrite: 0 }, reply: null, compact: { in: 5, out: 1, cacheRead: 0, cacheWrite: 7 } }),
-    { route: { in: 900, cached: 3100, written: 0, out: 40 }, compact: { in: 5, cached: 0, written: 7, out: 1 } });
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /tokens: routed\.usage \? tokensReport\(\{ route: routed\.usage, reply: rConverse && rConverse\.ok \? rConverse\.usage : null, compact: rCompact \}\) : undefined,/);
-});
 
 // ── THE ROUTER READS THE KEPT CHAT; A TEST WINDOW (2026-10-20, owner: "do 1 and 2") ──
 

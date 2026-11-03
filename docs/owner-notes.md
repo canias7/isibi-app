@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-03 — No feature list, no second chat model (branch `park-old-way`; not merged, not deployed, nothing paid)
+
+On the owner's word ("do it, no limits"): the model builds whatever is asked, so there is no list of what the builder "can" do. Removed the talk-only reply (`converse`) that ran after the agent's own answer and replaced it, and its `CAPABILITIES` list (fixed features, a "not offered" list, and "say you're not sure" for anything else) and `HONESTY` block from `builder/site-converse.mjs`. The agent's own words are now the reply. Tests that pinned the removed code were removed (3 in `chat-context`, 1 in `conversation`).
+
 ## 2026-11-03 — The old way is parked (branch `park-old-way`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
 
 You said: *"Just put it in a parked file that we won't use."* The old way (the

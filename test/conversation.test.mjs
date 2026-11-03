@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import {
   readHistory, routerHistory, historyBlock, converseRequest, readConverse, converse, siteContextBlock, attachedBlock,
-  CONVERSE_MAX_TOKENS, CONVERSE_SYSTEM, CAPABILITIES, HONESTY, HISTORY_TURNS, HISTORY_CHARS, ROUTER_HISTORY_TURNS,
+  CONVERSE_MAX_TOKENS, CONVERSE_SYSTEM, HISTORY_TURNS, HISTORY_CHARS, ROUTER_HISTORY_TURNS,
 } from "../builder/site-converse.mjs";
 
 import { echoTokens } from "../builder/input-budget.mjs";
@@ -59,13 +59,6 @@ test("the reply is told how to answer: length to the question, small Markdown, n
   assert.match(CONVERSE_SYSTEM, /No emoji/);
   assert.doesNotMatch(CONVERSE_SYSTEM, /one to three sentences|no markdown|no headings|no bullet/i, "the old rigid rules are back");
   assert.match(CONVERSE_SYSTEM, /You cannot make changes in this reply/);
-});
-
-test("the reply is told what it knows and what it did NOT do", () => {
-  assert.match(HONESTY, /have not\s+opened their live site, visited any web address, searched the web, run or tested anything, changed anything, or\s+watched a video or listened to a recording/);
-  assert.match(HONESTY, /never say or imply that you checked, looked at, tested, visited/);
-  assert.match(HONESTY, /Never invent a page, a table, a feature, a file or a number/);
-  assert.ok(CONVERSE_SYSTEM.includes(HONESTY) && CONVERSE_SYSTEM.includes(CAPABILITIES));
 });
 
 test("the site is described from what was read, with no row, and what could not be read is said", () => {
