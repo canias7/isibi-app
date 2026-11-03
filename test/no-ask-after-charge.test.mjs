@@ -154,55 +154,6 @@ const reserves = (seen) => seen.debits.length + seen.rpc.filter((r) => r.fn === 
 const focusOf = (src) => { const m = /focus="(\w+)"/.exec(String(src || "")); return m ? m[1] : null; };
 const SITE3 = (slug) => ({ ...SITE(slug), pages: [{ path: "/" }, { path: "/visit" }, { path: "/contact" }] });
 
-for (const mode of ["sync", "job"]) {
-  test("EDIT ROUTE (" + mode + "): after the heading is charged the photo step is still offered its question (owner, 2026-10-26); the question is kept and the photo is neither made nor charged", async () => {
-    const slug = freshSlug("no-ask-" + mode);
-    const store = bucket(slug);
-    store.poke(SOURCE_KEY(slug), JSON.stringify([{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }, { path: "contact.tsx", source: CONTACT }]));
-    const worker = await loadWorker();
-    const compiler = installCompiler();
-    const offered = [];
-    try {
-      await withWire({
-        [T.pick]: { fields: ["shape", "images"], scopes: [{ part: "shape", page: "/", words: HEADING, answers: [] }, { part: "images", words: PHOTO, answers: [] }] },
-        [T.tweak]: { source: HOME_BIG },
-        [PIC]: (args) => { offered.push(offers(args)); return { pictures: [], question: QPIC }; },
-      }, async (seen) => {
-        const m0 = reserves(seen);
-        const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE3(slug), { intent: "edit", layer: "look" }, HEADING + " and " + PHOTO + "."), mode);
-        const why = " (" + mode + "): " + JSON.stringify(r.body).slice(0, 500);
-        assert.ok(offered.length >= 1 && offered.every((o) => o === true), "after the charge the photo step was not offered its question: " + JSON.stringify(offered));
-        assert.equal(storedPage(store, slug, "contact.tsx"), CONTACT, "the photo was made beside its question" + why);
-        assert.equal(r.body.defaulted, undefined, why);
-        assert.ok(question(store, slug), "the question was not kept" + why);
-        assert.ok(reserves(seen) - m0 <= 1, "the step that asked was charged" + why);
-      }, { slug });
-    } finally { compiler.uninstall(); }
-  });
-
-  test("EDIT ROUTE (" + mode + "): a step that asks even when told it cannot ends in its question, and that step is never charged", async () => {
-    const slug = freshSlug("no-ask-still-" + mode);
-    const store = bucket(slug);
-    store.poke(SOURCE_KEY(slug), JSON.stringify([{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }, { path: "contact.tsx", source: CONTACT }]));
-    const worker = await loadWorker();
-    const compiler = installCompiler();
-    try {
-      await withWire({
-        [T.pick]: { fields: ["shape", "images"], scopes: [{ part: "shape", page: "/", words: HEADING, answers: [] }, { part: "images", words: PHOTO, answers: [] }] },
-        [T.tweak]: { source: HOME_BIG },
-        [PIC]: { pictures: [{ page: "contact.tsx", alt: "The shop front at dawn", focus: "top" }], question: QPIC },
-      }, async (seen) => {
-        const m0 = reserves(seen);
-        const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE3(slug), { intent: "edit", layer: "look" }, HEADING + " and " + PHOTO + "."), mode);
-        assert.equal(storedPage(store, slug, "contact.tsx"), CONTACT, "what was proposed beside the question was made");
-        assert.equal(reserves(seen) - m0, 1, "the step that ended in a question was charged");
-        assert.equal(r.body.defaulted, undefined);
-        assert.ok(question(store, slug), "the question was not kept");
-      }, { slug });
-    } finally { compiler.uninstall(); }
-  });
-}
-
 // ── 4. THE ADD-ON ROUTE, AS A QUEUED JOB ────────────────────────────────────
 
 const HOME_P = pageSrc("/", "<section className=\"hero\"><h1>Harbour Loaf</h1></section>");

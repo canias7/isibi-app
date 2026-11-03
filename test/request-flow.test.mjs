@@ -163,33 +163,6 @@ async function clarifyResume(P, { asking, independent, dependent, landedBefore, 
   assert.equal(P.spent(), spent);
 }
 
-// A CANCEL WHOSE REQUEST READ FAILS (2026-10-23, audit A35-4): one thrown read
-// ended the loop, the part kept waiting, and the reply still said cancelled.
-for (const reads of [1, 6]) {
-  test("C4b — a part's question cancelled while the request read fails " + reads + " time(s): read again and ended, or not told as cancelled", async () => {
-    const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
-    await withPlatform({
-      slug: slugOf("c4b" + reads),
-      answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, "lane:description": { question: QD }, ...GALLERY },
-    }, async (P) => {
-      const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
-      await settle(P, r.key);
-      const q = P.question();
-      assert.equal(q.requestKey, r.key);
-      P.failGetFrom((k) => k.includes(r.key), { count: reads });
-      const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: q.id, cancel: true });
-      if (reads === 1) {
-        assert.equal(c.body.cancelled, true, JSON.stringify(c.body));
-        assert.equal(P.record(r.key).parts[0].status, "cancelled", "the cancel did not end the part");
-      } else {
-        assert.notEqual(c.body && c.body.cancelled, true, "a part left waiting was told as cancelled: " + JSON.stringify(c.body));
-        assert.equal(c.status, 503);
-        assert.equal(P.record(r.key).parts[0].status, "waiting");
-      }
-    });
-  });
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // D. ATTACHMENTS KEPT ON THE SERVER FOR THE PART THAT READS THEM
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,42 +413,6 @@ const INSTA = { to: "social", network: "instagram", href: "https://instagram.com
 const BAKERY_INSTA_HOME = applyAdditions(BAKERY, [{ to: "social", item: { network: INSTA.network, href: INSTA.href }, pages: ["/"], after: null }]).pages;
 const socialOf = (P, file) => (chromeListSlots([{ path: file, source: P.page(file) }], "social")[0] || {}).items;
 const INSTA_WORDS = "add our Instagram to the footer of the home page and the";
-
-for (const [named, met] of [["/visit", true], ["/starter", false]]) {
-  test(`M6 (${named}) — a footer addition naming its pages: ${met ? "the named page whose footer had no social links is given them, the part is done, and the part that needed it runs" : "the named page with no footer is told by name, the part is not done though the home page had it, and the part the router said needed it (naming nothing) still runs"}`, async () => {
-    assert.deepEqual((chromeListSlots([{ path: "index.tsx", source: BAKERY_INSTA_HOME[0].source }], "social")[0] || {}).items, [{ network: "instagram", href: INSTA.href }], "the fixture's home page has no Instagram");
-    const words = INSTA_WORDS + " " + named.slice(1) + " page";
-    await withPlatform({
-      slug: slugOf("m6" + named.slice(1)), pages: BAKERY_INSTA_HOME, replies: true,
-      answers: {
-        route: [{ intent: "edit", layer: "nav", alsoAsked: [DESC], dependsOn: [{ change: 1, after: [0] }] }, { intent: "edit", layer: "look" }],
-        write_nav: { add: [{ ...INSTA, pages: ["/", named] }] },
-        ...DESCRIBE,
-      },
-    }, async (P) => {
-      const r = await sendMessage(P, { message: words + ", then " + DESC + "." });
-      const { rec } = await settle(P, r.key);
-      const nav = P.answerOf(P.jobsOf(r.key)[0]);
-      assert.notEqual(nav.satisfied, true, "an addition with a named page undone, or newly done, was answered as already true");
-      if (met) {
-        assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-        assert.deepEqual(socialOf(P, "visit.tsx"), [{ network: "instagram", href: INSTA.href }]);
-        assert.equal(P.look().description, NEW_DESC, "the part that needed it did not run");
-      } else {
-        assert.equal(nav.ok, false, JSON.stringify(nav));
-        assert.match(nav.msg, /\/starter has no footer to put “instagram” in/);
-        assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts[0]));
-        // A NEED THAT NAMES NOTHING (2026-10-24, request-needs): the description runs.
-        assert.equal(rec.parts[1].status, "done", JSON.stringify(rec.parts[1]));
-        assert.equal(rec.state, "partial");
-        assert.equal(P.look().description, NEW_DESC, "the part held on an unnamed need did not run");
-        assert.equal(P.page("starter.tsx"), BAKERY.find((x) => x.path === "starter.tsx").source, "the page with no footer was given one");
-        const told = toldIn(P, await readWritten(P, REQ(P, r.key)));
-        assert.doesNotMatch(told, /Not started/, told);
-      }
-    });
-  });
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // L. THE SWITCH, AND THE PATHS IT LEAVES AS THEY WERE

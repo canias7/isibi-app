@@ -1,4 +1,4 @@
-// PARKED (2026-11-03, park-old-way): the old-way half of test/mixed-work.test.mjs — it tests the old way (router, lanes, GF_OLD_LANES). Not run by the suite (test/*.test.mjs); see parked/old-way/README.md.
+// PARKED (2026-11-03, park-old-way): this whole file — it tests the old way (router, lanes, GF_OLD_LANES). Not run by the suite (test/*.test.mjs); see parked/old-way/README.md.
 // MANY DIFFERENT CHANGES FROM ONE MESSAGE, ACROSS EDIT AND ADD-ON — WHAT THE
 // BUILDER REALLY DOES TODAY (2026-10-03, the mixed-work audit).
 //
@@ -161,69 +161,47 @@ function said(r, re, what) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. EDIT: ONE KIND OF CHANGE ON SEVERAL PAGES
+// 0. WHAT IS REGISTERED, READ FROM THE CODE THE MATRIX IS ABOUT
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("WORKS, AND FIXED MW8 — THE SAME KIND OF CHANGE ON TWO PAGES (two layout moves): one page step per page, run in turn, each handed only its own words and its own page, both published together, each billed — and the page's own reply names both pages", async () => {
-  const r = await editRun({
-    message: "Two layout changes: " + W.homeMove + ", and " + W.visitMove + ".",
-    answers: {
-      [T.pick]: { fields: ["shape"], scopes: [{ part: "shape", page: "/", words: W.homeMove }, { part: "shape", page: "/visit", words: W.visitMove }] },
-      [T.tweak]: (args) => ({ source: userText(args).includes("createFileRoute(\"/visit\")") ? VISIT_MOVED : HOME_MOVED }),
-    },
+test("THE REGISTERED CAPABILITIES: nine edit layers, twenty-one look lanes — every one picked runs — twelve add-on kinds, and where each lane's work really runs", () => {
+  assert.deepEqual(EDIT_LAYERS, ["data", "text", "look", "page", "rules", "picture", "logo", "nav", "rename"]);
+  assert.equal(LANE_FIELDS.length, 21);
+  // FIXED MW2 (2026-10-03): the four-lane cap is gone, and so is the per-step
+  // cap on photographs (MW4); nothing named them silently any more.
+  assert.equal(LANES.MAX_LANES, undefined, "the lane cap is back");
+  assert.equal(PICTURE.MAX_PICTURE_OPS, undefined, "the photograph cap is back");
+  const rung = Object.fromEntries(LANE_FIELDS.map((f) => [f, OWN_LANES.includes(f) ? "look" : laneLayer(f) || (laneEscalate(f) ? "escalate:" + laneEscalate(f) : laneVerbs(f) ? "verbs" : "?")]));
+  assert.deepEqual(rung, {
+    css: "look", theme: "look", brand: "look", description: "look", wordmark: "look", favicon: "look", lang: "look", langs: "look", behavior: "look", qr: "look",
+    purpose: "page", components: "page", shape: "page", three: "page", tsx: "page", images: "picture", action: "nav", backend: "rules", slug: "rename",
+    kind: "escalate:build", pages: "verbs",
   });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.deepEqual(r.seen.calls, [T.pick, T.tweak, T.tweak], "not one picker call and one writer per page, in turn");
-  assert.deepEqual(r.seen.writers.map((w) => w.instruction), [W.homeMove, W.visitMove], "a writer was handed the other page's words");
-  assert.equal(r.src("index.tsx"), HOME_MOVED);
-  assert.equal(r.src("visit.tsx"), VISIT_MOVED);
-  assert.deepEqual(r.changed, ["index.tsx", "visit.tsx"], "a page nobody named changed");
-  assert.equal(r.builds, 1, "the two moves were not published together");
-  assert.deepEqual(r.charges, [1, 1], "each page operation is not billed once");
-  assert.deepEqual(r.facts, ["Updated /.", "Updated /visit."], "a model reply would not be told both pages");
-  assert.equal(r.checks.length, 3, "the one publish's checks were not each a fact: " + JSON.stringify(r.checks));
-  // FIXED MW8: the page's own reply (no model replies) names both pages, where
-  // it read "✅ Updated the look."
-  assert.equal(r.reply, "Updated / and /visit.");
+  assert.deepEqual(ADD_KINDS, ["table", "row", "function", "page", "component", "words", "frame", "qr", "three", "photo"]);
+  assert.deepEqual(DISPATCHED_ADDS, ["frame"], "the add-on kind handed to an edit rung moved");
+  assert.deepEqual(MAKES_PAGES, ["page", "component"]);
+  assert.deepEqual(BACKEND_ADDS, ["table", "function"]);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. EDIT: DIFFERENT CHANGES ON ONE PAGE, AND ACROSS PAGES
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("WORKS, AND FIXED MW1 — THREE DIFFERENT CHANGES ON ONE PAGE (a move, a photograph off, the menu): all three land, in turn, the photo taken off the page the move had already rewritten, in one publish — and the reply names the page, the photo and the menu", async () => {
+test("WORKS — WORDING ON TWO PAGES IS ONE TEXT STEP: one model call changes both, one publish, one charge, and the reply quotes both", async () => {
   const r = await editRun({
-    message: W.homeMove + ", " + W.photo + ", and " + W.menu + ".",
-    routed: { layer: "look", page: "/" },
+    message: "Change the Visit heading to Find the bakery, and on the home page make the starter headline Fed every single morning since we opened.",
+    routed: { layer: "text" },
     answers: {
-      [T.pick]: { fields: ["shape", "images", "action"], scopes: [{ part: "shape", page: "/", words: W.homeMove }, { part: "images", page: "/", words: W.photo }, { part: "action", words: W.menu }] },
-      [T.tweak]: { source: HOME_MOVED },
-      [PICTURE_TOOL.name]: PHOTO_OFF,
-      [NAV_TOOL.name]: NO_GALLERY,
+      [T.text]: (args) => {
+        const lines = userText(args).split("\n");
+        const id = (path, txt) => Number((lines.find((l) => l.includes("[" + path + "] " + txt)) || "-1.").split(".")[0]);
+        return { edits: [{ id: id("visit.tsx", "Come to the bakery"), to: "Find the bakery" }, { id: id("index.tsx", "Fed every morning since we opened"), to: "Fed every single morning since we opened" }] };
+      },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.deepEqual(r.seen.calls, [T.pick, T.tweak, PICTURE_TOOL.name, NAV_TOOL.name], "the steps did not run one after another, in the lanes' order");
-  const home = r.src("index.tsx");
-  // LATER STEPS KEEP EARLIER RESULTS: the photo came off the MOVED page.
-  assert.ok(before(home, "Order a loaf for collection", "Fed every morning since we opened"), "the move did not survive the later steps");
-  assert.ok(!home.includes(BOULE), "the photograph is still on the home page");
-  assert.ok(home.includes("Harbour Loaf on a Bristol side street"), "the other photograph went too");
-  assert.deepEqual(r.menus("index.tsx"), [["Today's bake", "The starter", "Visit"]]);
-  assert.deepEqual(r.menus("gallery.tsx"), [["Today's bake", "The starter", "Visit"]], "the gallery page's own menu kept the link");
-  assert.equal(r.builds, 1, "three steps were not published together");
-  assert.deepEqual(r.charges, [1, 1, 1], "each step is not billed once");
-  // FIXED MW1: every step that ran is told, each in its own words — where the
-  // reply named only "/" and the facts only "Updated /.".
-  assert.equal(r.reply, MW1_THREE);
-  assert.ok(r.facts.includes("Updated /."), JSON.stringify(r.facts));
-  said(r, /boule/i, "the photograph taken off");
-  said(r, /menu/i, "the menu change");
-  // EACH WITH ITS OWN TARGET: the page rung's page, and the picture and menu
-  // steps' own words (they work across the site, so no page is theirs).
-  assert.deepEqual((r.body.steps || []).map((st) => [st.layer, st.status, st.page || "", st.words || []]),
-    [["page", "done", "/", [W.homeMove]], ["picture", "done", "", [W.photo]], ["nav", "done", "", [W.menu]]],
-    "the reply does not carry each step's own result and target");
+  assert.deepEqual(r.seen.calls, [T.text]);
+  assert.ok(r.src("visit.tsx").includes(">Find the bakery<") && r.src("index.tsx").includes("Fed every single morning since we opened"));
+  assert.deepEqual(r.changed, ["index.tsx", "visit.tsx"]);
+  assert.equal(r.builds, 1);
+  assert.deepEqual(r.charges, [1]);
+  assert.equal(r.reply, "Updated the wording in 2 places — now “Find the bakery”, “Fed every single morning since we opened”.");
 });
 
 for (const mode of ["sync", "job"]) {
@@ -292,30 +270,6 @@ test("FIXED MW2 (" + mode + ") — FIVE DIFFERENT CHANGES, ALL FIVE RUN: the pic
 });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. EDIT: ONE PART FAILS, OR THE ROUTER HOLDS ONE BACK, WHILE THE REST RUNS
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("WORKS — ONE STEP FAILS BESIDE TWO THAT WORK: the other two ship in one publish, the failure is named in the reply, and the failed step's model call is billed, said", async () => {
-  const r = await editRun({
-    message: W.css + ", " + W.visitMove + ", and " + W.menu + ".",
-    answers: {
-      [T.pick]: { fields: ["css", "shape", "action"], scopes: [{ part: "css", words: W.css }, { part: "shape", page: "/visit", words: W.visitMove }, { part: "action", words: W.menu }] },
-      "lane:css": CSS,
-      [T.tweak]: { source: VISIT_MOVED },
-      [NAV_TOOL.name]: { links: "not a list" },
-    },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.equal(r.css, CSS);
-  assert.equal(r.src("visit.tsx"), VISIT_MOVED);
-  assert.deepEqual(r.menus("index.tsx"), [["Today's bake", "The starter", "Visit", "Gallery"]], "the failed menu step changed the menu");
-  assert.equal(r.builds, 1);
-  assert.deepEqual((r.body.partial || []).map((p) => [p.layer, p.error, p.cost]), [["nav", "no-menu", 1]]);
-  assert.deepEqual(r.charges, [1, 1, 1]);
-  assert.match(r.reply, /I couldn't work out what the menu should be\. Tell me what to add, take out or move\. That part still cost 1 credit\./);
-});
-
 for (const mode of ["sync", "job"]) {
   test("WORKS (" + mode + ") — ONE STEP ASKS BESIDE TWO THAT WORK: the other two ship in one publish and are billed, the asking step changes and costs nothing, every step's result is kept with its target, and its question is kept to resume only its own part", async () => {
     const Q = "Which band is the order band — the one about holding a loaf?";
@@ -345,50 +299,37 @@ for (const mode of ["sync", "job"]) {
   });
 }
 
-test("A QUESTION BESIDE A CHANGE WITHHELD FOR A PAGE THE SITE DOES NOT HAVE: the question is kept, and the request its answer resumes holds neither the withheld change's words nor the work that ran", async () => {
-  // THE WITHHELD CHANGE CARRIES ITS OWN WORDS SINCE 2026-10-03 (the mixed-work
-  // fixes), so the question's remainder can take them out. Before, a withheld
-  // step had no words, read as "a step that ran on the whole turn", and the
-  // question was not kept at all — said as left alone.
-  const Q = "Which band is the order band — the one about holding a loaf?";
-  const MENU_PAGE_MOVE = "on the menu page put the prices above the photos";
+test("WORKS — A RULES CHANGE BESIDE A STYLING CHANGE, ON A SITE WITH NO DATABASE: the styling ships, and the rules step's refusal is said beside it, at no cost for that step", async () => {
+  const { RULES_TOOL } = await import("../../../builder/site-rules.mjs");
   const r = await editRun({
-    message: W.css + ", " + W.visitMove + ", and " + MENU_PAGE_MOVE + ".",
+    message: "Make the headings a deep green and close the order form.",
     answers: {
-      [T.pick]: { fields: ["css", "shape"], scopes: [{ part: "css", words: W.css }, { part: "shape", page: "/visit", words: W.visitMove }, { part: "shape", page: "/menu", words: MENU_PAGE_MOVE }] },
+      [T.pick]: { fields: ["css", "backend"], scopes: [{ part: "css", words: "Make the headings a deep green" }, { part: "backend", words: "close the order form" }] },
       "lane:css": CSS,
-      [T.tweak]: { source: "", question: { text: Q } },
+      [RULES_TOOL.name]: { tables: [{ table: "orders", write: "none" }] },
     },
   });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.equal(r.css, CSS, "the styling did not ship");
-  assert.deepEqual((r.body.partial || []).filter((p) => p.error === "no-page").map((p) => [p.page, p.words]), [["/menu", [MENU_PAGE_MOVE]]], "the withheld change lost its target");
-  assert.ok(r.question, "the question was not kept");
-  assert.equal(r.question.question.text, Q);
-  assert.ok(r.question.request.includes("order band"), "the question's request is not the asking part: " + r.question.request);
-  assert.ok(!r.question.request.includes("prices above the photos"), "the withheld change would run again on the answer: " + r.question.request);
-  assert.ok(!r.question.request.includes("deep green"), "the work that ran would run again on the answer: " + r.question.request);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.css, CSS);
+  assert.ok(!r.seen.calls.includes(RULES_TOOL.name), "the rules model was asked with no table to apply to");
+  assert.deepEqual((r.body.partial || []).map((p) => p.layer), ["rules"]);
+  assert.deepEqual(r.charges, [1], "the refused rules step was billed");
+  assert.match(r.reply, /That rule needs a table on your site to apply to — ask me to add one first\./);
 });
 
-test("WORKS (BY DESIGN, ACROSS TWO MESSAGES) — A CHANGE AND AN ADDITION IN ONE MESSAGE: the router answers the change and holds the addition back; the change runs, nothing is added, and the reply names the addition to send next", async () => {
-  const ADD = "add a page for our wholesale customers";
-  const r = await editRun({
-    viaRouter: true,
-    message: W.desc + " and " + ADD,
-    answers: {
-      route: { intent: "edit", layer: "look", alsoAsked: ADD },
-      [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: W.desc }] },
-      "lane:description": NEW_DESC,
-    },
+test("WORKS (BY DESIGN, ACROSS TWO MESSAGES) — AN ADDITION AND A STYLING CHANGE, ANSWERED AS AN ADDITION: the page is added and the styling change is named at the end of the reply, to send next", async () => {
+  const HELD = "make the headings darker";
+  const r = await addon("mixed-held-" + rnd(), "Add a page for our wholesale customers and " + HELD, {
+    kinds: ["page"], publishes: true, sitePages: ["/"], alsoAsked: HELD,
+    written: [writtenPage("/wholesale"), addedTo("/", "<p>x</p>")],
+    answers: { page: { page: [{ path: "/wholesale", name: "Wholesale", purpose: "sell to cafes", sections: ["intro"], components: ["card"] }] } },
   });
-  assert.equal(r.route.alsoAsked, ADD);
-  assert.equal(r.post.body.alsoAsked, ADD, "the browser did not carry the held part");
   assert.equal(r.body.ok, true);
-  assert.equal(r.look.description, NEW_DESC);
-  assert.deepEqual(r.changed, [], "a page was added or changed");
-  assert.ok(!r.seen.calls.some((c) => c === T.adds || c === T.design), "the add-on step ran in the same message");
-  assert.equal(r.body.deferred, ADD);
-  assert.match(r.reply, /I only did one thing this time\. Say “add a page for our wholesale customers” and I’ll do that next\./);
+  assert.deepEqual(r.body.added, ["wholesale.tsx"]);
+  assert.equal(r.body.deferred, HELD);
+  const said = addSaid(r);
+  assert.match(said.reply, /I only did one thing this time\. Say “make the headings darker” and I’ll do that next\.$/);
+  assert.ok(said.facts.some((f) => f.includes("“" + HELD + "”")), JSON.stringify(said.facts));
 });
 
 for (const mode of ["sync", "job"]) {
@@ -708,4 +649,131 @@ function addSaid(r) {
   const f = addonReplyFacts(r.body);
   return { reply: said.text, facts: Array.isArray(f.facts) ? f.facts.map((x) => x.text) : [] };
 }
+
+test("WORKS — A TABLE AND A FUNCTION THAT READS IT, FROM ONE MESSAGE: the function's designer is shown what the table's proposed, the database is changed in that order, one publish and one charge, and the reply names both", async () => {
+  const r = await addon("mixed-chain-" + rnd(), "keep a list of orders and count them", {
+    kinds: ["table", "function"], publishes: true,
+    answers: {
+      table: { table: [TABLE("orders", [["who", "text"], ["loaves", "integer"]])] },
+      function: { function: [{ name: "count_orders", returns: "void", internal: true, body: "BEGIN PERFORM count(*) FROM orders; END;" }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+  assert.deepEqual(r.prompts.map((p) => (p.tool === "add_to_site" ? p.kind : p.tool)), ["pick_adds", "table", "function", "write_pages"], "the designers did not run one after another, in dependency order");
+  // A NEW OBJECT IS THERE FOR THE STEPS AFTER IT, IN THE SAME MESSAGE.
+  assert.match(promptFor(r, "function").text, /orders \([^)]*who[^)]*\)[^\\]*being added by this same change/, "the function designer was not shown the new table");
+  const order = ddl(r).map((q) => (/CREATE TABLE IF NOT EXISTS "orders"/.test(q) ? "table" : /FUNCTION "count_orders"/.test(q) ? "function" : null)).filter(Boolean);
+  assert.deepEqual([...new Set(order)], ["table", "function"], "the function was created before the table it reads");
+  assert.equal(r.compiles.length, 1, "not one publish");
+  assert.equal(r.body.cost, 1, "not one charge for the whole addition");
+  const { reply } = addSaid(r);
+  for (const said of ["now storing orders", "added the function count_orders"]) assert.ok(reply.includes(said), "the reply does not say “" + said + "”: " + reply);
+});
+
+test("WORKS, AND FIXED MW5 — A NEW PAGE AND WHAT GOES ON IT, FROM ONE MESSAGE (a price-table component, a QR code to it, a 3D scene, a line of words): each designer is told the page is being added, one publish and one charge — and the QR code and the scene, saved but on no page the writer wrote, are said as saved and NOT shown", async () => {
+  const slug = "mixed-page-" + rnd();
+  const r = await addon(slug, "add a wholesale page with a price table, a QR code on the home page that opens it, a 3D oven on it, and a line on the home page saying we deliver", {
+    kinds: ["page", "component", "qr", "three", "words"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/wholesale"), addedTo("/", "<p>We deliver to cafes.</p>")],
+    answers: {
+      page: { page: [{ path: "/wholesale", name: "Wholesale", purpose: "sell to cafes", sections: ["intro"], components: ["card"] }] },
+      component: { component: [{ page: "/wholesale", does: "a wholesale price table", components: ["card"] }] },
+      qr: { qr: { name: "wholesale", points: "/wholesale", label: "Wholesale", page: "/" } },
+      three: { three: { scene: "a wood-fired bread oven, slowly turning", page: "/wholesale" } },
+      words: { words: [{ page: "/", words: "We deliver to cafes." }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+  for (const kind of ["component", "words", "qr", "three"]) {
+    assert.match(promptFor(r, kind).text, /ALSO adding a page[^.]*\/wholesale/, "the " + kind + " designer was not told the page is being added");
+  }
+  assert.deepEqual(r.body.added, ["wholesale.tsx"]);
+  const look = JSON.parse(r.store.store.get(CONFIG_KEY(slug))).look;
+  assert.deepEqual((look.qr || []).map((q) => q.name), ["wholesale"], "the QR code was not stored");
+  assert.ok(look.three, "the 3D scene was not stored");
+  assert.equal(r.compiles.length, 1);
+  assert.equal(r.body.cost, 1);
+  const said = addSaid(r);
+  assert.match(said.reply, /added \/wholesale/);
+  assert.match(said.reply, /added “We deliver to cafes\.” to \//);
+  // FIXED MW5: the configuration was saved, and the page writer drew neither —
+  // so neither is said as delivered. The reply names each as saved and not yet
+  // shown, where it named neither.
+  assert.deepEqual((r.body.qrs || []).map((q) => [q.name, q.page, q.on]), [["wholesale", "/", []]], "the code's placement is not reported as read");
+  assert.deepEqual(r.body.scene && [r.body.scene.page, r.body.scene.on], ["/wholesale", []], "the scene's placement is not reported as read");
+  assert.match(said.reply, MW5_QR_UNSHOWN, "the code is not said as saved and not shown");
+  assert.match(said.reply, MW5_SCENE_UNSHOWN, "the scene is not said as saved and not shown");
+  assert.ok(!/Added a QR code|added a QR code/.test(said.reply), "the code is said as added to a page: " + said.reply);
+  assert.ok(said.facts.some((f) => MW5_QR_FACT.test(f)), JSON.stringify(said.facts));
+  assert.ok(said.facts.some((f) => MW5_SCENE_FACT.test(f)), JSON.stringify(said.facts));
+});
+
+test("FIXED MW5 — THE SAME ADDITION WHEN THE WRITER DOES DRAW THEM: the code on the home page and the scene on the new page are said as shown, each on its page", async () => {
+  const slug = "mixed-page-shown-" + rnd();
+  const SCENE = "import { Canvas } from \"@react-three/fiber\";\n";
+  const r = await addon(slug, "add a wholesale page with a 3D oven on it, and a QR code on the home page that opens it", {
+    kinds: ["page", "qr", "three"], publishes: true, sitePages: ["/"],
+    written: [
+      { ...writtenPage("/wholesale"), source: SCENE + writtenPage("/wholesale").source.replace("</main>", "<Canvas><mesh /></Canvas></main>") },
+      addedTo("/", "<img src={SITE_QRS.wholesale} alt=\"Wholesale\" />"),
+    ],
+    answers: {
+      page: { page: [{ path: "/wholesale", name: "Wholesale", purpose: "sell to cafes", sections: ["intro"], components: ["card"] }] },
+      qr: { qr: { name: "wholesale", points: "/wholesale", label: "Wholesale", page: "/" } },
+      three: { three: { scene: "a wood-fired bread oven, slowly turning", page: "/wholesale" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+  assert.deepEqual((r.body.qrs || []).map((q) => [q.name, q.on]), [["wholesale", ["/"]]]);
+  assert.deepEqual(r.body.scene && r.body.scene.on, ["/wholesale"]);
+  const said = addSaid(r);
+  assert.match(said.reply, MW5_QR_SHOWN, "the code is not said as shown on the home page");
+  assert.match(said.reply, MW5_SCENE_SHOWN, "the scene is not said as shown on the new page");
+  assert.ok(!MW5_QR_UNSHOWN.test(said.reply) && !MW5_SCENE_UNSHOWN.test(said.reply), "a placed addition is said as not shown: " + said.reply);
+});
+
+test("WORKS (BY DESIGN, ACROSS TWO MESSAGES) — A NEW ENTRY OR A NEW MENU LINK BESIDE A NEW PAGE IS SET ASIDE AND NAMED: the page is added, and the reply says the entry and the link are separate steps", async () => {
+  const common = { publishes: true, sitePages: ["/"], written: [writtenPage("/gallery"), addedTo("/", "<p>See our gallery.</p>")],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] } } };
+  const row = await addon("mixed-row-" + rnd(), "add a gallery page and add Rye to the loaves list", { ...common, kinds: ["row", "page"] });
+  assert.equal(row.body.ok, true);
+  assert.deepEqual(row.body.added, ["gallery.tsx"]);
+  assert.deepEqual(row.body.notAdded.map((n) => n.kind + ":" + n.why), ["row:row-alone"]);
+  // SET ASIDE MEANS NOT DESIGNED: the page's designer ran, and no row designer
+  // was asked (a named row that was also designed would be paid work unsaid).
+  const designers = row.prompts.filter((p) => p.tool === "add_to_site").map((p) => p.kind);
+  assert.ok(designers.includes("page"), "the page designer ran: " + designers);
+  assert.ok(!designers.includes("row"), "a row designer ran beside the page: " + designers);
+  assert.match(addSaid(row).reply, /I left out one row: A new entry for one of the site's lists is a step of its own/);
+  const frame = await addon("mixed-frame-" + rnd(), "add a gallery page and put it in the menu", { ...common, kinds: ["page", "frame"] });
+  assert.equal(frame.body.ok, true);
+  assert.deepEqual(frame.body.skipped, ["frame"]);
+  assert.match(addSaid(frame).reply, /The new link, button or footer item is a separate step/);
+});
+
+test("FIXED MW6 — ONE ADDITION'S DESIGNER DECLINES BESIDE ONE THAT DESIGNS: the function is added, and the declined list is kept on the reply and said as not made", async () => {
+  const r = await addon("mixed-decline-" + rnd(), "count the orders and keep a list of suppliers", {
+    kinds: ["table", "function"],
+    answers: { function: { function: [{ name: "count_orders", returns: "int", internal: true, body: "SELECT 1", language: "sql" }] }, table: {} },
+  });
+  assert.equal(r.body.ok, true);
+  assert.deepEqual(r.body.functions, ["count_orders"]);
+  assert.deepEqual(r.body.declined, ["table"], "the declined kind is not kept beside the one added");
+  const said = addSaid(r);
+  assert.match(said.reply, /^Done — added the function count_orders\./);
+  assert.match(said.reply, MW6_DECLINED, "the declined list is not said: " + said.reply);
+  assert.ok(said.facts.some((f) => MW6_FACT.test(f)), JSON.stringify(said.facts));
+});
+
+test("WORKS — NO ADD-ON LIMITS (owner, 2026-10-24): a seventh table is added with the rest, none left out", async () => {
+  assert.equal(MAX_ADD_TABLES, Infinity);
+  const t = await addon("mixed-tables-" + rnd(), "add seven lists", {
+    kinds: ["table"], publishes: true,
+    answers: { table: { table: ["a", "b", "c", "d", "e", "f", "g"].map((n) => TABLE("list_" + n, [["name", "text"]])) } },
+  });
+  assert.equal(t.body.ok, true);
+  assert.equal(t.body.tables.length, 7);
+  assert.equal(t.body.notAdded, undefined, JSON.stringify(t.body.notAdded));
+  assert.doesNotMatch(addSaid(t).reply, /left out/);
+});
 

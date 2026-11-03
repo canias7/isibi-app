@@ -10,6 +10,28 @@
 
 
 
+## 2026-11-03 — The old way is parked (branch `park-old-way`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
+
+You said: *"Just put it in a parked file that we won't use."* The old way (the
+router, the lanes text/data/rules/look/picture/logo/nav/page/addon, the
+escalation ladder, the per-part replies) is now in `parked/old-way/`, and
+nothing live loads it. `parked/old-way/README.md` says what each file is.
+
+- `worker.js` only has the agent path now: 50,795 → 38,336 lines. The old
+  edit and add-on steps, the router call and the helpers only they used are in
+  `parked/old-way/worker-old-steps.mjs`.
+- The router module is parked. The small pieces the agent path still reads
+  (the question's shape, the routing answer's shape, the layer names) moved
+  unchanged into `builder/route-shared.mjs`. Four modules only the old steps
+  used (logo lane, component text guard, add-on retry, add-on evidence) are
+  parked too.
+- The test script no longer sets `GF_OLD_LANES`, and the switch is ignored.
+  Tests of the old way moved to `parked/old-way/test/` (not run, not deleted).
+- What customers see should not change: the switch was already off in
+  production. `public/chat.js` is unchanged.
+- The container image rolls (`worker.js` and the builder files it copies
+  changed).
+
 ## 2026-11-02 — Progress lines under a message on an existing site (branch `request-talk`, from `claude/nice-ramanujan-9ry8wy`; not merged, not deployed, nothing paid)
 
 On your approval of the fix. What you saw on copper-kettle-pottery: after you answered "Stripe (recommended)", the job ran 7+ minutes and the chat said nothing.

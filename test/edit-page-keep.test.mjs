@@ -713,46 +713,7 @@ test("“your message didn't ask for” is said only when the JUDGE said no — 
   assert.ok(keepWithheldMsg([{ ...orderForm, why: "not-asked" }]).includes(", which your message didn't ask for — "), "the judge's own no keeps its sentence");
 });
 
-// ═════ A JUDGE THAT CANNOT ANSWER — FAIL CLOSED, AND OURS ══════════════════
-
-for (const judge of ["fail", "garbled"]) {
-  test("a judge that " + (judge === "fail" ? "cannot be reached" : "answers without the tool") + " refuses the change, ours, at no cost", async () => {
-    const r = await drive({ route: { layer: "page" }, ask: HOURS_ASK, answer: DROPS_VISIT, judge });
-    refused(r, { calls: PAGE_JUDGED, status: 503 });
-    assert.equal(r.reply.ours, true);
-    assert.equal(r.reply.msg, KEEP_UNCHECKED_MSG);
-    assert.deepEqual(r.reply.contentUnchecked.map((b) => b.label), ["Directions"]);
-    assert.equal(r.said.text, KEEP_UNCHECKED_MSG + WHOLE);
-    assert.deepEqual(r.said.actions, []);
-  });
-}
-
 const FOOTER = "footer{background-color:#0b3d2e}";
-for (const mode of ["sync", "job"]) {
-  test("MIXED (" + mode + "): a stylesheet change beside a refused page change — the style ships, the page does not, only the style is charged", async () => {
-    const r = await drive({
-      mode, route: { layer: "look" }, ask: "Make the footer dark green, and show the opening hours as a short list.",
-      pick: { fields: ["css", "components"] }, lane: { css: FOOTER }, answer: DROPS_ORDER, judge: judged(no(1)),
-    });
-    assert.equal(r.status, 200, "the message as a whole went through: " + JSON.stringify(r.reply));
-    assert.deepEqual(r.calls, [T.pick, T.lane, T.tweak, T.pages, T.keep], "the model calls");
-    assert.equal(r.compiles, 1, "one compile, for the stylesheet");
-    assert.equal(r.compiled, HOME, "the compiler got the home page as it was — not the rewrite");
-    assert.equal(r.stored, HOME, "the store keeps the home page as it was");
-    assert.deepEqual(r.others, OTHER_PAGES.map((o) => o.source));
-    assert.deepEqual(r.parts, [{ name: "order-form", source: ORDER_FORM }]);
-    assert.equal(r.css, FOOTER, "the stylesheet change shipped");
-    const styleOnly = credits(CALL, LANE);
-    if (mode === "sync") assert.deepEqual(r.debits, [styleOnly], "charged for the picker and the stylesheet, nothing for the refused page");
-    else assert.deepEqual(r.reserves, [{ seq: 1, cost: styleOnly }], "reserved for the picker and the stylesheet only");
-    const blocked = (r.reply.partial || []).find((p) => p.error === "withheld");
-    assert.ok(blocked, "the refused page step is on the reply: " + JSON.stringify(r.reply.partial));
-    assert.equal(blocked.msg, refusalFor(DROPS_ORDER));
-    // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
-    assert.ok(r.said.text.includes("A page’s building blocks on /: " + refusalFor(DROPS_ORDER)), r.said.text);
-    assert.ok(!r.said.text.includes("Nothing on your site changed"), "something DID change, so the whole-request note must not say otherwise");
-  });
-}
 
 // ═════ THE SHARED HEADING — a declared group constrains its answer ═════════
 
@@ -768,150 +729,10 @@ function renderedHome(source) {
     + ORDER_FORM.replace("export default ", "") + "\nexport default Home;";
   return renderPart(component, {});
 }
-for (const mode of ["sync", "job"]) {
-  test("PROSE " + mode + ": reword and rename hours, preserve and render neighbors", async () => {
-    const next = home(HERO, HOURS_NEW.replace("Opening hours", "When we open"), ORDER, VISIT);
-    const r = await drive({ mode, ask: "Rewrite the Opening hours section as a short list and rename its heading.", answer: next });
-    assert.equal(r.status, 200, JSON.stringify(r.reply));
-    assert.equal(r.compiled, next); assert.equal(r.stored, next);
-    assert.equal(r.said.text, UPDATED); assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
-    const rendered = renderedHome(r.stored);
-    assert.match(rendered.text, /When we open Weekdays 7am to 4pm Saturday 8am to 2pm/);
-    assert.match(rendered.text, /Bread from the harbour, every morning/);
-    assert.match(rendered.html, /href="\/visit"/); assert.match(rendered.html, /<form/);
-  });
-  test("PROSE " + mode + ": explicit text-only section deletion preserves neighbors", async () => {
-    const next = home(HERO, ORDER, VISIT);
-    const r = await drive({ mode, ask: "Remove the Opening hours section.", answer: next });
-    assert.equal(r.status, 200, JSON.stringify(r.reply));
-    assert.equal(r.compiled, next); assert.equal(r.stored, next); assert.equal(r.said.text, UPDATED);
-    assert.doesNotMatch(renderedHome(r.stored).text, /Opening hours/);
-    assert.match(renderedHome(r.stored).text, /Harbour Loaf.*Order ahead.*Find us/);
-  });
-  test("PROSE " + mode + ": movement preserves rendered words and changes order", async () => {
-    const next = home(HOURS, HERO, ORDER, VISIT);
-    const r = await drive({ mode, ask: "Move Opening hours above the hero.", answer: next });
-    assert.equal(r.status, 200, JSON.stringify(r.reply));
-    assert.equal(r.compiled, next); assert.equal(r.stored, next); assert.equal(r.said.text, UPDATED);
-    assert.match(renderedHome(r.stored).text, /^Opening hours.*Harbour Loaf/);
-  });
-  for (const [label, ask, before, answer] of [
-    ["hero change cannot discard hours", HERO_ASK, HOME, DROPS_HOURS],
-    ["unchanged heading cannot hide lost body", HERO_ASK, HOME, home(HERO_NEW, HOURS.replace("<p>Open from 7am on weekdays.</p>", ""), ORDER, VISIT)],
-    ["a reword request is not section deletion", HOURS_ASK, HOME, home(HERO, ORDER, VISIT)],
-    ["replacement wording mentioning hours grants no hours permission", "Change the Harbour Loaf heading to Opening hours.", HOME, home(HERO.replace("Harbour Loaf", "Opening hours"), ORDER, VISIT)],
-    ["duplicate headings require disambiguation", "Rewrite Opening hours as a list.", home(HERO, HOURS, HOURS.replace("7am", "9am"), ORDER, VISIT), home(HERO, HOURS_NEW, HOURS.replace("7am", "9am"), ORDER, VISIT)],
-    ["vague targeting stops", "Change that section.", HOME, home(HERO, HOURS_NEW, ORDER, VISIT)],
-    ["negated target stops", "Do not remove Opening hours.", HOME, home(HERO, ORDER, VISIT)],
-    ["literal text in a hidden branch is not preserved", HERO_ASK, HOME, home(HERO_NEW, "{false && " + HOURS + "}", ORDER, VISIT)],
-    ["literal text in unused code is not preserved", HERO_ASK, HOME, home(HERO_NEW, ORDER, VISIT) + "function Unused(){return " + HOURS + "}"],
-  ]) {
-    test("PROSE " + mode + ": " + label, async () => {
-      const r = await drive({ mode, ask, before, answer });
-      refused(r, { calls: PAGE });
-      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
-      // NOT "NOTHING CHANGED" — recovery may already have written — BUT THE
-      // MONEY, FROM WHAT WAS RECORDED (2026-09-25): no debit and no reserve is
-      // what the edit cost, and the routing call is its own charge.
-      assert.equal(r.said.text, r.reply.msg + " This edit cost you nothing. Reading your message cost 2 credits.");
-      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD));
-      assert.ok(!r.said.text.includes("Nothing on your site changed"));
-      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []); assert.deepEqual(r.debits, []);
-    });
-  }
-  // AUDIT A21-1 THROUGH THE ROUTE (2026-10-22): a menu entry and a CTA band
-  // carried in props, dropped by a rewrite asked only to change the hours, are
-  // refused at no cost and named; the requested removal of that link publishes.
-  {
-    const chrome = (menu, band) => IMPORTS + `import { SiteChrome } from "@/components/site-chrome";
-import { CtaBand } from "@/components/ui/cta-band";
-` + ROUTE + `function Home() {
-  return (
-    <SiteChrome name="Fold Lane" links={${menu}}>
-      ${HOURS}
-${band}    </SiteChrome>
-  );
-}
-`;
-    const MENU2 = `[{ label: "Menu", href: "/menu" }, { label: "Order", href: "/order" }]`;
-    const BAND = `      <CtaBand title="Order ahead" action={{ label: "Order now", href: "/order" }} />\n`;
-    const before = chrome(MENU2, BAND);
-    test("PROSE " + mode + ": a rewrite that drops a menu entry and a CTA band carried in props is refused and names them", async () => {
-      const r = await drive({ mode, ask: HOURS_ASK, before, answer: chrome(`[{ label: "Menu", href: "/menu" }]`, "").replace(HOURS, HOURS_NEW) });
-      refused(r, { calls: PAGE });
-      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
-      for (const lost of ["“Order”", "“Order ahead”", "“Order now”", "the link to /order (Order)"]) assert.ok(r.reply.msg.includes(lost), lost + " in " + r.reply.msg);
-      assert.deepEqual(r.reserves, []); assert.deepEqual(r.debits, []);
-    });
-    test("PROSE " + mode + ": the requested removal of a menu entry carried in props still publishes", async () => {
-      const next = chrome(`[{ label: "Menu", href: "/menu" }]`, BAND);
-      const r = await drive({ mode, ask: "Remove the ‘Order’ link.", before, answer: next });
-      assert.equal(r.status, 200, JSON.stringify(r.reply));
-      assert.doesNotMatch(r.stored, /label: "Order",/); assert.match(r.stored, /label: "Order now", href: "\/order"/); assert.match(r.stored, /label: "Menu", href: "\/menu"/);
-    });
-  }
-  test("PROSE " + mode + ": a successful style step survives a refused text-loss step", async () => {
-    const r = await drive({ mode, route: { layer: "look" }, ask: "Make the footer dark green and change the Harbour Loaf heading.",
-      pick: { fields: ["css", "components"] }, lane: { css: FOOTER }, answer: DROPS_HOURS });
-    assert.equal(r.status, 200); assert.equal(r.compiles, 1);
-    assert.equal(r.compiled, HOME); assert.equal(r.stored, HOME); assert.equal(r.css, FOOTER);
-    assert.ok(r.reply.partial.some(p => p.error === "prose-preservation" && p.msg.startsWith(PROSE_WITHHELD)));
-    assert.ok(r.said.text.includes(PROSE_WITHHELD));
-    assert.ok(!r.said.text.includes("Nothing on your site changed"));
-    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
-    if (mode === "sync") assert.deepEqual(r.debits, [credits(CALL, LANE)]);
-    else assert.deepEqual(r.reserves, [{ seq: 1, cost: credits(CALL, LANE) }]);
-  });
-}
 test("PROSE: no parser and malformed source stop rather than inventing an empty inventory", async () => {
   assert.deepEqual(await preservePageProse({ before: HOME, after: DROPS_HOURS, message: HERO_ASK, parse: null }), { ok: false, why: "no-parser" });
   assert.equal((await preservePageProse({ before: HOME, after: "function Broken(){ return <", message: HERO_ASK })).why, "unparsed");
 });
-
-// Authorization operands: each control uses the real route and browser composer.
-for (const mode of ['sync', 'job']) {
-  const weekend = HOURS.replace('className="hours"', 'className="weekend"').replace('Opening hours', 'Weekend hours').replace('7am', '9am');
-  const before = home(HERO, HOURS, weekend, ORDER, VISIT);
-  const dropHours = home(HERO, weekend, ORDER, VISIT);
-  const dropBoth = home(HERO, ORDER, VISIT);
-  const changed = home(HERO, HOURS_NEW, weekend, ORDER, VISIT);
-  const cases = [
-    ['positional reference', 'Remove the Opening hours section above Weekend hours.', before, dropHours, dropBoth],
-    ['comparison', 'Rewrite the Opening hours section like Weekend hours.', before, changed, home(HERO, HOURS_NEW, ORDER, VISIT)],
-    ['comparison collateral rewording', 'Rewrite Opening hours compared to Weekend hours.', before, changed, home(HERO, HOURS_NEW, weekend.replace('9am', 'noon'), ORDER, VISIT)],
-    ['destination', 'Move Opening hours after Weekend hours.', before, home(HERO, weekend, HOURS, ORDER, VISIT), dropBoth],
-    ['replacement names and commands', 'Rewrite Opening hours as "Weekend hours; remove Weekend hours and delete Opening hours."', before, changed, home(HERO, HOURS_NEW, ORDER, VISIT)],
-    ['two explicit targets', 'Remove the Opening hours section and the Weekend hours section.', before, dropBoth, home(HERO.replace('Bread from the harbour, every morning.', ''), ORDER, VISIT)],
-    ['two explicit operations', 'Rewrite Opening hours as a list and remove Weekend hours.', before, home(HERO, HOURS_NEW, ORDER, VISIT), home(HERO.replace('Bread from the harbour, every morning.', ''), HOURS_NEW, ORDER, VISIT)],
-    ['keep constraint', 'Remove Opening hours and keep Weekend hours.', before, dropHours, dropBoth],
-    ['except constraint', 'Remove all sections except Weekend hours.', home(HOURS, weekend), home(weekend), home()],
-    ['duplicate explicit id', 'Remove weekday-hours section above Opening hours.', home(HERO, HOURS.replace('<section', '<section id="weekday-hours"'), HOURS.replace('7am', '9am'), ORDER, VISIT), home(HERO, HOURS.replace('7am', '9am'), ORDER, VISIT), dropBoth],
-    ['quoted heading replacement', 'Rename Opening hours heading to "Weekend hours".', before, home(HERO, HOURS.replace('Opening hours', 'Weekend hours'), weekend, ORDER, VISIT), home(HERO, HOURS.replace('Opening hours', 'Weekend hours'), ORDER, VISIT)],
-  ];
-  for (const [label, ask, source, good, bad] of cases) {
-    test(`AUTH ${mode}: ${label}: intended output`, async () => {
-      const r = await drive({ mode, before: source, ask, answer: good });
-      assert.equal(r.status, 200, JSON.stringify(r.reply));
-      assert.equal(r.compiled, good); assert.equal(r.stored, good);
-      assert.equal(r.said.text, UPDATED);
-      assert.deepEqual(r.said.actions, ['refresh the credit balance']);
-    });
-    test(`AUTH ${mode}: ${label}: collateral loss`, async () => {
-      const r = await drive({ mode, before: source, ask, answer: bad });
-      refused(r, { calls: PAGE });
-      assert.equal(r.stored, source); assert.equal(r.compiles, 0);
-      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
-      assert.ok(r.said.text.includes(PROSE_WITHHELD));
-      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
-    });
-  }
-  for (const ask of ['Remove Opening hours near Weekend hours.', 'Remove Opening hours or Weekend hours.', 'Remove Opening hours except Weekend hours.', 'Remove Opening hours and remove all sections except Opening hours.', 'Remove Opening hours above "Weekend hours; remove Weekend hours.']) {
-    test(`AUTH ${mode}: unsupported grammar refuses loss: ${ask}`, async () => {
-      const r = await drive({ mode, before, ask, answer: dropBoth });
-      refused(r, { calls: PAGE }); assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
-    });
-  }
-}
 
 // ── PAGE-QUALIFIED REQUESTS (2026-09-25, owner) ─────────────────────────────
 //
@@ -931,48 +752,6 @@ const OWNER_REMOVE = "Remove the ‘The first eight chords’ section from the h
 const OWNER_CHANGE = "On the home page, change the text under ‘The first eight chords’ to ‘Start here.’";
 const NO_CHORDS = home(HERO, GUITAR, ORDER, VISIT);
 const STARTS_HERE = home(HERO, CHORDS_START, GUITAR, ORDER, VISIT);
-
-for (const mode of ["sync", "job"]) {
-  for (const [label, ask, answer] of [
-    ["owner's removal from the home page", OWNER_REMOVE, NO_CHORDS],
-    ["owner's change under a heading on the home page", OWNER_CHANGE, STARTS_HERE],
-    ["the referenced section after the qualifier stays a reference", "Remove the ‘The first eight chords’ section from the home page above ‘A guitar you can turn’.", NO_CHORDS],
-    // THE QUOTED-TEXT FORM WITH A QUALIFIER AFTER IT: the replacement is the
-    // quoted words, not the words plus "on the home page".
-    ["exact quoted text changed on the home page", "Change “Drag with the mouse to spin it round. Same shape you will hold in the room.” to “Drag it round.” on the home page.", home(HERO, CHORDS, GUITAR_REWORDED, ORDER, VISIT)],
-  ]) {
-    test(`PAGE ${mode}: ${label}: the correct answer publishes`, async () => {
-      const r = await drive({ mode, before: LESSONS, ask, answer });
-      assert.equal(r.status, 200, JSON.stringify(r.reply));
-      assert.deepEqual(r.calls, PAGE, "the quick writer declined and the full writer answered");
-      assert.equal(r.compiles, 1);
-      assert.equal(r.compiled, answer); assert.equal(r.stored, answer);
-      assert.equal(r.said.text, UPDATED);
-      assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
-    });
-  }
-  // EVERY ONE OF THESE MUST STILL REFUSE, and on the text guard's own reason.
-  for (const [label, ask, answer] of [
-    ["removal + unrelated text lost", OWNER_REMOVE, home(HERO, GUITAR_REWORDED, ORDER, VISIT)],
-    ["change + unrelated text lost", OWNER_CHANGE, home(HERO, CHORDS_START, GUITAR_REWORDED, ORDER, VISIT)],
-    ["change + the heading renamed too", OWNER_CHANGE, home(HERO, CHORDS_START.replace("The first eight chords", "Eight chords"), GUITAR, ORDER, VISIT)],
-    ["a qualifier naming ANOTHER page grants nothing, correct answer or not", "Remove the ‘The first eight chords’ section from the menu page.", NO_CHORDS],
-    ["a leading qualifier naming another page grants nothing", "On the visit page, change the text under ‘The first eight chords’ to ‘Start here.’", STARTS_HERE],
-    ["a referenced section never becomes a second removal target", "Remove the ‘The first eight chords’ section from the home page above ‘A guitar you can turn’.", home(HERO, ORDER, VISIT)],
-    ["\"from\" a section is not a page", "Remove the ‘The first eight chords’ section from ‘A guitar you can turn’.", home(HERO, ORDER, VISIT)],
-  ]) {
-    test(`PAGE ${mode}: ${label}: refused`, async () => {
-      const r = await drive({ mode, before: LESSONS, ask, answer });
-      refused(r, { calls: PAGE });
-      assert.equal(r.reply.error, "prose-preservation");
-      assert.equal(r.reply.proseBlocked, "unconfirmed-target", "refused by the text guard, not by something else");
-      assert.equal(r.stored, LESSONS); assert.equal(r.compiles, 0);
-      assert.ok(r.reply.msg.startsWith(PROSE_WITHHELD), r.reply.msg);
-      assert.ok(r.said.text.includes(PROSE_WITHHELD));
-      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
-    });
-  }
-}
 
 test("PAGE: a qualifier is held to the page the edit changes, and cannot-tell grants nothing", async () => {
   const run = (message, page, after = NO_CHORDS) => preservePageProse({ before: LESSONS, after, message, page });
@@ -1066,28 +845,6 @@ function pageGuardChecks(mode) {
     money(r, true);
   };
   return { refusedHere, publishedHere };
-}
-
-for (const mode of ["sync", "job"]) {
-  const { refusedHere, publishedHere } = pageGuardChecks(mode);
-  test(`QUOTED PAGE ${mode}: a quoted address naming another page grants nothing, correct answer or not`, async () => {
-    const r = await drive({ mode, before: ON_HOME, ask: QUOTED_MENU, answer: bare(HOURS) });
-    refusedHere(r, ON_HOME, OTHER_PAGES.map((o) => o.source));
-  });
-  // THE CONTROL IS THE SAME SENTENCE ON THE PAGE IT NAMES, so what decides is
-  // the page the edit changes and not the words.
-  test(`QUOTED PAGE ${mode}: the same sentence, edited on the page it names, publishes`, async () => {
-    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: QUOTED_MENU, answer: menuPage(HOURS) });
-    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "Updated /menu.");
-  });
-  test(`QUOTED PAGE ${mode}: a quoted page that matches never widens the grant: unrelated text lost is refused`, async () => {
-    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: QUOTED_MENU, answer: menuPage(HOURS_REWORDED) });
-    refusedHere(r, ON_MENU, MENU_OTHERS);
-  });
-  test(`QUOTED PAGE ${mode}: quoted replacement text that mentions another page stays copy`, async () => {
-    const r = await drive({ mode, before: ON_HOME, ask: QUOTED_COPY, answer: COPY_ANSWER });
-    publishedHere(r, COPY_ANSWER, OTHER_PAGES.map((o) => o.source), UPDATED);
-  });
 }
 
 test("QUOTED PAGE: every page operand is held to the page the edit changes, and one this check cannot read grants nothing", async () => {
@@ -1254,28 +1011,6 @@ test("PAGE NAMES: a name the site gives another page grants nothing; its own nam
   await ok("Change the text under ‘Chords’ to ‘See the menu for prices.’", "/", { blocks: [CHORD_SHAPES.replace("Eight shapes for your first month.", "See the menu for prices."), HOURS] });
 });
 
-for (const mode of ["sync", "job"]) {
-  const { refusedHere, publishedHere } = pageGuardChecks(mode);
-  // The stored site has /menu, /visit and /contact beside the home page.
-  test(`PAGE NAMES ${mode}: "on the menu" from the home page grants nothing, correct answer or not`, async () => {
-    const r = await drive({ mode, before: ON_HOME, ask: MENU_ASK, answer: bare(HOURS) });
-    refusedHere(r, ON_HOME, OTHER_PAGES.map((o) => o.source));
-  });
-  test(`PAGE NAMES ${mode}: the same sentence, edited on the menu page, publishes`, async () => {
-    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: MENU_ASK, answer: menuPage(HOURS) });
-    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "Updated /menu.");
-  });
-  test(`PAGE NAMES ${mode}: a matching page name never widens the grant: unrelated text lost is refused`, async () => {
-    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: MENU_ASK, answer: menuPage(HOURS_REWORDED) });
-    refusedHere(r, ON_MENU, MENU_OTHERS);
-  });
-  test(`PAGE NAMES ${mode}: quoted replacement copy that names a page stays copy`, async () => {
-    const answer = bare(CHORD_SHAPES.replace("Eight shapes for your first month.", "See the menu for prices."), HOURS);
-    const r = await drive({ mode, before: ON_HOME, ask: "Change the text under ‘Chords’ to ‘See the menu for prices.’", answer });
-    publishedHere(r, answer, OTHER_PAGES.map((o) => o.source), UPDATED);
-  });
-}
-
 // ── AN APOSTROPHE IS NOT A QUOTE MARK (2026-09-25) ──────────────────────────
 //
 // "Change the text under ‘Chords’ to ‘We’re open late.’" was refused with the
@@ -1304,15 +1039,6 @@ test("APOSTROPHE: a mark between two letters is part of the word, never the end 
     assert.equal((await run(message, "We’re open late.")).ok, false, message);
   }
 });
-
-for (const mode of ["sync", "job"]) {
-  const { publishedHere } = pageGuardChecks(mode);
-  test(`APOSTROPHE ${mode}: new wording with an apostrophe in it publishes`, async () => {
-    const answer = bare(CHORD_SHAPES.replace("Eight shapes for your first month.", "We’re open late."), HOURS);
-    const r = await drive({ mode, before: ON_HOME, ask: "Change the text under ‘Chords’ to ‘We’re open late.’", answer });
-    publishedHere(r, answer, OTHER_PAGES.map((o) => o.source), UPDATED);
-  });
-}
 
 // ── A SECTION HEADED BY THE KIT (2026-09-26, owner) ─────────────────────────
 //
@@ -1406,128 +1132,6 @@ test("KIT: which headings name a section, read off the page's own imports", asyn
     assert.deepEqual(inv.blocks.filter((b) => b.section).map((b) => b.names), [[], ["todays bake"]]);
   }
 });
-
-for (const mode of ["sync", "job"]) {
-  const { refusedHere, publishedHere } = pageGuardChecks(mode);
-  test(`KIT ${mode}: the SectionHeader-headed section's removal publishes, the photographs and the order form kept`, async () => {
-    const slug = kitSlug(mode);
-    const before = kitHome(HERO, BAKE, BENCH(slug), ORDER, VISIT);
-    const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
-    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer });
-    publishedHere(r, answer, OTHERS, UPDATED);
-    assert.ok(r.compiled.includes(PIC(slug, "a1b2c3d4e5f60718.jpg")) && r.compiled.includes(PIC(slug, "b2c3d4e5f6071829.jpg")), "both photographs are still on the page");
-    assert.ok(r.compiled.includes("<OrderForm />"), "the site's own order form is still rendered");
-    assert.deepEqual(r.parts, [{ name: "order-form", source: ORDER_FORM }], "the component's file is untouched");
-    assert.equal(r.judged.length, 0, "nothing the preservation judge looks at was lost");
-  });
-  test(`KIT ${mode}: the literal <h2> equivalent publishes the same removal (the control)`, async () => {
-    const slug = kitSlug(mode);
-    const before = kitHome(HERO, BAKE_H2, BENCH(slug), ORDER, VISIT);
-    const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
-    publishedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer }), answer, OTHERS, UPDATED);
-  });
-  for (const [label, bake] of [["kit", BAKE], ["literal", BAKE_H2]]) {
-    test(`KIT ${mode}: that removal plus an unrelated paragraph lost is refused (${label} heading)`, async () => {
-      const slug = kitSlug(mode);
-      const before = kitHome(HERO, bake, BENCH(slug), ORDER, VISIT);
-      refusedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer: kitHome(HERO, BENCH(slug), ORDER, VISIT_QUIET) }), before, OTHERS);
-    });
-    test(`KIT ${mode}: a request naming another page grants nothing (${label} heading)`, async () => {
-      const slug = kitSlug(mode);
-      const before = kitHome(HERO, bake, BENCH(slug), ORDER, VISIT);
-      const ask = "Remove the ‘Today’s bake’ section from the menu page.";
-      refusedHere(await drive({ mode, slug, before, ask, answer: kitHome(HERO, BENCH(slug), ORDER, VISIT) }), before, OTHERS);
-    });
-  }
-  // TWO SECTIONS HEADED ‘Today’s bake’ — whichever reader named each — are a
-  // name that says nothing about which one, and the removal is refused.
-  for (const [label, second] of [
-    ["two kit headings", '<section className="rye"><SectionHeader title="Today\'s bake" /><p>Rye on Saturdays.</p></section>'],
-    ["a kit heading and a literal one", "<section className=\"rye\"><h2>Today's bake</h2><p>Rye on Saturdays.</p></section>"],
-  ]) {
-    test(`KIT ${mode}: duplicate headings grant nothing — ${label}`, async () => {
-      const slug = kitSlug(mode);
-      const before = kitHome(HERO, BAKE, second, BENCH(slug), ORDER, VISIT);
-      refusedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer: kitHome(HERO, second, BENCH(slug), ORDER, VISIT) }), before, OTHERS);
-    });
-  }
-  test(`KIT ${mode}: the removal that also loses a photograph is withheld by the photograph wall`, async () => {
-    const slug = kitSlug(mode);
-    const before = kitHome(HERO, BAKE, BENCH(slug), ORDER, VISIT);
-    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer: kitHome(HERO, BENCH(slug, BENCH_A(slug)), ORDER, VISIT) });
-    refused(r, { calls: PAGE });
-    assert.equal(r.reply.error, "withheld");
-    assert.equal(r.reply.photosBlocked, 1, "the lost photograph is what refused it");
-    if (mode === "job") assert.deepEqual(r.reserves, []);
-  });
-  test(`KIT ${mode}: the removal that also drops the order form is withheld when the judge finds it was not asked`, async () => {
-    const slug = kitSlug(mode);
-    const before = kitHome(HERO, BAKE, BENCH(slug), ORDER, VISIT);
-    const answer = kitHome(HERO, BENCH(slug), ORDER.replace("<OrderForm />", ""), VISIT);
-    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer, judge: judged(no(1)) });
-    refused(r, { calls: PAGE_JUDGED });
-    assert.equal(r.reply.error, "withheld");
-    assert.deepEqual(r.reply.contentBlocked.map((it) => it.kind), ["part-gone"], "the order form is what refused it");
-    if (mode === "job") assert.deepEqual(r.reserves, []);
-  });
-}
-
-// Through the route, on the synchronous path: the import decides, not the spelling.
-{
-  const { refusedHere, publishedHere } = pageGuardChecks("sync");
-  for (const [label, imports, heading] of [
-    ["an alias", 'import { SectionHeader as Heading } from "@/components/ui/section-header"\n', '<Heading eyebrow="Today" title="Today\'s bake" />'],
-    ["a namespace import", 'import * as UI from "@/components/ui/section-header"\n', '<UI.SectionHeader title="Today\'s bake" />'],
-  ]) {
-    test(`KIT: ${label} is the kit's SectionHeader, and the removal publishes`, async () => {
-      const before = withImports(imports, HERO, bakeWith(heading), ORDER, VISIT);
-      const answer = withImports(imports, HERO, ORDER, VISIT);
-      publishedHere(await drive({ before, ask: REMOVE_BAKE, answer }), answer, OTHERS, UPDATED);
-    });
-  }
-  for (const [label, before, answer] of [
-    ["a page's own SectionHeader",
-      IMPORTS + ROUTE + "function SectionHeader({ title }){return <div>{title}</div>}\n" + body(HERO, BAKE, ORDER, VISIT), null],
-    ["the kit's name declared again on the page",
-      IMPORTS + PART_IMPORT + KIT_SH + ROUTE + "function Home(){const SectionHeader = (p) => <p>{p.title}</p>;return <main>" + HERO + BAKE + ORDER + VISIT + "</main>}\n", null],
-    ["a title on a component that shows it in no heading",
-      withImports('import { Callout } from "@/components/ui/callout"\n', HERO, bakeWith('<Callout title="Today\'s bake">Fresh.</Callout>'), ORDER, VISIT), null],
-    ["a computed title", withImports(KIT_SH, HERO, bakeWith("<SectionHeader title={bakeTitle} />"), ORDER, VISIT), null],
-    ["a heading that does not open its section",
-      withImports(KIT_SH, HERO, bakeWith("<h2>Bread</h2>" + SH_BAKE), ORDER, VISIT), null],
-  ]) {
-    test(`KIT: ${label} names nothing, and the removal is refused`, async () => {
-      const removed = before.replace(/<section className="bake">[\s\S]*?<\/section>/, "");
-      assert.notEqual(removed, before, "the fixture carries the section");
-      refusedHere(await drive({ before, ask: REMOVE_BAKE, answer: answer || removed }), before, OTHERS);
-    });
-  }
-  // A KIT HEADING NAMES THE WHOLE SECTION AND NOTHING NARROWER: its words are
-  // a prop, so "the text under" it is tied to no line and grants nothing. The
-  // literal heading, whose words this check reads, still can.
-  const ONE_LINE = "<p>Every loaf is shaped by hand before dawn.</p>";
-  const UNDER = "Change the text under ‘Today’s bake’ to ‘Every loaf is shaped by hand at night.’";
-  test("KIT: “the text under” a kit heading grants nothing; under the literal heading it does", async () => {
-    const reword = (b) => b.replace("before dawn", "at night");
-    const kitBefore = withImports(KIT_SH, HERO, bakeWith(SH_BAKE, ONE_LINE), ORDER, VISIT);
-    refusedHere(await drive({ before: kitBefore, ask: UNDER, answer: reword(kitBefore) }), kitBefore, OTHERS);
-    const litBefore = withImports(KIT_SH, HERO, bakeWith("<h2>Today's bake</h2>", ONE_LINE), ORDER, VISIT);
-    publishedHere(await drive({ before: litBefore, ask: UNDER, answer: reword(litBefore) }), reword(litBefore), OTHERS, UPDATED);
-  });
-  // …AND STILL A MENTION: a kit heading and a literal one that share the name
-  // make "the text under" it ambiguous, so the literal section's line is not
-  // granted either.
-  test("KIT: a kit heading sharing its name with a literal one makes “the text under” it ambiguous", async () => {
-    const RYE = "<section className=\"rye\"><h2>Today's bake</h2><p>Rye on Saturdays.</p></section>";
-    const before = withImports(KIT_SH, HERO, bakeWith(SH_BAKE, ONE_LINE), RYE, ORDER, VISIT);
-    const ask = "Change the text under ‘Today’s bake’ to ‘Rye on Sundays.’";
-    refusedHere(await drive({ before, ask, answer: before.replace("Rye on Saturdays.", "Rye on Sundays.") }), before, OTHERS);
-    // THE CONTROL: with the kit section gone from the page, the literal heading
-    // is the only one, and the same sentence and answer publish.
-    const alone = withImports(KIT_SH, HERO, RYE, ORDER, VISIT);
-    publishedHere(await drive({ before: alone, ask, answer: alone.replace("Rye on Saturdays.", "Rye on Sundays.") }), alone.replace("Rye on Saturdays.", "Rye on Sundays."), OTHERS, UPDATED);
-  });
-}
 
 // ── A KIT HEADING THAT DOES NOT RENDER NAMES NOTHING (2026-09-26, owner) ────
 //
@@ -1627,29 +1231,3 @@ test("KIT: a kit heading names its section only where it renders whenever the se
   const hiddenSection = proseInventory(withImports(KIT_SH, '<section hidden className="bake">' + OWNER_SH + KEEP_P + "</section>"), parse);
   assert.deepEqual(hiddenSection.blocks.find((b) => b.anchor === "className:bake")?.kit, ["todays bake"]);
 });
-
-for (const mode of ["sync", "job"]) {
-  const { refusedHere, publishedHere } = pageGuardChecks(mode);
-  for (const [label, heading] of [
-    ["{false && …}", OWNER_FALSE],
-    ["<div hidden>", OWNER_HIDDEN],
-    ["an unknown <Opaque> wrapper", OWNER_OPAQUE],
-  ]) {
-    test(`KIT ${mode}: a kit heading in ${label} names nothing, so deleting the section's visible paragraph is refused`, async () => {
-      const slug = kitSlug(mode);
-      const before = kitHome(HERO, ownerSection(heading), BENCH(slug), ORDER, VISIT);
-      const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
-      assert.notEqual(answer, before, "the answer really deletes the section");
-      refusedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer }), before, OTHERS);
-    });
-  }
-  test(`KIT ${mode}: the same heading inside ordinary visible elements names its section, and the removal publishes`, async () => {
-    const slug = kitSlug(mode);
-    const before = kitHome(HERO, ownerSection(OWNER_WRAPPED), BENCH(slug), ORDER, VISIT);
-    const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
-    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer });
-    publishedHere(r, answer, OTHERS, UPDATED);
-    assert.ok(r.compiled.includes(PIC(slug, "a1b2c3d4e5f60718.jpg")) && r.compiled.includes(PIC(slug, "b2c3d4e5f6071829.jpg")), "both photographs are still on the page");
-    assert.ok(r.compiled.includes("<OrderForm />"), "the site's own order form is still rendered");
-  });
-}

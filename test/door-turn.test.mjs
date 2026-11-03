@@ -54,64 +54,6 @@ async function run({ beside, route }) {
   } finally { P.close(); compiler.uninstall(); }
 }
 
-for (const [label, route] of [
-  ["nav + remove", { intent: "edit", layer: "nav", remove: true }],
-  ["nav + remove, targets naming the menu and the header", { intent: "edit", layer: "nav", remove: true, targets: [{ change: 0, writes: ["menu", "page:/"] }] }],
-]) {
-  test(`DT1 (${label}) UNDER PARALLEL_WRITES — the removal door's own description lane is written and published with the menu removal, never refused as "couldn't be saved"`, async () => {
-    const { P, rec, answers } = await run({ beside: true, route });
-    assert.deepEqual(rec.parts.map((p) => p.status), ["done"], JSON.stringify({ parts: rec.parts.map((p) => [p.status, p.why]), answers }));
-    for (const a of answers) assert.doesNotMatch(String(a && a.msg), /couldn't be saved/, JSON.stringify(a));
-    assert.equal(P.look().description, DESC_TO, "the description beside the removal was not written");
-    // THE OBSERVER IS ALIVE: the menu's other links are read where they live.
-    assert.ok(P.page("index.tsx").includes('{ label: "Visit", href: "/visit" }'), "the menu was not found");
-    assert.ok(!P.page("index.tsx").includes('{ label: "Gallery", href: "/gallery" }'), "Gallery is still in the menu");
-  });
-}
-
-for (const [label, route0, pick] of [
-  ["the removal door", { intent: "edit", layer: "nav", remove: true }, { routed: ["behavior"], additional: ["description"] }],
-  ["a look step alone", { intent: "edit", layer: "look" }, { fields: ["description"] }],
-]) test(`DT4 (${label}) A TURN LOST BEFORE THE CONFIG WRITE — the turn lapses inside the description lane's model call and another job takes it: the job writes no config, publishes nothing, and says another change of the request had the turn (\`turn-lost\`) — never "couldn't be saved — try again"`, async () => {
-  const compiler = installCompiler();
-  const key = (P) => "publish-turn/" + P.slug + ".json";
-  const at = { P: null };
-  const P = platform({
-    slug: slugOf("lost"), pages: PAGES, beside: true,
-    answers: {
-      route: [route0],
-      [T.pick]: pick,
-      // THE TURN LAPSES AND ANOTHER JOB TAKES IT, inside the lane's call.
-      "lane:description": async () => {
-        const mine = JSON.parse(at.P.readObj(key(at.P)));
-        assert.match(mine.owner, /^job:/, "the door did not take the turn at its start");
-        at.P.writeObj(key(at.P), JSON.stringify({ v: 1, owner: "job:newer:o2", job: "newer", at: Date.now(), until: Date.now() + 10 * 60 * 1000 }));
-        return DESC_TO;
-      },
-      write_nav: NAV_ANSWER,
-    },
-  });
-  at.P = P;
-  try {
-    const r = await sendMessage(P, { message: ASK });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const m = P.queue.find((x) => x.body.kind !== "request-prep");
-    P.queue.splice(P.queue.indexOf(m), 1);
-    const { deliver } = await import("./fixtures/request-flow.mjs");
-    await deliver(P, m);
-    const job = P.jobsOf(r.key).filter((j) => j.op === "edit")[0];
-    const said = JSON.parse(job.result.body);
-    assert.doesNotMatch(JSON.stringify(said), /couldn't be saved/, JSON.stringify(said));
-    assert.match(JSON.stringify(said), /another change in the same request/i, JSON.stringify(said));
-    assert.equal(said.error, "turn-lost", JSON.stringify(said));
-    assert.notEqual(P.look().description, DESC_TO, "the stale job wrote the config");
-    assert.ok(P.page("index.tsx").includes("/gallery"), "the stale job published");
-    assert.equal(JSON.parse(P.readObj(key(P))).owner, "job:newer:o2", "the stale job took the turn back");
-    P.writeObj(key(P), JSON.stringify({ v: 1, owner: "job:newer:o2", job: "newer", at: Date.now(), until: 0 }));
-    await P.settle();
-  } finally { P.close(); compiler.uninstall(); }
-});
-
 test("DT3 THE PLAN — a removal door (each layer of `DOOR_LAYERS` with `remove`) holds the site's turn from its start; the same layers without `remove`, and a text change, still do not", () => {
   assert.ok(DOOR_LAYERS.length > 0);
   // BOTH WAYS: a layer outside `DOOR_LAYERS` (look and logo hold by themselves)

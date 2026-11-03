@@ -662,32 +662,3 @@ test("TA6 A HELD KEY IS ABSENT TO ITS HOLDER'S OWN \"ONLY IF ABSENT\" — after 
 const oldNote = (P, version) => { const k = "scriptpending/" + P.slug + "/old-" + Math.random().toString(16).slice(2, 8) + ".json"; P.writeObj(k, JSON.stringify({ slug: P.slug, version, at: 0 })); return k; };
 const dieAfterLanding = (P) => { const s = { landed: false }; P.afterUpload(() => { s.landed = true; return new Promise(() => {}); }); return s; };
 const waitFor = async (pred) => { for (let i = 0; i < 400 && !pred(); i++) await new Promise((ok) => setTimeout(ok, 5)); };
-
-for (const [name, start] of [
-  ["an alignment", (P, siteTurn) => siteTurn.alignLiveScript(P.env, P.slug)],
-  ["a publication", (P, siteTurn, v) => siteTurn.putSiteWorker(P.env, P.slug, { ok: true, code: stagedScript(P, v), build: "" }, { version: v })],
-  ["the takeover repair", async (P, siteTurn) => { const T = await siteTurn.tryTurn(P.env, P.slug, "job:t:o9", "t"); return siteTurn.ensureEditableState(P.env, P.slug, { turnOwner: T.owner, fence: { gen: T.gen } }); }],
-]) {
-  test("TR2 " + name.toUpperCase() + " IN FLIGHT BESIDE A SWEEP THAT SETTLES — its upload of the old version is held; the pointer moves back and a sweep settles on the expired note; its upload lands and it dies: its own note survives the sweep, and a later sweep puts the pointer's script back", async () => {
-    const { P, compiler, siteTurn, v0, v1 } = await twoVersions("tr2-" + name.length);
-    try {
-      const stale = oldNote(P, v0);
-      P.advance(PAST_WINDOW);
-      setPointer(P, v0);
-      let mid = null;
-      P.beforeUpload(async () => { setPointer(P, v1); mid = await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() })); });
-      const death = dieAfterLanding(P);
-      P.run(() => start(P, siteTurn, v0));
-      await waitFor(() => death.landed);
-      assert.ok(death.landed, name + "'s upload never landed");
-      assert.deepEqual(mid, { sites: 1, settled: 1 }, JSON.stringify(mid));
-      assert.equal(P.readObj(stale), null);
-      assert.equal(P.liveScript(), v0, "not this case");
-      assert.equal(NOTES(P).length, 1, name + "'s own note was retired by the sweep");
-      P.advance(PAST_WINDOW);
-      assert.deepEqual(await P.run(() => siteTurn.runScriptPendingSweep(P.env, { now: P.now() })), { sites: 1, settled: 1 });
-      assert.equal(P.liveScript(), v1);
-      assert.deepEqual(NOTES(P), []);
-    } finally { compiler.uninstall(); }
-  });
-}

@@ -199,47 +199,6 @@ const isBench = (e) => e.prompt.includes(BENCH.slice(0, 16));
 const bySd = (v) => Object.fromEntries((v.parts[0].purchases || []).map((x) => [x.d, x.state]));
 const sweeps = async (P, n = 3) => { for (let i = 0; i < n; i++) await tick(P); };
 
-for (const [name, lostAt, unknownD, madeD] of [["RC 10", 0, BENCH, SHELF], ["RC 11", 1, SHELF, BENCH]]) {
-  let lost = false;
-  test(name + " — TWO PURCHASES, ONE NOBODY CAN TELL (" + (lostAt === 0 ? "first" : "second") + ") AND ONE MADE WHILE THE STORE WAS DOWN: with the store back and no page open, three sweeps save the made picture — never made again — and the page is shown it as saved while the part stays held on the other; the customer's buy-again then buys only the unknown one, and the part finishes with both placed", { timeout: 30000 }, async () => {
-    await heldAddition({
-      slug: slugOf(name === "RC 10" ? "r10" : "r11"), shots: [BENCH, SHELF], storeDown: true,
-      // THE CALL FOR THAT PICTURE IS THE ONE LOST, by its own words — the order
-      // the calls leave in is the stand-in's, and the held order is the shots'.
-      imageWith: async (e) => { if (e.prompt.includes(unknownD.slice(0, 16)) && !lost) { lost = true; lostCall(); } return null; },
-      check: async (P, r, store) => {
-        const s1 = await settle(P, r.key);
-        assert.equal(s1.rec.parts[0].status, "uncertain", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [unknownD]: "buying", [madeD]: "generated" });
-        // HELD IN THE SHOTS' ORDER: the unknown one first (RC 10) or second (RC 11).
-        assert.equal(s1.rec.parts[0].purchase.held[lostAt].d, unknownD, JSON.stringify(s1.rec.parts[0].purchase.held));
-        assert.equal(P.imageLog.length, 2);
-        // THE STORE ANSWERS AGAIN; THE BROWSER IS CLOSED: only the sweeps run.
-        store.down = false;
-        await sweeps(P);
-        assert.equal(P.record(r.key).parts[0].status, "uncertain", "the part went on with a purchase nobody can tell");
-        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [unknownD]: "buying", [madeD]: "bought" }, "the made picture was not saved");
-        assert.equal(uploads(P).length, 1);
-        assert.equal(P.imageLog.length, 2, "the made picture was generated again");
-        const v = await viewOf(P, r.key);
-        assert.deepEqual(bySd(v), { [unknownD]: "unknown", [madeD]: "saved" }, "the page was not shown each picture as it is now");
-        assert.deepEqual([v.parts[0].purchaseState, v.parts[0].buyAgain], ["unknown", true]);
-        // THE CUSTOMER'S EXPLICIT BUY-AGAIN: only the unknown one is released.
-        const b = await buyAgain(P, r.key);
-        assert.equal(b.status, 200, JSON.stringify(b.body));
-        assert.equal(b.body.released, 1);
-        assert.deepEqual(b.body.kept, []);
-        let rec = null;
-        for (let i = 0; i < 6; i++) { await tick(P); await pump(P, { twice: true }); rec = (await settle(P, r.key)).rec; if (rec.parts[0].status === "done") break; }
-        assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-        assert.equal(P.imageLog.length, 3, "the made picture was generated again, or the unknown one twice");
-        assert.equal(uploads(P).length, 2);
-        assert.equal((P.page("visit.tsx").match(/<SafeImage src="\/u\//g) || []).length, 2, P.page("visit.tsx"));
-      },
-    });
-  });
-}
-
 test("RC 13 — SAVED AND ENDED ARE THEIR OWN STATES: a purchase saved and waiting to be placed is `saved`, one known to have ended or released is `ended`; neither is offered a buy-again or outranks one still unsettled, and the card names them", () => {
   const t0 = 1_000_000;
   assert.equal(heldPurchaseState({ why: "saved" }, t0, t0), "saved");
@@ -258,35 +217,3 @@ test("RC 13 — SAVED AND ENDED ARE THEIR OWN STATES: a purchase saved and waiti
   assert.ok(!hasBuy(html));
   assert.match(cardFor(heldView("ended")).html, />Picture purchase ended</);
 });
-
-for (const [name, how] of [["RC 16", "unfetchable"], ["RC 17", "unreadable"]]) {
-  test(name + " — A MADE PICTURE " + (how === "unfetchable" ? "THAT CANNOT BE FETCHED" : "WHOSE RECORD CANNOT BE READ") + " AHEAD OF ANOTHER MADE PICTURE: in ONE sweep, with the store back, the other is saved — never made again — and the first keeps the part held", { timeout: 30000 }, async () => {
-    await heldAddition({
-      slug: slugOf(how === "unfetchable" ? "r16" : "r17"), shots: [BENCH, SHELF], storeDown: true,
-      imageWith: async (e) => new Response(JSON.stringify({ images: [{ url: "https://img.test/p" + (isBench(e) ? 11 : 12) + ".jpg" }] }), { status: 200, headers: { "content-type": "application/json" } }),
-      check: async (P, r, store) => {
-        const s1 = await settle(P, r.key);
-        assert.equal(s1.rec.parts[0].status, "uncertain");
-        assert.equal(s1.rec.parts[0].purchase.held[0].d, BENCH, "held in the shots' order");
-        assert.deepEqual(Object.fromEntries(purchasesOf(P).map((x) => [x.d, x.state])), { [BENCH]: "generated", [SHELF]: "generated" });
-        const bench = purchasesOf(P).find((x) => x.d === BENCH);
-        if (how === "unfetchable") P.failDownload((u) => u === bench.source, { times: 999 });
-        else {
-          const benchKey = [...P.objects.keys()].find((k) => k.includes("/purchases/") && JSON.parse(String(P.objects.get(k).body)).d === BENCH);
-          for (let i = 0; i < 3; i++) P.failGet((k) => k === benchKey);
-        }
-        store.down = false;
-        await tick(P);
-        assert.equal(purchasesOf(P).find((x) => x.d === SHELF).state, "bought", "a purchase ahead of it stopped a made picture being saved");
-        assert.equal(P.record(r.key).parts[0].status, "uncertain");
-        assert.equal(P.imageLog.length, 2);
-        assert.equal(uploads(P).length, 1);
-        if (how === "unfetchable") {
-          const v = await viewOf(P, r.key);
-          assert.deepEqual(bySd(v), { [BENCH]: "unknown", [SHELF]: "saved" });
-          assert.deepEqual(v.parts[0].purchases.map((x) => x.why).sort(), ["saved", "source-unreachable"]);
-        }
-      },
-    });
-  });
-}

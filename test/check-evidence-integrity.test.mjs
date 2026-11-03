@@ -157,22 +157,3 @@ async function through(render, { talk }) {
     return { fin, ks: P.replyLog.map(kOf).find((k) => k.length) || [], rec, state: P.jobs.get(job.id).state };
   } finally { clearInterval(alive); P.close(); compiler.uninstall(); }
 }
-
-for (const [name, render] of [["an unknown kind", UNEXPECTED_KIND], ["a known kind on an unreadable page", UNREADABLE_ROUTE], ["a list that is not a list", NOT_A_LIST]]) {
-  test("REAL HANDOFF, NARRATION OFF AND ON — " + name + ": the stored evidence, the reply's facts and the progress milestone all say it was not read clean", async () => {
-    const want = browserSaid(checksOf({ render }).browser);
-    for (const talk of [false, true]) {
-      const o = await through(render, { talk });
-      assert.equal(o.state, "done", "the job did not finish");
-      const ev = readChecks(o.fin.body.checks);
-      assert.ok(ev, "no evidence on the answer");
-      assert.equal(browserClean(ev.browser), false, "the stored evidence reads clean (talk " + talk + ")");
-      assert.ok(o.ks.includes(want), "the reply was not handed the reading (talk " + talk + "): " + JSON.stringify(o.ks));
-      assert.ok(!o.ks.some((t) => CLEAN_SAID.test(t)), "the reply was handed an all-clear (talk " + talk + ")");
-      if (talk) {
-        const said = o.rec.marks.filter((m) => m.stage === "checked").flatMap((m) => m.facts).map((f) => f.text);
-        assert.ok(said.includes(want), "the progress milestone disagrees with the reply: " + JSON.stringify(said));
-      }
-    }
-  });
-}
