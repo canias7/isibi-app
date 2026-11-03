@@ -2325,3 +2325,5 @@ Runtime-confirmed by canary run 41536854569 (22:23 UTC, free): both readers answ
 ## Deploy (2026-11-03, `ad0be63bb`)
 
 On the owner's "deploy it": `request-talk`, which adds live progress lines for every request (one-part, answered resume, queued turn, split rows, reload); `requestView` carries `live`. Fast-forward. Full suite `12666 / 12656 / 8 / 2`, the same 8 environmental failures. Image predicted `abd34ceb3d7d1673` → `3c94ef4d1a60e3c8`. Served `chat.js?v=ad0be63bbbd9`. Deployed, not runtime-confirmed.
+
+Runtime-confirmed by canary run 41557276417 (01:04 UTC, free): both readers answered `ad0be63bbbd9`, a cold container got `3c94ef4d1a60e3c8`, and the queued jobs and the runner were on. Balance 339. Nothing was charged.
