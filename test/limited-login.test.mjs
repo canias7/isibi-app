@@ -340,29 +340,6 @@ function block(from, to, start = 0) {
   return SRC.slice(a, b);
 }
 
-test("row paths open the limited login", () => {
-  const rows = [
-    ["async function proxySiteService(", "\n}\n", "siteRowConn(env, slug)"],
-    ["async function routeTableNames(", "\n}\n", "ownerRowConn(env, slug)"],
-    ["async function routeDigest(", "\n}\n", "ownerRowConn(env, slug)"],
-    ["async function readConverseContext(", "\n}\n", "ownerRowConn(env, slug)"],
-    ["async function refreshSiteMap(", "\n}\n", "ownerRowConn(env, slug)"],
-    ["async function previewFtsRows(", "\n}\n", "siteRowConn(env, slug)"],
-    ["async function rowReviewFacts(", "\n}\n", "siteAppConn(env,"],
-    ["function backupDeps(env)", "\n}\n", "ownerRowConn(env, slug)"],
-  ];
-  for (const [from, to, want] of rows) {
-    const b = block(from, to);
-    assert.ok(b.includes(want), from + " → " + want);
-    assert.ok(!/siteBackendBySlug\(env, (slug|cslug|vslug|wslug|row\.slug)\)/.test(b.replace("const ownerConn = await siteBackendBySlug(env, slug);", "")), "no owner login left in " + from);
-  }
-  // The owner's data panel (reads, saves, import, export) on the limited login; members on the owner's.
-  assert.ok(SRC.includes("dbFor: (s2) => ownerRowConn(env, s2),"));
-  assert.ok(SRC.includes("handleOwnerMembers({ ...ownerDeps, dbFor: (s2) => ownerSiteConn(env, s2) }, {"));
-  // The data rung's row edits.
-  assert.ok(SRC.includes("let ddb = await siteRowConn(env, ownerSlug);"));
-});
-
 test("visitor row paths run in the site's own Worker, on the limited login only (2026-10-28: the site's own Worker)", () => {
   // The platform's visitor handlers (api, hook, error, turnstile, checkout,
   // uploads, the site's Stripe message) were deleted: each now goes to the
@@ -386,24 +363,4 @@ test("visitor row paths run in the site's own Worker, on the limited login only 
   const T = (f) => readFileSync(new URL("../builder/lovable/template/src/lib/" + f, import.meta.url), "utf8");
   assert.match(T("site-functions.ts"), /return siteSql\(String\(env\.APP_CONN\), String\(text\), params\);/);
   assert.match(T("site-telemetry.ts"), /const conn = env\.APP_CONN as string;/);
-});
-
-test("schema and admin paths stay on the owner's login", () => {
-  // The schema apply, the publication that adds tables, metrics' CREATE, the error table's CREATE.
-  assert.ok(block("async function flushSiteMetrics(", "\n}\n").includes("siteBackendBySlug(env, slug)"));
-  assert.ok(block("async function siteDbFor(", "\n}\n").includes("siteBackendBySlug(env, slug)"));
-  assert.ok(block("async function frameTablesOf(", "\n}\n").includes("siteBackendBySlug(env, slug)"), "recovery's catalog reads need the owner's view of grants");
-  // The error table's CREATE (2026-10-28: the site's own Worker stores reports
-  // on the limited login, so the table is made by the schema apply, on the
-  // owner's login, never on the visitor's path).
-  // On a site built before the site's Worker wrote it, the platform makes it on the owner's login before handing the limited one over.
-  assert.match(block("async function siteReadVars(env, slug)", "\n}\n"), /const ownerConn = await siteBackendBySlug\(env, slug\)[\s\S]*ERRORS_TABLE_SQL[\s\S]*sqlExec\(ownerConn, q\)/);
-  const schema = readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
-  assert.match(schema, /await sqlQuery\(uuid, "CREATE TABLE IF NOT EXISTS _errors /);
-  assert.ok(!/CREATE TABLE/.test(readFileSync(new URL("../builder/lovable/template/src/lib/site-telemetry.ts", import.meta.url), "utf8")), "the visitor's path creates tables");
-  // Provisioning makes the login on the owner's connection, after the database is recorded.
-  const prov = block("async function ensureSiteBackend(env, slug, uid, brief, mark", "\n}\n");
-  assert.match(prov, /await healSiteBackendDb\([\s\S]*provisionAppLogin\(env, slug, conn\)/);
-  // The tick runs the backfill.
-  assert.match(block("async scheduled(event, env, ctx)", "\n  },\n"), /runAppLoginBackfill\(env\)/);
 });

@@ -74,15 +74,6 @@ test("FP3 THE LIVE REQUEST SUCCEEDS — a first answer importing a kit module an
   assert.equal(calls, 1);
 });
 
-test("FP4 THE WORKER HANDS THE FRAME ITS TABLES — the written-frame call passes `tables` read from the site's own schema", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const a = src.indexOf("const fOut = await runFrameEdit(");
-  assert.ok(a > 0);
-  const call = src.slice(a, src.indexOf("});", a));
-  assert.match(call, /tables: await frameTablesOf\(env, ownerSlug\)/);
-  assert.match(src, /async function frameTablesOf\(env, slug\)[\s\S]{0,600}frameTables\(r\.spec\)/);
-});
-
 test("FP5 AN ADD-ON ABOUT WHAT EXISTS SAYS SO — routeOnExisting's page-step answer carries the `existing` hand-over, which survives the strict reader, and the route echoes it for an edit", () => {
   const routed = { intent: "addon", layer: "none", targets: [{ change: 0, writes: ["page:/cafe", "data:menu_items"], reads: [] }], decision: { reasons: [] } };
   const out = routeOnExisting(routed, { pages: ["/", "/cafe"], tables: ["menu_items"] }, { reason: "addon-existing" });
@@ -91,17 +82,6 @@ test("FP5 AN ADD-ON ABOUT WHAT EXISTS SAYS SO — routeOnExisting's page-step an
   assert.deepEqual(readHandOver(out.handOver), { from: "route", reason: "existing", page: "/cafe" });
   const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.equal((src.match(/routed\.intent === "edit" && routed\.handOver\.reason === "existing"/g) || []).length, 2);
-});
-
-test("FP6 AN UNCHANGED PAGE FOR SUCH A PART IS THE ANSWER — the no-change retry is skipped and the reply is `satisfied` at no cost", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /const eExisting = !!\(eExistingHand && eExistingHand\.reason === "existing"\);/);
-  assert.match(src, /const pWhy = pWhy0 === "no-change" && eExisting \? null : pWhy0;/);
-  const a = src.indexOf("if (eExisting) {");
-  assert.ok(a > 0);
-  const blk = src.slice(a, a + 400);
-  assert.match(blk, /satisfied: true/);
-  assert.match(blk, /cost: 0/);
 });
 
 // ── parts on one page ──

@@ -30,7 +30,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { page, settle as drain, copy } from "./fixtures/browser-page.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL } from "../builder/site-ask.mjs";
+import { ASK_TOOL } from "../builder/route-shared.mjs";
 
 const SLUG = "fold-lane-bakery";
 const URL0 = "https://" + SLUG + ".gofarther.app/";
@@ -410,70 +410,4 @@ test("RECON 5 — out of order: two jobs of another browser's, their answers rea
   assert.deepEqual(said(b, KEY(8)), [JOB(1)]);
   assert.equal(shown(b), URL0 + "?v=2");
   assert.deepEqual(kept(b), { pages: ["/", "/gallery"], tables: ["orders", "bookings"], undo: null, ask: null, unsent: 0 });
-});
-
-// ── 3. THE WHOLE TABLE INVENTORY, THROUGH THE REAL ROUTE ──────────────────
-
-test("RECON 6 — this page's own addition: the page holds only bookings, and the next message's routing tells the router loaves and bookings, read from the site; the page keeps them, so a later routing call whose read fails still sends both", async () => {
-  const S = server();
-  S.views.set(KEY(10), view(KEY(10), T0, [part(0, "Add a gallery page with bookings", "started")]));
-  const a = openPage(S, siteFor(["/"]));
-  a.ctx.siteRequestStart(a.s.id, { intent: "edit", request: copy(S.views.get(KEY(10))) }, [], "");
-  await idle();
-  S.answers.set(JOB(1), ADDED);
-  S.views.set(KEY(10), view(KEY(10), T0, [part(0, "Add a gallery page with bookings", "done", [JOB(1)])], true));
-  S.routes = ["/", "/gallery"];
-  await looks(a);
-  assert.deepEqual(copy(a.s.tables), ["bookings"], "the case is about a page that holds an addition's tables alone");
-  // THE NEXT MESSAGE: the page's own routing request, to the real route.
-  const one = await sendRouted(S, a, "Put the Rye loaf's price up to £5");
-  assert.deepEqual(one.sent.site.tables, ["bookings"], "the page did not send what it holds");
-  assert.ok(catalogReads(one.route) >= 1, "the route made no read of the site's tables");
-  assert.deepEqual(tablesTold(one.route), ["bookings", "loaves"], "the router was told an addition's tables alone");
-  assert.deepEqual([...copy(a.s.tables)].sort(), ["bookings", "loaves"], "the page did not keep the site's names the route read");
-  // A LATER CALL WHOSE OWN READ CANNOT ANSWER: the page's list, now whole, is what stands.
-  const two = await sendRouted(S, a, "And the Seeded loaf to £4.50", { sqlFail: /information_schema/ });
-  assert.deepEqual([...two.sent.site.tables].sort(), ["bookings", "loaves"]);
-  assert.deepEqual(tablesTold(two.route), ["bookings", "loaves"], "a failed read left the router with part of the site");
-  assert.equal(two.route.body.tablesFilled, undefined);
-});
-
-test("RECON 7 — another browser's addition, finished while this page watched: the same — the router told the whole inventory, read from the site", async () => {
-  const S = server();
-  const r = running(S, KEY(11), T0);
-  const b = opened(openPage(S, siteFor(["/"])));
-  await idle();
-  await looks(b);
-  r.finish(ADDED, ["/", "/gallery"]);
-  await looks(b);
-  assert.deepEqual(copy(b.s.tables), ["bookings"]);
-  const one = await sendRouted(S, b, "Put the Rye loaf's price up to £5");
-  assert.deepEqual(one.sent.site.tables, ["bookings"]);
-  assert.ok(catalogReads(one.route) >= 1);
-  assert.deepEqual(tablesTold(one.route), ["bookings", "loaves"]);
-  assert.deepEqual([...copy(b.s.tables)].sort(), ["bookings", "loaves"]);
-});
-
-test("RECON 8 — out of order across the two paths: a routing answer read before another browser's addition finished arrives after it — the page keeps every name, losing none", async () => {
-  const S = server();
-  const r = running(S, KEY(12), T0, "Keep track of orders", 1);
-  const b = opened(openPage(S, siteFor(["/"], { tables: ["loaves"] })));
-  await idle();
-  await looks(b);
-  // THE ROUTING CALL GOES OUT; ITS ANSWER IS HELD WHILE THE ADDITION FINISHES.
-  let answered = null;
-  const late = new Promise((ok) => { answered = ok; });
-  const out = {};
-  S.edit = DATA_EDIT;
-  S.onRoute = (body) => realRoute(body).then((res) => { out.route = res; return late.then(() => ({ status: res.status, body: res.body })); });
-  b.ctx.buildPicker = "sonnet";
-  b.ctx.siteSend("Put the Rye loaf's price up to £5");
-  for (const until = Date.now() + 30000; Date.now() < until && !out.route;) await idle();
-  assert.deepEqual(tablesTold(out.route), ["bookings", "loaves"]);
-  r.finish(ORDERS);
-  await looks(b);
-  assert.ok(b.s.tables.includes("orders"), "the watched addition's table was not kept");
-  answered();
-  for (const until = Date.now() + 30000; Date.now() < until && b.busy();) await idle();
-  assert.deepEqual([...copy(b.s.tables)].sort(), ["bookings", "loaves", "orders"], "the late routing answer lost a name, or did not add the site's");
 });

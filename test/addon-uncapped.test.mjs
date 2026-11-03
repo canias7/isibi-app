@@ -111,14 +111,6 @@ test("the batches' replies merge into one: every page, parts once, usage summed;
   assert.equal(cut.input, null); assert.equal(cut.truncated, true);
 });
 
-test("the route runs the page writers in parallel, one per batch, and merges them before anything reads the pages", () => {
-  const g = at(W, "const aBatchGot = await Promise.all(aBatchDirs.map(", "parallel writers");
-  const call = at(W, "aGen = await generateSitePages(env, briefWithLayout({", "page call");
-  const merge = at(W, "aGen = mergePageBatches(aBatchGot);", "merge");
-  const read = at(W, "aPagesWrote = aGen && aGen.input", "pages read");
-  assert.ok(g < call && call < merge && merge < read, "the writers, their merge and the read are out of order");
-});
-
 test("THROUGH THE ROUTE: nine pages, twelve tables and functions in one addition — every page written, every table made", { timeout: 120000 }, async () => {
   const r = await addon("uncap-all-" + Math.random().toString(16).slice(2, 8), "add nine pages, twelve lists and the counters", {
     kinds: ["table", "function", "page"], publishes: true, credits: 4000,

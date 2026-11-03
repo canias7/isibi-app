@@ -9,7 +9,7 @@
 // part per request.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LIVE_ASK_TOOL, HELD_UNREAD_REASON } from "../builder/site-ask.mjs";
+import { LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
 import { planParts } from "../builder/request.mjs";
 
 const LIVE = LIVE_ASK_TOOL.input_schema.properties;
@@ -37,11 +37,6 @@ test("the addon case comes first and holds every edit and every other target", (
   // The look-door rule for edits is kept, and pointed at.
   assert.match(ALSO.slice(edit), /the closing rule of `layer` says which answer/);
   assert.match(LAYER.split("\n").pop(), /changes on different pages are one "look" answer/);
-});
-
-test("the quoting retry keeps the same holds and never says hold nothing back", () => {
-  assert.doesNotMatch(HELD_UNREAD_REASON, /hold nothing back/);
-  assert.match(HELD_UNREAD_REASON, /holding back the same parts, each copied exactly/);
 });
 
 test("an addon answer that holds what the rule says becomes one part per request", () => {

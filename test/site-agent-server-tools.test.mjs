@@ -259,21 +259,3 @@ test("ST16 the server-code rules are in every agent's opening, saying each of th
   // 5. errors: clear error + logged to the site's error log (_errors)
   assert.match(r, /clear status/i); assert.match(r, /_errors/);
 });
-
-test("ST17 the worker wires each tool to its dependency, and the container answers /agent-call", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const start = w.indexOf("async function runAgentChange(");
-  const end = w.indexOf("\n}\n", start);
-  assert.ok(start > 0 && end > start);
-  const body = w.slice(start, end);
-  for (const k of ["callFunction: agentCall(env, slug)", "fetchDocs: agentFetchDocs", "readErrors: agentReadErrors", "listKeys: agentListKeys", "applySchema:"]) assert.ok(body.includes(k), k);
-  assert.match(body, /applyAgentSchema\(env, slug, conn, schemaOps, job\)/);
-  const keys = w.slice(w.indexOf("function agentListKeys("), w.indexOf("function agentListKeys(") + 600);
-  assert.match(keys, /SELECT name FROM _secrets/);
-  assert.ok(!/cipher|hint/.test(keys.replace(/\/\*\*[\s\S]*?\*\//, "")), "only the name column is selected");
-  const fb = w.slice(w.indexOf("agentWrite: agentTakes()"), w.indexOf("generate: async () =>", w.indexOf("agentWrite: agentTakes()")));
-  assert.ok(fb.includes("callFunction: agentCall(env, slug)") && fb.includes("fetchDocs: agentFetchDocs"));
-  const bs = fs.readFileSync(new URL("../builder/build-server.mjs", import.meta.url), "utf8");
-  const at = bs.indexOf('req.url === "/agent-call"');
-  assert.ok(at > 0 && /dryRunServerParts\(sp,[\s\S]{0,120}call:/.test(bs.slice(at, at + 1500)));
-});

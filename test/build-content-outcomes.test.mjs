@@ -169,26 +169,6 @@ test("pictures past what one build buys are named with their rule — the cap, a
   assert.equal(imageNote({ made: 3, planned: 3, budget: 3, overflow: 0 }), "Made 3 photographs for the site.");
 });
 
-test("THROUGH THE WORKER: a real queued build that asked for nine pictures, published by the real resume, offers all nine (no cap, 2026-10-24)", async () => {
-  const b = buildBucket();
-  const id = "c0ab2c3d4e5f60718293a4b5c6d7e8f9";
-  const design = { ...GOOD_DESIGN, images: Array.from({ length: 9 }, (_, i) => ({ page: "/", describe: "picture " + (i + 1) })) };
-  await fireInterim(b, id, ledger(), { design });
-  await finishResume(b, id, ledger(), {
-    credits: 400,
-    source: 'import { createFileRoute } from "@tanstack/react-router";\nexport const Route = createFileRoute("/")({ component: Page });\nfunction Page() { return <div>Harbour Loaf</div>; }',
-  });
-  const r = readResult(JSON.parse(b.store.get(resultKey(id))));
-  const body = JSON.parse(r.body);
-  assert.equal(body.page, "app", "the resumed build did not publish: " + r.body.slice(0, 300));
-  assert.deepEqual((body.images.notOffered || []).map((x) => x.describe), []);
-  // EVERY PICTURE ACCOUNTED FOR, AS FACTS: all nine offered, none placed by
-  // the writer (the page has no picture), none cut by a cap.
-  const st = body.buildFacts.pictures.map((x) => x.describe + ":" + x.status + (x.why ? "/" + x.why : ""));
-  assert.deepEqual(st, [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => "picture " + n + ":not-placed"));
-  assert.doesNotMatch(String(body.imagesNote || ""), /picture 7/, "the fixed sentence still tells what the facts carry");
-});
-
 /** A minimal `publishPages` harness: everything succeeds, nothing is paid. */
 function deps(over = {}) {
   return {

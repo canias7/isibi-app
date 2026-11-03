@@ -23,7 +23,7 @@ import {
   CHROME_OBJECTS, LAYOUT_FIELDS, applyLayout, applyContact, chromeObjectSlots,
   readChromeObject, readNav, navDigest, navReply, runNavEdit, NAV_TOOL,
 } from "../builder/site-nav.mjs";
-import { ASK_TOOL } from "../builder/site-ask.mjs";
+import { ASK_TOOL } from "../builder/route-shared.mjs";
 
 const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
 const header = fs.readFileSync(path.join(UI, "site-header.tsx"), "utf8");
@@ -331,28 +331,6 @@ test("an already-centred site is refused rather than republished", () => {
     assert.ok(!out.escalate, "a no-op escalated — that buys a ~27-credit rebuild to do nothing");
     assert.match(out.msg, /already/);
   });
-});
-
-test("the Worker carries the arrangement back, and the router knows the lane owns it", () => {
-  // Either end alone passes while the wire is cut — the thirteen recorded
-  // wiring deaths. Values rather than names here, unlike `contact`: these are
-  // OUR enum, never anything the customer typed.
-  assert.match(workerSrc, /layout: nOut\.layout \|\| undefined,/,
-    "the nav branch computes a layout and the response never carries it");
-  // WINDOWED TO THE nav CLAUSE, and bounded by the NEXT layer's own heading —
-  // a window running to a fixed byte count stops covering what it was written
-  // for the moment a comment or a sentence lands above it, which is this repo's
-  // most repeated own-goal.
-  const nav = ASK_TOOL.input_schema.properties.layer.description;
-  const from = nav.indexOf('"nav" \u2014');
-  assert.ok(from > 0, "the layer description no longer opens the nav clause the way this scan expects");
-  const nextHeading = /\n"[a-z]+" \u2014/.exec(nav.slice(from + 8));
-  const seg = nav.slice(from, nextHeading ? from + 8 + nextHeading.index : undefined);
-  assert.ok(seg.length > 200, "the nav clause window collapsed to nothing");
-  assert.match(seg, /centre our logo/i,
-    "the router never points a frame change at the nav lane, so every layer below it is unreachable");
-  assert.match(seg, /"look"/,
-    "the router does not say colours are a different lane, which is the confusion this axis invites");
 });
 
 /* ── the page body's own width ───────────────────────────────────────────── */

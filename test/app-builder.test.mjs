@@ -131,7 +131,7 @@ test("ROUTE: the builder's refusal is said, and nothing is kept", async () => {
 });
 
 // ── WAITING ITS TURN, THE ROUTER'S "app", THE PICKER (2026-10-20, owner: "3 and it has to be through model calls") ──
-import { readRouting, ASK_TOOL, LIVE_ASK_TOOL, APPS_OPEN } from "../builder/site-ask.mjs";
+import { APPS_OPEN } from "../builder/route-shared.mjs";
 
 test("QUEUE: a busy builder is asked again until it is free; one never free is said, and nothing is kept", async () => {
   api.setAppWait(1, 200);
@@ -148,25 +148,6 @@ test("QUEUE: a busy builder is asked again until it is free; one never free is s
     assert.equal(r2.status, 503); assert.match((await r2.json()).error, /Every app builder is busy/);
     assert.equal(never.SITES_BUCKET.m.size, 0);
   } finally { api.setAppWait(10_000, 5 * 60 * 1000); }
-});
-
-test("ROUTER: while apps are parked, \"app\" is never offered or taken; opened, it is one of its answers with the phone named", () => {
-  const said = (input, o) => readRouting({ content: [{ type: "tool_use", input }] }, o);
-  assert.ok(!ASK_TOOL.input_schema.properties.intent.enum.includes("app") && !ASK_TOOL.input_schema.properties.platform, "a first build's tool is unchanged: there is no site to make an app of");
-  if (!APPS_OPEN) {
-    assert.ok(!LIVE_ASK_TOOL.input_schema.properties.intent.enum.includes("app"), "parked: the router is not offered \"app\"");
-    assert.ok(!LIVE_ASK_TOOL.input_schema.properties.platform, "parked: no phone to name");
-    assert.doesNotMatch(LIVE_ASK_TOOL.input_schema.properties.intent.description, /"app" — they want/);
-    assert.notEqual(said({ intent: "app", platform: "ios" }, { hasSite: true, live: true }).intent, "app", "parked: an \"app\" answer is never taken");
-    return;
-  }
-  assert.ok(LIVE_ASK_TOOL.input_schema.properties.intent.enum.includes("app"));
-  assert.deepEqual(LIVE_ASK_TOOL.input_schema.properties.platform.enum, ["android", "ios"]);
-  assert.match(LIVE_ASK_TOOL.input_schema.properties.intent.description, /"app" — they want the site that ALREADY EXISTS made into a phone app/);
-  assert.deepEqual(said({ intent: "app", platform: "ios" }, { hasSite: true, live: true }), { intent: "app", platform: "ios", answer: "" });
-  assert.equal(said({ intent: "app" }, { hasSite: true }).platform, "android", "Android when no phone was named");
-  assert.equal(said({ intent: "app", platform: "windows" }, { hasSite: true }).platform, "android", "a phone off the list is never passed on");
-  assert.equal(said({ intent: "app", platform: "android" }, { hasSite: false }).intent, "build", "with no site, there is a website to build first");
 });
 
 test("WIRING: the route tells the page which phone; the page makes the app, and the picker is drawn and kept", () => {

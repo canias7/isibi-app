@@ -56,19 +56,3 @@ test("published sites may load Turnstile's script and frame", () => {
   assert.ok(frame && frame[0].includes("https://challenges.cloudflare.com"), "the challenge frame is refused");
 });
 
-test("the rules answer's spamCheck becomes a state fact; false or absent says nothing", () => {
-  const base = { ok: true, satisfied: true, layer: "rules", applied: [], already: [], cost: 0 };
-  const on = editReplyFacts({ ...base, spamCheck: true }).facts.map((f) => f.text).join(" ");
-  const off = editReplyFacts({ ...base, spamCheck: false }).facts.map((f) => f.text).join(" ");
-  const none = editReplyFacts(base).facts.map((f) => f.text).join(" ");
-  assert.ok(off.length > 0 && none.length > 0, "observer");
-  assert.match(on, /Spam protection is already on/);
-  assert.doesNotMatch(off, /Spam protection/);
-  assert.doesNotMatch(none, /Spam protection/);
-  const miss = editReplyFacts({ ok: false, error: "no-match", cost: 0, msg: "No rule matched.", spamCheck: true }).facts.map((f) => f.text).join(" ");
-  assert.match(miss, /Spam protection is already on/);
-  // Every rules ending carries it from the Worker.
-  const rules = between(worker, "const rSpam = () => spamCheckOn(env, ownerSlug, rdb)", 'if (eLayer === "rename")');
-  assert.equal((rules.match(/spamCheck: (rOut\.reason === "no-match" \? )?await rSpam\(\)/g) || []).length, 3);
-});
-

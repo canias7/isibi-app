@@ -341,17 +341,6 @@ test("FIXED (F2): the reply's budgets — written in the background, 90 s per ca
   assert.match(body, /background \? \{ deadlineMs: REPLY_BG_DEADLINE_MS \} : \{\}/);
 });
 
-test("FIXED (F2): a read never calls the model — the job poll and the request read hand back what the background writer stored, or say it is still being written", () => {
-  const W = fs.readFileSync(ROOT + "worker.js", "utf8");
-  for (const name of ["async function servedModelReply(", "async function requestReply("]) {
-    const at = W.indexOf(name);
-    assert.ok(at >= 0, name + " moved");
-    const body = W.slice(at, W.indexOf("\n}\n", at));
-    assert.ok(body.length > 200, name + ": its body was not found");
-    for (const call of ["writeReply(", "composeModelReply(", "writeModelReply(", "quickSend("]) assert.ok(!body.includes(call), name + " calls " + call);
-  }
-});
-
 test("a call is still cut by its own timer when the provider says nothing — the timer is the budget it was handed — and the same path answered in time is written", async () => {
   // THE BUDGET BECOMES A TIMER ON THE CALL ITSELF (the real model call, here
   // given 40 ms): a transport that has not answered by then is cut, read as

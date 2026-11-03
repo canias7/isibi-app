@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { editPublishFacts, editStepFacts, editAppliedFacts, addonSchemaFacts, startFacts } from "../builder/site-progress.mjs";
 import { converseTables, siteContextBlock, routerHistory } from "../builder/site-converse.mjs";
 import { readSchemaState, RECOVER_QUERIES } from "../site-schema-recover.mjs";
-import { askRequest, ASK_MAX_TOKENS, RESOLVED_TOKENS } from "../builder/site-ask.mjs";
+
 import { echoTokens } from "../builder/input-budget.mjs";
 import { newRequest, planParts, jobBody, requestMaking } from "../builder/request.mjs";
 
@@ -30,27 +30,6 @@ test("A14-6 a held row change is said as held in the draft, never as changed in 
   }
   assert.match(said(editPublishFacts(live)), /Changed in the site's database/, "control: a live change lost its fact");
   assert.equal(editPublishFacts(held).find((f) => /Held/.test(said([f]))).state, "prepared");
-});
-
-test("A14-6 an add-on's held schema is said as held, and its publish as a draft save; the plan ends at the draft", () => {
-  const h = said(addonSchemaFacts({ tables: ["bookings"], jobs: ["weekly"] }, { publishing: true, held: true, draft: true }));
-  assert.doesNotMatch(h, /Created in the site's database|Publishing the site/);
-  assert.match(h, /Held in their draft/);
-  assert.match(h, /Saving the additions to their draft/);
-  assert.doesNotMatch(h, /Set to run on a timer/);
-  // A SITE NOT LIVE YET: the schema is made, the timers are still held (`backendWriter`).
-  const n = said(addonSchemaFacts({ tables: ["bookings"], jobs: ["weekly"] }, { heldJobs: true }));
-  assert.match(n, /Created in the site's database/);
-  assert.match(n, /Held in their draft until they press Publish, to be set to run on a timer/);
-  assert.match(said(addonSchemaFacts({ tables: ["bookings"] }, { publishing: true })), /Created in the site's database: the table .bookings.[\s\S]*Publishing the site/, "control");
-  for (const op of ["edit", "addon", "build"]) {
-    assert.doesNotMatch(said(startFacts({ op, draft: true })), /and it is published|built and published/, op);
-    assert.match(said(startFacts({ op, draft: true })), /saved (to|as) their draft/, op); // the plan ends at the draft; the Publish clause is said once, by the save (progress-voice-2)
-    assert.match(said(startFacts({ op })), /published/, op + " control");
-  }
-  // WIRED: every start and the add-on's schema milestone are handed the switch.
-  assert.equal((W.match(/startFacts\(\{[^}]*draft: draftFirst\(env\)/g) || []).length, 4, "a start milestone is not told about draft-first");
-  assert.match(W, /addonSchemaFacts\([^;]*held: aWriter\.holding, heldJobs: aWriter\.on, draft: aWriter\.on/);
 });
 
 // ── A36-2 ───────────────────────────────────────────────────────────────────
@@ -99,17 +78,6 @@ test("A36-4 under draft-first the conversation is told changes go to a draft and
   assert.doesNotMatch(siteContextBlock({ exists: true, name: "N", url: "https://n.gofarther.app" }), /draft/i, "control: off says nothing of a draft");
   const at = W.indexOf("async function readConverseContext(");
   assert.match(W.slice(at, W.indexOf("\n}\n", at)), /draftFirst: draftFirst\(env\)/);
-});
-
-// ── A36-3 ───────────────────────────────────────────────────────────────────
-test("A36-3 a go-ahead on a long plan has room to restate it and copy its held parts", () => {
-  const plan = Array.from({ length: 6 }, (_, i) => (i + 1) + ". " + "Improve the section with clearer words and a better photograph ".repeat(8)).join("\n").slice(0, 3200);
-  const history = routerHistory([{ role: "user", text: "what should I improve first?" }, { role: "assistant", text: plan }]);
-  assert.ok(history.turns.some((t) => t.text.length > 2500), "the router's window cut the plan before the test");
-  const req = askRequest({ message: "go ahead with all of it", site: {}, hasSite: true, live: true, history });
-  const need = ASK_MAX_TOKENS + echoTokens("go ahead with all of it") + RESOLVED_TOKENS + 2 * echoTokens(...history.turns.map((t) => t.text));
-  assert.ok(req.max_tokens >= need, "the ceiling " + req.max_tokens + " leaves no room to restate a " + plan.length + "-character plan (" + need + ")");
-  assert.equal(askRequest({ message: "hi", site: {} }).max_tokens, ASK_MAX_TOKENS, "control: no conversation, no growth");
 });
 
 // ── A36-5 ───────────────────────────────────────────────────────────────────

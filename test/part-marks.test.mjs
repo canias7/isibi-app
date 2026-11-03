@@ -8,7 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { partMarks, readMarks, recorder, replayer, PART_SECTION, PART_RULE, MARKS_KEPT } from "../builder/prepared.mjs";
-import { partBlock, PART_HEADING } from "../builder/site-ask.mjs";
+import { partBlock, PART_HEADING } from "../builder/route-shared.mjs";
 
 const MSG = "Add a short questions section to the Bake List page. And add ' — sent every Friday' to the end of the heading 'Join the weekly bake list'.";
 const OTHER = "And add ' — sent every Friday' to the end of the heading 'Join the weekly bake list'.";

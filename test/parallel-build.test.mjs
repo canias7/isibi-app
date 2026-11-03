@@ -49,30 +49,6 @@ const DESC = "Change the site description to say we bake overnight sourdough";
 const ADD = "add an events page";
 const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
 
-test("J3 through the real routes: a request paused for credits; the next message is a request of its own, and the paused one keeps its parts", async () => {
-  const compiler = installCompiler();
-  const hold = {};
-  const P = platform({ slug: "pb-j3-" + Math.random().toString(16).slice(2, 8), answers: {
-    route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }, { intent: "edit", layer: "look" }],
-    [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": "Overnight sourdough.",
-    [T.adds]: () => { if (!hold.done) { hold.done = true; P.credits.balance = 0; } return { kinds: ["page"] }; }, "add:page": { page: [PAGE("/events", "Events")] }, [T.pages]: { pages: [writtenPage("/events")] },
-  } });
-  try {
-    const a = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
-    assert.equal(a.status, 200, JSON.stringify(a.body));
-    await settle(P, a.key, { rounds: 10 });
-    const before = P.record(a.key);
-    assert.ok(before.parts.some((p) => p.status === "credits"), JSON.stringify(before.parts.map((p) => p.status)));
-    P.credits.balance = 40; // topped up, as live (the new message's agent ran and charged); no tick has resumed the pause yet
-    const b = await sendMessage(P, { message: "Text my customers a reminder the day before their class" });
-    assert.equal(b.status, 200, JSON.stringify(b.body));
-    assert.equal(b.body.joined, undefined, "the new message joined the paused request");
-    assert.equal(P.record(a.key).parts.length, before.parts.length, "the paused request took new parts");
-    assert.ok(P.record(b.key), "the new message is not a request of its own: " + JSON.stringify(b.body).slice(0, 600));
-    assert.equal(b.body.request.key, b.key);
-  } finally { P.close(); compiler.uninstall(); }
-});
-
 // ── R ──────────────────────────────────────────────────────────────────────
 test("R1 one part done and one paused for credits: the one reply is owed now, and the done part's words are in it", (t) => {
   // THE ONE REPLY IS IN FORCE (as production; the suite's GF_OLD_LANES stands it aside).

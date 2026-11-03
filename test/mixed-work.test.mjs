@@ -44,7 +44,7 @@ import * as PICTURE from "../builder/site-picture.mjs";
 import * as LANES from "../builder/site-lanes.mjs";
 const { PICTURE_TOOL, imageSlots } = PICTURE;
 const { LANE_FIELDS, laneLayer, laneEscalate, laneVerbs, OWN_LANES } = LANES;
-import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { EDIT_LAYERS } from "../builder/route-shared.mjs";
 import { ADD_KINDS, DISPATCHED_ADDS, MAKES_PAGES, BACKEND_ADDS, MAX_ADD_TABLES } from "../builder/site-add.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 
@@ -182,33 +182,6 @@ test("THE REGISTERED CAPABILITIES: nine edit layers, twenty-one look lanes — e
   assert.deepEqual(BACKEND_ADDS, ["table", "function"]);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. EDIT: ONE KIND OF CHANGE ON SEVERAL PAGES
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("WORKS, AND FIXED MW8 — THE SAME KIND OF CHANGE ON TWO PAGES (two layout moves): one page step per page, run in turn, each handed only its own words and its own page, both published together, each billed — and the page's own reply names both pages", async () => {
-  const r = await editRun({
-    message: "Two layout changes: " + W.homeMove + ", and " + W.visitMove + ".",
-    answers: {
-      [T.pick]: { fields: ["shape"], scopes: [{ part: "shape", page: "/", words: W.homeMove }, { part: "shape", page: "/visit", words: W.visitMove }] },
-      [T.tweak]: (args) => ({ source: userText(args).includes("createFileRoute(\"/visit\")") ? VISIT_MOVED : HOME_MOVED }),
-    },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.deepEqual(r.seen.calls, [T.pick, T.tweak, T.tweak], "not one picker call and one writer per page, in turn");
-  assert.deepEqual(r.seen.writers.map((w) => w.instruction), [W.homeMove, W.visitMove], "a writer was handed the other page's words");
-  assert.equal(r.src("index.tsx"), HOME_MOVED);
-  assert.equal(r.src("visit.tsx"), VISIT_MOVED);
-  assert.deepEqual(r.changed, ["index.tsx", "visit.tsx"], "a page nobody named changed");
-  assert.equal(r.builds, 1, "the two moves were not published together");
-  assert.deepEqual(r.charges, [1, 1], "each page operation is not billed once");
-  assert.deepEqual(r.facts, ["Updated /.", "Updated /visit."], "a model reply would not be told both pages");
-  assert.equal(r.checks.length, 3, "the one publish's checks were not each a fact: " + JSON.stringify(r.checks));
-  // FIXED MW8: the page's own reply (no model replies) names both pages, where
-  // it read "✅ Updated the look."
-  assert.equal(r.reply, "Updated / and /visit.");
-});
-
 test("WORKS — WORDING ON TWO PAGES IS ONE TEXT STEP: one model call changes both, one publish, one charge, and the reply quotes both", async () => {
   const r = await editRun({
     message: "Change the Visit heading to Find the bakery, and on the home page make the starter headline Fed every single morning since we opened.",
@@ -228,45 +201,6 @@ test("WORKS — WORDING ON TWO PAGES IS ONE TEXT STEP: one model call changes bo
   assert.equal(r.builds, 1);
   assert.deepEqual(r.charges, [1]);
   assert.equal(r.reply, "Updated the wording in 2 places — now “Find the bakery”, “Fed every single morning since we opened”.");
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. EDIT: DIFFERENT CHANGES ON ONE PAGE, AND ACROSS PAGES
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("WORKS, AND FIXED MW1 — THREE DIFFERENT CHANGES ON ONE PAGE (a move, a photograph off, the menu): all three land, in turn, the photo taken off the page the move had already rewritten, in one publish — and the reply names the page, the photo and the menu", async () => {
-  const r = await editRun({
-    message: W.homeMove + ", " + W.photo + ", and " + W.menu + ".",
-    routed: { layer: "look", page: "/" },
-    answers: {
-      [T.pick]: { fields: ["shape", "images", "action"], scopes: [{ part: "shape", page: "/", words: W.homeMove }, { part: "images", page: "/", words: W.photo }, { part: "action", words: W.menu }] },
-      [T.tweak]: { source: HOME_MOVED },
-      [PICTURE_TOOL.name]: PHOTO_OFF,
-      [NAV_TOOL.name]: NO_GALLERY,
-    },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.deepEqual(r.seen.calls, [T.pick, T.tweak, PICTURE_TOOL.name, NAV_TOOL.name], "the steps did not run one after another, in the lanes' order");
-  const home = r.src("index.tsx");
-  // LATER STEPS KEEP EARLIER RESULTS: the photo came off the MOVED page.
-  assert.ok(before(home, "Order a loaf for collection", "Fed every morning since we opened"), "the move did not survive the later steps");
-  assert.ok(!home.includes(BOULE), "the photograph is still on the home page");
-  assert.ok(home.includes("Harbour Loaf on a Bristol side street"), "the other photograph went too");
-  assert.deepEqual(r.menus("index.tsx"), [["Today's bake", "The starter", "Visit"]]);
-  assert.deepEqual(r.menus("gallery.tsx"), [["Today's bake", "The starter", "Visit"]], "the gallery page's own menu kept the link");
-  assert.equal(r.builds, 1, "three steps were not published together");
-  assert.deepEqual(r.charges, [1, 1, 1], "each step is not billed once");
-  // FIXED MW1: every step that ran is told, each in its own words — where the
-  // reply named only "/" and the facts only "Updated /.".
-  assert.equal(r.reply, MW1_THREE);
-  assert.ok(r.facts.includes("Updated /."), JSON.stringify(r.facts));
-  said(r, /boule/i, "the photograph taken off");
-  said(r, /menu/i, "the menu change");
-  // EACH WITH ITS OWN TARGET: the page rung's page, and the picture and menu
-  // steps' own words (they work across the site, so no page is theirs).
-  assert.deepEqual((r.body.steps || []).map((st) => [st.layer, st.status, st.page || "", st.words || []]),
-    [["page", "done", "/", [W.homeMove]], ["picture", "done", "", [W.photo]], ["nav", "done", "", [W.menu]]],
-    "the reply does not carry each step's own result and target");
 });
 
 for (const mode of ["sync", "job"]) {
@@ -335,30 +269,6 @@ test("FIXED MW2 (" + mode + ") — FIVE DIFFERENT CHANGES, ALL FIVE RUN: the pic
 });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. EDIT: ONE PART FAILS, OR THE ROUTER HOLDS ONE BACK, WHILE THE REST RUNS
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("WORKS — ONE STEP FAILS BESIDE TWO THAT WORK: the other two ship in one publish, the failure is named in the reply, and the failed step's model call is billed, said", async () => {
-  const r = await editRun({
-    message: W.css + ", " + W.visitMove + ", and " + W.menu + ".",
-    answers: {
-      [T.pick]: { fields: ["css", "shape", "action"], scopes: [{ part: "css", words: W.css }, { part: "shape", page: "/visit", words: W.visitMove }, { part: "action", words: W.menu }] },
-      "lane:css": CSS,
-      [T.tweak]: { source: VISIT_MOVED },
-      [NAV_TOOL.name]: { links: "not a list" },
-    },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.equal(r.css, CSS);
-  assert.equal(r.src("visit.tsx"), VISIT_MOVED);
-  assert.deepEqual(r.menus("index.tsx"), [["Today's bake", "The starter", "Visit", "Gallery"]], "the failed menu step changed the menu");
-  assert.equal(r.builds, 1);
-  assert.deepEqual((r.body.partial || []).map((p) => [p.layer, p.error, p.cost]), [["nav", "no-menu", 1]]);
-  assert.deepEqual(r.charges, [1, 1, 1]);
-  assert.match(r.reply, /I couldn't work out what the menu should be\. Tell me what to add, take out or move\. That part still cost 1 credit\./);
-});
-
 for (const mode of ["sync", "job"]) {
   test("WORKS (" + mode + ") — ONE STEP ASKS BESIDE TWO THAT WORK: the other two ship in one publish and are billed, the asking step changes and costs nothing, every step's result is kept with its target, and its question is kept to resume only its own part", async () => {
     const Q = "Which band is the order band — the one about holding a loaf?";
@@ -387,52 +297,6 @@ for (const mode of ["sync", "job"]) {
     assert.ok(r.facts.some((f) => f.includes(Q)), "the question is not in the facts: " + JSON.stringify(r.facts));
   });
 }
-
-test("A QUESTION BESIDE A CHANGE WITHHELD FOR A PAGE THE SITE DOES NOT HAVE: the question is kept, and the request its answer resumes holds neither the withheld change's words nor the work that ran", async () => {
-  // THE WITHHELD CHANGE CARRIES ITS OWN WORDS SINCE 2026-10-03 (the mixed-work
-  // fixes), so the question's remainder can take them out. Before, a withheld
-  // step had no words, read as "a step that ran on the whole turn", and the
-  // question was not kept at all — said as left alone.
-  const Q = "Which band is the order band — the one about holding a loaf?";
-  const MENU_PAGE_MOVE = "on the menu page put the prices above the photos";
-  const r = await editRun({
-    message: W.css + ", " + W.visitMove + ", and " + MENU_PAGE_MOVE + ".",
-    answers: {
-      [T.pick]: { fields: ["css", "shape"], scopes: [{ part: "css", words: W.css }, { part: "shape", page: "/visit", words: W.visitMove }, { part: "shape", page: "/menu", words: MENU_PAGE_MOVE }] },
-      "lane:css": CSS,
-      [T.tweak]: { source: "", question: { text: Q } },
-    },
-  });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
-  assert.equal(r.css, CSS, "the styling did not ship");
-  assert.deepEqual((r.body.partial || []).filter((p) => p.error === "no-page").map((p) => [p.page, p.words]), [["/menu", [MENU_PAGE_MOVE]]], "the withheld change lost its target");
-  assert.ok(r.question, "the question was not kept");
-  assert.equal(r.question.question.text, Q);
-  assert.ok(r.question.request.includes("order band"), "the question's request is not the asking part: " + r.question.request);
-  assert.ok(!r.question.request.includes("prices above the photos"), "the withheld change would run again on the answer: " + r.question.request);
-  assert.ok(!r.question.request.includes("deep green"), "the work that ran would run again on the answer: " + r.question.request);
-});
-
-test("WORKS (BY DESIGN, ACROSS TWO MESSAGES) — A CHANGE AND AN ADDITION IN ONE MESSAGE: the router answers the change and holds the addition back; the change runs, nothing is added, and the reply names the addition to send next", async () => {
-  const ADD = "add a page for our wholesale customers";
-  const r = await editRun({
-    viaRouter: true,
-    message: W.desc + " and " + ADD,
-    answers: {
-      route: { intent: "edit", layer: "look", alsoAsked: ADD },
-      [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: W.desc }] },
-      "lane:description": NEW_DESC,
-    },
-  });
-  assert.equal(r.route.alsoAsked, ADD);
-  assert.equal(r.post.body.alsoAsked, ADD, "the browser did not carry the held part");
-  assert.equal(r.body.ok, true);
-  assert.equal(r.look.description, NEW_DESC);
-  assert.deepEqual(r.changed, [], "a page was added or changed");
-  assert.ok(!r.seen.calls.some((c) => c === T.adds || c === T.design), "the add-on step ran in the same message");
-  assert.equal(r.body.deferred, ADD);
-  assert.match(r.reply, /I only did one thing this time\. Say “add a page for our wholesale customers” and I’ll do that next\./);
-});
 
 test("WORKS — A RULES CHANGE BESIDE A STYLING CHANGE, ON A SITE WITH NO DATABASE: the styling ships, and the rules step's refusal is said beside it, at no cost for that step", async () => {
   const { RULES_TOOL } = await import("../builder/site-rules.mjs");

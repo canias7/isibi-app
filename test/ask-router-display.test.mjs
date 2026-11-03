@@ -36,7 +36,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ASK_TOOL, EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { ASK_TOOL, EDIT_LAYERS } from "../builder/route-shared.mjs";
 
 /**
  * The `layer` property's description, as the model really receives it.

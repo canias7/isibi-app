@@ -100,7 +100,7 @@ import {
   MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
   readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
   withPart, withNote,
-} from "./site-ask.mjs";
+} from "./route-shared.mjs";
 
 // The question's reader is the router's own, so the router and every step hold
 // a question to one rule (`readAsk` in site-ask.mjs). Re-exported for the

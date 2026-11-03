@@ -48,7 +48,7 @@
 // additions), which needs which (`dependsOn`), what each part is and where it
 // goes (the router, every step) — never a keyword, and never the position of
 // words in the message, which only breaks ties between parts with no relation.
-import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS, messageItems } from "./site-ask.mjs";
+import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS, messageItems } from "./route-shared.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
 import { readMarks } from "./prepared.mjs";

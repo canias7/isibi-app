@@ -35,7 +35,7 @@
 // decided every part of it (the router, a lane picker, the add-on's picker),
 // and this carries that decision to the step that acts on it.
 
-import { EDIT_LAYERS, normalizePagePath } from "./site-ask.mjs";
+import { EDIT_LAYERS, normalizePagePath } from "./route-shared.mjs";
 import { LANE_FIELDS } from "./site-lanes.mjs";
 import { ADD_KINDS } from "./site-add.mjs";
 

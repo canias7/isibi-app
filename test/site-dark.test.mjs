@@ -140,23 +140,6 @@ test("EDIT_FIELDS CANNOT MOVE A MODE, so a revise has nothing to keep in step", 
   for (const k of PLAN_KEYS) assert.ok(EDIT_FIELDS.includes(k), `${k} fell out of EDIT_FIELDS`);
 });
 
-test("the router still sends a dark ask to the CHEAP lane", () => {
-  // NAMED IN THE `look` CLAUSE, or the router has no reason to route it there
-  // and "make the whole site dark" escalates to a full rebuild that produces
-  // the same recompile for ~27 credits.
-  //
-  // THE CLAUSE'S REASON CHANGED WITH THE FIELD. It used to say the theme
-  // "already has a dark version drawn for it", which was true of a registry
-  // theme and is not true of a stylesheet the model wrote. It is a colour
-  // change like any other now, which is both simpler and still cheap.
-  const ask = read("../builder/site-ask.mjs");
-  const look = ask.slice(ask.indexOf('"\\"look\\" —'), ask.indexOf('"\\"rules\\" —'));
-  assert.ok(look.length > 200, "the look clause window is " + look.length + " bytes");
-  assert.match(look, /DARK OR LIGHT IS THIS LAYER TOO/);
-  assert.doesNotMatch(look, /already has a dark version drawn/,
-    "the look clause still explains dark by a designed half the site no longer has");
-});
-
 test("the client has no sentence for a field that cannot arrive", () => {
   // `SAY` maps a moved field name to words for the customer. `mode` can no
   // longer appear in `moved`, so an entry for it is a sentence nothing can

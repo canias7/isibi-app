@@ -104,25 +104,6 @@ test("NOTHING OUR CODE SAYS carries an emoji or a checkmark: the chat, the poll 
   for (const a of ALLOWED) assert.ok(found.some((l) => l.includes(a)), "an allowance matches nothing now — drop it: " + a);
 });
 
-test("EVERY INSTRUCTION A MODEL WRITES TO THE CUSTOMER FROM says no emoji or symbols unless asked, and none invites one", async () => {
-  const { REPLY_SYSTEM } = await import("../builder/site-reply.mjs");
-  const { PROGRESS_SYSTEM, TASK_SYSTEM } = await import("../builder/site-progress.mjs");
-  const { ASK_TOOL, LIVE_ASK_TOOL } = await import("../builder/site-ask.mjs");
-  const said = {
-    "the final reply": REPLY_SYSTEM,
-    "a progress line": PROGRESS_SYSTEM,
-    "a task's lines": TASK_SYSTEM,
-    "the router's answer (first build)": ASK_TOOL.input_schema.properties.answer.description,
-    "the router's answer (a live site)": LIVE_ASK_TOOL.input_schema.properties.answer.description,
-  };
-  for (const [what, text] of Object.entries(said)) {
-    assert.equal(typeof text, "string", what + " is not found");
-    assert.match(text, /no[^.\n]*emoji[^.\n]*unless[^.\n]*ask/i, what + " does not rule out emoji unless asked");
-    assert.doesNotMatch(text, PIC, what + " shows the model an emoji to copy");
-  }
-  assert.doesNotMatch(REPLY_SYSTEM, /You may start with/, "the final reply is still invited to open with a symbol");
-});
-
 test("THE CARD: a part has no number and a progress line no time or dot; the stylesheet draws a dash for each", () => {
   const chat = read("public/chat.js");
   const css = read("public/styles.css");

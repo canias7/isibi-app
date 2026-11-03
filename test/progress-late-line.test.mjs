@@ -49,32 +49,6 @@ async function runShort(P) {
   return { r, job, held };
 }
 
-test("LATE 1 — a job that ended before its line was written gets ONE late line, from its applied facts only: committed, confirmed, marked late, and served by the job poll", async () => {
-  await withPlatform({ slug: slugOf("ok"), db: loavesDb(), progress: true, answers: ANSWERS }, async (P) => {
-    const { job, held } = await runShort(P);
-    assert.equal(P.jobs.get(job.id).state, "done");
-    const closed = P.progressOf(job.id);
-    assert.ok(closed && closed.closed && closed.closed.why === "ended", JSON.stringify(closed && closed.closed));
-    assert.equal(closed.lines.length, 0, "the case did not reproduce a job shorter than its writer");
-    assert.ok(lateNeeded(closed), "a closed record with applied facts owes no late line");
-    for (const m of held) await deliver(P, m);
-    for (let n = 0; n < 10 && P.queue.some(isTask); n++) { const m = P.queue.splice(P.queue.findIndex(isTask), 1)[0]; await deliver(P, m); }
-    const rec = P.progressOf(job.id);
-    assert.equal(rec.lines.length, 1, "the progress the job made disappeared");
-    const l = rec.lines[0];
-    assert.equal(l.late, true);
-    assert.equal(l.confirmed, true);
-    const facts = rec.marks.filter((m) => l.marks.includes(m.n)).flatMap((m) => m.facts);
-    // what the writer was shown: final facts only (the stand-in writes them back)
-    for (const f of facts.filter((x) => l.text.includes(x.text))) assert.ok(FINAL.includes(f.state), "a " + f.state + " fact was said after the job ended: " + f.text);
-    assert.ok(!/not published yet|nothing is built yet|now\b/i.test(l.text), "stale working words after the end: " + l.text);
-    assert.equal(rec.lateWhy, "said");
-    const poll = await call(P, "GET", "/api/site/edit/" + job.id);
-    assert.equal(poll.status, 200);
-    assert.deepEqual((poll.body.progress || []).map((x) => [x.text, x.late]), [[l.text, true]]);
-  });
-});
-
 test("LATE 2 controls — no late line for a job whose final reply is already written, and none twice; a delivery after the reply calls no model", async () => {
   await withPlatform({ slug: slugOf("rep"), db: loavesDb(), progress: true, replies: true, answers: ANSWERS }, async (P) => {
     const { r, job, held } = await runShort(P);
@@ -111,36 +85,6 @@ test("LATE 3 — pure rules: only final facts, only for a job that ended as it s
   assert.deepEqual(linesOf(said).map((l) => [l.text, l.late]), [["I changed the price in the database.", true]]);
   assert.equal(lateNeeded(said), false, "a second late line could be owed");
   assert.equal(claimWriter(said, "w2", 3200), null, "a writer could claim the record again");
-});
-
-test("LATE 4 — the job's own close asks for the late line when no ask is outstanding: through the gateway, the close queues a writer and the line is written; and a late line given up for good is owed no more", async () => {
-  await withPlatform({ slug: slugOf("cl"), db: loavesDb(), progress: true, answers: ANSWERS }, async (P) => {
-    const { job } = await runShort(P);
-    const was = P.progressOf(job.id);
-    assert.ok(was && was.closed && lateNeeded(was), "the case did not reproduce a closed record owing its late line");
-    // THE SAME RECORD JUST BEFORE ITS CLOSE, with no writer asked for: every
-    // earlier ask has been answered or has lapsed, so only the close can ask.
-    const open = { ...was, closed: null, asked: 0, retryAt: undefined, writer: null, marks: was.marks.map((m) => (m.state === "skipped" ? { ...m, state: "pending", why: undefined } : m)) };
-    P.writeObj("jobs/" + job.id + ".progress.json", JSON.stringify(open));
-    P.queue.splice(0, P.queue.length);
-    P.env.SITE_SECRETS_KEY = "platform-secret";
-    const tok = await signJobToken({ id: job.id, slug: P.slug, uid: USER.id, exp: Math.floor(Date.now() / 1000) + 600 }, await gatewayKey("platform-secret"));
-    const res = await call(P, "POST", "/api/job/" + job.id + "/progress", { op: "close", run: was.run, why: "ended" }, "Bearer " + tok);
-    assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.ok(P.progressOf(job.id).closed, "the close did not close the record");
-    assert.ok(P.queue.some(isTask), "the close asked for no writer: the late line it owes would never be written");
-    for (let n = 0; n < 10 && P.queue.some(isTask); n++) { const m = P.queue.splice(P.queue.findIndex(isTask), 1)[0]; await deliver(P, m); }
-    assert.equal(P.progressOf(job.id).lines.filter((l) => l.late).length, 1, "the close's ask did not write the late line");
-  });
-  let rec = openRecord({ job: "b".repeat(32), uid: "u1", slug: "pl-pure", op: "edit", run: "run_1", at: 1000, words: "w" });
-  rec = appendMark(rec, { stage: "applied", at: 1200, facts: [{ state: "applied", text: "Changed in the site's database: price." }] }).rec;
-  const ended = closeRecord(rec, "ended", 2000);
-  assert.ok(lateNeeded(ended));
-  const c = claimWriter(ended, "w1", 3000);
-  const gone = failLate(c.rec, { owner: "w1", why: "replied", now: 3100, final: true });
-  assert.ok(gone && gone.retry === false);
-  assert.equal(lateNeeded(gone.rec), false, "a late line given up for good was still owed — a writer would be asked again and again");
-  assert.equal(claimWriter(gone.rec, "w2", 3200), null);
 });
 
 test("LATE 5 — a late summary is never shown as live progress: the browser's reader keeps it marked late, and the list never draws it as the live line, even on a card still running (the canary's live check reads `li.live`)", async () => {

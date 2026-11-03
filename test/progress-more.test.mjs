@@ -147,16 +147,6 @@ test("R3 A DRAFT IS NEVER SAID AS A PUBLISH — edits, add-ons and builds alike"
   assert.deepEqual(editBuildingFacts().map((f) => f.state), ["doing"]);
 });
 
-test("R3 THE WIRING: each part, the build wait and the draft save are marked, and the publish facts know a draft", () => {
-  assert.match(W, /eJob\.progress\.mark\("part", editStepStartFacts\(step, steps\.indexOf\(step\), steps\.length\)\)/, "a part is no longer said as it starts");
-  assert.match(W, /done\.push\(\{ step, res, body, failed \}\);\s*\n(?:\s*\/\/.*\n)*\s*if \(steps\.length > 1 && eJob && eJob\.progress && eJob\.progress\.talk\) \{ try \{ eJob\.progress\.mark\("part-done", editStepFacts\(done\[done\.length - 1\]/, "a part's outcome is no longer said when it has one");
-  assert.match(W, /job\.progress\.mark\("building", editBuildingFacts\(\)\)/, "the build wait is silent again");
-  assert.match(W, /if \(act\.draft && job && job\.progress && job\.progress\.talk\) job\.progress\.mark\("saved", draftSavedFacts\(\)\)/, "a draft save is no longer said");
-  assert.match(W, /editPublishFacts\(done, \{ draft: draftFirst\(env\) \}\)/, "an edit's publish facts no longer know a draft");
-  assert.match(W, /addonPublishFacts\(aPendingPhotos, \{ draft: draftFirst\(env\) \}\)/, "an add-on's publish facts no longer know a draft");
-  assert.match(W, /mark\?\.\("container", draftFirst\(env\) \? \{ draft: 1 \} : undefined\)/, "a build's container step no longer knows a draft");
-});
-
 // ── ROUND 4: THE BUTTONS TALK (owner chose "B") ─────────────────────────────
 import { actionFacts, actionContext, ACTION_KINDS } from "../builder/site-progress.mjs";
 const CHATJS = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");

@@ -16,7 +16,7 @@ import {
   navSlots, actionSlots, navDigest, readNav, navReply, runNavEdit, NAV_TOOL,
   chromeListSlots, applyChromeList,
 } from "../builder/site-nav.mjs";
-import { ASK_TOOL } from "../builder/site-ask.mjs";
+import { ASK_TOOL } from "../builder/route-shared.mjs";
 import { COMPONENT_TYPES } from "../builder/component-api.mjs";
 
 const ROUTES = path.join(import.meta.dirname, "../builder/lovable/template/src/routes");
@@ -244,14 +244,6 @@ test("a contact answer that changes nothing is reported, not published", async (
   assert.match(out.msg, /already/);
 });
 
-test("the Worker forwards which fields moved, and not the values", () => {
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "../worker.js"), "utf8");
-  const nav = worker.slice(worker.indexOf('if (eLayer === "nav")'), worker.indexOf('if (eLayer === "picture")'));
-  assert.ok(nav.length > 500, "the nav branch could not be sliced out");
-  assert.match(nav, /contact:\s*nOut\.contact\s*\?\s*Object\.keys\(nOut\.contact\)/,
-    "the nav branch does not forward `contact`, or forwards the customer's own values");
-});
-
 // THE `nav` CLAUSE, WINDOWED FROM ITS OWN NAME TO THE NEXT LAYER'S — and the
 // closing landmark is searched FROM the opening one, which is what this helper
 // exists for.
@@ -400,13 +392,6 @@ test("runNavEdit applies a list answer and says what the footer has now", async 
     [{ network: "facebook", href: "https://facebook.com/x" }]);
   assert.match(out.msg, /1 social link/);
   assert.doesNotMatch(out.msg, /facebook\.com/, "the reply prints the customer's own address back");
-});
-
-test("the Worker forwards the list counts, and not the addresses", () => {
-  const worker = fs.readFileSync(path.join(import.meta.dirname, "../worker.js"), "utf8");
-  const nav = worker.slice(worker.indexOf('if (eLayer === "nav")'), worker.indexOf('if (eLayer === "picture")'));
-  assert.match(nav, /lists: nOut\.lists/, "the nav branch does not forward `lists`");
-  assert.match(nav, /\[k, v\.length\]/, "the nav branch forwards the entries rather than their counts");
 });
 
 test("the router sends the socials and the small print to the nav lane", () => {

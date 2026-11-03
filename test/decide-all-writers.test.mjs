@@ -62,15 +62,6 @@ test("a widening carries who sees the table now, and the question's facts name t
   assert.equal(wideningFacts([], []).skip, "unreadable");
 });
 
-test("the rules step's widening question is worded by the writer, its options kept structured", () => {
-  const fn = between(W, "async function wideningQuestion(", "// ── THE SITE'S LIVE QUESTION");
-  assert.match(fn, /wideningFacts\(widening, ask\.options\)/);
-  assert.match(fn, /writeReply\(/);
-  assert.match(fn, /\{ \.\.\.ask, text: out\.text\.trim\(\) \}/, "the options are not kept as the step's own");
-  assert.match(fn, /: ask;/, "no fallback to the code's question");
-  assert.match(W, /stepAsk\("rules", Array\.isArray\(rOut\.widening\)[^\n]*await wideningQuestion\(env, \{ ask: rOut\.ask, widening: rOut\.widening/, "the rules step does not reach the writer");
-});
-
 // ── 3. The draft media move ────────────────────────────────────────────────
 test("a file left behind by the move is told from facts, by name and why", () => {
   const F = { out: [], add(kind, text) { this.out.push({ kind, text }); } };

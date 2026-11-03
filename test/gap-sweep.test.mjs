@@ -9,7 +9,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { CASES, chooseCases, tinyPng, tinyPngDataUrl } from "../scripts/gap-sweep.mjs";
 import { CASES as LANE_CASES, confirmed } from "../scripts/lane-sweep.mjs";
-import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { EDIT_LAYERS } from "../builder/route-shared.mjs";
 import { PAGE_VERBS } from "../builder/site-lanes.mjs";
 
 const SRC = readFileSync(new URL("../scripts/gap-sweep.mjs", import.meta.url), "utf8");

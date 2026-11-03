@@ -23,7 +23,7 @@ import {
   repeatOf, contextBlock, withContext, reuseNote, againNote, appendAnswer, clarifyTransport, clarifyCall,
 } from "../builder/clarify.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
-import { routeMessage, readRouting, readAsk, askRequest, ASK_TOOL, LIVE_ASK_TOOL, MAX_MESSAGE } from "../builder/site-ask.mjs";
+import { readAsk, ASK_TOOL, LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
 import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
 import { pickTool as lanePickTool, pickLanes, editTool, LANE_FIELDS, OWN_LANES, takeOffTool, runLane, runTakeOff } from "../builder/site-lanes.mjs";
 import { TEXT_TOOL, DATA_TOOL, runTextEdit, runDataEdit } from "../builder/site-apply.mjs";
@@ -362,143 +362,10 @@ const FB_REPLIES = {
 };
 const h16 = (v) => crypto.createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 16);
 
-test("THE FIRST BUILD IS UNCHANGED, BYTE FOR BYTE: the router's request and its reading of every answer match the commit before this change", async () => {
-  let n = 0;
-  for (const c of FB_CASES) {
-    for (const [rn, input] of Object.entries(FB_REPLIES)) {
-      let sent = null;
-      const send = async (req) => { sent = req; return { stop_reason: "tool_use", content: [{ type: "tool_use", name: ASK_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } }; };
-      const r = await routeMessage({ send }, { ...c.in, model: "test-model" });
-      const key = c.name + " | " + rn;
-      assert.equal(h16(sent) + " " + h16(r), FIRST_BUILD[key], key + ": the first build's routing changed");
-      assert.equal(sent.tools[0], ASK_TOOL, key + ": a project with no site was sent the live tool");
-      n++;
-    }
-  }
-  assert.equal(n, Object.keys(FIRST_BUILD).length, "the pin and the cases drifted apart");
-});
-
 // ── THE ROUTER ON A SITE THAT EXISTS ────────────────────────────────────────
 
 const LIVE_SITE = { name: "Fold Lane", url: "https://fold-lane-bakery.gofarther.app", pages: ["/", "/visit"], tables: ["loaves"] };
 const said = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: LIVE_ASK_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
-// `canAsk` IS THE ROUTE'S WORD THAT A QUESTION CAN BE KEPT (2026-10-02): a
-// site that exists, with an address and a store. Every case here has one
-// unless it says otherwise.
-async function liveRoute(input, opts = {}) {
-  let sent = null;
-  const r = await routeMessage({ send: async (req) => { sent = req; return said(input); } },
-    { message: "Change the heading", site: LIVE_SITE, hasSite: true, firstBuild: false, model: "test-model", canAsk: true, ...opts });
-  return { r, sent };
-}
-
-test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT, and is shown what they already told us about the waiting request — however many answers it carries", async () => {
-  const fresh = await liveRoute({ intent: "edit", layer: "text" });
-  assert.equal(fresh.sent.tools[0], LIVE_ASK_TOOL, "a live site was not sent the live tool");
-  const props = LIVE_ASK_TOOL.input_schema.properties;
-  assert.ok(props.question && props.answered, "the live tool has no question or no answered field");
-  assert.deepEqual(props.question.required, ["text"], "a question must carry answers to be asked");
-  const told = String(fresh.sent.messages[0].content);
-  assert.match(told, /A QUESTION MAY BE ASKED/);
-  assert.doesNotMatch(told, /more questions? about this request/, "the router was told a count, so a later question could be words nobody can answer");
-  assert.doesNotMatch(told, /THEIR LAST REQUEST IS WAITING/, "a fresh message was told a request is waiting");
-  assert.doesNotMatch(told, /ALREADY ASKED|WHAT THEY ALREADY TOLD YOU/, "a fresh request was told it had asked something");
-  // A REQUEST THAT HAS BEEN ANSWERED: what they told us, under the waiting request, never asked again.
-  const context = [{ q: "Which heading?", a: "The top one" }, { q: "On which page?", a: "Visit" }];
-  const pending = { request: "Change the heading", question: { text: "Bigger by how much?", options: [] } };
-  const later = await liveRoute({ intent: "edit", layer: "text" }, { context, pending });
-  const laterTold = String(later.sent.messages[0].content);
-  assert.match(laterTold, /A QUESTION MAY BE ASKED/, "a third question was closed off");
-  assert.ok(laterTold.includes(contextBlock(context)), "the router was not shown what they already told us");
-  assert.match(laterTold, /Never ask what they already answered under WHAT THEY ALREADY TOLD YOU\./);
-  assert.ok(laterTold.indexOf("They asked: Change the heading") < laterTold.indexOf(CONTEXT_HEADING), "the answers are not shown under the request they belong to");
-  assert.match(laterTold, /when it does not settle what you asked, ask them a more specific question that names exactly what it left open/);
-  // A FRESH MESSAGE is shown no answers, whatever a caller sends.
-  const stray = await liveRoute({ intent: "edit", layer: "text" }, { context });
-  assert.doesNotMatch(String(stray.sent.messages[0].content), /WHAT THEY ALREADY TOLD YOU/, "a fresh message was shown answers of a request it does not resume");
-  // AT THE TOTAL-ANSWER LIMIT A QUESTION IS STILL OFFERED (2026-10-03, the owner's
-  // third review): closing questions there told the router to act on a guess.
-  for (const n of [MAX_ASKED - 1, MAX_ASKED]) {
-    const full = Array.from({ length: n }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
-    const atLimit = String((await liveRoute({ intent: "edit", layer: "text" }, { context: full, pending })).sent.messages[0].content);
-    assert.match(atLimit, /A QUESTION MAY BE ASKED/, "a request carrying " + n + " answers was not offered a question");
-    assert.doesNotMatch(atLimit, /Questions are closed/, "a request carrying " + n + " answers was told questions are closed — permission to act on a guess");
-  }
-  // WHERE NONE CAN BE KEPT, NONE MAY BE ASKED.
-  const closed = await liveRoute({ intent: "edit", layer: "text" }, { canAsk: false });
-  assert.match(String(closed.sent.messages[0].content), /Questions are closed for this message — never answer "clarify"/);
-});
-
-test("THE ROUTER ASKS: a readable question is the answer; an unreadable one, or one where none can be kept, is a technical failure that charges nothing — never words nobody can answer", async () => {
-  const asks = await liveRoute({ intent: "clarify", question: Q });
-  assert.equal(asks.r.intent, "clarify");
-  assert.deepEqual(json(asks.r.question), Q);
-  assert.ok(asks.r.usage, "the routing call that asked was not billed like any other");
-  assert.notEqual(asks.r.failed, true);
-  for (const question of [{ text: "" }, { options: ["A", "B"] }, "Which?", null, undefined]) {
-    const bad = await liveRoute({ intent: "clarify", question });
-    assert.equal(bad.r.failed, true, JSON.stringify(question) + ": an unusable question was acted on");
-    assert.equal(bad.r.usage, null, JSON.stringify(question) + ": an unusable question was charged");
-    assert.equal(bad.r.failure && bad.r.failure.kind, "answer");
-  }
-  const nowhere = await liveRoute({ intent: "clarify", question: Q }, { canAsk: false });
-  assert.equal(nowhere.r.failed, true, "a question nothing can keep was used: " + JSON.stringify(nowhere.r));
-  assert.equal(nowhere.r.usage, null, "a question nothing can keep was charged");
-  assert.notEqual(nowhere.r.intent, "ask", "a question nothing can keep was said as words");
-  assert.ok(nowhere.r.decision.reasons.includes("clarify-unkeepable"));
-});
-
-test("A MESSAGE BESIDE A WAITING QUESTION: the router says whether it answers it — a pressed answer always does — and a reply that says neither is a technical failure", async () => {
-  const pending = { request: "Change the heading", question: Q, chosen: false };
-  const yes = await liveRoute({ intent: "edit", layer: "text", answered: true }, { pending });
-  assert.equal(yes.r.answered, true);
-  const told = String(yes.sent.messages[0].content);
-  assert.match(told, /THEIR LAST REQUEST IS WAITING ON AN ANSWER/);
-  assert.ok(told.includes("Change the heading") && told.includes(Q.text) && told.includes("Visit"), "the router was not shown the waiting request, its question and its answers");
-  const no = await liveRoute({ intent: "addon", answered: false }, { pending });
-  assert.equal(no.r.answered, false, "a changed request was read as an answer");
-  const chosen = await liveRoute({ intent: "edit", layer: "text", answered: false }, { pending: { ...pending, chosen: true } });
-  assert.equal(chosen.r.answered, true, "a pressed answer was read as a changed request");
-  assert.match(String(chosen.sent.messages[0].content), /They picked one of those answers/);
-  for (const answered of [undefined, "yes", 1, null]) {
-    const unread = await liveRoute({ intent: "edit", layer: "text", ...(answered === undefined ? {} : { answered }) }, { pending });
-    assert.equal(unread.r.failed, true, JSON.stringify(answered) + ": an answer the router did not settle was acted on");
-    assert.equal(unread.r.usage, null, JSON.stringify(answered) + ": it was charged");
-  }
-});
-
-// A QUESTION ABOUT THE SITE IS NOT AN ANSWER (2026-10-23, audit A35-5): an
-// `ask` reply the router marks answered:true closed the waiting question and,
-// for a request part, marked the part done without its work.
-test("A35-5 a side question read as answered:true is a side question: the waiting question is not answered by it", async () => {
-  const pending = { request: "Add our Instagram link to the footer", question: Q, chosen: false };
-  const side = await liveRoute({ intent: "ask", answered: true, answer: "Yes, that format works." }, { pending });
-  assert.notEqual(side.r.failed, true, JSON.stringify(side.r));
-  assert.equal(side.r.intent, "ask");
-  assert.equal(side.r.answered, false, "a question about the site answered the waiting question");
-  // The control: an edit that answers still answers.
-  const yes = await liveRoute({ intent: "edit", layer: "text", answered: true }, { pending });
-  assert.equal(yes.r.answered, true);
-});
-
-test("A CLEAR REQUEST GOES STRAIGHT THROUGH, with nothing about questions on its answer", async () => {
-  const r = (await liveRoute({ intent: "edit", layer: "text" })).r;
-  assert.equal(r.intent, "edit");
-  assert.equal(r.layer, "text");
-  assert.equal(r.answered, undefined);
-  assert.equal(r.question, undefined);
-  assert.notEqual(r.failed, true);
-});
-
-test("A LIVE SITE'S QUESTION IS NEVER TURNED INTO ADD-ON WORK — the first build's clarify-closed answer is the live tool's question", async () => {
-  // Before this change a live site's clarify was closed and read as an add-on
-  // (`clarify-closed` → addon): the question became paid work. Now it is asked.
-  const r = (await liveRoute({ intent: "clarify", question: { text: "Which footer?" } })).r;
-  assert.equal(r.intent, "clarify");
-  assert.notEqual(r.intent, "addon");
-  const reasons = r.decision ? r.decision.reasons : [];
-  assert.ok(!reasons.includes("clarify-closed"), "a live question was closed into an add-on");
-});
 
 // ── EVERY STEP CAN ASK, AND A STEP THAT ASKS CHANGES NOTHING ────────────────
 

@@ -40,14 +40,6 @@ test("S2-3: ended parts never count, and an unreadable record is open", () => {
   assert.equal(othersOpenIn({}, 0), true);
 });
 
-test("S2-3: the Worker's othersOpen asks othersOpenIn", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const a = src.indexOf("async function othersOpen(");
-  const b = src.indexOf("async function turnStillMine(", a);
-  assert.ok(a > 0 && b > a, "both landmarks");
-  assert.match(src.slice(a, b), /return othersOpenIn\(rec, request\.part\);/);
-});
-
 // AUDIT A02-3 (2026-10-23): a routing job whose request record could not be
 // read kept `holds: true` and waited for, then held, the site's publish turn
 // through its model call. A routing writes nothing; it is told by its own

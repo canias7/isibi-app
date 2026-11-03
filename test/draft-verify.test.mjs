@@ -108,47 +108,6 @@ function ioOf(P) {
   };
 }
 
-test("DV3 SEND → PUBLISH → RECOVERY ON REAL EVIDENCE — one message held as a draft revision (isolation, the preview, money pass); then a row change saved after; Publish of the page revision passes with the later revision kept out and the repeat `already`; recovery passes; with the switch OFF the same send is refused before anything is sent", async () => {
-  const { P, db, compiler } = bakery();
-  try {
-    // A LIVE SITE, published once with the switch off.
-    const io = ioOf(P);
-    const first = await callP(P, "POST", "/api/site/route", { message: "Change our TikTok link on the Visit page to @harbourloaf.", slug: P.slug, picker: "sonnet", hasSite: true, firstBuild: false, picked: false, history: [], files: [], brief: "x", qa: [], answering: false, idem: "rq" + "ab".repeat(10) });
-    assert.equal(first.status, 200, JSON.stringify(first.body));
-    for (let i = 0; i < 8; i++) await io.sleep();
-    // THE NEGATIVE: the switch still off — the send is refused, nothing sent.
-    const sends0 = P.modelLog.length;
-    const off = await runDraftVerify({ mode: "send", slug: P.slug, picker: "sonnet", spend: "yes", maxCredits: 20, message: "Change the Visit page heading to Come and see us.", expectRevisions: 1, expectHeld: [] }, io);
-    assert.equal(off.exit, 2, JSON.stringify(off.verdict));
-    assert.match(off.refused.join(), /DRAFT_FIRST must read on/);
-    assert.equal(P.modelLog.length, sends0, "a refused send reached a model");
-
-    P.env.DRAFT_FIRST = "on";
-    P.env.IMAGE_PURCHASES = "off";
-    const sent = await runDraftVerify({ mode: "send", slug: P.slug, picker: "sonnet", spend: "yes", maxCredits: 20, message: "Change the Visit page heading to Come and see us.", expectRevisions: 1, expectHeld: [] }, io);
-    for (const k of ["isolation.pointer", "isolation.liveScript", "isolation.draft", "preview.preview", "money"]) assert.equal(sent.checks[k] && sent.checks[k].verdict, "pass", k + ": " + JSON.stringify(sent.checks[k]) + " " + JSON.stringify(sent.refused));
-    assert.equal(sent.checks["switch.draftFirst.jobObserved"].verdict, "unverified", "the container's observed switch was passed without a probe");
-    assert.notEqual(sent.exit, 1, JSON.stringify(sent.verdict));
-
-    // A ROW CHANGE SAVED AFTER: a later revision the approval must keep out.
-    const rowSent = await runDraftVerify({ mode: "send", slug: P.slug, picker: "sonnet", spend: "yes", maxCredits: 20, message: "Make the Dark Rye £5.60.", expectRevisions: 1, expectHeld: ["row"] }, io);
-    assert.equal(rowSent.checks["isolation.held"].verdict, "pass", JSON.stringify(rowSent.checks));
-    const revs = rowSent.readings.draftAfter.revisions;
-    const pageRev = revs[revs.length - 2].revision;
-    const pub = await runDraftVerify({ mode: "publish", slug: P.slug, publish: "yes", revision: pageRev }, io);
-    for (const k of ["publish.answer", "publish.pointer", "publish.liveScript", "publish.journal", "publish.drafted", "publish.later", "publish.repeat", "money"]) assert.equal(pub.checks[k] && pub.checks[k].verdict, "pass", k + ": " + JSON.stringify(pub.checks[k]));
-    assert.equal(Number(db.rows("loaves").find((l) => l.id === 2).price), 5.2, "the later row revision went live with the earlier approval");
-    const rec = await runDraftVerify({ mode: "recovery", slug: P.slug }, io);
-    for (const k of ["recovery.notes", "recovery.journal", "recovery.aligned"]) assert.equal(rec.checks[k].verdict, "pass", k + ": " + JSON.stringify(rec.checks[k]));
-    // PUBLISH WITHOUT ITS OPT-IN: refused, nothing published.
-    const live = P.readObj("current/" + P.slug + ".json");
-    const no = await runDraftVerify({ mode: "publish", slug: P.slug, publish: "", revision: revs[revs.length - 1].revision }, io);
-    assert.equal(no.exit, 2);
-    assert.equal(P.readObj("current/" + P.slug + ".json"), live, "a refused publish moved the pointer");
-    await P.settle();
-  } finally { P.close(); compiler.uninstall(); }
-});
-
 // ── DV4 ─────────────────────────────────────────────────────────────────────
 
 test("DV4 MEDIA — a recording replaced under draft-first through the real routes is held; the live address plays the original and the preview the replacement; with mutate not yes nothing is written", async () => {

@@ -110,58 +110,6 @@ const PAGES = (source) => ({ pages: [{ path: "src/routes/index.tsx", source }], 
 const repairAsks = (r) => r.prompts.filter((p) => p.includes("WHY THE PAGE DID NOT COMPILE"));
 const taken = (r) => r.debits.reduce((a, n) => a + n, 0);
 
-test("EDIT PAGE RUNG: a page that did not compile is repaired once, recompiled, published, and charged", async () => {
-  const r = await drive({
-    answers: { [TWEAK_TOOL.name]: [{ cannot: "too large" }, { source: FIXED }], [SITE_PAGES_TOOL.name]: PAGES(BROKEN) },
-    compiler: { failFirst: 1, error: ERR },
-  });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.ok, true);
-  assert.equal(r.compiles, 2, "the failed compile and the repaired one");
-  assert.equal(r.sent[0], BROKEN);
-  assert.equal(r.sent[1], FIXED, "the second compile did not carry the correction");
-  assert.equal(r.stored, FIXED, "the store does not hold the repaired page");
-  const asks = repairAsks(r);
-  assert.equal(asks.length, 1, "one repair request");
-  assert.ok(asks[0].includes("missingName"), "the compiler's message did not reach the writer");
-  assert.deepEqual(r.body.compileRepaired.pages, ["index.tsx"]); assert.equal(r.body.compileRepaired.rounds, 1); assert.ok(r.body.compileRepaired.charged > 0);
-  // CHARGED, because it fixed the build: more than the same edit with no repair.
-  const plain = await drive({ answers: { [TWEAK_TOOL.name]: { cannot: "too large" }, [SITE_PAGES_TOOL.name]: PAGES(FIXED) }, compiler: {} });
-  assert.equal(plain.body.ok, true);
-  assert.ok(taken(r) > taken(plain), "the repair was not charged: " + taken(r) + " vs " + taken(plain));
-  assert.equal(r.body.cost, taken(r), "the reply's cost is not what was taken");
-});
-
-test("EDIT: a second round is fed the SECOND compile's error and fixes it", async () => {
-  const r = await drive({
-    answers: { [TWEAK_TOOL.name]: [{ cannot: "too large" }, { source: BROKEN2 }, { source: FIXED }], [SITE_PAGES_TOOL.name]: PAGES(BROKEN) },
-    compiler: { failFirst: 2, error: ERR },
-  });
-  assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(r.compiles, 3);
-  assert.deepEqual(r.sent, [BROKEN, BROKEN2, FIXED]);
-  const asks = repairAsks(r);
-  assert.equal(asks.length, 2);
-  assert.ok(asks[1].includes("otherName") || asks[1].includes("data-y"), "round two was not handed round one's page");
-  assert.deepEqual(r.body.compileRepaired.pages, ["index.tsx"]); assert.equal(r.body.compileRepaired.rounds, 2);
-});
-
-test("EDIT: still failing after two rounds ends as today's refusal, and the rounds are not charged", async () => {
-  const control = await drive({ answers: { [TWEAK_TOOL.name]: { cannot: "too large" }, [SITE_PAGES_TOOL.name]: PAGES(BROKEN) }, compiler: { ok: false, error: ERR } });
-  const r = await drive({
-    answers: { [TWEAK_TOOL.name]: [{ cannot: "too large" }, { source: BROKEN2 }, { source: BROKEN2.replace("otherName", "thirdName") }], [SITE_PAGES_TOOL.name]: PAGES(BROKEN) },
-    compiler: { ok: false, error: ERR },
-  });
-  assert.equal(r.body.ok, false);
-  assert.equal(r.body.error, control.body.error);
-  assert.equal(r.status, control.status);
-  assert.equal(r.compiles, 1 + MAX_ROUNDS, "bounded at two recompiles");
-  assert.equal(control.compiles, 1, "a refused repair compiles nothing more");
-  assert.equal(r.stored, HOME);
-  assert.equal(taken(r), taken(control), "a repair that did not fix the build was charged");
-  assert.equal(r.body.compileRepaired, undefined);
-});
-
 test("EDIT: a killed container is ours — no repair round", async () => {
   const r = await drive({
     answers: { [TWEAK_TOOL.name]: [{ cannot: "too large" }, { source: FIXED }], [SITE_PAGES_TOOL.name]: PAGES(BROKEN) },
@@ -187,41 +135,6 @@ test("compileRepairRounds: asks the clock before every round, and stops at two",
   assert.equal(t.rounds, 1, "the second round ran with no time left");
   assert.equal(t.stopped, "time");
   assert.deepEqual(writtenPaths([{ path: "a.tsx", source: "1" }, { path: "b.tsx", source: "2" }], [{ path: "a.tsx", source: "1" }, { path: "b.tsx", source: "3" }, { path: "c.tsx", source: "" }]), ["b.tsx", "c.tsx"]);
-});
-
-// ── EVERY PUBLISH ENTRY POINT HAS THE REPAIR (the owner's guard) ────────────
-
-test("GUARD: every publish entry point reaches a compile repair", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // The seam: the default hook is applied when a caller brings none.
-  const seamAt = w.indexOf("async function recompileAndPublish(env, {");
-  const seamEnd = w.indexOf("\nasync function ", seamAt + 10);
-  assert.ok(seamAt > 0 && seamEnd > seamAt, "landmarks");
-  const seam = w.slice(seamAt, seamEnd);
-  assert.match(seam, /const compileHook = typeof onCompileFail === "function" \? onCompileFail\s*: seamCompileRepair\(env,/);
-  // NEVER SILENT (2026-10-24): a failure the hook is not offered says why.
-  assert.match(seam, /typeof compileHook !== "function" \? "no-hook"/);
-  assert.match(seam, /tm\("compile-repair", "skip", \{ why: skipWhy \}\)/);
-  // EVERY FILE: the parts ride with the pages and come back to `siteParts`.
-  assert.match(seam, /pages: hasParts \? withParts\(pages, siteParts\) : pages/);
-  assert.match(seam, /fix = await compileHook\(\{/);
-  // publishBeside hands everything back to the seam.
-  assert.match(w, /return await recompileAndPublish\(env, \{ \.\.\.opts, pages: r\.files, parts \}\)/);
-  assert.match(w, /const publishSpine = \(\.\.\.a\) => recompileAndPublish\(\.\.\.a\);/);
-  // Every call site: none turns the hook off.
-  const calls = [...w.matchAll(/(?:recompileAndPublish|publishSpine|publishBeside)\(env,[^;]*?\}\)/gs)].map((m) => m[0]);
-  assert.ok(calls.length >= 8, "too few publish call sites found: " + calls.length);
-  for (const c of calls) assert.ok(!/onCompileFail:\s*(?:null|false|undefined)/.test(c), "a call site turns the repair off: " + c.slice(0, 120));
-  // The edit path names the pages it wrote and bills the repair on its own bill.
-  assert.match(w, /pendingPublish\.touched = writtenPaths\(eSrcAt0, eSrc\); pendingPublish\.chargeRepair = \(usage\) => eCharge\(\.\.\.usage\);/);
-  // The add-on's own hook: two rounds through the same module.
-  assert.match(w, /aCompileRepair = await compileRepairRounds\(\{/);
-  // Builds: the only other compile entry point, `publishPages`, gets its repair dep unconditionally on by default.
-  assert.match(w, /compileRepair: buildRepairOn\(env\) \?/);
-  assert.match(w, /compileRepairRoom: \(\) =>/);
-  // And no other caller compiles code outside these two entry points.
-  const direct = [...w.matchAll(/new Request\("http:\/\/build\/build"/g)].length;
-  assert.ok(direct <= 2, "a new direct compile call appeared: " + direct);
 });
 
 // ── THE REPLY SAYS IT AS A FACT ─────────────────────────────────────────────

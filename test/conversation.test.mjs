@@ -18,7 +18,7 @@ import {
   readHistory, routerHistory, historyBlock, converseRequest, readConverse, converse, siteContextBlock, attachedBlock,
   CONVERSE_MAX_TOKENS, CONVERSE_SYSTEM, CAPABILITIES, HONESTY, HISTORY_TURNS, HISTORY_CHARS, ROUTER_HISTORY_TURNS,
 } from "../builder/site-converse.mjs";
-import { askRequest, ASK_MAX_TOKENS, RESOLVED_TOKENS } from "../builder/site-ask.mjs";
+
 import { echoTokens } from "../builder/input-budget.mjs";
 
 const ChatTalk = createRequire(import.meta.url)("../public/chat-talk.js");
@@ -52,18 +52,6 @@ test("the history block labels who said what, and says what was left out", () =>
   assert.equal(historyBlock({ turns: [], left: 0 }), "", "an empty conversation still writes a block");
 });
 
-test("the reply's call has its own ceiling, and the router's does not grow without a conversation", () => {
-  const req = converseRequest({ message: "Compare a booking page with an enquiry form", model: "m" });
-  assert.equal(req.max_tokens, CONVERSE_MAX_TOKENS);
-  assert.ok(CONVERSE_MAX_TOKENS > ASK_MAX_TOKENS * 2, "the reply has no more room than the router");
-  assert.equal(req.tools, undefined, "the reply's call is forced into a tool");
-  const plain = askRequest({ message: "hi", site: {} });
-  assert.equal(plain.max_tokens, ASK_MAX_TOKENS, "a routing call with no conversation grew");
-  const withTalk = askRequest({ message: "do that", site: {}, history: { turns: [{ role: "assistant", text: "I could add a gallery." }], left: 0 } });
-  // …and twice the longest shown turn, to restate it and copy held parts from it (2026-10-23, audit A36-3).
-  assert.equal(withTalk.max_tokens, ASK_MAX_TOKENS + RESOLVED_TOKENS + 2 * echoTokens("I could add a gallery."), "a routing call shown a conversation has no room to write the request out");
-});
-
 test("the reply is told how to answer: length to the question, small Markdown, no stock openings", () => {
   assert.match(CONVERSE_SYSTEM, /Match the length to the need/);
   assert.match(CONVERSE_SYSTEM, /as much as it needs to be genuinely useful/);
@@ -78,17 +66,6 @@ test("the reply is told what it knows and what it did NOT do", () => {
   assert.match(HONESTY, /never say or imply that you checked, looked at, tested, visited/);
   assert.match(HONESTY, /Never invent a page, a table, a feature, a file or a number/);
   assert.ok(CONVERSE_SYSTEM.includes(HONESTY) && CONVERSE_SYSTEM.includes(CAPABILITIES));
-});
-
-test("the capabilities say what is known, what is not offered, and to be honest about the rest", () => {
-  assert.match(CAPABILITIES, /NOT OFFERED today/);
-  assert.match(CAPABILITIES, /ANYTHING ELSE you are asked about is something you are not sure of/);
-  assert.match(CAPABILITIES, /never flatly say it is impossible when you only do not know/);
-  assert.doesNotMatch(CAPABILITIES, /It cannot do anything else/, "the blanket refusal is back");
-  // The router reads the same statement, so the two never describe two products.
-  // THE ROUTER HAS NO CAPABILITIES LIST (owner, 2026-11-02): it does not answer the owner.
-  assert.ok(!askRequest({ message: "hi", site: {} }).system[0].text.includes(CAPABILITIES), "the router describes the product again");
-  assert.doesNotMatch(askRequest({ message: "hi", site: {} }).system[0].text, /It cannot do anything else/);
 });
 
 test("the site is described from what was read, with no row, and what could not be read is said", () => {

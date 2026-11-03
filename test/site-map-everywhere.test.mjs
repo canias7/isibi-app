@@ -105,35 +105,6 @@ function enclosing(lines, i) {
   return "";
 }
 
-test("every model-call site in worker.js carries the site map or is named with a reason", () => {
-  const lines = SRC.split("\n");
-  const sites = [];
-  lines.forEach((l, i) => { if (CALL.test(l)) sites.push({ n: i + 1, line: l, fn: enclosing(lines, i) }); });
-  assert.ok(sites.length >= 30, "the observer found the call sites (" + sites.length + ")");
-  const used = new Set();
-  const bare = [];
-  for (const s of sites) {
-    if (/\bmapped(?:Send|Call)\(/.test(s.line)) continue;
-    const key = Object.keys(EXEMPT).find((k) => (k.includes(":") ? s.fn === k.split(":")[0] && s.line.includes(k.slice(k.indexOf(":") + 1)) : s.fn === k));
-    if (key) { used.add(key); continue; }
-    bare.push(s.n + " [" + s.fn + "] " + s.line.trim().slice(0, 120));
-  }
-  assert.deepEqual(bare, [], "model calls without the site map");
-  assert.deepEqual(Object.keys(EXEMPT).filter((k) => !used.has(k)), [], "every exemption still names a real call site");
-  const mapped = sites.filter((s) => /\bmapped(?:Send|Call)\(/.test(s.line)).length;
-  assert.ok(mapped >= 20, "mapped sites counted (" + mapped + ")");
-});
-
-test("the edit and add-on transports carry the map for every step and lane", () => {
-  const eq = SRC.split("\n").find((l) => /const eQuick = /.test(l));
-  const aq = SRC.split("\n").find((l) => /const aQuick = /.test(l));
-  assert.ok(eq && aq, "both transports found");
-  assert.match(eq, /mappedSend\(env, ownerSlug,/);
-  assert.match(aq, /mappedSend\(env, ownerSlug,/);
-  // The page writers of the edit and the add-on reach the model through pagesCall.
-  assert.equal((SRC.match(/mappedCall\(env, ownerSlug, "[a-z]+", pagesCall\(env\)/g) || []).length, 2);
-});
-
 test("the map read for a call is built from everything the site holds", () => {
   const at = SRC.indexOf("async function refreshSiteMap(");
   const end = SRC.indexOf("\n}\n", at);

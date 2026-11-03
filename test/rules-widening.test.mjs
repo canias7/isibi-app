@@ -109,12 +109,3 @@ test("readRules carries the quote only beside a read", () => {
   const { changes } = readRules(said({ tables: [{ table: "menu", maxRows: 3, readWords: "q" }] }), TABLES);
   assert.equal(changes[0].readWords, undefined);
 });
-
-test("the edit route hands the step the answers it is shown", () => {
-  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf("const rOut = await runRulesEdit(");
-  assert.ok(at > 0);
-  const end = src.indexOf("if (rOut.ask) return stepAsk(\"rules\"", at);
-  assert.ok(end > at);
-  assert.match(src.slice(at, end), /answers:\s*\(readContext\(eCtx\)/);
-});

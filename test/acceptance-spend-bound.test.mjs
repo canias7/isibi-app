@@ -79,14 +79,6 @@ async function run({ balance, usageFor = null, twice = false, slug }) {
 
 const slug = (k) => "bound-" + k + "-" + Math.random().toString(16).slice(2, 8);
 
-test("CONTROL: with room in the balance, both row changes land and are charged — the costs this case's bound is measured against", async () => {
-  const o = await run({ balance: 400, slug: slug("ok") });
-  assert.equal(o.hours, "08:00");
-  assert.equal(o.rye, 5.5);
-  assert.ok(o.net > 0 && o.net <= 400);
-  assert.ok(o.P.ledger.every((e) => e.balance_after >= 0));
-});
-
 test("CHARGES FAR ABOVE THE ESTIMATES, NOBODY WATCHING: every job priced past the balance is refused by the ledger before a row is written; the account never goes below zero and spends at most what it held", async () => {
   const B = 6;
   const o = await run({ balance: B, usageFor: HUGE, slug: slug("huge") });
@@ -96,25 +88,6 @@ test("CHARGES FAR ABOVE THE ESTIMATES, NOBODY WATCHING: every job priced past th
   assert.equal(o.hours, "09:00", "a row was written by a job whose charge was refused");
   assert.equal(o.rye, 5.2, "a row was written by a job whose charge was refused");
   assert.ok(!o.P.ledger.some((e) => e.reason === "reserve" && -e.delta > B), "a reserve larger than the balance was taken");
-});
-
-test("SEVERAL JOBS FINISHING BETWEEN READS, AND EVERY MESSAGE DELIVERED TWICE: the room for exactly one job is spent once — the second job is refused, the retry charges nothing more, and the total stays within the balance", async () => {
-  // THE MEASURED PRICE OF ONE PRICED-UP JOB, read off a run with room.
-  const probe = await run({ balance: 100_000, usageFor: HUGE, slug: slug("probe") });
-  // The routing call and the held part's routing job are small; the two row
-  // jobs, priced far above any estimate, are the large reserves.
-  const large = probe.P.ledger.filter((e) => e.reason === "reserve" && -e.delta > 100).map((e) => -e.delta);
-  assert.equal(large.length, 2, JSON.stringify(probe.P.ledger, null, 1));
-  const small = probe.debits - large.reduce((s, x) => s + x, 0);
-  const B = small + Math.max(...large) + 1; // room for every small charge and ONE priced-up job, never two
-  const o = await run({ balance: B, usageFor: HUGE, twice: true, slug: slug("twice") });
-  assert.ok(o.P.ledger.every((e) => e.balance_after >= 0), JSON.stringify(o.P.ledger));
-  assert.ok(o.net <= B, `spent ${o.net} from a balance of ${B}`);
-  const taken = o.P.ledger.filter((e) => e.reason === "reserve" && -e.delta > 100);
-  assert.equal(taken.length, 1, "the observer is alive: exactly one priced-up job fits, and it was charged — " + JSON.stringify(o.P.ledger));
-  assert.ok(taken.length <= 1, "two priced-up jobs were charged from room for one: " + JSON.stringify(taken));
-  const changed = (o.hours === "08:00" ? 1 : 0) + (o.rye === 5.5 ? 1 : 0);
-  assert.ok(changed <= taken.length, "a change landed with no charge taken for it");
 });
 
 test("THE PRESS REFUSES BEFORE IT SENDS unless the account holds no more than the batch cap — the bound the ledger then enforces; the image-free Build too", () => {

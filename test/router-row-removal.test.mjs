@@ -24,7 +24,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL, LIVE_ASK_TOOL, EDIT_LAYERS, REMOVABLE_LAYERS, readEdit } from "../builder/site-ask.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL, EDIT_LAYERS, REMOVABLE_LAYERS } from "../builder/route-shared.mjs";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
 const P = ASK_TOOL.input_schema.properties;
@@ -185,52 +185,3 @@ async function route(answer) {
   }
 }
 const PRESS = readExpectRoute("intent=edit layer=data alsoAsked=none");
-
-test("the router is sent the rule and the tables it points at", async () => {
-  const r = await route({ intent: "edit", layer: "data" });
-  assert.equal(r.status, 200);
-  assert.equal(r.router.length, 1, "the router was not asked exactly once");
-  const sent = r.router[0];
-  const tool = (sent.tools || []).find((t) => t && t.name === ASK_TOOL.name);
-  assert.ok(tool, "the routing tool is not in the request");
-  // THE REQUEST AS IT LEFT, not the module's constant.
-  const layer = tool.input_schema.properties.layer.description;
-  // THE LIVE TOOL'S ONE REMOVAL RULE (2026-10-25, router-b1): a stored row is
-  // `data`'s, said in the data clause and as one of look's three owners.
-  assert.equal(layer, LIVE_ASK_TOOL.input_schema.properties.layer.description);
-  assert.match(layer, /"data" — [^\n]*It also deletes an existing row taken off a list/);
-  assert.match(layer, /Three removals have their own owner instead: a whole page \("page" with `remove`\), a row the site stores \("data"\)/);
-  assert.match(layer, /and taking something off \(not a stored row\)/, "look's reach in the request still claims a stored row");
-  // "The tables named above" has a referent in the same request.
-  assert.match(String(sent.messages[0].content), /Its database tables are: workshops, bookings\./);
-});
-
-test("the answer the rule asks for goes on as a data edit, and the prepared press would post it", async () => {
-  const r = await route({ intent: "edit", layer: "data" });
-  assert.equal(r.body.intent, "edit");
-  assert.equal(r.body.layer, "data");
-  assert.ok(!r.body.remove, "a data answer carries the page removal flag");
-  assert.ok(!r.body.alsoAsked, "a single row removal was held back");
-  assert.ok(PRESS.ok);
-  assert.deepEqual(routeVerdict(PRESS.expect, r.body), { ok: true, diffs: [] });
-  // A removal flag the model sets anyway is dropped for `data`: the data step
-  // decides which row goes, never a flag on the routing answer.
-  assert.deepEqual(readEdit({ layer: "data", remove: true }, ["/"]), { intent: "edit", answer: "", layer: "data" });
-});
-
-test("the answer the old wording invited is refused by the prepared press before anything is posted", async () => {
-  const r = await route({ intent: "edit", layer: "look" });
-  assert.equal(r.body.layer, "look");
-  const v = routeVerdict(PRESS.expect, r.body);
-  assert.equal(v.ok, false, "the press's route check would post a look answer for a row removal");
-  assert.deepEqual(v.diffs.map((d) => d.key), ["layer"]);
-});
-
-test("controls: a whole page and every other removal keep their answers", () => {
-  // A whole page is still `page` with its flag.
-  assert.deepEqual(readEdit({ layer: "page", page: "/workshops", remove: true }, ["/", "/workshops"]).remove, true);
-  // A removal on a door layer still carries its flag to the lane door.
-  for (const layer of ["picture", "nav", "logo"]) {
-    assert.equal(readEdit({ layer, remove: true }, ["/"]).remove, true, layer + " lost its removal flag");
-  }
-});

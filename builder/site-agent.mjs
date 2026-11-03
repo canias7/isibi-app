@@ -1481,14 +1481,12 @@ export function sendStoppable(deps, req) {
 export const AGENT_TAKES_ALL = true;
 
 /**
- * Whether it takes this request: always, except under the unit suite's
- * `GF_OLD_LANES=1` (package.json's test script), which keeps the older
- * steps' tests running against the save, draft and publish code they share
- * with the agent. Never a deploy setting: a Worker has no such variable.
+ * Whether it takes this request: always (2026-11-03, park-old-way). The older
+ * steps and the suite's `GF_OLD_LANES=1` that kept them running are parked
+ * (parked/old-way/README.md); nothing live asks this any more.
  */
 export function agentTakes() {
-  const p = globalThis.process;
-  return !(AGENT_TAKES_ALL !== true || (p && p.env && p.env.GF_OLD_LANES === "1"));
+  return AGENT_TAKES_ALL === true;
 }
 
 

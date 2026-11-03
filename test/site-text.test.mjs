@@ -388,30 +388,6 @@ test("one link is reported once even when several edits match it", () => {
   assert.equal(out.length, 1);
 });
 
-test("the text lane carries it and the client says it", () => {
-  // Computed and rendered by nothing is this repo's most-recorded failure.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // DERIVED, not pinned to today's spelling: whatever else the Worker imports
-  // from this module, it must import the name it calls, or the text path is a
-  // ReferenceError. This test caught exactly that — my first edit targeted an
-  // import line that does not exist and the name was never brought in.
-  const imp = w.match(/import \{([^}]*)\} from "\.\/builder\/site-text\.mjs"/);
-  assert.ok(imp, "the Worker imports the text module");
-  assert.ok(imp[1].split(",").map((x) => x.trim()).includes("staleContactLinks"),
-    "the Worker must import the name it calls: " + imp[1]);
-  assert.match(w, /const staleTel = staleContactLinks\(eMail\.pages, out\.edits\)/);
-  assert.match(w, /staleTel: staleTel\.length \? staleTel\.slice\(0, 4\) : undefined,/);
-  const c = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  assert.match(c, /Array\.isArray\(e\.staleTel\)/);
-  // BOTH SENTENCES, AND KEYED ON THE SCHEME. With one sentence for both, a
-  // stale email link is reported as a Call link that "still dials"
-  // hello@cutlerrow.com — which reads as the builder having lost track of what
-  // it changed. Found by mutation; the branch was covered by nothing.
-  assert.match(c, /the Call link still dials/);
-  assert.match(c, /the email link still sends to/);
-  assert.match(c, /\/\^mailto:\/\.test\(stale\[0\]\.href/);
-});
-
 test("A SHORT NUMBER IS NOT A PHONE NUMBER, and the minimum is what stops a false alarm", () => {
   // Found by mutation: my other cases (`£24.99`, `Since 1998`) could not
   // discriminate the guard, because no `tel:` in the fixture is short enough for

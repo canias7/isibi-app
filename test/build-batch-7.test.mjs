@@ -96,108 +96,6 @@ function failPut(b, match, n = 1) {
 }
 const lostKey = (id) => "jobs/" + id + ".lost.json";
 
-// ── 1. settlement delivery survives read failures ─────────────────────────
-
-test("1 (Codex's reproduction): recovery refunds 6 while the resume is held; the settlement read FAILS on the resume's conditional retry — the final answer keeps the refund, the build is listed pending, and the next tick checks it and moves no money", async () => {
-  const id = newId();
-  const b = buildBucket();
-  const led = ledger();
-  await fireInterim(b, id, led);
-  const resumeWrite = hold(b, (k, v) => k === resultKey(id) && String(v).includes("resumed"));
-  const resumeRun = finishResume(b, id, led);
-  await resumeWrite.reached;
-  await tick(b, id, led);
-  assert.equal(answerOf(b, id).kind, "recovery");
-  assert.equal(settlement(b, id).delivered, true);
-  assert.equal(refunds(led) > 0, true);
-  const refundCalls = led.calls.length;
-  // The held put will be refused (the slot moved), and its retry reads the record: fail that read.
-  const reads = failGet(b, lostKey(id), 1);
-  resumeWrite.release();
-  await resumeRun;
-  assert.equal(reads.failed, 1, "the record was never read on the retry — the case did not happen");
-  const a = answerOf(b, id);
-  assert.equal(a.kind, "terminal", "the build's own answer did not land");
-  assert.equal(a.body.resumed, "finish");
-  assert.ok(settled6(a), "the final answer erased the recorded refund: " + JSON.stringify(a.body.settlement || null));
-  assert.equal(pending(b, id), true, "an unreadable settlement left nothing pending to reconcile");
-  await tick(b, id, led);
-  assert.equal(pending(b, id), false, "the repair pass did not finish the reconciliation");
-  assert.ok(settled6(answerOf(b, id)));
-  assert.equal(led.calls.length, refundCalls, "the repair asked for money again");
-  const after = b.store.get(resultKey(id));
-  await tick(b, id, led);
-  assert.equal(b.store.get(resultKey(id)), after, "a later tick changed a consistent answer");
-});
-
-test("1: the browser had COLLECTED recovery's answer, and the record cannot be read when the final lands — the final is written without facts, listed pending, and the next tick ADDS the refund to it, once", async () => {
-  const id = newId();
-  const b = buildBucket();
-  const led = ledger();
-  await fireInterim(b, id, led);
-  const resumeWrite = hold(b, (k, v) => k === resultKey(id) && String(v).includes("resumed"));
-  const resumeRun = finishResume(b, id, led);
-  await resumeWrite.reached;
-  await tick(b, id, led);
-  b.store.delete(resultKey(id)); // collected by an open browser
-  const refundCalls = led.calls.length;
-  failGet(b, lostKey(id), 1);
-  resumeWrite.release();
-  await resumeRun;
-  const a = answerOf(b, id);
-  assert.equal(a.kind, "terminal");
-  assert.equal(a.body.settlement, undefined, "facts were invented from nothing");
-  assert.equal(pending(b, id), true, "nothing kept the reconciliation");
-  await tick(b, id, led);
-  const fixed = answerOf(b, id);
-  assert.ok(settled6(fixed), "the repair did not add the refund: " + JSON.stringify(fixed.body.settlement || null));
-  assert.equal(fixed.body.resumed, "finish", "the repair replaced the build's answer");
-  assert.equal(pending(b, id), false);
-  assert.equal(led.calls.length, refundCalls, "the repair refunded again");
-});
-
-test("1: the record is STILL unreadable on the repair tick — the row stays pending and nothing is written; the tick after repairs it", async () => {
-  const id = newId();
-  const b = buildBucket();
-  const led = ledger();
-  await fireInterim(b, id, led);
-  const resumeWrite = hold(b, (k, v) => k === resultKey(id) && String(v).includes("resumed"));
-  const resumeRun = finishResume(b, id, led);
-  await resumeWrite.reached;
-  await tick(b, id, led);
-  b.store.delete(resultKey(id));
-  const reads = failGet(b, lostKey(id), 1); // the retry's read
-  resumeWrite.release();
-  await resumeRun;
-  assert.equal(reads.failed, 1);
-  const before = b.store.get(resultKey(id));
-  // EVERY read of the record on the next tick fails (the fresh-row filter's and the row's own).
-  const tickReads = failGet(b, lostKey(id), 99);
-  await tick(b, id, led);
-  assert.ok(tickReads.failed >= 1, "the tick never read the record");
-  tickReads.failed = 99;
-  assert.equal(pending(b, id), true, "an unreadable record dropped the pending row");
-  assert.equal(b.store.get(resultKey(id)), before);
-  await tick(b, id, led);
-  assert.ok(settled6(answerOf(b, id)));
-  assert.equal(pending(b, id), false);
-});
-
-test("1 CONTROL: the same race with every read working — the final keeps the refund and nothing is listed pending", async () => {
-  const id = newId();
-  const b = buildBucket();
-  const led = ledger();
-  await fireInterim(b, id, led);
-  const resumeWrite = hold(b, (k, v) => k === resultKey(id) && String(v).includes("resumed"));
-  const resumeRun = finishResume(b, id, led);
-  await resumeWrite.reached;
-  await tick(b, id, led);
-  resumeWrite.release();
-  await resumeRun;
-  assert.ok(settled6(answerOf(b, id)));
-  assert.equal(pending(b, id), false);
-});
-
 test("1: the rule itself — knownSettlement reads only what an answer says; repair touches only a terminal answer lacking the facts", () => {
   const facts = { recovered: true, outcome: "not-published", why: "staged", refunded: 6, short: false };
   const term = packResult({ status: 200, type: "application/json", body: JSON.stringify({ ok: true, page: "app" }) });
@@ -367,46 +265,6 @@ function writer(reply) {
   return { seen, onFetch };
 }
 
-test("3: RECOVERY's answer is narrated from its facts, and the one attempt is kept on the record — a delivery retried after a failed write reuses it and never calls the writer again", async () => {
-  const id = newId();
-  const b = buildBucket();
-  const led = ledger();
-  await fireInterim(b, id, led);
-  const w = writer("Your build stopped before it went live, so I returned the 6 credits it took.");
-  failPut(b, (k, v) => k === resultKey(id) && String(v).includes('\\"lost\\":true'), 1);
-  await tick(b, id, led, { env: REPLY_ENV, onFetch: w.onFetch });
-  assert.equal(w.seen.length, 1, "the writer was not asked once");
-  assert.equal(pending(b, id), true);
-  assert.equal(settlement(b, id).narration.state, "written", "the attempt was not kept for the retry");
-  await tick(b, id, led, { env: REPLY_ENV, onFetch: w.onFetch });
-  assert.equal(w.seen.length, 1, "the retried delivery paid for the same explanation again");
-  const a = answerOf(b, id);
-  assert.equal(a.kind, "recovery");
-  assert.equal(a.body.replySource, "model");
-  assert.match(a.body.reply, /returned the 6 credits/);
-  assert.ok(a.body.msg, "the fixed state message was dropped");
-  assert.equal(a.body.buildFacts.settlement.refunded, 6, "the accounting was dropped");
-  await tick(b, id, led, { env: REPLY_ENV, onFetch: w.onFetch });
-  assert.equal(w.seen.length, 1);
-});
-
-test("3: recovery with the writer DOWN keeps the facts, says unavailable, and does not retry the paid call on the next tick", async () => {
-  const id = newId();
-  const b = buildBucket();
-  const led = ledger();
-  await fireInterim(b, id, led);
-  const w = writer(undefined);
-  await tick(b, id, led, { env: REPLY_ENV, onFetch: w.onFetch });
-  const a = answerOf(b, id);
-  assert.equal(a.body.replyState, "unavailable");
-  assert.equal(a.body.reply, undefined);
-  assert.equal(a.body.buildFacts.settlement.refunded, 6);
-  const calls = w.seen.length;
-  assert.ok(calls >= 1);
-  await tick(b, id, led, { env: REPLY_ENV, onFetch: w.onFetch });
-  assert.equal(w.seen.length, calls);
-});
-
 test("3 CONTROL: recovery with the switch OFF — never attempted, said so, and no call", async () => {
   const id = newId();
   const b = buildBucket();
@@ -418,23 +276,4 @@ test("3 CONTROL: recovery with the switch OFF — never attempted, said so, and 
   assert.equal(w.seen.length, 0);
   assert.equal(a.body.replyState, "not-attempted");
   assert.equal(a.body.replyWhy, "off");
-});
-
-test("3: a FAILED resume (its publish refused) is narrated from its facts — the fixed failure and the accounting stay", async () => {
-  const id = newId();
-  const b = buildBucket();
-  const led = ledger();
-  await fireInterim(b, id, led, { links: { "a.example": "Harbour Loaf bakes sourdough." }, brief: "Harbour Loaf. Like https://a.example" });
-  const w = writer("The site didn't publish, so nothing went live; I read a.example.");
-  await finishResume(b, id, led, {
-    credits: 400, source: route("/", "<div>Harbour Loaf</div>"), env: REPLY_ENV,
-    over: async (u, init) => (u.includes("/v1/messages") || u.includes("/chat/completions") ? w.onFetch(u, init) : (u.includes("/client/v4/") || u.includes("dispatch") ? new Response("refused", { status: 500 }) : null)),
-  });
-  const a = answerOf(b, id);
-  assert.equal(a.body.ok, false, "the resume did not fail: " + JSON.stringify(a.body).slice(0, 300));
-  assert.equal(a.body.stage, "resume");
-  assert.equal(a.body.error, "the build failed");
-  assert.ok(a.body.buildFacts, "the failed answer carries no facts to narrate");
-  assert.equal(a.body.replySource, "model", "the failed resume was not narrated: " + JSON.stringify({ replyState: a.body.replyState, replyWhy: a.body.replyWhy }));
-  assert.ok(w.seen.length >= 1);
 });

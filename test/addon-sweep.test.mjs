@@ -9,7 +9,7 @@ import { qrSvg } from "../builder/site-qr.mjs";
 import { healthImage } from "../builder/build-lane.mjs";
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, addLayer, MAX_MESSAGE, shownSchema } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
-import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { EDIT_LAYERS } from "../builder/route-shared.mjs";
 // The served page's bands, one copy shared with test/copy-design.test.mjs.
 import { SECOND_QUOTES, gridBand, page } from "./fixtures/testimonial-bands.mjs";
 
@@ -220,32 +220,6 @@ test("lostSentences reads the visible text: a sentence reworded, shortened or dr
     ["First lesson I walked out able to change between E and A without looking down."]);
   assert.deepEqual(lostSentences("Short. Also short.", "Nothing of it."), [], "a fragment under the floor counts as a sentence");
   assert.deepEqual(lostSentences(before, before.replace(/\s+/g, "   ")), [], "whitespace reads as a change");
-});
-
-test("the refusal cases are driven to refusals the route really emits, and the hop names a real edit layer", () => {
-  const b = W.slice(W.indexOf("\n          if (ad) {"), W.indexOf("\n          if (tx) {"));
-  assert.ok(b.length > 1000, "the addon block is gone");
-  for (const c of CASES.filter((x) => Array.isArray(x.mayRefuse))) {
-    for (const token of c.mayRefuse) assert.ok(b.includes('error: "' + token + '"'), c.name + ": the route never answers error " + token);
-  }
-  for (const c of CASES.filter((x) => x.hop)) {
-    assert.ok(EDIT_LAYERS.includes(c.hop), c.name + ": hops to a layer the edit route does not have");
-    assert.equal(addLayer(c.name), c.hop, c.name + ": the harness expects a different layer from the step's own");
-  }
-  // ── RE-ANCHORED 2026-09-17: THE HOP CASES ARE THE KINDS THAT HOP ALONE ───
-  //
-  // Each harness case posts ONE ask, so what it exercises is a kind on its own
-  // — and `PLACING_ADDS` joined `DISPATCHED_ADDS` in that answer: a photograph
-  // by itself is still the picture rung's, and one beside a page or a component
-  // is designed here because this step makes the slot. `addLayer` above is the
-  // right reader for exactly that reason (it answers what the KIND is), and
-  // `DISPATCHED_ADDS` alone is empty today, so pinning to it would have made
-  // this a comparison of two empty lists.
-  assert.deepEqual(CASES.filter((x) => x.hop).map((x) => x.name).sort(), [...DISPATCHED_ADDS, ...PLACING_ADDS].sort());
-  assert.ok(CASES.some((x) => x.hop), "no case hops any more — this block asserts nothing");
-  // And the refusal cases are kinds this step designs, which the sweep's site
-  // cannot take.
-  for (const c of CASES.filter((x) => Array.isArray(x.mayRefuse))) assert.ok(OWN_ADDS.includes(c.name) || PLACING_ADDS.includes(c.name));
 });
 
 test("the harness posts to the addon route, follows one hop to the edit route, and never touches the build route", () => {

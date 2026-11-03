@@ -9,7 +9,7 @@ import {
   brandColours, fontFamilies, findLogo, findPhotos, businessName, openingHours, contactDetails,
   placeImportedPhotos, importedImages, MAX_PAGES, MAX_PHOTOS, MAX_IMAGE_BYTES, MAX_PAGE_TEXT,
 } from "../builder/site-import.mjs";
-import { ASK_TOOL, readRouting } from "../builder/site-ask.mjs";
+
 import { loadWorkerModule } from "./fixtures/worker-harness.mjs";
 
 const HOME = `<!doctype html><html><head>
@@ -141,19 +141,6 @@ test("importSite refuses private addresses without fetching, and says why a site
   assert.equal((await importSite("https://gone.co.uk/", { fetchText: fakeSite({}, log) })).reason, "that page wasn't there");
   assert.equal((await importSite("https://img.co.uk/", { fetchText: fakeSite({ "https://img.co.uk/": { body: "x", ct: "image/png" } }, []) })).reason, "that address isn't a web page");
   assert.equal((await importSite("https://t.co.uk/", { fetchText: async () => { throw new Error("boom"); } })).ok, false, "never throws");
-});
-
-test("router: importSite is a typed field, read only on a build, checked against the message", () => {
-  assert.equal(ASK_TOOL.input_schema.properties.importSite.type, "string");
-  const reply = (input) => ({ content: [{ type: "tool_use", input }] });
-  assert.equal(readRouting(reply({ intent: "build", importSite: "https://foldlane.co.uk" }), {}).importSite, "https://foldlane.co.uk");
-  assert.equal(readRouting(reply({ intent: "ask", answer: "hi", importSite: "https://x.co.uk" }), {}).importSite, undefined);
-  const msg = "Please rebuild my site foldlane.co.uk but nicer";
-  assert.equal(readImportSite("foldlane.co.uk", msg), "https://foldlane.co.uk/");
-  assert.equal(readImportSite("https://www.foldlane.co.uk/", msg), "https://www.foldlane.co.uk/");
-  assert.equal(readImportSite("https://invented.co.uk/", msg), undefined, "an address the customer did not write is never fetched");
-  assert.equal(readImportSite("http://169.254.169.254/", "copy 169.254.169.254"), undefined);
-  assert.equal(readImportSite(["https://foldlane.co.uk"], msg), undefined, "a non-string is not coerced");
 });
 
 test("the brief block: THEIR CURRENT SITE with text, pages, colours, fonts and picture ids", () => {

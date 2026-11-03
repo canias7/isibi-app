@@ -222,21 +222,6 @@ test("the build/revise route guards the spec it applies", () => {
   assert.match(blanked.slice(call, call + 200), /editState\s*&&\s*editState\.tables/);
 });
 
-test("the rules lane may still change access, which is why the guard is not in applySiteSchema", () => {
-  // Stated as an assertion rather than a comment because it is the reason this
-  // fix lives at one call site instead of in the schema engine. A later "tidy-up"
-  // that clamps access inside `applySiteSchema` would silently break the one
-  // lane whose entire job is moving it, and nothing else would notice.
-  const rules = blanked.indexOf("applySiteSchema(rdb,");
-  assert.ok(rules > 0, "could not find the rules lane's apply");
-  const window = blanked.slice(Math.max(0, rules - 1200), rules);
-  // A NEGATIVE OVER A WINDOW IS TRIVIALLY TRUE OF NOTHING, so prove the window
-  // is really the rules lane's dep object before reading an absence from it.
-  assert.match(window, /apply:\s*async/, "the window is not the rules lane's own wiring");
-  assert.doesNotMatch(window, /keepStoredAccess\(/,
-    "the rules lane must NOT be guarded — changing access is what it is for");
-});
-
 test("the addon lane's allow-list names none of the access axes", () => {
   // Derived rather than restated: the two lanes have to agree about which fields
   // are the access question, and the addon lane expresses it as an allow-list of

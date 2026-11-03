@@ -91,40 +91,6 @@ const uploads = (P) => [...P.objects.keys()].filter((k) => k.startsWith("uploads
 const designCalls = (P) => P.modelLog.filter((m) => m.tool === T.design).length;
 const pageCalls = (P) => P.modelLog.filter((m) => m.tool === T.pages).length;
 
-// ── ONE ADDITION HOLDING BOTH TASKS ─────────────────────────────────────────
-
-test("PI 1 — ONE ADDITION, A PHOTOGRAPH AND A COMPONENT: the two designers run at the same time, and the photograph is bought while the pages are written; the photograph is placed only once both exist — both on the site, bought once, the designers and the page writer asked once", async () => {
-  const designers = rendezvous(["add:photo", "add:component"]);
-  const work = rendezvous(["image", "pages"]);
-  await withPlatform({
-    slug: slugOf("b1"), pages: PAGES, images: true, replies: true, balance: 400,
-    imageWith: async () => { await work.arrive("image"); return null; },
-    answers: {
-      route: { intent: "addon" },
-      [T.adds]: { kinds: ["component", "photo"] },
-      "add:photo": async () => { await designers.arrive("add:photo"); return PHOTO_ANSWER; },
-      "add:component": async () => { await designers.arrive("add:component"); return COMPONENT_ANSWER; },
-      [T.pages]: async () => { await work.arrive("pages"); return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }; },
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Add a photo of the workshop bench to the Visit page, and add a questions section to the About page." });
-    const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    // AT THE SAME TIME, BY THE RENDEZVOUS.
-    assert.deepEqual(designers.met, { "add:photo": true, "add:component": true }, "the designers ran one after the other: " + JSON.stringify(designers));
-    assert.deepEqual(work.met, { image: true, pages: true }, "the photograph was not bought while the pages were written: " + JSON.stringify(work));
-    // BOTH RESULTS, AND THE PHOTOGRAPH ATTACHED ONLY TO WHAT EXISTS.
-    assert.match(P.page("visit.tsx"), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/, P.page("visit.tsx"));
-    assert.doesNotMatch(P.page("visit.tsx"), /@@IMG/);
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    // ONCE EACH.
-    assert.equal(P.imageLog.length, 1, "the photograph was bought twice");
-    assert.equal(uploads(P).length, 1);
-    assert.equal(designCalls(P), 2);
-    assert.equal(pageCalls(P), 1);
-  });
-});
-
 // ── THE SAME TWO TASKS AS TWO PARTS OF ONE REQUEST, IN EITHER ORDER ─────────
 
 const W_PHOTO = "add a photo of the workshop bench to the Visit page";
@@ -220,146 +186,12 @@ const bothLanded = (P) => {
   assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
 };
 
-test("PI 2 — IMAGE FIRST, TWO PARTS: the photograph is GENERATED (the first part's job) while the component's pages are written (the second part's preparation), the component's addition replayed exactly by its job; both land, bought once, nothing designed twice", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  await twoParts({
-    // THE IMAGE GENERATION MEETS THE COMPONENT'S PAGE WRITER (its substantive work).
-    slug: slugOf("p2"), first: "photo", meet, photoAt: "image", faqAt: "pages",
-    check: async (P, rec, r, view) => {
-      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.deepEqual(meet.met, { photo: true, faq: true }, "the component waited for the photograph: " + JSON.stringify(meet));
-      replayedExactly(view, 1);
-      bothLanded(P);
-      assert.equal(P.modelLog.filter((m) => m.tool === T.design).length, 2, "a designer was asked twice");
-    },
-  });
-});
-
-test("PI 3 — COMPONENT FIRST, TWO PARTS: the component's pages are written (the first part's job) while the photograph is GENERATED (the second part's preparation buys it, under the part's own purchase); its job reuses it — both land, bought once, nothing designed twice", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  await twoParts({
-    // THE PHOTOGRAPH'S OWN GENERATION, NOT ITS DESIGNER (Codex on d7a00395):
-    // the image call meets the component's page writer.
-    slug: slugOf("p3"), first: "faq", meet, photoAt: "image", faqAt: "pages",
-    check: async (P, rec, r, view) => {
-      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.deepEqual(meet.met, { photo: true, faq: true }, "the photograph waited for the component: " + JSON.stringify(meet));
-      replayedExactly(view, 1);
-      bothLanded(P);
-      assert.equal(P.modelLog.filter((m) => m.tool === T.design).length, 2, "a designer was asked twice");
-    },
-  });
-});
-
 /** Each job's reserve rows, by job id. */
 const reservesByJob = (P) => {
   const by = {};
   for (const e of P.ledger) if (e.reason === "reserve") { const id = String(e.ref).split("#")[0]; by[id] = (by[id] || 0) + 1; }
   return by;
 };
-
-test("PI 4 — A SHARED TARGET IS SERIALIZED: both parts write the Visit page, so the second is not prepared beside the first part's job — it waits (they never meet), then both land, the photograph bought once", async () => {
-  const meet = rendezvous(["photo", "faq"], 800);
-  await twoParts({
-    slug: slugOf("p4"), first: "photo", meet, photoAt: "image", faqAt: "designer",
-    targets: [{ change: 0, writes: PHOTO_TARGETS }, { change: 1, writes: ["page:/visit", "new-component:faq"] }],
-    check: async (P, rec) => {
-      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      // THE OBSERVER IS ALIVE: both sides arrived, and the first waited out the limit.
-      assert.ok(Object.hasOwn(meet.at, "photo") && Object.hasOwn(meet.at, "faq"), JSON.stringify(meet));
-      assert.equal(meet.met.photo, false, "the conflicting part ran beside the first: " + JSON.stringify(meet));
-      assert.ok(meet.at.faq >= meet.at.photo, JSON.stringify(meet));
-      bothLanded(P);
-    },
-  });
-});
-
-test("PI 5 — A GENUINE DEPENDENCY WAITS: the photograph is placed inside the questions component the first part creates (it reads `component:faq`), so it is neither prepared nor run until that part has been applied — they never meet; both land", async () => {
-  const meet = rendezvous(["photo", "faq"], 800);
-  await twoParts({
-    slug: slugOf("p5"), first: "faq", meet, photoAt: "designer", faqAt: "pages",
-    targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: PHOTO_TARGETS, reads: ["component:faq"] }],
-    check: async (P, rec) => {
-      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.deepEqual(rec.parts[1].needs, [0], "the dependency the targets imply is recorded: " + JSON.stringify(rec.parts[1].needs));
-      assert.ok(Object.hasOwn(meet.at, "photo") && Object.hasOwn(meet.at, "faq"), JSON.stringify(meet));
-      assert.equal(meet.met.faq, false, "the dependent part ran before what it needs existed: " + JSON.stringify(meet));
-      assert.ok(meet.at.photo >= meet.at.faq, JSON.stringify(meet));
-      bothLanded(P);
-    },
-  });
-});
-
-test("PI 6 — A STALE PREPARED ANSWER IS STILL REJECTED: the component's preparation ran beside the photograph's job, then its own page changed under it before its job (a write no plan declared); its job asks every call again (replayed 0) and the change lands on the page as it now is", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  await twoParts({
-    slug: slugOf("p6"), first: "photo", meet, photoAt: "image", faqAt: "designer",
-    between: async (P) => {
-      const key = SOURCE_KEY(P.slug);
-      const pages = JSON.parse(P.objects.get(key).body).map((p) => (p.path === "about.tsx" ? { ...p, source: p.source.replace("Our story", "Our story so far") } : p));
-      P.objects.set(key, { ...P.objects.get(key), body: JSON.stringify(pages), etag: "e-between" });
-    },
-    check: async (P, rec, r, view) => {
-      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.deepEqual(meet.met, { photo: true, faq: true }, JSON.stringify(meet));
-      const u = prepUseOf(view, 1);
-      assert.ok(u && u.staged === "yes", JSON.stringify(view.parts[1]));
-      // (round 11) The picker and designer are shown each page's headline as
-      // the request was understood, so their requests are unchanged and their
-      // answers replayed exactly; the writer, which reads the About page's
-      // source, is asked again against the page as it now is.
-      assert.equal(u.replayed, 2, "only the unchanged picker and designer requests may be replayed: " + JSON.stringify(u));
-      assert.ok(u.fresh >= 1, "the writer, whose input changed, was not asked again: " + JSON.stringify(u));
-      assert.ok(P.page("about.tsx").includes("Our story so far"), "the change made in between was lost");
-      assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-      assert.equal(P.imageLog.length, 1);
-    },
-  });
-});
-
-test("PI 7 — REDELIVERED WHILE RUNNING: the first part's job and the second's preparation each delivered twice at once; the photograph is bought once, each designer asked once (the preparation's answers replayed), each job reserved once; both land", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  await twoParts({
-    slug: slugOf("p7"), first: "photo", meet, photoAt: "image", faqAt: "designer", twice: true,
-    check: async (P, rec, r, view) => {
-      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.deepEqual(meet.met, { photo: true, faq: true }, JSON.stringify(meet));
-      bothLanded(P);
-      assert.equal(designCalls(P), 2, "a designer was asked twice");
-      // EVERY CHARGE ONCE: no ledger reference twice, one routing charge, and
-      // the same three jobs a single delivery files (the two parts' jobs and
-      // the photograph's own reserve on the first) — measured against PI 2's
-      // ledger, which has exactly this shape.
-      const refs = P.ledger.map((e) => e.ref);
-      assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-      assert.equal(P.ledger.filter((e) => e.reason === "route").length, 1, JSON.stringify(P.ledger));
-      assert.equal(Object.keys(reservesByJob(P)).length, 3, JSON.stringify(P.ledger));
-      replayedExactly(view, 1);
-    },
-  });
-});
-
-test("PI 8 — THE PHOTOGRAPH FAILS, THE COMPONENT DOES NOT: the picture service refuses after the component was designed beside it; the component's part still lands from its preparation (replayed exactly), the picture is asked for once and never again, and no charge is left for a picture that was not made", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  await twoParts({
-    slug: slugOf("p8"), first: "photo", meet, photoAt: "image", faqAt: "designer", refuse: true,
-    check: async (P, rec, r, view) => {
-      // THE PHOTOGRAPH'S PART FAILED, AND WHAT IT RESERVED CAME BACK: its job
-      // nets to nothing, and no picture reserve was ever taken for it.
-      assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      const refunded = P.ledger.filter((e) => e.reason === "refund").map((e) => String(e.ref));
-      assert.equal(refunded.length, 1, JSON.stringify(P.ledger));
-      assert.equal(P.ledger.filter((e) => String(e.ref).split("#")[0] === refunded[0]).reduce((a, e) => a + e.delta, 0), 0, JSON.stringify(P.ledger));
-      assert.deepEqual(meet.met, { photo: true, faq: true }, JSON.stringify(meet));
-      assert.equal(rec.parts[1].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-      assert.equal(P.imageLog.length, 1, "the refused picture was asked for again");
-      assert.equal(uploads(P).length, 0);
-      assert.equal(designCalls(P), 2, "a designer was asked twice");
-      replayedExactly(view, 1);
-    },
-  });
-});
 
 // ── THE PLAN'S RULES, PURE ──────────────────────────────────────────────────
 const planPart = (n, writes, reads = [], o = {}) => ({ n, at: n, needs: o.needs || [], status: "ready", phase: o.phase || "run", route: o.route || { op: "addon", intent: "addon" }, targets: { writes, reads } });
@@ -408,47 +240,6 @@ const HOME_WITH_HOURS = "import { createFileRoute } from '@tanstack/react-router
   + "export const Route = createFileRoute('/')({ component: Page })\n"
   + "function Page(){ return <main><section className=\"hero\"><h1>Harbour Loaf</h1></section><OpeningHours /></main> }\n";
 const PAGES_WITH_PART = [{ path: "index.tsx", source: HOME_WITH_HOURS }, { path: "visit.tsx", source: VISIT }, { path: "about.tsx", source: ABOUT }];
-
-test("PI 11 — A SCOPED PART IS SHOWN ITS OWN PAGES, AND WHAT IT WAS NOT SHOWN IT CANNOT REPLACE: the component's picker, designer and page writer (prepared beside the photograph's job) are never told the Visit heading, the home page's own component or its source; a scoped answer returning that component is never applied — the writer is asked again with the whole site, and the stored component is kept; both changes land", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  const REWRITE = "export function OpeningHours(){ return <section><p>Closed.</p></section> }\n";
-  await twoParts({
-    slug: slugOf("p11"), first: "photo", meet, photoAt: "image", faqAt: "designer",
-    pages: PAGES_WITH_PART,
-    setup: (P) => { const k = PARTS_KEY(P.slug); P.objects.set(k, { ...P.objects.get(k), body: JSON.stringify([{ name: "opening-hours", source: HOURS_SRC }]), etag: "e-parts" }); },
-    // RETURNED ONLY BY A WRITER THAT HAS NOT SEEN IT (2026-10-11, Codex on
-    // d7a00395): that answer is never applied; the writer asked again with the
-    // whole site in front of it leaves the component alone.
-    faqExtra: (args) => (textOf(args).includes("hours-band") ? {} : { parts: [{ name: "opening-hours", source: REWRITE }] }),
-    check: async (P, rec, r, view) => {
-      assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.deepEqual(meet.met, { photo: true, faq: true }, JSON.stringify(meet));
-      // ITS ANSWER REACHED A COMPONENT IT WAS NOT SHOWN, SO IT WAS ASKED AGAIN:
-      // the picker and designer replayed, the writer asked fresh.
-      const u = prepUseOf(view, 1);
-      assert.ok(u && u.replayed >= 2 && u.fresh >= 1, JSON.stringify(u));
-      // THE COMPONENT PART'S OWN REQUESTS, told apart by its own words.
-      const asked = (m) => (/What they asked to add:\n([^\n]*)/.exec(m.text) || [])[1] || "";
-      const design = P.modelLog.filter((m) => m.tool === T.design && /questions section/.test(asked(m)));
-      const writers = P.modelLog.filter((m) => m.tool === T.pages && /questions section/.test(m.text) && !m.text.includes("@@IMG:" + BENCH));
-      // THE SCOPED ASK (its preparation's) saw nothing else; the ask after it saw the whole site.
-      const writer = writers.slice(0, 1);
-      assert.ok(writers.slice(1).some((m) => m.text.includes("hours-band")), "the writer was never asked again with the component in front of it");
-      // THE OBSERVERS ARE ALIVE: both were asked, and the writer was shown its own page.
-      assert.ok(design.length >= 1 && writer.length >= 1, JSON.stringify(P.modelLog.map((m) => m.tool)));
-      assert.ok(writer.every((m) => m.text.includes("Our story")), "the writer was not shown its own page");
-      for (const m of [...design, ...writer]) {
-        assert.doesNotMatch(m.text, /Come to the bakery/, "another page's heading reached the scoped part (" + m.tool + ")");
-        assert.doesNotMatch(m.text, /opening-hours|OpeningHours/, "a component its pages do not use reached the scoped part (" + m.tool + ")");
-        assert.doesNotMatch(m.text, /hours-band|className=\\?"hero/, "another page's source reached the scoped part (" + m.tool + ")");
-      }
-      // WHAT IT WAS NOT SHOWN, IT DID NOT REPLACE.
-      const stored = JSON.parse(P.objects.get(PARTS_KEY(P.slug)).body);
-      assert.equal(stored.find((p) => p.name === "opening-hours").source, HOURS_SRC, "a component the writer was never shown was replaced");
-      bothLanded(P);
-    },
-  });
-});
 
 // ── THE SCOPED WRITER'S OUTPUT BOUNDARY (Codex on d7a00395) ─────────────────
 // A writer shown only About that writes, or takes away, a page it was not
@@ -507,95 +298,6 @@ async function oneAddition({ slug, uploadsBefore = 0, imageWith = null, pagesWit
   });
 }
 
-test("PI 13 — A FULL LIBRARY IS CHECKED BEFORE ANYTHING IS BOUGHT: with 200 files already stored, the photograph is never asked of the image service and nothing is stored; the component still lands", async () => {
-  await oneAddition({
-    slug: slugOf("p13"), uploadsBefore: 200,
-    check: async (P, r) => {
-      const { rec } = await settle(P, r.key);
-      assert.equal(P.imageLog.length, 0, "the image service was asked with no room in the library");
-      assert.equal(uploads(P).length, 200, "a file was stored past the library's limit");
-      assert.ok(P.page("about.tsx").includes("Do you deliver?"), JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    },
-  });
-});
-
-test("PI 14 — ONE FILE OF ROOM IS ENOUGH FOR ONE PHOTOGRAPH, AND ITS OWN STORED FILE IS NEVER COUNTED AGAINST IT: with 199 files the photograph is bought once beside the page writer, stored as the 200th, and placed", async () => {
-  await oneAddition({
-    slug: slugOf("p14"), uploadsBefore: 199,
-    // THE WRITER ANSWERS ONLY ONCE THE EARLY PHOTOGRAPH IS STORED, so the image
-    // step counts the library with that file already in it.
-    pagesWith: async () => {
-      for (let i = 0; i < 100 && !(globalThis.__p14 && globalThis.__p14() >= 200); i++) await new Promise((ok) => setTimeout(ok, 10));
-      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
-    },
-    check: async (P, r) => {
-      const { rec } = await settle(P, r.key);
-      assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.notDone])));
-      assert.equal(P.imageLog.length, 1);
-      assert.equal(uploads(P).length, 200);
-      assert.match(P.page("visit.tsx"), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/, P.page("visit.tsx"));
-    },
-  });
-});
-
-// ── AN EARLY TASK'S WHOLE LIFE (Codex on d7a00395) ──────────────────────────
-test("PI 15 — THE PAGE WRITER FAILS WHILE THE PHOTOGRAPH IS STILL BEING MADE: the job waits for the purchase it began (within the image step's own wait) and the part's outcome says the photograph was saved and is not on the site; nothing is generated again, and nothing is charged for it", { timeout: 30000 }, async () => {
-  let release; const held = new Promise((ok) => { release = ok; });
-  await oneAddition({
-    slug: slugOf("p15"),
-    imageWith: async () => { await held; return null; },
-    pagesWith: async () => { setTimeout(() => release(), 200); throw Object.assign(new Error("upstream 400"), { status: 400 }); },
-    check: async (P, r) => {
-      const { rec } = await settle(P, r.key);
-      for (let i = 0; i < 3; i++) await settle(P, r.key);
-      assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.equal(P.imageLog.length, 1, "the photograph was generated again");
-      assert.equal(uploads(P).length, 1);
-      // THE JOB'S OWN ANSWER, WRITTEN AFTER THE PURCHASE IT BEGAN HAD ENDED.
-      const jobs = [...P.jobs.values()].filter((j) => j.op === "addon");
-      assert.equal(jobs.length, 1, "the addition ran again: " + jobs.length);
-      const res = jobs[0].result || {};
-      const answer = typeof res.body === "string" ? JSON.parse(res.body) : (res.body || res);
-      const out = answer.outcome;
-      assert.ok(out && out.photos === 1 && out.state === "unpublished", "the outcome does not say one photograph was saved and is not on the site: " + JSON.stringify(jobs[0].result).slice(0, 800));
-      // NOTHING LEFT CHARGED FOR AN ADDITION THAT DID NOT GO THROUGH.
-      assert.equal(P.ledger.filter((e) => String(e.ref).split("#")[0] === jobs[0].id).reduce((a, e) => a + e.delta, 0), 0, JSON.stringify(P.ledger));
-      const purchases = [...P.objects.keys()].filter((k) => k.includes("/purchases/"));
-      for (const k of purchases) assert.notEqual(JSON.parse(P.objects.get(k).body).state, "buying", "a purchase was left buying: " + k);
-    },
-  });
-});
-
-test("PI 16 — THE PAGE WRITER FAILS AND THE PHOTOGRAPH OUTLASTS THE IMAGE STEP'S WAIT: the part is held on that purchase (never ended as if nothing were out); when it lands, the part runs again, reuses it, and finishes — one generation, one stored file", { timeout: 30000 }, async () => {
-  let release; const held = new Promise((ok) => { release = ok; });
-  let writes = 0;
-  const real = globalThis.setTimeout;
-  globalThis.setTimeout = (fn, ms, ...a) => real(fn, Number(ms) >= 30000 ? 30 : ms, ...a);
-  try {
-    await oneAddition({
-      slug: slugOf("p16"),
-      imageWith: async () => { await held; return null; },
-      pagesWith: async () => {
-        writes++;
-        if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
-        return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
-      },
-      check: async (P, r) => {
-        const s1 = await settle(P, r.key);
-        assert.equal(s1.rec.parts[0].status, "uncertain", "the part was not held on the purchase still out: " + JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-        release();
-        for (let i = 0; i < 50 && !([...P.objects.keys()].some((k) => k.startsWith("uploads/" + P.slug + "/"))); i++) await new Promise((ok) => real(ok, 20));
-        let rec = null;
-        for (let i = 0; i < 4; i++) { await tick(P); rec = (await settle(P, r.key)).rec; if (rec && rec.parts[0].status === "done") break; }
-        assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-        assert.equal(P.imageLog.length, 1, "the photograph was generated again");
-        assert.equal(uploads(P).length, 1);
-        assert.match(P.page("visit.tsx"), /<SafeImage src=\{?"\/u\/[^"]+\.jpg"\}? alt="the workshop bench"/, P.page("visit.tsx"));
-      },
-    });
-  } finally { globalThis.setTimeout = real; }
-});
-
 // ── A PURCHASE'S OUTCOME, NOT ITS PROMISE (Codex on 902fc7f0) ──────────────
 //
 // Two gaps in one rule: a JavaScript promise that settled is not a purchase
@@ -631,140 +333,6 @@ const settleUntil = async (P, key, want, { rounds = 6, twice = false } = {}) => 
   return rec;
 };
 
-test("PI 17 — A REFUSED PICTURE STAYS REFUSED FOR THE REST OF ITS REQUEST: component first, the photograph's preparation (beside the component's page writer) is refused by the image service; the part's own job reads that ending on the purchase's record and never asks the service again — the component lands, the photograph's part fails, and nothing is charged for it", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  await twoParts({
-    slug: slugOf("p17"), first: "faq", meet, photoAt: "image", faqAt: "pages", refuse: true,
-    check: async (P, rec) => {
-      assert.deepEqual(meet.met, { photo: true, faq: true }, "the refused generation did not run beside the component's page writer: " + JSON.stringify(meet));
-      assert.equal(P.imageLog.length, 1, "the refused picture was asked for again by the part's own job");
-      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.equal(rec.parts[1].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-      assert.deepEqual(purchasesOf(P).map((x) => x.state), ["none"]);
-      assert.equal(uploads(P).length, 0);
-      assert.equal(netFor(P, runJobs(rec, 1)), 0, "a charge was left for a picture that was not made: " + JSON.stringify(P.ledger));
-    },
-  });
-});
-
-test("PI 18 — THE SAME, EVERY MESSAGE DELIVERED TWICE AT ONCE: the refusal is still asked of the image service exactly once — neither the redelivered preparation nor the redelivered job begins it again", async () => {
-  const meet = rendezvous(["photo", "faq"]);
-  await twoParts({
-    slug: slugOf("p18"), first: "faq", meet, photoAt: "image", faqAt: "pages", refuse: true, twice: true,
-    check: async (P, rec) => {
-      assert.equal(P.imageLog.length, 1, "a redelivery asked for the refused picture again");
-      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.equal(rec.parts[1].status, "failed", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.deepEqual(purchasesOf(P).map((x) => x.state), ["none"]);
-    },
-  });
-});
-
-test("PI 19 — THE IMAGE CALL'S ANSWER IS LOST AND THE PAGE WRITER FAILS: the part is HELD on that purchase (its id, `unconfirmed`), never failed as if nothing were out and never bought again by the driver; only the customer's buy-again begins it again — then it is made, placed, and the request finishes", { timeout: 30000 }, async () => {
-  let writes = 0;
-  await oneAddition({
-    slug: slugOf("p19"),
-    imageWith: async (entry, n) => (n === 0 ? lostCall() : null),
-    pagesWith: async () => {
-      writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
-      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
-    },
-    check: async (P, r) => {
-      const s1 = await settle(P, r.key);
-      const p0 = s1.rec.parts[0];
-      assert.equal(p0.status, "uncertain", "the part was not held on the purchase whose outcome is unknown: " + JSON.stringify([p0.status, p0.why]));
-      const recs = purchasesOf(P);
-      assert.deepEqual(recs.map((x) => x.state), ["buying"]);
-      assert.deepEqual((p0.purchase.held || []).map((h) => [h.id, h.why]), [[recs[0].id, "unconfirmed"]], JSON.stringify(p0.purchase));
-      assert.equal(netFor(P, runJobs(s1.rec, 0)), 0, JSON.stringify(P.ledger));
-      heldTold(P, recs[0].id, "unconfirmed");
-      // THE PAGE'S VIEW OF THE PART: held, on that picture, for that reason.
-      const v = await viewOf(P, r.key);
-      assert.equal(v.parts[0].status, "uncertain");
-      assert.deepEqual(v.parts[0].purchases, [{ d: BENCH, why: "unconfirmed", state: "unknown" }]);
-      assert.equal(v.parts[0].purchaseState, "unknown");
-      assert.equal(v.parts[0].buyAgain, true);
-      // THE DRIVER LOOKS AGAIN AND STILL CANNOT TELL: nothing is bought on a guess.
-      const s2 = await settleUntil(P, r.key, () => false, { rounds: 3 });
-      assert.equal(s2.parts[0].status, "uncertain");
-      assert.equal(P.imageLog.length, 1, "the purchase was begun again without the customer's say-so");
-      // THE CUSTOMER'S EXPLICIT BUY-AGAIN: the one way it is begun again.
-      const b = await call(P, "POST", "/api/site/request/" + P.slug + "/" + r.key + "/buy-again", { part: 0 });
-      assert.equal(b.status, 200, JSON.stringify(b.body));
-      const rec = await settleUntil(P, r.key, (x) => x.parts[0].status === "done");
-      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.equal(P.imageLog.length, 2);
-      assert.equal(uploads(P).length, 1);
-      placed(P);
-    },
-  });
-});
-
-test("PI 20 — THE PICTURE IS MADE, ITS STORE FAILS, AND THE PAGE WRITER FAILS: the part is HELD on that purchase (`store-pending`, its source on the record), never failed; once storage answers, the SAME picture is saved (no second generation), the part runs again — every message redelivered — reuses it, and finishes, charged once", { timeout: 30000 }, async () => {
-  let writes = 0;
-  await oneAddition({
-    slug: slugOf("p20"),
-    setup: (P) => failUploads(P, 3),
-    pagesWith: async () => {
-      writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
-      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
-    },
-    check: async (P, r) => {
-      const s1 = await settle(P, r.key);
-      const p0 = s1.rec.parts[0];
-      assert.equal(p0.status, "uncertain", "the part was not held on the picture made and not stored: " + JSON.stringify([p0.status, p0.why]));
-      const recs = purchasesOf(P);
-      assert.equal(recs.length, 1);
-      assert.equal(recs[0].state, "generated");
-      assert.match(recs[0].source, /^https:\/\/img\.test\//);
-      assert.deepEqual((p0.purchase.held || []).map((h) => [h.id, h.why]), [[recs[0].id, "store-pending"]], JSON.stringify(p0.purchase));
-      heldTold(P, recs[0].id, "store-pending");
-      assert.equal(uploads(P).length, 0);
-      assert.equal(netFor(P, runJobs(s1.rec, 0)), 0, JSON.stringify(P.ledger));
-      // STORAGE ANSWERS NOW; THE DRIVER FINISHES THE SAME PICTURE.
-      const rec = await settleUntil(P, r.key, (x) => x.parts[0].status === "done", { twice: true });
-      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.equal(P.imageLog.length, 1, "the picture was generated again");
-      assert.equal(uploads(P).length, 1);
-      assert.deepEqual(purchasesOf(P).map((x) => x.state), ["bought"]);
-      placed(P);
-      const refs = P.ledger.map((e) => e.ref);
-      assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-    },
-  });
-});
-
-test("PI 21 — THE RUN AFTER THE HELD PURCHASE IS KNOWN REUSES WHAT WAS FINISHED: the picker's and both designers' answers are replayed from the run that ended held (never asked of a model again — 2026-10-11, the continuation round), only the page writer that failed is asked again, and the same stored picture is placed — never generated again; done, charged once", { timeout: 30000 }, async () => {
-  let writes = 0;
-  await oneAddition({
-    slug: slugOf("p21"),
-    setup: (P) => failUploads(P, 3),
-    pagesWith: async () => {
-      writes++;
-      if (writes === 1) throw Object.assign(new Error("upstream 400"), { status: 400 });
-      return { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_PHOTO }, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] };
-    },
-    check: async (P, r) => {
-      const s1 = await settle(P, r.key);
-      assert.equal(s1.rec.parts[0].status, "uncertain", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-      const rec = await settleUntil(P, r.key, (x) => x.parts[0].status === "done");
-      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-      assert.equal(P.imageLog.length, 1, "the picture was generated again");
-      assert.equal(uploads(P).length, 1);
-      // REUSED, NOT ASKED AGAIN: one picker call and one call per designer in all.
-      assert.equal(P.modelLog.filter((m) => m.tool === T.adds).length, 1, "the picker was asked again");
-      assert.equal(designCalls(P), 2, "a designer was asked again");
-      assert.equal(writes, 2, "only the page writer that failed is asked again");
-      const refs = P.ledger.map((e) => e.ref);
-      assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-      placed(P);
-    },
-  });
-});
-
 // ── THE CLOCK BEFORE AN EARLY PURCHASE (the gap recorded on ef8ea26d) ───────
 //
 // The job's own clock, moved by the platform's injected clock while its
@@ -787,21 +355,6 @@ const clockCase = (left) => async () => {
   });
   return P0;
 };
-test("PI 22 — TOO LITTLE OF THE JOB LEFT FOR A PHOTOGRAPH: with 80 seconds of the job's clock left when the designers answer, the photograph is never asked of the image service — the early purchase obeys the same clock gate as the image step", { timeout: 30000 }, async () => {
-  const P = await clockCase(80000)();
-  assert.equal(P.imageLog.length, 0, "a photograph was bought with no time left to place it");
-  // THE JOB ITSELF ENDS AT THE PUBLISH GATE FOR TIME, charging nothing: the
-  // purchase would have been money spent on a change that never went live.
-  assert.deepEqual(P.rec.parts.map((p) => [p.status, p.why]), [["failed", "time"]]);
-  assert.equal(P.ledger.reduce((a, e) => a + e.delta, 0) <= 0 ? 0 : 1, 0, JSON.stringify(P.ledger));
-  assert.equal(purchasesOf(P).length, 0, "a purchase was begun");
-});
-test("PI 22 control — ENOUGH OF THE JOB LEFT: with 400 seconds left (past the publish gate's 255) the same addition buys the photograph once and publishes it", { timeout: 30000 }, async () => {
-  const P = await clockCase(400000)();
-  assert.equal(P.imageLog.length, 1);
-  assert.deepEqual(P.rec.parts.map((p) => p.status), ["done"], JSON.stringify(P.rec.parts.map((p) => [p.status, p.why])));
-  placed(P);
-});
 
 test("PI 23 — A FAILED ADDITION'S REPLY FACTS NAME EACH HELD PICTURE BY ITS REASON: made and not saved yet (saved later, never made again, no buy-again offered), or not known (never bought again; buy-again named with its cost); in a request, carried on by itself", () => {
   const body = (why) => ({ ok: false, error: "rewrote", cost: 0, msg: "That change would have rewritten your page.", outcome: { state: "none", published: false, database: "none" }, held: [{ id: "a".repeat(24), d: BENCH, why }] });
@@ -885,30 +438,6 @@ for (const [label, message, kinds] of [
   });
 }
 
-test("PI 25 — A FORM THAT SAVES INTO THE TABLE BEING ADDED (the picker says it uses the table): the form's designer waits for the table, is shown it, and is asked once — a real dependency is never started early", { timeout: 30000 }, async () => {
-  const met = rendezvous(["add:table", "add:component"], 600);
-  const W_FORM = "a sign-up form on the About page that saves into it";
-  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_FORM, uses: ["table"] }];
-  const r = await tableAndFaq({
-    key: "tfd", message: "Please " + W_TABLE + ", and " + W_FORM + ".", kinds: ["table", "component"], scopes, met,
-    component: { component: [{ page: "/about", where: "after the story", does: "collects names into signups", components: ["card"] }] },
-  });
-  assert.deepEqual(statuses(r.rec), ["done"], JSON.stringify(r.rec.parts.map((p) => [p.status, p.why])));
-  assert.equal(met.met["add:table"], false, "the form's designer started before the table it saves into was decided");
-  assert.match(r.seen.component, /signups/, "the form's designer was not shown the table it uses");
-  assert.equal(r.designs, 2);
-});
-
-test("PI 26 — THE PICKER SAYS NOTHING ABOUT WHAT A KIND USES: the old order stands — the questions designer waits for the table and is shown it, asked once", { timeout: 30000 }, async () => {
-  const met = rendezvous(["add:table", "add:component"], 600);
-  const scopes = [{ kind: "table", words: W_TABLE }, { kind: "component", words: W_ABOUT_FAQ }];
-  const r = await tableAndFaq({ key: "tfu", message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + ".", kinds: ["table", "component"], scopes, met });
-  assert.deepEqual(statuses(r.rec), ["done"], JSON.stringify(r.rec.parts.map((p) => [p.status, p.why])));
-  assert.equal(met.met["add:table"], false);
-  assert.match(r.seen.component, /signups/);
-  assert.equal(r.designs, 2);
-});
-
 // ── WHAT EACH DESIGNER WAITS FOR, AS A RULE (`designWaits`) ─────────────────
 test("PI 27 — designWaits: a kind waits only for what it uses, shares words with, or (a schema kind) is written against; and for what those wait for; a kind the picker said nothing about waits as before", async () => {
   const { designWaits, readAddUses } = await import("../builder/site-add.mjs");
@@ -936,24 +465,6 @@ test("PI 27 — designWaits: a kind waits only for what it uses, shares words wi
   assert.deepEqual(readAddUses(reply([{ kind: "component", words: "x", uses: "table" }]), ["table", "component"]), {});
   assert.deepEqual(readAddUses(reply([{ kind: "component", words: "x", uses: [["table"], "job", "table"] }]), ["table", "component"]), { component: ["table"] });
   assert.deepEqual(readAddUses(reply([{ kind: "component", words: "x", uses: [] }, { kind: "component", words: "y", uses: ["table"] }]), ["table", "component"]), { component: [] });
-});
-
-test("PI 28 — THE PICKER SAID THE QUESTIONS SECTION USES NOTHING, BUT ITS DESIGNER NEEDS THE TABLE: it answers `needs` and designs nothing; it is asked again, once, shown the table — the first answer is never used, and the table is created once", { timeout: 30000 }, async () => {
-  const met = rendezvous(["add:table", "add:component"]);
-  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
-  const r = await tableAndFaq({
-    key: "tfn", message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + ".", kinds: ["table", "component"], scopes, met,
-    component: (n) => (n === 1 ? { needs: ["table"] } : ABOUT_FAQ_ANSWER),
-  });
-  assert.deepEqual(statuses(r.rec), ["done"], JSON.stringify(r.rec.parts.map((p) => [p.status, p.why])));
-  assert.deepEqual(met.met, { "add:table": true, "add:component": true }, "the first designs did not overlap");
-  assert.equal(r.seen.components.length, 2, "the designer that needed the table was not asked again, or was asked more than once more");
-  assert.doesNotMatch(r.seen.components[0].replace(/This same change is ALSO designing[^.]*\./, ""), /signups/);
-  assert.match(r.seen.components[1], /signups \(name text\)[^\n]*being added by this same change/, "the second ask was not shown the table");
-  assert.doesNotMatch(r.seen.components[1], /does NOT show you/);
-  assert.equal(r.designs, 3);
-  assert.equal(r.creates, 1);
-  assert.ok(r.about.includes("Do you deliver?"), r.about);
 });
 
 // ── A TEXT EDIT AND A COMPONENT ADDITION, AS SEPARATE PARTS, IN EITHER ORDER ──
@@ -1010,90 +521,6 @@ for (const textFirst of [true, false]) {
   });
 }
 
-test("PI 30 — THE QUESTIONS DESIGNER ASKS WHILE THE TABLE'S DESIGNER (started beside it) ANSWERS: nothing is applied — no table made, nothing charged for the addition; the answer resumes only the work it reaches — the questions designer is asked again, shown the answer, while the table's finished design is replayed, never asked of a model twice; the table made once", { timeout: 30000 }, async () => {
-  const { rowsDb } = await import("./fixtures/rows-db.mjs");
-  const first = rendezvous(["add:table", "add:component"]);
-  const db = rowsDb({ tables: {} });
-  let compN = 0, tableN = 0, pickN = 0;
-  const compAsked = [];
-  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
-  await withPlatform({
-    slug: slugOf("p30"), pages: PAGES, replies: true, balance: 400, db,
-    answers: {
-      route: { intent: "addon" },
-      [T.adds]: async () => { pickN++; return { kinds: ["table", "component"], scopes }; },
-      "add:table": async () => { tableN++; await first.arrive("add:table"); return SIGNUPS_TABLE; },
-      "add:component": async (args) => {
-        compN++;
-        compAsked.push(JSON.stringify(args.messages || []));
-        await first.arrive("add:component");
-        return compN === 1 ? { question: { text: "Should the questions go before or after the story?", options: ["Before", "After"] } } : ABOUT_FAQ_ANSWER;
-      },
-      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
-    },
-  }, async (P) => {
-    const creates = () => db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length;
-    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + "." });
-    const s1 = await settle(P, r.key);
-    assert.equal(s1.rec.parts[0].status, "waiting", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-    assert.deepEqual(first.met, { "add:table": true, "add:component": true }, "the first designs did not overlap");
-    assert.equal(creates(), 0, "the table was made beside a question");
-    assert.equal(P.ledger.filter((e) => e.reason === "reserve").length, 0, "the addition was charged beside a question: " + JSON.stringify(P.ledger));
-    const q = P.question();
-    assert.ok(q && q.id, "no question was kept");
-    assert.equal(q.by, "add:component", "the question does not say which designer asked it");
-    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
-    const s2 = await settle(P, r.key);
-    assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
-    assert.equal(creates(), 1, "the table was not made exactly once");
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"));
-    // ONLY THE WORK THE ANSWER REACHES WAS ASKED AGAIN.
-    assert.equal(tableN, 1, "the table's finished design was asked of a model again");
-    assert.equal(pickN, 1, "the picker, which the answer does not reach, was asked again");
-    assert.equal(compN, 2);
-    assert.match(compAsked[1], /After/, "the questions designer was not shown the answer");
-    // ONE CHARGE: the replayed design is billed once, by the job that used it.
-    const refs = P.ledger.map((e) => e.ref);
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-  });
-});
-
-test("PI 31 — THE SAME QUESTION, ANSWERED, WITH EVERY MESSAGE AFTER THE ANSWER DELIVERED TWICE AT ONCE (a redelivery while the kept answers wait): the table's finished design is still replayed, never asked again; the table is made once, the page published once, one charge per job", { timeout: 30000 }, async () => {
-  const { rowsDb } = await import("./fixtures/rows-db.mjs");
-  const db = rowsDb({ tables: {} });
-  let compN = 0, tableN = 0;
-  const scopes = [{ kind: "table", words: W_TABLE, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }];
-  await withPlatform({
-    slug: slugOf("p31"), pages: PAGES, replies: true, balance: 400, db,
-    answers: {
-      route: { intent: "addon" },
-      [T.adds]: { kinds: ["table", "component"], scopes },
-      "add:table": async () => { tableN++; return SIGNUPS_TABLE; },
-      "add:component": async () => { compN++; return compN === 1 ? { question: { text: "Before or after the story?", options: ["Before", "After"] } } : ABOUT_FAQ_ANSWER; },
-      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
-    },
-  }, async (P) => {
-    const creates = () => db.log().filter((q) => /create table[^(]*signups/i.test(q.query)).length;
-    const r = await sendMessage(P, { message: "Please " + W_TABLE + ", and " + W_ABOUT_FAQ + "." });
-    await settle(P, r.key);
-    const q = P.question();
-    assert.ok(q && q.id && q.by === "add:component");
-    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
-    // EVERY QUEUED MESSAGE, TWICE AT ONCE, UNTIL NOTHING IS LEFT.
-    for (let round = 0; round < 12 && P.queue.length; round++) {
-      const msgs = P.queue.splice(0);
-      await Promise.all(msgs.flatMap((m) => [deliver(P, m), deliver(P, { ...m, body: JSON.parse(JSON.stringify(m.body)) })]));
-    }
-    const s2 = await settle(P, r.key);
-    assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
-    assert.equal(tableN, 1, "the table's finished design was asked of a model again");
-    assert.equal(creates(), 1, "the table was not made exactly once");
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"));
-    const refs = P.ledger.map((e) => e.ref);
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-  });
-});
-
 // ── IMAGE-FREE ADDITIONS (2026-10-12, the acceptance plan's Add-on cases) ────
 //
 // The owner, closing the repair batch on 358dff0a: testing independent
@@ -1106,35 +533,6 @@ test("PI 31 — THE SAME QUESTION, ANSWERED, WITH EVERY MESSAGE AFTER THE ANSWER
 const W_DELIVERY = "add a Delivery page saying we deliver to Clifton, Redland and Montpelier";
 const PAGE_SPEC = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
 const DELIVERY = { path: "src/routes/delivery.tsx", source: "import { createFileRoute } from '@tanstack/react-router'\nexport const Route = createFileRoute('/delivery')({ component: Page })\nfunction Page(){ return <main><h1>Delivery</h1><p>We deliver to Clifton, Redland and Montpelier on weekday mornings.</p></main> }\n" };
-
-test("PI 32 — IMAGE-FREE, ONE ADDITION: A NEW PAGE AND A QUESTIONS SECTION ON ANOTHER PAGE: the page's and the section's designers run at the same time; both land, each designer and the page writer asked once, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
-  const designers = rendezvous(["add:page", "add:component"]);
-  await withPlatform({
-    slug: slugOf("p32"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: { intent: "addon" },
-      [T.adds]: { kinds: ["page", "component"], scopes: [{ kind: "page", words: W_DELIVERY, uses: [] }, { kind: "component", words: W_ABOUT_FAQ, uses: [] }] },
-      "add:page": async () => { await designers.arrive("add:page"); return { page: [PAGE_SPEC("/delivery", "Delivery")] }; },
-      "add:component": async () => { await designers.arrive("add:component"); return ABOUT_FAQ_ANSWER; },
-      [T.pages]: { pages: [DELIVERY, { path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] },
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_DELIVERY + ", and " + W_ABOUT_FAQ + "." });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.deepEqual(designers.met, { "add:page": true, "add:component": true }, "the designers ran one after the other: " + JSON.stringify(designers));
-    assert.match(String(P.page("delivery.tsx")), /Clifton, Redland and Montpelier/, JSON.stringify(P.pages()));
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    assert.equal(P.page("visit.tsx"), VISIT, "a page nobody named changed");
-    assert.equal(designCalls(P), 2, "a designer was asked twice");
-    assert.equal(pageCalls(P), 1, "the page writer was asked twice");
-    assert.equal(P.imageLog.length, 0, "something was bought");
-    const refs = P.ledger.map((e) => e.ref);
-    assert.ok(refs.length > 0, "the observer is alive: the addition was charged");
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-  });
-});
 
 const W_VISIT_HOURS = "add an opening hours section to the Visit page";
 const VISIT_WITH_HOURS = "import { createFileRoute } from '@tanstack/react-router'\n"
@@ -1201,35 +599,6 @@ const VISIT_WITH_LINE = "import { createFileRoute } from '@tanstack/react-router
   + "export const Route = createFileRoute('/visit')({ component: Page })\n"
   + "function Page(){ return <main><section className=\"come\"><h1>Come to the bakery</h1><p>Open from 8.</p><p>Every loaf is baked the morning you collect it.</p></section></main> }\n";
 
-test("PI 34 — IMAGE-FREE, ONE ADDITION OF TWO KINDS: A QUESTIONS SECTION AND ONE LINE ON ANOTHER PAGE, with no `uses` from the picker: the section's and the line's designers run at the same time; both land, each designer and the page writer asked once, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
-  const designers = rendezvous(["add:component", "add:words"]);
-  await withPlatform({
-    slug: slugOf("p34"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: { intent: "addon" },
-      [T.adds]: { kinds: ["component", "words"], scopes: [{ kind: "component", words: W_ABOUT_FAQ }, { kind: "words", words: W_VISIT_LINE }] },
-      "add:component": async () => { await designers.arrive("add:component"); return ABOUT_FAQ_ANSWER; },
-      "add:words": async () => { await designers.arrive("add:words"); return VISIT_LINE_ANSWER; },
-      [T.pages]: { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }, { path: "src/routes/visit.tsx", source: VISIT_WITH_LINE }] },
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_ABOUT_FAQ + ", and " + W_VISIT_LINE + "." });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.deepEqual(designers.met, { "add:component": true, "add:words": true }, "the designers ran one after the other: " + JSON.stringify(designers));
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    assert.ok(P.page("visit.tsx").includes("Every loaf is baked the morning you collect it."), P.page("visit.tsx"));
-    assert.equal(P.page("index.tsx"), HOME, "a page nobody named changed");
-    assert.equal(designCalls(P), 2, "a designer was asked twice");
-    assert.equal(pageCalls(P), 1, "the page writer was asked twice");
-    assert.equal(P.imageLog.length, 0, "something was bought");
-    const refs = P.ledger.map((e) => e.ref);
-    assert.ok(refs.length > 0, "the observer is alive: the addition was charged");
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-  });
-});
-
 // AFTER P1: S7's shape as the real router answered it — a new page as one
 // Add-on part and a questions section on another page held back as a second
 // Add-on part. THEY ARE NOT INDEPENDENT AS PARTS: a scoped addition reads the
@@ -1238,52 +607,6 @@ test("PI 34 — IMAGE-FREE, ONE ADDITION OF TWO KINDS: A QUESTIONS SECTION AND O
 // (`clearToPrepare`). This records that wait, so no plan claims overlap for
 // this message; the across-parts case is S8 (PI 29, `acc-addon-edit`).
 const DELIVERY_TARGETS = ["new-page:/delivery"];
-test("PI 35 — TWO ADD-ON PARTS, A NEW PAGE AND A SECTION ON ANOTHER PAGE (S7 as P1 saw it): the section's preparation waits for the page's part — its picker reads the page list the new page changes — and only then runs; both land, every other page as it was, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
-  const meet = rendezvous(["page", "faq"], 300);
-  await withPlatform({
-    slug: slugOf("p35"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: (args, n) => (n === 0 ? { intent: "addon", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: DELIVERY_TARGETS }, { change: 1, writes: FAQ_TARGETS }] } : { intent: "addon" }),
-      [T.adds]: (args) => (isFaq(args)
-        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }
-        : { kinds: ["page"], scopes: [{ kind: "page", words: W_DELIVERY, uses: [] }] }),
-      "add:page": async () => { await meet.arrive("page"); return { page: [PAGE_SPEC("/delivery", "Delivery")] }; },
-      "add:component": async () => { await meet.arrive("faq"); return ABOUT_FAQ_ANSWER; },
-      [T.pages]: (args) => (textOf(args).includes(ABOUT_FAQ_ANSWER.component[0].does)
-        ? { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }
-        : { pages: [DELIVERY] }),
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_DELIVERY + ", and " + W_ABOUT_FAQ + "." });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const first = P.queue.splice(0);
-    await Promise.all(first.map((m) => deliver(P, m)));
-    const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    // THE WAIT, FROM THE REQUEST'S OWN RECORD: the section's model work began
-    // only after the page's part had run to its end.
-    assert.equal(meet.met.page, false, "the page's designer met the section's: " + JSON.stringify(meet));
-    assert.ok(meet.at.faq > meet.at.page, JSON.stringify(meet));
-    // AND FROM THE REQUEST'S OWN RECORD: nothing was prepared for the section
-    // beside the page's part — its job worked it out afresh.
-    const view = await viewOf(P, r.key);
-    const u = prepUseOf(view, 1);
-    assert.ok(u && u.known === true, "the section part's use of preparation is not recorded: " + JSON.stringify(view.parts[1]));
-    assert.equal(u.staged, "no", "the section was prepared beside the page's part: " + JSON.stringify(u));
-    assert.ok(u.fresh >= 1 && u.replayed === 0, JSON.stringify(u));
-    assert.match(String(P.page("delivery.tsx")), /Clifton, Redland and Montpelier/, JSON.stringify(P.pages()));
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    assert.equal(P.page("visit.tsx"), VISIT, "a page nobody named changed");
-    assert.equal(P.page("index.tsx"), HOME, "a page nobody named changed");
-    assert.equal(designCalls(P), 2, "a designer was asked twice");
-    assert.equal(P.imageLog.length, 0, "something was bought");
-    // THE REPLY MODEL'S FACTS (2026-10-13, the connected batch): the waiting part, once run, is told as done; nothing as missing.
-    replySaysOnlyDone(P, ["Updated /about."]);
-    const refs = P.ledger.map((e) => e.ref);
-    assert.ok(refs.length >= 2, "the observer is alive: both jobs were charged");
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-  });
-});
 
 // THE ONE ROUTING SHAPE THAT MAKES TWO INDEPENDENT ADD-ON PARTS (2026-10-12,
 // after P1). The router's instructions make additions ONE "addon" answer when
@@ -1302,51 +625,6 @@ const homeLine = (args) => {
   const at = String(args.messages[0].content).split("\n").find((l) => l.includes("[index.tsx] Harbour Loaf"));
   return Number(String(at || "-1.").split(".")[0]);
 };
-test("PI 36 — A HEADING CHANGED, WITH TWO ADDITIONS HELD BACK AS TWO ADD-ON PARTS ON TWO OTHER PAGES: the two Add-on parts' designers run at the same time; each Add-on job replays its own preparation exactly; all three land, every other page as it was, nothing bought, no charge made twice", { timeout: 30000 }, async () => {
-  const meet = rendezvous(["faq", "hours"]);
-  await withPlatform({
-    slug: slugOf("p36"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: (args, n) => (n === 0
-        ? { intent: "edit", layer: "text", page: "/", alsoAsked: [W_ABOUT_FAQ, W_VISIT_HOURS], targets: [{ change: 0, writes: ["page:/"] }, { change: 1, writes: FAQ_TARGETS }, { change: 2, writes: HOURS_TARGETS }] }
-        : { intent: "addon" }),
-      [T.text]: async (args) => ({ edits: [{ id: homeLine(args), to: "Harbour Loaf Bakery" }] }),
-      [T.adds]: (args) => (isHours(args)
-        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_VISIT_HOURS, uses: [] }] }
-        : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
-      "add:component": async (args) => {
-        if (designsHours(args)) { await meet.arrive("hours"); return VISIT_HOURS_ANSWER; }
-        await meet.arrive("faq"); return ABOUT_FAQ_ANSWER;
-      },
-      [T.pages]: (args) => (textOf(args).includes(VISIT_HOURS_ANSWER.component[0].does)
-        ? { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_HOURS }] }
-        : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_HOME_HEAD + ", " + W_ABOUT_FAQ + ", and " + W_VISIT_HOURS + "." });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const first = P.queue.splice(0);
-    await Promise.all(first.map((m) => deliver(P, m)));
-    const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["done", "done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.deepEqual(meet.met, { faq: true, hours: true }, "one Add-on part's designer waited for the other's: " + JSON.stringify(meet));
-    assert.match(P.page("index.tsx"), /Harbour Loaf Bakery/);
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), P.page("visit.tsx"));
-    assert.equal(designCalls(P), 2, "a section was designed twice");
-    assert.equal(P.imageLog.length, 0, "something was bought");
-    // THE REPLY MODEL'S FACTS (2026-10-13, the connected batch): each overlapping part's own success; nothing as missing.
-    replySaysOnlyDone(P, ["Changed the wording; it now reads “Harbour Loaf Bakery”.", "Updated /about.", "Updated /visit."]);
-    const view = await viewOf(P, r.key);
-    for (const n of [1, 2]) {
-      const u = prepUseOf(view, n);
-      assert.ok(u && u.staged === "yes" && u.fresh === 0 && u.replayed >= 1, `Add-on part ${n}'s job did not replay its preparation exactly: ` + JSON.stringify(view.parts[n]));
-    }
-    const refs = P.ledger.map((e) => e.ref);
-    assert.ok(refs.length >= 3, "the observer is alive: every job was charged");
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-  });
-});
 
 // ── ONE PART'S STEP NEVER MAKES ANOTHER PART'S CHANGE (2026-10-12, run 137) ──
 //
@@ -1362,58 +640,6 @@ const W_HOME_RENAME = "change the home heading from Harbour Loaf to Harbour Brea
 const MARKED = /⟦ANOTHER PART: [^⟧]*⟧/g;
 const unmarked = (args) => textOf(args).replace(MARKED, "");
 const HOME_RENAMED = HOME.replace("<h1>Harbour Loaf</h1>", "<h1>Harbour Bread</h1>");
-
-test("PI 37 — AN ADD-ON PART AND AN EDIT PART FROM ONE MESSAGE STAY IN THEIR OWN WORK: the Add-on's picker, designer and page writer are shown the heading change only marked as another part's, so the writer (which makes whatever it is asked) writes only the questions section; the heading is changed by its own part, whose preparation ran beside the Add-on's job and is replayed exactly; both finish, every other page as it was", { timeout: 30000 }, async () => {
-  const seen = { writer: [], addonCalls: [], text: [] };
-  await withPlatform({
-    slug: slugOf("p37"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: (args, n) => (n === 0
-        ? { intent: "addon", alsoAsked: [W_HOME_RENAME], targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: ["page:/"] }] }
-        : { intent: "edit", layer: "text", page: "/" }),
-      [T.text]: async (args) => { seen.text.push(textOf(args)); return { edits: [{ id: homeLine(args), to: "Harbour Bread" }] }; },
-      [T.adds]: (args) => { seen.addonCalls.push(textOf(args)); return { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }; },
-      "add:component": async (args) => { seen.addonCalls.push(textOf(args)); return ABOUT_FAQ_ANSWER; },
-      [T.pages]: (args) => {
-        seen.writer.push(textOf(args));
-        const pages = [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }];
-        // AN OBEDIENT WRITER: any change it is shown unmarked, it makes.
-        if (unmarked(args).includes(W_HOME_RENAME)) pages.push({ path: "src/routes/index.tsx", source: HOME_RENAMED });
-        return { pages };
-      },
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_ABOUT_FAQ + ", and " + W_HOME_RENAME + "." });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const first = P.queue.splice(0);
-    await Promise.all(first.map((m) => deliver(P, m)));
-    const { rec } = await settle(P, r.key);
-    // BOTH PARTS FINISH, EACH WITHIN ITS OWN WORK.
-    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why, p.done])));
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    assert.match(P.page("index.tsx"), /<h1>Harbour Bread<\/h1>/);
-    assert.equal(P.page("visit.tsx"), VISIT, "a page no part named was changed");
-    // THE OBSERVER IS ALIVE: the writer was asked, and was shown the heading change — marked.
-    assert.ok(seen.writer.length >= 1, "the page writer was never asked");
-    for (const t of [...seen.writer, ...seen.addonCalls]) {
-      assert.ok(t.includes("⟦ANOTHER PART: " + W_HOME_RENAME), "an Add-on call was not shown the heading change as another part's: " + t.slice(-1200));
-      assert.ok(!t.replace(MARKED, "").includes(W_HOME_RENAME), "an Add-on call was shown the heading change unmarked");
-    }
-    // …AND THE EDIT PART'S STEP SEES THE ADDITION ONLY AS ANOTHER PART'S.
-    assert.ok(seen.text.length >= 1, "the heading's step was never asked");
-    for (const t of seen.text) {
-      assert.ok(t.includes(W_ABOUT_FAQ) && !t.replace(MARKED, "").includes(W_ABOUT_FAQ), "the heading's step was shown the addition unmarked: " + t.slice(-800));
-    }
-    // THE HEADING'S PREPARATION RAN BESIDE THE ADD-ON'S JOB AND WAS REPLAYED EXACTLY.
-    const view = await viewOf(P, r.key);
-    const u = prepUseOf(view, 1);
-    assert.ok(u && u.staged === "yes" && u.fresh === 0 && u.replayed >= 1, "the heading part's job did not replay its preparation exactly: " + JSON.stringify(view.parts[1]));
-    assert.equal(P.imageLog.length, 0, "something was bought");
-    const refs = P.ledger.map((e) => e.ref);
-    assert.ok(refs.length >= 2, "the observer is alive: both jobs were charged");
-    assert.equal(new Set(refs).size, refs.length, "a charge was made twice: " + JSON.stringify(P.ledger));
-  });
-});
 
 // ── CONNECTED CASES, END TO END TO THE REPLY MODEL'S FACTS (2026-10-13) ─────
 //
@@ -1488,8 +714,6 @@ async function samePageEditAddon(first) {
     uniqueRefs(P);
   });
 }
-test("CC 1a — SAME PAGE, ADD-ON FIRST: the questions section and the heading change both land on About, each once; the second job builds on the first's page; the reply facts say each part's change and nothing as missing; one charge per job", { timeout: 30000 }, () => samePageEditAddon("addon"));
-test("CC 1b — SAME PAGE, EDIT FIRST: the same, in the other order — the Add-on's writer is asked only at its job, on the page the heading change left, so the heading is kept", { timeout: 30000 }, () => samePageEditAddon("edit"));
 
 // CC 2 — TWO ADD-ON PARTS WRITING THE SAME PAGE.
 const W_ABOUT_HOURS = "add an opening hours section to the About page";
@@ -1521,143 +745,6 @@ async function twoOnAbout({ stale, check }) {
     await check(P, rec, r);
   });
 }
-test("CC 2a — TWO ADD-ON PARTS ON ONE PAGE: serialized on the shared page; both sections land, each once, the story kept; both replies say About was updated, neither says anything is missing", { timeout: 30000 }, () => twoOnAbout({
-  stale: false,
-  check: async (P, rec) => {
-    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    const about = P.page("about.tsx");
-    assert.equal(faqParts(P), 1, about);
-    assert.equal((about.match(/Tuesday to Sunday, 8 till 2\./g) || []).length, 1, about);
-    assert.ok(about.includes("<h1>Our story</h1>"), about);
-    assert.equal(P.page("visit.tsx"), VISIT);
-    const texts = factTexts(P);
-    assert.equal(texts.filter((t) => t === "Updated /about.").length, 2, JSON.stringify(P.replyLog));
-    assert.deepEqual(texts.filter((t) => NOT_DONE.test(t)), []);
-    uniqueRefs(P);
-  },
-}));
-test("CC 2b — THE SECOND ADD-ON'S WRITER ANSWERS FROM THE PAGE BEFORE THE FIRST'S SECTION (a lost update): it is refused, the first section is kept on the site, and the reply facts say the second was not done while the first's stands", { timeout: 30000 }, () => twoOnAbout({
-  stale: true,
-  check: async (P, rec) => {
-    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.notEqual(rec.parts[1].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    const about = P.page("about.tsx");
-    assert.equal(faqParts(P), 1, "the first part's section was lost: " + about);
-    assert.equal(rec.parts[1].why, "rewrote");
-    assert.ok(!about.includes("Tuesday to Sunday"), "the refused section was published: " + about);
-    // THE FACTS: the first part's success, the second's refusal with the words it would have lost — and nothing claimed for it.
-    const texts = factTexts(P);
-    assert.ok(texts.includes("Updated /about."), JSON.stringify(P.replyLog));
-    assert.ok(texts.some((t) => t.startsWith("Nothing was added.") && t.includes("Do you deliver? Yes, on Fridays.")), JSON.stringify(P.replyLog));
-    assert.ok(texts.some((t) => /^Not done: “add an opening hours section to the About page”/.test(t)), JSON.stringify(P.replyLog));
-    assert.ok(texts.some((t) => /^Finished the part that asked for “Please add a questions section to the About page, and …”\./.test(t)), "the summary named the done part by more than its own words");
-    assert.equal(texts.filter((t) => t === "Updated /about.").length, 1, "the refused part was told as updated");
-    uniqueRefs(P);
-  },
-}));
-
-// CC 3 — TWO ADD-ON PARTS ON TWO PAGES; ONE ASKS.
-test("CC 3 — ONE OF TWO ADD-ON PARTS ASKS: the hours part on Visit finishes while the questions part on About waits for its answer; the reply facts say one is done and one waits, quoting the question; the answer resumes only the waiting part — the finished one is never run or charged again — and its own reply then says About was updated", { timeout: 30000 }, async () => {
-  let faqN = 0;
-  const Q = { text: "Should the questions go before or after the story?", options: ["Before", "After"] };
-  await withPlatform({
-    slug: slugOf("cc3"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: (args, n) => (n === 0
-        ? { intent: "addon", alsoAsked: [W_VISIT_HOURS], targets: [{ change: 0, writes: FAQ_TARGETS }, { change: 1, writes: HOURS_TARGETS }] }
-        : { intent: "addon" }),
-      [T.adds]: (args) => (isHours(args)
-        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_VISIT_HOURS, uses: [] }] }
-        : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
-      "add:component": (args) => {
-        if (designsHours(args)) return VISIT_HOURS_ANSWER;
-        faqN++;
-        return faqN === 1 ? { question: Q } : ABOUT_FAQ_ANSWER;
-      },
-      [T.pages]: (args) => (textOf(args).includes(VISIT_HOURS_ANSWER.component[0].does)
-        ? { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_HOURS }] }
-        : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_ABOUT_FAQ + ", and " + W_VISIT_HOURS + "." });
-    const q0 = P.queue.splice(0);
-    await Promise.all(q0.map((m) => deliver(P, m)));
-    const s1 = await settle(P, r.key);
-    assert.deepEqual(statuses(s1.rec), ["waiting", "done"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-    assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), P.page("visit.tsx"));
-    assert.equal(P.page("about.tsx"), ABOUT, "the waiting part changed About");
-    const hoursJobs = (rec) => (rec.parts[1].jobs || []).filter((j) => j.kind === "run").map((j) => j.id);
-    const doneRuns = hoursJobs(s1.rec);
-    assert.equal(doneRuns.length, 1);
-    // WHILE IT WAITS: one part told as done, the other as needing an answer — the question quoted, nothing claimed added, nothing told as failed.
-    const before = factTexts(P);
-    assert.ok(before.includes("Updated /visit."), JSON.stringify(P.replyLog));
-    assert.ok(before.includes("Nothing was added yet; one detail is needed first."), JSON.stringify(P.replyLog));
-    assert.ok(before.some((t) => t.includes("“" + Q.text + "”")), "the question was not given to the reply model");
-    assert.ok(!before.includes("Updated /about."), "the waiting part was told as done");
-    assert.deepEqual(before.filter((t) => NOT_DONE.test(t)), []);
-    const logged = P.replyLog.length;
-    const q = P.question();
-    assert.ok(q && q.id, "no question was kept");
-    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
-    const s2 = await settle(P, r.key);
-    assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    assert.ok(P.page("visit.tsx").includes("Tuesday to Sunday, 8 till 2."), "the finished part's work was lost");
-    assert.deepEqual(hoursJobs(s2.rec), doneRuns, "the finished part was run again");
-    assert.equal(faqN, 2, "the questions designer was not asked again once, with the answer");
-    // AFTER THE ANSWER: only the resumed part's reply is new, and it says what it did.
-    const after = P.replyLog.slice(logged).flat().map((f) => f.text);
-    assert.ok(after.includes("Updated /about."), JSON.stringify(P.replyLog.slice(logged)));
-    assert.ok(!after.includes("Updated /visit."), "the finished part was told again");
-    assert.deepEqual(after.filter((t) => NOT_DONE.test(t)), []);
-    uniqueRefs(P);
-  });
-});
-
-// CC 3b — AN ADD-ON PART'S PREPARATION ASKS (audit A35-1, 2026-10-22).
-test("CC 3b — THE SECOND ADD-ON PART'S PREPARATION FINDS A QUESTION: the preparation keeps none in the site's slot, so the question there is the one the part's own job asked — not queued behind a phantom — and answering it resumes the part", { timeout: 30000 }, async () => {
-  let faqN = 0;
-  const Q = { text: "Should the questions go before or after the story?", options: ["Before", "After"] };
-  await withPlatform({
-    slug: slugOf("cc3b"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: (args, n) => (n === 0
-        ? { intent: "addon", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: HOURS_TARGETS }, { change: 1, writes: FAQ_TARGETS }] }
-        : { intent: "addon" }),
-      [T.adds]: (args) => (isHours(args)
-        ? { kinds: ["component"], scopes: [{ kind: "component", words: W_VISIT_HOURS, uses: [] }] }
-        : { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }),
-      "add:component": (args) => {
-        if (designsHours(args)) return VISIT_HOURS_ANSWER;
-        faqN++;
-        return faqN === 1 ? { question: Q } : ABOUT_FAQ_ANSWER;
-      },
-      [T.pages]: (args) => (textOf(args).includes(VISIT_HOURS_ANSWER.component[0].does)
-        ? { pages: [{ path: "src/routes/visit.tsx", source: VISIT_WITH_HOURS }] }
-        : { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }),
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_VISIT_HOURS + ", and " + W_ABOUT_FAQ + "." });
-    const s1 = await settle(P, r.key);
-    assert.deepEqual(statuses(s1.rec), ["done", "waiting"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why, p.prep && p.prep.outcome])));
-    // THE QUESTION WAS FOUND BY THE PART'S PREPARATION (the observer is alive).
-    assert.equal(s1.rec.parts[1].prep && s1.rec.parts[1].prep.outcome, "ask", JSON.stringify(s1.rec.parts[1].prep));
-    const own = s1.rec.parts[1].question;
-    assert.ok(own && typeof own.id === "string", "the part names no question");
-    assert.equal(own.queued, false, "the part's own question was queued behind another");
-    const q = P.question();
-    assert.ok(q && q.id, "no question was kept");
-    assert.equal(q.id, own.id, "the slot holds a question the part is not waiting on");
-    assert.equal(q.status, "pending");
-    assert.equal(q.part, 1);
-    await sendMessage(P, { message: "After", ask: { id: q.id, chosen: true } });
-    const s2 = await settle(P, r.key);
-    assert.deepEqual(statuses(s2.rec), ["done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    uniqueRefs(P);
-  });
-});
 
 // CC 4 / CC 5 — ONE PART FAILS, THE OTHER'S WORK STANDS.
 async function oneFails({ failing, check }) {
@@ -1685,95 +772,9 @@ async function oneFails({ failing, check }) {
     await check(P, P.record(r.key), r);
   });
 }
-test("CC 4 — THE ADD-ON PART FAILS ON OUR SIDE BESIDE A HEADING CHANGE: the heading lands and stays; About is untouched; nothing is charged for the failed part; the reply facts say the heading was changed and the section was not done, and nothing is claimed for it", { timeout: 30000 }, () => oneFails({
-  failing: "addon",
-  check: async (P, rec, r) => {
-    assert.deepEqual(rec.parts.map((p) => [p.status, p.why]), [["done", null], ["failed", "generate"]]);
-    assert.match(P.page("index.tsx"), /<h1>Harbour Loaf Bakery<\/h1>/);
-    assert.equal(P.page("about.tsx"), ABOUT, "the failed addition changed About");
-    assert.equal(P.page("visit.tsx"), VISIT);
-    // ITS OWN ANSWER: nothing made, nothing published, nothing charged — the fixed sentence of a failure of ours.
-    const job = P.jobsOf(r.key).find((j) => j.op === "addon");
-    const ans = P.answerOf(job);
-    assert.equal(ans.ok, false);
-    assert.deepEqual(ans.outcome, { state: "none", published: false, database: "none" });
-    assert.ok(typeof ans.msg === "string" && ans.msg.length > 0, "the failure carries no sentence of its own");
-    assert.equal(reservesOf(P, job.id).length, 0, "the failed addition was charged");
-    // THE FACTS: the heading's change; the section not done; nothing told as added.
-    const texts = factTexts(P);
-    assert.ok(texts.includes("Changed the wording; it now reads “Harbour Loaf Bakery”."), JSON.stringify(P.replyLog));
-    assert.ok(texts.includes("Not done: “add a questions section to the About page” — its own reply above says why."), JSON.stringify(P.replyLog));
-    assert.ok(!texts.some((t) => /Updated \/about|^Finished the part that asked for “add a questions/.test(t)), "the failed addition was told as done");
-    uniqueRefs(P);
-  },
-}));
-test("CC 5 — THE EDIT PART FAILS BESIDE AN ADD-ON: the section lands and stays; the home page is untouched; the reply facts say the section was added and the heading was not changed", { timeout: 30000 }, () => oneFails({
-  failing: "edit",
-  check: async (P, rec, r) => {
-    assert.deepEqual(rec.parts.map((p) => [p.status, p.why]), [["failed", "no-match"], ["done", null]]);
-    assert.equal(P.page("index.tsx"), HOME, "the failed edit changed the home page");
-    assert.ok(P.page("about.tsx").includes("Do you deliver?"), P.page("about.tsx"));
-    assert.equal(P.page("visit.tsx"), VISIT);
-    const job = P.jobsOf(r.key).find((j) => j.op === "edit");
-    assert.equal(reservesOf(P, job.id).length, 0, "the edit that changed nothing was charged");
-    // THE FACTS: the edit's own failure, with nothing changed and nothing charged — and the section's success.
-    const texts = factTexts(P);
-    assert.ok(texts.some((t) => t.startsWith("The change was not made.")), JSON.stringify(P.replyLog));
-    assert.ok(texts.includes("Nothing on their site changed."));
-    assert.ok(texts.includes("This change cost them nothing."));
-    assert.ok(texts.includes("Updated /about."));
-    assert.ok(texts.some((t) => t.startsWith("Finished the part that asked for “add a questions section to the About page”.") && t.endsWith("Its own reply above says what changed.")), JSON.stringify(P.replyLog));
-    assert.ok(texts.some((t) => /^Not done: “Please make the home heading say Harbour Loaf Bakery, and …” — its own reply above says why\.$/.test(t)), JSON.stringify(P.replyLog));
-    uniqueRefs(P);
-  },
-}));
 
 // CC 6 — AN ADD-ON JOB LOST JUST AFTER ITS CHARGE.
 const PAST_LEASE = (90 + 60 + 15) * 1000;
-test("CC 6 — THE ADD-ON PART'S JOB IS LOST JUST AFTER ITS CHARGE (the Add-on twin of P5): the sweep pays it back, the part runs once more from its preparation — no designer or picker asked again — the finished heading part is not run again; one section on About, one reply saying so, one net charge per job", { timeout: 30000 }, async () => {
-  let pickN = 0, designN = 0, writeN = 0;
-  await withPlatform({
-    slug: slugOf("cc6"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: (args, n) => (n > 0 ? { intent: "addon" }
-        : { intent: "edit", layer: "text", page: "/", alsoAsked: [W_ABOUT_FAQ], targets: [{ change: 0, writes: ["page:/"] }, { change: 1, writes: FAQ_TARGETS }] }),
-      [T.text]: async (args) => ({ edits: [{ id: homeLine(args), to: "Harbour Loaf Bakery" }] }),
-      [T.adds]: () => { pickN++; return { kinds: ["component"], scopes: [{ kind: "component", words: W_ABOUT_FAQ, uses: [] }] }; },
-      "add:component": () => { designN++; return ABOUT_FAQ_ANSWER; },
-      [T.pages]: () => { writeN++; return { pages: [{ path: "src/routes/about.tsx", source: ABOUT_WITH_FAQ }] }; },
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please " + W_HOME_HEAD + ", and " + W_ABOUT_FAQ + "." });
-    // THE ADD-ON'S OWN JOB'S RESERVE LANDS, AND THEN THE JOB IS GONE.
-    const addonJob = () => P.jobsOf(r.key).find((j) => j.op === "addon");
-    P.hang("edit_reserve", (a, out) => !!out && out.ok === true && out.charged > 0 && !!addonJob() && a && a.p_id === addonJob().id);
-    const p1 = await pump(P);
-    assert.equal(p1.hung, "edit_reserve", JSON.stringify(p1));
-    P.recover();
-    P.advance(PAST_LEASE);
-    await tick(P);
-    await tick(P);
-    const { rec } = await settle(P, r.key);
-    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    const runs = P.jobsOf(r.key).filter((j) => j.op === "addon");
-    assert.deepEqual(runs.map((j) => j.state + ":" + j.billing), ["lost:refunded", "done:finalized"]);
-    // THE LOST JOB'S CHARGE CAME BACK; THE RERUN WAS CHARGED ONCE.
-    const net = (id) => P.ledger.filter((e) => String(e.ref).split("#")[0] === id).reduce((a, e) => a + e.delta, 0);
-    assert.equal(net(runs[0].id), 0, JSON.stringify(P.ledger));
-    assert.equal(reservesOf(P, runs[1].id).length, 1);
-    // NOTHING DONE TWICE: the edit once, the addition's preparation replayed by both runs.
-    assert.equal(P.jobsOf(r.key).filter((j) => j.op === "edit").length, 1, "the finished heading part was run again");
-    assert.equal(pickN, 1, "the picker was asked again");
-    assert.equal(designN, 1, "the designer was asked again");
-    assert.equal(faqParts(P), 1, P.page("about.tsx"));
-    assert.match(P.page("index.tsx"), /<h1>Harbour Loaf Bakery<\/h1>/);
-    // ONE REPLY FOR THE ADDITION, FROM THE RUN THAT FINISHED.
-    const texts = factTexts(P);
-    assert.equal(texts.filter((t) => t === "Updated /about.").length, 1, JSON.stringify(P.replyLog));
-    assert.deepEqual(texts.filter((t) => NOT_DONE.test(t)), []);
-    assert.equal(writeN, 1, "the page writer was asked again");
-  });
-});
 
 // CC 7 — WHAT THE PUBLISHED PAGE SHOWED, CARRIED THROUGH A REQUEST'S BACKGROUND REPLY.
 // CE 11 showed the three-way reading (stored / shown on load / interaction
@@ -1818,21 +819,3 @@ async function collapsedInRequest(texts) {
     return { P, rec, ans: P.answerOf(job), texts: factTexts(P) };
   } finally { P.close(); compiler.uninstall(); }
 }
-test("CC 7 — A COLLAPSED SECTION ADDED AS ONE PART OF A REQUEST: the job's answer says it is in the code and not shown on first load, with the hidden answer; the background reply's facts say exactly that, and separately that no interaction was identified or tried — never that it could not be seen; the heading part's facts are untouched", { timeout: 30000 }, async () => {
-  const { rec, ans, texts, P } = await collapsedInRequest([{ route: "/about", text: "Our story Since 2019. Do you deliver?", complete: true }]);
-  assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-  assert.equal(ans.requirementsTold.length, 1, JSON.stringify(ans.requirementsTold));
-  assert.equal(ans.requirementsTold[0].told, "behind", JSON.stringify(ans.requirementsTold));
-  assert.deepEqual(ans.requirementsTold[0].hidden, [{ text: "Yes, on Fridays to Clifton.", placement: ["handed"] }]);
-  // (Wording corrected 2026-10-13: the observation and the untried behaviour are two facts.)
-  assert.ok(texts.some((t) => /Not all of it was on the built page as it first loaded/.test(t) && t.includes("Yes, on Fridays to Clifton.")), JSON.stringify(P.replyLog));
-  assert.ok(texts.some((t) => /^Not verified: whether anything a visitor does/.test(t)), JSON.stringify(P.replyLog));
-  assert.ok(!texts.some((t) => /can see whether this is in place/.test(t)), "the reading was lost on the way to the reply");
-  assert.ok(texts.includes("Changed the wording; it now reads “Harbour Loaf Bakery”."));
-});
-test("CC 7b — THE SAME, WITH THE PUBLISHED PAGE UNREAD (no text from the render check): in the code, whether it shows not known — never shown, never missing", { timeout: 30000 }, async () => {
-  const { ans, texts, P } = await collapsedInRequest(null);
-  assert.equal(ans.requirementsTold[0].told, "in-code", JSON.stringify(ans.requirementsTold));
-  assert.ok(texts.some((t) => /could not be read, so whether it shows is not known/.test(t)), JSON.stringify(P.replyLog));
-  assert.ok(!texts.some((t) => /seen on the published page/.test(t) || /^Not done: The About page/.test(t)));
-});

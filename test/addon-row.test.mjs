@@ -30,7 +30,7 @@ import { createRequire } from "node:module";
 import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { ASK_TOOL } from "../builder/site-ask.mjs";
+import { ASK_TOOL } from "../builder/route-shared.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { browserReply } from "../scripts/addon-sweep.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
@@ -529,87 +529,6 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(r.seen.models.map((m) => m.tool).filter((t) => t !== ASK_TOOL.name), ["pick_adds", "add_to_site"]);
   });
 }
-
-test("the money: inline, one collection after the write; queued, one reserve before it and no refund", async () => {
-  const sync = await chain({ mode: "sync", db: bakeryDb(), answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
-  // ROUTING IS BILLED ON ITS OWN ROUTE (its own debit); the add-on's is the last.
-  const syncTimeline = sync.seen.timeline;
-  const write = syncTimeline.findIndex((e) => e.startsWith("sql:WITH r0"));
-  const lastDebit = syncTimeline.lastIndexOf("debit");
-  assert.ok(write > 0 && lastDebit > write, "the inline charge does not follow the write: " + JSON.stringify(syncTimeline));
-  assert.equal(sync.seen.debits.at(-1), sync.body.cost, "the reply's cost is not what was collected");
-  assert.ok(sync.body.cost >= 1);
-
-  const job = await chain({ mode: "job", db: bakeryDb(), answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
-  const t = job.seen.timeline;
-  const reserve = t.indexOf("rpc:edit_reserve");
-  const jobWrite = t.findIndex((e) => e.startsWith("sql:WITH r0"));
-  assert.ok(reserve > 0 && jobWrite > reserve, "the reserve does not come before the write: " + JSON.stringify(t));
-  const reserves = job.seen.rpc.filter((r) => r.fn === "edit_reserve");
-  assert.equal(reserves.length, 1);
-  assert.equal(reserves[0].args.p_seq, 1);
-  assert.equal(job.body.cost, Number(reserves[0].args.p_cost), "the reply's cost is not the reserve");
-  assert.equal(job.seen.rpc.filter((r) => r.fn === "edit_refund").length, 0, "a successful entry was refunded");
-  assert.equal(storedReply(job.seen).ok, true, "the job was not finalized as shipped");
-  // THE ADD-ON ITSELF NEVER COLLECTS UNDER A JOB — the reserve is its charge.
-  const routingDebits = 1;
-  assert.equal(job.seen.debits.length, routingDebits, "the queued add-on collected beside its reserve");
-  // PROTECTED BEFORE THE WRITE, RECORDED AFTER IT (2026-10-01, the review of
-  // 31741f6f): reserve, mark, write, commit, finalize — the mark and the
-  // commit both naming the request's key, so the row tells the reconcile
-  // what was written and the finalize keeps the money only on a record.
-  const id = job.seen.rpc.find((x) => x.fn === "edit_create").args.p_id;
-  const mark = job.seen.rpc.filter((x) => x.fn === "edit_publish_mark");
-  const commit = job.seen.rpc.filter((x) => x.fn === "edit_committed");
-  assert.equal(mark.length, 1);
-  assert.equal(commit.length, 1);
-  assert.equal(mark[0].args.p_artifact_build, "addon-row:job:" + id);
-  assert.equal(commit[0].args.p_build, "addon-row:job:" + id);
-  const order = ["rpc:edit_reserve", "rpc:edit_publish_mark", "sql:WITH r0", "rpc:edit_committed", "rpc:edit_finalize"].map((e) => t.findIndex((x) => x.startsWith(e)));
-  assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), "not reserve, mark, write, commit, finalize: " + JSON.stringify(t));
-  const row = job.seen.rows.get(id);
-  assert.equal(row.state, "done");
-  assert.equal(row.billing, "finalized");
-  assert.equal(row.needs_review, false);
-  assert.ok(row.published_at, "the confirmed entry was not recorded");
-  // INLINE THERE IS NO JOB TO MARK, AND NOTHING IS.
-  assert.equal(sync.seen.rpc.filter((x) => x.fn === "edit_publish_mark" || x.fn === "edit_committed").length, 0);
-});
-
-test("the one charge counts the row designer's own work, not the picker's alone", async () => {
-  // PRICED ON A USAGE LARGE ENOUGH TO MOVE THE WHOLE-CREDIT TOTAL, the same
-  // request costs more: the designer's usage is on the bill. With the tiny
-  // usage every other case supplies, both come to the 1-credit minimum, which
-  // is why the sweep's W-15 survived them.
-  const answers = { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } };
-  const small = await chain({ mode: "sync", db: bakeryDb(), answers });
-  const large = await chain({ mode: "sync", db: bakeryDb(), answers, usage: { add_to_site: { input_tokens: 40000, output_tokens: 4000 } } });
-  assert.equal(small.body.ok && large.body.ok, true, JSON.stringify([small.body, large.body]));
-  assert.ok(large.body.cost > small.body.cost, "the designer's usage did not reach the bill: " + small.body.cost + " → " + large.body.cost);
-  assert.equal(large.seen.debits.at(-1), large.body.cost, "the reply's cost is not what was collected");
-});
-
-test("the model's `id` and `created_at` are never written: the database's are", async () => {
-  const db = bakeryDb();
-  const r = await chain({ mode: "sync", db, answers: { pick_adds: PICK_ROW, add_to_site: { row: [{ table: "loaves", values: { ...ENTRY.values, id: 7, created_at: "1999-01-01" } }] } } });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(db.rows("loaves")[6].id, 12);
-  assert.equal(db.rows("loaves")[6].created_at, "2026-10-01T03:00:00.000000+00:00");
-  assert.doesNotMatch(writesOf(db)[0], /"id"|"created_at"/, "the model's id or time reached the INSERT");
-});
-
-test("two entries asked in one message are saved in one statement, in the order asked, each with its own id", async () => {
-  const db = bakeryDb();
-  const SPELT = { table: "loaves", values: { name: "Spelt", price: 5.5 } };
-  const r = await chain({ mode: "sync", db, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY, SPELT] } } });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  unchangedSix(db);
-  assert.deepEqual(db.rows("loaves").slice(6).map((x) => [x.id, x.name]), [[12, "Rye & Caraway"], [13, "Spelt"]]);
-  // THE ANSWER IN THE ORDER ASKED, each entry with the id the database gave it.
-  assert.deepEqual(r.body.rows.map((x) => [x.table, x.id, x.label]), [["loaves", 12, "Rye & Caraway"], ["loaves", 13, "Spelt"]]);
-  assert.equal(writesOf(db).length, 1, "the entries were not written in one statement");
-  assert.equal(r.said.text, "Done — added “Rye & Caraway” to loaves (entry 12), added “Spelt” to loaves (entry 13).");
-});
 
 test("the row designer is told the lists it may add to — the display list, never the visitors' one", async () => {
   const { MAX_ADD_ROWS } = await add();

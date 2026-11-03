@@ -140,12 +140,3 @@ test("a revise whose config read fails stops, refunded, and leaves the owner's l
   assert.equal(r.reverses.length, 1, "the design deposit was not given back, or was given back twice");
   assert.equal(r.reply.cost, 0, "the refusal does not report what the revise cost after its refund");
 });
-
-test("control: a readable config keeps the logo and tab icon and the revise goes on", async () => {
-  const r = await revise({ down: false });
-  // THE OBSERVER IS ALIVE: the read happened and the revise reached the writer.
-  assert.ok(r.writer, "the writer was never called: " + JSON.stringify(r.reply));
-  const stored = JSON.parse(r.bucket.store.get(CONFIG_KEY("revise-look-up")));
-  assert.deepEqual(stored.look.wordmark, STORED_LOOK.wordmark);
-  assert.deepEqual(stored.look.favicon, STORED_LOOK.favicon);
-});

@@ -30,12 +30,3 @@ test("DBR 2 — control: nothing refused (or an apply that answers true) reads a
     assert.deepEqual(r.refused, []);
   }
 });
-
-test("DBR 3 — the route's apply hands the engine's refusals back", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf("const rOut = await runRulesEdit(");
-  assert.ok(at > 0, "the rules route moved");
-  const call = src.slice(at, src.indexOf("}, { instruction: eInstruction", at));
-  assert.ok(call.length > 0 && /apply: async \(spec\) =>/.test(call), "the apply was not found");
-  assert.match(call, /refusedRules/, "the route's apply discards what the database refused");
-});

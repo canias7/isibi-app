@@ -579,25 +579,6 @@ test("A09-8: the provisioning helpers' own requests pass the wall as each sends 
   assert.equal(sbDecision(JOB, "GET", "/rest/v1/site_project", q("slug=eq." + JOB.slug + "&select=uid,neon_project,neon_branch,neon_role,neon_conn&limit=1"), "", MINT).ok, true, "siteNeonProject's read is refused");
 });
 
-test("every table a job-path helper touches is admitted by the wall with that method, read off the helper's own source", () => {
-  const src = noComments(WORKER);
-  for (const [fn, table, method, close = "\n}\n"] of JOB_PATH_TABLES) {
-    const at = src.indexOf(fn);
-    assert.ok(at > 0, fn + " not found");
-    const end = src.indexOf(close, at);
-    assert.ok(end > at, fn + " has no close");
-    const body = src.slice(at, end);
-    const named = new RegExp("rest/v1/(?:\\$\\{[A-Z_]+\\}|" + table + ")[?`]").test(body) || (table === "site_builds" && /BUILD_RECORD_TABLE/.test(body));
-    assert.ok(named, fn + " no longer reaches " + table + " — the wall's entry may be dead, or the helper reads another table now");
-    assert.ok(SB_TABLES[table] && SB_TABLES[table][method], fn + " needs " + method + " " + table + " and the wall refuses it");
-  }
-  // The header lists carry what PostgREST needs and nothing that names a job.
-  assert.deepEqual(SB_REQUEST_HEADERS, ["content-type", "prefer", "accept", "accept-profile", "content-profile", "range"]);
-  assert.deepEqual(SB_RESPONSE_HEADERS, ["content-type", "content-range", "preference-applied"]);
-  assert.equal(SB_REQUEST_HEADERS.includes("authorization"), false);
-  assert.equal(SB_REQUEST_HEADERS.includes("apikey"), false);
-});
-
 test("the Worker mounts the Supabase branch with its own origin, key and mint, and the fire sends a v2 launch naming the origin and no credential (read off the source; the fire is driven in container-job.test.mjs)", () => {
   const src = noComments(WORKER);
   // RE-ANCHORED 2026-09-14: `jobGateway` gained `ctx` for the wire probe's held
@@ -722,11 +703,4 @@ test("A33-9: a job may not upsert a name whose row is another site's, nor read u
   // A check that cannot be made is a refusal, whatever its body reads like.
   const down = await rig({ answer: (u, init) => (init && init.method === "GET") ? json([], 500) : json({ ok: true }) });
   assert.equal((await down.send("/sb/rest/v1/site_aliases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ alias: "bakery", slug: JOB.slug, uid: JOB.uid }) })).status, 403);
-});
-
-test("A33-9: the rename lane and the Publish preflight read the alias row uncached", () => {
-  const src = WORKER;
-  assert.match(src, /async function aliasRowFor\(env, label, \{ fresh = false \} = \{\}\) \{[\s\S]{0,200}const hit = fresh \? null : aliasRoutes\.get\(l\);/);
-  assert.match(src, /async function addressTaken\([\s\S]{0,400}aliasRowFor\(env, name, \{ fresh: true \}\)/);
-  assert.match(src, /const takenByAlias = await aliasRowFor\(env, wanted, \{ fresh: true \}\);/);
 });

@@ -100,99 +100,6 @@ const reserveOf = (P, jobId) => P.ledger.filter((e) => e.ref.startsWith(jobId + 
 const factsOf = (rec) => rec.marks.flatMap((m) => m.facts.map((f) => ({ stage: m.stage, mark: m.n, ...f })));
 const idNum = (id) => Number(String(id).slice(1));
 
-test("MPH 1 — THE PHOTO SERVICE REFUSES (an empty balance): the page and its other work are kept; the photographs milestone says the photograph was NOT made, by its description; every line written after it is told it is still not made; no fact ever says it was made, placed or is on the page; and it is not charged", async () => {
-  await withPlatform({ slug: slugOf("refused"), ...BASE() }, async (P) => {
-    const r = await sendMessage(P, { message: MSG });
-    const s = await settle(P, r.key);
-    // THE SUCCESSFUL WORK IS KEPT: the Visit change and the new page.
-    assert.ok(P.page("visit.tsx").includes(TIKTOK_TO), "the independent part did not finish");
-    const bakers = P.page("bakers.tsx") || "";
-    assert.match(bakers, /Meet the Bakers/, "the new page was not kept");
-    assert.ok(!bakers.includes("@@IMG"), "a token was left in the published source");
-    assert.match(bakers, /<SafeImage src=""/, "the frame is not left empty: " + bakers);
-    assert.ok(P.imageLog.length >= 1, "the photo service was never asked");
-    // THE PART IS PARTIAL ON CODE EVIDENCE (2026-10-10): no designer wrote a
-    // requirement here, and the photograph it designed was not made.
-    assert.deepEqual(s.rec.parts.map((p) => p.status), ["done", "partial"], JSON.stringify(s.rec.parts.map((p) => [p.status, p.why, p.notDone])));
-    assert.deepEqual(s.rec.parts[1].notDone, [{ what: BENCH, why: "photo-not-made" }]);
-
-    const addJob = runJobs(P, r.key, 1)[0];
-    const rec = P.progressOf(addJob.id);
-    assert.ok(rec, "the addition kept no progress record");
-    const stages = rec.marks.map((m) => m.stage);
-    assert.ok(stages.includes("pages") && stages.includes("photos") && stages.includes("publish"), stages.join(","));
-    assert.ok(stages.indexOf("pages") < stages.indexOf("photos") && stages.indexOf("photos") < stages.indexOf("publish"), stages.join(","));
-    const all = factsOf(rec);
-    // BEFORE THE PURCHASE: still to make, not on the page.
-    const toMake = all.find((f) => f.stage === "pages" && f.text.includes(BENCH));
-    assert.ok(toMake, "the pages milestone does not say the photograph is still to make: " + JSON.stringify(all.filter((f) => f.stage === "pages")));
-    assert.equal(toMake.state, "next");
-    assert.match(toMake.text, /not on the page yet/);
-    // AFTER IT: not made, by its description.
-    const notMade = all.find((f) => f.stage === "photos" && f.text.includes(BENCH));
-    assert.ok(notMade, "no photographs fact for the refused photograph");
-    assert.equal(notMade.state, "notdone");
-    assert.match(notMade.text, /could not be made/);
-    // NOTHING CLAIMS IT.
-    for (const f of all.filter((x) => x.text.includes(BENCH))) {
-      assert.ok(["next", "notdone"].includes(f.state), "a fact states the refused photograph as " + f.state + ": " + f.text);
-      assert.doesNotMatch(f.text, /was made|put on the page|placed/i, f.text);
-    }
-
-    // EVERY LINE AFTER THE PHOTOGRAPHS MILESTONE IS TOLD IT IS STILL NOT
-    // MADE: a line per milestone, and the pages and photographs milestones in
-    // one line (the not-made fact then shares a batch with the page's facts).
-    for (const skip of [[], ["pages"]]) {
-      const every = skip.join(",") || "milestone";
-      const { texts } = replayLines(rec, { skip });
-      const { at, later } = afterNotMade(texts, notMade);
-      assert.ok(at >= 0, "no line was handed the not-made fact (every " + every + ")");
-      assert.ok(later.length >= 1, "no line came after the not-made fact (every " + every + "): the check would be empty");
-      for (const t of later) {
-        const [ctx] = t.split("WHAT HAS HAPPENED SINCE");
-        assert.match(ctx, /NOT DONE IN THIS WORK/, "a later line was not told what is still not made:\n" + t);
-        assert.ok(ctx.includes(BENCH), "a later line's missing list does not name the photograph:\n" + t);
-      }
-      // AND NO LINE IS EVER HANDED THE PHOTOGRAPH AS MADE.
-      for (const t of texts) assert.doesNotMatch(t, /\((?:prepared|applied|doing|designed)\) [^\n]*three bakers shaping loaves/, t);
-    }
-    // THE ADDITION WAS NOT CHARGED FOR THE PHOTOGRAPH (its own reserve, #5).
-    assert.deepEqual(reserveOf(P, addJob.id).filter((e) => e.ref.endsWith("#5")), [], "the photograph that was not made was charged");
-  });
-});
-
-test("MPH 2 — CONTROL: the photograph is made: the photographs milestone says it was made and put on the page (not published), no line is told anything is still not made, and the photograph is charged once", async () => {
-  await withPlatform({ slug: slugOf("made"), ...BASE({ imageWith: null }) }, async (P) => {
-    const r = await sendMessage(P, { message: MSG });
-    const s = await settle(P, r.key);
-    assert.equal(s.rec.parts[1].status, "done", JSON.stringify(s.rec.parts.map((p) => [p.status, p.why])));
-    assert.match(P.page("bakers.tsx") || "", /src="\/u\/[^"]+\.jpg"/);
-    const addJob = runJobs(P, r.key, 1)[0];
-    const rec = P.progressOf(addJob.id);
-    const made = factsOf(rec).find((f) => f.stage === "photos" && f.text.includes(BENCH));
-    assert.ok(made, "no photographs fact for the made photograph");
-    assert.equal(made.state, "prepared");
-    assert.match(made.text, /was made and put on the page\./);
-    assert.ok(!factsOf(rec).some((f) => f.state === "notdone"), "a fact says something was not made");
-    for (const t of replayLines(rec).texts) assert.doesNotMatch(t, /NOT DONE IN THIS WORK/, "a line was told something is missing when nothing is");
-    assert.equal(reserveOf(P, addJob.id).filter((e) => e.ref.endsWith("#5")).length, 1, "the photograph was not charged once");
-  });
-});
-
-test("MPH 3 — CONTROL, A LOST ANSWER (the call left and its answer never came): nobody can tell whether it was made, so it is said as still being confirmed — never as made, and never as not made — and it is not charged", async () => {
-  await withPlatform({ slug: slugOf("lost"), ...BASE({ imageWith: async () => { throw new TypeError("connection reset"); } }) }, async (P) => {
-    const r = await sendMessage(P, { message: MSG });
-    await settle(P, r.key);
-    const addJob = runJobs(P, r.key, 1)[0];
-    const rec = P.progressOf(addJob.id);
-    const f = factsOf(rec).filter((x) => x.text.includes(BENCH));
-    assert.ok(f.some((x) => x.stage === "publish" && x.state === "next" && /still being confirmed/.test(x.text)), JSON.stringify(f));
-    assert.ok(f.every((x) => x.state === "next"), "a lost answer was said as made or not made: " + JSON.stringify(f));
-    assert.ok(!factsOf(rec).some((x) => x.stage === "photos"), "a photographs milestone said something of a purchase nobody can tell");
-    assert.deepEqual(reserveOf(P, addJob.id).filter((e) => e.ref.endsWith("#5")), []);
-  });
-});
-
 // ── THE FACTS, THE MISSING LIST AND THE WRITER'S REQUEST, ONE BY ONE ───────
 
 test("MPH 4 — addonPhotosFacts: each photograph the design asked for, by its description: made → prepared; waiting on its purchase → said at the publish, not here; refused, thrown or never offered → notdone; one description once", () => {
@@ -264,36 +171,6 @@ test("MPH 8 — the build's step: photographs not made are said as not done, cou
   assert.deepEqual(buildStepFacts({ s: "photos-missing" }), []);
 });
 
-test("MPH 9 — THE WIRING: the Worker's writer hands the record it claimed (with every milestone) to the context, so the missing list reaches every real line; the add-on marks its photographs after every purchase outcome, and the build marks the ones not made from the purchase's result", () => {
-  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const between = (from, to) => {
-    const a = src.indexOf(from);
-    assert.ok(a >= 0, "landmark missing: " + from);
-    const b = src.indexOf(to, a + from.length);
-    assert.ok(b > a, "landmark missing after " + from + ": " + to);
-    return src.slice(a, b);
-  };
-  const writer = between("async function writeProgressLine(env0, task, owner) {", "\n}\n");
-  assert.match(writer, /const rec = claimed\.rec;/);
-  assert.match(writer, /context: progressContext\(rec, \{ others, waited \}\)/, "the writer does not hand its claimed record to the context");
-  // THE ADD-ON: the success path, the thrown path and the nothing-affordable path.
-  const buy = between("aPhotos = await buySitePhotos(env, {", "// ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED");
-  const marks = [...buy.matchAll(/aJob\.progress\.mark\("photos", addonPhotosFacts\(\{ planned: aFold\.photos(.*?)\}\)\)/g)].map((m) => m[1]);
-  assert.equal(marks.length, 3, "the photographs milestone is not marked on all three purchase outcomes: " + JSON.stringify(marks));
-  assert.ok(marks.includes(", bought: aPhotos.bought, pending: aPendingPhotos "), "the success path does not hand over what was bought and what waits");
-  assert.ok(buy.indexOf("} catch (e) {") < buy.lastIndexOf('mark("photos", addonPhotosFacts({ planned: aFold.photos }))'));
-  assert.match(buy, /\} else if \(aFold\.photos\.length && aJob && aJob\.progress\) \{/);
-  // THE PAGES MILESTONE IS TOLD THE PHOTOGRAPHS TO MAKE.
-  assert.match(src, /addonPagesFacts\(\{ added: aWorkAdded, changed: aWorkChanged, linked: .*, photos: aFold\.photos \}\)/);
-  // THE BUILD: from the purchase's own result, before the photo task's join.
-  const step = between("const bought = withPictureFacts(buySitePhotos(env, {", "compile: async (pages, builtParts, cOpts = null) => {");
-  assert.match(step, /const step = buildPhotoOutcome\(pictures, \{ stored \}\);\s*if \(step\) try \{ mark\?\.\("photos-missing", step\); \}/);
-  // BOTH ENDINGS: the answer's pictures, and the error's with what the photo task saved.
-  assert.match(step, /return bought\.then\(\(r\) => \{ sayPhotos\(r && r\.pictures, \[\]\); return r; \}, async \(e\) => \{/);
-  assert.match(step, /sayPhotos\(e && e\.pictures, stored\);\s*throw e;/);
-  assert.match(step, /photoTask \? await photoTask\.settled\.then\(\(rs\) => rs\.filter\(\(x\) => x && typeof x\.url === "string" && x\.url\)\.map\(\(x\) => x\.d\), \(\) => \[\]\) : \[\]/);
-});
-
 // ── THE LIVE REQUEST'S OWN REQUIREMENT, THROUGH THE REAL ROUTE (Codex's ask) ──
 //
 // Live (Actions run 38049499667) the part ended partial@addon because the
@@ -326,49 +203,6 @@ const LIVE_SITE = () => ({
     [T.pages]: { pages: [{ path: "src/routes/bakers.tsx", source: BAKERS }] },
     judge_requirements: judgeByKind,
   },
-});
-
-test("MPH 10 — THE LIVE REQUEST'S REQUIREMENT, REFUSED PHOTOGRAPH, THROUGH THE REAL ROUTE: the part ends partial (as live), the photograph's requirement still to do and told ONCE (no second, code-evidence entry for the same photograph), the reply writer given it, the page kept, and only the addition's reserve charged", async () => {
-  await withPlatform({ slug: slugOf("live-req"), ...LIVE_SITE() }, async (P) => {
-    const r = await sendMessage(P, { message: LIVE_ADD });
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[0].status, "partial", JSON.stringify(rec.parts));
-    assert.deepEqual(rec.parts[0].notDone, [{ what: PHOTO_NEED, why: "still-to-do" }], "the photograph was not told exactly once: " + JSON.stringify(rec.parts[0].notDone));
-    const job = P.jobsOf(r.key).find((j) => j.op === "addon");
-    const ans = P.answerOf(job);
-    assert.deepEqual((ans.requirementsTold || []).map((t) => [t.need, t.told, t.state]), [[PHOTO_NEED, "still-to-do", "missing"], [PAGE_NEED, "set-up", "unverified"]]);
-    assert.ok(!(ans.notAdded || []).some((n) => n.kind === "photo"), "the same photograph was told twice: " + JSON.stringify(ans.notAdded));
-    assert.match(P.page("bakers.tsx") || "", /Meet the Bakers/);
-    const given = P.replyLog.find((fs) => fs.some((f) => f.text.includes(PHOTO_NEED)));
-    assert.ok(given, "the reply writer was never given the undone requirement");
-    assert.equal(given.filter((f) => f.text.includes(PHOTO_NEED)).length, 1);
-    assert.deepEqual(reserveOf(P, job.id).filter((e) => e.ref.endsWith("#5")), [], "a photograph not made was charged");
-    assert.ok(reserveOf(P, job.id).length >= 1);
-    assert.equal(P.imageLog.length, 1);
-  });
-});
-
-test("MPH 11 — THE SAME, NO REQUIREMENT WRITTEN: the add-on's own evidence makes the part partial with the photograph not made; with the photograph made instead, the part is done and nothing is not added", async () => {
-  const base = LIVE_SITE();
-  const noReq = { ...base, answers: { ...base.answers, "add:page": { page: base.answers["add:page"].page }, "add:photo": { photo: base.answers["add:photo"].photo } } };
-  await withPlatform({ slug: slugOf("no-req"), ...noReq }, async (P) => {
-    const r = await sendMessage(P, { message: LIVE_ADD });
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[0].status, "partial", JSON.stringify(rec.parts));
-    assert.deepEqual(rec.parts[0].notDone, [{ what: BENCH, why: "photo-not-made" }]);
-    const job = P.jobsOf(r.key).find((j) => j.op === "addon");
-    const given = P.replyLog.find((fs) => fs.some((f) => f.text.includes(BENCH)));
-    assert.ok(given && given.some((f) => /couldn't be made/.test(f.text)), "the reply writer was not given the photograph not made: " + JSON.stringify(P.replyLog));
-    assert.deepEqual(reserveOf(P, job.id).filter((e) => e.ref.endsWith("#5")), []);
-  });
-  await withPlatform({ slug: slugOf("no-req-made"), ...noReq, imageWith: null }, async (P) => {
-    const r = await sendMessage(P, { message: LIVE_ADD });
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts));
-    const job = P.jobsOf(r.key).find((j) => j.op === "addon");
-    assert.equal(P.answerOf(job).notAdded, undefined);
-    assert.equal(reserveOf(P, job.id).filter((e) => e.ref.endsWith("#5")).length, 1);
-  });
 });
 
 test("MPH 12 — photosNotMade: made, waiting and unconfirmed are not \"not made\"; one a requirement names (by description, short name or page) is left to that requirement; the rest each once", () => {
@@ -411,20 +245,6 @@ test("MPH 13 — buildPhotoOutcome from the real picture outcomes: refused is kn
   let rec = rec0();
   rec = said(appendMark(rec, { stage: "build-photos-missing", facts: f, at: 2 }).rec);
   assert.deepEqual(missingFacts(rec), f.map((x) => x.text));
-});
-
-test("MPH 14 — THE ADD-ON'S THROWN PURCHASE: said as not confirmed, never as not made, in its milestone and its not-added entry (wiring and facts)", () => {
-  const f = addonPhotosFacts({ planned: [{ describe: BENCH }, { describe: "the oven" }], unsure: [BENCH] });
-  assert.deepEqual(f.map((x) => [x.state, /could not be confirmed as made/.test(x.text), /could not be made/.test(x.text)]), [["notdone", true, false], ["notdone", false, true]]);
-  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const a = src.indexOf("aMark(\"photos\", \"fail\", { planned: aFold.photos.length, offered: aShots.length });");
-  assert.ok(a > 0);
-  const tail = src.slice(a, a + 900);
-  assert.match(tail, /aPhotos\.thrown = true;/);
-  assert.match(tail, /addonPhotosFacts\(\{ planned: aFold\.photos, unsure: aShots\.map\(\(x\) => x\.describe\) \}\)/);
-  const b = src.indexOf("const aThrewOn = aPhotos && aPhotos.thrown ? aShots.map((x) => x.describe) : [];");
-  assert.ok(b > a, "the not-added entries do not read the thrown purchase");
-  assert.match(src.slice(b, b + 900), /why: "purchase-unconfirmed"/);
 });
 
 test("NET — no request in this file left the machine", () => {

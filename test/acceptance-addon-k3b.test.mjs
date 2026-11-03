@@ -69,19 +69,6 @@ test("K3B 2 — requestBatchVerdict does not send this press to the read-job box
   assert.ok(k.unverified.some((u) => /read-job box/.test(u)), "the observer is alive: acc-addon-kinds still names it");
 });
 
-// ── THE TRACE, AS THE DEPLOYED WORKER WRITES IT ─────────────────────────────
-
-test("K3B 3 — the marks read here are the ones the Worker writes: pick_adds with its kinds, and each designer's start with `after` only when it waits", () => {
-  const W = fs.readFileSync(ROOT + "worker.js", "utf8");
-  assert.ok(W.includes('aMark("pick_adds", aPicked.failed ? "fail" : "ok", { kinds: aPicked.kinds });'), "the picker's mark changed");
-  assert.ok(W.includes('aMark("add:" + j, "start", (aWaits[j] || []).length ? { after: aWaits[j] } : undefined);'), "the designer's start mark changed");
-  // The tracer keeps an array of kinds (up to four) and a waiting list.
-  const t = newTrace({ slug: SLUG, now: () => 0 });
-  t.mark("pick_adds", "ok", { kinds: ["component", "words"] });
-  t.mark("add:words", "start", { after: ["component"] });
-  assert.deepEqual(t.events().map((e) => e.d), [{ kinds: ["component", "words"] }, { after: ["component"] }]);
-});
-
 const JOB = "0b3b0b3b-1111-2222-3333-444444444444";
 const ROUTE_JOB = "0b3b0b3b-9999-8888-7777-666666666666";
 const C0 = Date.parse("2026-10-14T10:00:00Z");

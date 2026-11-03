@@ -31,7 +31,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL, LIVE_ASK_TOOL, LIVE_SYSTEM, askRequest } from "../builder/site-ask.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
+import { askRequest } from "../parked/old-way/builder/site-ask.mjs";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
 const P = ASK_TOOL.input_schema.properties;
@@ -123,19 +124,6 @@ test("the data clause keeps the rows the site already stores and sends a new ent
   assert.match(sort.line, /ONE page they name is "page"/);
 });
 
-test("the system's cost rule cannot make a new entry an edit", () => {
-  const pick = SYSTEM.indexOf("Pick the cheapest one that can honestly do the job");
-  assert.ok(pick > 0, "the cost rule moved");
-  const rule = SYSTEM.indexOf("COST NEVER MAKES A NEW ENTRY AN EDIT:");
-  const end = SYSTEM.indexOf("\n\n", pick);
-  assert.ok(pick < rule && rule < end, "the new-entry sentence is not in the cost rule's own paragraph");
-  const s = costRule();
-  assert.match(s, /is an "addon" even though the list already exists/);
-  assert.match(s, /for a list an edit only changes or takes away the entries that are already there\./);
-  // One system text for every message about a site that exists.
-  assert.equal(askRequest({ message: "y", site: { name: "z" }, hasSite: true }).system[0].text, SYSTEM);
-});
-
 test("the rule is general: it names kinds of list, never a site, a table or the prepared request", () => {
   const said = [addonEntry().line, tieBreak().line, DATA[0], costRule()];
   for (const s of said) {
@@ -146,16 +134,6 @@ test("the rule is general: it names kinds of list, never a site, a table or the 
   // reference is found first, so the observer is alive.
   assert.match(tieBreak().line, /The pages and tables it has are listed above\./);
   assert.match(DATA[0], /The tables it has are named above\./);
-});
-
-test("the note calling a new row the owner's open decision is gone, and the rule's note replaces it", () => {
-  const src = readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
-  // The note sat in the data clause's removal comment; find that first.
-  const at = src.indexOf("// ── A ROW TAKEN OFF IS THIS LAYER TOO (2026-09-30)");
-  const end = src.indexOf("\"TAKING AN EXISTING ROW OFF", at);
-  assert.ok(at > 0 && end > at, "the data clause's removal comment moved");
-  assert.doesNotMatch(src, /open decision/i, "a note still calls where a new row goes an open decision");
-  assert.match(src.slice(at, end), /A NEW ROW IS NOT THIS LAYER \(owner,\s+\/\/\s+2026-10-01\)/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,99 +191,3 @@ const ADDON_PRESS = readExpectRoute("intent=addon alsoAsked=none");
 const DATA_PRESS = readExpectRoute("intent=edit layer=data alsoAsked=none");
 // What a live site is sent (router-b1); the first build's tool above keeps its own words.
 const LIVE_INTENT_SENT = LIVE_ASK_TOOL.input_schema.properties.intent.description;
-
-test("the request the real route sends to xAI, the default router, carries every sentence of the rule", async () => {
-  const r = await route(NEW_SERVICE, { intent: "addon" });
-  assert.equal(r.status, 200);
-  assert.equal(r.sent.length, 1, "the router was not asked exactly once");
-  const { provider, body } = r.sent[0];
-  assert.equal(provider, "xai", "with no picker the router is not xAI, the one that answered run 86");
-  assert.match(String(body.model), /^grok/);
-  // THE REQUEST AS IT LEFT, not the module's constant.
-  const tool = (body.tools || []).find((t) => t && t.function && t.function.name === ASK_TOOL.name);
-  assert.ok(tool, "the routing tool is not in the request");
-  const props = tool.function.parameters.properties;
-  // A SITE THAT EXISTS IS SENT THE LIVE TOOL'S ONE RULE (2026-10-25, router-b1):
-  // the new entry is an addon in `intent`'s addon clause and its single test.
-  assert.equal(props.intent.description, LIVE_INTENT_SENT, "the intent rule as sent is not the live tool's");
-  assert.match(props.intent.description, /a new entry in a list it keeps \(a product, service, dish, class, event, team member: the list existing does not make the entry exist\)/);
-  assert.match(props.intent.description, /ASKED OF THE THING ITSELF AND NEVER OF WHAT IT GOES INTO/);
-  assert.match(props.layer.description, /"data" — [^\n]*A NEW entry is intent "addon"\./);
-  const system = (body.messages || []).find((m) => m && m.role === "system");
-  assert.ok(system && String(system.content) === LIVE_SYSTEM, "the system as sent is not the live one");
-  assert.doesNotMatch(String(system.content), /cheapest one that can honestly do the job/, "the cost tie-break still reaches a live site");
-  // Forced to the tool, so the answer is a field the route reads.
-  assert.deepEqual(body.tool_choice, { type: "function", function: { name: ASK_TOOL.name } });
-  // What "listed above" points at, and the customer's own sentence, are in the
-  // same request.
-  const user = (body.messages || []).find((m) => m && m.role === "user");
-  assert.match(String(user && user.content), /Its database tables are: services, team\./);
-  assert.ok(String(user.content).includes(NEW_SERVICE), "the customer's message is not in the request");
-});
-
-test("the request the real route sends to Anthropic carries the same sentences", async () => {
-  const r = await route(NEW_MEMBER, { intent: "addon" }, { picker: "sonnet" });
-  assert.equal(r.status, 200);
-  assert.equal(r.sent.length, 1);
-  const { provider, body } = r.sent[0];
-  assert.equal(provider, "anthropic");
-  const tool = (body.tools || []).find((t) => t && t.name === ASK_TOOL.name);
-  assert.ok(tool, "the routing tool is not in the request");
-  const props = tool.input_schema.properties;
-  assert.equal(props.intent.description, LIVE_INTENT_SENT);
-  assert.match(props.layer.description, /"data" — [^\n]*A NEW entry is intent "addon"\./);
-  assert.equal(String(body.system && body.system[0] && body.system[0].text), LIVE_SYSTEM);
-  assert.match(String(body.messages[0].content), /Its database tables are: services, team\./);
-});
-
-test("a supplied addon answer for a new entry goes on as an addon, nothing held back, and the expected-addon press would post it", async () => {
-  for (const message of [NEW_SERVICE, NEW_MEMBER]) {
-    const r = await route(message, { intent: "addon" });
-    assert.equal(r.body.intent, "addon", message);
-    assert.ok(!r.body.layer, "an addon answer carries a layer: " + r.body.layer);
-    assert.ok(!r.body.alsoAsked, "a single new entry was held back");
-    assert.ok(ADDON_PRESS.ok);
-    assert.deepEqual(routeVerdict(ADDON_PRESS.expect, r.body), { ok: true, diffs: [] });
-  }
-});
-
-test("run 86's answer is passed on as given, never rewritten by the words, and the expected-addon guard still refuses it", async () => {
-  // NO KEYWORD OVERRIDE. The route does not read the message for "add" and
-  // change the model's answer: an `edit` + `data` answer to a new entry comes
-  // out exactly as it went in, whichever way the sentence is put.
-  for (const message of [NEW_SERVICE, NEW_MEMBER]) {
-    const r = await route(message, { intent: "edit", layer: "data" });
-    assert.equal(r.body.intent, "edit", message);
-    assert.equal(r.body.layer, "data", message);
-    // And the canary's route check refuses it before anything is posted.
-    const v = routeVerdict(ADDON_PRESS.expect, r.body);
-    assert.equal(v.ok, false, "the expected-addon press would post a data edit for a new entry");
-    assert.deepEqual(v.diffs.map((d) => d.key), ["intent"]);
-  }
-});
-
-test("controls: changing or deleting an existing entry, and sorting it across the site, still go on as data edits", async () => {
-  for (const message of [UPDATE, DELETE, SORT]) {
-    const r = await route(message, { intent: "edit", layer: "data" });
-    assert.equal(r.body.intent, "edit", message);
-    assert.equal(r.body.layer, "data", message);
-    assert.ok(!r.body.alsoAsked, message);
-    assert.deepEqual(routeVerdict(DATA_PRESS.expect, r.body), { ok: true, diffs: [] });
-  }
-});
-
-test("mixed requests keep their handling: the hold rule and the whole-message rule are unchanged", async () => {
-  // The words that decide a hold: an addition beside a change, and a change
-  // beside an addition when the answer is addon.
-  assert.match(ALSO, /something to ADD that the site does not have yet beside a change/);
-  assert.match(ALSO, /a change beside an addition when you answered "addon"/);
-  assert.match(ALSO, /a change to what the site's lists hold \("data"\)[^.]*beside a change of another kind/);
-  // The whole-message rule is still the layer field's last word.
-  assert.match(LAYER[LAYER.length - 1], /^ONE ANSWER FOR THE WHOLE MESSAGE/);
-  // And through the route: an addon answer holding back a change to an
-  // existing entry is handed on with its hold, word for word.
-  const held = "change the price of window cleaning to £30";
-  const r = await route("Put gutter cleaning on our services list at £60, and " + held + ".", { intent: "addon", alsoAsked: held });
-  assert.equal(r.body.intent, "addon");
-  assert.equal(r.body.alsoAsked, held);
-});

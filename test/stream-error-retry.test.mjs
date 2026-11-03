@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callBuilderModel, retryHere, patientCall } from "../builder/build-call.mjs";
-import { routeFailure } from "../builder/site-ask.mjs";
+import { routeFailure } from "../builder/route-shared.mjs";
 
 const KEYS = { anthropic: "A-KEY", xai: "X-KEY" };
 const XAI_REQ = { model: "grok-4.6", max_tokens: 10, messages: [{ role: "user", content: "hi" }] };

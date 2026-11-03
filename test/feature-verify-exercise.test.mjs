@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { requirementRetryRound, retryBrief, judgedNeeds } from "../builder/requirement-retry.mjs";
+
 import { verifyNeed, routeCode, renderedSubmits } from "../builder/requirement-verify.mjs";
 import { ruleProbes, exerciseTable, exerciseTables, interceptedWrite, checkValues, testValue } from "../builder/requirement-exercise.mjs";
 import { exerciseForms } from "../builder/render-check.mjs";
@@ -24,67 +24,6 @@ const MEND = { old: "<h1>Lessons</h1>", new: "<h1>Lessons</h1><BookForm />" };
 const ADDED = '\nfunction BookForm() {\n  const book = useCreateRow("lesson_bookings");\n  return <form><input name="date" /><input name="time" /><input name="people" /></form>;\n}\n';
 const reply = (edits) => ({ content: [{ type: "tool_use", id: "t1", name: "write_tweak", input: { edits } }], usage: { input_tokens: 100, output_tokens: 50 } });
 const compileOk = async (pg) => ({ ok: true, files: [{ path: "x" }], render: { ok: true } });
-
-test("no retry when nothing is missing, and none for what one page pass cannot mend", async () => {
-  let sent = 0;
-  const send = async () => { sent++; return reply([MEND]); };
-  const fine = { pages: new Map([["/lessons", 'useCreateRow("lesson_bookings")']]), drawn: new Set(["/lessons"]), spec };
-  const r = await requirementRetryRound({ needs, site: fine, pages, siteOf, send, compile: compileOk });
-  assert.equal(r.ran, false); assert.equal(r.why, "nothing-missing"); assert.equal(sent, 0);
-  const noTable = await requirementRetryRound({ needs: [{ need: "Hire", carriers: ["page:/lessons", "table:hire"] }], site: siteOf(pages), pages, siteOf, send, compile: compileOk });
-  assert.equal(noTable.why, "unmendable"); assert.deepEqual(noTable.still, ["Hire"]); assert.equal(sent, 0);
-  assert.equal((await requirementRetryRound({ needs, site: siteOf(pages), pages, siteOf, send, compile: compileOk, room: false })).why, "time");
-  // A join gap beside a gap no page pass can mend, or a page with no file of its own: not retried.
-  const mixed = await requirementRetryRound({ needs: [{ need: "Priced booking", carriers: ["page:/lessons", "table:lesson_bookings", "table:lesson_bookings.price"] }], site: siteOf(pages), pages, siteOf, send, compile: compileOk });
-  assert.equal(mixed.why, "unmendable");
-  const noFile = await requirementRetryRound({ needs, site: siteOf(pages), pages: [{ path: "home.tsx", source: PAGE }], siteOf, send, compile: compileOk });
-  assert.equal(noFile.why, "unmendable");
-  assert.equal(sent, 0);
-});
-
-test("missing, retried once with the gap as the reason, then present", async () => {
-  const seen = [];
-  const send = async (req) => { seen.push(JSON.stringify(req)); return reply([{ old: MEND.old, new: MEND.new }, { old: "function Lessons() {", new: ADDED.trim() + "\nfunction Lessons() {" }]); };
-  const r = await requirementRetryRound({ needs, site: siteOf(pages), pages, siteOf, send, compile: compileOk });
-  assert.equal(seen.length, 1, "one call, one round");
-  assert.match(seen[0], /\/lessons does not read or save lesson_bookings/);
-  assert.match(seen[0], /useCreateRow/);
-  assert.equal(r.ran, true, JSON.stringify(r));
-  assert.deepEqual(r.mended, ["Each lesson can be booked online"], JSON.stringify(r));
-  assert.deepEqual(r.still, []);
-  assert.ok(r.built && r.pages[0].source.includes('useCreateRow("lesson_bookings")'));
-  assert.equal(r.usage.length, 1, "its usage is kept for the one charge");
-  assert.equal(verifyNeed(needs[0].carriers, siteOf(r.pages)).state, "present");
-});
-
-test("missing, retried, still missing: told not done, never a second round", async () => {
-  let sent = 0;
-  const send = async () => { sent++; return reply([{ old: "<h1>Lessons</h1>", new: "<h1>Lessons</h1><hr />" }]); };
-  const r = await requirementRetryRound({ needs, site: siteOf(pages), pages, siteOf, send, compile: compileOk });
-  assert.equal(sent, 1);
-  assert.deepEqual(r.still, ["Each lesson can be booked online"]);
-  assert.deepEqual(r.mended, []);
-  // A refused tweak or a failed compile is still missing, and ships nothing new.
-  const refused = await requirementRetryRound({ needs, site: siteOf(pages), pages, siteOf, send: async () => reply([]), compile: compileOk });
-  assert.equal(refused.why, "refused"); assert.equal(refused.built, null); assert.deepEqual(refused.still, ["Each lesson can be booked online"]);
-  const broke = await requirementRetryRound({ needs, site: siteOf(pages), pages, siteOf, send: async () => reply([MEND]), compile: async () => ({ ok: false }) });
-  assert.equal(broke.why, "compile"); assert.equal(broke.built, null);
-  assert.deepEqual(judgedNeeds([{ need: " x ", judged: { carried: "yes", by: ["page:/a"] } }, { need: "y", judged: { carried: "unsure", by: ["page:/a"] } }]), [{ need: "x", carriers: ["page:/a"] }]);
-  assert.equal(retryBrief(needs, siteOf(pages), pages).work[0].route, "/lessons");
-});
-
-test("the worker runs the round before publish, ships its compile, and charges it once on its own reserve", () => {
-  const round = at(W, "aReqRetry = await requirementRetryRound({");
-  assert.ok(round > at(W, "aRepairRound = await addRepairRound({"), "after the repair round");
-  at(W, "needs: judgedNeeds(aReq)", round);
-  at(W, "aReqRetry.charged = Number(await aCharge(pageCredits(...aReqRetry.usage), 7)) || 0;", round);
-  at(W, "const aSwap = aReqRetry && aReqRetry.built ? { built: aReqRetry.built, pages: aReqRetry.pages }", round);
-  at(W, "...aRepairUsage, ...aLangUsage, ...aRetryUsage, aPhotoBill, aPickUsage));");
-  at(W, "+ aLangCharged + aPhotoCharged + aRetryCharged;");
-  at(W, "const aRetryCharged = Number(aReqRetry && aReqRetry.charged) || 0;");
-  at(W, "const aShippedPages2 = aReqRetry && aReqRetry.built ? aReqRetry.pages");
-  assert.equal((W.match(/aCharge\([^;]*, 7\)/g) || []).length, 1, "reserve #7 is placed in one place");
-});
 
 test("a table's rules: a plain row, the value that passes and the one that breaks each, tried and always rolled back", async () => {
   const probes = ruleProbes(spec.tables[0]);
@@ -118,13 +57,6 @@ test("a table's rules: a plain row, the value that passes and the one that break
   const bad = verifyNeed(["table:lesson_bookings:checks"], { ...site, exercised: new Map([["lesson_bookings", lax]]) });
   assert.equal(bad.state, "missing");
   assert.ok(bad.gaps[0].startsWith("a test write with people = 9 was accepted by lesson_bookings"), JSON.stringify(bad.gaps));
-});
-
-test("the worker exercises rules only through the rolled-back rehearsal, only on the applied live schema", () => {
-  const ex = at(W, "exercised: adb && !(aWriter && aWriter.holding)");
-  at(W, "rehearse: (sql, params) => sqlRehearse(adb, sql, params)", ex);
-  const src = readFileSync(new URL("../builder/requirement-exercise.mjs", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
-  assert.ok(!/sqlQuery|sqlExec|COMMIT/.test(src), "no other way to write");
 });
 
 test("a form filled and submitted in the render check: its write recorded and aborted, nothing sent", async () => {

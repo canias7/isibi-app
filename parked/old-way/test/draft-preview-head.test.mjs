@@ -1,0 +1,200 @@
+// PARKED (2026-11-03, park-old-way): the old-way half of test/draft-preview-head.test.mjs — it tests the old way (router, lanes, GF_OLD_LANES). Not run by the suite (test/*.test.mjs); see parked/old-way/README.md.
+// THE PREVIEW'S HEAD IS THE VERSION IT SERVES (2026-10-16, Codex's review of
+// `fbd53dca`).
+//
+// `saveAsDraft` wrote every version's sidecar to one `sitemeta-draft/<slug>.json`,
+// with no version and no fence. Codex paused an older save immediately before
+// that write, finished a newer save, then resumed the older one: the draft
+// stayed on the newer version, its preview's head became the OLDER one, and
+// both saves answered success. Now nothing shared is written: the preview copy
+// of the site's script reads the head staged INSIDE the version it serves
+// (`builds/<slug>/<version>/state/sidecar.json`, immutable), and a save that
+// finishes last with an older script puts the draft's own version back up.
+//
+//   DPH1  two overlapping saves, deterministic, through the real `saveAsDraft`,
+//         `stageBuild` and `readBuild`, and the real site-script reader:
+//         (a) the older save paused exactly where the shared write was (after
+//             its record and editable copy, before its preview) and resumed
+//             after the newer save finished: it puts no script up, and the
+//             preview serves the newer version with the NEWER head;
+//         (b) the older save's upload landing AFTER the newer save's (paused
+//             inside its upload): its look afterwards puts the newer version
+//             back up, with the newer head;
+//         both answer success (the older one's code stands in the history, as
+//             before), nothing shared is written, the live head and pointer do
+//             not move; CONTROL: a single save puts its own version up
+//   DPH2  the real site-script reader (`server.ts`, transpiled, nothing else
+//         changed): previewing reads the head of `SITE_VERSION`; a request that
+//         is not a preview reads the live head; a version staged without one
+//         reads the live head; the generated foundation copy carries the same
+//         reader
+//   DPH3  storage permissions: a container job may write its version's staged
+//         head (with `builds/`) and may no longer write `sitemeta-draft/`
+//   DPH4  the Worker's re-preview (`previewVersion`), on real draft saves: it
+//         puts a staged version's own script up as the preview; an unstaged
+//         version is refused and the preview is left as it was; both
+//         activation paths hand it to the draft save
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
+import { saveAsDraft, readDraft, DRAFT_KEY } from "../../../site-draft.mjs";
+import { stageBuild, readBuild, buildPrefix, STATE_DIR } from "../../../site-builds.mjs";
+import { allowedJobKey } from "../../../builder/job-gateway.mjs";
+import { FOUNDATION_FILES } from "../../../builder/foundation-files.mjs";
+import { platform, sendMessage, settle, T } from "../../../test/fixtures/request-flow.mjs";
+import { blockNetwork } from "../../../test/fixtures/no-network.mjs";
+import { installCompiler } from "../../../test/fixtures/cf-containers.mjs";
+import { page as pageSrc } from "../../../test/fixtures/live-ask.mjs";
+import { loadWorkerModule } from "../../../test/fixtures/worker-harness.mjs";
+
+blockNetwork();
+
+const SLUG = "dph";
+const V_LIVE = "01790500000000-aaaaaa";
+const V_OLD = "01790600000000-bbbbbb";
+const V_NEW = "01790600000500-cccccc";
+const HEAD = { [V_LIVE]: "The live words", [V_OLD]: "The older draft's words", [V_NEW]: "The newer draft's words" };
+const SERVER_SRC = new URL("../../../builder/lovable/template/src/server.ts", import.meta.url);
+
+/** R2 as the draft code reads it: get, and put honouring `onlyIf`. */
+function store() {
+  const m = new Map();
+  let n = 0;
+  const deps = {
+    m,
+    get: async (k) => (m.has(k) ? { etag: m.get(k).etag, text: async () => m.get(k).body } : null),
+    put: async (k, body, _ct, cond = {}) => {
+      const cur = m.get(k);
+      if (cond && cond.etagMatches && (!cur || cur.etag !== cond.etagMatches)) return null;
+      if (cond && cond.etagDoesNotMatch === "*" && cur) return null;
+      const etag = "e" + (++n);
+      m.set(k, { body: String(body), etag });
+      return { etag };
+    },
+    list: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort().map((key) => ({ key })),
+    remove: async (k) => { m.delete(k); },
+  };
+  return deps;
+}
+/** A version staged as a publish stages it: its files, its script, its head. */
+async function stage(deps, version) {
+  const r = await stageBuild(deps, {
+    slug: SLUG, version, files: { "index.html": { t: "<p>" + version + "</p>" } },
+    worker: { code: "// site-version: " + version + "\nexport default {}", build: "b-" + version.slice(-6) },
+    state: { sidecar: JSON.stringify({ description: HEAD[version] }) },
+    manifest: { parent: V_LIVE },
+  });
+  assert.equal(r.ok, true, JSON.stringify(r));
+}
+async function liveSite(deps) {
+  await stage(deps, V_LIVE);
+  await deps.put("current/" + SLUG + ".json", JSON.stringify({ version: V_LIVE, build: "b-aaaaaa", parent: "", job: null, activatedAt: "x" }), "application/json");
+  await deps.put("sitemeta/" + SLUG + ".json", JSON.stringify({ description: HEAD[V_LIVE] }), "application/json");
+}
+
+// ── THE REAL SITE-SCRIPT READER ─────────────────────────────────────────────
+//
+// `server.ts` transpiled as it is; only its three imports are stood in for:
+// Start's handler answers with the head the script set, the build constants are
+// the version's, and `setSiteMeta` keeps what it is given.
+async function siteScript(version) {
+  const src = readFileSync(SERVER_SRC, "utf8");
+  const imports = [
+    'import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";',
+    'import { SITE_BUILD, SITE_SLUG, SITE_VERSION, SITE_PARENT } from "./site-brand";',
+    'import { setSiteMeta, type SiteMeta } from "./site-runtime";',
+    // 2026-10-27: the site's own follow-ups; stood in by a function that runs nothing.
+  ];
+  for (const i of imports) assert.ok(src.includes(i), "the site script's imports moved — rescope this: " + i);
+  let body = src;
+  for (const i of imports) body = body.replace(i, "");
+  body = body.replace(/^import \{[^}]*\} from "\.\/lib\/[^"]+";$/gm, "");
+  const head = [
+    "let __meta = null;",
+    // The site's own-handlers' helpers (./lib/…, 2026-10-27): stood in by
+    // functions that answer nothing, so every request reaches the reader.
+    ...[...src.matchAll(/^import \{([^}]*)\} from "\.\/lib\/[^"]+";$/gm)].flatMap((m) =>
+      m[1].split(",").map((x) => x.trim()).filter((x) => x && !x.startsWith("type ")).map((n) => (n === "absolutized" ? `const ${n} = async (r) => r;` : `const ${n} = async () => null;`))),
+    "const setSiteMeta = (m) => { __meta = m; };",
+    "const createStartHandler = () => async () => new Response(JSON.stringify(__meta));",
+    "const defaultStreamHandler = null;",
+    "const SITE_BUILD = 'b';",
+    "const SITE_SLUG = " + JSON.stringify(SLUG) + ";",
+    "const SITE_VERSION = " + JSON.stringify(version) + ";",
+    "const SITE_PARENT = '';",
+  ].join("\n");
+  const js = ts.transpileModule(head + "\n" + body, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  return (await import("data:text/javascript;base64," + Buffer.from(js + "\n//" + Math.random()).toString("base64"))).default;
+}
+/** The head a document of `version`'s script gets, as a preview or not. */
+async function headSeen(deps, version, { preview = true } = {}) {
+  const script = await siteScript(version);
+  const env = { SITES: { get: async (k) => deps.get(k), head: async (k) => (deps.m.has(k) ? {} : null) } };
+  await deps.put("sites/" + SLUG + "/site.live", "1", "text/plain");
+  const res = await script.fetch(new Request("https://x.gofarther.app/", { headers: preview ? { "x-site-preview": "1" } : {} }), env);
+  const m = JSON.parse(await res.text());
+  return m && m.description;
+}
+
+/** The preview slot: which version's script is up, as the uploads leave it. */
+function previewSlot(deps) {
+  const slot = { version: null, uploads: [] };
+  const up = (code) => { const v = /site-version: (\S+)/.exec(code)[1]; slot.version = v; slot.uploads.push(v); return { ok: true }; };
+  slot.previewOf = (version) => async () => up("// site-version: " + version);
+  slot.repreview = async (version) => { const b = await readBuild(deps, SLUG, version); if (!b || !b.worker) return { ok: false }; return up(b.worker); };
+  return slot;
+}
+const gate = () => { let open; const p = new Promise((r) => { open = r; }); return { wait: () => p, open }; };
+
+test("DPH4 THE WORKER'S RE-PREVIEW ON REAL DRAFT SAVES — `previewVersion` puts a staged version's own script up as the preview; an unstaged version is refused and the preview left as it was; both activation paths hand it to the draft save", async () => {
+  const compiler = installCompiler();
+  const bare = (t) => (t == null ? t : String(t).replace(/\n[ \t]+$/, ""));
+  const FROM = ["Follow us on TikTok at @oldloaf", "Come to the bakery", "Open every day"];
+  const TO = ["Follow us on TikTok at @harbourloaf", "Come and see us", "Open six days"];
+  const VISIT = pageSrc("/visit", "<section className=\"come\"><h1>" + FROM[1] + "</h1><p>" + FROM[0] + "</p><p>" + FROM[2] + "</p></section>");
+  const HOME = pageSrc("/", "<section className=\"hero\"><h1>Harbour Loaf</h1></section>");
+  const said = (args) => String(args.messages[0].content);
+  const lineId = (args, line) => Number(String(said(args).split("\n").find((l) => l.includes("[visit.tsx] " + line)) || "-1.").split(".")[0]);
+  let n = 0;
+  const P = platform({
+    slug: "dph-" + Math.random().toString(16).slice(2, 8), pages: [{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }], liveScripts: true, balance: 400,
+    answers: {
+      route: () => ({ intent: "edit", layer: "text", page: "/visit", targets: [{ change: 0, writes: ["page:/visit"] }] }),
+      [T.text]: (args) => { const i = Math.min(n++, 2); return { edits: [{ id: lineId(args, FROM[i]), to: TO[i] }] }; },
+    },
+  });
+  const { draftFirstApi } = await loadWorkerModule();
+  const draft = () => JSON.parse(bare(P.readObj(DRAFT_KEY(P.slug))));
+  try {
+    const r0 = await sendMessage(P, { message: "Change our TikTok link to @harbourloaf." });
+    await settle(P, r0.key, { rounds: 20 });
+    P.env.DRAFT_FIRST = "on";
+    for (const message of ["Change the Visit heading to Come and see us.", "Say we are open six days."]) {
+      const r = await sendMessage(P, { message });
+      const { rec } = await settle(P, r.key, { rounds: 20 });
+      assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    }
+    const d = draft();
+    assert.equal(d.revs.length, 2, JSON.stringify(d.revs));
+    const [first, second] = d.revs.map((r) => r.version);
+    assert.equal(P.previewScript(), second, "the preview is not the draft's newest version");
+    // THE RE-PREVIEW puts the named staged version's own script up.
+    const back = await P.run(() => draftFirstApi.previewVersion(P.env, P.slug, first));
+    assert.equal(back.ok, true, JSON.stringify(back));
+    assert.equal(P.previewScript(), first, "the re-preview did not put that version's script up");
+    const fwd = await P.run(() => draftFirstApi.previewVersion(P.env, P.slug, second));
+    assert.equal(fwd.ok, true);
+    assert.equal(P.previewScript(), second);
+    // AN UNSTAGED VERSION: refused, nothing uploaded.
+    const none = await P.run(() => draftFirstApi.previewVersion(P.env, P.slug, "01790999999999-zzzzzz"));
+    assert.equal(none.ok, false);
+    assert.equal(P.previewScript(), second, "a refused re-preview changed the preview");
+    await P.settle();
+    assert.deepEqual(P.unexpected, [], "requests the stand-ins were not set up for");
+  } finally { P.close(); compiler.uninstall(); }
+  // BOTH ACTIVATION PATHS HAND IT TO THE DRAFT SAVE, landmark to landmark.
+  const w = readFileSync(new URL("../../../worker.js", import.meta.url), "utf8");
+  const wired = w.split("repreview: toDraft ? (v, o) => previewVersion(env, slug, v, o) : undefined,").length - 1;
+  assert.equal(wired, 2, "the edit and build activations do not both hand the re-preview to the draft save (" + wired + ")");
+});

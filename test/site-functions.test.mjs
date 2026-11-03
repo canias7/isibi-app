@@ -272,15 +272,6 @@ test("SF16 every path's publish checks server code: a refused rewrite keeps the 
   assert.match(block, /siteParts = vet\.parts\.concat\(vet\.failed\.map\(\(f\) => keep\.get\(f\.part\.name\)\)\.filter\(Boolean\)\)/);
 });
 
-test("SF17 the router and the add-on step send 'the site should DO something' to the writer with server code", async () => {
-  const { ASK_TOOL } = await import("../builder/site-ask.mjs");
-  assert.match(JSON.stringify(ASK_TOOL), /SOMETHING THE SITE DOES that it does not do yet is an addition too/);
-  const add = readFileSync(new URL("../builder/site-add.mjs", import.meta.url), "utf8");
-  // The api kind that used to point here went with the prebuilt features (2026-10-29).
-  assert.doesNotMatch(add, /An OUTSIDE service a page reads live/);
-  assert.match(add, /WITH the site's own server code when it needs one/);
-});
-
 test("SF-verify site.verify checks an outside service's signature with the owner's key, never showing it; constant-time; false when the key is unset", async () => {
   const { makeSite } = await loadTemplate("lib/site-functions.ts");
   const { createHmac } = await import("node:crypto");

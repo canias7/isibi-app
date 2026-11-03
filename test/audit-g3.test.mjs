@@ -14,13 +14,6 @@ function between(a, b, from = 0) {
   return src.slice(i, k);
 }
 
-test("A06-5: the Edit page rung overlays the draft's held changes on its schema before the writer", () => {
-  const rung = between('if (!eSpec) return explain("page/spec-unreadable", {}, { backend: "spec-missing" });', "const eModels = modelsFor(");
-  assert.match(rung, /eView = await draftView\(env, ownerSlug\)/);
-  assert.match(rung, /eSpec = specOverlay\(eSpec, eView\.ops\)/);
-  assert.match(rung, /backend: "draft"/, "an unreadable draft stops");
-});
-
 test("A06-5: a held revise writes its pages against the draft's schema", () => {
   const rev = between("let pageSpec = spec;", "pageSpec = withStoredSpec(spec, read.spec);");
   assert.match(rev, /bWriter\.holding/);

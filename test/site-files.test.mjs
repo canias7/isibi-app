@@ -129,53 +129,6 @@ test("DRIVEN: a text edit reaches a separated section and changes it", async () 
   assert.equal(back.pages[0].source, pages[0].source, "the page moved on an edit that was not about it");
 });
 
-test("the text lane reads BOTH stores, and both halves are published", () => {
-  // A CHAIN ASSERTED AT THE LAYER BELOW THE BREAK is this repository's most
-  // expensive recorded shape, so the two hops that carry the parts into and out
-  // of the rung are read where they happen.
-  const at = WORKER.indexOf('if (eLayer === "text") {');
-  assert.ok(at > 0, "the text lane is gone");
-  // LANDMARK TO LANDMARK, never a byte window, and the closing one is the NEXT
-  // lane rather than a name that happens to sit below: `picture` is not the next
-  // branch, `look` is, and windowing to an absent landmark gives `slice(a, -1)`
-  // — the whole rest of the file, which passes on anything.
-  const end = WORKER.indexOf('if (eLayer === "look"', at);
-  assert.ok(end > at, "the lane after `text` moved — re-derive the closing landmark");
-  const lane = WORKER.slice(at, end);
-  // RE-DERIVED 2026-10-02, 8,000 to 9,000: the lane grew one line, the check
-  // that its model asked a question back (`stepAsk`), and measures 8,095. The
-  // ceiling is what proves the slice is the lane and not the rest of the file.
-  // RE-DERIVED 2026-10-23, 9,000 to 15,000: the lane carries the translated-page
-  // edit (#196, `eLangEdit`), and measures about 13,600.
-  // RE-DERIVED 2026-10-26, 15,000 to 17,000: the email change carried to its
-  // links and copies (run 6, `carryEmailChange`); measures about 15,000.
-  assert.ok(lane.length > 200 && lane.length < 17000, "re-derive this window");
-  assert.match(lane, /editableFiles\(eSrc, eParts\)/, "the lane no longer shows the rung the site's components");
-  // RE-ANCHORED 2026-09-20, and the move is the fix rather than a rename.
-  // `loadSiteParts` COLLAPSES "this site has no components" and "the read
-  // threw" into one `null`, and on this lane the second was the expensive
-  // one: `editableFiles(eSrc, null)` presents the pages alone, `splitEditable`
-  // answers `parts: []`, and both the spine's preference and its save take an
-  // empty array at face value — so a one-word wording change REWROTE
-  // `source/<slug>/parts.json` to `[]`. Measured through the real route
-  // before the fix. `editParts()` is the message-wide three-state snapshot.
-  assert.match(lane, /const eTextParts = await editParts\(\);/, "the lane never reads the components");
-  assert.match(lane, /if \(!eTextParts\.ok\)/, "an unreadable components store is not refused, so the publish empties the inventory");
-  assert.match(lane, /"parts-unreadable"/, "the refusal does not name itself");
-  // AND IT REFUSES ABOVE THE MODEL CALL, so a retry a minute later has paid
-  // for neither attempt. Driven for cost and call count in
-  // `test/edit-page-context.test.mjs`; the property here is the ORDER.
-  assert.ok(lane.indexOf("const eTextParts") < lane.indexOf("runTextEdit("),
-    "the components store is read after the model call it should refuse before");
-  // 2026-10-26: what came back passes through the email carry (run 6) first.
-  assert.match(lane, /const eMail = carryEmailChange\(out\.pages, out\.edits, \{ keepLinks: out\.keepLinks === true \}\);/, "the step's pages no longer reach the email carry");
-  assert.match(lane, /splitEditable\(eMail\.pages\)/, "what came back is published without being split — a component would be stored as a page");
-  // BOTH HALVES TO THE PUBLISH, and the parts EVERY time rather than only when
-  // one changed: `recompileAndPublish` stores the list it is handed, so handing
-  // it the changed ones alone would take every untouched component off the site.
-  assert.match(lane, /pages: eSplit\.pages, parts: eSplit\.parts/, "the publish is handed one half of the source");
-});
-
 test("`loadSiteSourceForEdit` answers the PAGES, and every rung that needs the components reads them itself", () => {
   // RE-ANCHORED 2026-09-13, and the spelling that moved is named: this case used
   // to assert a SIBLING — `loadEditableFiles`, "the whole source a job is about

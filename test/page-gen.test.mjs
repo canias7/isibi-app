@@ -4413,37 +4413,6 @@ test("priorPagesSent resolves a keep entry in ANY spelling, which is the one wal
     "junk in the keep list took a slot: " + JSON.stringify(junk.shown.map((p) => p.path)));
 });
 
-test("both partial lanes hand validate the stored site's routes", () => {
-  // The module fix is nothing if the lanes do not pass what they know — the
-  // wiring layer, this repo's most-recorded failure. Both call sites must carry
-  // knownRoutes derived from their stored-page list.
-  // Windowed, not regex-matched to the closing paren: a first draft used
-  // `[^;]*?\)` and the match ended at the `)` inside `(eSrc || [])`, cutting the
-  // window short of the very line it asserts — a guard that could only fail.
-  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const wins = [];
-  for (let i = worker.indexOf("validatePages("); i >= 0; i = worker.indexOf("validatePages(", i + 1)) {
-    const win = worker.slice(i, i + 400);
-    if (/partial:\s*true/.test(win)) wins.push(win);
-  }
-  // RE-ANCHORED 2026-09-17, and the count is kept rather than loosened to a
-  // floor: it is a CENSUS — a partial lane added without `knownRoutes` must
-  // fail by existing, and `>= 2` would let a deleted call site pass. The third
-  // is the addon's REPAIR pass, which re-asks validate over what survives when
-  // a page is withheld with a dead QR code, so a link into a withheld route is
-  // rewritten rather than published dangling. It carries the same two things
-  // for the same reason, which is why it belongs in this census rather than
-  // beside it as an exemption.
-  // THE FOURTH (2026-10-24, round 2 of the retry rule): the add-on writer's
-  // answer read ahead of the merge (`aWriterCheck`), so an answer that would end
-  // `rewrote` or `not-landed` is asked once more — same two things, same reason.
-  assert.equal(wins.length, 4, "expected the two partial lanes, the addon's withholding repair and its retry check, found " + wins.length);
-  for (const c of wins) {
-    assert.match(c, /knownRoutes:/, "a partial lane calls validate without the site's own routes:\n" + c.slice(0, 200));
-    assert.match(c, /routeOf\(/, "knownRoutes is not derived from the stored pages:\n" + c.slice(0, 200));
-  }
-});
-
 // ── A LINK WRITTEN AS A PLAIN ANCHOR ────────────────────────────────────────
 //
 // The dangling-link rewrite covers `to=`/`to:` only — the TYPED forms, where a
@@ -4912,28 +4881,6 @@ test("ZERO FALSE ALARMS: the path repair and its lint over every real file we ha
     assert.deepEqual(moved, [], "the repair rewrote correct " + what + " files: " + moved.slice(0, 3).join(", "));
     const said = lintPages(files, { pages: [], tables: [] }).filter((p) => /which is not a file/.test(p));
     assert.deepEqual(said.slice(0, 3), [], "the lint cried wolf on the " + what);
-  }
-});
-
-// EVERY RUNG THAT GENERATES SOURCE REPAIRS ITS PARTS, NOT ONLY ITS PAGES.
-// Three call sites: the build path (driven end to end in
-// `test/publish-pages.test.mjs`) and the page and addon rungs in `worker.js`,
-// which have no driven harness — so these two are read, and the reading is
-// honest about being weaker than a drive. What makes it worth having is that
-// cutting either leaves `repairImports` perfect and one whole rung's components
-// unrepaired, which is the recorded wiring shape: a hop nobody lists is a hop
-// nobody guards.
-test("the page and addon rungs repair their parts, not only their pages", () => {
-  const w = fs.readFileSync(fileURLToPath(new URL("../worker.js", import.meta.url)), "utf8");
-  const code = w.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
-  assert.equal(code.length, w.length, "the blanker moved a byte");
-
-  for (const v of ["pValid", "aValid"]) {
-    assert.ok(code.includes("repairImports(" + v + ".pages, { parts: "),
-      v + " stopped repairing its pages — this guard is measuring the wrong thing");
-    assert.ok(code.includes(v + ".parts = repairImports(" + v + ".parts, { parts: "),
-      v + " repairs its pages and leaves its hand-written components alone");
   }
 });
 

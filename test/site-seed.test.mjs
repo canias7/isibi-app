@@ -438,20 +438,6 @@ test("the worker's seed top-up log cannot reach for the route's own `slug`", () 
   assert.deepEqual(bare, [], "a bare `slug` read sits before its declaration — the TDZ crash is back");
 });
 
-test("a dead provider and a junk answer are not the same message on the wire", () => {
-  // `failed` is the ONLY discriminator. The module sets it when the model CALL
-  // threw; a call that RETURNED junk answers with the same empty `rows` and the
-  // same `gaps`, so both lanes' responses were byte-identical — and the customer's
-  // site has an empty price list either way, so nobody could say which happened.
-  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const carried = [...worker.matchAll(/[aA]?[sS]eedTopUp = \{ gaps: [\s\S]{0,240}?\};/g)].map((m) => m[0]);
-  assert.equal(carried.length, 2, `found ${carried.length} seed-top-up reports, expected the build lane and the addon lane`);
-  for (const c of carried) {
-    assert.match(c, /failed === true \? \{ failed: true \} : \{\}/,
-      "a lane drops the flag, so a provider outage and a junk answer read identically: " + c.slice(0, 90));
-  }
-});
-
 test("the flag is strictly true, never merely truthy", () => {
   // This file's standing rule. `top.failed || undefined` would raise the flag for
   // any truthy value the module might grow later, which is how a report starts

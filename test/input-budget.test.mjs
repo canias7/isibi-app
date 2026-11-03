@@ -22,7 +22,7 @@ import { createRequire } from "node:module";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, ECHO_CHARS_PER_TOKEN, echoTokens, carriedChars } from "../builder/input-budget.mjs";
 import { MODEL_LIMITS } from "../builder/build-models.mjs";
 import { MAX_ATTACHMENTS } from "../builder/site-context.mjs";
-import { askRequest, routeMessage, ASK_MAX_TOKENS, MAX_MESSAGE, MAX_ANSWER_CHARS, readContext, appendAnswer, heldList } from "../builder/site-ask.mjs";
+import { readContext, appendAnswer, heldList } from "../builder/route-shared.mjs";
 import { textRequest, dataRequest } from "../builder/site-apply.mjs";
 import { rulesRequest } from "../builder/site-rules.mjs";
 import { navRequest } from "../builder/site-nav.mjs";
@@ -47,53 +47,6 @@ const text = (req) => {
   const c = m && m.content;
   return typeof c === "string" ? c : JSON.stringify(c || "");
 };
-
-test("THE TWO NUMBERS: one message is 16,000 characters and one request carries 48,000 — far past the old 2,000 and 500, and the request still has room for answers", () => {
-  assert.equal(MAX_INPUT_CHARS, 16000);
-  assert.equal(MAX_CARRIED_CHARS, 48000);
-  assert.ok(LONG.length > 2000 && LONG.length < MAX_INPUT_CHARS, "the test message is not past the old cut and inside the policy: " + LONG.length);
-  assert.ok(MAX_CARRIED_CHARS >= 3 * MAX_INPUT_CHARS, "a request at the bound would have no room for its answers");
-  // AN ANSWER IS ONE MESSAGE, and since 2026-10-08 (the content-preservation
-  // batch) a first build's message is one message too — no longer 2,000.
-  assert.equal(MAX_ANSWER_CHARS, MAX_INPUT_CHARS);
-  assert.equal(MAX_MESSAGE, MAX_INPUT_CHARS, "a first build's message is cut to a bound of its own again");
-});
-
-test("WHY THESE NUMBERS — each constraint the rationale cites is read from the code that sets it, and the arithmetic holds", () => {
-  // 1. THE STORED ANSWER OF A QUEUED JOB (`edit_finalize`): the binding one.
-  // RE-ANCHORED 2026-10-12 (round 13): the status is `resStatus`.
-  // RE-ANCHORED AGAIN (round 14): what the row keeps is `ANSWER_INLINE_MAX`,
-  // and an answer over it is kept whole beside the job (`spillAnswer`) — the
-  // row is given the answer, or where it is, and never a cut answer.
-  const bound = WORKER.match(/\nconst ANSWER_INLINE_MAX = (\d+);/);
-  assert.ok(bound, "the stored answer's bound could not be found in worker.js");
-  const storeBound = Number(bound[1]);
-  assert.equal(storeBound, 200000);
-  assert.match(WORKER, /p_result: \{ status: resStatus, type: [^}]*body: storedBody \}/, "the row is not given the guarded body");
-  assert.match(WORKER, /if \(bodyText\.length > ANSWER_INLINE_MAX\) \{\s*const sp = await spillAnswer\(env, id, bodyText\);/, "an answer over the bound is not kept whole beside its job");
-  assert.doesNotMatch(WORKER, /body: bodyText\.slice\(0,/, "the stored answer is cut again");
-  // …AND A CHECKPOINT RIDING IN THE ANSWER (round 13) never takes it past the
-  // bound: an answer carrying one is kept only while it is under it.
-  const inline = WORKER.match(/const HELD_INLINE_MAX = (\d+);/);
-  assert.ok(inline && Number(inline[1]) < storeBound, "an answer carrying a checkpoint could be cut by the stored answer's bound");
-  // replyFor (the carried whole) + four message-sized copies + pages and reply + the largest stored answer measured.
-  const worst = MAX_CARRIED_CHARS + 4 * MAX_INPUT_CHARS + 6000 + 27961;
-  assert.ok(worst < storeBound * 0.75, "a job's stored answer could come within a quarter of its bound: " + worst);
-  // 2. THE ROUTING ROUTE'S BODY.
-  const routeAt = WORKER.indexOf('url.pathname === "/api/site/route" && request.method === "POST"');
-  const cap = WORKER.slice(routeAt, routeAt + 1200).match(/tooLargeBody\(request, ([\d_]+)\)/);
-  assert.ok(routeAt > 0 && cap, "the routing route's body cap could not be found");
-  assert.ok(MAX_INPUT_CHARS * 6 < Number(cap[1].replace(/_/g, "")) / 10, "one message at its worst encoding is not small beside the routing route's cap");
-  // 3. THE MODELS' WINDOWS: the page writer's own content and answer, plus the carried whole, against the smallest.
-  const smallest = Math.min(...Object.values(MODEL_LIMITS).map((m) => m.context));
-  assert.equal(smallest, 500000);
-  assert.ok(Math.ceil((90000 + 36000 + 16000 + MAX_CARRIED_CHARS) / 3) + 30000 < smallest / 4, "the largest call would pass a quarter of the smallest window");
-  // 4. WHAT A MODEL COPIES BACK: the router's and the picker's ceilings at the bound fit every picker's stated output limit.
-  const outFloor = Math.min(...Object.values(MODEL_LIMITS).map((m) => m.maxOutput).filter(Number.isFinite));
-  assert.ok(Number.isFinite(outFloor));
-  assert.ok(ASK_MAX_TOKENS + echoTokens("x".repeat(MAX_INPUT_CHARS)) <= outFloor, "the router's ceiling at the bound passes a picker's output limit");
-  assert.ok(LANE_PICK_MAX_TOKENS + echoTokens("x".repeat(MAX_INPUT_CHARS)) <= outFloor, "the picker's ceiling at the bound passes a picker's output limit");
-});
 
 test("THE PAGE READS THE SAME NUMBERS: one message, one request, the rewrite's read and the files one request carries", () => {
   assert.equal(EditPoll.ASK_MAX, MAX_INPUT_CHARS);
@@ -123,61 +76,6 @@ test("WHAT A REQUEST CARRIES is the request, every put-off part and every questi
   assert.equal(echoTokens("x".repeat(9)), 5);
   assert.equal(echoTokens("ab", "x".repeat(100)), 50, "the longest text a model may copy sets the room");
   assert.equal(echoTokens(), 0);
-});
-
-test("EVERY STEP'S MODEL REQUEST CARRIES THE WHOLE MESSAGE — its last words, past the old 2,000, reach the model that acts on them", () => {
-  const each = {
-    "text step": textRequest({ instruction: LONG, items: [{ path: "index.tsx", text: "Bread from the harbour" }] }),
-    "data step": dataRequest({ instruction: LONG, tables: [], recent: [], lists: [] }),
-    "rules step": rulesRequest({ instruction: LONG, tables: [] }),
-    "menu step": navRequest({ instruction: LONG, slots: [], routes: ["/"], actions: [], links: [], contacts: [], lists: [], layouts: [], seconds: [] }),
-    "picture step": pictureRequest({ instruction: LONG, slots: [], library: [] }),
-    "quick writer": tweakRequest({ instruction: LONG, path: "index.tsx", source: "export default function Page() { return null; }" }),
-    "address change": renameRequest({ message: LONG, current: "harbour-loaf", former: [] }),
-    "keep check": keepRequest({ message: LONG, items: [] }),
-    "lane picker": lanePickRequest({ message: LONG, current: "Its pages are: /." }),
-    "a look lane": editRequest({ field: "description", message: LONG, value: "Neighbourhood sourdough.", model: "m" }),
-    "a take-off": takeOffRequest({ field: "langs", message: LONG, value: ["fr"], model: "m" }),
-    "add-on picker": addPickRequest({ message: LONG, model: "m" }),
-    "add-on designer": addRequest({ kind: "component", message: LONG, site: { name: "Harbour Loaf", pages: ["/"] }, model: "m" }),
-    "router, a site that exists": askRequest({ message: LONG, site: { name: "Harbour Loaf", pages: ["/"] }, hasSite: true, live: true }),
-  };
-  for (const [name, req] of Object.entries(each)) {
-    assert.ok(text(req).includes(LONG), name + " did not carry the whole message: it ends " + JSON.stringify(text(req).slice(-80)));
-  }
-  // A FIRST BUILD IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS.
-  const build = text(askRequest({ message: LONG, site: {}, hasSite: false }));
-  // A FIRST BUILD'S MESSAGE IS WHOLE TOO since 2026-10-08 (the content-
-  // preservation batch): its last words reach the model that asks the questions.
-  assert.ok(build.includes(END), "a first build's message is cut before the model that acts on it");
-});
-
-test("ROOM TO COPY THE CUSTOMER'S WORDS BACK: the router's and the picker's ceilings grow with the message; a first build's is unchanged", () => {
-  const site = { name: "Harbour Loaf", pages: ["/"] };
-  assert.equal(askRequest({ message: LONG, site, hasSite: true, live: true }).max_tokens, ASK_MAX_TOKENS + echoTokens(LONG));
-  const waiting = { request: "y".repeat(9000), question: { text: "Which?", options: [] } };
-  assert.equal(askRequest({ message: "the first", site, hasSite: true, live: true, pending: waiting }).max_tokens, ASK_MAX_TOKENS + echoTokens(waiting.request),
-    "a held-back part of the waiting request has no room to be copied");
-  assert.equal(askRequest({ message: LONG, site: {}, hasSite: false }).max_tokens, ASK_MAX_TOKENS, "a first build's ceiling moved");
-  // TWICE THE COPY ROOM SINCE THE LANE CAP WENT (2026-10-03): every change's own
-  // words and every part no lane here can make (`elsewhere`) are copied back.
-  assert.equal(lanePickRequest({ message: LONG }).max_tokens, LANE_PICK_MAX_TOKENS + 2 * echoTokens(LONG));
-});
-
-test("AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER: the router fails the call on a site that exists, the picker fails as a call that did not answer", async () => {
-  const cut = (input) => ({ stop_reason: "max_tokens", content: [{ type: "tool_use", name: "route_message", input }], usage: { input_tokens: 9, output_tokens: 700 } });
-  const r = await routeMessage({ send: async () => cut({ intent: "addon", alsoAsked: "and make the foo" }) }, { message: "Add a gallery and make the footer green", site: { pages: ["/"] }, hasSite: true });
-  assert.equal(r.failed, true, "a cut routing answer was acted on: " + JSON.stringify(r));
-  assert.equal(r.usage, null, "a cut answer was billed");
-  assert.ok(r.decision.reasons.includes("answer-cut"));
-  assert.equal(r.alsoAsked, undefined, "half a held-back part survived");
-  // A FIRST BUILD READS ITS ANSWER EXACTLY AS BEFORE.
-  const b = await routeMessage({ send: async () => ({ ...cut({ intent: "build" }) }) }, { message: "a bakery site", site: {}, firstBuild: true });
-  assert.notEqual(b.failed, true, "a first build's answer is now refused for its stop reason");
-  const p = await pickLanes({ send: async () => ({ stop_reason: "max_tokens", content: [{ type: "tool_use", name: "pick_lanes", input: { fields: ["description"] } }] }) }, { message: "change the description" });
-  assert.equal(p.failed, true, "a cut lane pick was acted on");
-  assert.deepEqual(p.fields, []);
-  assert.equal(p.error && p.error.truncated, true);
 });
 
 test("THE ANSWERS A REQUEST KEEPS: one past the old 500 is kept whole; one past one message is refused, never cut", () => {

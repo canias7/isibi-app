@@ -9,7 +9,8 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clarifiedBrief, MAX_CLARIFY } from "../builder/site-ask.mjs";
+import { clarifiedBrief } from "../builder/route-shared.mjs";
+import { MAX_CLARIFY } from "../parked/old-way/builder/site-ask.mjs";
 import { GOOD_DESIGN, buildBucket } from "./fixtures/build-route.mjs";
 import { loadWorkerModule } from "./fixtures/worker-harness.mjs";
 

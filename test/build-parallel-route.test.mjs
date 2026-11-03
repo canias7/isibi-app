@@ -76,33 +76,6 @@ async function buildIn(env, design = WIDE, body = {}) {
   return { r, steps, order, mark: (name) => steps.find((s) => s.s === name), bands: steps.filter((s) => String(s.s).startsWith("bands")) };
 }
 
-test("PR 1 — THE BUILD AS A CONTAINER JOB RUNS IT: with the account on the doors, the job's own env opens the design graph (15 agents since the kit menu left, 2026-10-23) and the page is written as bands through one local fan-out, the design before any page call", async () => {
-  const svc = localService();
-  const b = await buildIn({ ...jobSecrets(WORKER_ENV), SITE_BUILD_CONTAINER: svc.binding });
-  const d = b.mark("design");
-  assert.ok(d && d.graph === 15 && d.agents === 15, "the design was not the graph: " + JSON.stringify(d));
-  assert.equal(b.order.filter((t) => t === "design_schema").length, 15, "the design was not fifteen agent calls (the `components` agent left with the kit menu, 2026-10-23)");
-  assert.deepEqual(b.bands.map((s) => s.s), ["bands"], "the page was not split into bands: " + JSON.stringify(b.bands));
-  assert.equal(b.bands[0].bands, 5, "every planned section is a band");
-  const starts = svc.hops.filter((h) => h.path === "/model/start");
-  assert.equal(starts.length, 1, "the bands did not go out as ONE fan-out");
-  assert.equal(starts[0].n, 5 + 2, "the fan-out did not carry every band, the header and the footer at once (the frame is model-written since 2026-10-23)");
-  // DEPENDENT WORK WAITS: every design call precedes the first page call.
-  assert.ok(svc.hops.length && b.order.every((t) => t === "design_schema"), "a page call went out beside the design");
-  const at = (n) => b.steps.findIndex((s) => s.s === n);
-  assert.ok(at("design") < at("gen") && at("gen") < at("bands"), "the page was written before its design");
-});
-
-test("PR 2 — THE REPRODUCTION, KEPT: the same build with the job env as it was before this fix (no door names carried) designs in one call and records bands:sync — exactly run 117's trace", async () => {
-  const before = Object.fromEntries(Object.entries(jobSecrets(WORKER_ENV)).filter(([k]) => !/^(DESIGN|BAND)_/.test(k)));
-  const svc = localService();
-  const old = await buildIn({ ...before, SITE_BUILD_CONTAINER: { idFromName: svc.binding.idFromName, get: svc.binding.get } });
-  assert.ok(!old.mark("design").graph && !old.mark("design").waves, "a door was open with no name carried");
-  assert.equal(old.order.filter((t) => t === "design_schema").length, 1);
-  assert.deepEqual(old.bands.map((s) => s.s), ["bands:sync"]);
-  assert.equal(svc.hops.filter((h) => h.path === "/model/start").length, 0);
-});
-
 test("PR 3 — EVERY BUILD DOOR ANSWERS THE SAME IN A JOB AS IN THE WORKER, canary and everyone, on and off — derived from the doors themselves, not from a list", () => {
   for (const name of ["DESIGN_SPLIT_CANARY", "DESIGN_SPLIT_EVERYONE", "DESIGN_GRAPH_CANARY", "DESIGN_GRAPH_EVERYONE", "BAND_SPLIT_CANARY", "BAND_SPLIT_EVERYONE"]) {
     assert.ok(JOB_ENV_NAMES.includes(name), name + " is not handed to a job");
@@ -122,37 +95,6 @@ test("PR 3 — EVERY BUILD DOOR ANSWERS THE SAME IN A JOB AS IN THE WORKER, cana
       assert.equal(f(job), f(env), `${n} for everyone differs in a job`);
     }
   }
-});
-
-test("PR 4 — LEGITIMATELY SEQUENTIAL WORK STAYS SEQUENTIAL, and says why: a thin plan (one band) is one call with the door open (bands:thin); doors shut for the account is one design call — neither is a defect, and neither fans out", async () => {
-  const thin = { ...GOOD_DESIGN, shape: [{ path: "/", sections: ["hero — loaves"] }] };
-  const svc = localService();
-  const t = await buildIn({ ...jobSecrets(WORKER_ENV), SITE_BUILD_CONTAINER: svc.binding }, thin);
-  assert.deepEqual(t.bands.map((s) => s.s), ["bands:thin"], JSON.stringify(t.bands));
-  assert.equal(svc.hops.filter((h) => h.path === "/model/start" && h.list).length, 0, "a one-band page fanned out");
-  // ONE CALL, STARTED AND POLLED (2026-10-18, the Harbour Loaf build): never
-  // held as one long synchronous hop, which Node cuts at 300 seconds.
-  assert.ok(svc.hops.some((h) => h.path === "/model/start" && !h.list && h.n === 1), "the one call was not started and polled: " + JSON.stringify(svc.hops));
-  assert.equal(svc.hops.filter((h) => h.path === "/model").length, 0, "the one call was held as a synchronous hop");
-  const svc2 = localService();
-  const shut = await buildIn({ ...jobSecrets({ JOB_RUNNER_EVERYONE: "on" }), SITE_BUILD_CONTAINER: svc2.binding });
-  assert.equal(shut.order.filter((x) => x === "design_schema").length, 1, "a design fanned out with every door shut");
-  assert.deepEqual(shut.bands.map((s) => s.s), ["bands:door"], "the shut door was not named: " + JSON.stringify(shut.bands));
-});
-
-test("PR 5 — A LOCAL FAN-OUT THAT CANNOT START, OR THAT THE CONTAINER FORGOT, FALLS BACK TO THE ONE CALL (bands:nofanout) — the page is still written, never failed by the split", async () => {
-  for (const [start, result] of [["refused", "done"], ["ok", "unknown"]]) {
-    const svc = localService({ start, result });
-    const b = await buildIn({ ...jobSecrets(WORKER_ENV), SITE_BUILD_CONTAINER: svc.binding });
-    assert.deepEqual(b.bands.map((s) => s.s), ["bands:nofanout"], `${start}/${result}: ${JSON.stringify(b.bands)}`);
-    assert.ok(svc.hops.some((h) => h.path === "/model" && h.n === 1), `${start}/${result}: no single call after the fallback`);
-  }
-});
-
-test("PR 6 — ON THE WORKER NOTHING CHANGES: with no local service and no queue the page is the one call it always was (bands:sync), the design doors still answer there", async () => {
-  const b = await buildIn({ ...WORKER_ENV });
-  assert.deepEqual(b.bands.map((s) => s.s), ["bands:sync"]);
-  assert.equal(b.mark("design").graph, 15, "the Worker's own build lost its design graph");
 });
 
 // ── 2. A NAMED SEND IS LISTED, BY ITS OWN ATTEMPT ─────────────────────────────

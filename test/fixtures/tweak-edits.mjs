@@ -8,7 +8,7 @@
 // receives what the tool really returns.
 
 import { occurrences } from "../../builder/exact-edits.mjs";
-import { CONTEXT_HEADING, PART_HEADING } from "../../builder/site-ask.mjs";
+import { CONTEXT_HEADING, PART_HEADING } from "../../builder/route-shared.mjs";
 
 /** The one exact edit that turns `before` into `after`. */
 export function editsFrom(before, after) {

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import * as AE from "../builder/addon-existing.mjs";
 import * as RQ from "../builder/request.mjs";
 import * as HO from "../builder/hand-over.mjs";
-import { wordsIn } from "../builder/site-ask.mjs";
+import { wordsIn } from "../builder/route-shared.mjs";
 import * as SA from "../builder/site-add.mjs";
 import { addonReplyFacts, editReplyFacts } from "../builder/site-reply.mjs";
 import * as SR from "../builder/site-rules.mjs";
@@ -101,13 +101,6 @@ test("a handTo entry whose words are not deferred, or malformed, is never read",
   assert.deepEqual(readHandTo([{ words: "a", layer: "page", table: "t" }, { words: "a", layer: "rules", table: "bad name" }, "x"]), []);
 });
 
-test("the worker hands the shortfalls on at the success ending, through the held report", () => {
-  const block = between(worker, "A LEVEL THE ADDITION NEEDED ON A TABLE IT CANNOT MOVE", "return Response.json({");
-  assert.match(block, /accessHandTo\(accessShortfalls\(aSpec, aAccessDesigned\), aReq, aInstruction, wordsIn, aSpec\)/);
-  assert.match(block, /aHeldOut\.parts\.push\(h\.words\)/);
-  assert.match(worker, /aHeldOut\.parts, aHeldOut\.earlier, aHeldOut\.handTo\), \{/);
-});
-
 // ── 2. the columns an entry must fill come from the live table ───────────────
 test("rowRequired counts truthy NOT NULL flags, as the engine writes them", () => {
   const spec = { tables: [{ name: "lessons", access: "display", columns: [{ name: "id", pk: true }, { name: "title", notnull: "yes" }, { name: "price", required: 1 }, { name: "note" }] }] };
@@ -130,14 +123,6 @@ test("the live catalogue decides when it answers; the spec only when it cannot b
   const junk = await requiredColumns(async () => [{ table_name: 1 }], spec, lists);
   assert.equal(junk.source, "spec");
   assert.equal(liveRequired("nope", lists), null);
-});
-
-test("the worker reads the live columns on the owner connection before cleanAdd, and says Postgres's column", () => {
-  const block = between(worker, "const aRowLists = adb ? rowTables(aSpec) : new Map();", "const aRowKey");
-  assert.match(block, /requiredColumns\(\(q, p\) => sqlQuery\(adb, q, p\), aSpec, aRowLists\)/);
-  assert.deepEqual(rowWriteOutcome({ code: "23502", column: "level" }), { outcome: "refused", code: "23502", column: "level" });
-  assert.deepEqual(rowWriteOutcome({ code: "23502", column: "bad name;" }), { outcome: "refused", code: "23502" });
-  assert.match(worker, /column: thrown\.column \|\| undefined,/);
 });
 
 // ── 3. the add-on reply's pages come from what changed ───────────────────────
@@ -180,12 +165,6 @@ test("a real change beside an already-true one applies only the change", () => {
   const { changes, already } = splitAlready([{ table: "bookings", read: "none", write: "members" }], RT);
   assert.deepEqual(changes, [{ table: "bookings", write: "members" }]);
   assert.deepEqual(already, [{ table: "bookings", fields: ["read"], read: "none" }]);
-});
-
-test("the rules route answers satisfied at cost 0 and never bills a no-match", () => {
-  const block = between(worker, "const rOut = await runRulesEdit({", 'if (eLayer === "rename")');
-  assert.match(block, /rOut\.ok && rOut\.satisfied === true[\s\S]{0,400}cost: 0/);
-  assert.match(block, /rOut\.reason === "no-match" \? 0 : await eCharge\(rOut\.usage\)/);
 });
 
 test("a refunded reserve is said as given back, from the ledger's answer", () => {

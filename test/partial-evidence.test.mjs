@@ -101,46 +101,6 @@ async function stoppedAfterTable(k, { loseAnswer = false, stripOutcome = false }
   } catch (e) { P.close(); compiler.uninstall(); throw e; }
 }
 
-test("EVID 1 — A STOP THAT LANDS AFTER THE TABLE WENT IN, THROUGH THE REAL WORKER: the part is stopped and keeps what stands; the serialized view carries it; the facts the queued request reply was given say so — never \"before it changed anything\"", async () => {
-  const { P, key, close } = await stoppedAfterTable("e1");
-  try {
-    const rec = P.record(key);
-    const add = P.jobsOf(key).find((j) => j.op === "addon");
-    const ans = P.answerOf(add);
-    assert.equal(ans && ans.detail, "cancelled", "the publish gate did not see the stop — this case tests nothing: " + JSON.stringify(ans).slice(0, 300));
-    assert.equal(ans.outcome.database, "applied", "the table had not gone in when the stop landed — this case tests nothing");
-    assert.deepEqual([rec.parts[0].status, rec.parts[0].left], ["cancelled", "partial"]);
-    const v = seen(rec);
-    assert.equal(v.parts[0].left, "partial", "the view dropped what the part left standing");
-    // THE QUEUED REQUEST REPLY: the facts the real writer was handed from the queue.
-    const given = P.replyLog.find((fs) => fs.some((x) => x.id === "part:" + rec.parts[0].n || /^Stopped at their request/.test(x.text)));
-    assert.ok(given, "the request's reply was never written: " + JSON.stringify(P.replyLog.map(texts)));
-    assert.ok(texts(given).some((t) => AFTER.test(t)), JSON.stringify(texts(given)));
-    assert.ok(!texts(given).some((t) => BEFORE.test(t)), "the queued reply was told the stop changed nothing: " + JSON.stringify(texts(given)));
-    // THE PAGE'S OWN READ of the request carries it too.
-    const got = await call(P, "GET", "/api/site/request/" + P.slug + "/" + key);
-    assert.equal(got.status, 200);
-    const body = typeof got.body === "string" ? JSON.parse(got.body) : got.body;
-    const part = ((body.request || body).parts || [])[0];
-    assert.equal(part && part.left, "partial", "the page's read of the request dropped it: " + JSON.stringify(body).slice(0, 400));
-  } finally { close(); }
-});
-
-test("EVID 2 — THE SAME STOP WITH ITS ANSWER LOST: the driver reads the job's database record, and the part is still told as stopped after part of it went in, in the view and in the queued reply's facts", async () => {
-  const { P, key, close } = await stoppedAfterTable("e2", { loseAnswer: true });
-  try {
-    const add = P.jobsOf(key).find((j) => j.op === "addon");
-    assert.equal(add.result, null, "this case tests nothing: the answer was not lost");
-    const rec = P.record(key);
-    assert.deepEqual([rec.parts[0].status, rec.parts[0].left], ["cancelled", "partial"], JSON.stringify(rec.parts[0]));
-    assert.equal(seen(rec).parts[0].left, "partial");
-    const given = P.replyLog.find((fs) => fs.some((x) => /^Stopped at their request/.test(x.text)));
-    assert.ok(given, "the request's reply was never written: " + JSON.stringify(P.replyLog.map(texts)));
-    assert.ok(texts(given).some((t) => AFTER.test(t)), JSON.stringify(texts(given)));
-    assert.ok(!texts(given).some((t) => BEFORE.test(t)), JSON.stringify(texts(given)));
-  } finally { close(); }
-});
-
 // ── CONTROLLED SEQUENCES OF TRIES, READ THROUGH THE VIEW ───────────────────
 
 const KEY = "rq-" + "e".repeat(29);
@@ -161,20 +121,6 @@ function step(rec, id, r, next = "") {
 }
 const REFUSED = { ok: false, error: "compile", msg: "That didn't compile." };
 const ASKS = { ok: false, error: "clarify", clarify: { text: "Which page should the form go on?", options: ["Home", "Contact"] }, msg: "Which page?" };
-
-test("EVID 2b — THE SAME STOP WITH AN ANSWER THAT SAYS NOTHING OF WHAT STANDS (one stored before answers carried it): the driver reads the job's database record because the answer does not settle it, and the queued reply is told the stop came after part of it went in", async () => {
-  const { P, key, close } = await stoppedAfterTable("e2b", { stripOutcome: true });
-  try {
-    const add = P.jobsOf(key).find((j) => j.op === "addon");
-    const body = P.answerOf(add);
-    assert.ok(body && body.ok === false && !Object.hasOwn(body, "outcome"), "this case tests nothing: the answer still says what stands");
-    const rec = P.record(key);
-    assert.deepEqual([rec.parts[0].status, rec.parts[0].left], ["cancelled", "partial"], JSON.stringify(rec.parts[0]));
-    const given = P.replyLog.find((fs) => fs.some((x) => /^Stopped at their request/.test(x.text)));
-    assert.ok(given && texts(given).some((t) => AFTER.test(t)), JSON.stringify(P.replyLog.map(texts)));
-    assert.ok(!texts(given).some((t) => BEFORE.test(t)), JSON.stringify(texts(given)));
-  } finally { close(); }
-});
 
 test("EVID 3 — AN EARLIER TRY'S TABLE STANDS ACROSS A RETRY THAT IS REFUSED: the part is done in part (never wholly failed), the view says what stands, the facts say done in part", () => {
   const first = step(rqOf(), A, row(null, "lost", { migration: APPLIED }), B);
@@ -266,36 +212,4 @@ test("EVID 8 — THE CARD: a part stopped after part of it went in is labelled s
   assert.match(plain, /Nothing of the form went in\./);
   // A LABEL THE VIEW DID NOT SEND is never invented: an unknown reading draws as the plain status.
   assert.match(draw([{ n: 0, words: SIGNUP, status: "cancelled", left: "everything", said }]), />Stopped</);
-});
-
-// ── A PAGE-FILED JOB: ITS OWN POLL AND ANOTHER DEVICE'S LIST ───────────────
-
-test("EVID 9 — A PAGE-FILED ADD-ON STOPPED WHILE ITS TABLE WAS MADE, ITS ANSWER LOST: the job poll hands its database record back and reads its outcome as done in part, and another device's job list reads it the same — never \"Stopped\" over a table that stands", async () => {
-  const compiler = installCompiler();
-  const db = rowsDb({ tables: {} });
-  const { route, ...rest } = SIGNUPS;
-  const P = platform({ slug: slugOf("e9"), replies: true, progress: true, db, answers: rest });
-  const answer = db.answer.bind(db);
-  let id = "";
-  db.answer = (query, params) => {
-    if (/create table[^(]*signups/i.test(query) && id) { const j = P.jobs.get(id); if (j && !j.cancel_requested_at) j.cancel_requested_at = Date.now(); }
-    return answer(query, params);
-  };
-  P.after("edit_refund", (args) => { const j = P.jobs.get(args.p_id); j.result = null; j.state = "cancelled"; }, (args) => args.p_id === id);
-  try {
-    const filed = await pageFiledPost(P, "/api/site/" + P.slug + "/addon", { instruction: SIGNUP, picker: "sonnet", idem: "9".repeat(32) });
-    assert.ok([200, 202].includes(filed.status), JSON.stringify(filed.body).slice(0, 300));
-    id = filed.body.job;
-    await pump(P, { max: 60 });
-    const j = P.jobs.get(id);
-    assert.deepEqual([j.state, j.result, !!j.cancel_requested_at], ["cancelled", null, true], "this case tests nothing: the job did not stop with its answer lost");
-    const poll = await call(P, "GET", "/api/site/edit/" + id);
-    assert.equal(poll.status, 202, "the poll answers 202 for every state but done: " + JSON.stringify(poll.body).slice(0, 300));
-    assert.equal(poll.body.migration && poll.body.migration.status, "applied_without_page", "the job poll did not hand its database record back: " + JSON.stringify(poll.body).slice(0, 400));
-    assert.equal(poll.body.outcome, "partial", "the job poll read a stop over a standing table as plain stopped");
-    const list = await call(P, "GET", "/api/site/requests/" + P.slug);
-    const listed = (list.body.jobs || []).find((x) => x.job === id);
-    assert.ok(listed, "the job was not listed: " + JSON.stringify(list.body).slice(0, 300));
-    assert.equal(listed.outcome, "partial", "another device's list read a stop over a standing table as plain stopped");
-  } finally { P.close(); compiler.uninstall(); }
 });

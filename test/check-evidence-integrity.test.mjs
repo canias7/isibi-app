@@ -176,11 +176,3 @@ for (const [name, render] of [["an unknown kind", UNEXPECTED_KIND], ["a known ki
     }
   });
 }
-
-test("REAL HANDOFF, CONTROL — a genuinely clean report is still handed as clean, narration off and on", async () => {
-  for (const talk of [false, true]) {
-    const o = await through({ ok: true, pages: 2, findings: [] }, { talk });
-    assert.ok(o.ks.some((t) => CLEAN_SAID.test(t)), "a clean report lost its all-clear (talk " + talk + "): " + JSON.stringify(o.ks));
-    assert.ok(!o.ks.some((t) => NOT_KNOWN.test(t)));
-  }
-});

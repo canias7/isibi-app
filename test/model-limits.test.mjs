@@ -29,7 +29,7 @@ import {
 } from "../builder/build-models.mjs";
 import { LIST_ANSWER_MAX_TOKENS, MAX_INPUT_CHARS, echoTokens } from "../builder/input-budget.mjs";
 import { LANE_PICK_MAX_TOKENS } from "../builder/site-lanes.mjs";
-import { ASK_MAX_TOKENS, RESOLVED_TOKENS } from "../builder/site-ask.mjs";
+
 import { ROUTER_LAST_REPLY_CHARS } from "../builder/site-converse.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -258,57 +258,6 @@ test("every ceiling this platform sends fits inside the smallest output limit a 
         " — a request above a model's own output limit is refused outright, and the picker is the customer's choice, not ours",
     );
   }
-});
-
-test("a computed ceiling is named, so a new one cannot slip past the check unseen", () => {
-  const { dynamic } = sentCeilings();
-
-  // These three cannot be resolved by reading, and each is bounded somewhere
-  // the check above already reaches — verified rather than assumed:
-  //   laneMaxTokens(field)  Math.min'd with LANE_EDIT_MAX_TOKENS by its own
-  //                         module, so it can only ever REDUCE a checked number.
-  //   maxTokens             the container's own parameter, fed from the Worker
-  //                         by `maxTokens: SITE_SCHEMA_MAX_TOKENS`, which the
-  //                         resolvable half checks.
-  //   r.max_tokens          a caller's request echoed back on the xAI boundary.
-  // AND TWO MORE (2026-10-03, the size policy): the router's and the lane
-  // picker's ceilings grow by the customer's words they may copy back
-  // (`echoTokens`). Each is its checked constant plus a term bounded by the
-  // longest message a route takes (`MAX_INPUT_CHARS`, refused past it), and
-  // test/input-budget.test.mjs asserts both sums at that bound fit this same
-  // floor.
-  // Listed by name so a new computed ceiling fails here rather than quietly
-  // reducing what the assertion above covers.
-  // AND FIVE MORE (2026-10-03, the mixed-work fixes): with no count of changes
-  // left on the picture, row, rules and menu steps, each step's ceiling grows
-  // with what it is shown and is held to `LIST_ANSWER_MAX_TOKENS` by its own
-  // `Math.min` (asserted below to fit the floor); the lane picker copies every
-  // change's words and every part no lane makes, so its copy room is doubled —
-  // still bounded by the longest message a route takes.
-  const known = new Set([
-    "laneMaxTokens(field)", "maxTokens", "r.max_tokens",
-    // …AND THE CONVERSATION'S WRITTEN-OUT REQUEST (2026-10-14): `RESOLVED_TOKENS`
-    // more, only on a call shown a conversation, asserted below at the longest
-    // message to fit the floor.
-    "(live ? ASK_MAX_TOKENS + echoTokens(text",
-    "LANE_PICK_MAX_TOKENS + 2 * echoTokens(String(message || \"\"))",
-    "pictureMaxTokens(slots)", "dataMaxTokens(tables)", "rulesMaxTokens(tables)", "navMaxTokens(digest)",
-  ]);
-  const floor = Math.min(...[...modelsInUse()].map((id) => maxOutputTokens(id)));
-  assert.ok(LIST_ANSWER_MAX_TOKENS <= floor, "a step's list ceiling (" + LIST_ANSWER_MAX_TOKENS + ") is above the smallest output limit (" + floor + ")");
-  assert.ok(LANE_PICK_MAX_TOKENS + 2 * echoTokens("x".repeat(MAX_INPUT_CHARS)) <= floor, "the picker's ceiling at the longest message is above the floor");
-  // …PLUS TWICE THE LONGEST SHOWN TURN (2026-10-23, audit A36-3): the router is shown its last reply up to ROUTER_LAST_REPLY_CHARS.
-  assert.ok(ASK_MAX_TOKENS + echoTokens("x".repeat(MAX_INPUT_CHARS), "x".repeat(MAX_INPUT_CHARS)) + RESOLVED_TOKENS + 2 * echoTokens("x".repeat(ROUTER_LAST_REPLY_CHARS)) <= floor, "the router's ceiling with a conversation, at the longest message, is above the floor");
-  for (const expr of dynamic) {
-    assert.ok(
-      known.has(expr),
-      "a computed max_tokens appeared that this check cannot resolve: " + expr +
-        " — either resolve it here or state where it is bounded",
-    );
-  }
-  // Alive: if the scan stopped finding the computed sites, this case would pass
-  // over anything.
-  assert.ok(dynamic.size >= 2, "found " + dynamic.size + " computed max_tokens sites; the reader has stopped matching");
 });
 
 test("the blanker leaves the landmarks this file reads", () => {

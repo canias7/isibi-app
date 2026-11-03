@@ -140,57 +140,6 @@ test("the Dockerfile ships what the /model route imports", () => {
   }
 });
 
-/* --------------------------------------- and the BUILD really goes through it */
-
-test("THE BUILD'S PAGE GENERATION IS MADE IN THE CONTAINER, and the edit lanes are not", () => {
-  // THE WIRE, which is the half a module test cannot see. `/model` shipped
-  // UNREACHABLE on purpose so it could be proven before anything depended on
-  // it — and a route nothing calls is exactly the state twelve features in this
-  // repo have shipped and stayed in.
-  const w = blank(WORKER_SRC);
-
-  // ONE caller into the module carries a container caller, and it is the BUILD's.
-  const calls = [...w.matchAll(/generateSitePages\(env,[\s\S]*?\);/g)].map((m) => m[0]);
-  assert.ok(calls.length >= 3, `expected the build and both edit lanes to generate; found ${calls.length}`);
-  // THE BUILD IS IDENTIFIED BY ITS BRIEF, not by the caller it happens to pass.
-  // This filtered on `containerPagesCall(` appearing in the call expression —
-  // true until the caller became a VARIABLE, resolved one statement above so a
-  // resume can replay the same function with the answer already in hand. The
-  // filter then matched nothing and reported that no build makes its generation
-  // in the container, about a build that always does.
-  const build = calls.filter((c) => /briefWithLayout\(\{ brief, plan/.test(c));
-  assert.equal(build.length, 1,
-    `${build.length} generation calls are the build's own — expected exactly one`);
-  // PASSED, NOT LAST. This read `/,\s*call\)/` — the caller as the final
-  // argument — and went red the moment an honest one arrived after it
-  // (`plan && plan.kind`, 2026-08-29, so the page prompt can drop the chart
-  // catalogue for a shopfront). It reported the build as making its own request
-  // from the Worker, which was never true. Assert the property: the caller is
-  // handed over.
-  assert.match(build[0], /,\s*call\s*[,)]/,
-    "the build's generation is handed no caller, so it makes its own request from the Worker");
-
-  // AND THE VARIABLE RESOLVES TO A CONTAINER CALLER ON BOTH LIVE PATHS. Asserted
-  // as a pair, because a ternary collapsed to one branch would silently un-split
-  // it: only `containerPagesFire` leaves the Worker free, and only
-  // `containerPagesCall` still works where firing is not available.
-  const at = w.indexOf("const call = resumeCall");
-  assert.ok(at > 0, "the build no longer resolves its caller — rescope this guard");
-  const resolve = w.slice(at, w.indexOf(";", at));
-  assert.match(resolve, /containerPagesFire\(/,
-    "the build can no longer FIRE its generation at the container, so a consumer invocation holds the whole wait");
-  assert.match(resolve, /containerPagesCall\(/,
-    "the build has no synchronous container caller left, so any path that cannot fire has no hop at all");
-
-  // AND THE LANES STAY ON THE WORKER. Explicit rather than implied by the count
-  // above, because a lane silently gaining the hop buys a new failure mode on
-  // the CHEAP path for a call that takes seconds.
-  for (const c of calls.filter((x) => !build.includes(x))) {
-    assert.ok(!/containerPages/.test(c) && !/,\s*call\)/.test(c),
-      "an edit lane now makes its model call in the container");
-  }
-});
-
 test("the container hop preserves a provider's own answer rather than flattening it", () => {
   // THIS IS THE HALF THAT DECIDES WHAT THE CUSTOMER IS TOLD. `upstreamKind`
   // parses `detail` for the provider's error type and the one sentence that

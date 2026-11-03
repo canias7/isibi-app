@@ -261,16 +261,6 @@ async function reviseRoute({ answer }) {
   } finally { c.uninstall(); globalThis.fetch = real; }
 }
 
-test("W3 — through the real rewrite route: a writer that returns the home page alone keeps the other three pages and their components", async () => {
-  const r = await reviseRoute({ answer: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], notes: "Updated the home page." } });
-  assert.equal(r.status, 200, JSON.stringify(r.reply));
-  assert.equal(r.reply.page, "app", JSON.stringify(r.reply));
-  assert.deepEqual(r.pageFiles, { "index.tsx": HOME_EDITED, "menu.tsx": MENU, "gallery.tsx": GALLERY, "visit.tsx": VISIT },
-    "the container was not handed the whole site");
-  assert.deepEqual(r.partNames, ["ovens", "band"], "the kept gallery's component was not handed to the container");
-  assert.deepEqual(r.stored.map((p) => p.path).sort(), ["gallery.tsx", "index.tsx", "menu.tsx", "visit.tsx"], "the stored source lost a page");
-});
-
 // ── A SITE TOO LARGE TO SHOW (audit A21-3) ──────────────────────────────────
 //
 // Over `MAX_PRIOR_CHARS` the rewrite was told page NAMES and "write them again

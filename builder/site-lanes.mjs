@@ -104,7 +104,7 @@ import { MAX_CSS } from "./site-freecss.mjs";
 // the picker is told which change the router already routed, in the router's
 // own sentence for that layer (`pickRequest`). `site-ask.mjs` imports nothing
 // but the model table, so this adds no cycle.
-import { DOOR_LAYERS, layerLine, wordsIn, normalizePagePath } from "./site-ask.mjs";
+import { DOOR_LAYERS, layerLine, wordsIn, normalizePagePath } from "./route-shared.mjs";
 // THE QUESTION BACK (2026-10-02): the one field every step's tool carries, and
 // its reader — `builder/clarify.mjs`, shared with every other step.
 import { QUESTION_FIELD, askOf, withQuestion } from "./clarify.mjs";

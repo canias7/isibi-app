@@ -1045,87 +1045,6 @@ async function doesNotPublish(slug, tweakSource, home = HOME_BEFORE, absent = []
   } finally { c.uninstall(); }
 }
 
-test("the arithmetic-only tweak does not publish — through the route, on run 17's own sources", async () => {
-  await doesNotPublish("contract-repro", HOME_TWEAKED);
-});
-
-test("THE REASSIGNMENT does not publish either — through the route, same sources", async () => {
-  // The third reported spelling: neither the call site nor the declaration
-  // moves, only a statement between them. One rule answers all three.
-  await doesNotPublish("contract-repro-reassign", HOME_REASSIGN);
-});
-
-test("THE UPSTREAM CALCULATION does not publish either — through the route, same sources", async () => {
-  // THE SAME REQUEST AND THE SAME ROUTE; only the cheap rung's answer differs.
-  // It moves the six-minus into a page-local binding and leaves the prop
-  // byte-identical, which is the spelling a check on call-site text cannot see.
-  await doesNotPublish("contract-repro-upstream", HOME_UPSTREAM);
-});
-
-test("THE OPERAND ORDER does not publish either — through the route, same sources", async () => {
-  // THE FOURTH REPORTED SPELLING, and the one that killed the token multiset:
-  // `Number(0 ?? bookingCount)` carries the identical BAG of tokens and always
-  // answers zero. No exception for `??` was added — a real syntax tree reads
-  // operand POSITION, so this is the same answer the other three get.
-  await doesNotPublish("contract-repro-operand", HOME_OPERAND);
-});
-
-test("THE CONDITIONAL BRANCH SWAP does not publish either — through the route, same sources", async () => {
-  // THE FIFTH REPORTED SPELLING, and the one that killed the opaque JSX leaf.
-  // Every statement, declaration, hook and prop expression is byte-identical;
-  // what moves is which ARM of a ternary renders the component, so the page
-  // advertises availability exactly while the data is missing.
-  //
-  // ⚠ THE BEFORE-SOURCE IS THIS CASE'S OWN. The guard is what the tweak is
-  // swapping, so the store has to hold the guarded page — handing this case the
-  // ordinary before-source would compare the swap against a page with no
-  // ternary at all, which is a different and much easier question.
-  //
-  // ⚠ AND THE SHARED NEGATIVES CANNOT SEE THIS ONE. `HOME_BRANCH_SWAPPED` still
-  // carries `bookingCount={Number(bookingCount ?? 0)}` and none of the four
-  // arithmetic spellings, so every check the other cases lean on passes on the
-  // very page this one must refuse. The ternary is named here instead.
-  await doesNotPublish(
-    "contract-repro-branch",
-    HOME_BRANCH_SWAPPED,
-    HOME_GUARDED,
-    [["bookingCount === undefined ? (\n" + HOME_LOOKUP_EL, "the publish carried the branch-swapped guard"]],
-  );
-});
-
-test("THE PROP-FREE COMPONENT SWAP does not publish either — through the route, same sources", async () => {
-  // THE SIXTH REPORTED SPELLING, and the one that killed an expressions-only
-  // bag. `<TrialBookingForm />` takes no props, so the fifth fix's multiset was
-  // EMPTY on both arms and the swap was invisible to a mechanism that was
-  // otherwise doing exactly what it was designed to do.
-  //
-  // Its before-source is the guarded page, for round five's reason: the tweak
-  // swaps a ternary, so a store holding a page with no ternary asks an easier
-  // question. And the shared negatives cannot see it — every arithmetic
-  // spelling is absent from both sides — so the swapped arm is named here.
-  await doesNotPublish(
-    "contract-repro-propfree",
-    HOME_PROPFREE_SWAPPED,
-    HOME_PROPFREE,
-    [["<p>Choose a day first</p> : <TrialBookingForm />", "the publish carried the swapped prop-free guard"]],
-  );
-});
-
-test("TWO DIFFERENT PROP-FREE COMPONENTS EXCHANGED does not publish — the owner's control", async () => {
-  // Both arms render one of the site's own components, NEITHER carries a prop,
-  // and the two are exchanged. Nothing is added and nothing is removed, so a
-  // reader keyed on which components appear answers "the same two" and one
-  // keyed on which expressions appear answers "none, both times". Only
-  // identity AT ITS POSITION separates them — and the writer this must reach
-  // is the one shown BOTH component files.
-  await doesNotPublish(
-    "contract-repro-twoparts",
-    CONTROL_PAIR.after,
-    CONTROL_PAIR.before,
-    [["<DaySpaceLookup /> : <TrialBookingForm />", "the publish carried the exchanged components"]],
-  );
-});
-
 test("A SWAP BETWEEN TWO ARMS OF ONE COMPONENT IS CAUGHT TOO — the harder half", async () => {
   // THE OWNER'S OWN CONTROL. Both arms render the SAME component, so a reader
   // keyed on WHICH components appear answers "the same one twice"; both values
@@ -1151,51 +1070,6 @@ test("A SWAP BETWEEN TWO ARMS OF ONE COMPONENT IS CAUGHT TOO — the harder half
   assert.equal(r.ok, false, "a value swapped between two arms of one component read as eligible");
   assert.equal(r.why, "compute", "the refusal did not name the computation");
   assert.deepEqual(r.parts, ["day-space-lookup"], "the refusal did not name the component");
-});
-
-test("AN ORDINARY VISUAL TWEAK STILL TAKES THE CHEAP PATH — the positive control", async () => {
-  // THE SAME PAGE, three components and six prop bindings, and a tweak that
-  // touches none of them. Without this case the change would read as
-  // "disable the cheap rung wherever a page has components", which is the
-  // thing the fix must NOT be.
-  const slug = "contract-control";
-  const store = bucket(slug);
-  const c = installCompiler();
-  // ⚠ THE ANCHOR CARRIES THE HEADING'S OWN WORDS, because the CLASS is not
-  // unique: this page wears `text-xl font-semibold text-foreground` on BOTH of
-  // its `<h2>`s, so a class-only anchor is two edits wearing one name and
-  // `once` refuses it. The text is what identifies the heading a customer
-  // would point at.
-  const bigger = once(
-    HOME_BEFORE,
-    "text-xl font-semibold text-foreground\">\n            The first eight chords",
-    "text-3xl font-semibold text-foreground\">\n            The first eight chords",
-    "the chords heading on the real page",
-  );
-  try {
-    await withWire({
-      [TWEAK_TOOL.name]: { source: bigger },
-      // A STUB THE CHEAP PATH MUST NOT NEED. If the rewrite is reached at all
-      // this answer publishes something recognisably different, so the
-      // assertions below cannot pass by accident.
-      [SITE_PAGES_TOOL.name]: {
-        pages: [{ path: "src/routes/index.tsx", source: HOME_BEFORE + "\n// the rewrite ran\n" }],
-        parts: [],
-      },
-    }, async (calls) => {
-      const { body } = await edit(slug, "Make the \"The first eight chords\" heading a bit bigger.", { store });
-      assert.equal(body && body.ok, true, "the visual tweak did not go through: " + JSON.stringify(body));
-      assert.equal(body.tweak, true, "an ordinary visual tweak fell through to the rewrite: " + JSON.stringify(body));
-      assert.equal(calls.filter((x) => x.tool === SITE_PAGES_TOOL.name).length, 0,
-        "the expensive writer ran for a heading change");
-      const sent = sentOne(c, /index\.tsx$/);
-      assert.ok(sent.includes("text-3xl"), "the tweak's own change was not published");
-      assert.ok(!sent.includes("the rewrite ran"), "the rewrite's answer was published instead");
-      // And the components are untouched, which is true of a tweak by
-      // construction — asserted so the control cannot go quiet.
-      assert.equal(stored(store, slug)[PART_DIR + "day-space-lookup.tsx"], LOOKUP_BEFORE);
-    });
-  } finally { c.uninstall(); }
 });
 
 test("THE CORRECTED PAIR, RENDERED: places left, and never a free day we could not read", () => {

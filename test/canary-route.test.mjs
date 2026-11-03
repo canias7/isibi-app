@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL, EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { ASK_TOOL, EDIT_LAYERS } from "../builder/route-shared.mjs";
 import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid } from "../scripts/canary-route.mjs";
 
 /** Batch 1's two expectations, exactly as the owner's form will carry them. */
@@ -103,49 +103,6 @@ test("a blank box is no expectation, and anything else must be the router's own 
   // CANNOT-TELL IS A REFUSAL: a box that is not text is not read as one.
   assert.equal(readExpectRoute(["layer=page"]).ok, false);
   assert.equal(readExpectRoute(5).ok, false);
-});
-
-test("A's expectation accepts the router's removal of /gallery and nothing near it", async () => {
-  const want = expectOf(A);
-  const removal = await routed({ intent: "edit", layer: "page", page: "/gallery", remove: true });
-  assert.equal(removal.remove, true, "the route no longer carries the removal it was given");
-  assert.deepEqual(routeVerdict(want, removal), { ok: true, diffs: [] });
-
-  // Run 63's real shape: the menu layer with the band held back.
-  const run63 = await routed({ intent: "edit", layer: "nav", remove: true, alsoAsked: BAND });
-  const v63 = routeVerdict(want, run63);
-  assert.equal(v63.ok, false);
-  assert.deepEqual(v63.diffs.map((d) => d.key).sort(), ["alsoAsked", "layer", "page"]);
-  assert.match(mismatchSaid(v63), /layer: expected page, the router answered nav/);
-
-  const cases = {
-    "an edit of the gallery page, not a removal": [{ intent: "edit", layer: "page", page: "/gallery" }, ["remove"]],
-    "another page removed": [{ intent: "edit", layer: "page", page: "/visit", remove: true }, ["page"]],
-    "the gallery moved instead": [{ intent: "edit", layer: "page", page: "/gallery", rename: "/photos" }, ["remove"]],
-    "the removal with a part held back": [{ intent: "edit", layer: "page", page: "/gallery", remove: true, alsoAsked: BAND }, ["alsoAsked"]],
-    "the add-on step": [{ intent: "addon" }, ["intent", "layer", "page", "remove"]],
-  };
-  for (const [name, [answer, keys]] of Object.entries(cases)) {
-    const v = routeVerdict(want, await routed(answer));
-    assert.equal(v.ok, false, name + " was accepted");
-    assert.deepEqual(v.diffs.map((d) => d.key).sort(), keys.slice().sort(), name);
-  }
-});
-
-test("B's expectation accepts the router's data answer with nothing held back, and only that", async () => {
-  const want = expectOf(B);
-  assert.deepEqual(routeVerdict(want, await routed({ intent: "edit", layer: "data" })), { ok: true, diffs: [] });
-  const cases = {
-    "data with a part held back": [{ intent: "edit", layer: "data", alsoAsked: BAND }, ["alsoAsked"]],
-    "the words rung": [{ intent: "edit", layer: "text" }, ["layer"]],
-    "the look door": [{ intent: "edit", layer: "look" }, ["layer"]],
-    "the add-on step": [{ intent: "addon" }, ["intent", "layer"]],
-  };
-  for (const [name, [answer, keys]] of Object.entries(cases)) {
-    const v = routeVerdict(want, await routed(answer));
-    assert.equal(v.ok, false, name + " was accepted");
-    assert.deepEqual(v.diffs.map((d) => d.key).sort(), keys.slice().sort(), name);
-  }
 });
 
 test("only the named fields are judged, and cannot-tell is a mismatch, never a value", () => {

@@ -50,7 +50,7 @@
 // 2026-10-02: C1 had matched for `addon` holding back the addition, which
 // leaves the price edit to run on the add-on path).
 import { createHash } from "node:crypto";
-import { ASK_TOOL, EDIT_LAYERS, ROUTE_REASONS, ROUTE_SOURCES, heldBack, wordsIn } from "../builder/site-ask.mjs";
+import { ASK_TOOL, EDIT_LAYERS, ROUTE_REASONS, ROUTE_SOURCES, heldBack, wordsIn } from "../parked/old-way/builder/site-ask.mjs";
 // A PROBE'S MESSAGE IS A SITE'S MESSAGE: the size policy's one message
 // (2026-10-03), which the routing route keeps whole — it was a first build's
 // 2,000, which a site's message is no longer cut to.

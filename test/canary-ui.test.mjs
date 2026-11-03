@@ -20,7 +20,7 @@ import {
 import { additionRequestVerdict, additionReplyVerdict } from "../scripts/canary-additions.mjs";
 import { probeBody } from "../scripts/canary-rows.mjs";
 import { readAllow, bookingBodyVerdict, EVIDENCE_BOUNDARY } from "../scripts/canary-rules.mjs";
-import { MAX_LOGO_BYTES } from "../builder/site-logo.mjs";
+
 import { handleOwnerWrite } from "../site-owner.mjs";
 import { ownerTable } from "./fixtures/owner-table.mjs";
 
@@ -49,24 +49,6 @@ test("a scenario is a name, refused whole, and tied to its own site", () => {
   assert.match(other.msg, /fold-lane-bakery/);
   // And a name inherited from Object.prototype is not a scenario.
   assert.equal(readUiScenario("constructor", "fold-lane-bakery").ok, false);
-});
-
-test("Part B's scenario sends the checklist's three messages, and the file is the committed PNG", () => {
-  const sc = UI_SCENARIOS["4a-part-b"];
-  assert.equal(sc.site, "fold-lane-bakery");
-  assert.deepEqual(sc.steps.map((s) => s.say), [
-    "Use this picture as the logo.",
-    "Show more of the top of the photo of the sourdough boule cooling.",
-    "Move the starter page to /starter.",
-  ]);
-  assert.deepEqual(sc.steps.map((s) => s.attach || null), [FIXTURE, null, null], "only the logo message carries a file");
-  assert.ok(Number.isFinite(sc.budget) && sc.budget > 0 && sc.budget <= 20, `budget ${sc.budget}`);
-  assert.ok(Object.isFrozen(sc) && Object.isFrozen(sc.steps) && sc.steps.every(Object.isFrozen), "a scenario can be changed at run time");
-  // The file: a real PNG, well under what the logo rung takes, and exactly the bytes on record.
-  const bytes = fs.readFileSync(ROOT + FIXTURE);
-  assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], "the fixture is not a PNG");
-  assert.ok(bytes.length < MAX_LOGO_BYTES, `${bytes.length} bytes`);
-  assert.equal(crypto.createHash("sha256").update(bytes).digest("hex"), FIXTURE_SHA);
 });
 
 // ── THE PURE DECISIONS ──────────────────────────────────────────────────────

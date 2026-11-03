@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { freshSlug, bucket, withWire, envFor, routeCall } from "./fixtures/live-ask.mjs";
 import { readHistory, routerHistory, historyBlock, HISTORY_TURN_CHARS } from "../builder/site-converse.mjs";
-import { askRequest } from "../builder/site-ask.mjs";
+
 // THE REPLY'S MESSAGE IS BLOCKS WHEN IT CARRIES A CONVERSATION (2026-10-20, so
 // each reply reuses the last one's cache); its words are the blocks' words, in order.
 const textOf = (req) => { const c = req.messages[0].content; return typeof c === "string" ? c : c.map((b) => b.text).join("\n"); };
@@ -63,45 +63,4 @@ test("THE SERVER READS IT STRICTLY: a believable count and length are kept; a fi
   const lastR = r.turns[r.turns.length - 1];
   assert.equal(lastR.full, h.turns[h.turns.length - 1].full, "the router lost the turn's real length");
   assert.equal(r.left, 3 + 30 - 8, "the router was not told how much it does not see");
-});
-
-test("THE MODELS ARE TOLD: the cut with its real length, the dropped turns counted, and to ask rather than guess", () => {
-  const b = historyBlock(readHistory(ChatTalk.historyWire(thread(), "ok, use the third version you wrote")));
-  assert.match(b, /\(3 earlier messages are not shown here\. Do not assume what they said\.\)/);
-  assert.match(b, /\[cut: only the first 4000 of its \d{4,} characters are shown; the rest is not\]/);
-  assert.match(b, /PARTS OF THIS CONVERSATION ARE NOT SHOWN/);
-  assert.match(b, /do not guess or fill it in: say which part you cannot see and ask them to say it again/);
-  assert.doesNotMatch(historyBlock(readHistory([{ role: "user", text: "hi" }])), /NOT SHOWN/, "a whole conversation was said to be cut");
-  // THE ROUTER'S RULE FOR WRITING A REQUEST OUT.
-  const req = askRequest({ text: "ok, use the third version you wrote", hasSite: true, site: { pages: [{ path: "/" }] }, history: ChatTalk.historyWire(thread(), "ok, use the third version you wrote") });
-  const tool = req.tools[0].input_schema.properties.resolved.description;
-  assert.match(tool, /NEVER write it from a part of the conversation marked as not shown/);
-  assert.match(req.system.map((s) => s.text).join(""), /unless what it leans on is in a part of the conversation marked as not shown/);
-});
-
-test("THROUGH THE ROUTE: a reference into the cut part is asked about — both models are shown the gap, nothing runs, nothing is written out", async () => {
-  const worker = await loadWorker();
-  const slug = freshSlug("gap");
-  const store = bucket(slug);
-  const history = ChatTalk.historyWire(thread(), "ok, use the third version you wrote");
-  await withWire({
-    // THE ROUTER DOES WHAT IT IS TOLD: "ask", with no `resolved`.
-    route: { intent: "ask", answer: "I can't see the third version." },
-    converse: "I can see the start of the versions I wrote, but not the third — could you paste it, or say which wording you'd like?",
-  }, async (seen) => {
-    const r = await routeCall(worker, envFor(store), { slug, message: "ok, use the third version you wrote", extra: { history } });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal(r.body.intent, "ask");
-    assert.equal(r.body.resolved, undefined);
-    const routed = seen.routerAsked[0].messages[0].content;
-    assert.match(routed, /\[cut: only the first \d+ of its \d{4,} characters are shown; the rest is not\]/, "the router took a cut turn for the whole");
-    assert.match(routed, /earlier messages are not shown here/);
-    assert.match(routed, /PARTS OF THIS CONVERSATION ARE NOT SHOWN/);
-    const said = textOf(seen.converse[0]);
-    assert.match(said, /\(3 earlier messages are not shown here/, "the reply was not told the page dropped turns");
-    assert.match(said, /\[cut: only the first 4000 of its \d{4,} characters are shown; the rest is not\]/, "the reply took a cut turn for the whole");
-    assert.doesNotMatch(said, /Version three/);
-    assert.ok(r.body.decision.reasons.includes("history-cut"));
-    assert.equal(workStarted(seen), 0, "a reference to a part nobody could see started work");
-  });
 });

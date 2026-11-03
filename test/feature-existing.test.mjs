@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { addonOnExisting, routeOnExisting } from "../builder/addon-existing.mjs";
 import { readHandOver, HAND_REASONS, handOverLine } from "../builder/hand-over.mjs";
-import { LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
+import { LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
 
 const site = { pages: ["/", "/lessons", "/cafe"], tables: ["lessons", "lesson_bookings", "closed_days"] };
 const addon = (writes, reads = []) => ({ intent: "addon", targets: [{ change: 0, writes, reads }], decision: { source: "model", reasons: [] } });
@@ -54,15 +54,4 @@ test("the router is told to name what a feature creates beside an existing page"
   assert.ok(d.includes("WHAT EACH CHANGE TOUCHES"), "targets description present");
   assert.match(d, /added to a page that already exists also names what it creates beside/);
   assert.match(d, /page:\/path alone means only that page's content changes/);
-});
-
-test("the add-on step never hands a feature back to the page step, and a lone entry becomes the component", () => {
-  const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = (s, from = 0) => { const i = W.indexOf(s, from); assert.ok(i >= 0, "landmark missing: " + s); return i; };
-  const onPage = at("const aOnPage = ");
-  const feat = at('const aFeature = !!(aHand && aHand.reason === "feature-on-page" && aOnPage);', onPage);
-  const noAdd = at('if (!aPicked.kinds.length) return (aOnPage && !aFeature) ? aToPage("no-add") : aFailure("no-add");', feat);
-  const lone = at('if (aFeature && aPicked.kinds.length === 1 && aPicked.kinds[0] === "row") {', noAdd);
-  const rowPath = at('if (aPicked.kinds.length === 1 && aPicked.kinds[0] === "row") {', lone + 10);
-  assert.match(W.slice(lone, rowPath), /aPicked\.kinds = \["component"\];/);
 });

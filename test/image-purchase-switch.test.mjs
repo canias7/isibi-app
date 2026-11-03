@@ -53,26 +53,6 @@ async function run(slug, off) {
   } finally { P.close(); compiler.uninstall(); }
 }
 
-test("IMAGE_PURCHASES=off: an addition asking for a photograph makes no provider call and stores no image; the page is still added; the runtime route says purchases are off", async () => {
-  const o = await run(slugOf("off"), "off");
-  assert.equal(o.images, 0, "a photograph was asked of the image service with purchases off");
-  assert.deepEqual(o.uploads, []);
-  assert.ok(o.gallery.includes("<h1>Gallery</h1>"), "the page was not added");
-  assert.doesNotMatch(o.gallery, /@@IMG/, "the photo token was left in the page");
-  assert.notEqual(o.rec.parts[0].status, "uncertain", "a refused purchase was held as if it might have been made: " + JSON.stringify(o.rec.parts[0]));
-  assert.equal(o.runtime.status, 200, JSON.stringify(o.runtime.body));
-  assert.equal(o.runtime.body.imagePurchases, false, JSON.stringify(o.runtime.body));
-});
-
-test("CONTROL: with the switch unset, and with any value but off, the same message buys its one photograph", async () => {
-  for (const v of [undefined, "on"]) {
-    const o = await run(slugOf("on"), v);
-    assert.equal(o.images, 1, "control (" + v + "): the photograph was not bought");
-    assert.equal(o.runtime.status, 200, JSON.stringify(o.runtime.body));
-    assert.equal(o.runtime.body.imagePurchases, true);
-  }
-});
-
 test("the switch reads only `off` as off; it reaches every container job; the deploy keeps purchases on unless the secret says off; the runtime route reports it", () => {
   assert.equal(imagePurchasesOn({}), true);
   assert.equal(imagePurchasesOn({ IMAGE_PURCHASES: "on" }), true);

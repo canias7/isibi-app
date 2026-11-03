@@ -264,35 +264,6 @@ function assertFrameShipped(r, want, label) {
   assert.deepEqual(r.debits, [r.reply.cost], label + ": the debit is not the reply's cost");
 }
 
-test("take Gallery out of the menu, on a written frame: the header file loses the link, compiled and stored", async () => {
-  const r = await drive({ ask: "Take Gallery out of the menu.", frameAnswer: { header: NO_GALLERY } });
-  assertFrameShipped(r, { "site-header": NO_GALLERY, "site-footer": FOOTER }, "menu");
-  assert.deepEqual(r.reply.changed, ["header"]);
-});
-
-test("add Instagram to the footer, on a written frame: the footer file gains the outside link", async () => {
-  const r = await drive({ ask: "Add our Instagram to the footer: instagram.com/tidewaterrowing", frameAnswer: { footer: WITH_INSTAGRAM } });
-  assertFrameShipped(r, { "site-header": HEADER, "site-footer": WITH_INSTAGRAM }, "footer");
-});
-
-test("change the header button, on a written frame", async () => {
-  const r = await drive({ ask: "Change the header button to Book a taster session.", frameAnswer: { header: NEW_BUTTON } });
-  assertFrameShipped(r, { "site-header": NEW_BUTTON }, "button");
-});
-
-test("a frame answer linking to a page the site does not have is refused: nothing stored, nothing compiled", async () => {
-  const r = await drive({ ask: "Add a Shop link to the menu.", frameAnswer: { header: HEADER.replace("/gallery", "/shop") } });
-  assert.equal(r.status, 422);
-  assert.equal(r.reply.ok, false);
-  assert.deepEqual(r.reply.problems, ["header:route:/shop"]);
-  assert.equal(r.builds.length, 0);
-  assert.deepEqual(r.parts, PARTS);
-  // ONE RETRY WITH THE REASON, THEN NOT CHARGED (owner, 2026-10-25).
-  assert.deepEqual(r.models.map((m) => m.tool), [FRAME_EDIT_TOOL.name, FRAME_EDIT_TOOL.name]);
-  assert.equal(r.reply.retried, true);
-  assert.equal(r.reply.cost, 0);
-});
-
 test("runFrameEdit: a refused answer is sent back once with the check's reason, same model; a fixed second answer lands; cannot/unchanged are never retried", async () => {
   const KIT_FOOTER = 'import { Figure } from "@/components/ui/figure";\n' + FOOTER;
   const sent = [];
@@ -325,31 +296,6 @@ test("the frame rules name the only kit modules the check allows", () => {
   assert.match(req.system, /may import ONLY "@\/components\/ui\/safe-image" and "@\/components\/ui\/lang-switch"/);
 });
 
-test("a SiteChrome site still runs the menu editor, never the frame editor", async () => {
-  const r = await drive({
-    ask: "Take Gallery out of the menu.",
-    pages: [{ path: "index.tsx", source: KIT_PAGE }, { path: "gallery.tsx", source: GALLERY }], parts: PARTS,
-    navAnswer: { links: [{ label: "Home", href: "/" }] }, frameAnswer: { header: NO_GALLERY },
-  });
-  assert.ok(r.models.length >= 1, "no model was called");
-  assert.ok(r.models.every((m) => m.tool === NAV_TOOL.name), "the frame editor ran on a kit site: " + r.models.map((m) => m.tool));
-  assert.notEqual(r.reply && r.reply.frame, true);
-  assert.equal(partOf(r, "site-header"), HEADER, "a kit site's parts were edited");
-});
-
-test("put a logo next to the name, on a written frame: the logo is stored and the header places it, one publish", async () => {
-  const r = await drive({ layer: "logo", ask: "Put this logo next to the name.", images: [{ name: "logo.png", data: PNG }], frameAnswer: { header: LOGO_BESIDE } });
-  assert.equal(r.status, 200, JSON.stringify(r.reply));
-  assert.equal(r.reply.layer, "logo");
-  assert.deepEqual(r.reply.frame, ["header"]);
-  assert.deepEqual(r.models.map((m) => m.tool), [FRAME_EDIT_TOOL.name]);
-  assert.match(r.models[0].args.messages[0].content, /THE LOGO IS NOW SET/);
-  assert.equal(r.builds.length, 1);
-  assert.equal(partOf(r, "site-header"), LOGO_BESIDE);
-  assert.equal(compiled(r, "site-header"), LOGO_BESIDE);
-  assert.ok(r.reply.cost > 0);
-});
-
 // ── 2. THE RULES ──────────────────────────────────────────────────────────────
 
 test("pageRulesFor: a kit site's block is byte-identical; an own-parts site's names no kit rule and no chart catalogue", () => {
@@ -376,23 +322,6 @@ test("the first build's band and frame writers read the own-parts block", () => 
     assert.doesNotMatch(r.system[0].text, /THE KIT FOR EVERY CONTROL/);
     assert.match(r.system[0].text, /THIS SITE WRITES ITS OWN PARTS/);
   }
-});
-
-test("an edit of an own-parts site writes its own parts: the request carries the own-parts block and note", async () => {
-  const kit = pagesRequest({ brief: "b", spec: { tables: [] }, brand: "X", mode: "page", target: "index.tsx", priorPages: PAGES });
-  assert.match(kit.system[0].text, /THE KIT FOR EVERY CONTROL/, "a kit site's edit changed");
-  assert.ok(!String(kit.messages[0].content).includes(OWN_PARTS_NOTE));
-  let sent = null;
-  await generateSitePages({}, "b", { tables: [] }, "X", [], "m", PAGES, "page", "index.tsx", null,
-    async (_k, req) => { sent = req; throw new Error("stop"); }, "", [], { ownParts: true }).catch(() => {});
-  assert.ok(sent, "the request was not sent");
-  assert.doesNotMatch(sent.system[0].text, /THE KIT FOR EVERY CONTROL/);
-  assert.ok(String(sent.messages[0].content).includes(OWN_PARTS_NOTE));
-  // AND THE ROUTE HANDS IT OVER, on the page rung and the addition's writer.
-  const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  // RE-ANCHORED 2026-10-24 (combine-d): beside the file picker's `only` on the page rung.
-  assert.ok(/\{ ownParts: ownPartsSite\(eSrc, pStoredParts\)(?:, only: [^}]+)? \}\);/.test(W), "the page rung does not hand the own-parts fact over");
-  assert.ok(/\{ ownParts: ownPartsSite\(aSrc, aStoredParts\)(?:, only: [^}]+)? \}\);/.test(W), "the addition's writer does not hand the own-parts fact over");
 });
 
 // ── 3. THE SINGLE-CALL FALLBACK ───────────────────────────────────────────────

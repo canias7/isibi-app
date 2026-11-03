@@ -46,14 +46,6 @@ test("non-email edits and phone edits change nothing", () => {
   }
 });
 
-test("the text route runs it before the split and answers the links", () => {
-  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const a = w.indexOf("const eMail = carryEmailChange(out.pages, out.edits, { keepLinks: out.keepLinks === true });");
-  const b = w.indexOf("const eSplit = splitEditable(eMail.pages);");
-  assert.ok(a > 0 && b > a && b - a < 400);
-  assert.ok(w.indexOf("links: eMail.links.length", b) > b);
-});
-
 test("keepLinks: the visible copies change, the links keep the old address and are reported kept", () => {
   const r = carryEmailChange(files(), edits, { keepLinks: true });
   const all = r.pages.map((p) => p.source).join("\n");
@@ -63,22 +55,6 @@ test("keepLinks: the visible copies change, the links keep the old address and a
   assert.equal(r.kept.length, 2);
   const f = editReplyFacts({ ok: true, layer: "text", applied: 1, changed: [NEW], keptLinks: r.kept });
   assert.ok(JSON.stringify(f.facts).includes("mailto:" + OLD));
-});
-
-test("keepLinks is a schema field, read only as exactly true from the step's answer", async () => {
-  const ap = await import("../builder/site-apply.mjs");
-  const k = ap.TEXT_TOOL.input_schema.properties.keepLinks;
-  assert.equal(k && k.type, "boolean");
-  assert.ok(!ap.TEXT_TOOL.input_schema.required.includes("keepLinks"));
-  const reply = (input) => ({ content: [{ type: "tool_use", input }] });
-  assert.equal(ap.readTextKeepLinks(reply({ edits: [], keepLinks: true })), true);
-  assert.equal(ap.readTextKeepLinks(reply({ edits: [], keepLinks: "true" })), false);
-  assert.equal(ap.readTextKeepLinks(reply({ edits: [] })), false);
-  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /keptLinks: eMail\.kept\.length/);
-  assert.match(w, /readTextKeepLinks|keepLinks: out\.keepLinks === true/);
-  const src = readFileSync(new URL("../builder/site-apply.mjs", import.meta.url), "utf8");
-  assert.match(src, /\.\.\.\(readTextKeepLinks\(reply\) \? \{ keepLinks: true \} : \{\}\)/);
 });
 
 test("the reply facts name each changed link", () => {

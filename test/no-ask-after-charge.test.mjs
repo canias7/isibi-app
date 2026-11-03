@@ -203,41 +203,6 @@ for (const mode of ["sync", "job"]) {
   });
 }
 
-test("BEFORE ANY CHARGE an edit step still asks: a single photo change's step is offered its question and the question is kept, nothing charged", async () => {
-  const slug = freshSlug("no-ask-pre");
-  const store = bucket(slug);
-  store.poke(SOURCE_KEY(slug), JSON.stringify([{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }, { path: "contact.tsx", source: CONTACT }]));
-  const worker = await loadWorker();
-  const compiler = installCompiler();
-  const offered = [];
-  try {
-    await withWire({
-      [T.pick]: { fields: ["images"], scopes: [{ part: "images", words: PHOTO, answers: [] }] },
-      [PIC]: (args) => { offered.push(offers(args)); return { pictures: [], question: QPIC }; },
-    }, async (seen) => {
-      const m0 = reserves(seen);
-      const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE3(slug), { intent: "edit", layer: "look" }, PHOTO + "."), "sync");
-      assert.deepEqual(offered, [true], "before any charge the step was not offered its question");
-      assert.equal(r.body.clarify && r.body.clarify.text, QPIC.text, JSON.stringify(r.body).slice(0, 300));
-      assert.equal(reserves(seen) - m0, 0);
-    }, { slug });
-  } finally { compiler.uninstall(); }
-});
-
-test("BEFORE ANY CHARGE the router still asks, and its answer resumes the request", async () => {
-  const slug = freshSlug("no-ask-router");
-  const store = bucket(slug);
-  const worker = await loadWorker();
-  await withWire({ route: [{ intent: "clarify", question: ASK }, { intent: "edit", layer: "look", answered: true }] }, async (seen) => {
-    const a = (await routeCall(worker, envFor(store), { slug, message: "Make the about page nicer." })).body;
-    assert.equal(a.question && a.question.text, ASK.text, JSON.stringify(a).slice(0, 300));
-    assert.match(String(seen.routerAsked[0].messages[0].content), /A QUESTION MAY BE ASKED/);
-    const b = (await routeCall(worker, envFor(store), { slug, message: "Two columns", ask: { id: a.question.id } })).body;
-    assert.equal(b.instruction, "Make the about page nicer.");
-    assert.ok(contextBlock(b.ask.context).includes("Two columns"));
-  }, { slug });
-});
-
 // ── 4. THE ADD-ON ROUTE, AS A QUEUED JOB ────────────────────────────────────
 
 const HOME_P = pageSrc("/", "<section className=\"hero\"><h1>Harbour Loaf</h1></section>");
@@ -259,59 +224,3 @@ const TABLE_ADD = {
   [RT.adds]: { kinds: ["table"], scopes: [{ kind: "table", words: "add a suppliers list to the About page", uses: [] }] },
   "add:table": { table: [{ table: { name: "suppliers", access: "public", columns: [{ name: "name", type: "text" }] }, seed: [{ name: "Mill Farm" }], shows: "/about" }] },
 };
-
-test("ADD-ON ROUTE (job): after the first reserve the page writer is still offered its question (owner, 2026-10-26): the addition waits on it with its reserve refunded, and the answer resumes it — the addition lands, charged once", { timeout: 30000 }, async () => {
-  let n = 0;
-  await withPlatform({
-    slug: slugOf("a"), pages: PAGES, replies: true, balance: 400, db: rowsDb({ tables: {} }),
-    answers: { ...TABLE_ADD, route: [{ intent: "addon" }, { intent: "addon", answered: true }], [RT.pages]: async (args) => (/Below the story/.test(JSON.stringify(args.messages)) ? { pages: [{ path: "src/routes/about.tsx", source: ABOUT_LIST }] } : (++n, { question: QPAGES })) },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please add a suppliers list to the About page." });
-    const s1 = await settle(P, r.key);
-    assert.equal(s1.rec.parts[0].status, "waiting", JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
-    const writes = P.modelLog.filter((m) => m.tool === RT.pages);
-    assert.ok(writes.length >= 1 && writes.every((w) => w.props.includes("question") && !w.props.includes("defaulted")), "a page writer request after the reserve was not offered its question: " + JSON.stringify(writes.map((w) => w.props)));
-    assert.equal(net(P, "edit"), 0, "the addition waiting on its question kept a charge: " + JSON.stringify(P.ledger));
-    const q = P.question();
-    assert.equal(q && q.question.text, QPAGES.text);
-    await sendMessage(P, { message: "Below the story", ask: { id: q.id, chosen: true } });
-    const s2 = await settle(P, r.key);
-    assert.equal(s2.rec.parts[0].status, "done", JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
-    assert.ok(P.page("about.tsx").includes("Our suppliers"));
-    assert.ok(net(P, "edit") < 0, "the addition was not charged");
-    assert.ok(n >= 1);
-  });
-});
-
-test("ADD-ON ROUTE (job): a page writer that asks even when told it cannot ends the addition in its question — nothing applied, and the addition's reserve refunded", { timeout: 30000 }, async () => {
-  const db = rowsDb({ tables: {} });
-  await withPlatform({
-    slug: slugOf("b"), pages: PAGES, replies: true, balance: 400, db,
-    answers: { ...TABLE_ADD, [RT.pages]: { question: QPAGES } },
-  }, async (P) => {
-    const before = P.page("about.tsx");
-    const r = await sendMessage(P, { message: "Please add a suppliers list to the About page." });
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[0].status, "waiting", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.equal(P.page("about.tsx"), before);
-    assert.equal(net(P, "edit"), 0, "the addition that ended in a question kept a charge: " + JSON.stringify(P.ledger));
-  });
-});
-
-test("ADD-ON ROUTE (job), BEFORE ANY CHARGE: a component addition's page writer (no reserve before it) is still offered its question", { timeout: 30000 }, async () => {
-  await withPlatform({
-    slug: slugOf("c"), pages: PAGES, replies: true, balance: 400,
-    answers: {
-      route: { intent: "addon" },
-      [RT.adds]: { kinds: ["component"], scopes: [{ kind: "component", words: "add a questions section to the About page", uses: [] }] },
-      "add:component": { component: [{ page: "/about", where: "on the About page", does: "answers common questions", components: ["card"] }] },
-      [RT.pages]: { question: QPAGES },
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: "Please add a questions section to the About page." });
-    await settle(P, r.key);
-    const writes = P.modelLog.filter((m) => m.tool === RT.pages);
-    assert.ok(writes.length >= 1 && writes[0].props.includes("question"), "before any charge the page writer was not offered its question");
-    assert.ok(P.question(), "the question before any charge was not kept");
-  });
-});

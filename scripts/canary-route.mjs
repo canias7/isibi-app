@@ -16,7 +16,7 @@
 //
 // A MALFORMED EXPECTATION REFUSES BEFORE ANYTHING IS SPENT, so a typo such as
 // `layer=dta` costs nothing, not a routing call that could never match.
-import { ASK_TOOL, EDIT_LAYERS, ROUTE_FAILURE_KINDS, ROUTE_ERROR_CLASSES, providerCode } from "../builder/site-ask.mjs";
+import { ASK_TOOL, EDIT_LAYERS, ROUTE_FAILURE_KINDS, ROUTE_ERROR_CLASSES, providerCode } from "../parked/old-way/builder/site-ask.mjs";
 
 /** The router's intents, read from its own tool so the two cannot drift. */
 const INTENTS = ASK_TOOL.input_schema.properties.intent.enum;

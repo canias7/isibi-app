@@ -270,34 +270,6 @@ test("the job's gate answers `stopped` on an aborted stop signal, ahead of every
   assert.deepEqual(worker.gate("build"), { go: false, why: "budget" });
 });
 
-test("editStopped has the stopped sentence, and the fire names the deadline the service stops at", () => {
-  const src = noComments(WORKER);
-  const fn = (name) => { const from = at(src, name); const end = src.indexOf("\n}\n", from); assert.ok(end > from, name + " has no close"); return src.slice(from, end); };
-  const stopped = fn("async function editStopped(");
-  assert.match(stopped, /why === "stopped"/, "editStopped does not tell a stopped job apart");
-  assert.match(stopped, /was stopped before it could publish/, "the stopped sentence is missing");
-  assert.match(stopped, /p_state: why === "cancelled" \? "cancelled" : "failed"/, "a stopped job is refunded as something other than failed");
-  const fire = fn("async function fireContainerJob(");
-  // RE-ANCHORED for stage 5b: the deadline is the KIND's own clock — an
-  // edit's budget or a build's longer one — so the launch names `budgetMs`
-  // and the fire derives it from the kind; the edit's deadline is driven in
-  // container-job.test.mjs, the build's in build-runner.test.mjs.
-  assert.match(fire, /deadlineAt: Date\.now\(\) \+ budgetMs,/, "the launch does not name the job's deadline");
-  // RE-ANCHORED 2026-09-14: an edit fired at a container gets the container's
-  // clock, so the edit arm is `CONTAINER_EDIT_JOB_MS`. What this file is about
-  // is that the deadline the build service STOPS a child by is the same number
-  // the job was given, and that is unchanged — it just got longer for an edit,
-  // which is the whole of run 44's fix.
-  // RE-ANCHORED AGAIN the same day, and split into the two things it says, so an
-  // honest reformat cannot break it and a real cut cannot slip past it: the kind
-  // picks a constant, and the deploy's setting is read WITH that constant as its
-  // fallback. One long literal asserted both by accident and neither on purpose.
-  assert.match(fire, /kind === "build" \? BUILD_JOB_MS : CONTAINER_EDIT_JOB_MS/, "the launch's clock is not the kind's own");
-  assert.match(fire, /readJobMaxMs\(env, kindMs\)/, "the deploy's setting is not read, or not with the kind's clock as its fallback");
-  // NO FIXED DEADLINE (2026-10-30): the setting when the deploy names one, else the credential's horizon.
-  assert.match(fire, /const budgetMs = setting\.from === "env" \? setting\.ms : JOB_CREDENTIAL_MS;/, "the launch's clock is no longer the setting's answer or the credential horizon");
-});
-
 test("S7-5 (2026-10-23) A JOB WHOSE LEASE THE LOST SWEEP TOOK STOPS — a beat answered `alive: false` makes the gate answer `stopped` and ends a turn wait; a transport failure or a live beat changes nothing; the heartbeat stops renewing the turn — driven out of the source", async () => {
   const src = noComments(WORKER);
   const from = at(src, "function makeJobCtx(env, {");

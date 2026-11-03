@@ -15,7 +15,7 @@ const rowRequired = (...a) => SA.rowRequired(...a);
 import { addonFailure } from "../builder/site-addon.mjs";
 import { readRun, handOff } from "../builder/request.mjs";
 import { readHandOver, HAND_REASONS } from "../builder/hand-over.mjs";
-import { ROUTE_REASONS, wordsIn } from "../builder/site-ask.mjs";
+import { ROUTE_REASONS, wordsIn } from "../builder/route-shared.mjs";
 
 const site = { pages: ["/", "/shop", { path: "/cafe" }, "/lessons-info"], tables: ["lessons", { name: "Products" }] };
 const addon = (writes, reads = []) => ({ intent: "addon", targets: [{ change: 0, writes, reads }], decision: { source: "model", reasons: [] } });
@@ -123,19 +123,6 @@ test("the add-on's hand-over to the page step is a hop the request follows", () 
 const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const at = (s, from = 0) => { const i = W.indexOf(s, from); assert.ok(i >= 0, "landmark missing: " + s); return i; };
 
-test("the router's answer is read against the site before anything uses it", () => {
-  // (2026-11-02, agent-only: no routing call unless GF_OLD_LANES=1; the answer is read the same way either way.)
-  const route = at("let routed = agentTakes() ? agentRouted({ waiting: rWaiting }) : await rRoute(rDigest);");
-  const conv = at("routed = routeOnExisting(routed, rDigest.site, { reason: \"addon-existing\" });", route);
-  const prep = at("if (rJob && rJob.prepare === true) {", route);
-  const asking = at("const asking = routed.intent === \"clarify\" && rLive;", route);
-  assert.ok(conv < prep && prep < asking);
-  // A PART'S QUESTION IS KEPT (owner, 2026-10-26, any step may ask): nothing
-  // turns a part's clarify, or an answer's follow-up, into a choice.
-  assert.ok(!W.includes("partClarifyChoice"));
-  assert.ok(!W.includes("routed.failed !== true && (rPart || (rWaiting && rWaiting.requestKey"));
-});
-
 test("an answer resuming a paid request is not charged routing again", () => {
   const set = at("if (rWaiting.requestKey) rPaidResume = true;");
   const resumedAt = W.lastIndexOf("rInstruction = rWaiting.request;", set);
@@ -143,20 +130,6 @@ test("an answer resuming a paid request is not charged routing again", () => {
   const bill = at("if (rPaidResume) rCost = 0;", set);
   const usage = W.lastIndexOf("if (routed.usage) {", bill);
   assert.ok(usage > set && bill - usage < 3000);
-});
-
-test("the add-on step hands nothing-new to the page step, and a page request never takes the lone-entry path", () => {
-  const pick = at("const aPicked = await pickAdds(");
-  const noAdd = at("if (!aPicked.kinds.length) return (aOnPage && !aFeature) ? aToPage(\"no-add\") : aFailure(\"no-add\");", pick);
-  const asked = at("if (aPageAsked && aPicked.kinds.length === 1 && aPicked.kinds[0] === \"row\") {", noAdd);
-  const rowPath = at("if (aPicked.kinds.length === 1 && aPicked.kinds[0] === \"row\") {", asked);
-  assert.ok(noAdd < asked && asked < rowPath);
-  assert.match(W.slice(asked, rowPath), /if \(aOnPage\) return aToPage\("page-asked"\);[\s\S]*aPicked\.kinds = \["page"\];/);
-  assert.match(W.slice(at("const aToPage = "), noAdd), /aFailure\("existing", \{ layer: "page", page: aOnPage \}\)/);
-  // The required columns reach the designer and the cleaner.
-  const row = W.slice(rowPath, rowPath + 2500);
-  assert.match(row, /rowBrief\(aRowLists, aRowRequired\)/);
-  assert.match(row, /rowRequired: aRowRequired \}/);
 });
 
 test("a lone entry's unmet requirements are told and, unless they are the whole message, handed on", () => {
@@ -175,14 +148,4 @@ test("a lone entry's unmet requirements are told and, unless they are the whole 
   assert.deepEqual(whole.told, [{ need: "bookings", status: "elsewhere", step: "table" }]);
   assert.deepEqual(whole.carry, []);
   assert.deepEqual(rowUnmet(undefined, msg, wordsIn), { told: [], carry: [] });
-});
-
-test("the row path tells what its entries do not do before it charges or writes", () => {
-  const lone = at("if (aPicked.kinds.length === 1 && aPicked.kinds[0] === \"row\") {");
-  const clean = at("const rowClean = cleanAdd(\"row\", rowRan.value", lone);
-  const unmet = at("const rowUnmetOut = rowUnmet(rowRan.requirements, aInstruction, wordsIn);", clean);
-  const carry = at("for (const w of rowUnmetOut.carry) if (!aHeldOut.parts.includes(w)) aHeldOut.parts.push(w);", unmet);
-  const bill = at("const rowBill = pageCredits(...aDesignUsage);", carry);
-  assert.ok(clean < unmet && unmet < carry && carry < bill);
-  assert.ok(SA.REQUIREMENT_ADDS.includes("row"));
 });

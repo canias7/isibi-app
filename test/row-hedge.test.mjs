@@ -43,16 +43,6 @@ test("the component designer is told a feature on an existing page is its own to
   assert.equal(featureBrief(null, "component"), "");
 });
 
-test("the worker retries an empty design and tells the designer the hand-over", () => {
-  const empty = at(W, 'const aEmptyFeature = aFeature && k === "component" && designedNothing(ran && ran.value);');
-  const retry = at(W, "if (!aPrior && ran && !ran.failed && !ran.ask && (ran.value === undefined || aEmptyFeature)) {", empty);
-  at(W, "aDeclineFeedback", retry);
-  assert.ok(at(W, 'const aFeature = !!(aHand && aHand.reason === "feature-on-page" && aOnPage);') < empty, "aFeature is read before it is set");
-  at(W, "const aBrief = aBriefHanded + aHeldShown(k) + featureBrief(aHand, k);");
-  at(W, "const brief = requirementBrief(aReq.filter((r) => r.judged), j) + aHeldShown(j) + featureBrief(aHand, j);");
-  at(W, "designedNothing, featureBrief } from \"./builder/addon-existing.mjs\"");
-});
-
 const there = (need, by) => ({ need, status: "elsewhere", step: "page", basis: "asked", from: "component", id: need,
   judged: { follows: "asked", carried: "yes", by, reason: "r" } });
 
@@ -133,17 +123,3 @@ async function run(route, first) {
     return { rec, seen };
   } finally { P.close(); compiler.uninstall(); }
 }
-
-test("a feature on an existing page whose component designer answers an empty design is asked once more, told the hand-over, and built", { timeout: 60000 }, async () => {
-  const feature = { intent: "addon", targets: [{ change: 0, writes: ["page:/about", "new-component:faq"], reads: [] }] };
-  const { rec, seen } = await run(feature, { component: [] });
-  const parts = JSON.stringify(rec.parts.map((p) => [p.status, p.why]));
-  assert.equal(seen.length, 2, "the empty design was not asked again: " + parts);
-  assert.ok(seen[0].includes("do not hand it to the page step"), "the designer was not told the hand-over");
-  assert.equal(rec.parts[0].status, "done", parts);
-});
-
-test("without that hand-over an empty design stays the model's own decline (one call)", { timeout: 60000 }, async () => {
-  const { seen } = await run({ intent: "addon" }, { component: [] });
-  assert.equal(seen.length, 1);
-});

@@ -40,7 +40,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { ASK_TOOL, LIVE_ASK_TOOL, EDIT_LAYERS, readEdit } from "../builder/site-ask.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL, EDIT_LAYERS } from "../builder/route-shared.mjs";
 import { LANE_FIELDS, laneLayer } from "../builder/site-lanes.mjs";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
@@ -231,71 +231,3 @@ async function route(answer, message = TEST10) {
 }
 // Test 10's paid press enforces this route (the canary's route box).
 const PRESS = readExpectRoute("layer=data alsoAsked=none");
-
-test("instructions: the router is sent both sentences, with the pages and tables they point at", async () => {
-  const r = await route({ intent: "edit", layer: "data" });
-  assert.equal(r.status, 200);
-  assert.equal(r.router.length, 1, "the router was not asked exactly once");
-  const tool = (r.router[0].tools || []).find((t) => t && t.name === ASK_TOOL.name);
-  assert.ok(tool, "the routing tool is not in the request");
-  // THE REQUEST AS IT LEFT, not the module's constant.
-  const layer = tool.input_schema.properties.layer.description;
-  // THE LIVE TOOL'S SORT RULE (2026-10-25, router-b1), said once in `data`.
-  assert.equal(layer, LIVE_ASK_TOOL.input_schema.properties.layer.description);
-  assert.match(layer, /sorts a list by something every entry has \(cheapest first, A to Z\) ACROSS THE WHOLE SITE, when they say so or name no page\. It cannot leave a page out: a sort on one page they name is "page", and on several pages they name the closing rule decides\./, "the sort rule is not in the request");
-  assert.match(layer, /"page" — [^\n]*a list's order on that page alone/, "the one-page sort is not in the request");
-  assert.doesNotMatch(JSON.stringify(r.router[0]), /limit(?:ed)? it to one page|not limited to one page/i, "a broad phrase left in the request");
-  // "Those lists" and "the pages" have referents in the same request.
-  const content = String(r.router[0].messages[0].content);
-  assert.match(content, /Its database tables are: loaves, orders\./);
-  assert.match(content, /Its pages are: \/, \/menu, \/order\./);
-});
-
-test("supplied answers: a site-wide sort goes on as a data edit with no page, and Test 10's press would post it", async () => {
-  const r = await route({ intent: "edit", layer: "data" });
-  assert.equal(r.body.intent, "edit");
-  assert.equal(r.body.layer, "data");
-  assert.ok(!r.body.alsoAsked, "a single sort was held back");
-  assert.ok(PRESS.ok);
-  assert.deepEqual(routeVerdict(PRESS.expect, r.body), { ok: true, diffs: [] });
-  // A DATA ANSWER CARRIES NO PAGE, whatever the model adds: the sorter is
-  // site-wide, so there is no page for it to be limited to.
-  assert.deepEqual(readEdit({ layer: "data", page: "/menu" }, ["/", "/menu"]), { intent: "edit", answer: "", layer: "data" });
-});
-
-test("supplied answers: a page answer for Test 10's request is refused by its press before anything is posted", async () => {
-  const r = await route({ intent: "edit", layer: "page", page: "/order" });
-  assert.equal(r.body.layer, "page");
-  const v = routeVerdict(PRESS.expect, r.body);
-  assert.equal(v.ok, false, "the press would post a page answer for a site-wide sort");
-  assert.deepEqual(v.diffs.map((d) => d.key), ["layer"]);
-});
-
-test("supplied answers: a sort limited to one page keeps that page all the way to the edit route", async () => {
-  const r = await route({ intent: "edit", layer: "page", page: "/menu" }, "On the menu page, list the loaves from cheapest to most expensive.");
-  assert.equal(r.body.layer, "page");
-  assert.equal(r.body.page, "/menu");
-  // And a page the site does not have is not guessed at.
-  assert.equal(readEdit({ layer: "page", page: "/nowhere" }, ["/", "/menu"]).intent, "addon");
-});
-
-test("supplied answers: two pages named and the third excluded — a `look` answer goes on with no page and nothing held back; a press expecting it refuses `data`", async () => {
-  // THE ANSWER THE INSTRUCTIONS LEAD TO, given here: `data` cannot leave a page
-  // out, `page` edits one, and the closing rule gives changes on several pages
-  // to `look`. Whether a real router gives it is not measured.
-  const look = await route({ intent: "edit", layer: "look" }, SELECTED);
-  assert.equal(look.status, 200);
-  assert.equal(look.body.intent, "edit");
-  assert.equal(look.body.layer, "look");
-  assert.ok(!look.body.page, "a page was kept for a change on two pages");
-  assert.ok(!look.body.alsoAsked, "part of the selection was held back");
-  const press = readExpectRoute("layer=look alsoAsked=none");
-  assert.ok(press.ok);
-  assert.deepEqual(routeVerdict(press.expect, look.body), { ok: true, diffs: [] });
-  // THE ROUTE ITSELF DOES NOT STOP A `data` ANSWER: it reads no page out of
-  // the message. Only the router's instructions keep a selection from the
-  // sorter — and, on a press, a route box stating the expected answer.
-  const data = await route({ intent: "edit", layer: "data" }, SELECTED);
-  assert.equal(data.body.layer, "data", "the route changed a data answer by itself");
-  assert.deepEqual(routeVerdict(press.expect, data.body).diffs.map((d) => d.key), ["layer"]);
-});

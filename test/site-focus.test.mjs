@@ -21,7 +21,7 @@ import {
   FOCUS_VALUES, imageSlots, readPictures, applyPictures, pictureReply,
   runPictureEdit, PICTURE_TOOL,
 } from "../builder/site-picture.mjs";
-import { ASK_TOOL } from "../builder/site-ask.mjs";
+import { ASK_TOOL } from "../builder/route-shared.mjs";
 
 const UI = path.join(import.meta.dirname, "../builder/lovable/template/src/components/ui");
 const safeImage = fs.readFileSync(path.join(UI, "safe-image.tsx"), "utf8");

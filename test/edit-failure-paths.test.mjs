@@ -265,66 +265,9 @@ async function assertPutBack(r, label) {
   assert.ok(!next.builds[0].includes(GREEN), label + ": the next, unrelated edit shipped the stopped change");
 }
 
-test("a job cancelled at the publish gate puts back the stylesheet it wrote, and the next edit does not ship it", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], cancel: true });
-  assert.equal(r.builds.length, 0, "the cancelled edit built");
-  assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
-  await assertPutBack(r, "cancelled");
-});
-
-// THE RENDER CHECK IS THE BUILD SERVICE'S OWN SELECTION (`judge`, below): the
-// corrected build is judged for the rule the correction wrote, which also
-// points at nothing — a script answering "header button" for every build would
-// no longer describe a sheet that does not have it.
-test("a job whose correction still missed puts back the stylesheet it wrote, and the next edit does not ship it", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, STILL_DEAD], render: judge() });
-  assert.equal(r.builds.length, 2, "not the build and the one correction");
-  assert.equal(r.reply && r.reply.error, "unverified", "not the refused correction: " + JSON.stringify(r.reply));
-  await assertPutBack(r, "unverified");
-});
-
-test("a job with no time left for the correction puts back the stylesheet it wrote, and the next edit does not ship it", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, STILL_DEAD], render: () => DEAD, skew: 14 * 60e3 });
-  assert.equal(r.builds.length, 1, "the correction ran with no time for it");
-  assert.equal(r.reply && r.reply.error, "budget", "not the time refusal: " + JSON.stringify(r.reply));
-  await assertPutBack(r, "budget");
-});
-
 // A LOGO IS THE SAME WRITE ONE RUNG OVER: the mark goes into the stored look
 // before the one publish, and a cancel there left it saved for the next edit.
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-test("a job cancelled at the publish gate after a logo was saved puts the logo back, and the next edit does not ship it", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "logo", images: [{ name: "logo.png", data: PNG }] }, ask: "Use this picture as the logo.", cancel: true });
-  assert.equal(r.builds.length, 0, "the cancelled edit built");
-  assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
-  assert.deepEqual(r.config.look, LOOK, "the cancelled logo is still in the stored look");
-  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site });
-  assert.equal(next.builds.length, 1, "the next message did not build once");
-  assert.ok(!next.builds[0].includes("/u/" + r.site.slug + "/"), "the next, unrelated edit shipped the cancelled logo");
-});
-
-// THE LOGO RUNG READS THE COMPOSER'S OWN ATTACHMENT (2026-09-25). The attach
-// code makes `{name, data}` (test/site-entry-inventory.test.mjs asserts the edit
-// POST carries exactly that), and the rung read bare strings alone: "Use this
-// picture as the logo." with the picture attached came back "Attach the logo
-// with the 📎 button", nothing stored and nothing built.
-test("a logo attached in the composer's shape is stored and published through the edit route", async () => {
-  const r = await drive({ mode: "sync", routed: { layer: "logo", images: [{ name: "logo.png", data: PNG }] }, ask: "Use this picture as the logo." });
-  assert.equal(r.reply && r.reply.ok, true, "the attached logo was refused: " + JSON.stringify(r.reply));
-  assert.equal(r.builds.length, 1, "the logo was not built into the site");
-  const mark = r.config.look && r.config.look.wordmark;
-  assert.equal(mark && mark.form, "image", "the logo was not stored as the header mark: " + JSON.stringify(r.config.look));
-  assert.ok(String(mark.url).startsWith("/u/" + r.site.slug + "/"), "the logo is not the site's own upload: " + mark.url);
-  assert.ok(r.builds[0].includes(mark.url), "the build does not carry the logo");
-  assert.match(r.said.text, /logo in the header/, "the screen does not say the logo went up: " + r.said.text);
-});
-
-test("control: a correction that lands keeps the corrected stylesheet it published", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, CLEAN_CSS], render: (n) => (n === 1 ? DEAD : { ok: true, checked: 2, pages: 1, findings: [] }) });
-  assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));
-  assert.equal(r.committed, true, "the corrected edit was not committed");
-  assert.equal(r.config.css, CLEAN_CSS.css, "the published stylesheet was wound back under the live site");
-});
 
 // A CUT-SHORT RENDER CHECK PROVES NO RULE DEAD (audit A19-3): the rule may
 // sit on a route or viewport the budget never reached, so the edit publishes
@@ -337,29 +280,6 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.config.css, DEAD_CSS.css, "the stylesheet the edit wrote was not kept");
   });
 }
-
-// THE FONT FETCH'S SUCCESS PATH, DRIVEN (audit A20-5). Every other stub of the
-// Fontsource API answers 404, so the variant choice, the woff2 download and
-// the bytes handed to the build never ran in a test. A Fontsource-shaped answer
-// with two weights and two subsets: the regular latin woff2 is the one sent.
-test("a family the stylesheet names is fetched from Fontsource and its woff2 bytes reach the build", async () => {
-  const BYTES = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 1, 2, 3, 4]);
-  const asked = [];
-  const file = (w, s, ext) => "https://cdn.test/be-vietnam-pro-" + s + "-" + w + "-normal." + ext;
-  const variant = (w) => ({ normal: Object.fromEntries(["latin", "vietnamese"].map((s) => [s, { url: { woff2: file(w, s, "woff2"), woff: file(w, s, "woff") } }])) });
-  const fonts = (u) => {
-    if (u === "https://api.fontsource.org/v1/fonts/be-vietnam-pro") { asked.push(u); return json({ id: "be-vietnam-pro", category: "serif", variants: { "700": variant("700"), "400": variant("400") } }); }
-    if (u.startsWith("https://cdn.test/")) { asked.push(u); return new Response(BYTES, { status: 200 }); }
-    return null;
-  };
-  const css = 'body{font-family:"Be Vietnam Pro",sans-serif}';
-  const r = await drive({ mode: "sync", routed: { layer: "look" }, ask: "Use Be Vietnam Pro for the text.", pick: PICK_CSS, lanes: [{ css }], fonts });
-  assert.equal(r.reply && r.reply.ok, true, "the edit did not publish: " + JSON.stringify(r.reply));
-  assert.deepEqual(asked, ["https://api.fontsource.org/v1/fonts/be-vietnam-pro", file("400", "latin", "woff2")], "not the API then the regular latin woff2");
-  const sent = JSON.parse(r.builds[0]).fontFiles;
-  assert.ok(sent && typeof sent === "object", "the build was sent no font files");
-  assert.equal(sent["be-vietnam-pro"], Buffer.from(BYTES).toString("base64"), "the bytes the build got are not the file fetched");
-});
 
 // ── A PUBLISH IS HELD ONLY FOR THE RULES THIS REQUEST WROTE (2026-09-26) ────
 //
@@ -516,34 +436,6 @@ for (const [mode, previous] of [["sync", false], ["job", false], ["job", true]])
   });
 }
 
-// THE CORRECTED BUILD REFUSED BY THE STORE IS A NAMED FAILURE, NEVER THE VERIFY
-// CATCH (the round's reachability, below): the first build stops at its dead
-// rule before staging anything, so the corrected one is the first write under
-// builds/ — and the store refuses it.
-test("a synchronous edit whose corrected build cannot be stored is a named failure that puts the old stylesheet back, and the next edit does not ship the correction", async () => {
-  const site = staleSite("sync");
-  site.b.refuse = (k) => k.startsWith("builds/");
-  const r = await drive({ mode: "sync", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [{ css: NEW_DEAD }, { css: NEW_FIXED }], render: judge() });
-  site.b.refuse = null;
-  assert.deepEqual(r.models, [T.pick, T.lane, T.lane], "not the picker, the css lane and the one correction");
-  assert.equal(r.builds.length, 2, "not the build and the one correction");
-  assert.ok(r.builds[1].includes("site-link"), "the correction's sheet did not reach the second build");
-  assert.equal(r.status, 422, JSON.stringify(r.reply));
-  assert.equal(r.reply && r.reply.error, "compile", "not the failed publish: " + JSON.stringify(r.reply));
-  // THE LEDGER: this path keeps what its rungs collected when a publish fails
-  // (the correction round is not billed), and the reply's cost is exactly that.
-  assert.deepEqual(r.debits, [2], "not the css lane collected");
-  assert.deepEqual(r.credited, [], "a refund was made that this path does not make");
-  assert.equal(r.reply.cost, 2, "the reply's cost is not what the ledger holds");
-  // RESTORED, SO NOTHING ABOUT A CHANGE STILL SAVED.
-  assert.equal(r.said.text, "That didn't go through — our build service was restarting. Try again in a moment. This edit cost 2 credits. Reading your message cost 2 credits.");
-  assert.deepEqual(r.said.actions, [], "a failed publish started something");
-  assert.equal(r.config.css, STALE, "the stylesheet was not put back to the one the site had");
-  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: judge() });
-  assert.equal(next.builds.length, 1, "the next message did not build once");
-  assert.ok(!next.builds[0].includes("site-link"), "the next, unrelated edit shipped the correction nobody published");
-});
-
 // ── A QUOTED VALUE IS PART OF THE RULE (2026-09-26) ─────────────────────────
 //
 // Owner: *"Preserve meaningful whitespace and escapes inside quoted selectors,
@@ -652,31 +544,6 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
   });
 }
-
-test("a respaced quoted value the correction does not put right is refused: nothing published, the stylesheet put back, and the next edit ships the rule the page matches (job)", async () => {
-  const looked = [];
-  const r = await drive({ mode: "job", site: labelSite("job"), routed: { layer: "look" }, ask: LINK_ASK, pick: PICK_CSS_LINK, lanes: [{ css: RESPACED }, { css: RESPACED }], nav: LINK_TO_HOME, render: pageJudge({ seen: looked }) });
-  // BOTH PUBLISHES ASKED ABOUT THE RESPACED RULE, AND BOTH FOUND IT DEAD.
-  assert.deepEqual(verified(r), [[RESPACED_SEL], [RESPACED_SEL]], "the publishes were not held for the respaced rule");
-  assert.deepEqual(looked.map((l) => l.dead), [[RESPACED_SEL], [RESPACED_SEL]], "the respaced rule was not found dead twice");
-  assert.deepEqual(correctionAsked(r), [RESPACED_SEL]);
-  // REFUSED, AND NOTHING WENT OUT.
-  assert.equal(r.reply && r.reply.ok, false, "a rule that still matches nothing was published: " + JSON.stringify(r.reply));
-  assert.equal(r.reply.error, "unverified", JSON.stringify(r.reply));
-  assert.equal(r.committed, false, "the refused edit was committed");
-  assert.deepEqual([...r.site.b.store.keys()].filter((k) => k.startsWith("current/")), [], "a version was activated");
-  // PUT BACK: the stored sheet is the one the page matches.
-  assert.equal(r.config.css, LABELLED, "the respaced stylesheet is still stored");
-  assert.deepEqual(r.reserves, [2, 1], "not the css lane and the menu call reserved");
-  assert.equal(r.row.billing, "refunded", "the refused job was not refunded");
-  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
-  assert.deepEqual(r.said.actions, [], "a refusal started something");
-  // AND THE NEXT, UNRELATED EDIT SHIPS THE RULE THE PAGE MATCHES.
-  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: pageJudge() });
-  assert.equal(next.reply && next.reply.ok, true, "the next message did not go through: " + JSON.stringify(next.reply));
-  assert.equal(next.builds.length, 1, "the next message did not build once");
-  assert.equal(sheetOf(next.builds[0]), LABELLED, "the next, unrelated edit did not ship the stored rule");
-});
 
 // A QUOTED DECLARATION AND A QUOTED AT-RULE CONDITION, and nothing else moved:
 // each changes the rule it belongs to, so each rule is sent to be judged. The
@@ -810,31 +677,6 @@ for (const mode of ["sync", "job"]) {
   });
 }
 
-test("a descendant the correction does not put right is refused: nothing published, the stylesheet put back, and the next edit ships the rule the page matches (job)", async () => {
-  const looked = [];
-  const r = await drive({ mode: "job", site: hoursSite("job"), routed: { layer: "look" }, ask: HOURS_ASK, pick: PICK_CSS, lanes: [{ css: WRITTEN_RULE }, { css: WRITTEN_RULE }], render: boundaryJudge({ seen: looked }) });
-  // BOTH PUBLISHES ASKED ABOUT THE REWRITTEN RULE, AND BOTH FOUND IT DEAD.
-  assert.deepEqual(verified(r), [[WRITTEN_SEL], [WRITTEN_SEL]], "the publishes were not held for the rewritten rule");
-  assert.deepEqual(looked.map((l) => [l.dead, l.unknown]), [[[WRITTEN_SEL], []], [[WRITTEN_SEL], []]], "the rewritten rule was not found dead twice");
-  assert.deepEqual(correctionAsked(r), [WRITTEN_SEL]);
-  // REFUSED, AND NOTHING WENT OUT.
-  assert.equal(r.reply && r.reply.ok, false, "a rule that still reaches nothing was published: " + JSON.stringify(r.reply));
-  assert.equal(r.reply.error, "unverified", JSON.stringify(r.reply));
-  assert.equal(r.committed, false, "the refused edit was committed");
-  assert.deepEqual([...r.site.b.store.keys()].filter((k) => k.startsWith("current/")), [], "a version was activated");
-  // PUT BACK: the stored sheet is the one the page matches.
-  assert.equal(r.config.css, STORED_RULE, "the rewritten stylesheet is still stored");
-  assert.deepEqual(r.reserves, [2], "not the css lane reserved");
-  assert.equal(r.row.billing, "refunded", "the refused job was not refunded");
-  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
-  assert.deepEqual(r.said.actions, [], "a refusal started something");
-  // AND THE NEXT, UNRELATED EDIT SHIPS THE RULE THE PAGE MATCHES.
-  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: boundaryJudge() });
-  assert.equal(next.reply && next.reply.ok, true, "the next message did not go through: " + JSON.stringify(next.reply));
-  assert.equal(next.builds.length, 1, "the next message did not build once");
-  assert.equal(sheetOf(next.builds[0]), STORED_RULE, "the next, unrelated edit did not ship the stored rule");
-});
-
 for (const mode of ["sync", "job"]) {
   test("a new rule written with a comment between its classes is judged by what it means, and ships without a correction (" + mode + ")", async () => {
     const looked = [];
@@ -865,58 +707,6 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.said.text, LOOK_SAID);
   });
 }
-
-// ── THE VERIFY CATCH IS NOT REACHED BY ANY FAILURE THE ROUND CAN MEET ───────
-//
-// The correction round runs inside a try whose catch puts the design back and
-// answers `error: "verify"`. Every operation inside it handles its own failure
-// before the catch could see one: `runLane` answers a send that threw as
-// `failed`, `patchSiteConfig` answers a refused write as `ok: false`, and the
-// second publish answers a refused store, a refused gate or a failed compile as
-// a named failure (`recompileAndPublish` catches its stage, activation and
-// container calls; `editRpc` never throws). `landmarkNote`, `themeNote` and the
-// trace marks are pure and guard their inputs. So the catch is the defence
-// against a defect in our own code, and no failure the route can meet reaches
-// it — which these cases drive at each boundary rather than force a throw.
-// (The corrected build's store refusal is the synchronous case above.)
-
-test("the correction's model call failing stops the job and puts the stylesheet back, never reaching the verify catch", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, TIMEOUT], render: () => DEAD });
-  assert.deepEqual(r.models, [T.pick, T.lane, T.lane], "not the picker, the css lane and the one correction");
-  assert.equal(r.builds.length, 2, "not the build and the one rebuild");
-  assert.equal(r.reply && r.reply.error, "unverified", "not the refused correction: " + JSON.stringify(r.reply));
-  assert.equal(r.row.billing, "refunded", "the consumer did not refund the stopped job");
-  assert.equal(r.reply.cost, 0);
-  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
-  await assertPutBack(r, "correction call failed");
-});
-
-test("the correction's stylesheet write refused stops the job and puts the stylesheet back, never reaching the verify catch", async () => {
-  const slug = "fail-job-" + hex32().slice(0, 8);
-  const site = { slug, b: bucket(slug) };
-  // THE LANE'S WRITE LANDS, THE CORRECTION'S DOES NOT, THE RESTORE DOES.
-  let puts = 0;
-  site.b.refuse = (k) => k === CONFIG_KEY(slug) && ++puts === 2;
-  const r = await drive({ mode: "job", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, STILL_DEAD], render: () => DEAD });
-  site.b.refuse = null;
-  assert.equal(puts, 3, "not the lane's write, the refused correction and the restore");
-  assert.equal(r.builds.length, 2, "not the build and the one rebuild");
-  assert.ok(!r.builds[1].includes("header .btn"), "the refused correction reached the rebuild");
-  assert.equal(r.reply && r.reply.error, "unverified", "not the refused correction: " + JSON.stringify(r.reply));
-  assert.equal(r.said.text, STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
-  await assertPutBack(r, "correction write refused");
-});
-
-test("the corrected build refused at the publish gate is a named failure that puts the stylesheet back, never reaching the verify catch", async () => {
-  // THE FIRST BUILD STOPS AT ITS DEAD SELECTOR BEFORE THE GATE; THE CORRECTED
-  // ONE MEETS THE GATE, AND THE GATE SAYS NO.
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, CLEAN_CSS], render: (n) => (n === 1 ? DEAD : { ok: true, checked: 2, pages: 1, findings: [] }), granted: false });
-  assert.equal(r.builds.length, 2, "not the build and the one rebuild");
-  assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
-  assert.equal(r.row.billing, "refunded", "the consumer did not refund the refused job");
-  assert.equal(r.said.text, "That didn't go through — your change was built but couldn't be published (lease), so nothing was changed. This edit cost you nothing. Reading your message cost 2 credits.");
-  await assertPutBack(r, "gate refused");
-});
 
 // ── A RESTORE THAT FAILED IS SAID BY EVERY FORMATTER (2026-09-26) ───────────
 //
@@ -1002,50 +792,6 @@ for (const mode of ["sync", "job"]) {
     assert.ok(!next.builds[0].includes(GREEN), "the next, unrelated edit shipped a change the restore took back");
   });
 }
-
-// A PAGE THAT DID NOT COMPILE — the compile's own sentence, the one arm the
-// route writes itself — with the restore refused too.
-test("a change that did not compile, whose restore was refused too, says the live site did not change and the change is still saved (sync)", async () => {
-  const site = refusingSite("sync", { builds: false });
-  const r = await drive({ mode: "sync", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], compileOk: false });
-  site.b.refuse = null;
-  assert.equal(site.puts, 2, "not the lane's write and the refused restore");
-  assert.equal(r.status, 422, JSON.stringify(r.reply));
-  assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
-  assert.deepEqual(r.debits, [2], "not the css lane collected");
-  assert.deepEqual(r.credited, [], "a refund was made that this path does not make");
-  assert.equal(r.said.text, "That didn't compile, so your live site wasn't changed." + STILL_SAVED + " This edit cost 2 credits. Reading your message cost 2 credits.");
-});
-
-// THE SAME FACT THROUGH TWO OTHER FORMATTERS: the queue's publish gate refusing
-// the build (`compileMsg`'s `not-granted` arm), and a cancel at the gate
-// (`editStopped`, which already said it).
-test("a publish refused at the gate, whose restore was refused too, says the change is still saved and the live site did not change (job)", async () => {
-  const site = refusingSite("job", { builds: false });
-  const r = await drive({ mode: "job", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], render: judge(), granted: false });
-  site.b.refuse = null;
-  assert.equal(site.puts, 2, "not the lane's write and the refused restore");
-  assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
-  assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
-  assert.equal(r.row.billing, "refunded", "the consumer did not refund the refused job");
-  assert.equal(r.said.text, "That didn't go through — your change was built but couldn't be published (lease), so your live site wasn't changed." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
-  const next = await nextEdit(r);
-  assert.ok(next.builds[0].includes(GREEN), "the saved change did not go out with the next edit");
-});
-
-test("a job cancelled at the publish gate, whose restore was refused too, says the change is still saved (job)", async () => {
-  const site = refusingSite("job", { builds: false });
-  const r = await drive({ mode: "job", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], cancel: true });
-  site.b.refuse = null;
-  assert.equal(site.puts, 2, "not the lane's write and the refused restore");
-  assert.equal(r.builds.length, 0, "the cancelled edit built");
-  assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
-  assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
-  assert.equal(r.row.billing, "refunded", "the consumer did not refund the cancelled job");
-  assert.equal(r.said.text, "I stopped that edit before anything was published." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
-  const next = await nextEdit(r);
-  assert.ok(next.builds[0].includes(GREEN), "the saved change did not go out with the next edit");
-});
 
 // EVERY ARM OF THE FAILED-PUBLISH SENTENCE, the function itself: the one the
 // route runs, cut out of worker.js and handed the real `roomSentence`. With the
@@ -1317,37 +1063,3 @@ for (const mode of ["sync", "job"]) {
     assert.equal(leftOf(r.reply), "partial", mode + ": the address that moved was not read as standing");
   });
 }
-
-test("a failure of ours beside an address that went through says the rest was not published, never that nothing changed (job)", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: RENAME_ASK, pick: { fields: ["css", "slug"] }, lanes: [NAVY], rename: { name: "harbour-bread" }, granted: false });
-  assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
-  assert.equal(r.said.text, "That didn't go through — your change was built but couldn't be published (lease), so the rest of it wasn't published. "
-    + "Part of it did go through, though: your site is now at " + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
-  assert.deepEqual(r.reply.landed, ["your site is now at " + HOST + ", and the old address sends people there"], JSON.stringify(r.reply));
-  assert.equal(leftOf(r.reply), "partial");
-});
-
-test("a stopped job names the address it had already moved (job)", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: RENAME_ASK, pick: { fields: ["css", "slug"] }, lanes: [NAVY], rename: { name: "harbour-bread" }, cancel: true });
-  assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
-  assert.equal(r.builds.length, 0, "the cancelled edit built");
-  assert.deepEqual(r.aliases.map((a) => a.alias), [r.site.slug, "harbour-bread"], "the address was not written before the cancel");
-  assert.equal(r.said.text, "I stopped that edit before anything was published. Part of it did go through, though: your site is now at "
-    + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
-  // THE STOP CARRIES IT TOO (`editStopped`'s `landed`), so a request's part
-  // stopped here is never told as stopped before anything changed.
-  assert.deepEqual(r.reply.landed, ["your site is now at " + HOST + ", and the old address sends people there"], JSON.stringify(r.reply));
-  assert.equal(leftOf(r.reply), "partial");
-});
-
-test("control: a failed publish with nothing gone through beside it still says the site is untouched", async () => {
-  for (const mode of ["sync", "job"]) {
-    const r = await drive({ mode, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], compileOk: false });
-    assert.equal(r.reply.error, "compile", mode + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.aliases, [], mode + ": an address was written");
-    assert.match(r.said.text, /^That didn't compile, so your site is untouched\. /, mode + ": " + r.said.text);
-    assert.doesNotMatch(r.said.text, /Part of it did go through/, mode + ": a change is said to have gone through");
-    assert.equal(Object.hasOwn(r.reply, "landed"), false, mode + ": a list of what went through, with nothing gone through");
-    assert.equal(leftOf(r.reply), "", mode + ": nothing standing was read as standing");
-  }
-});

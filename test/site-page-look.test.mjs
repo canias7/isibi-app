@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pageTokensCss, routeSelectorOk, pageScopeFor, MAX_PAGE_TOKENS, validForWrite } from "../builder/site-tokens.mjs";
-import { ASK_TOOL } from "../builder/site-ask.mjs";
+import { ASK_TOOL } from "../builder/route-shared.mjs";
 
 const R = (f) => fs.readFileSync(path.join(import.meta.dirname, "..", f), "utf8");
 const worker = R("worker.js");

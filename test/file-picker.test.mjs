@@ -91,65 +91,6 @@ test("the threshold sits above every stored corpus site", () => {
   assert.equal(overThreshold([{ path: "index.tsx", source: HOME }], BIG_PARTS), true);
 });
 
-test("below the threshold nothing changes: no picker call, every part shown", async () => {
-  const sent = [];
-  assert.equal(await pickFiles({ send: async (r) => { sent.push(r); return {}; } }, { request: "x", pages: [{ path: "index.tsx", source: HOME }], parts: SMALL_PARTS, targets: ["index.tsx"] }), null);
-  assert.equal(sent.length, 0);
-  const r = await run("fp-small", SMALL_PARTS, { [TWEAK_TOOL.name]: TWEAK, [SITE_PAGES_TOOL.name]: WRITER, [PICK_FILES_TOOL.name]: { input: { files: [] } } });
-  assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(r.calls.filter((c) => c.tool === PICK_FILES_TOOL.name).length, 0, "a small site called the picker");
-  for (const p of SMALL_PARTS) assert.ok(r.prompt.includes(JSON.stringify(p.source).slice(1, -1).slice(0, 60)), p.name + " not shown");
-});
-
-test("above the threshold the writer sees only the picked and the required files, and the picker is billed", async () => {
-  const r = await run("fp-big", BIG_PARTS, {
-    [TWEAK_TOOL.name]: TWEAK, [SITE_PAGES_TOOL.name]: WRITER,
-    // The picker leaves out the router's page and its imports, names one
-    // extra and one file that does not exist; its usage is large on purpose.
-    [PICK_FILES_TOOL.name]: { input: { files: ["-parts/extra-3", "-parts/nope"] }, usage: { input_tokens: 1000000, output_tokens: 10 } },
-  });
-  assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  const pick = r.calls.find((c) => c.tool === PICK_FILES_TOOL.name);
-  assert.ok(pick, "the picker was not called on a big site");
-  const asked = JSON.stringify(pick.body.messages);
-  assert.ok(asked.includes("-parts/extra-7") && !asked.includes("MARK-7-xx"), "the index must list files without their code");
-  assert.ok(r.prompt.includes("MARK-3-"), "the picked part was not shown");
-  for (const i of [0, 5, 15]) assert.ok(!r.prompt.includes("MARK-" + i + "-"), "unpicked extra-" + i + " was shown");
-  assert.ok(r.prompt.includes("Ravenscroft"), "the router-named page was not shown");
-  for (const s of [A, C]) assert.ok(r.prompt.includes(JSON.stringify(s).slice(1, -1)), "a part the page imports (directly or through card-b) was dropped");
-  // 1,000,000 input tokens at sonnet's rate is far above one credit.
-  assert.ok(Number(r.body.cost) > 100, "the picker's usage was not on the edit's bill: cost " + r.body.cost);
-});
-
-test("a part the writer was not shown may not be replaced (the wall reads the same pick)", async () => {
-  const NEW5 = "export default function Extra0(){return <p>REWRITTEN</p>}";
-  const r = await run("fp-wall", BIG_PARTS, {
-    [TWEAK_TOOL.name]: TWEAK,
-    [SITE_PAGES_TOOL.name]: { input: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "extra-0", source: NEW5 }] } },
-    [PICK_FILES_TOOL.name]: { input: { files: ["-parts/extra-3"] } },
-  });
-  assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  const stored = JSON.parse(r.store.store.get(PARTS_KEY("fp-wall")));
-  const five = stored.find((p) => p.name === "extra-0");
-  assert.ok(five && five.source.includes("MARK-0-"), "an unshown part was replaced: " + (five && five.source.slice(0, 60)));
-});
-
-test("a failed picker sends the full context (fail open)", async () => {
-  const r = await run("fp-fail", BIG_PARTS, { [TWEAK_TOOL.name]: TWEAK, [SITE_PAGES_TOOL.name]: WRITER, [PICK_FILES_TOOL.name]: "fail" });
-  assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  assert.ok(r.calls.some((c) => c.tool === PICK_FILES_TOOL.name), "the picker was not tried");
-  const full = await run("fp-none", BIG_PARTS, { [TWEAK_TOOL.name]: TWEAK, [SITE_PAGES_TOOL.name]: WRITER, [PICK_FILES_TOOL.name]: { input: { files: ["-parts/nope"] } } });
-  // Exactly what the window shows with no picker at all.
-  const want = partsSent(BIG_PARTS, { first: ["card-a", "card-b"] }).shown.map((p) => p.name);
-  assert.ok(want.length > 3, "the window shows too few extras to tell");
-  for (const n of want) {
-    const i = n.startsWith("extra-") ? n.slice(6) : null;
-    if (i === null) continue;
-    assert.ok(r.prompt.includes("MARK-" + i + "-"), "after a failed pick " + n + " was not shown");
-    assert.ok(full.prompt.includes("MARK-" + i + "-"), "after an unusable pick " + n + " was not shown");
-  }
-});
-
 test("the module: required files, bounds, and unusable answers", async () => {
   const pages = [{ path: "index.tsx", source: HOME }, ...Array.from({ length: 9 }, (_, i) => ({ path: "p" + i + ".tsx", source: "<h1>Page " + i + "</h1>" }))];
   const req = requiredFiles(pages, SMALL_PARTS, ["index.tsx"]);

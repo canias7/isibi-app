@@ -15,7 +15,7 @@ import { platform, sendMessage, settle, T } from "./fixtures/request-flow.mjs";
 import { blockNetwork } from "./fixtures/no-network.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { holdsConfig } from "../builder/request-plan.mjs";
-import { DOOR_LAYERS } from "../builder/site-ask.mjs";
+import { DOOR_LAYERS } from "../builder/route-shared.mjs";
 
 blockNetwork();
 
@@ -68,12 +68,6 @@ for (const [label, route] of [
     assert.ok(!P.page("index.tsx").includes('{ label: "Gallery", href: "/gallery" }'), "Gallery is still in the menu");
   });
 }
-
-test("DT2 CONTROL, SWITCH OFF — the same message with jobs side by side off makes both changes, as it always did", async () => {
-  const { P, rec } = await run({ beside: false, route: { intent: "edit", layer: "nav", remove: true } });
-  assert.deepEqual(rec.parts.map((p) => p.status), ["done"], JSON.stringify(rec.parts));
-  assert.equal(P.look().description, DESC_TO);
-});
 
 for (const [label, route0, pick] of [
   ["the removal door", { intent: "edit", layer: "nav", remove: true }, { routed: ["behavior"], additional: ["description"] }],

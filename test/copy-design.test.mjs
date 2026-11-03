@@ -89,21 +89,6 @@ function Home() { return null; }`;
   assert.deepEqual(pageComponents([null, {}, { path: "x.tsx" }, { path: 3, source: "" }]), {});
 });
 
-test("the note tells the component designer what each page is built from, and the route hands it the fact", () => {
-  const note = siteNote({ name: "Crookes", pages: ["/", "/prices"], labels: { "/": "Book a guitar lesson" },
-    builtFrom: { "/": { kit: ["SiteChrome", "TestimonialGrid", "AvailabilityCalendar"], parts: ["ChordDiagram"] }, "/prices": { kit: ["PriceList"], parts: [] } } });
-  assert.match(note, /^\/ is built from: SiteChrome, TestimonialGrid, AvailabilityCalendar; and its own parts ChordDiagram\. A second one of something it already has is built from the same component as the first\.$/m, note);
-  assert.match(note, /^\/prices is built from: PriceList\. A second one/m, note);
-  // A site described without it reads exactly as before — the line is added, never a placeholder.
-  assert.doesNotMatch(siteNote({ name: "Crookes", pages: ["/"] }), /is built from/);
-  assert.doesNotMatch(siteNote({ name: "Crookes", pages: ["/"], builtFrom: { "/": { kit: [], parts: [] } } }), /is built from/);
-  // THE HOP: the addon route reads it off the stored source it already holds.
-  // RE-ANCHORED 2026-10-11: `aView` — the site's pages, or a prepared part's
-  // declared scope of them (the parallel-work goal).
-  assert.match(worker, /builtFrom: pageComponents\(aView\),/, "the route does not hand the designer what each page is built from");
-  assert.match(worker, /import \{[^}]*\bpageComponents\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "pageComponents is not imported from its module");
-});
-
 // ── hop 3: the harness reads the served page ────────────────────────────────
 
 test("the harness reads a section's STRUCTURE, never its words: a grid of three and a grid of four read the same, a grid and a stack do not", async () => {

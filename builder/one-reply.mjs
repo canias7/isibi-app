@@ -421,11 +421,10 @@ export function oneReplyView(rec, now = Date.now()) {
 }
 
 /**
- * Whether the one reply is in force: always, except under the unit suite's
- * `GF_OLD_LANES=1` (package.json's test script), which keeps the older
- * per-part replies' tests running, as `agentTakes` does for the agent.
+ * Whether the one reply is in force: always (2026-11-03, park-old-way). The
+ * older per-part replies and the suite's `GF_OLD_LANES=1` that kept them are
+ * parked (parked/old-way/README.md).
  */
 export function oneReplyOn() {
-  const p = globalThis.process;
-  return !(p && p.env && p.env.GF_OLD_LANES === "1");
+  return true;
 }

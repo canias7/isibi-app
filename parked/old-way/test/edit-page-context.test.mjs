@@ -1,0 +1,724 @@
+// PARKED (2026-11-03, park-old-way): the old-way half of test/edit-page-context.test.mjs — it tests the old way (router, lanes, GF_OLD_LANES). Not run by the suite (test/*.test.mjs); see parked/old-way/README.md.
+// THE EDIT PATH'S PAGE RUNG, DRIVEN THROUGH THE REAL ROUTE.
+//
+// `test/edit-parts.test.mjs` guards this rung by READING its source — the
+// landmark-to-landmark scan this repository reaches for when a route cannot be
+// driven. It can be driven: `test/edit-path.test.mjs` has posted at
+// `/api/site/<slug>/edit` with a stubbed wire and an opt-in compiler since
+// 2026-08-29, and that is what this file does.
+//
+// THE DIFFERENCE IS NOT STYLE. A source scan is asserted one layer BELOW the
+// break — it can say `loadSiteParts` is called and `mergeParts` is called after
+// it, and it cannot say what the compiler was handed or what the store held
+// afterwards. All three defects below were invisible to it and every one is
+// visible here, in the payload and in the write.
+//
+// WHAT IS ASSERTED, FOR EACH CASE:
+//
+//   1. the DESIGNER'S OWN INPUT — the prompt that really went out
+//   2. the COMPILER PAYLOAD — the files the publish spine really sent
+//   3. the STORED INVENTORY — what `source/<slug>/parts.json` really holds
+//   4. the CUSTOMER'S SENTENCE — composed by the browser's own `addonAnswer`
+//
+// NOTHING HERE REACHES A MODEL OR SPENDS ANYTHING. Every outbound call is
+// answered by a stub that reads which tool was asked for and replies in that
+// tool's own shape; the container is the opt-in compiler, which echoes the
+// files it was handed.
+
+import { PICTOGRAPH } from "../../../test/fixtures/pictograph.mjs";
+import test from "node:test";
+import { renderPart } from "../../../test/fixtures/render-part.mjs";
+import assert from "node:assert/strict";
+import { loadWorker, makeCtx } from "../../../test/fixtures/worker-harness.mjs";
+import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "../../../test/fixtures/cf-containers.mjs";
+import { CONFIG_KEY } from "../../../site-config.mjs";
+// THE TOOL NAMES COME FROM THE MODULES THAT DEFINE THEM. A hand-typed name is
+// a second copy, the stub never matches, the call 503s, and the assertion
+// "fails" for a reason that has nothing to do with its subject — recorded in
+// `edit-path.test.mjs`'s own header after it happened there.
+import { TWEAK_TOOL } from "../../../builder/site-tweak.mjs";
+import { TEXT_TOOL } from "../../../builder/site-apply.mjs";
+// THE CUSTOMER'S OWN SENTENCE, from `public/chat.js`'s real composer rather
+// than a second copy written here. `httpOk` is `Response.ok` and is not
+// derivable from the body.
+//
+// ⚠ `editBrowserReply`, NOT `browserReply` — the two are different composers
+// and the wrong one answers plausibly. `browserReply` runs `addonAnswer`,
+// which is the ADD route's selection; an EDIT reply goes through `editAnswer`
+// → `applyEditResult` → `editReply`, where every sentence about a page edit is
+// written. MEASURED: an edit reply naming a page, a lost photograph and two
+// picture spaces came back through the addon composer as "✅ Done." — a
+// fixture in a different shape from reality, one route over.
+import { editBrowserReply } from "../../../scripts/addon-sweep.mjs";
+import { SITE_PAGES_TOOL, partsDirective, tsxDirective, partsSent, siteComponentApi, MAX_PART_CHARS, MAX_PARTS_CHARS } from "../../../builder/page-gen.mjs";
+import { PICTURE_TOOL } from "../../../builder/site-picture.mjs";
+
+const USER = { id: "u-editctx-1", email: "owner@example.com" };
+const TOKEN = "Bearer some-token";
+
+const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
+const SOURCE_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/pages.json";
+
+// A PAGE THAT REALLY IMPORTS BOTH COMPONENTS, because the rung's own readers
+// walk imports and a page that names neither is a site where losing a component
+// costs nothing visible.
+//
+// ⚠ IT EXPORTS A ROUTE, and that is not decoration: `validatePages` refuses a
+// page without `createFileRoute(`, so a hand-spelled page in any other shape
+// reads to this rung as the model declining and escalates `no-page-back` —
+// the fixture-in-a-different-shape trap, met head-on while writing this file.
+//
+// ⚠ AND THE STORED PATH IS BARE. `cleanPath` strips `src/routes/` on the way
+// in, so a page a model writes at `src/routes/index.tsx` is STORED at
+// `index.tsx` — and the rung matches what came back against `target.path` by
+// equality. A stored page wearing the prefix can never be matched.
+const ROUTE_HEAD = "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "export const Route = createFileRoute('/')({ component: Home })\n";
+const HOME = ROUTE_HEAD
+  + 'import CardA from "./-parts/card-a"\n'
+  + 'import CardB from "./-parts/card-b"\n'
+  + "function Home(){return <main><h1>Ravenscroft</h1><CardA /><CardB /></main>}\n";
+
+// WHAT THE WRITER HANDS BACK. It differs from `HOME`, and that is required
+// rather than decorative: the rung refuses `no-change` when the returned page
+// is byte-identical and no component moved — and with the store unreadable
+// `partMoved` is false by construction, so an unchanged page would take the
+// refusal branch and the reproduction would never reach the merge it is about.
+const HOME_EDITED = HOME.replace("<h1>", '<h1 className="text-5xl">');
+
+const A_OLD = "export default function CardA(){return <section data-slot=\"card\"><h2>Opening hours</h2><p>Nine until five, Tuesday to Saturday.</p></section>}";
+const B_OLD = "export default function CardB(){return <section data-slot=\"card\"><h2>Where to find us</h2><p>Eleven Bridge Street, by the weir.</p></section>}";
+const A_NEW = "export default function CardA(){return <section data-slot=\"card\"><h2>Opening hours</h2><p>Nine until six, Tuesday to Saturday.</p></section>}";
+const B_NEW = "export default function CardB(){return <section data-slot=\"card\"><h2>Where to find us</h2><p>Eleven Bridge Street, beside the weir.</p></section>}";
+
+const STORED_CSS = ":root{--background:oklch(100% 0 0)}\nfooter{background-color:#0b3d2e}";
+const STORED_LOOK = {
+  brand: "Ravenscroft",
+  theme: "broadsheet",
+  // THE DECLARATIONS, which is what this rung has always sent. Both name
+  // components the site really HAS — which is the whole of defect 3: sent on
+  // their own they read as components to BUILD.
+  tsx: [
+    { name: "card-a", does: "the opening hours card", props: "none" },
+    { name: "card-b", does: "the address card", props: "none" },
+  ],
+};
+
+/**
+ * The site's stored state, with every write recorded in order.
+ *
+ * `failParts` makes the components store THROW — which is `readSiteParts`'
+ * `why: "read"` and `loadSiteParts`' `null`, the two the rung cannot tell
+ * apart. It is a per-key failure rather than a dead bucket, because a dead
+ * bucket also takes the page source with it and there would be no edit to run.
+ */
+function bucket(slug, { parts = [{ name: "card-a", source: A_OLD }, { name: "card-b", source: B_OLD }], failParts = false } = {}) {
+  const store = new Map([
+    [SOURCE_KEY(slug), JSON.stringify([{ path: "index.tsx", source: HOME }])],
+    [PARTS_KEY(slug), JSON.stringify(parts)],
+    [CONFIG_KEY(slug), JSON.stringify({ look: { ...STORED_LOOK }, css: STORED_CSS })],
+  ]);
+  const writes = [];
+  const reads = [];
+  return {
+    store, writes, reads,
+    async get(k) {
+      reads.push(k);
+      // THE FAILURE IS ON THE READ, NOT ON A MISSING OBJECT. An absent object
+      // is `ok: true, parts: []` — a site with no components, which is a real
+      // and ordinary answer. Only a throw is "we cannot see".
+      if (failParts && k === PARTS_KEY(slug)) throw new Error("R2 GET failed");
+      const v = store.get(k);
+      return v === undefined ? null : { text: async () => v };
+    },
+    async put(k, v) { writes.push([k, String(v)]); store.set(k, String(v)); },
+    async delete(k) { store.delete(k); },
+    async list() { return { objects: [], truncated: false }; },
+  };
+}
+
+/** Every model request this edit made, in order, with the tool it asked for. */
+function withWire(answers, run) {
+  const real = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (url.includes("/auth/v1/user")) {
+      return new Response(JSON.stringify(USER), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rpc/use_credits")) {
+      let want = 0;
+      try { want = Number(JSON.parse(String(init && init.body) || "{}").cost) || 0; } catch { want = 0; }
+      return new Response(String(want), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/rest/v1/site_project")) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+    if (url.includes("/rest/v1/site_backends")) {
+      return new Response(JSON.stringify([{ uid: USER.id, brief: "" }]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/v1/messages")) {
+      let body = {};
+      try { body = JSON.parse(String(init && init.body) || "{}"); } catch { body = {}; }
+      const tool = body.tool_choice?.name || "";
+      calls.push({ tool, body });
+      // A TOOL WITH NO STUB IS REFUSED, never given a plausible answer: a stub
+      // more capable than the real thing hides bugs exactly like one that is
+      // less, and this file's whole job is to see which calls really happen and
+      // what they carried.
+      if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
+      const a = answers[tool];
+      const input2 = typeof a === "function" ? a(calls.filter((c) => c.tool === tool).length - 1) : a;
+      return new Response(JSON.stringify({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", name: tool, input: input2 }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (isDispatchUpload(url)) return dispatchOk();
+    return new Response("unavailable", { status: 503 });
+  };
+  return (async () => {
+    try { return await run(calls); } finally { globalThis.fetch = real; }
+  })();
+}
+
+async function edit(slug, instruction, { store, layer = "page", page = "/" } = {}) {
+  const worker = await loadWorker();
+  const req = new Request("https://gofarther.dev/api/site/" + slug + "/edit", {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: TOKEN },
+    body: JSON.stringify({ layer, page, remove: false, rename: "", tab: false, instruction, picker: "sonnet" }),
+  });
+  const res = await worker.fetch(req, { SITES_BUCKET: store, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", ...dispatchEnv() }, makeCtx());
+  const body = await res.clone().json().catch(() => null);
+  // THE SCREEN, COMPOSED BY THE BROWSER ITSELF. `res.ok` is what the page's own
+  // reader asks first, so it travels with the body rather than being inferred
+  // from it — `{ok:false}` at a 200 and `{ok:true}` at a 503 are different
+  // screens and only the pair separates them.
+  const said = editBrowserReply(body, res.ok);
+  return { status: res.status, body, said };
+}
+
+/**
+ * A literal as it appears inside a JSON-stringified message list.
+ *
+ * THE PROMPT IS READ AS JSON, so a source containing `"` arrives escaped. A
+ * raw `includes(A_OLD)` answers false for every real component and reads
+ * exactly like "the writer was not shown it" — the reproduction passing for
+ * the wrong reason, which is the one way this instrument can lie.
+ */
+const esc = (t) => JSON.stringify(String(t)).slice(1, -1);
+
+/**
+ * ONE KIT MODULE'S OWN SIGNATURE LINE, from the real producer.
+ *
+ * ⚠ IT MUST BE A MODULE OUTSIDE THE CACHED CORE. `siteComponentApi` subtracts
+ * whatever the cached block already carries, so `accordion`, `carousel` and
+ * `tide-chart` all answer `""` — a case built on one of those asserts that
+ * nothing was sent and passes whether the wire exists or not. `seat-map` is
+ * outside it, measured.
+ */
+const KIT_LINE = (siteComponentApi(["seat-map"]).split("\n").pop() || "").trim();
+
+/** The `write_pages` prompt that really went out, as one string. */
+function pagePrompt(calls) {
+  const c = calls.find((x) => x.tool === SITE_PAGES_TOOL.name);
+  return c ? JSON.stringify(c.body.messages) : "";
+}
+
+/** What the publish spine handed the compiler: `{files, parts, ...}`. */
+function payload(c) {
+  assert.equal(c.calls.length, 1, "expected exactly one compile, got " + c.calls.length);
+  return c.calls[0].body || {};
+}
+
+/**
+ * The compiler payload's components as `{name: source}`.
+ *
+ * ⚠ THE PAYLOAD CARRIES A LIST AND `undefined` FOR NONE — read off
+ * `worker.js`'s own `compile` dep, which sends
+ * `parts: (builtParts && builtParts.length) ? builtParts : undefined`. Indexing
+ * that array by name answers `undefined` for every component, which reads
+ * exactly like the loss this file is measuring: an assertion written that way
+ * passes the reproduction and the fix alike.
+ */
+function sentParts(sent) {
+  if (!Array.isArray(sent.parts)) return null;
+  const out = {};
+  for (const p of sent.parts) out[p.name] = p.source;
+  return out;
+}
+
+/** What `source/<slug>/parts.json` holds after the message, as `{name: source}`. */
+function storedParts(store, slug) {
+  const raw = store.store.get(PARTS_KEY(slug));
+  if (raw === undefined) return null;
+  const out = {};
+  for (const p of JSON.parse(raw)) out[p.name] = p.source;
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. AN UNREADABLE COMPONENT STORE IS NOT AN EMPTY ONE
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("an unreadable components store publishes NOTHING over the inventory, and says so", async () => {
+  // THE DEFECT, REPRODUCED FIRST AND THEN FIXED (commit ad30cc44 holds the
+  // failing version of this file). `loadSiteParts` answers `null` for BOTH
+  // "this site has no components" and "the read threw", and the page rung read
+  // it straight into the merge:
+  //
+  //     const pStored = (pValid.parts && pValid.parts.length) ? await loadSiteParts(...) : null
+  //     const pParts  = ... mergeParts(pStored, pValid.parts)
+  //
+  // `mergeParts(null, [one])` answers `[one]`. So a transient R2 failure
+  // published ONE component and deleted `card-b`, which nobody mentioned, from
+  // the payload and from the store.
+  //
+  // WHAT IT DOES NOW: `readSiteParts` keeps the third state, `partsSent`
+  // answers `unreadable`, every returned component is refused, and `pParts` is
+  // `null` — which leaves the spine to re-send the store's own copy, exactly
+  // as a page edit that touched no component does.
+  const slug = "ctx-unreadable";
+  const store = bucket(slug, { failParts: true });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+    }, async (calls) => {
+      const { body, said } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // (a) THE DESIGNER'S INPUT. Nothing was offered to be built, because a
+      //     declaration we cannot check against the store might name a
+      //     component that already exists — and asking for it is asking for
+      //     the rewrite the wall then has to refuse.
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt, "the page writer was never called");
+      const built = tsxDirective(STORED_LOOK.tsx, []);
+      const builtHead = built.split("\n")[0];
+      assert.ok(builtHead && builtHead.trim(), "the to-build directive has no heading to anchor on");
+      assert.ok(!prompt.includes(esc(builtHead)),
+        "an unreadable store still offered the site's own components to be BUILT");
+
+      // (b) THE COMPILER PAYLOAD. No `parts` key at all — the spine re-sends
+      //     the store's own copy, so nothing is written over the inventory.
+      //     ⚠ `undefined` IS THE ANSWER, and an empty array would NOT be: the
+      //     spine reads a list it is handed, so `[]` would publish a site with
+      //     no components at all.
+      const sent = payload(c);
+      assert.equal(sent.parts, undefined,
+        "the publish carried a component list on a read that failed: " + JSON.stringify(sent.parts));
+
+      // (c) THE STORED INVENTORY, byte for byte what it was.
+      const after = storedParts(store, slug);
+      assert.deepEqual(after, { "card-a": A_OLD, "card-b": B_OLD },
+        "the components store was written on a read that failed: " + JSON.stringify(after));
+
+      // (d) AND THE CUSTOMER IS TOLD. `unseenParts` is its own field and its
+      //     own sentence — "I could not read this site's components at all" —
+      //     never folded into `keptParts`, which means something else.
+      assert.deepEqual(body.unseenParts, ["card-a"],
+        "the refused component was not named on the reply: " + JSON.stringify(body.unseenParts));
+      assert.equal(body.keptParts, undefined,
+        "a size refusal was reported for a store that could not be read at all");
+
+      // (e) THE CUSTOMER'S SENTENCE, composed by the browser's own selection.
+      //     The page change really did publish, so the screen opens as a
+      //     success — what changed is that the record beside it now names what
+      //     did not, in the customer's words rather than ours.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.startsWith("Updated /."),
+        "the customer's sentence does not name the page: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("could not read this site\u2019s sections"),
+        "the unreadable store never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("card-a"),
+        "the customer is not told WHICH section was left alone: " + JSON.stringify(said.text));
+    });
+  } finally { c.uninstall(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. TWO PAGE STEPS IN ONE MESSAGE, AND ONLY THE LAST ONE'S COMPONENT SURVIVES
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a page step and then a picture step in one message: BOTH components reach the single publication", async () => {
+  // THE DEFECT THIS CASE WAS WRITTEN FOR: every rung read the stored parts
+  // FRESH and merged its own answer over them, and `publishStep`'s own rule is
+  // "a later list wins" — so a later rung handed over the ORIGINAL `card-a`
+  // and the one publication carried it:
+  //
+  //   step 1: mergeParts([A_OLD, B_OLD], [A_NEW]) -> [A_NEW, B_OLD]   -> handed over
+  //   step 2: its own change over the STORE       -> [A_OLD, B_...]   -> handed over
+  //
+  // Step one ran, was charged for, reported success, and shipped nothing.
+  //
+  // WHAT IT DOES NOW: one snapshot per message (`editParts`), advanced by
+  // `publishStep` exactly as `eSrc` is — so a later rung starts from what an
+  // earlier one accepted.
+  //
+  // ⚠ RE-ANCHORED TWICE ON 2026-09-23, each time because the shape it drove
+  // stopped being reachable. It picked `components` + `tsx`, which is ONE page
+  // operation now (`mergePageSteps`); then `components` + `images` + `tsx`,
+  // whose second page step no longer runs once the first succeeded
+  // (`pageStepDone` — `test/edit-page-once.test.mjs`). The snapshot's reader
+  // that is still reachable is the PICTURE rung: it reads `editParts()` and
+  // hands every component to `publishStep`. So a picture step after a page step
+  // that changed a component is this defect's live shape — without the advance
+  // it republishes the stored `card-a` over the page step's.
+  const slug = "ctx-carry";
+  const PIC = "/u/" + slug + "/a1b2c3d4e5f60718.jpg";
+  const B_PIC = B_OLD.replace("</p></section>", "</p><SafeImage src=\"" + PIC + "\" alt=\"the weir\" /></section>");
+  const B_FRAMED = B_PIC.replace("<SafeImage src=", "<SafeImage focus=\"top\" src=");
+  assert.notEqual(B_PIC, B_OLD, "the component carries no photograph, so the picture step has nothing to change");
+  const store = bucket(slug, { parts: [{ name: "card-a", source: A_OLD }, { name: "card-b", source: B_PIC }] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      pick_lanes: { fields: ["components", "images"] },
+      [TWEAK_TOOL.name]: { cannot: "that needs the components rewritten" },
+      // THE PAGE STEP changes `card-a`; THE PICTURE STEP reframes the
+      // photograph that lives in `card-b`. Each touches a different component.
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "-parts/card-b.tsx", alt: "the weir", focus: "top" }] },
+      // THE COMPONENT'S OWN CHECK (audit A21-2, 2026-10-22): a rewritten
+      // component's lost or changed words go to the keep judge, which reads
+      // the message. Answered as a reading judge would.
+      keep_check: { answers: [{ n: 1, asked: true, quote: "hours to six" }] },
+    }, async (calls) => {
+      const { body, said } = await edit(slug, "hours to six, and show the top of the weir photograph", { store, layer: "look" });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      // BOTH RUNGS SHIPPED, so the merged reply reads as a look edit — the
+      // message came in through the lane picker's door.
+      // THE PAGE AND THE PICTURE STEP'S OWN ACCOUNT SINCE 2026-10-03 (the
+      // mixed-work fixes, MW1 and MW8), where it read "✅ Updated the look."
+      assert.equal(said.text, "Updated /. Moved “the weir” to show the top.", "the customer's sentence changed: " + JSON.stringify(said.text));
+      assert.deepEqual(body.layers, ["page", "picture"], "the two rungs that shipped are not the page and the picture: " + JSON.stringify(body.layers));
+
+      // THE ORDER THE LANES SET: the page step, then the picture step.
+      const order = calls.map((x) => x.tool).filter((t) => t === SITE_PAGES_TOOL.name || t === PICTURE_TOOL.name);
+      assert.deepEqual(order, [SITE_PAGES_TOOL.name, PICTURE_TOOL.name], "the rungs did not run page-then-picture: " + JSON.stringify(calls.map((x) => x.tool)));
+      // AND THE PICTURE STEP COULD SEE THE COMPONENT'S PHOTOGRAPH — its slot
+      // is named under the component's own path.
+      const picPrompt = JSON.stringify(calls.find((x) => x.tool === PICTURE_TOOL.name).body.messages);
+      assert.ok(picPrompt.includes("-parts/card-b.tsx"), "the picture step was not shown the component's photograph");
+
+      // ONE PUBLISH FOR THE MESSAGE, carrying BOTH components' changes.
+      const got = sentParts(payload(c));
+      assert.ok(got, "the compiler was handed no components at all");
+      assert.equal(got["card-a"], A_NEW, "the page step's component did not reach the publication — the picture step handed over the stored one");
+      assert.equal(got["card-b"], B_FRAMED, "the picture step's change to its component did not reach the publication");
+
+      const after = storedParts(store, slug);
+      assert.equal(after["card-a"], A_NEW, "the page step's component is not in the store");
+      assert.equal(after["card-b"], B_FRAMED, "the picture step's component is not in the store");
+    });
+  } finally { c.uninstall(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. THE PAGE WRITER IS SHOWN DECLARATIONS AND TOLD TO BUILD WHAT EXISTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("the page writer is shown the component source, the look and the kit it needs", async () => {
+  // The rung's call was:
+  //
+  //     briefWithLayout({ brief, images: 0, tsx, gif, qr, three })
+  //
+  // and `briefWithLayout` already took `parts`, `partsUnreadable`, `theme`,
+  // `css` and `plan` — every one of them omitted, so the one call on the edit
+  // path that rewrites a whole page was the blindest caller of it there is.
+  // Four separable consequences, each asserted:
+  //
+  //   - no `parts`  -> `partsDirective` empty, so no component source
+  //   - no `parts`  -> `tsxDirective` unfiltered, so BOTH existing components
+  //                    appeared under "Components to build"
+  //   - no `theme`/`css` -> the writer did not know what the site wears
+  //   - no `plan`   -> `siteComponentApi` sent no kit signatures
+  const slug = "ctx-blind";
+  const store = bucket(slug);
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+    }, async (calls) => {
+      await edit(slug, "change the opening hours to six", { store });
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt, "the page writer was never called");
+
+      // (a) THE COMPONENT SOURCE IS THERE, under the real producer's own
+      //     heading rather than a sentence typed here — so a reworded
+      //     directive cannot read as a broken wire.
+      const withSource = partsDirective(partsSent([{ name: "card-a", source: A_OLD }]));
+      const heading = withSource.split("\n")[0];
+      assert.ok(heading && heading.trim(), "the components directive has no heading to anchor on");
+      assert.ok(prompt.includes(esc(heading)), "the writer was not shown the site's components");
+      assert.ok(prompt.includes(esc(A_OLD)), "card-a's real source is not in the prompt");
+      assert.ok(prompt.includes(esc(B_OLD)), "card-b's real source is not in the prompt");
+
+      // (b) AND NOTHING THE SITE ALREADY HAS IS OFFERED TO BE BUILT.
+      //     `tsxDirective` filters by the names the site has a file for; with
+      //     `parts` passed, both declarations are filtered out and the block
+      //     is not emitted at all.
+      const built = tsxDirective(STORED_LOOK.tsx, []);
+      const builtHead = built.split("\n")[0];
+      assert.ok(builtHead && builtHead.trim(), "the to-build directive has no heading to anchor on");
+      assert.ok(!prompt.includes(esc(builtHead)),
+        "an existing component is still offered under the to-build heading");
+      // AND THE FILTER IS WHAT REMOVED IT, not an empty declaration list —
+      // without which this assertion would pass on a site that declares none.
+      assert.ok(builtHead.trim() && tsxDirective(STORED_LOOK.tsx, ["card-a", "card-b"]) === "",
+        "the filter does not remove components the site already has");
+
+      // (c) THE LOOK IT IS WEARING — the theme name and the site's own
+      //     stylesheet, which no caller of this rung could read until now.
+      assert.ok(prompt.includes("broadsheet"), "the writer was not told the theme");
+      assert.ok(prompt.includes(esc(STORED_CSS)), "the writer was not shown the site's stylesheet");
+
+      // (d) AND THE KIT SIGNATURES FOR THE PAGE BEING EDITED. This page
+      //     imports no kit module, so the honest answer is that the block is
+      //     absent — asserted with the POSITIVE case beside it, or "no
+      //     signatures" would pass on a rung that can never send any.
+      //
+      //     ⚠ ANCHORED ON THE MODULE'S OWN LINE, never the block's heading:
+      //     that heading is one shared literal across every non-empty answer,
+      //     so it says the block exists and nothing about WHICH component is
+      //     in it.
+      assert.ok(KIT_LINE && KIT_LINE.trim(), "siteComponentApi answers nothing for a real kit module");
+      assert.ok(!prompt.includes(esc(KIT_LINE)),
+        "kit signatures were sent for a page that imports no kit module");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("the kit signatures follow the page: a target importing a kit module gets its props", async () => {
+  // The positive half of (d) above, and the reason it is its own case: the
+  // plan is derived from the TARGET page's own imports, so a case whose page
+  // imports nothing cannot tell "scoped correctly" from "never wired".
+  //
+  // ⚠ `modules`, NOT `kit`. `pageComponents` answers both and they are
+  // different vocabularies — `siteComponentApi` is keyed on the MODULE name
+  // (`accordion`) and handed the EXPORT names (`Accordion`) answers "" for
+  // every one, which from outside is indistinguishable from a page importing
+  // nothing. Measured on the addon path in 2026-09-17; this is the same walk.
+  const slug = "ctx-kit";
+  const withKit = ROUTE_HEAD
+    + 'import { SeatMap } from "@/components/ui/seat-map"\n'
+    + 'import CardA from "./-parts/card-a"\n'
+    + "function Home(){return <main><SeatMap /><CardA /></main>}\n";
+  const store = bucket(slug, { parts: [{ name: "card-a", source: A_OLD }] });
+  store.store.set(SOURCE_KEY(slug), JSON.stringify([{ path: "index.tsx", source: withKit }]));
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
+      [SITE_PAGES_TOOL.name]: {
+        pages: [{ path: "src/routes/index.tsx", source: withKit.replace("<main>", "<main><h1>Hours</h1>") }],
+        parts: [],
+      },
+    }, async (calls) => {
+      await edit(slug, "put a heading above the seat map", { store });
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt, "the page writer was never called");
+      assert.ok(KIT_LINE && KIT_LINE.trim(), "siteComponentApi answers nothing for a real kit module");
+      assert.ok(prompt.includes(esc(KIT_LINE)),
+        "the writer was sent no kit signatures for a page that imports one");
+      // AND THE EXPORT NAME IS NOT WHAT WAS ASKED FOR. The measured failure
+      // mode: `siteComponentApi(["SeatMap"])` answers "", which reads exactly
+      // like this wire not existing.
+      assert.equal(siteComponentApi(["SeatMap"]), "",
+        "siteComponentApi answers for an EXPORT name, so this assertion proves nothing");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a component too large to show is refused rather than rewritten blind, and is named", async () => {
+  // THE OTHER HALF OF THE WALL, and without a case it is dead code that reads
+  // as a live check. `partsSent` withholds a component over `MAX_PART_CHARS`
+  // — the request cannot carry it — and the writer is told so by name. What
+  // must not then happen is the writer's guess replacing the real file: a
+  // rewrite composed from a one-line description is a silent loss of a working
+  // implementation, and `mergeParts` has no wall of its own.
+  //
+  // ⚠ THE BOUND COMES FROM THE MODULE, never a number typed here. A hand-typed
+  // constant is a second copy of what the product exports, and this repository
+  // has shipped that drift more than once.
+  const slug = "ctx-withheld";
+  const huge = A_OLD + "\n// " + "x".repeat(MAX_PART_CHARS);
+  assert.ok(huge.length > MAX_PART_CHARS, "the fixture is not over the bound this case is about");
+  const store = bucket(slug, { parts: [{ name: "card-a", source: huge }, { name: "card-b", source: B_OLD }] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+    }, async (calls) => {
+      const { body, said } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // THE WRITER WAS TOLD THE NAME AND NOT THE SOURCE — `partsSent`'s own
+      // rule, and the reason the refusal below is honest rather than arbitrary.
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt.includes("card-a"), "the withheld component was not even named to the writer");
+      assert.ok(!prompt.includes(esc(huge)), "a component over the bound was sent whole");
+
+      // AND THE RETURNED REWRITE IS REFUSED. The real file is what publishes.
+      const got = sentParts(payload(c));
+      assert.ok(got, "the compiler was handed no components at all");
+      assert.equal(got["card-a"], huge, "a component the writer never saw was replaced by its guess");
+      assert.equal(got["card-b"], B_OLD, "an unrelated component was lost");
+
+      // AND THE CUSTOMER HEARS IT, under its own name. `keptParts` is "too
+      // large to show you"; `unseenParts` is "I could not read the store at
+      // all". Two sentences, so two fields.
+      assert.deepEqual(body.keptParts, ["card-a"],
+        "the refused component was not named on the reply: " + JSON.stringify(body.keptParts));
+      assert.equal(body.unseenParts, undefined,
+        "a size refusal was reported as an unreadable store");
+
+      // ⚠ AND IT REACHES THE SCREEN. A field on the reply that the browser
+      // never renders is a value computed and never forwarded — this
+      // repository's own wiring trap — and a sweep mutant cutting the clause
+      // out of `editReply` SURVIVED until this assertion existed.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.includes("I left card-a alone"),
+        "the refused component never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("too long to show the builder"),
+        "the customer is told WHICH component and not WHY: " + JSON.stringify(said.text));
+    });
+  } finally { c.uninstall(); }
+});
+
+// A21-4: OTHER PAGES' COMPONENTS STORED FIRST MUST NOT CROWD OUT THIS PAGE'S.
+// Three band-sized parts no page here imports fill the budget in stored order;
+// card-a, small and rendered by the page being edited, was withheld as "too
+// long" and its rewrite refused, whatever the customer asked.
+test("the edited page's own components are shown first, whatever was stored before them", async () => {
+  const slug = "ctx-crowded";
+  const each = Math.floor(MAX_PARTS_CHARS / 3) - 20;
+  const band = (n) => ({ name: "band-" + n, source: "export default function B" + n + "(){return <section/>}\n// " + "y".repeat(each - 60) });
+  const bands = [1, 2, 3].map((n) => band(n));
+  assert.ok(bands.every((p) => p.source.length <= MAX_PART_CHARS) && bands.reduce((t, p) => t + p.source.length, 0) + A_OLD.length > MAX_PARTS_CHARS, "the fixture does not crowd the budget");
+  const store = bucket(slug, { parts: [...bands, { name: "card-a", source: A_OLD }, { name: "card-b", source: B_OLD }] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+    }, async (calls) => {
+      const { body } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt.includes(esc(A_OLD)), "the card the page renders was withheld behind other pages' parts");
+      assert.equal(body.keptParts, undefined, "the customer was told the card was too long: " + JSON.stringify(body.keptParts));
+    });
+  } finally { c.uninstall(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SAME READER, ONE BRANCH OVER: the `text` rung
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a wording edit REFUSES an unreadable components store, and spends nothing", async () => {
+  // "WHEN AN INFRASTRUCTURE LIMIT IS FOUND ON ONE ROUTE, LIST EVERY ROUTE
+  // UNDER IT" — this repository's own trap, and the `text` rung is the other
+  // caller of the collapsed reader inside this route.
+  //
+  // ⚠ ITS SHAPE WAS THE WORSE ONE, and this is what the reproduction measured
+  // before the fix (commit ad30cc44's successor; the probe is in the commit
+  // message): the reply was `{ok: true, applied: 1}`, the compiler payload
+  // carried `parts: []`, and `source/<slug>/parts.json` was REWRITTEN TO `[]`
+  // — every component on the site deleted by a one-word wording change. The
+  // empty list is REAL rather than absent here (`splitEditable` builds it), so
+  // both the spine's preference and its save take it at face value. The page
+  // rung at least handed over `null`.
+  //
+  // WHAT IT DOES NOW: refuses above the model call, 503, cost 0.
+  const slug = "ctx-text";
+  const store = bucket(slug, { failParts: true });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TEXT_TOOL.name]: { edits: [{ id: 0, to: "Ravenscroft and Fyne" }] },
+    }, async (calls) => {
+      const { status, body, said } = await edit(slug, "call us Ravenscroft and Fyne", { store, layer: "text" });
+      assert.equal(status, 503, "the refusal is not a 503: " + status + " " + JSON.stringify(body));
+      assert.equal(body && body.error, "parts-unreadable", "the refusal does not name itself: " + JSON.stringify(body));
+
+      // NOTHING WAS SPENT. The refusal sits above the model call, so a
+      // customer who retries a minute later has paid for neither attempt.
+      assert.equal(body.cost, 0, "the refusal charged the customer: " + body.cost);
+      assert.equal(calls.length, 0, "the refusal ran a model call first: " + JSON.stringify(calls.map((x) => x.tool)));
+      assert.equal(c.calls.length, 0, "the refusal reached the compiler");
+
+      // AND NOTHING WAS WRITTEN. The store holds exactly what it held.
+      const after = storedParts(store, slug);
+      assert.deepEqual(after, { "card-a": A_OLD, "card-b": B_OLD },
+        "a refused wording edit wrote the components store: " + JSON.stringify(after));
+
+      // AND THE CUSTOMER IS TOLD, in the browser's own words — a refusal that
+      // reads as a success is the failure this whole file is about.
+      // AND THE REFUSAL IS DRAWN AS ONE. `editAnswer` puts the server's `msg`
+      // behind a warning sign; a refusal the screen draws as a success is the
+      // failure this whole file is about.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(!PICTOGRAPH.test(said.text), "a refusal carries a symbol: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("sections"), "the refusal's own sentence did not reach the screen: " + JSON.stringify(said.text));
+      // ⚠ AND IT IS **NOT** COMPLETED BY THE WHOLE-REQUEST CLAUSE (2026-09-21).
+      // `wholeRequestNote` exists for the `withheld` refusals, whose sentences
+      // were rewritten to stop at *"so I didn't make it"* so they stay true
+      // beside a rung that shipped. THIS refusal is not one of them: it says
+      // *"Nothing was changed"* in its own words, so appending the clause
+      // would print the reassurance twice in one sentence. The `error` test in
+      // that composer is the scope, and this is what drives it — without a
+      // case here, dropping the test is a mutant nothing can see.
+      assert.ok(!said.text.includes("Nothing on your site changed"),
+        "a refusal that already says it got the clause as well: " + JSON.stringify(said.text));
+      // AND IT DID NOT OFFER TO SPEND. A refusal that falls through to the
+      // ~25-credit rewrite charges for a message nobody re-typed.
+      assert.deepEqual(said.actions, [], "the refusal set something in motion: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE CONTROL: A SUCCESSFUL READ
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("CONTROL: with the store readable, one changed component leaves the other exactly as it was", async () => {
+  // Retained for both stages: this is the case that must keep behaving
+  // identically after the fix, and it is what says the loss above is the
+  // FAILED READ rather than the merge being wrong in general.
+  const slug = "ctx-control";
+  const store = bucket(slug);
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME }], parts: [{ name: "card-a", source: A_NEW }] },
+      // THE COMPONENT'S OWN CHECK (audit A21-2, 2026-10-22): a rewritten
+      // component's lost or changed words go to the keep judge, which reads
+      // the message. Answered as a reading judge would.
+      keep_check: { answers: [{ n: 1, asked: true, quote: "change the opening hours to six" }] },
+    }, async () => {
+      const { body, said } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the control edit did not go through: " + JSON.stringify(body));
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.equal(said.text, "Updated /.", "the control's sentence changed: " + JSON.stringify(said.text));
+      const got = sentParts(payload(c));
+      assert.ok(got, "the compiler was handed no components at all");
+      assert.equal(got["card-a"], A_NEW, "the change did not reach the publication");
+      assert.equal(got["card-b"], B_OLD, "the untouched component was lost on a HEALTHY read");
+      assert.equal(JSON.parse(store.store.get(SOURCE_KEY(slug)))[0].source.trim(), HOME.trim(), "the component-only change rewrote its parent page");
+      const after = storedParts(store, slug);
+      assert.equal(after["card-a"], A_NEW, "the change is not in the store");
+      assert.equal(after["card-b"], B_OLD, "the untouched component is not in the store");
+      // Render the actual stored TSX with React, not a second copy of its words.
+      assert.match(renderPart(after["card-a"], {}).text, /Nine until six/);
+      assert.doesNotMatch(renderPart(after["card-a"], {}).text, /until five/);
+      assert.equal(renderPart(after["card-b"], {}).html, renderPart(B_OLD, {}).html);
+    });
+  } finally { c.uninstall(); }
+});

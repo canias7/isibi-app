@@ -279,17 +279,6 @@ test("the claim is what proves the job may run at all", () => {
   }
 });
 
-test("a queued edit reads its balance by uid, not by a token it does not have", () => {
-  // ITEM 7, IN THE ONE PLACE IT STILL BIT. Without this the picture lane reads a
-  // balance of zero on every async edit and declines a photograph the customer
-  // can afford — a wrong answer wearing the shape of a policy.
-  assert.match(CODE, /eJob \? readCreditsFor\(env, eJob\.uid\) : readCredits\(eAuth\)/,
-    "the queued path no longer reads the balance by uid");
-  const fn = CODE.slice(at(CODE, "async function readCreditsFor", "balance"), at(CODE, "async function readCredits(", "balance end"));
-  assert.match(fn, /svcHeaders\(env\)/, "the uid balance read no longer uses the service role");
-  assert.doesNotMatch(fn, /get_credits/, "the uid read goes through get_credits, which resolves auth.uid() and grants on first touch");
-});
-
 test("the enqueue stores the request before it sends the message", () => {
   const fn = CODE.slice(at(CODE, "async function enqueueEditJob", "enqueue"),
                         at(CODE, "async function runQueuedSiteEdit", "enqueue end"));
@@ -360,39 +349,6 @@ test("the publish gate precedes every R2 write in the spine", () => {
   assert.ok(spine.indexOf("edit_publish_mark") < put, "the deployment identity is written after the upload");
 });
 
-test("a stop publishes nothing and refunds through the database", () => {
-  const fn = CODE.slice(at(CODE, "async function editStopped", "stop"),
-                        at(CODE, "async function runLostEditJobs", "stop end"));
-  assert.match(fn, /edit_refund/, "the stop path no longer refunds");
-  // "WHEN APPROPRIATE" IS POSTGRES'S DECISION. It refuses a published job and
-  // routes a mid-publish one to needs_review with the money untouched — so this
-  // function must not be making that judgement itself.
-  assert.doesNotMatch(fn, /published_at|publish_started_at/,
-    "the stop path is deciding for itself whether to refund — that belongs in the RPC");
-  // AND IT WRITES NOTHING TO R2, which is what makes "retain the live site" a
-  // property of the code rather than a claim about it.
-  assert.doesNotMatch(fn, /SITES_BUCKET|putSiteWorker|writeSiteDistToR2/,
-    "the stop path touches storage");
-});
-
-test("the correction gate is asked before the round, not during", () => {
-  // BOTH LANDMARKS ARE CODE. The first draft closed this window on a comment
-  // heading — in a file whose comments this test blanks — so the slice was empty
-  // and the window's own guard caught it. Twice in three commits now.
-  // THE WINDOW CLOSES ON THE SECOND PUBLISH'S OWN LIST (2026-09-26): it read
-  // `verifyCss: !!eJob`, the spelling that became the rules the message wrote.
-  const region = CODE.slice(at(CODE, "const eCanFix =", "correct gate"),
-                            at(CODE, "const cssVerify2 =", "correct gate end"));
-  const gate = region.indexOf("canCorrect(");
-  const call = region.indexOf("runLane(");
-  // THE GATE MUST ASK THE BUDGET, not merely be named. A mutation replacing the
-  // whole expression with `true` kept the variable and survived — the assertion
-  // was about a spelling appearing in a window, which is not a gate.
-  assert.ok(gate >= 0, "the correction gate no longer asks the budget whether a round can finish");
-  assert.ok(call > gate, "the correction round starts before the budget is consulted");
-  assert.match(region, /editStopped/, "a refused correction no longer ends the job properly");
-});
-
 // ── THE CLOCKS, DRIVEN ────────────────────────────────────────────────────
 
 test("a correction is refused exactly when it cannot finish", () => {
@@ -427,67 +383,6 @@ test("phase durations are durations, not timestamps", () => {
   assert.equal("publish" in phaseDurations(events), false);
   assert.deepEqual(phaseDurations(null), {});
   assert.deepEqual(phaseDurations([{ p: "x", s: "ok", ms: 5 }]), {});
-});
-
-// ── THE SYNCHRONOUS PATH IS UNCHANGED ─────────────────────────────────────
-
-test("every async mechanism is reached only through a job that may be null", () => {
-  // THE ROLLBACK PROOF, and the reason it is stated as a property rather than a
-  // diff: with the flag off `eJob` is null at the fork, so each of these is an
-  // `if` that does not fire. A mechanism reached unconditionally would change
-  // the synchronous path — which is the one thing this commit must not do.
-  for (const [name, needle] of [
-    ["the publish gate", "edit_may_publish"],
-    ["the commit point", "edit_committed"],
-    ["the deployment identity", "edit_publish_mark"],
-  ]) {
-    const i = at(CODE, needle, name);
-    const before = CODE.slice(Math.max(0, i - 400), i);
-    // `if (job` or its inverse `if (!job) return` — the commit rides inside the
-    // activation's own closure since stage 7 (2026-09-05), and an early return
-    // is the same gate written the other way round.
-    assert.match(before, /if \(job|if \(!job\) return/, `${name} is not gated on a job being present`);
-  }
-  // AND THE GUARD IS THE JOB, WITH NOTHING ELSE IN IT. A sweep that turned one
-  // of these into `if (job && false)` survived an order assertion perfectly: the
-  // call had not moved, it had simply become unreachable. So the condition
-  // itself is read, and a disabled branch is what this catches.
-  const spine = CODE.slice(at(CODE, "async function recompileAndPublish", "spine"),
-                           at(CODE, "async function siteOgImage", "spine end"));
-  const rpcs = [...spine.matchAll(/editRpc\(env, "edit_/g)].map((m) => m.index);
-  assert.ok(rpcs.length >= 3, `only ${rpcs.length} async mechanisms found in the spine`);
-  for (const i of rpcs) {
-    const before = spine.slice(Math.max(0, i - 400), i);
-    const cond = lastCondition(before);
-    assert.ok(cond, "an async mechanism in the spine sits under no condition at all");
-    assert.match(cond, /\bjob\b/, `an async mechanism is guarded by "${cond}", which does not mention the job`);
-    // A LITERAL `false` OPERAND, NOT THE WORD. The first draft rejected any
-    // `false` in the condition and flagged
-    // `job && !(wput && wput.uploaded === false)` — a real comparison, and
-    // correct code. A check that teaches the next session away from something
-    // that works is worse than no check, which is this repo's stated bar.
-    assert.doesNotMatch(cond, /(^|&&|\|\|)\s*!?\s*false\s*(&&|\|\||$)/,
-      `an async mechanism is guarded by "${cond}" — a disabled branch`);
-  }
-
-  // The billing fork keeps `collectCredits` reachable — that IS the synchronous
-  // path's charge, and losing it would leave the flag-off route billing nothing.
-  // RE-ANCHORED 2026-09-05 (stage 1a-iii): the bill is priced once into
-  // `bill` so the funnel can tell a collect that took nothing from a bill of
-  // nothing; the property is unchanged — the flag-off route charges through
-  // `collectCredits`, on the caller's own token.
-  assert.match(CODE, /collectCredits\(eAuth, bill\)/,
-    "the synchronous edit no longer charges through collectCredits");
-  const charge = CODE.slice(at(CODE, "const eCharge = async", "billing"), at(CODE, "const modelDown =", "billing end"));
-  // BOTH ANCHORS PROVED FIRST. `indexOf` answers -1 for a missing one, and
-  // `-1 < anything` is true — so an ordering assertion passes most convincingly
-  // exactly when the thing it orders has been deleted. A sweep removing the
-  // async fork survived on that, which is this repo's own vacuous-ordering trap.
-  const forkAt = charge.indexOf("if (eJob)");
-  const syncAt = charge.indexOf("collectCredits");
-  assert.ok(forkAt >= 0, "the async billing fork is gone — a queued edit would charge through the customer's JWT");
-  assert.ok(syncAt >= 0, "the synchronous charge is gone — a flag-off edit would bill nothing");
-  assert.ok(forkAt < syncAt, "the async billing fork does not precede the synchronous charge, so both would run");
 });
 
 test("an ok answer that published nothing is finalized, not left to be lost", () => {

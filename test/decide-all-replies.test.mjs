@@ -87,27 +87,6 @@ test("a build: Stop, a name too long and the attached logo are facts for the wri
   assert.match(texts(buildReplyFacts(buildFacts({ ownLogo: { missing: { name: "logo.pdf", reason: "that attachment is not an image" } } }))), /could not be put in the header \(that attachment is not an image\)/);
 });
 
-test("THE WIRING: the server carries each structure to the writer", () => {
-  // The menu step's two scoped refusals carry codes, and the route passes them on.
-  assert.match(NAV, /refusal: \{ code: "menu-page-unknown", pages: scope\.unknown\.slice\(\) \}/);
-  assert.match(NAV, /refusal: \{ code: "menu-no-menu", pages: scope\.pages\.slice\(\) \}/);
-  assert.match(W, /refusal: nOut\.refusal \|\| undefined/);
-  assert.match(W, /refusal: \{ code: "qr-forget-blocked", host: fHost \|\| drop, codes: fCodes\.map\(\(c\) => c\.name\) \}/);
-  assert.equal((W.match(/refusal: \{ code: "site-offline" \}, error: OFFLINE_PUBLISH_REFUSAL/g) || []).length, 3, "a Publish refusal for an offline site carries no code");
-  // The floor's refusals on the edit and add-on routes go through the writer.
-  assert.match(W, /if \(eFloor\) return withModelReply\(env, Response\.json\(eFloor, \{ status: 402 \}\), "edit", eReplyOut\)/);
-  assert.match(W, /if \(aFloor\) return withModelReply\(env, Response\.json\(aFloor, \{ status: 402 \}\), "addon", aReplyOut\)/);
-  // The build's Stop and name refusal are narrated; the logo is among the build's facts.
-  const stop = W.indexOf("const stoppedAnswer = async (stage) => {");
-  assert.ok(stop > 0);
-  assert.match(W.slice(stop, stop + 1600), /narrateBuild\(env, \{[\s\S]*buildFacts: buildFacts\(\{ failure: \{ kind: "stopped"/);
-  assert.match(W, /buildFacts: buildFacts\(\{ refusal: tooLong \}\)/);
-  assert.match(W, /checks: buildChecks\(pages\),\n\s*\/\/[^\n]*\n\s*ownLogo,/);
-  assert.match(W, /langStale: Object\.keys\(langStale\)\.length \? langStale : undefined/);
-  // The page shows the written reply first on the routing route's credits refusal.
-  assert.match(CHAT, /d\.need === 'credits' && \(routeSaid \|\|[\s\S]{0,300}finish\(routeSaid \|\| d\.msg\)/);
-});
-
 test("refusalFacts refuses what is not a decided refusal", () => {
   const F = { out: [], add(k, t) { this.out.push(t); } };
   assert.equal(refusalFacts(F, null), false);

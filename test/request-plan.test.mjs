@@ -14,7 +14,7 @@ import {
   noteFilingRefused, noteOffered, questionsToOffer, jobBody, readRequestOf, requestView, liveJobIds, doneSummary, RETRIES, WAIT_MS,
   LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf, notePrepared, takePrep, partOf, SPLIT_MAX,
 } from "../builder/request.mjs";
-import { readDepends, readPartOf, partBlock, withPart, PART_HEADING } from "../builder/site-ask.mjs";
+import { readPartOf, partBlock, withPart, PART_HEADING } from "../builder/route-shared.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
 
 const KEY = "rqunit000000000001";
@@ -77,15 +77,6 @@ test("plan: a part put off by an earlier question joins as its own; the model's 
 test("plan: parts whose relations form a cycle are refused, each said, and no order is guessed", () => {
   const r = planParts(MSG, { intent: "edit", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }, { change: 1, after: [0] }] });
   assert.deepEqual(r.parts.map((p) => [p.status, p.why]), [["refused", "order-unclear"], ["refused", "order-unclear"]]);
-});
-
-test("relations: read whole or not at all — a change that is not there, or one that needs itself, leaves the parts with no stated order", () => {
-  const trace = [];
-  assert.deepEqual(readDepends({ dependsOn: [{ change: 1, after: [0, 0] }, { change: 1, after: [2] }] }, 2), [{ change: 1, after: [0, 2] }]);
-  assert.deepEqual(readDepends({ dependsOn: [{ change: 1, after: [3] }] }, 2, trace), []);
-  assert.deepEqual(readDepends({ dependsOn: [{ change: 1, after: [1] }] }, 2), []);
-  assert.deepEqual(readDepends({ dependsOn: "after" }, 2), []);
-  assert.deepEqual(readDepends({}, 2), []);
 });
 
 // ── WHAT A JOB'S ANSWER MEANS ───────────────────────────────────────────────

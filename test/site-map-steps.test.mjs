@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildSiteMap, mapFor } from "../builder/site-map.mjs";
 import { routeInventory } from "../builder/route-inventory.mjs";
-import { routeMessage, LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
+import { LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
 import { siteNote, noteFor } from "../builder/site-add.mjs";
 import { replyContext } from "../builder/site-reply.mjs";
 import { frameEditRequest } from "../builder/site-frame.mjs";
@@ -28,22 +28,6 @@ const SITE = { name: "Harbour Books", url: "https://harbour.gofarther.app", page
 const said = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: LIVE_ASK_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
 const ROUTES = PAGES.map((p) => ({ ...p, route: p.path === "index.tsx" ? "/" : "/" + p.path.replace(/\.tsx$/, "") }));
 
-test("UP FRONT: the first routing is shown the one shared set of hours, and its existing question comes back as the answer — nothing else runs", async () => {
-  const inventory = routeInventory({ pages: ROUTES, spec: SPEC, parts: PARTS });
-  assert.match(inventory, /hours "Open Mon–Sun 9am–5pm" in part footer \(on every page\)/);
-  const Q = { text: "The site has one set of opening hours, for the shop and the cafe together. Change those, or add separate cafe hours?", options: ["Change the shared hours", "Add cafe hours"] };
-  let sent = null, calls = 0;
-  const r = await routeMessage({ send: async (req) => { sent = req; calls++; return said({ intent: "clarify", question: Q }); } },
-    { message: "make the cafe opening hours 8am to 4pm", site: SITE, hasSite: true, firstBuild: false, model: "test-model", canAsk: true, inventory });
-  assert.equal(calls, 1);
-  const told = JSON.stringify(sent.messages);
-  assert.ok(told.includes("in part footer (on every page)"), "the router was not shown where the hours are written");
-  assert.match(told, /A QUESTION MAY BE ASKED/);
-  assert.equal(r.intent, "clarify");
-  assert.equal(r.question.text, Q.text);
-  assert.deepEqual(r.question.options, Q.options);
-});
-
 test("THE ROUTER SLICE'S SIZE on a realistic site: inside ~2–3k tokens with the inventory", () => {
   // Eight pages with footer facts, a menu of prices, twelve tables.
   const menu = Array.from({ length: 24 }, (_, i) => "<li><p>Item " + i + "</p><p>£" + (3 + i) + ".50</p></li>").join("");
@@ -54,26 +38,6 @@ test("THE ROUTER SLICE'S SIZE on a realistic site: inside ~2–3k tokens with th
   const tokens = (s) => Math.ceil(s.length / 4);
   assert.ok(tokens(facts) <= 500, "facts slice " + tokens(facts));
   assert.ok(tokens(inv) <= 1600, "inventory with facts " + tokens(inv));
-});
-
-test("THE ROW DESIGNER is shown the map's tables with required columns; other designers are not", () => {
-  const rowNote = mapFor("rowNote", buildSiteMap({ spec: SPEC }));
-  assert.match(rowNote, /- orders: id, name\*, note/);
-  const site = { name: "Harbour Books", pages: ["/"], rowNote };
-  assert.ok(siteNote(noteFor("row", site)).includes("- orders: id, name*, note"));
-  assert.ok(!siteNote(noteFor("page", site)).includes("name*"));
-  assert.match(W, /rowNote: \(\(\) => \{ try \{ return mapFor\("rowNote", buildSiteMap\(\{ spec, label: accessLabel \}\)\)/);
-  // The live read stays the truth for what an entry must fill.
-  assert.match(W, /rowRequired: aRowRequired/);
-});
-
-test("THE FRAME WRITER is given the frame slice as its note, beside the live tables", () => {
-  const note = mapFor("frame", buildSiteMap({ pages: PAGES, parts: PARTS }));
-  assert.match(note, /^The site as it stands:/);
-  assert.match(note, /hours "Open Mon–Sun 9am–5pm" in part footer/);
-  const req = frameEditRequest({ instruction: "x", frame: {}, routes: ["/"], note });
-  assert.ok(req.messages[0].content.includes(note));
-  assert.match(W, /note: \(\(\) => \{ try \{ return mapFor\("frame", buildSiteMap\(\{ pages: eSrc, parts: fRead\.parts \}\)\)/);
 });
 
 test("THE REPLY MODEL is told what exists, from the current map, as facts", () => {

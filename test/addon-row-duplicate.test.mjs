@@ -35,16 +35,3 @@ test("the question names the entry and its list, and its answer is read back fro
   assert.equal(duplicateAnswer([{ q: ask.text, a: "set it to £45" }], d), "other");
   assert.equal(duplicateAnswer([{ q: "another question", a: DUP_ADD_ANYWAY }], d), "", "another question's answer is not this one's");
 });
-
-test("the add-on asks before anything is charged or written", () => {
-  const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = W.indexOf("dups = await duplicateRows((q, ps) => sqlReadOnly(adb, q, ps), rowClean.value)");
-  assert.ok(at > 0, "the add-on no longer checks for an entry the list has");
-  const charge = W.indexOf("rowCost = await aCharge(rowBill);", at);
-  const prep = W.indexOf("if (aPrep) return aPrepStop();", at);
-  const insert = W.indexOf("rowsInsert(", at);
-  assert.ok(charge > at && prep > at && insert > at, "the check is not ahead of the preparation, the charge and the write");
-  const block = W.slice(at, prep);
-  assert.match(block, /error: "clarify", layer: "addon", kind: "row", by: "add:row", cost: 0/);
-  assert.match(block, /said === "add"\) continue/);
-});

@@ -144,17 +144,6 @@ test("the attached photo is stored as the owner's upload and listed first, marke
   assert.deepEqual(bad.missing.map((m) => m.reason), ["too big"]);
 });
 
-test("the picture rung stores the message's photos and puts them first in its library", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf('if (eLayer === "picture") {');
-  assert.ok(at > 0);
-  const end = src.indexOf("runPictureEdit({", at);
-  const lib = src.indexOf("library: async () => {", end);
-  assert.ok(end > 0 && lib > 0);
-  assert.match(src.slice(at, end), /storeAttachedPhotos\(/, "the rung does not store the attached photos");
-  assert.match(src.slice(lib, lib + 1200), /attachedFirst\(picAttached\.files,/, "the library does not list them first");
-});
-
 // ── 23 (#168, A26-4): a logo attached to the first build goes in the header ─
 import { driveBuild, GOOD_DESIGN, BRIEF, JPEG_DATA } from "./fixtures/build-route.mjs";
 import { ownLogoSentence } from "../builder/attached-photos.mjs";

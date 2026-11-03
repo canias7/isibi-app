@@ -131,22 +131,3 @@ test("the report says a checked need as a fact, a missing one as not done, and k
   assert.ok(facts.some((f) => f.startsWith("changed: Checked on the built site: Each lesson can be booked") && f.includes("saves to lesson_bookings (date, time, people)")), JSON.stringify(facts));
   assert.ok(facts.some((f) => f.startsWith("not-done: Not done: Hire can be booked.") && f.includes("does not read or save menu_items")), JSON.stringify(facts));
 });
-
-test("the render check reports each route's forms, and the route checks requirements against the built site", () => {
-  // The probe is self-contained (serialised into the page) and the report keeps what it read.
-  assert.ok(!/\bimport\b|require\(/.test(formProbe.toString()));
-  const rep = renderReport([], { forms: [{ route: "/lessons", forms: [{ fields: [{ name: "date", type: "date", label: "" }] }] }] });
-  assert.deepEqual([...renderedForms(rep).keys()], ["/lessons"]);
-  assert.equal(renderReport([], {}).forms, undefined);
-  at(RC, "const f = await page.evaluate(formProbe, { route, maxForms: MAX_ROUTE_FORMS, maxFields: MAX_FORM_FIELDS });");
-  at(RC, "...(forms.length ? { forms } : {}),");
-  at(RC, "if (f && Array.isArray(f.forms)) forms.push({ route, forms: f.forms });");
-  assert.deepEqual([...routeCode([{ source: "a", routes: ["/x"] }, { source: "b", routes: ["/x", "/y"] }]).entries()], [["/x", "a\nb"], ["/y", "b"]]);
-  // Wired: forms from the published build, the site built after the pages ship, passed only on a change that shipped.
-  const forms = at(W, "aForms = publishedForms(built, aRepairRound);");
-  assert.ok(forms > at(W, "aRendered = publishedTexts(built, aRepairRound);") - 1);
-  const built = at(W, "aVerifySite = {");
-  at(W, "pages: routeCode(routedSources(", built);
-  at(W, "spec: aSpec,", built);
-  at(W, "site: failed ? null : aVerifySite });");
-});

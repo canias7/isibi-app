@@ -54,7 +54,7 @@
 // DEPENDENCY-LIGHT: the Worker and the job child both import it, and the job
 // image copies `builder/` modules by name (the Dockerfile's worker line).
 
-import { readContext, MAX_ANSWER_CHARS, wordsIn } from "./site-ask.mjs";
+import { readContext, MAX_ANSWER_CHARS, wordsIn } from "./route-shared.mjs";
 import { pieceSaid } from "./site-requirements.mjs";
 import { seedRowsOf, rowPlaces } from "./seed-rows.mjs";
 import { checkFacts, browserOnlyFacts, savedDraftOf, savedDraftFacts, readChecks } from "./check-evidence.mjs";

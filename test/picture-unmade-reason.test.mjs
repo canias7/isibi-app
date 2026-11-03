@@ -20,32 +20,6 @@ blockNetwork();
 
 const HERO = "import { createFileRoute } from '@tanstack/react-router';\nexport const Route = createFileRoute('/')({ component: Page });\nfunction Page() { return (<main><section><img src=\"https://images.example.com/hero.jpg\" alt=\"Loaves on the counter\" /><h1>Fold Lane</h1></section></main>); }\n";
 
-test("PU1 THROUGH THE ROUTE, PURCHASES OFF: a described picture is not made, nothing is bought, and the reply names the switch — no \"couldn't match\", no \"just now\"", async () => {
-  const compiler = installCompiler();
-  let asked = 0;
-  const slug = "pu1-" + Math.random().toString(16).slice(2, 8);
-  const P = platform({
-    slug, balance: 100, pages: [{ path: "index.tsx", source: HERO }, ...PAGES.filter((p) => p.path !== "index.tsx")],
-    answers: {
-      route: { intent: "edit", layer: "picture", targets: [{ change: 0, writes: ["picture"] }] },
-      choose_pictures: () => { asked++; return { pictures: [{ page: "index.tsx", alt: "Loaves on the counter", describe: "a sunset over the harbour" }] }; },
-    },
-  });
-  try {
-    P.env.IMAGE_PURCHASES = "off";
-    const r = await sendMessage(P, { message: "Put a photo of a sunset in the hero." });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const { rec } = await settle(P, r.key, { rounds: 20 });
-    assert.ok(asked > 0, "the picture model was never asked — this case watched nothing");
-    assert.equal(P.imageLog.length, 0, "a photograph was asked of the image service with purchases off");
-    assert.equal(rec.parts[0].why, "nothing-made", JSON.stringify(rec.parts[0]));
-    const said = P.jobsOf(r.key).map((j) => JSON.stringify(P.answerOf(j))).join("\n");
-    assert.match(said, /can't be made for sites at the moment/, "the reply does not name the switch: " + said.slice(0, 2000));
-    assert.doesNotMatch(said, /couldn't match that to any of the pictures/, "the reply says the slot was not matched");
-    assert.doesNotMatch(said, /couldn't be made just now/, "the reply still invites a retry");
-  } finally { await P.settle(); P.close(); compiler.uninstall(); }
-});
-
 const PAGE = { path: "index.tsx", source: HERO };
 const step = (why) => ({
   send: async () => ({ content: [{ type: "tool_use", name: "choose_pictures", input: { pictures: [{ page: "index.tsx", alt: "Loaves on the counter", describe: "a sunset" }] } }], usage: { input_tokens: 1, output_tokens: 1 } }),

@@ -25,7 +25,7 @@ import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fi
 import { CONFIG_KEY } from "../site-config.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { pickTool, editTool } from "../builder/site-lanes.mjs";
-import { ASK_TOOL, LIVE_ASK_TOOL, readRouting } from "../builder/site-ask.mjs";
+import { ASK_TOOL, LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
 import { VIEWPORTS } from "../builder/site-render.mjs";
 import { editReplyFacts } from "../builder/site-reply.mjs";
 import { newRequest, planParts, jobBody } from "../builder/request.mjs";
@@ -205,41 +205,6 @@ async function route(answer, extra = {}) {
   }
 }
 
-test("the router is sent the devices field and the preview's device as a hint", async () => {
-  const r = await route({ intent: "edit", layer: "look" }, { device: "tablet" });
-  assert.equal(r.status, 200);
-  assert.equal(r.router.length, 1);
-  const tool = (r.router[0].tools || []).find((t) => t && t.name === ASK_TOOL.name);
-  assert.ok(tool && tool.input_schema.properties.devices, "the routing tool sent has no devices field");
-  assert.deepEqual(tool.input_schema.properties.devices.items.enum, [...DEVICES]);
-  assert.match(String(r.router[0].messages[0].content), /They are previewing the site on the tablet view\./);
-  // No hint sent, none said; and a first build's tool is unchanged.
-  const bare = await route({ intent: "edit", layer: "look" });
-  assert.doesNotMatch(String(bare.router[0].messages[0].content), /previewing the site on/);
-  const odd = await route({ intent: "edit", layer: "look" }, { device: "watch" });
-  assert.doesNotMatch(String(odd.router[0].messages[0].content), /previewing the site on/);
-  assert.ok(!ASK_TOOL.input_schema.properties.devices && LIVE_ASK_TOOL.input_schema.properties.devices);
-});
-
-test("the router's devices reach the page: a subset kept, all three and garbage dropped", async () => {
-  const one = await route({ intent: "edit", layer: "look", devices: ["phone"] }, { device: "desktop" });
-  assert.deepEqual(one.body.devices, ["phone"], "the route dropped the devices the router chose");
-  assert.equal(one.body.layer, "look");
-  const all = await route({ intent: "edit", layer: "look", devices: ["desktop", "tablet", "phone"] });
-  assert.equal(all.body.devices, undefined);
-  const bad = await route({ intent: "edit", layer: "look", devices: "phone" });
-  assert.equal(bad.body.devices, undefined);
-  assert.ok(JSON.stringify(bad.body.decision || {}).includes("devices-unread"), "an unreadable scope left no reason");
-  // On an addition too since device-scope-build (2026-10-24): its writer is
-  // told and its publish guarded. Never on a question.
-  const add = await route({ intent: "addon", devices: ["phone"] });
-  assert.deepEqual(add.body.devices, ["phone"]);
-  const q = await route({ intent: "clarify", question: "Which page?", devices: ["phone"] });
-  assert.equal(q.body.devices, undefined);
-  // And the reader agrees with the route.
-  assert.deepEqual(readRouting({ content: [{ type: "tool_use", input: { intent: "edit", layer: "look", devices: ["tablet", "phone"] } }] }, { live: true, hasSite: true, pages: ["/"] }).devices, ["phone", "tablet"]);
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 // THROUGH THE REAL EDIT ROUTE: the css lane told, the publish guarded.
 
@@ -352,56 +317,6 @@ async function edit({ mode = "sync", devices, before = BEFORE, after = (b) => b,
 }
 const phoneMoved = (l) => l.map((x) => (x.device === "phone" ? { ...x, digest: x.digest + "-new" } : x));
 const desktopToo = (l) => l.map((x) => (x.device === "phone" || (x.device === "desktop" && x.route === "/visit") ? { ...x, digest: x.digest + "-new" } : x));
-
-test("a phone-only change: the css lane is told, the build is measured, only phone moved — published, with the facts", async () => {
-  const r = await edit({ devices: ["phone"], after: phoneMoved });
-  assert.equal(r.status, 200, JSON.stringify(r.reply));
-  assert.equal(r.reply.ok, true);
-  assert.equal(r.seen.lanePrompts.length, 1);
-  assert.match(r.seen.lanePrompts[0], /THIS CHANGE IS FOR PHONE ONLY/, "the css lane was not told the device scope");
-  assert.match(r.seen.lanePrompts[0], /below 768px/);
-  assert.ok(r.builds.length >= 1 && r.builds.every((p) => p.layout === true), "the publish did not ask the build for the layout");
-  assert.deepEqual(r.reply.devices, { asked: ["phone"], changed: ["phone"] });
-  assert.ok(r.config.css.includes("max-width: 767px"));
-  // The new measurement is the next change's "before".
-  assert.deepEqual(r.saved, phoneMoved(BEFORE));
-  // The reply's facts say which devices.
-  const facts = editReplyFacts(r.reply).facts.map((f) => f.text).join(" ");
-  assert.match(facts, /for the phone view only\. The tablet and desktop views were measured before and after and are unchanged\./);
-});
-
-test("a phone-only change that also moved desktop is refused: nothing published, the stylesheet put back, refunded (job)", async () => {
-  const r = await edit({ mode: "job", devices: ["phone"], after: desktopToo });
-  assert.equal(r.reply.ok === true, false, JSON.stringify(r.reply));
-  const result = r.reply.result || r.reply;
-  assert.equal(result.error, "compile");
-  assert.deepEqual(result.devices, { asked: ["phone"], changed: ["desktop"], unknown: [] });
-  assert.match(String(result.msg), /meant for the phone view only, but it also changed the desktop view/);
-  assert.equal(r.config.css, "", "the stylesheet the lane wrote was left in the store");
-  assert.deepEqual(r.saved, BEFORE, "a refused publish replaced the stored layout");
-  assert.equal(r.seen.rpc.some((x) => x.fn === "edit_committed"), false, "a refused publish was committed");
-  assert.equal(r.row.billing === "finalized", false, "a refused change was billed");
-});
-
-test("with no stored before, a scoped change cannot be checked and is refused, never assumed unchanged", async () => {
-  const r = await edit({ devices: ["phone"], before: null, after: phoneMoved });
-  assert.equal(r.status, 422);
-  assert.deepEqual(r.reply.devices, { asked: ["phone"], changed: [], unknown: ["tablet", "desktop"] });
-  assert.match(String(r.reply.msg), /couldn.t be compared/);
-  assert.equal(r.config.css, "");
-});
-
-test("control: an unscoped change is not told anything and not checked, and still stores its layout", async () => {
-  const r = await edit({ devices: undefined, ask: "Make the headline smaller.", after: desktopToo });
-  assert.equal(r.status, 200, JSON.stringify(r.reply));
-  assert.doesNotMatch(r.seen.lanePrompts[0], /ONLY\. Make it inside the same page/);
-  assert.equal(r.reply.devices, undefined);
-  assert.deepEqual(r.saved, desktopToo(BEFORE));
-  // All three posted is the same as none.
-  const all = await edit({ devices: ["phone", "tablet", "desktop"], after: desktopToo });
-  assert.equal(all.status, 200);
-  assert.equal(all.reply.devices, undefined);
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE PAGE: the preview's device goes out with the routing call, the router's

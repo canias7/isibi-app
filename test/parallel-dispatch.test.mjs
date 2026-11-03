@@ -87,21 +87,6 @@ async function press() {
   } finally { P.close(); compiler.uninstall(); }
 }
 
-test("DISPATCH ORDER: at acceptance the job is queued before the preparations claimed beside it", async () => {
-  const { order } = await press();
-  const job = order.indexOf(EDIT_JOB_KIND), prep = order.indexOf("request-prep");
-  assert.ok(job >= 0 && prep >= 0, JSON.stringify(order));
-  assert.ok(job < prep, "a preparation was queued ahead of the job it is meant to run beside: " + JSON.stringify(order));
-});
-
-test("RUN 117'S QUEUE, OFFLINE: in order, one at a time, a fired job beside the next delivery — the prepared picture step runs while the text job executes, by the view's own intervals; both changes land, each job charged once", async () => {
-  const { rec, view, key } = await press();
-  assert.deepEqual(rec.parts.map((p) => p.status), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-  const v = overlapVerdict([{ sent: true, request: { key, final: view } }]);
-  assert.equal(v.ok, true, v.why + " " + JSON.stringify(view.parts.map((p) => ({ n: p.n, prepRun: p.prepRun, runs: p.runs }))));
-  assert.deepEqual(v.overlaps.map((o) => [o.prepPart, o.runPart]), [[1, 0]]);
-});
-
 // ── EARLIER ATTEMPTS KEPT (the second evidence gap) ──────────────────────────
 
 import { planParts, newRequest, nextStep, noteJobId, notePrepared, takePrep, prepRunsOf, requestView, PREP_FRESH_MS, PREP_PAST_KEPT } from "../builder/request.mjs";

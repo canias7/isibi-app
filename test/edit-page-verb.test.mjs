@@ -459,37 +459,6 @@ for (const mode of ["sync", "job"]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. THE ROUTER'S OWN FLAG IS THE ROUTER'S STEP'S, TOO
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("the router's remove flag opens the picture door and deletes nothing a layout lane beside it was aimed at", async () => {
-  const r = await drive({
-    body: { layer: "picture", page: "/prices", remove: true },
-    ask: "Take the photo off the prices page and put the price list above the introduction.",
-    // THE PICKER'S ANSWER IN THE DOOR'S OWN TOOL (2026-09-28): on the router's
-    // removal door it is told the photo removal is routed and names the work
-    // asked beside it under `additional`, the photo's own lane under `routed`.
-    // Only the answer's shape moved; every assertion below is what it was.
-    pick: { routed: ["images"], additional: ["shape"] }, apply: pricesLayout,
-  });
-  const label = "picture door + prices layout";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-  assert.deepEqual(pageWriterCalls(r), [T.tweak], label + ": page-writer calls " + JSON.stringify(r.calls));
-  assert.deepEqual(r.shown.map((f) => f && f.path), ["prices.tsx"], label + ": the writer was shown the wrong file");
-  // BEFORE THE FIX /prices WAS DELETED — the router's request-wide `remove`
-  // reached the layout step. The site has no photograph, so the picture step
-  // says so, and the layout is the only change.
-  assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "gallery.tsx": GALLERY, "visit.tsx": VISIT }, label);
-  assert.deepEqual(r.reply.layers, ["page"], label + ": layers");
-  assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["picture", "no-slots"]], label + ": partial");
-  assert.equal(r.reply.removed, undefined, label + ": a page was reported removed");
-  assertOneCharge(r, "sync", label);
-  assert.equal(r.said.text, "Updated /prices. I couldn't find a photograph on your site that I can change. If you'd like one added, say which page it should go on and where.", label + ": the customer's sentence");
-  assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 4. CONTROLS — each verb alone, and the layout alone. Each passes on the code
 // before the page-verb fix too, which is what makes it a control: a fix that
 // broke a standalone removal or move, or a layout with no verb beside it, fails
@@ -535,63 +504,6 @@ for (const mode of ["sync", "job"]) {
     assert.ok(!/Updated/.test(r.said.text), label + ": the move was reported as an update at its old address");
   });
 }
-
-test("control: the pages lane alone still removes the page it names", async () => {
-  const r = await drive({ ask: "Remove the gallery page.", pick: { fields: ["pages"], ...REMOVE_GALLERY } });
-  assert.equal(r.status, 200, JSON.stringify(r.reply));
-  assert.deepEqual(r.calls, [T.pick], "only the picker was called");
-  assertSite(r, GALLERY_GONE, "pages lane removal");
-  assert.deepEqual(r.debits, [], "debits");
-  assert.equal(r.said.text, REMOVED_SAID, "the customer's sentence");
-});
-
-test("the pages lane alone moves the page it names and reports the move", async () => {
-  const r = await drive({ ask: "Move the gallery page to /photos.", pick: { fields: ["pages"], ...MOVE_GALLERY } });
-  assert.equal(r.status, 200, JSON.stringify(r.reply));
-  assert.deepEqual(r.calls, [T.pick], "only the picker was called");
-  assertSite(r, GALLERY_MOVED, "pages lane move");
-  assertOps(r, [MOVE], "pages lane move");
-  assert.deepEqual(r.debits, [], "debits");
-  assert.equal(r.said.text, MOVED_SAID, "the customer's sentence");
-});
-
-test("control: the layout alone on a non-home page is one page operation", async () => {
-  const r = await drive({ body: { layer: "look", page: "/prices" }, ask: "On the prices page put the price list above the introduction.", pick: { fields: ["shape"] }, apply: pricesLayout });
-  assert.equal(r.status, 200, JSON.stringify(r.reply));
-  assert.deepEqual(pageWriterCalls(r), [T.tweak]);
-  assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "gallery.tsx": GALLERY, "visit.tsx": VISIT }, "layout alone");
-  assertOneCharge(r, "sync", "layout alone");
-  assert.equal(r.said.text, "Updated /prices.", "the customer's sentence");
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 5. THE DUPLICATE-EXECUTION FIX AND THE VERB TOGETHER. NOT a control: before
-// the page-verb fix the joined layout step inherited the removal, deleted
-// /prices and ran no writer — so it failed on the code before that fix, as the
-// four layout cases above do.
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("two layout lanes beside a removal are ONE page operation, and the removal stays its own step", async () => {
-  const r = await drive({
-    body: { layer: "look", page: "/prices" },
-    ask: "On the prices page put the price list above the introduction and show it as a card, and remove the gallery page.",
-    pick: { fields: ["shape", "components", "pages"], ...REMOVE_GALLERY }, apply: pricesLayout,
-  });
-  const label = "shape + components + remove";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  // THE DUPLICATE-EXECUTION FIX STILL HOLDS: the two layout lanes are one page
-  // step, so the writer runs ONCE, and the removal is a step of its own.
-  assert.deepEqual(pageWriterCalls(r), [T.tweak], label + ": page-writer calls " + JSON.stringify(r.calls));
-  assert.deepEqual(r.shown.map((f) => f && f.path), ["prices.tsx"], label + ": the writer was shown the wrong file");
-  assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "visit.tsx": VISIT }, label);
-  assert.deepEqual(r.reply.layers, ["page", "page"], label + ": layers");
-  assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
-  assert.deepEqual([...r.reply.lanes].sort(), ["components", "pages", "shape"], label + ": lanes");
-  // ONE ENTRY FOR THE JOINED LAYOUT STEP, NOT ONE PER LANE.
-  assertOps(r, [LAYOUT("/prices"), GONE], label);
-  assertOneCharge(r, "sync", label);
-  assert.equal(r.said.text, "Updated /prices and took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. PARTIAL SUCCESS — the layout ships and the verb is REFUSED. The reply names
@@ -688,28 +600,6 @@ for (const mode of ["sync", "job"]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. THE REPORTED ADDRESS IS THE ONE PUBLISHED, NOT THE ONE ASKED FOR
-// ─────────────────────────────────────────────────────────────────────────────
-
-test("a move's reported address is the one the renamer published, not the one the request spelled", async () => {
-  const r = await drive({
-    body: { layer: "look", page: "/prices" },
-    ask: "On the prices page put the price list above the introduction, and move the gallery page to /Photos/.",
-    pick: { fields: ["shape", "pages"], pageVerb: "move", pageName: "/gallery", pageTo: "/Photos/" }, apply: pricesLayout,
-  });
-  const label = "move to /Photos/";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  // "/Photos/" WAS ASKED FOR, AND THE STEP CARRIES "/photos/" (the picker's
-  // reader lowercases); `renameRoute` PUBLISHED "/photos". A reply composed from
-  // the request would say "/photos/".
-  assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "photos.tsx": MOVED, "visit.tsx": VISIT }, label);
-  assert.equal(r.reply.renamedTo, "/photos", label + ": the reply's move");
-  assertOps(r, [LAYOUT("/prices"), MOVE], label);
-  assertOneCharge(r, "sync", label);
-  assert.equal(r.said.text, "Updated /prices and moved /gallery to /photos.", label + ": the customer's sentence");
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 9. A LOOK STEP BESIDE A PAGE OPERATION — where the look's own sentence has
 // something to say, the removal follows it. Where the look changed NOTHING, its
 // "nothing to change" speaks for the styling alone once another operation
@@ -723,21 +613,6 @@ test("a move's reported address is the one the renamer published, not the one th
 const FOOTER = "footer{background-color:#0b3d2e}";
 const LOOK_SAME = "Your site already looks like that — nothing to change.";
 const STYLING_SAME = "The requested styling was already in place.";
-
-test("a stylesheet change beside a removal names both: the look's own sentence, then the removal", async () => {
-  const r = await drive({
-    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and remove the gallery page.",
-    pick: { fields: ["css", "pages"], ...REMOVE_GALLERY }, lane: { css: FOOTER },
-  });
-  const label = "css + remove";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assert.deepEqual(r.calls, [T.pick, T.lane], label + ": model calls");
-  assertSite(r, GALLERY_GONE, label);
-  assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
-  assert.equal(r.reply.css, true, label + ": the stylesheet was not reported as changed");
-  assertOps(r, [GONE], label);
-  assert.equal(r.said.text, "Updated the look — the design. Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
-});
 
 for (const mode of ["sync", "job"]) {
   test("unchanged styling beside a removal says the styling was already in place, then the removal (" + mode + ")", async () => {
@@ -758,89 +633,6 @@ for (const mode of ["sync", "job"]) {
     assert.ok(!/nothing to change/.test(r.said.text), label + ": the whole request was described as having nothing to change");
   });
 }
-
-test("unchanged styling beside a move says the styling was already in place, then the move", async () => {
-  const r = await drive({
-    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and move the gallery page to /photos.",
-    pick: { fields: ["css", "pages"], ...MOVE_GALLERY }, lane: { css: FOOTER }, css: FOOTER,
-  });
-  const label = "unchanged look + move";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assertSite(r, GALLERY_MOVED, label);
-  assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
-  assertOps(r, [MOVE], label);
-  assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, STYLING_SAME + " Moved /gallery to /photos.", label + ": the customer's sentence");
-});
-
-test("unchanged styling beside an ordinary page edit names the page it changed", async () => {
-  // NOT A VERB: the rule is that another operation SHIPPED, read off its
-  // result, so a layout change scopes the note exactly as a removal does — and
-  // with the look having changed nothing, the edited page is what is named.
-  const r = await drive({
-    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and on the prices page put the price list above the introduction.",
-    pick: { fields: ["css", "shape"] }, lane: { css: FOOTER }, css: FOOTER, apply: pricesLayout,
-  });
-  const label = "unchanged look + layout";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assert.deepEqual(r.shown.map((f) => f && f.path), ["prices.tsx"], label + ": the writer was shown the wrong file");
-  assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "gallery.tsx": GALLERY, "visit.tsx": VISIT }, label);
-  assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
-  assertOps(r, [LAYOUT("/prices")], label);
-  assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, STYLING_SAME + " Updated /prices.", label + ": the customer's sentence");
-});
-
-test("control: unchanged styling on its own still says the site already looks like that", async () => {
-  const r = await drive({
-    body: { layer: "look" }, ask: "Make the footer dark green.",
-    pick: { fields: ["css"] }, lane: { css: FOOTER }, css: FOOTER,
-  });
-  const label = "unchanged look alone";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assert.deepEqual(r.calls, [T.pick, T.lane], label + ": model calls");
-  assert.equal(r.compiles, 0, label + ": something compiled");
-  assert.deepEqual(r.stored, AS_STORED, label + ": the store changed");
-  assert.deepEqual(r.reply.layers, ["look"], label + ": layers");
-  assert.equal(r.reply.pageOps, undefined, label + ": a page operation was listed");
-  assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, LOOK_SAME, label + ": the customer's sentence");
-});
-
-test("control: unchanged styling beside a REFUSED removal keeps the look's own sentence and warns about the refusal", async () => {
-  const r = await drive({
-    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and remove the home page.",
-    pick: { fields: ["css", "pages"], pageVerb: "remove", pageName: "/" }, lane: { css: FOOTER }, css: FOOTER,
-  });
-  const label = "unchanged look + refused removal";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assert.equal(r.compiles, 0, label + ": something compiled");
-  assert.deepEqual(r.stored, AS_STORED, label + ": the store changed");
-  assert.deepEqual(r.reply.layers, ["look"], label + ": layers");
-  assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["page", "kept"]], label + ": partial");
-  assert.equal(r.reply.pageOps, undefined, label + ": a refused removal was listed as an operation");
-  assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
-  // THE REFUSED STEP LED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes).
-  assert.equal(r.said.text, LOOK_SAME + " A page: I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
-  assert.ok(!/took|off the site/i.test(r.said.text), label + ": the refused removal was described as done");
-});
-
-test("control: unchanged styling beside a REFUSED move keeps the look's own sentence and warns about the refusal", async () => {
-  const r = await drive({
-    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and move the gallery page to /visit.",
-    pick: { fields: ["css", "pages"], pageVerb: "move", pageName: "/gallery", pageTo: "/visit" }, lane: { css: FOOTER }, css: FOOTER,
-  });
-  const label = "unchanged look + refused move";
-  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assert.equal(r.compiles, 0, label + ": something compiled");
-  assert.deepEqual(r.stored, AS_STORED, label + ": the store changed");
-  assert.deepEqual(r.reply.layers, ["look"], label + ": layers");
-  assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["page", "rename"]], label + ": partial");
-  assert.equal(r.reply.pageOps, undefined, label + ": a refused move was listed as an operation");
-  assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, LOOK_SAME + " I couldn't move that page — there is already a page at /visit.", label + ": the customer's sentence");
-  assert.ok(!/moved/i.test(r.said.text), label + ": the refused move was described as done");
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 10. ONE PAGE, ONE CLAUSE

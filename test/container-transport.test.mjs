@@ -174,18 +174,6 @@ test("callFailure keeps the four facts that tell three deaths apart — DRIVEN",
   }
 });
 
-test("the addon's page failure records the cause and the timing, not just the message", () => {
-  const src = bare(WORKER);
-  const at = src.indexOf(`aMark("pages", "fail"`);
-  assert.ok(at > 0, "the addon's page-failure mark is gone — rescope this guard");
-  const line = src.slice(at, src.indexOf("\n", at));
-  assert.match(line, /\.\.\.callFailure\(e\)/, "the failure records only the message again — which is all run 45 left behind");
-  assert.match(line, /ms: Date\.now\(\) - aPagesT0/, "the failure does not say how long the call had been running — the number that makes 270s falsifiable");
-  // AND THE NAME IS IMPORTED, or it is a ReferenceError inside a catch — the
-  // one place a throw is hardest to see.
-  assert.match(src, /import \{[^}]*\bcallFailure\b[^}]*\} from "\.\/builder\/build-call\.mjs"/, "callFailure is used without being imported");
-});
-
 // ── where the job ran ───────────────────────────────────────────────────────
 
 test("the record says where the job ran, and ABSENT is the Worker", () => {

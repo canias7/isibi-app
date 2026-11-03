@@ -2,7 +2,7 @@
 // part ran on "…to the café menu, , and ." Each part now runs on a clean sentence.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { heldParts, tidyJoins } from "../builder/site-ask.mjs";
+import { heldParts, tidyJoins } from "../builder/route-shared.mjs";
 
 const M = "Add a flat white for £3.20 to the café menu, add a Gallery page, and put our phone number 0113 496 0000 in the header.";
 const A = "Add a flat white for £3.20 to the café menu", B = "add a Gallery page", C = "put our phone number 0113 496 0000 in the header";

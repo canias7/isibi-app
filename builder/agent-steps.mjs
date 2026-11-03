@@ -15,7 +15,7 @@ import { cleanHeadDescription } from "../site-head-edit.mjs";
 import { readRules, splitAlready, ungroundedWidenings } from "./site-rules.mjs";
 import { renameRoute } from "./site-apply.mjs";
 import { routeOf } from "./site-addon.mjs";
-import { readAsk } from "./site-ask.mjs";
+import { readAsk } from "./route-shared.mjs";
 import { qrSvg } from "./site-qr.mjs";
 import { markRemove } from "./site-mark.mjs";
 

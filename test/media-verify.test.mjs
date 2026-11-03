@@ -205,27 +205,6 @@ test("THE STORAGE MODE, END TO END against the real Worker: every check passes, 
   });
 });
 
-// ── THE CONVERSATION MODE: THE CEILING, AND ONE CASE ────────────────────────
-
-test("THE CONVERSATION MODE: the harness's own ceiling stops it before it sends; with room, a case is sent once with images verified off and its charge read from the ledger", async () => {
-  const worker = await loadWorker();
-  const bucket = mediaBucket();
-  const env = { ...envFor(bucket), IMAGE_PURCHASES: "off" };
-  await withWire({ route: { intent: "ask", answer: "Hello!" }, converse: "Hello — tell me what you'd like for your site." }, async (seen) => {
-    const calls = [];
-    const f = wired(worker, env, seen, calls);
-    const low = await run({ fetch: f, base: "https://gofarther.dev", token: "t", fixtures: FIX, mode: "converse", slug: "verify-talk", spend: "yes", picker: "sonnet", maxCredits: ESTIMATES.message.high - 1 });
-    assert.equal(low.ok, false);
-    assert.equal(low.results.stopped, "ceiling");
-    assert.equal(calls.filter((c) => c.includes("/api/site/route")).length, 0, "a send passed the ceiling");
-    const one = await run({ fetch: f, base: "https://gofarther.dev", token: "t", fixtures: FIX, mode: "converse", slug: "verify-talk", spend: "yes", picker: "sonnet", maxCredits: ESTIMATES.message.high + 1 });
-    assert.equal(calls.filter((c) => c.includes("/api/site/route")).length, 1, "exactly one case fits the ceiling");
-    const c1 = one.results.checks.filter((c) => c.name.startsWith("C1-greeting"));
-    assert.deepEqual(c1.filter((c) => c.verdict === "fail"), [], JSON.stringify(c1));
-    assert.equal(one.results.stopped, "ceiling", "the run did not stop at its ceiling");
-  });
-});
-
 // ── THE BUILD MODE: AN EARLY-ACCEPTED BUILD IS FOLLOWED ─────────────────────
 
 test("THE BUILD MODE follows an early-accepted build by its poll and judges its answer: drafts moved, no fixed narration, no photograph", async () => {

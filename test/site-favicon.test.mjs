@@ -318,16 +318,6 @@ test("the reply calls it the tab icon, not our field name", () => {
   assert.match(chat, /favicon: 'the tab icon'/);
 });
 
-test("the router knows a tab-icon ask is the cheap look layer", () => {
-  // Without this sentence every layer below it is unreachable for the one
-  // message shape it serves — the publicView lesson, which has cost a whole
-  // site twice: a capability nobody is told about is one nobody routes to.
-  const ask = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
-  const at = ask.indexOf('\\"look\\" — colour, theme');
-  assert.ok(at > 0, "the look layer's description is gone");
-  assert.match(ask.slice(at, at + 400), /TAB ICON/, "the look layer never mentions the tab icon");
-});
-
 
 /* ── the wordmark: text or a drawn logo (owner's call, 2026-08-28) ─────────── */
 
@@ -469,13 +459,4 @@ test("the container: the owner's logo, then the drawn wordmark, then the name in
   assert.ok(!/\bwordmark\b/.test(reads.replace(/\bwordmarkUsed\b/g, "")),
     "writeSiteBrand reads the RAW wordmark somewhere other than the validator");
   assert.match(s2, /wordmark: payload\.wordmark/);
-});
-
-test("the reply and the router both know the logo choice", () => {
-  assert.match(chat, /wordmark: 'the logo'/);
-  const ask = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
-  const at = ask.indexOf('\\"look\\" — colour, theme');
-  assert.ok(at > 0);
-  assert.match(ask.slice(at, at + 700), /draw us a logo/,
-    "the look layer never says a drawn logo is reachable without a file");
 });

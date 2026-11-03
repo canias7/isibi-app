@@ -11,7 +11,7 @@ import {
 } from "../builder/site-3d.mjs";
 import { model3dPrice, model3dStart, model3dPoll } from "../builder/model3d-route.mjs";
 import { handleUpload, sniffUpload, uploadKind, UPLOAD_EXTS, MODEL_FORMATS, handleUploadList } from "../site-uploads.mjs";
-import { readRouting, LIVE_ASK_TOOL, readModel3d } from "../builder/site-ask.mjs";
+import { LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 
 const read = (p) => fs.readFileSync(new URL("../" + p, import.meta.url), "utf8");
@@ -434,25 +434,6 @@ test("the router's tool offers a typed model3d field beside intent addon", () =>
   assert.ok(f && f.type === "object");
   assert.deepEqual(f.properties.from.enum, ["words", "photo"]);
   assert.deepEqual(f.required, ["from", "subject"]);
-});
-
-test("a supplied router answer with model3d reaches the routing result; one without does not invent it", () => {
-  const opts = { live: true, hasSite: true, pages: ["/", "/shop"] };
-  const r = readRouting(use({ intent: "addon", model3d: { from: "words", subject: "a walnut armchair", page: "/shop" } }), opts);
-  assert.equal(r.intent, "addon");
-  assert.deepEqual(r.model3d, { from: "words", subject: "a walnut armchair", page: "/shop" });
-  const p = readRouting(use({ intent: "addon", model3d: { from: "photo", subject: "this chair" } }), opts);
-  assert.deepEqual(p.model3d, { from: "photo", subject: "this chair", page: "/" });
-  const plain = readRouting(use({ intent: "addon" }), opts);
-  assert.equal(plain.model3d, undefined);
-  const trace = { reasons: [] };
-  const bad = readRouting(use({ intent: "addon", model3d: { from: "magic", subject: "x" } }), { ...opts, trace });
-  assert.equal(bad.intent, "addon", "an unreadable 3D answer leaves the addition as it was");
-  assert.equal(bad.model3d, undefined);
-  assert.ok(trace.reasons.includes("model3d-unread"));
-  const edit = readRouting(use({ intent: "edit", layer: "look", model3d: { from: "words", subject: "x" } }), opts);
-  assert.equal(edit.model3d, undefined, "only an addition carries it");
-  assert.equal(readModel3d({ from: "words", subject: "x", page: "/nope" }, { pages: ["/"] }).page, "/");
 });
 
 test("the routing reply forwards model3d to the page (the wiring layer)", () => {

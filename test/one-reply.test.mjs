@@ -220,16 +220,6 @@ test("WORKER: a writer that fails stores the facts' fallback, never 'not done' f
   assert.equal(h.calls.debit.length, 0, "nothing used, nothing charged");
 });
 
-test("WORKER WIRING: the request's GET writes the one reply before its view; the older request reply stands down", () => {
-  const get = W.indexOf("let qRec = moved || found.rec;");
-  assert.ok(get > 0);
-  const near = W.slice(get, get + 900);
-  assert.match(near, /oneReplyFor\(env, ctx, qRec/);
-  assert.ok(near.indexOf("oneReplyFor") < near.indexOf("requestView(qRec") || near.indexOf("requestView(qRec") < 0);
-  const rr = W.slice(W.indexOf("async function requestReply(env, rec) {"), W.indexOf("async function requestReply(env, rec) {") + 300);
-  assert.match(rr, /if \(oneReplyOn\(\)\) return null;/);
-});
-
 // ── THE PARTS' RECORDS: what each step did, from its answer's fields ────────
 test("partWork reads files, rows, rules and tables from an answer's fields, never its msg", () => {
   assert.deepEqual(O.partWork({ msg: "changed /secret", agent: { changed: ["src/routes/a.tsx"], removed: ["src/routes/b.tsx"] }, rows: { saved: 2, failed: 0 }, applied: [{ table: "t" }], tables: ["t2"] }),

@@ -280,36 +280,3 @@ async function driveSeam({ part, Name, badPart, goodPart, err }) {
 
 const seamBad = (Name) => "export default function " + Name + "() { return <div data-x={brokenSeamName}>band</div>; }\n";
 const seamGood = (Name) => "export default function " + Name + "() { return <div>band</div>; }\n";
-
-test("EDIT SEAM: a stored band the error cites is repaired at the shared publish seam, recompiled, and stored where parts live", async () => {
-  const r = await driveSeam({ part: "band-1-bleed", Name: "Band1Bleed", badPart: seamBad("Band1Bleed"), goodPart: seamGood("Band1Bleed"), err: LIVE_ERR });
-  assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(r.sentParts.length, 2, "the failing compile and the repaired one");
-  assert.equal(r.sentParts[0], seamBad("Band1Bleed"));
-  assert.equal(r.sentParts[1], seamGood("Band1Bleed"), "the second compile did not carry the repaired band");
-  assert.ok(r.prompts.some((p) => p.includes("This component did not compile") && p.includes("brokenSeamName")), "the band was not sent to the writer");
-  assert.equal(r.storedParts.find((p) => p.name === "band-1-bleed").source, seamGood("Band1Bleed"), "the repaired band was not stored");
-  assert.ok(r.storedPages.every((p) => !String(p.path).includes("-parts/")), "a part file leaked into the pages");
-  assert.deepEqual(r.body.compileRepaired.pages, ["-parts/band-1-bleed.tsx"]);
-});
-
-test("FRAME: an error in the written frame (a frame part) is repaired at the same seam", async () => {
-  const f = FRAME_PARTS[0];
-  const err = "src/routes/-parts/" + f.file + ".tsx(1,40): error: brokenSeamName is not defined";
-  const r = await driveSeam({ part: f.file, Name: f.name, badPart: seamBad(f.name), goodPart: seamGood(f.name), err });
-  assert.equal(r.body && r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(r.sentParts[1], seamGood(f.name));
-  assert.equal(r.storedParts.find((p) => p.name === f.file).source, seamGood(f.name));
-});
-
-test("GUARD: the seam pre-fixes imports on every publish and offers every part to whichever hook runs (the add-on's included)", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("async function recompileAndPublish(env, {");
-  const end = w.indexOf("\nasync function ", at + 10);
-  assert.ok(at > 0 && end > at, "landmarks");
-  const seam = w.slice(at, end);
-  assert.match(seam, /const prePages = repairImports\(pages, \{ parts: preParts \}\);/);
-  assert.match(seam, /fix = await compileHook\(\{[\s\S]{0,200}pages: hasParts \? withParts\(pages, siteParts\) : pages/);
-  assert.match(seam, /const partsToSave = partsRepaired && Array\.isArray\(siteParts\) \? siteParts : parts;/);
-  assert.match(w, /onCompileFail: aOnCompileFail,/);
-});

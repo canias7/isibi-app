@@ -133,39 +133,6 @@ const TWEAK_PAGE = (source) => ({ [TWEAK_TOOL.name]: { cannot: "too large" }, [S
 const reviews = (seen) => seen.tools.filter((t) => t === REVIEW_TOOL.name).length;
 const taken = (seen) => seen.debits.reduce((a, n) => a + n, 0);
 
-// ── THROUGH THE ROUTE ────────────────────────────────────────────────────────
-
-test("PAGE EDIT: the review runs on the render check's shots, its fix is recompiled, saved and charged", async () => {
-  const r = await driveEdit({ answers: { ...TWEAK_PAGE(BIGGER), [REVIEW_TOOL.name]: FIX("/", "mt-96", "mt-8") } });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(reviews(r.seen), 1, "one review call");
-  assert.ok(Array.isArray(r.builds[0].body.shots) && r.builds[0].body.shots.includes("/"), "the compile did not ask for the changed page's screenshots");
-  const req = r.seen.requests.find((q) => q.tool_choice && q.tool_choice.name === REVIEW_TOOL.name);
-  const images = req.messages[0].content.filter((x) => x.type === "image");
-  assert.equal(images.length, 2, "both widths of the shot reached the model");
-  assert.equal(r.builds.length, 2, "the edit's compile and the review's recompile");
-  assert.equal(r.builds[1].body.files["index.tsx"], LOOKED, "the recompile did not carry the fix");
-  assert.equal(r.stored, LOOKED, "the store does not hold the reviewed page");
-  assert.equal(r.body.visualReview.fixed, 1);
-  assert.ok(r.body.visualReview.charged > 0, "the review was not charged");
-  const off = await driveEdit({ answers: TWEAK_PAGE(BIGGER), env: { VISUAL_REVIEW: "off" } });
-  assert.equal(off.body.ok, true);
-  assert.ok(taken(r.seen) > taken(off.seen), "the review's tokens did not reach the bill");
-  assert.equal(r.body.cost, taken(r.seen), "the reply's cost is not what was taken");
-  assert.ok(editReplyFacts(r.body).facts.some((f) => /looked at in a browser/.test(f.text)), "no reply fact for the fix");
-});
-
-test("OFF SWITCH: no screenshots asked, no review call, one compile", async () => {
-  const r = await driveEdit({ answers: { ...TWEAK_PAGE(BIGGER), [REVIEW_TOOL.name]: FIX("/", "mt-96", "mt-8") }, env: { VISUAL_REVIEW: "off" } });
-  assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(reviews(r.seen), 0);
-  assert.equal(r.builds.length, 1);
-  assert.equal(r.builds[0].body.shots, undefined);
-  assert.equal(r.body.visualReview, undefined);
-  assert.equal(r.stored, BIGGER);
-});
-
 // ── THROUGH THE SEAM ─────────────────────────────────────────────────────────
 
 test("BACK-END ONLY (a data row, a rule, a table, a restore: the same files republished): never looked at", async () => {

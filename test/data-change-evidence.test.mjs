@@ -157,73 +157,6 @@ test("DATA 2 — A ROW WRITE THE DATABASE DID NOT HAND BACK IS NOT A CHANGE MADE
   assert.deepEqual(r.applied.map((c) => [c.id, c.stored && c.stored.price]), [[1, 5]]);
 });
 
-test("DATA 3 — THROUGH THE ROUTE: one price changed — the answer names the loaf, the field, its value before and after as the database kept it; the row really changed; the reply's facts say it, and the old shape of `applied` stands beside it", async () => {
-  const db = rowsDb({ tables: loaves(), meta: { schema: JSON.stringify(SPEC) } });
-  const r = await dataEdit("dce-one", "Make the Dark Rye £5.60.", { changes: [{ table: "loaves", id: 2, values: { price: 5.6 } }] }, db);
-  assert.equal(r.status, 200, r.text.slice(0, 300));
-  assert.equal(r.reply.ok, true);
-  assert.deepEqual(r.reply.applied, [{ table: "loaves", id: 2, columns: ["price"] }], "the answer's old shape moved");
-  assert.equal(r.reply.changes.length, 1, JSON.stringify(r.reply.changes));
-  const c = r.reply.changes[0];
-  assert.deepEqual([c.table, c.id, c.label], ["loaves", 2, "Dark Rye"]);
-  assert.equal(c.fields.length, 1);
-  assert.equal(c.fields[0].column, "price");
-  assert.ok(same(c.fields[0].was, 5.2) && same(c.fields[0].now, 5.6), JSON.stringify(c.fields[0]));
-  assert.equal(c.fields[0].readBack, undefined, "a value the database handed back was marked as unread");
-  assert.ok(same(db.rows("loaves").find((x) => x.id === 2).price, 5.6), "the row did not change");
-  const f = factsOf(r.reply);
-  const fact = f.find((t) => t.startsWith("changed: Changed the entry “Dark Rye” in loaves: price from “"));
-  assert.ok(fact, JSON.stringify(f));
-  assert.ok(/“5\.2”/.test(fact) && /“5\.6”/.test(fact), fact);
-  assert.ok(!f.some((t) => /Updated one entry/.test(t)), "the count sentence stood beside the change: " + JSON.stringify(f));
-  assert.equal(replyOutcomeOf(editReplyFacts(r.reply)), "done");
-});
-
-test("DATA 4 — THROUGH THE ROUTE: a row taken off the list since it was read is not counted as changed — alone, nothing is claimed and the step says it could not be saved; beside a change that landed, only that one is named and the other is told as not done", async () => {
-  const alone = rowsDb({ tables: loaves(), meta: { schema: JSON.stringify(SPEC) }, vanish: [{ table: "loaves", id: 2 }] });
-  const a = await dataEdit("dce-gone", "Make the Dark Rye £5.60.", { changes: [{ table: "loaves", id: 2, values: { price: 5.6 } }] }, alone);
-  assert.equal(a.status, 422, a.text.slice(0, 300));
-  assert.deepEqual([a.reply.ok, a.reply.error], [false, "write"]);
-  assert.equal(a.reply.changes, undefined);
-  assert.equal(a.reply.applied, undefined, "a change that matched no row was reported as applied");
-  const both = rowsDb({ tables: loaves(), meta: { schema: JSON.stringify(SPEC) }, vanish: [{ table: "loaves", id: 2 }] });
-  const b = await dataEdit("dce-half", "Make the Dark Rye £5.60 and the Walnut Levain £6.40.", { changes: [{ table: "loaves", id: 2, values: { price: 5.6 } }, { table: "loaves", id: 5, values: { price: 6.4 } }] }, both);
-  assert.equal(b.status, 200, b.text.slice(0, 300));
-  assert.equal(b.reply.failed, 1);
-  assert.deepEqual(b.reply.applied, [{ table: "loaves", id: 5, columns: ["price"] }]);
-  assert.deepEqual(b.reply.changes.map((c) => [c.id, c.label]), [[5, "Walnut Levain"]]);
-  const f = factsOf(b.reply);
-  assert.ok(f.some((t) => t.startsWith("changed: Changed the entry “Walnut Levain” in loaves: price from")), JSON.stringify(f));
-  assert.ok(!f.some((t) => t.includes("Dark Rye")), "the entry that was not changed was named as changed: " + JSON.stringify(f));
-  assert.ok(f.some((t) => t.startsWith("not-done: one entry could not be saved")), JSON.stringify(f));
-  assert.equal(replyOutcomeOf(editReplyFacts(b.reply)), "partly");
-});
-
-test("DATA 5 — THROUGH THE ROUTE: an entry added carries the id the database gave it and every value as kept; a field already right is said as nothing to change; a long value is cut for the reply and kept whole in the row", async () => {
-  const db = rowsDb({ tables: loaves(), meta: { schema: JSON.stringify(SPEC) } });
-  const long = "A slow loaf. ".repeat(30).trim();
-  const r = await dataEdit("dce-add", "Add a Spelt loaf at £6.20, keep the focaccia at £4.50 and give the walnut loaf a longer description.", {
-    changes: [
-      { table: "loaves", values: { name: "Spelt", price: 6.2 } },
-      { table: "loaves", id: 6, values: { price: 4.5 } },
-      { table: "loaves", id: 5, values: { description: long } },
-    ],
-  }, db);
-  assert.equal(r.status, 200, r.text.slice(0, 300));
-  const [added, kept, cut] = r.reply.changes;
-  assert.equal(added.id, 7, "the id was not the one the database gave");
-  assert.deepEqual(Object.keys(added.added), ["name", "price"]);
-  assert.equal(added.added.name, "Spelt");
-  assert.equal(kept.fields[0].same, true, JSON.stringify(kept));
-  assert.ok(cut.fields[0].now.endsWith("…") && cut.fields[0].now.length === MAX_CHANGE_VALUE + 1, JSON.stringify(cut.fields[0]).slice(0, 120));
-  assert.equal(db.rows("loaves").find((x) => x.id === 5).description, long, "the row lost characters");
-  const f = factsOf(r.reply);
-  assert.ok(f.some((t) => t.startsWith("changed: Added an entry to loaves: name “Spelt”, price “")), JSON.stringify(f));
-  assert.ok(f.some((t) => t.startsWith("nothing: Nothing to change for the entry “Sea Salt Focaccia” in loaves: price was already “")), JSON.stringify(f));
-  assert.ok(f.some((t) => t.startsWith("changed: Changed the entry “Walnut Levain” in loaves: description from") && t.includes("…")), JSON.stringify(f));
-  assert.equal(replyOutcomeOf(editReplyFacts(r.reply)), "done");
-});
-
 test("DATA 6 — AN ANSWER STORED BEFORE THE EVIDENCE EXISTED IS TOLD AS IT WAS: by count; and one whose only change was already right reads as nothing changed", () => {
   const old = { ok: true, layer: "data", applied: [{ table: "loaves", id: 2, columns: ["price"] }], failed: 0, cost: 1 };
   assert.deepEqual(factsOf(old), ["changed: Updated one entry in loaves."]);
@@ -292,20 +225,4 @@ test("DATA 9 — A ROW HANDED BACK WITHOUT A FIELD: that field is the value writ
   assert.deepEqual(added, { table: "loaves", id: 8, added: { name: "Fig", price: 7 }, unread: ["price"] });
   const af = factsOfChanges([added]);
   assert.ok(af.some((t) => t === "changed: Added an entry to loaves: name “Fig”, price “7” (as written; the database did not hand this back)."), JSON.stringify(af));
-});
-
-test("DATA 10 — THROUGH THE ROUTE: a long description changed only past the cut is told as changed, with its starts marked, and the row keeps every character", async () => {
-  const head = "A slow loaf, ".repeat(20);
-  const wasLong = head + "proved overnight.";
-  const nowLong = head + "proved for two nights.";
-  const db = rowsDb({ tables: loaves(BAKERY_LOAVES.map((r) => (r.id === 5 ? { ...r, description: wasLong } : r))), meta: { schema: JSON.stringify(SPEC) } });
-  const r = await dataEdit("dce-past-cut", "Say the walnut loaf is proved for two nights.", { changes: [{ table: "loaves", id: 5, values: { description: nowLong } }] }, db);
-  assert.equal(r.status, 200, r.text.slice(0, 300));
-  const f = r.reply.changes[0].fields[0];
-  assert.deepEqual([f.same, f.differsPastCut], [false, true], JSON.stringify(f).slice(0, 200));
-  assert.equal(db.rows("loaves").find((x) => x.id === 5).description, nowLong, "the row lost characters");
-  const facts = factsOf(r.reply);
-  assert.ok(facts.some((t) => t.startsWith("changed: Changed the entry “Walnut Levain” in loaves: description from")), JSON.stringify(facts));
-  assert.ok(!facts.some((t) => /already|Nothing to change/.test(t)), JSON.stringify(facts));
-  assert.equal(replyOutcomeOf(editReplyFacts(r.reply)), "done");
 });

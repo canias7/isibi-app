@@ -243,23 +243,7 @@ test("CACHE HITS ARE REPORTED: each call's tokens, with what came from the cache
 });
 
 // ── THE ROUTER READS THE KEPT CHAT; A TEST WINDOW (2026-10-20, owner: "do 1 and 2") ──
-import { routeMessage, askRequest, KEPT_TURNS } from "../builder/site-ask.mjs";
 
-test("ROUTER: given the kept chat, it is shown the summary and up to 40 recent messages, not 8", async () => {
-  const turns = Array.from({ length: 60 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: "turn " + i }));
-  let sent = null;
-  const send = async (req) => { sent = req; return { content: [{ type: "tool_use", name: "route", input: { intent: "ask", answer: "ok" } }], usage: {} }; };
-  await routeMessage({ send }, { message: "do the thing we said", site: { name: "x", pages: ["/"] }, hasSite: true, kept: { turns, summary: { text: "THEY WANT A BLUE HEADER", upTo: 10 } } }).catch(() => null);
-  const text = sent.messages[0].content;
-  assert.match(text, /EARLIER IN THIS CONVERSATION[\s\S]*THEY WANT A BLUE HEADER[\s\S]*THE CONVERSATION SO FAR/);
-  assert.equal(KEPT_TURNS, 40);
-  assert.ok(text.includes("turn 59") && text.includes("turn 20\n"), "the newest 40 turns are shown");
-  assert.ok(!text.includes("turn 19\n"), "older ones are left to the summary");
-  let plain = null;
-  await routeMessage({ send: async (req) => { plain = req; return { content: [], usage: {} }; } }, { message: "hi", site: { name: "x", pages: ["/"] }, hasSite: true, history: turns }).catch(() => null);
-  assert.ok(!plain.messages[0].content.includes("turn 40\n"), "without the kept chat the page's short window stays");
-  assert.ok(!/EARLIER IN THIS CONVERSATION/.test(askRequest({ message: "m", site: { name: "x", pages: [] } }).messages[0].content));
-});
 
 test("SERVER: the router's window is the kept chat after its summary, the message being sent left out", async () => {
   const env = { SITES_BUCKET: bucket() };
@@ -284,24 +268,6 @@ test("SERVER: a test window makes a short chat compact", async () => {
   let calls = 0;
   const w = await api.chatWindowFor(env, "u1", "site_abcd", { model: "grok-4.7", fixedChars: 22000, window: 15000, send: async () => { calls++; return { content: [{ type: "text", text: "SUM" }], usage: {} }; } });
   assert.equal(calls, 1); assert.equal(w.compacted, true); assert.ok(w.plan.used < COMPACT_AT);
-});
-
-test("WIRING: the route hands the router the kept chat, and the reply a test window", () => {
-  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(src, /rKept = await chatRouterWindow\(env, ru\.id, rb\.chat, rb\.message\)/);
-  assert.match(src, /history: rb\.history,\s*kept: rKept,/);
-  assert.match(src, /window: testWindowFor\(ru\.id, rb\.testWindow\) \}\) : null;/);
-});
-
-test("ROUTER: the window's start moves in steps of 20, so the next message's prompt starts the same", async () => {
-  const mk = (n) => Array.from({ length: n }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: "turn " + i }));
-  const shown = async (n) => { let sent = null; await routeMessage({ send: async (req) => { sent = req; return { content: [], usage: {} }; } }, { message: "next", site: { name: "x", pages: ["/"] }, hasSite: true, kept: { turns: mk(n) } }).catch(() => null); return sent.messages[0].content; };
-  const a = await shown(61), b = await shown(62), c = await shown(80);
-  const head = (t) => t.slice(0, t.indexOf("turn 60"));
-  assert.equal(head(a), head(b), "one more message changed what comes before it, so the cache cannot match");
-  assert.ok(a.includes("Owner: turn 20\n") && !a.includes("Owner: turn 18\n"), "the window starts at turn 20");
-  assert.ok(c.includes("Owner: turn 40\n") && !c.includes("Owner: turn 38\n"), "at 80 messages it has stepped to 40");
-  assert.match(a, /20 earlier messages are not shown/, "the messages before the window are said, never passed off as the whole");
 });
 
 test("GROK'S CACHE KEY GOES AS THE x-grok-conv-id HEADER, the documented route on Chat Completions", async () => {

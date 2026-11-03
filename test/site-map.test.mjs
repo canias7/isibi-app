@@ -145,21 +145,3 @@ const CHANGE_PATHS = {
   "schema / table change": "read", "access-rule change": "read", "Data-panel structural edit": "read",
   "uploads library change": "read",
 };
-test("every change path refreshes the map or is covered by the read-time rebuild; no reader trusts a saved copy", () => {
-  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const body = (name) => { const a = w.indexOf("async function " + name + "("); assert.ok(a > 0, name); return w.slice(a, w.indexOf("\n}\n", a)); };
-  const mech = {
-    build: () => /if \(out && out\.page === "app"\) await refreshSiteMap\(env, slug, /.test(w),
-    spine: () => /if \(!unsaved\.length\) await refreshSiteMap\(env, slug, version\);/.test(body("recompileAndPublish")),
-    restore: () => /await restoreSiteMap\(env, slug, id\);/.test(body("restoreVersion")),
-    read: () => /await refreshSiteMap\(env, slug, null\)/.test(body("currentSiteMap")) && /stale: true/.test(body("currentSiteMap")),
-  };
-  for (const [path, m] of Object.entries(CHANGE_PATHS)) assert.ok(mech[m] && mech[m](), path + " is not kept current (" + m + ")");
-  // THE SAVED COPY IS READ ONLY BY `currentSiteMap` (its marked fallback).
-  assert.equal([...w.matchAll(/await loadSiteMap\(/g)].length, 1, "a reader takes the saved map on trust");
-  assert.ok(body("currentSiteMap").includes("await loadSiteMap("));
-  // EVERY OTHER READER BUILDS FROM WHAT ITS OWN REQUEST JUST READ.
-  const readers = [...w.matchAll(/mapFor\("(\w+)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(readers, ["addon", "diagnose", "frame", "reply", "rowNote", "text"], "a new map reader: decide how it stays current, then list it here");
-  assert.ok(/currentSiteMap\(env, slug\); map = cur/.test(w), "list_site reads the current map");
-});

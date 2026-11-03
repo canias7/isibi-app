@@ -384,28 +384,6 @@ test("a `>` inside a BRACED expression does not end the element early either", (
   assert.equal(s[0].alt, "A wide one");
 });
 
-test("THE PICTURE BRANCH PUBLISHES, and prices a made picture before making it", () => {
-  // Neither is visible to a unit test: `worker.js` cannot be imported, so a
-  // branch that swaps the source and never publishes reports success while the
-  // live site is unchanged, and one that skips the affordability check calls a
-  // paid image model on an empty balance.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const from = w.indexOf('if (eLayer === "picture") {');
-  assert.ok(from > 0, "the picture branch is gone or moved");
-  const rest = [...w.matchAll(/if \(eLayer === "[a-z]+"\) \{/g)].map((m) => m.index).filter((i) => i > from);
-  const block = w.slice(from, rest.length ? rest[0] : from + 6000);
-  // `publishStep` since 2026-08-29 — the edit route's branches hand their pages
-  // to a deferring wrapper so the spine runs ONCE per message (owner: "if the
-  // act was 2 things then 1 publish"). The property is unchanged: this branch
-  // still hands its pages to the publish path.
-  assert.match(block, /publishStep\(env, \{/, "a swap that is never published is a change the owner cannot see");
-  assert.match(block, /imagesAffordable\(1, \{ balance/, "a made picture must be priced against the real balance first");
-  // AGAINST THE WHOLE FILE, not the branch — the import is at the top, and
-  // asserting it inside a window that starts at the branch can only ever fail.
-  assert.match(w, /import \{[^}]*runPictureEdit[^}]*\} from "\.\/builder\/site-picture\.mjs"/,
-    "a call to a name that was never imported is a ReferenceError on the edit path");
-});
-
 test("uploadFileName is the inverse of uploadKey, derived from both", async () => {
   const { uploadKey, uploadFileName } = await import("../site-uploads.mjs");
   for (const name of ["abc123.jpg", "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f.webp"]) {
@@ -490,23 +468,6 @@ test("THE HANDOFF NAMES THE LAYER AND THE PAGE, and does not fire on an ordinary
   assert.equal(missed.escalate, false, "an honest no became a paid page edit");
   assert.equal(missed.reason, "no-match");
   assert.ok(!missed.layer, "an ordinary miss must name no layer");
-});
-
-test("THE ROUTE FORWARDS THE HANDOFF, and the layer that decides it is the module", () => {
-  // The wiring layer, where this repo has recorded twelve dead features. The
-  // module can name a lane perfectly and the route can drop it, and from the
-  // customer's side that is indistinguishable from the model never naming one.
-  const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = worker.indexOf('if (eLayer === "picture")');
-  assert.ok(at > 0, "the picture branch is gone — rescope this");
-  const branch = worker.slice(at, worker.indexOf("const pPub = await recompileAndPublish", at));
-  assert.ok(branch.length > 400, "the picture window is empty — the anchor moved");
-  // RE-ANCHORED 2026-09-23: the module escalates for two reasons that are two
-  // classes, so the route names the handoff explicitly and explains the other
-  // (`picture/no-slots`). The property — the layer and page are FORWARDED —
-  // is unchanged.
-  assert.match(branch, /escalate\("needs-place", \{ layer: pOut\.layer, page: pOut\.page \}\)/,
-    "the route drops the handoff — a page with no slot goes to the full revise instead of one page");
 });
 
 // ── A KIT COMPONENT CARRYING ITS PICTURE AS PROPS ─────────────────────────

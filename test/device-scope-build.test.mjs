@@ -27,7 +27,7 @@ import { resultKey, jobKey, packJob, JOB_KIND } from "../builder/build-job.mjs";
 import { briefWithLayout } from "../builder/page-gen.mjs";
 import { buildFacts } from "../builder/build-answer.mjs";
 import { buildReplyFacts, addonReplyFacts } from "../builder/site-reply.mjs";
-import { readRouting } from "../builder/site-ask.mjs";
+
 import { jobBody } from "../builder/request.mjs";
 import {
   DEVICES, compareLayouts, readDeviceWishes, deviceWishesNote, deviceWishesFact, DEVICE_WISHES_FIELD,
@@ -112,22 +112,6 @@ async function driveBuild({ design = GOOD_DESIGN, layout = LAYOUT } = {}) {
   } finally { globalThis.fetch = blockedFetch; c.uninstall(); }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. THE LAYOUT IS STORED AFTER A BUILD.
-
-test("a first build asks its render check for the layout and stores it at all three widths", async () => {
-  const r = await driveBuild();
-  assert.ok(r.reply && r.reply.ok === true, "the build did not finish: " + JSON.stringify(r.reply).slice(0, 400));
-  assert.ok(r.builds.length >= 1 && r.builds.every((b) => b.layout === true), "the build's compile did not ask for the layout");
-  assert.deepEqual(r.saved, LAYOUT, "the build stored no layout, or not the one its render check measured");
-  assert.deepEqual(new Set(r.saved.map((x) => x.device)), new Set(DEVICES));
-  // …so the first scoped edit is compared, not refused for want of a before.
-  const v = compareLayouts(r.saved, LAYOUT.map((x) => (x.device === "phone" ? { ...x, digest: "new" } : x)), ["phone"]);
-  assert.deepEqual([v.ok, v.unknown, v.touched], [true, [], ["phone"]]);
-  // The reply does not carry the measurement.
-  assert.equal(Object.hasOwn(r.reply, "layout"), false, "the measurement leaked into the build's answer");
-});
-
 test("a build whose render check measured nothing stores no layout (never an empty 'unchanged')", async () => {
   const r = await driveBuild({ layout: null });
   assert.ok(r.reply && r.reply.ok === true, JSON.stringify(r.reply).slice(0, 300));
@@ -142,40 +126,6 @@ test("the build path stores the layout only after a real publish, from `out.layo
   const p = W.indexOf("const bPayload = JSON.stringify({");
   assert.ok(p > 0);
   assert.match(W.slice(p, p + 900), /\n\s*layout: true,/, "the build's compile payload does not ask for the layout");
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. SCREEN-SIZE WISHES IN A FIRST BUILD.
-
-test("the designer is offered the optional wishes field; a scoped wish reaches the page writer with its widths", async () => {
-  const r = await driveBuild({ design: { ...GOOD_DESIGN, devices: WISHES } });
-  assert.ok(r.reply && r.reply.ok === true, JSON.stringify(r.reply).slice(0, 300));
-  const tool = r.seen.designer[0].tools.find((t) => t.name === "design_schema");
-  assert.deepEqual(tool.input_schema.properties.devices, DEVICE_WISHES_FIELD);
-  assert.equal((tool.input_schema.required || []).includes("devices"), false, "the wishes field is compelled");
-  assert.ok(r.seen.writers.length >= 1, "no page writer was asked");
-  const w = r.seen.writers.join("\n");
-  assert.match(w, /SCREEN-SIZE WISHES/);
-  assert.match(w, PHONE_WISH);
-  assert.match(w, /FOR TABLET ONLY \(tablet is 768px to 1023px/);
-  // 4. The reply's facts name them.
-  const facts = buildReplyFacts(r.reply.buildFacts).facts.map((f) => f.text).join(" ");
-  assert.match(facts, /Screen-size wishes applied: Show a short menu with only Order and Visit \(phone only\); Lay the loaves out in two columns \(tablet only\)\./);
-});
-
-test("control: an unscoped build's writer requests are byte-for-byte those of a build with no wishes field at all", async () => {
-  const plain = await driveBuild();
-  const none = await driveBuild({ design: { ...GOOD_DESIGN, devices: [] } });
-  const every = await driveBuild({ design: { ...GOOD_DESIGN, devices: [{ devices: ["phone", "tablet", "desktop"], wish: "Big type" }] } });
-  assert.ok(plain.seen.writers.length >= 1);
-  assert.doesNotMatch(plain.seen.writers.join("\n"), /SCREEN-SIZE WISHES/);
-  assert.deepEqual(none.seen.writers, plain.seen.writers, "an empty wish list changed the writer's request");
-  assert.deepEqual(every.seen.writers, plain.seen.writers, "a wish for every screen changed the writer's request");
-  assert.equal(buildReplyFacts(plain.reply.buildFacts).facts.some((f) => /Screen-size wishes/.test(f.text)), false);
-  // And the composer itself adds nothing without wishes.
-  const args = { brief: "B", plan: null };
-  assert.equal(briefWithLayout({ ...args, devices: null }), briefWithLayout(args));
-  assert.equal(briefWithLayout({ ...args, devices: [] }), briefWithLayout(args));
 });
 
 test("the wishes reader: proper subsets only, canonical order, junk and all-three dropped, capped", () => {
@@ -197,38 +147,6 @@ test("the wishes reach the build only through the design answer, and only a live
   assert.equal((W.match(/briefWithLayout\(\{ brief, plan, tsx, gif, qr, three, images: imgBrief, media, devices: deviceWishes \}\)/g) || []).length, 3, "the band writers, the single call and the site agent are not all told");
   assert.match(W, /devices: pages && pages\.page === "app" \? design\.deviceWishes : null/);
   assert.match(W, /devices: pages && pages\.page === "app" && buildArgs \? buildArgs\.deviceWishes : null/);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. ADD-ONS.
-
-test("an addition the router scoped keeps its devices end to end: router, request, page, writer, guard, facts", () => {
-  const trace = { reasons: [] };
-  const a = readRouting({ content: [{ type: "tool_use", input: { intent: "addon", devices: ["tablet", "phone"] } }] }, { live: true, hasSite: true, pages: ["/"], trace });
-  assert.equal(a.intent, "addon");
-  assert.deepEqual(a.devices, ["phone", "tablet"]);
-  assert.equal(trace.reasons.includes("edit-fields-ignored"), false, "an addition's devices were marked as ignored");
-  // The observer is alive: a real edit field on an addition is still marked.
-  const t2 = { reasons: [] };
-  readRouting({ content: [{ type: "tool_use", input: { intent: "addon", layer: "look" } }] }, { live: true, hasSite: true, pages: ["/"], trace: t2 });
-  assert.ok(t2.reasons.includes("edit-fields-ignored"), "the trace observer saw nothing");
-  assert.equal(readRouting({ content: [{ type: "tool_use", input: { intent: "addon" } }] }, { live: true, hasSite: true, pages: ["/"] }).devices, undefined);
-  // The routing response sends it for an addition (both places it answers).
-  assert.equal((W.match(/devices: \(routed\.intent === "edit" \|\| routed\.intent === "addon"\) && Array\.isArray\(routed\.devices\)/g) || []).length, 2);
-  // The page posts it with the addition.
-  const i = CHAT.indexOf("function siteAddon(");
-  assert.ok(i > 0);
-  assert.match(CHAT.slice(i, i + 4000), /devices: d && Array\.isArray\(d\.devices\) && d\.devices\.length \? d\.devices : undefined,/);
-  // The route reads it, tells the writer, and guards the publish.
-  assert.match(W, /const aDevices = readDevices\(ab && ab\.devices\);\n\s*const aDeviceNote = deviceNote\(aDevices\);/);
-  // RE-ANCHORED 2026-10-24 (combine-d): each parallel page writer's own directive (`aDirective`, addon-uncapped).
-  assert.match(W, /brief: aInstruction \+ \(aDirective \? "\\n\\n" \+ aDirective : ""\) \+ \(aDeviceNote \? "\\n\\n" \+ aDeviceNote : ""\),/);
-  const p = W.indexOf("const aPub = await recompileAndPublish(env, {");
-  assert.ok(p > 0);
-  assert.match(W.slice(p, p + 1800), /devices: aDevices,/, "the addition's publish is not guarded");
-  // The reply says which devices.
-  const f = addonReplyFacts({ ok: true, added: ["/hours"], devices: { asked: ["phone"], changed: ["phone"] } }).facts.map((x) => x.text).join(" ");
-  assert.match(f, /for the phone view only/);
 });
 
 test("a request the server takes on files its addition with the router's devices", () => {

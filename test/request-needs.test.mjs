@@ -26,7 +26,7 @@ import { page as pageSrc } from "./fixtures/live-ask.mjs";
 import { planParts, newRequest, nextStep, requestView } from "../builder/request.mjs";
 import { inferNeeds } from "../builder/request-plan.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
-import { LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
+import { LIVE_ASK_TOOL } from "../builder/route-shared.mjs";
 
 const DESC = "Change the site description to say we bake overnight sourdough";
 const NEW_DESC = "Overnight sourdough from a Bristol side street.";
@@ -54,74 +54,6 @@ async function withPlatform(opts, fn) {
   const P = platform(opts);
   try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
 }
-
-// ── THROUGH THE REAL REQUEST FLOW ────────────────────────────────────────────
-
-test("Driftwood replay — the part making /lessons ends partial (something capped), /lessons was created: the edit that reads /lessons runs", async () => {
-  await withPlatform({
-    slug: slugOf("drift"), pages: NAV_PAGES, replies: true,
-    answers: {
-      route: [
-        // THE MODEL'S PLAN: the addition makes /lessons; the second change reads it.
-        { intent: "addon", alsoAsked: [DESC], targets: [{ change: 0, writes: ["new-page:/lessons"] }, { change: 1, reads: ["page:/lessons"] }] },
-        { intent: "edit", layer: "look" },
-      ],
-      // PARTIAL: the picker names a frame with no words, so it is set aside.
-      [T.adds]: { kinds: ["page", "frame"] },
-      "add:page": { page: [PAGE("/lessons", "Lessons")] }, [T.pages]: { pages: [writtenPage("/lessons")] },
-      // RE-ANCHORED 2026-10-24 (combine-d): addon-uncapped hands the set-aside
-      // frame on as a carved part (`frame-hop`) instead of ending the addition
-      // `partial`; its menu editor is refused here (400), so the carved part
-      // ends failed and the edit that reads /lessons is not held on it.
-      write_nav: () => new Response("bad request", { status: 400 }),
-      ...DESCRIBE,
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: ADD_LESSONS + ", then " + DESC + "." });
-    const { rec } = await settle(P, r.key);
-    assert.deepEqual(rec.parts[1].needs, [0], why(rec));
-    assert.deepEqual(rec.parts[1].needOn, { 0: ["page:/lessons"] });
-    assert.ok(["partial", "done"].includes(rec.parts[0].status), why(rec));
-    assert.ok(rec.parts[0].created.includes("page:/lessons"), why(rec));
-    assert.ok(P.pages().includes("lessons.tsx"));
-    assert.equal(rec.parts[1].status, "done", why(rec));
-    assert.equal(P.look().description, NEW_DESC, "the edit that needed /lessons was held");
-    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
-    assert.doesNotMatch(facts, /Not started/, facts);
-  });
-});
-
-test("Saltmarsh replay — the addition fails: the part the router said came after it (naming nothing) runs; only the part that uses its page waits, and says which page", async () => {
-  await withPlatform({
-    slug: slugOf("salt"), pages: NAV_PAGES, replies: true,
-    answers: {
-      route: [
-        { intent: "addon", alsoAsked: [DESC, LINK], dependsOn: [{ change: 1, after: [0] }, { change: 2, after: [0] }], targets: [{ change: 0, writes: ["new-page:/lessons"] }, { change: 2, reads: ["page:/lessons"] }] },
-        { intent: "edit", layer: "look" },
-      ],
-      // THE ADDITION FAILS: nothing it can add.
-      [T.adds]: { kinds: [] },
-      ...DESCRIBE,
-    },
-  }, async (P) => {
-    const r = await sendMessage(P, { message: ADD_LESSONS + ", " + DESC + ", and " + LINK + "." });
-    const { rec } = await settle(P, r.key);
-    assert.equal(rec.parts[0].status, "failed", why(rec));
-    assert.deepEqual(rec.parts[1].needs, [0]);
-    assert.equal(rec.parts[1].status, "done", "a part whose need names nothing was held by a failed part: " + why(rec));
-    assert.equal(P.look().description, NEW_DESC);
-    assert.deepEqual([rec.parts[2].status, rec.parts[2].why, rec.parts[2].missing], ["not-run", "needs:0", ["page:/lessons"]], why(rec));
-    assert.equal(rec.parts[2].jobs.length, 0);
-    assert.equal(rec.state, "partial");
-    const v = await readWritten(P, REQ(P, r.key));
-    const view = v.body.request.parts[2];
-    assert.deepEqual(view.missing, ["page:/lessons"]);
-    const facts = toldIn(P, v);
-    assert.match(facts, /Not started: “put a link to the new lessons page on the Visit page”, because it uses the page “\/lessons”, which “Add a lessons page and put a link to it in the menu[^”]*” was to make, and it was not made\./, facts);
-    assert.doesNotMatch(facts, /rest of the site/);
-    assert.doesNotMatch(facts, /Not started: “Change the site description/);
-  });
-});
 
 // ── THE GATE, DRIVEN WITH LITERALS ───────────────────────────────────────────
 

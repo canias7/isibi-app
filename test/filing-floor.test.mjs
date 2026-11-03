@@ -119,33 +119,9 @@ test("addon route: balance 10 — filed as today", async () => {
   });
 });
 
-// ── THE ROUTING ROUTE'S ACCEPTANCE (the request flow) ──────────────────────
-
-test("request flow: balance 1 — the router answers, but nothing is accepted or filed, and no further model call", async () => {
-  await withPlatform({ slug: slugOf("r1"), balance: 1, answers: { route: { intent: "edit", layer: "look" } } }, async (P) => {
-    const r = await sendMessage(P, { message: MSG });
-    assert.equal(r.status, 402, JSON.stringify(r.body));
-    assert.equal(r.body.need, "credits");
-    assert.equal(r.body.cost, 0);
-    assert.equal(r.body.error, "not enough credits");
-    assert.equal(filedJobs(P).length, 0);
-    assert.equal(P.queue.length, 0);
-    assert.equal([...P.objects.keys()].filter((k) => k.startsWith("requests/")).length, 0, "a request was accepted");
-    assert.deepEqual(P.modelLog.map((m) => m.tool), ["route_message"], "a model other than the router was called");
-  });
-});
-
 test("request flow: balance 10 — accepted and filed as today", async () => {
   await withPlatform({ slug: slugOf("r10"), balance: 10, answers: { route: { intent: "edit", layer: "look" } } }, async (P) => {
     const r = await sendMessage(P, { message: MSG });
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.ok(r.body.request && r.body.request.key, JSON.stringify(r.body));
-  });
-});
-
-test("request flow: a page removal with balance 1 — accepted (free work)", async () => {
-  await withPlatform({ slug: slugOf("rfree"), balance: 1, answers: { route: { intent: "edit", layer: "page", page: "/visit", remove: true } } }, async (P) => {
-    const r = await sendMessage(P, { message: "Remove the visit page." });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.ok(r.body.request && r.body.request.key, JSON.stringify(r.body));
   });

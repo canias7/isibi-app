@@ -11,7 +11,7 @@ import {
   linkSlots, matchLinks, applyPageLinks, linkRefusal,
   MAX_LINK_LINES, MAX_LINK_SLOTS,
 } from "../builder/site-nav.mjs";
-import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { EDIT_LAYERS } from "../builder/route-shared.mjs";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { GENERATED_DIR } from "./fixtures/generated.mjs";
 
@@ -488,69 +488,6 @@ test("`nav` is a layer the router can answer with", () => {
   assert.ok(EDIT_LAYERS.includes("nav"));
 });
 
-test("the router's layer description names the menu and points a new page at addon", () => {
-  const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
-  const at = src.indexOf('"\\"nav\\" —');
-  assert.ok(at > 0, "the nav layer has a description");
-  const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
-  assert.ok(window.length > 100, "the window reaches the next layer");
-  // THE PROPERTY, NOT THE SPELLING. This was pinned to the exact phrase "THE TOP
-  // OF EVERY PAGE" and went red on a correct change — the lane grew the footer's
-  // contact details, which are at the BOTTOM, so the headline had to stop
-  // claiming the top. What it must say is that this lane is the same on every
-  // page, since that is the fact separating it from `page`.
-  assert.match(window, /every[- ]page/i);
-  assert.match(window, /THE MENU — which items are in it/);
-  // An item can only point at a page that exists, so "add a gallery to the
-  // menu" with no gallery page is an addon and must say so here.
-  assert.match(window, /ONLY EVER POINTS AT PAGES THE SITE ALREADY HAS/);
-});
-
-test("THE `page` LAYER NO LONGER SENDS A MENU CHANGE TO THE ADDON LANE", () => {
-  // It used to, by name: "add the gallery to the menu everywhere" was its own
-  // worked example of something to answer "addon" for. Correct while nothing
-  // could edit a menu; with this layer it is a ~27-credit page-generation call
-  // to move one word, and the example has to point at the cheap lane or the
-  // layer is reachable by nothing.
-  // COMMENTS ARE BLANKED BEFORE THE ABSENCE IS JUDGED, and this test failed
-  // against a correct fix without it: the comment recording why the clause
-  // changed quotes the clause, so prose explaining a bug contains the bug's
-  // spelling. WHOLE LINES ONLY — blanking from any `//` would eat a line
-  // holding an `https://` URL, and this file is mostly prompt text.
-  const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8")
-    .replace(/^[ \t]*\/\/[^\n]*/gm, (m) => " ".repeat(m.length));
-  const at = src.indexOf('"ONE PAGE, AND ONLY ONE.');
-  assert.ok(at > 0);
-  const window = src.slice(at, at + 1400);
-  assert.doesNotMatch(window, /add the gallery to the menu/);
-  // RE-ANCHORED 2026-10-02: a change to the menu the site HAS goes to `nav`;
-  // a NEW item in it is an addition, which the add-on step hands back here.
-  assert.match(window, /A CHANGE TO THE MENU IT HAS IS \\"nav\\"/);
-});
-
-test("the worker dispatches the nav layer and imports the module", () => {
-  // The wiring layer, where this repo has recorded twelve dead features. A call
-  // to a name that was never imported is a ReferenceError on the edit path.
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /import \{[^}]*\brunNavEdit\b[^}]*\} from "\.\/builder\/site-nav\.mjs"/);
-  const at = w.indexOf('if (eLayer === "nav")');
-  assert.ok(at > 0, "the nav branch exists");
-  const window = w.slice(at, w.indexOf('if (eLayer === "picture")', at));
-  assert.ok(window.length > 500, "the window reaches the next branch");
-  assert.match(window, /await runNavEdit\(/);
-  // THE ROUTES ARE THE ALLOW-LIST and they have to come from the real pages —
-  // an empty list drops every internal item in the menu.
-  assert.match(window, /routes: navRoutes/);
-  assert.match(window, /eSrc\.map\(\(p\) => routeOf\(p\.path\)\)/);
-  // It republishes through the one spine, so a nav edit gets the render check,
-  // the version archive and the redirect map like every other cheap edit.
-  // `publishStep` since 2026-08-29 — the edit route's branches hand their pages
-  // to a deferring wrapper so the spine runs ONCE per message (owner: "if the
-  // act was 2 things then 1 publish"). The property is unchanged: this branch
-  // still hands its pages to the publish path.
-  assert.match(window, /await publishStep\(env, \{/);
-});
-
 // ── THE CORPUS, WHICH IS WHAT DECIDES WHETHER THIS CAN EXIST ────────────────
 
 test("driven over every page the generator learns from: no false positives, and every menu round-trips", () => {
@@ -811,29 +748,6 @@ test("driven over every real header the generator and the exemplars wrote", () =
       assert.deepEqual(changed, [], s.page + " round-tripped to a different source");
     }
   }
-});
-
-test("the router's nav layer names the BUTTON as well as the menu", () => {
-  // A capability the router cannot describe is one nothing can reach — the
-  // shape twelve dead features in this repo have had.
-  const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
-  const at = src.indexOf('"\\"nav\\" —');
-  const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
-  // THE FRAME'S BUTTON (2026-10-23, fix-edit-flow): a page section's own button label is "text".
-  assert.match(window, /THE FRAME'S BUTTON — the one beside the menu in the header, on every page — what it says AND where it goes/);
-  // The phone case is named explicitly: it is 46 of the 288 buttons in the
-  // corpus, and for a trade it is the entire conversion path.
-  assert.match(window, /phone number belongs here/);
-});
-
-test("the worker carries the button's outcome back", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf('ok: true, layer: "nav"');
-  assert.ok(at > 0);
-  // WIDER SINCE 2026-10-03: every entry left out is carried by name before it.
-  const window = w.slice(at, at + 1600);
-  assert.match(window, /action: nOut\.action \|\| undefined/);
-  assert.match(window, /removedAction: nOut\.removedAction \|\| undefined/);
 });
 
 test("two headers in one file are both written, and the offsets stay right", () => {
@@ -1268,25 +1182,6 @@ test("a menu change and a link change in one instruction both land, and both are
     assert.match(out.msg, /Updated the menu/);
     assert.match(out.msg, /1 link in the copy repointed too/);
   });
-});
-
-// ── THE WIRING, WHICH IS WHERE TWELVE FEATURES HAVE DIED ─────────────────────
-
-test("the router's nav layer names the links in the copy", () => {
-  // A capability the router cannot describe is one nothing can reach.
-  const src = fs.readFileSync(new URL("../builder/site-ask.mjs", import.meta.url), "utf8");
-  const at = src.indexOf('"\\"nav\\" —');
-  const window = src.slice(at, src.indexOf('"\\"page\\" —', at));
-  assert.match(window, /LINKS WRITTEN INTO THE PAGES/);
-});
-
-test("the worker carries the links' outcome back", () => {
-  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf('ok: true, layer: "nav"');
-  assert.ok(at > 0);
-  const window = w.slice(at, w.indexOf("cost: await eCharge", at));
-  assert.match(window, /movedLinks: nOut\.movedLinks/);
-  assert.match(window, /refusedLinks: nOut\.refusedLinks/);
 });
 
 test("driven over every page the generator learns from: not one false link", () => {

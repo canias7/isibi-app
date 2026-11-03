@@ -283,24 +283,6 @@ test("the stamped preset is not even bound in the digest's scope", () => {
   assert.doesNotMatch(code, /(?<![.\w$])access\s*===/, "a gate reads the stamped preset again");
 });
 
-// ── the three stale claims ──────────────────────────────────────────────────
-
-test("the clarify gate's comment names the intent it actually resolves to", async () => {
-  // `FALLBACK_WITH_SITE` is `addon`, so a gated clarify on an existing site —
-  // which is every revise, i.e. exactly where the gate is closed — is overruled
-  // into an ADDON, not a build. Right either way (both are work, never a
-  // paragraph); the sentence named the one it is not.
-  const { FALLBACK_WITH_SITE, readRouting } = await import("../builder/site-ask.mjs");
-  const reply = { content: [{ type: "tool_use", input: { intent: "clarify", question: { text: "?", options: ["a", "b"] } } }] };
-  assert.equal(readRouting(reply, { canClarify: false, hasSite: true }).intent, FALLBACK_WITH_SITE);
-  assert.equal(FALLBACK_WITH_SITE, "addon", "the fallback moved — re-read the comment beside the gate");
-  const src = read("../builder/site-ask.mjs");
-  const at = src.indexOf("CLARIFY IS GATED BY THE CALLER");
-  assert.ok(at > 0, "the gate comment is gone — rescope this");
-  const note = src.slice(at, src.indexOf("if (input.intent === \"clarify\"", at));
-  assert.doesNotMatch(note, /simply overruled into a build/, "the stale claim is back");
-});
-
 test("the seeding note no longer says an owner-write route does not exist", () => {
   // It does — `handleOwnerWrite`, whose own docstring says it closes exactly
   // that gap. The seeding CONCLUSION is untouched and still right: a café should

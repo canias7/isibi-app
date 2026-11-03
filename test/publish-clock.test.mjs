@@ -35,36 +35,6 @@ test("the job gate refuses a publish below the floor, by name, after cancel and 
     "the floor is asked of the budget's own canPublish, only for the build phase, and only when the budget has one");
 });
 
-test("the addon asks the gate BEFORE it reserves credits, so a refusal for time charges nothing", () => {
-  const route = between(worker, "// ── MAY THIS STILL PUBLISH? (async path)", "aMark(\"publish:1\", \"start\"", "the addon's publish gate");
-  const gate = route.indexOf('aJob.gate("build")');
-  // RE-ANCHORED 2026-09-05 (stage 1a-ii): the PAGE PATH's reserve — the one
-  // bill, or sequence #4 once #1 went ahead of a schema apply — still sits
-  // after the gate. Sequence #1 sits before the schema apply by design, so
-  // a job refused for time after a backend addon is charged #1 and refunded
-  // by the consumer, the same road a failed compile already takes; what this
-  // guard keeps is that the page call's spend is never reserved before the
-  // floor has been asked.
-  const charge = route.indexOf("aCost = aFirstPlaced ?");
-  assert.ok(gate > 0 && charge > gate, "the page path's reserve is placed before the gate — a job refused for time would be charged and refunded instead of never charged");
-  assert.match(route, /return await editStopped\(env, \{ job: aJob, why: aGatePub\.why/, "a refused gate no longer stops the job through editStopped");
-});
-
-test("a stopped job refused for time says so, and leaves what it cost to the reader", () => {
-  // ANCHORED ON THE NAME, not the whole parameter list, which gains a field
-  // whenever a caller has something new to hand it (`kept`, 2026-09-25).
-  const fn = between(worker, "async function editStopped(env, {", "async function runLostEditJobs(", "editStopped");
-  const time = fn.indexOf('why === "time"');
-  assert.ok(time > 0, "no sentence for a job refused for time");
-  const sentence = fn.slice(time, fn.indexOf("\n", fn.indexOf("?", time) + 1));
-  assert.match(sentence, /longer than the time we allow/);
-  // (2026-09-25) It said "nothing was charged", and the routing call that chose
-  // the edit is a charge nothing refunds. What the edit cost is the reader's to
-  // say, from the job's own row (`servedEditReply`), beside the routing call's.
-  assert.doesNotMatch(sentence, /charg|refund|cost/i, "the stop claims something about money: " + sentence);
-  assert.match(sentence, /two smaller steps/);
-});
-
 test("the spine tells the clock apart from the code: a timed-out container call is `timedOut`, ours, and worded as time", () => {
   const spine = between(worker, "async function recompileAndPublish(", "// ── A RULE THAT SELECTS NOTHING DOES NOT SHIP YET", "recompileAndPublish's compile");
   // The catch classes the error and carries the class out.

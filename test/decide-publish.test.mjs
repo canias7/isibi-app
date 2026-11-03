@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { MAX_NEW_SLUG, capNewSlug, previewLabel, rebuildGoesLive, PUBLISH_KEEP_BUILDS, publishKeeps } from "../site-draft.mjs";
 import { verdictFor, drainRebuild } from "../site-rebuild.mjs";
-import { siteDigest, DRAFT_FIRST_FACT } from "../builder/site-ask.mjs";
+
 import { siteContextBlock } from "../builder/site-converse.mjs";
 import { translationBatches, batchKey, stuckFor, stuckAfter, nextCache, langNote, STUCK_KEY, BATCH_MAX_STRINGS, BATCH_MAX_CHARS } from "../builder/site-translate.mjs";
 import { readableJobKey, allowedJobKey } from "../builder/job-gateway.mjs";
@@ -69,41 +69,9 @@ test("#247 an EXISTING site's long name is untouched: only a certainly free name
   assert.match(W, /slug: \{ type: "string", description: "[^"]*at most 43 characters\." \}/, "the designer is not told the cap");
 });
 
-// ── #216: the router and the reply are told changes are drafts ─────────────
-
-test("#216 under draft-first the router is told every change is a draft until Publish, and to point a typed publish at the button", () => {
-  const on = siteDigest({ name: "Harbour Loaf", url: "https://h.gofarther.app", pages: ["/"], draftFirst: true });
-  assert.ok(on.includes(DRAFT_FIRST_FACT), on);
-  assert.match(DRAFT_FIRST_FACT, /goes live only when they press the Publish button/);
-  assert.match(DRAFT_FIRST_FACT, /"publish my changes"[^.]*answer \\?"ask\\?" and tell them to press the Publish button/);
-  const off = siteDigest({ name: "Harbour Loaf", url: "https://h.gofarther.app", pages: ["/"] });
-  assert.ok(!off.includes("Publish button"), "told about drafts with draft-first off");
-  // A TRUTHY NON-TRUE IS NOT THE SWITCH.
-  assert.ok(!siteDigest({ name: "H", draftFirst: "on" }).includes("Publish button"));
-  // AN EMPTY PROJECT IS STILL AN EMPTY PROJECT.
-  assert.match(siteDigest({ draftFirst: true }), /brand new, empty project/);
-});
-
 test("#216 the reply's own context points a typed publish at the button", () => {
   const block = siteContextBlock({ exists: true, name: "Harbour Loaf", url: "https://h.gofarther.app", draftFirst: true, pages: [] });
   assert.match(block, /when they ask to publish or put their changes live, tell them to press the Publish button/);
-});
-
-test("#216 the route tells the router from the Worker's own switch, never the body's word", async () => {
-  const worker = await loadWorker();
-  for (const [on, want] of [["on", true], ["", false]]) {
-    const slug = freshSlug("dp216" + (on ? "on" : "off"));
-    const store = askBucket(slug);
-    await askWire({ route: { intent: "ask", answer: "Press Publish." }, converse: "Press the Publish button." }, async (seen) => {
-      const env = { ...envFor(store), DRAFT_FIRST: on };
-      const r = await routeCall(worker, env, { slug, message: "publish my changes", extra: { site: { name: "Harbour Loaf", url: "https://" + slug + ".gofarther.app", pages: ["/"], tables: [], draftFirst: !want } } });
-      assert.equal(r.status, 200, JSON.stringify(r.body));
-      const asked = seen.routerAsked[0];
-      assert.ok(asked, "the router was never asked");
-      const told = String(asked.messages[0].content);
-      assert.equal(told.includes("Publish button above their site"), want, (want ? "not told" : "told") + " about drafts: " + told.slice(0, 400));
-    });
-  }
 });
 
 // ── #144: the platform rebuild ──────────────────────────────────────────────

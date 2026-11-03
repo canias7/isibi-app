@@ -22,7 +22,6 @@ import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { TWEAK_TOOL, TWEAK_RETRY_REASONS, checkFeedback, tweakParser } from "../builder/site-tweak.mjs";
 import { DATA_TOOL, runDataEdit } from "../builder/site-apply.mjs";
-import { routeMessage, HELD_UNREAD_REASON, heldUnread } from "../builder/site-ask.mjs";
 import { pickLanes, runLane } from "../builder/site-lanes.mjs";
 import { runNavEdit, navSlots } from "../builder/site-nav.mjs";
 import { runRulesEdit } from "../builder/site-rules.mjs";
@@ -151,40 +150,6 @@ async function tweakDrive(answers) {
 }
 const writers = (r) => r.tools.filter((t) => t === TWEAK_TOOL.name || t === "write_pages");
 
-test("TWEAK: a first answer that does not parse is retried once with that reason, and the retry's sound answer ships", async () => {
-  assert.equal(typeof (await tweakParser()), "function", "no parser here, so this case proves nothing");
-  const r = await tweakDrive({ [TWEAK_TOOL.name]: [TWEAK_BROKEN, TWEAK_OK] });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.tweak, true, "not the tweak path");
-  assert.deepEqual(writers(r), [TWEAK_TOOL.name, TWEAK_TOOL.name], "not one extra call: " + JSON.stringify(r.tools));
-  assert.equal(r.stored, TWEAK_OK);
-  const turn = sameButTurns(r.reqs[0], r.reqs[1]);
-  assert.equal(turn[0].type, "tool_result");
-  assert.equal(turn[0].is_error, true);
-  assert.match(turn[0].content, /no longer parses/);
-  assert.equal(r.reqs[1].model, r.reqs[0].model, "the retry switched model");
-  // ONE BILL, carrying both calls.
-  assert.equal(r.debits.length, 1);
-  assert.equal(r.backs.length, 0);
-});
-
-test("TWEAK: a reworded first answer is retried with the rewording reason; a reworded retry falls back to the rewrite as today", async () => {
-  const ok = await tweakDrive({ [TWEAK_TOOL.name]: [TWEAK_REWORDED, TWEAK_OK] });
-  assert.equal(ok.status, 200, JSON.stringify(ok.body));
-  assert.deepEqual(writers(ok), [TWEAK_TOOL.name, TWEAK_TOOL.name]);
-  assert.match(reasonText(sameButTurns(ok.reqs[0], ok.reqs[1])), /visible wording/);
-  const both = await tweakDrive({ [TWEAK_TOOL.name]: [TWEAK_REWORDED, TWEAK_REWORDED], write_pages: [{ pages: [{ path: "src/routes/index.tsx", source: REWRITE_OK }], parts: [] }] });
-  assert.equal(both.status, 200, JSON.stringify(both.body));
-  assert.deepEqual(writers(both), [TWEAK_TOOL.name, TWEAK_TOOL.name, "write_pages"], "not two tweaks then the existing climb: " + JSON.stringify(both.tools));
-  assert.equal(both.stored, REWRITE_OK);
-});
-
-test("TWEAK: a first answer that passes is never retried", async () => {
-  const r = await tweakDrive({ [TWEAK_TOOL.name]: [TWEAK_OK] });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(writers(r), [TWEAK_TOOL.name]);
-});
-
 test("TWEAK: every retried check has its own plain-words reason", () => {
   assert.deepEqual([...TWEAK_RETRY_REASONS], ["edits", "no-change", "truncated", "syntax", "moved-route", "reworded", "needs-parts", "lint"]);
   const said = TWEAK_RETRY_REASONS.map((reason) => checkFeedback({ reason, problems: ["P1"], parts: ["Card"], edit: "old-missing", index: 0 }));
@@ -241,24 +206,6 @@ async function dataDrive(slug, answers) {
 const NONE = { changes: [] };
 const RYE = { changes: [{ table: "loaves", id: 2, values: { price: 5.6 } }] };
 
-test("DATA: an answer that matched no row is retried once with that reason; the retry's row is written and billed once", async () => {
-  const r = await dataDrive("rwr-data-a", [NONE, RYE]);
-  assert.equal(r.status, 200, r.text.slice(0, 300));
-  assert.equal(r.reply.ok, true, r.text.slice(0, 300));
-  assert.equal(r.reqs.length, 2, "not exactly one extra call");
-  assert.match(reasonText(sameButTurns(r.reqs[0], r.reqs[1])), /matches a row/);
-  assert.equal(r.debits.length, 1, "not one bill: " + JSON.stringify(r.debits));
-});
-
-test("DATA: a retry that matches no row either ends as today's no-match; a first answer that matches is never retried", async () => {
-  const both = await dataDrive("rwr-data-b", [NONE, NONE]);
-  assert.equal(both.reqs.length, 2);
-  assert.equal(both.reply.ok, false, both.text.slice(0, 300));
-  const once = await dataDrive("rwr-data-c", [RYE]);
-  assert.equal(once.reply.ok, true, once.text.slice(0, 300));
-  assert.equal(once.reqs.length, 1);
-});
-
 test("DATA: the retry's reserve is handed both calls' usage, so the one bill carries the retry", async () => {
   const tables = [{ name: "loaves", columns: ["name", "price"], rows: BAKERY_LOAVES.slice(0, 2) }];
   const tool = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", id: "x", name: DATA_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
@@ -276,37 +223,7 @@ test("DATA: the retry's reserve is handed both calls' usage, so the one bill car
 const SITE = { name: "Sharp Fade", url: "/s/sharp-fade/", pages: ["/", "/book"], tables: ["services", "bookings"] };
 const MSG = "Make the header darker. Also add a gallery page.";
 const toolReply = (input) => ({ content: [{ type: "tool_use", id: "r1", name: "route_message", input }], usage: { input_tokens: 900, output_tokens: 60 } });
-async function route(answers) {
-  const sent = [], marks = [];
-  const left = answers.slice();
-  const r = await routeMessage({ send: async (req) => { sent.push(req); return toolReply(left.shift()); }, mark: (d) => marks.push(d) }, { message: MSG, site: SITE, hasSite: true });
-  return { r, sent, marks };
-}
 const LOOK = { intent: "edit", layer: "look" };
-
-test("ROUTER: a held-back part not found in the message is retried once with that reason; the retry's exact copy is used", async () => {
-  assert.equal(heldUnread(MSG, "add a gallery section"), true);
-  assert.equal(heldUnread(MSG, "Also add a gallery page."), false);
-  const { r, sent, marks } = await route([{ ...LOOK, alsoAsked: "add a gallery section" }, { ...LOOK, alsoAsked: "Also add a gallery page." }]);
-  assert.equal(sent.length, 2);
-  assert.match(reasonText(sameButTurns(sent[0], sent[1])), /not found word for word/);
-  assert.ok(reasonText(sameButTurns(sent[0], sent[1])).includes(HELD_UNREAD_REASON));
-  assert.equal(heldUnread(MSG, r.alsoAsked), false);
-  assert.deepEqual(r.retryReason, { step: "route", reason: "held-unread", ok: true });
-  assert.deepEqual(marks, [{ step: "route", reason: "held-unread", ok: true }]);
-  assert.equal(r.usage.in, 1800, "the retry's call is not on the routing bill");
-});
-
-test("ROUTER: a retry that still misquotes is answered as it came (the routes refuse held-unread as today); a good first answer is not retried", async () => {
-  const bad = await route([{ ...LOOK, alsoAsked: "add a gallery section" }, { ...LOOK, alsoAsked: "a map" }]);
-  assert.equal(bad.sent.length, 2);
-  assert.equal(heldUnread(MSG, bad.r.alsoAsked), true);
-  assert.deepEqual(bad.r.retryReason, { step: "route", reason: "held-unread", ok: false });
-  assert.equal(bad.r.usage.in, 900, "a routing retry that still misquotes was billed (round 2: first call only)");
-  const good = await route([{ ...LOOK, alsoAsked: "Also add a gallery page." }]);
-  assert.equal(good.sent.length, 1);
-  assert.equal(good.r.retryReason, undefined);
-});
 
 // ── THE LOOK DOOR'S PICKER ───────────────────────────────────────────────────
 

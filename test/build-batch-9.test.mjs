@@ -317,32 +317,3 @@ test("bounds: a repair that is still unusable, then busy, gets the one provider 
 });
 
 const Q9 = "9e9c3d4e5f60718293a4b5c6d7e8f9ab";
-test("THE QUEUED JOB (browser closed): the consumer repairs the design and fires the same build; a REDELIVERY of that job makes no second corrective call", async () => {
-  const b = buildBucket();
-  const led = ledger();
-  const designs = [];
-  const onDesign = (n, bd) => (isRepair(told(bd)) ? ok(GOOD_DESIGN) : json({ stop_reason: "end_turn", content: [{ type: "text", text: "no" }], usage: { input_tokens: 100, output_tokens: 50 } }));
-  await fireInterim(b, Q9, led, { onDesign, designs });
-  assert.equal(designs.length, 2);
-  assert.equal(designs.filter((d) => isRepair(told(d))).length, 1);
-  const kept = JSON.parse(b.store.get("jobs/" + Q9 + ".design.json"));
-  assert.deepEqual(kept.attempts.map((a) => a.retry), ["repair"]);
-  const resume = [...b.store.keys()].find((k) => /resume/.test(k));
-  assert.ok(resume, "the build did not fire its generation: " + [...b.store.keys()].join(", "));
-  // THE BUILD FINISHES IN THE RESUME, and its final answer tells the corrected
-  // design: what the first invocation did rides on its record.
-  await finishResume(b, Q9, led, { credits: 400 });
-  const raw = b.store.get(resultKey(Q9));
-  assert.ok(raw, "the resume wrote no answer");
-  const fin = JSON.parse(readResult(JSON.parse(raw)).body);
-  assert.deepEqual(fin.buildFacts && fin.buildFacts.design, { outcome: "repaired", attempts: ["malformed:repair"] }, JSON.stringify(fin).slice(0, 300));
-  // The same job delivered again makes no second corrective call. Since
-  // 2026-10-10 (round 4, one execution per job) it makes no call at all: the
-  // job's execution record is held by the consumer that ran it, so a
-  // redelivery never executes it again — the stronger form of this guard.
-  const again = [];
-  await fireInterim(b, Q9, led, { onDesign, designs: again });
-  assert.equal(JSON.parse(b.store.get("builds-run/" + Q9 + ".json")).owner, "queue", "OBSERVER: the first delivery holds no execution record, so this proves nothing");
-  assert.equal(again.length, 0, "the redelivery executed the job a second time");
-  assert.equal(again.filter((d) => isRepair(told(d))).length, 0, "the redelivery made a second corrective call");
-});

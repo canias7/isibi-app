@@ -21,7 +21,7 @@ import { createRequire } from "node:module";
 import { makeCtx } from "./worker-harness.mjs";
 import { dispatchEnv, isDispatchUpload, dispatchOk } from "./cf-containers.mjs";
 import { CONFIG_KEY } from "../../site-config.mjs";
-import { ASK_TOOL } from "../../builder/site-ask.mjs";
+import { ASK_TOOL } from "../../builder/route-shared.mjs";
 import { pickTool, editTool } from "../../builder/site-lanes.mjs";
 import { TWEAK_TOOL } from "../../builder/site-tweak.mjs";
 import { TEXT_TOOL } from "../../builder/site-apply.mjs";

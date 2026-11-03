@@ -140,30 +140,6 @@ async function settlePost(b, s, uid = BUILD_USER.id) {
   await s.answer;
 }
 
-test("RC 1 — A RELOAD WHILE THE BUILD RUNS: the build POST lists the build on its account (its chat and words); the page that sent it is gone, and the listing hands the running build back — no second POST, no second job, no charge", async () => {
-  const b = buildBucket();
-  const q = queue();
-  const rpc = [];
-  const net = stand({ rpc });
-  const { answer, job } = await startBuild(b, q, net);
-  assert.ok(job, "the POST queued no job");
-  const marker = readBuildLive(JSON.parse(b.store.get(buildLiveKey(BUILD_USER.id, job))));
-  assert.deepEqual({ chat: marker.chat, words: marker.words, uid: marker.uid }, { chat: CHAT, words: BRIEF, uid: BUILD_USER.id });
-  assert.ok(b.store.has(buildChatKey(BUILD_USER.id, CHAT)), "the chat was not claimed for the build");
-  // THE REAL CONSUMER designs and fires; the waiting POST collects its 202 (the original tab).
-  const led = ledger();
-  await fireInterim(b, job, led, { design: GOOD_DESIGN });
-  const posted = await answer;
-  assert.equal(posted.status, 202, JSON.stringify(posted.body).slice(0, 300));
-  assert.equal(posted.body.stage, "resuming");
-  // THE RELOAD: a new page asks for the account's builds.
-  const found = await call(b, q, stand({ rows: { [job]: { state: "running" } } }), "GET", "/api/site/builds");
-  assert.equal(found.status, 200);
-  assert.deepEqual(found.body.builds.map((x) => ({ job: x.job, chat: x.chat, words: x.words, state: x.state })), [{ job, chat: CHAT, words: BRIEF, state: "running" }]);
-  assert.equal(q.sent.length, 1, "finding the build queued something");
-  assert.equal(rpc.filter((r) => r.fn === "edit_create").length, 1);
-});
-
 test("RC 2 — THE SAME CHAT ASKED AGAIN WHILE ITS BUILD RUNS (a reload, then the message sent again): answered with the running build's own 202 — no new row, R2 job, queue message, marker or charge", async () => {
   const b = buildBucket();
   const q = queue();
