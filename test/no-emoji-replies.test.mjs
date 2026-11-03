@@ -109,7 +109,10 @@ test("THE CARD: a part has no number and a progress line no time or dot; the sty
   const css = read("public/styles.css");
   const fn = chat.slice(chat.indexOf("function progressListHTML("), chat.indexOf("\n}\n", chat.indexOf("function progressListHTML(")));
   assert.ok(fn.length > 40, "progressListHTML is gone");
-  assert.doesNotMatch(fn, /class="at"|<i>|progressAt|\.ms\b/, "a progress line still carries its time or the live dot");
+  // THE WORKING SIGN'S THREE DOTS (2026-11-03) use an <i>; that is the sign under the list, not a line's dot.
+  const lines = fn.replace('<div class="st-think st-working"><i></i>', "");
+  assert.ok(lines !== fn, "the working sign moved; this guard checks nothing");
+  assert.doesNotMatch(lines, /class="at"|<i>|progressAt|\.ms\b/, "a progress line still carries its time or the live dot");
   assert.ok(!chat.includes("function progressAt("), "the time is still formatted for a line");
   const rule = (sel) => { const m = css.match(new RegExp("(^|\\n)" + sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + " \\{([^}]*)\\}")); return m ? m[2] : null; };
   assert.match(rule(".st-req-parts") || "", /list-style: none/, "the parts are numbered again");
