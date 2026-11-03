@@ -4,7 +4,12 @@
 // motion types nothing.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+
+// THE SAME BROWSER CHECK AS EVERY OTHER BROWSER CASE: CI has no playwright-core.
+let chromium = null;
+try { ({ chromium } = await import("playwright-core")); } catch { chromium = null; }
+const SKIP = !(chromium && existsSync("/opt/pw-browsers/chromium")) && "no browser here";
 
 const src = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 const a = src.indexOf("const TypeIn = (() => {");
@@ -29,9 +34,11 @@ test("it types the progress lines and the replies, never buttons, options, the w
 // THE KEY BOX'S BLANK NAMES (live, 2026-11-01, northline-climbing): the key
 // box sits in a reply; a redraw mid-reveal left its names blank for good,
 // because a text node blanked by the reveal was no longer a target.
-test("a text node blanked mid-reveal is still finished, and the key box is never typed", async () => {
+test("the key box is never typed word by word", () => {
   assert.ok(block.includes("[data-keycard]"), "the key box is typed word by word");
-  const { chromium } = await import("playwright-core");
+});
+
+test("a text node blanked mid-reveal is still finished", { skip: SKIP }, async () => {
   const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" }).catch(() => chromium.launch());
   try {
     const p = await browser.newPage();
