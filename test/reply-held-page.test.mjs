@@ -562,7 +562,7 @@ test("the thread draws a held message as the live steps' waiting line, with a qu
   const p = page();
   const link = (x) => p.ctx.esc(x);
   const heldMsg = { r: "a", ...P.holdReply({ t: "x\nWhich footer?", q: "Which footer?", opts: ["Main"], ask: QID, asked: "Which footer?" }, "job-1", "A question first — writing it up…", 1) };
-  assert.equal(p.ctx.siteMsgText(heldMsg, link), '<div class="st-think"><i></i>A question first — writing it up…</div><div>Which footer?</div>');
+  assert.equal(p.ctx.siteMsgText(heldMsg, link), '<div class="st-think st-think-say"><i></i>A question first — writing it up…</div><div>Which footer?</div>');
   assert.equal(p.ctx.siteMsgText({ r: "a", t: "Done <b>" }, link), "Done &lt;b&gt;");
   // THE RENDER ASKS IT, for every assistant message.
   assert.match(CHAT, /'<div class="st-msg a"' \+ \(m\.request && !m\.t && !m\.jobCard && !siteReqCardShows\(m, site\) \? ' hidden' : ''\) \+ '>'\) \+ \(m\.note \? [^\n]*\) \+ siteMsgText\(m, linkify\) \+/);

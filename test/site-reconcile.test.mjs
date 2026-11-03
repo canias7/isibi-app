@@ -635,5 +635,5 @@ test("the browser: a deferred poll says waiting, in the poll module's own senten
   // CONDITION moved and the property did not. What matters here is the return: the
   // thinking panel prints the waiting sentence when there is one, escaped, and
   // falls back to the plain word when there is not.
-  assert.match(live, /return '<div class="st-steps st-steps-live"><div class="st-think"><i><\/i>' \+ \(sb\.waitNote \? esc\(sb\.waitNote\) : 'Thinking'\)/, "the thinking line does not carry the waiting sentence, escaped");
+  assert.match(live, /return '<div class="st-steps st-steps-live"><div class="st-think' \+ \(sb\.waitNote \? ' st-think-say' : ''\) \+ '"><i><\/i>' \+ \(sb\.waitNote \? esc\(sb\.waitNote\) : 'Thinking'\)/, "the thinking line does not carry the waiting sentence, escaped");
 });

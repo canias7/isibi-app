@@ -9015,7 +9015,7 @@ function reactLiveStepsHTML() {
   // a request's card and a finished reply draw.
   if (!stBuildRunning()) {
     if (!sb.waitNote && Array.isArray(sb.progressLines) && sb.progressLines.length) return '<div class="st-steps st-steps-live">' + progressListHTML(sb.progressLines, true) + '</div>';
-    return '<div class="st-steps st-steps-live"><div class="st-think"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
+    return '<div class="st-steps st-steps-live"><div class="st-think' + (sb.waitNote ? ' st-think-say' : '') + '"><i></i>' + (sb.waitNote ? esc(sb.waitNote) : 'Thinking') + '</div></div>';
   }
   // ONLY THE PROGRESS TALK (2026-10-19, owner: "delete the planning your site,
   // writing code and compiling react, just lets have the progress talks"). The
@@ -11630,7 +11630,7 @@ function progressListHTML(lines, live, done) {
   // anything else thats not build, we need a sign that its working on
   // something"): under every running list, and alone before its first line,
   // the shimmering word the thread already uses.
-  const working = live && !(list.length && talking(list[list.length - 1].text)) ? '<div class="st-think st-working">Working\u2026</div>' : '';
+  const working = live && !(list.length && talking(list[list.length - 1].text)) ? '<div class="st-think st-working"><i></i>Working\u2026</div>' : '';
   if (!list.length) return working;
   const why = list.map((l) => (typeof l.explain === 'string' ? l.explain.trim() : '')).filter(Boolean);
   // A LATE LINE IS NEVER THE LIVE ONE (2026-10-15): it was written after its
@@ -15727,7 +15727,7 @@ function siteMsgText(m, linkify) {
   // A CONVERSATION'S REPLY (2026-10-14) keeps its few marks; every other
   // message is drawn as it always was.
   if (!h) return m.md === true && typeof ChatTalk !== 'undefined' ? ChatTalk.markdownHTML(m.t) : linkify(m.t);
-  return '<div class="st-think"><i></i>' + esc(m.t) + '</div>' + (h.asked ? '<div>' + linkify(h.asked) + '</div>' : '');
+  return '<div class="st-think st-think-say"><i></i>' + esc(m.t) + '</div>' + (h.asked ? '<div>' + linkify(h.asked) + '</div>' : '');
 }
 // THE MESSAGE A QUESTION IS DRAWN UNDER: what was said before it, then the
 // question in the model's own words, last, above its answers — always with the

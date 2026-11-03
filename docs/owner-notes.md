@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-03 — The working sign is three dots, no words (branch `park-old-way`; not deployed)
+
+On the owner's word (pick E of six, "no words, just the three dots moving"): "Thinking", "Working on it" and "Working…" are now three small dots in a wave (CSS: `::before`, the `<i>`, `::after`). The words stay in the page for screen readers. A sign that says something real keeps its words and the shimmer: a wait note and a held reply (`.st-think-say`) and the queue's waiting line. Reduced motion: the dots sit still.
+
 ## 2026-11-03 — "Something else…" opens a box in the question card (branch `park-old-way`; not merged, not deployed, nothing paid)
 
 On the owner's word ("where it says something else is where it's gotta be"). Choosing "Something else…" opens a typing box inside the card; Continue (or Enter) sends what is typed as the answer to that question, exactly as a tapped option is sent. Picking an option closes it. Also: the first-build pages rule refuses `finish` once (it looped forever when the agent kept finishing) and applies only to real first builds (`foundationFirst`).

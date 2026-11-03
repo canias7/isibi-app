@@ -1805,9 +1805,25 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; animation: stshimmer 1.8s linear infinite; }
 .st-think i { display: none; }
 @keyframes stshimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* THREE DOTS, NO WORDS (owner's pick E, 2026-11-03: "no words, just the three
+   dots moving"): a small wave, drawn by ::before, the <i> and ::after. The words
+   stay in the page for screen readers; a sign that says something real (a wait,
+   a note: .st-think-say, the queue's line) keeps its words and the shimmer. */
+.st-think:not(.st-think-say):not(.st-req-waiting) { gap: 4px; height: 16px; font-size: 0; color: transparent;
+  background: none; -webkit-background-clip: border-box; background-clip: border-box; animation: none; }
+.st-think:not(.st-think-say):not(.st-req-waiting)::before,
+.st-think:not(.st-think-say):not(.st-req-waiting) > i,
+.st-think:not(.st-think-say):not(.st-req-waiting)::after { content: ""; display: block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--muted); animation: stwave 1s ease-in-out infinite; }
+.st-think:not(.st-think-say):not(.st-req-waiting) > i { animation-delay: .12s; }
+.st-think:not(.st-think-say):not(.st-req-waiting)::after { animation-delay: .24s; }
+@keyframes stwave { 0%, 100% { transform: translateY(2px); opacity: .35; } 50% { transform: translateY(-3px); opacity: 1; background: var(--text); } }
 /* With motion off the words stay still and plainly legible. */
 @media (prefers-reduced-motion: reduce) {
   .st-think { animation: none; color: var(--muted); background: none; }
+  .st-think:not(.st-think-say):not(.st-req-waiting)::before,
+  .st-think:not(.st-think-say):not(.st-req-waiting) > i,
+  .st-think:not(.st-think-say):not(.st-req-waiting)::after { animation: none; }
 }
 @keyframes sbblink { 50% { opacity: 0; } }
 .st-fchips { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 11px; }

@@ -383,7 +383,7 @@ test("the thinking state renders NO step rows, and can still be repainted", () =
   // so each return is read whole, to its semicolon.
   const returns = [...block.matchAll(/return '[^;]*;/g)].map((r) => r[0]);
   assert.ok(returns.length > 0, "the thinking branch is gone — the step rows paint immediately again");
-  assert.ok(returns.some((r) => /<div class="st-think"><i><\/i>' \+/.test(r)), "the plain thinking return is gone from the gate");
+  assert.ok(returns.some((r) => /<div class="st-think' \+ \(sb\.waitNote \? ' st-think-say' : ''\) \+ '"><i><\/i>' \+/.test(r)), "the plain thinking return is gone from the gate");
   for (const r of returns) {
     assert.match(r, /st-steps-live/, "the thinking panel cannot be repainted into the steps");
     assert.match(r, /st-think|progressListHTML\(/, "it renders no thinking indicator");
