@@ -244,7 +244,7 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "start_build",
-    description: "There is no site yet. When the owner has described a business or site to make (enough to start), call this to start building it: the full build then runs with everything they said. Do not call it for a greeting or a question: answer those in plain words. `brief`: one or two lines of what they want built, in their terms.",
+    description: "There is no site yet. Call this only when the current message asks for the build: a first message describing a business or site to make, or a clear go-ahead (\"build it\", \"yes\", Build it tapped). The full build then runs with everything they said. Never call it for a greeting, a question, chat or ideas being talked through, even after a site was described earlier: answer those in plain words. `brief`: one or two lines of what they want built, in their terms.",
     input_schema: { type: "object", properties: { brief: { type: "string" } }, required: ["brief"] },
   },
   {
@@ -315,7 +315,7 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
-- EVERY MESSAGE ABOUT THE SITE COMES TO YOU, questions and chat included. When the message is only a question or conversation (a greeting, thanks, "how does my booking form work?", "can my site send texts?"), answer it in plain words in finish and change nothing: no write_file, no build. Read what you need first when the answer depends on the site. When they ask whether the site can do something, say what it would take: email and text messages (SMS) can be sent by a server function on the owner's own key (texts: Twilio or Vonage; email: Resend, SendGrid, Mailgun or Postmark), so never tell them it is not possible. When the message asks for something to be done, do it.
+- EVERY MESSAGE ABOUT THE SITE COMES TO YOU, questions and chat included. When the message is only a question or conversation (a greeting, thanks, "how does my booking form work?", "can my site send texts?"), answer it in plain words in finish and change nothing: no write_file, no build. The same when they are thinking out loud or weighing ideas ("what about a gallery?", "would a booking page help?", "which colour is better?"): talk it through and change nothing; when it sounds like they want it but have not asked, offer it ("Want me to add it?") with ask_owner when it is offered. Change the site only when the message asks for a change. Read what you need first when the answer depends on the site. When they ask whether the site can do something, say what it would take: email and text messages (SMS) can be sent by a server function on the owner's own key (texts: Twilio or Vonage; email: Resend, SendGrid, Mailgun or Postmark), so never tell them it is not possible. When the message asks for something to be done, do it.
 
 SERVER CODE is a component named "-parts/server-<name>":
 ` + SERVER_HOW + SERVER_PRACTICES + SERVER_RULES;
@@ -1584,6 +1584,7 @@ export function newProjectMessage({ request, history = "" } = {}) {
   return [
     history ? "THE CONVERSATION SO FAR (for what the message refers to)\n" + history : "",
     "THE OWNER'S MESSAGE\n" + String(request || ""),
-    "THERE IS NO SITE YET. If the owner described a business or a site to make, call start_build. If they only greeted you or asked a question, answer in plain words (no tool) and build nothing. If you cannot start without one detail only they can give, ask it with ask_owner.",
+    // A CONVERSATION FIRST (owner, 2026-11-03: "sometimes customers want to chat about different businesses … it's not always just to start building"; Market Lane started building on a side question).
+    "THERE IS NO SITE YET. Talk with the owner like a person who knows websites and small businesses. Start the build (start_build) only when this message asks for it: a first message that describes a business or site to make (\"make me a site for my bakery in Leeds…\"), or a clear go-ahead (\"build it\", \"go ahead\", \"yes, let's do it\"). When they are chatting, thinking out loud, comparing ideas or businesses, or asking something (\"what about…?\", \"would a booking page help?\", \"which is better…\"), answer in plain words (no tool) and build nothing, even when a site was described earlier in the conversation. When the conversation has settled on what to make but they have not said go, ask with ask_owner whether to build it now, with options like \"Build it\" and \"Not yet\". If you cannot start without one detail only they can give, ask it with ask_owner.",
   ].filter(Boolean).join("\n\n");
 }

@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-03 — A conversation first: build or change only when asked (branch `park-old-way`; not deployed)
+
+On the owner's word (Market Lane started building on a side question; "sometimes customers want to chat about different businesses … it's not always just to start building"). A new project builds only when the current message asks: a first message describing a site, or a clear go-ahead ("build it", "yes"); chat, ideas and questions get words, even after a site was described; a settled plan gets an ask_owner question with Build it / Not yet. On an existing site, ideas being talked through ("what about a gallery?") change nothing; the agent offers instead ("Want me to add it?"). Wording only (`builder/site-agent.mjs`); proven with a guard test, not a real model run.
+
 ## 2026-11-03 — Stop stops at once (branch `park-old-way`; not deployed)
 
 On the owner's word ("when you press stop it should stop at the moment"; option A). A job learns its Stop on its heartbeat, and the agent beat only between rounds, so a Stop waited out a whole model turn or build (minutes). Now a model call, a build, a command and a look in flight beat every 4 s (`STOP_BEAT_MS`) and the run ends within seconds; nothing it was writing is saved (as before). The box's Stop stays, dimmed and pulsing ("Stopping…"), until the request has stopped. Option B (pause and resume) is in the backlog, not started. Tests: `test/stop-now.test.mjs` (2; both fail on the old code).
