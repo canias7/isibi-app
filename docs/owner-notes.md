@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-03 — Stop stops at once (branch `park-old-way`; not deployed)
+
+On the owner's word ("when you press stop it should stop at the moment"; option A). A job learns its Stop on its heartbeat, and the agent beat only between rounds, so a Stop waited out a whole model turn or build (minutes). Now a model call, a build, a command and a look in flight beat every 4 s (`STOP_BEAT_MS`) and the run ends within seconds; nothing it was writing is saved (as before). The box's Stop stays, dimmed and pulsing ("Stopping…"), until the request has stopped. Option B (pause and resume) is in the backlog, not started. Tests: `test/stop-now.test.mjs` (2; both fail on the old code).
+
 ## 2026-11-03 — The working sign is three dots, no words (branch `park-old-way`; not deployed)
 
 On the owner's word (pick E of six, "no words, just the three dots moving"): "Thinking", "Working on it" and "Working…" are now three small dots in a wave (CSS: `::before`, the `<i>`, `::after`). The words stay in the page for screen readers. A sign that says something real keeps its words and the shimmer: a wait note and a held reply (`.st-think-say`) and the queue's waiting line. Reduced motion: the dots sit still.

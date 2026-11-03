@@ -5410,3 +5410,7 @@ svg.st-gloopy{cursor:pointer}
 .st-qx:hover { color: #1a1a1a; }
 .st-qchip::before { content: "\23F1"; margin-right: 1px; }
 .st-qx::after { content: "\2715"; }
+/* STOPPING (owner, 2026-11-03): Stop pressed, still winding down. */
+.st-stopc.st-stopping { opacity: .45; cursor: default; animation: ststopping 1s ease-in-out infinite; }
+@keyframes ststopping { 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .st-stopc.st-stopping { animation: none; } }

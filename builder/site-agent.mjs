@@ -918,7 +918,7 @@ async function runTool(use, st, deps) {
     case "build": {
       st.builds++;
       let r;
-      try { r = await deps.build({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }); }
+      try { r = await untilStopped(deps, () => deps.build({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() })); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       st.lastBuild = r && r.ok === true ? "ok" : "fail";
       if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); }
@@ -937,7 +937,7 @@ async function runTool(use, st, deps) {
       if (cmd.length > 4000) return { error: "the command is over 4,000 characters" };
       if (typeof deps.run !== "function") return { error: "commands cannot be run here" };
       let r;
-      try { r = await deps.run({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, cmd); }
+      try { r = await untilStopped(deps, () => deps.run({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, cmd)); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       if (!r || r.ok !== true) return { error: "the command could not be run: " + String((r && r.error) || "no answer").slice(0, 300) };
       const moved = syncFromRun(st, r.files);
@@ -949,7 +949,7 @@ async function runTool(use, st, deps) {
       if (!/^\/[a-z0-9/_-]*$/i.test(route)) return { error: "a page address starts with / (\"/\", \"/about\")" };
       if (typeof deps.look !== "function") return { error: "pages cannot be looked at here" };
       let r;
-      try { r = await deps.look({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, route); }
+      try { r = await untilStopped(deps, () => deps.look({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, route)); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       if (!r || r.ok !== true) return { error: "the site did not build, so there is nothing to look at:\n" + String((r && r.error) || "no reason given").slice(0, 4000) };
       const shots = (Array.isArray(r.shots) ? r.shots : []).filter((x) => x && x.route === route && typeof x.png === "string" && x.png).slice(0, MAX_SHOTS);
@@ -1475,20 +1475,34 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
  * turns true, read every `STOP_POLL_MS`. Throws `AgentStopped` then.
  */
 export const STOP_POLL_MS = 1000;
+/** How often a model call in flight renews the job's heartbeat, which is where a Stop is learned. */
+export const STOP_BEAT_MS = 4000;
 export function sendStoppable(deps, req) {
-  if (typeof deps.stopped !== "function") return deps.send(req);
+  return untilStopped(deps, (signal) => deps.send(req, signal ? { signal } : undefined));
+}
+
+/** Run `call(signal)` until it answers or the owner's Stop is read; throws `AgentStopped` then (the signal aborted). */
+export function untilStopped(deps, call) {
+  if (typeof deps.stopped !== "function") return call(undefined);
   const ac = typeof AbortController === "function" ? new AbortController() : null;
   let timer = null;
   const stop = new Promise((_, reject) => {
+    // STOP AT ONCE (owner, 2026-11-03: "when you press stop it should stop at
+    // the moment"): a job's cancel is learned on its heartbeat, so the
+    // heartbeat is taken here too, every STOP_BEAT_MS, while the call runs —
+    // not only between rounds, which left a Stop waiting out a whole model turn.
+    let ticks = 0;
     timer = setInterval(() => {
-      Promise.resolve().then(() => deps.stopped()).then((s) => {
+      const beat = typeof deps.beat === "function" && ++ticks % Math.max(1, Math.round(STOP_BEAT_MS / STOP_POLL_MS)) === 0
+        ? Promise.resolve().then(() => deps.beat()).catch(() => { /* a blink is not a stop */ }) : Promise.resolve();
+      beat.then(() => deps.stopped()).then((s) => {
         if (s !== true) return;
         try { if (ac) ac.abort(); } catch { /* never */ }
         const e = new Error("stopped by the owner"); e.name = "AgentStopped"; reject(e);
       }).catch(() => { /* a read that fails is not a stop */ });
     }, STOP_POLL_MS);
   });
-  return Promise.race([Promise.resolve().then(() => deps.send(req, ac ? { signal: ac.signal } : undefined)), stop]).finally(() => clearInterval(timer));
+  return Promise.race([Promise.resolve().then(() => call(ac ? ac.signal : undefined)), stop]).finally(() => clearInterval(timer));
 }
 
 /** The agent takes every site's edit and addition whole (2026-10-28, the owner: no switch). */

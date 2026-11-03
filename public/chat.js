@@ -7945,7 +7945,11 @@ function renderSiteWorkspace(view, site) {
                   // (`siteBgHTML`); Stop stays only for this project's own send
                   // in flight with nothing in the panel, and a standalone job.
                   ctxLineHTML(site) +
-                  (siteComposerStops(site)
+                  // STOPPING (owner, 2026-11-03): pressed, and the work is still
+                  // winding down — the button stays, marked, until it has stopped.
+                  (siteStopping(site)
+                    ? '<button type="button" class="st-sendc st-stopc st-stopping" id="stStop" title="Stopping…" aria-label="Stopping" disabled>■</button>'
+                    : siteComposerStops(site)
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
                 '</div>' +
@@ -16203,6 +16207,11 @@ function siteComposerStops(site) {
   if (w && w.kind === 'request') return !siteBgItems(site).some((it) => it.key === w.key && (it.state === 'run' || it.state === 'wait' || it.state === 'ask'));
   if (w && w.kind === 'job') return true;
   return siteBusyHere(site) && !siteBgItems(site).some((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask');
+}
+/** A request this page stopped that has not finished stopping yet (its job still winding down). */
+function siteStopping(site) {
+  if (!site || !site.requests || typeof site.requests !== 'object') return false;
+  return Object.keys(site.requests).some((k) => { const v = site.requests[k] && site.requests[k].view; return !!(v && v.stop === true && !v.ended && v.queued !== true && siteRequestWorking(v)); });
 }
 /** The busy state is this project's own (or set before its origin was kept). */
 function siteBusyHere(site) {
