@@ -13,6 +13,12 @@
 >
 > "You" below is the owner: these notes are written to them.
 
+## Questions expire; failures are model-written (2026-11-04)
+
+- **The agent's questions expire after 24 hours** (owner: "yes"): an answer after that resumes nothing and is said so.
+- **Failure messages are written by the AI** (owner: "ai written"), from the real facts of what happened, like every other reply.
+- Open, explained to the owner: healing blank database links (owner: "idk"), and one publish vs several for a split message (owner: "idk").
+
 ## Charging on the agent path (2026-11-04)
 
 > Asked whether questions, "nothing was done" endings and removals should be free again: *"we charge for every single token"*, *"charge for every token"*, removals *"charged by usage"*.
