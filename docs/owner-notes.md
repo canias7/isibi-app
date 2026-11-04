@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — The agent uses the chat's own window for history (branch `claude/cool-fermat-a06gie`; not deployed)
+
+You: "use the same system". The agent no longer takes a fixed last-30 messages: it reads the conversation through the same window system the chat replies use since 2026-10-20 (`chatWindowFor`): as much of the chat as fits, and once it is full the older part is summarised and the summary kept on the chat, the newest messages whole. Half of the model's window is left for the agent's own work (its rules, the site's files, what it reads each round). A long chat costs more per message than 30 messages did; repeated rounds are mostly cached by the provider. Tests: `test/edit-sends-chat.test.mjs` (through the real planner), `site-agent-route` SAR6.
+
 ## 2026-11-04 — Carry-over 2 of 12: an AI outage never starts a paid build (branch `claude/cool-fermat-a06gie`; not deployed)
 
 Your Oct 24 rule ("when the provider is down, wait") was built for the router; the agent's new-project path skipped it and answered "build", so "hi" during an outage started a paid first build (11–45 credits). Now:

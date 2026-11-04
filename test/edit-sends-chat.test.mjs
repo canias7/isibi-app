@@ -34,7 +34,7 @@ test("both agent callers hand the body's chat to runAgentChange, which reads his
   assert.equal(calls.length, 2, "two callers");
   assert.match(calls[0], /chat:\s*eb && eb\.chat/);
   assert.match(calls[1], /chat:\s*ab && ab\.chat/);
-  assert.match(worker, /history = historyText\(cur\.chat\.msgs, \{ summary:/);
+  assert.match(worker, /const w = await chatWindowFor\(env, uid, c, \{ model: models\.pages,/);
 });
 
 // ── THE REQUEST PATH (2026-11-04, carry-over G4) ─────────────────────────────
@@ -78,5 +78,26 @@ test("history is never cut silently, and an unreadable chat is said, never read 
   assert.match(historyText(msgs, { summary: "They run a shop called Market Lane." }), /^Earlier in this chat \(summary\): They run a shop/);
   assert.equal(historyText(msgs.slice(0, 3)).includes("not shown"), false, "a short chat was marked as cut");
   assert.match(HISTORY_UNREADABLE, /could not be read/);
-  assert.match(worker, /else if \(!cur\.read\) history = HISTORY_UNREADABLE;/);
+  assert.match(worker, /if \(w\) history = historyFromWindow\(w\);\s*else \{ const cur = await chatStoreRead\(env, chatStoreKey\(uid, c\)\); if \(!cur\.read\) history = HISTORY_UNREADABLE; \}/);
+});
+
+// ── THE SAME WINDOW AS THE CHAT'S REPLIES (2026-11-04, owner: "use the same system") ──
+import { planWindow } from "../builder/chat-context.mjs";
+import { historyFromWindow } from "../builder/site-agent.mjs";
+
+test("the agent's history is the chat's own window: the kept summary, then every newer turn whole", () => {
+  const msgs = [{ r: "u", t: "hey the page has something called loading goods, what is that?" }, { r: "a", t: "It shows while the products load." }, { r: "u", t: "delete that, that's weird" }];
+  // Through the real planner, as chatWindowFor calls it.
+  const plan = planWindow({ msgs, summary: null, window: 500000, fixedChars: 0, current: "delete that, that's weird" });
+  const h = historyFromWindow({ history: { turns: plan.turns }, summary: plan.summary });
+  assert.match(h, /^Owner: hey the page has something called loading goods/);
+  assert.match(h, /You: It shows while the products load\./);
+  assert.doesNotMatch(h, /delete that/, "the message being answered is not repeated as history");
+  const withSum = historyFromWindow({ history: { turns: [{ role: "user", text: "make it blue" }] }, summary: { text: "They run Market Lane, a shop.", upTo: 40 } });
+  assert.match(withSum, /^Earlier in this chat \(summary of the older messages\): They run Market Lane/);
+  assert.equal(historyFromWindow(null), "");
+});
+
+test("half the model's window is left for the agent's own work", () => {
+  assert.match(worker, /fixedChars: Math\.floor\(win \* 0\.5 \* 3\)/);
 });

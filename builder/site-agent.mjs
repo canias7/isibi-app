@@ -1579,6 +1579,19 @@ export function historyText(msgs, { max = 30, chars = 1500, summary = "" } = {})
   if (older > 0) head.push("(" + older + " earlier message" + (older === 1 ? "" : "s") + " not shown" + (summary ? ", summarised above" : "") + ". If the request depends on them, ask.)");
   return [...head, ...lines].join("\n");
 }
+/**
+ * THE CHAT'S OWN WINDOW, AS THE AGENT READS IT (2026-11-04, owner: "use the same
+ * system"): the conversation `chatWindowFor` planned for the model's window
+ * (the kept summary of what was compacted, then every newer turn whole), as
+ * the lines the agent's first message carries. "" when there is nothing.
+ */
+export function historyFromWindow(w) {
+  if (!w || typeof w !== "object") return "";
+  const turns = w.history && Array.isArray(w.history.turns) ? w.history.turns : [];
+  const sum = w.summary && typeof w.summary.text === "string" && w.summary.text.trim() ? w.summary.text.trim() : "";
+  const lines = turns.filter((t) => t && typeof t.text === "string" && t.text.trim()).map((t) => (t.role === "user" ? "Owner: " : "You: ") + t.text.trim());
+  return [...(sum ? ["Earlier in this chat (summary of the older messages): " + sum] : []), ...lines].join("\n");
+}
 /** What the agent is told when the chat could not be read: unknown, never "nothing was said". */
 export const HISTORY_UNREADABLE = "(The conversation so far could not be read just now. If the request refers to something said before, such as \"that\" or \"it\", ask what it means instead of guessing.)";
 

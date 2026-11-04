@@ -229,5 +229,7 @@ test("SAR6 the agent reads the conversation: an answer to an earlier question me
   const r = await drive({ ask: "the home page", chat: { key: "chat-abc1", msgs: [{ r: "u", t: "Make the hero blue" }, { r: "a", t: "Which page's hero — home or menu?" }, { r: "u", t: "the home page" }] },
     rounds: [[use("finish", { summary: "Nothing to change yet." })]] });
   const first = r.seen.agent[0].messages[0].content[0].text;
-  assert.match(first, /THE CONVERSATION SO FAR \(for what the request refers to\)\nOwner: Make the hero blue\nYou: Which page's hero — home or menu\?\nOwner: the home page\n\nTHE OWNER'S REQUEST\nthe home page/);
+  // (2026-11-04: the history is the chat's own window, which leaves out the
+  // message being answered; it is shown once, as the request, right below.)
+  assert.match(first, /THE CONVERSATION SO FAR \(for what the request refers to\)\nOwner: Make the hero blue\nYou: Which page's hero — home or menu\?\n\nTHE OWNER'S REQUEST\nthe home page/);
 });
