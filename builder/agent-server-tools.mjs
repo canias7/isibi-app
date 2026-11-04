@@ -43,7 +43,7 @@ export const SERVER_TOOLS = Object.freeze([
   },
   {
     name: "list_keys",
-    description: "The NAMES of the keys (secrets) the owner has set for this site, e.g. STRIPE_SECRET_KEY. Never their values. Use it to know which key a server function can use, and which one the owner still has to add.",
+    description: "The NAMES of the keys (secrets) the owner has set for this site (e.g. <PROVIDER>_SECRET_KEY). Never their values. Use it to know which key a server function can use, and which one the owner still has to add.",
     input_schema: { type: "object", properties: {} },
   },
   {

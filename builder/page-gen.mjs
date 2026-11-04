@@ -1278,7 +1278,7 @@ or an access level — anything not in the schema below does not exist.
     reached at \`/api/db/\${SITE_SLUG}/fn/<name>\`, which can call outside services with the
     owner's own keys (\`site.fetch\`, \`site.key\`), use the database (\`site.sql\`), run when an
     entry is saved (\`created:<table>\`) or on a schedule (\`cron:\`), and receive messages from
-    outside (Stripe, a form service) at its own address. There is NO ready-made checkout,
+    outside (a payment provider, a form service) at its own address. There is NO ready-made checkout,
     email, text message, outside-data reader or scheduled job: when the owner asks for a
     payment, an email, a text, an outside service or something on a timer, write it there
     yourself — and only when they ask.
@@ -1915,7 +1915,7 @@ export const SITE_PAGES_TOOL = {
         },
         description:
           "CODE THAT RUNS ON THE SITE'S OWN SERVER, for what a page cannot do safely: anything needing one of the " +
-          "owner's keys or an outside service (an AI chatbot on their AI key, payments through their own Stripe key, " +
+          "owner's keys or an outside service (an AI chatbot on their AI key, payments through the provider they use, on their own key, " +
           "an email or a text through their own provider, syncing a sheet), or a rule the server must enforce (stop a " +
           "booking when a class is full). The page calls it with fetch(`/api/db/${SITE_SLUG}/fn/<name>`, …). " +
           "Name the key the owner must add (UPPER_SNAKE, e.g. OPENAI_KEY) in your notes so they can set it. " +

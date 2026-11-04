@@ -10,6 +10,12 @@
 
 
 
+## 2026-11-04 — The AI is no longer nudged toward Stripe (branch `claude/cool-fermat-a06gie`; not deployed)
+
+On Market Lane you asked "so can we take payments" and the agent built a Stripe checkout (47 credits) without asking which provider you use, against your rule of 2026-11-02 (any provider, on your own key). The agent's rules already said "never choose the provider yourself", but the page writer's own instructions said "payments through their own Stripe key", and several examples named Stripe. All of those are now provider-neutral; Stripe is named only where the AI is told not to assume a provider, among the choices it offers when it asks you, and in the list of docs it may read. Test: `test/payments-any-provider.test.mjs` (fails on the old wording). Prompt fingerprints re-pinned.
+
+Still open, for the audit: the agent built when you asked a question (it should have answered and asked which provider), and the docs the agent may read are a fixed list of providers.
+
 ## 2026-11-04 — Stop sits beside Send (branch `claude/cool-fermat-a06gie`; not deployed)
 
 Correction to today's Stop fix: it swapped Send for Stop while work ran, which took away sending a second message to wait in line. Now the box shows ■ Stop and ↑ Send side by side while a message's work runs; a first build in flight or a standalone job still shows Stop alone, as before. Caught by the browser tests (`background-work-browser`, `stop-queue-browser`), which also had to be updated: one asserted the old rule "no Stop in the box while parts run".

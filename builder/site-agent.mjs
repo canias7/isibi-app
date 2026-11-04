@@ -225,8 +225,8 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "request_key",
-    description: "Ask the owner for a key (secret) the site needs, by NAME, e.g. STRIPE_SECRET_KEY. The chat shows the owner a secure box that saves the value straight into the site's keys: you never see, receive or handle the value, and you must never ask for it in words. Next time, list_keys shows the name as set.",
-    input_schema: { type: "object", properties: { name: { type: "string" }, service: { type: "string", description: "Whose key it is, e.g. Stripe." }, why: { type: "string", description: "One short line: what it is for." } }, required: ["name"] },
+    description: "Ask the owner for a key (secret) the site needs, by NAME, as the provider the owner chose names it (e.g. <PROVIDER>_SECRET_KEY). The chat shows the owner a secure box that saves the value straight into the site's keys: you never see, receive or handle the value, and you must never ask for it in words. Next time, list_keys shows the name as set.",
+    input_schema: { type: "object", properties: { name: { type: "string" }, service: { type: "string", description: "Whose key it is: the provider the owner named." }, why: { type: "string", description: "One short line: what it is for." } }, required: ["name"] },
   },
   {
     name: "ask_owner",
@@ -276,7 +276,7 @@ WRITING SERVER CODE THAT HOLDS UP (adapted from Cloudflare's Workers best practi
 - Await every outside call (site.fetch, site.sql) before you answer. There is no "later": work you do not await may never happen — an email unsent, a payment unrecorded.
 - Keep nothing about a visitor in a variable outside the function: the same code serves the next visitor, who would see it. Everything about this request lives inside the call.
 - Codes, tokens and references a visitor could guess come from crypto.randomUUID() or crypto.getRandomValues(), never Math.random().
-- A message from an outside service (Stripe's "paid", a form service) is trusted only after site.verify("KEY_NAME", signedText, signature) answers true — it checks the sender's signature with the owner's key without the key reaching your code (Stripe signs "<t>.<raw body>" and sends v1 as hex). Never compare a secret or a signature with ===. Read the raw body once (await request.text()) and parse it after checking. Then refuse a timestamp more than 5 minutes old, and record each event's id (site.sql) and do nothing for one already recorded: senders retry, and a captured message can be replayed.
+- A message from an outside service (a payment provider's "paid", a form service) is trusted only after site.verify("KEY_NAME", signedText, signature) answers true — it checks the sender's signature with the owner's key without the key reaching your code (each provider signs its own way, so read its docs with read_docs; one common way signs "<t>.<raw body>" and sends the signature as hex). Never compare a secret or a signature with ===. Read the raw body once (await request.text()) and parse it after checking. Then refuse a timestamp more than 5 minutes old, and record each event's id (site.sql) and do nothing for one already recorded: senders retry, and a captured message can be replayed.
 - Check the request body before using it: the fields you need, their types and sizes. Answer 400 with a short message when it is wrong.
 - A function a page calls can be called by anyone, with any body. Never trust an id, role, price or "is owner" flag it sends: look up what this visitor may do with site.sql and check it on every request. Hiding a button protects nothing.
 - Use only the tables and columns the site's schema declares; a name you made up fails on the live site.
