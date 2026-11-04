@@ -143,7 +143,7 @@ export function deadLinkNote(list, max = 12) {
 
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
-export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [] } = {}) {
+export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [] } = {}) {
   const own = typeof summary === "string" ? scrubSaid(summary) : "";
   if (!own) return "";
   const add = [];
@@ -155,6 +155,12 @@ export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], d
   if (missing.length) add.push("Not on the site yet: " + missing.map((w) => "\u201c" + w + "\u201d").join(", ") + ".");
   // M-69: details that came from nowhere the owner gave; they check them.
   if (facts.length) add.push("Please check these details, which you didn't give me: " + facts.join(", ") + ".");
+  // M-71: files the build had to put back were not changed.
+  if (putBack.length) add.push("These couldn't be changed (they didn't build) and were left as they were: " + scrubSaid(putBack.slice(0, 6).join(", ")) + ".");
+  // M-47, M-54: links still pointing at the old number or email.
+  if (stale.length) add.push("These links still go to the old details: " + stale.join(", ") + ".");
+  // M-48: a new page nothing links to.
+  if (unlinked.length) add.push("Nothing links to " + unlinked.join(", ") + " yet; visitors reach it only by its address.");
   // M-70: the change is in the draft until they press Publish (said once, unless the agent said it).
   if (draft && !/\bpublish/i.test(own)) add.push("These changes are in your draft: press Publish to put them on your live site.");
   return (own + (add.length ? "\n\n" + add.join("\n") : "")).slice(0, 4000);
@@ -471,4 +477,60 @@ export function keepsMost(before, after) {
   if (b.length < 3) return String(after || "").includes(String(before || "").trim().slice(0, 40));
   const a = new Set(lines(after));
   return b.filter((l) => a.has(l)).length * 2 >= b.length;
+}
+
+// ══ CARRY-OVER BATCH 6 (2026-11-04) ══════════════════════════════════════════
+
+// ── M-47, M-54: A CHANGED NUMBER OR EMAIL TAKES ITS LINKS WITH IT ────────────
+const TEL = /tel:\+?([\d\s().-]{7,})/gi;
+const MAILTO = /mailto:([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi;
+const textOnly = (s) => String(s || "").replace(/(?:tel|mailto):[^"'`\s}>]+/gi, " ");
+
+/** tel: and mailto: links in `after` whose number or address the visible text no longer shows, though `before` did. */
+export function staleContactLinks(before, after) {
+  const out = new Set();
+  const bText = textOnly(before), aText = textOnly(after);
+  const bDigits = (bText.match(/\d[\d\s().-]{6,}\d/g) || []).map((x) => x.replace(/\D/g, ""));
+  const aDigits = (aText.match(/\d[\d\s().-]{6,}\d/g) || []).map((x) => x.replace(/\D/g, ""));
+  for (const m of String(after || "").matchAll(TEL)) {
+    const d = m[1].replace(/\D/g, "");
+    const shown = (list) => list.some((x) => x.endsWith(d.slice(-9)) || d.endsWith(x.slice(-9)));
+    if (shown(bDigits) && !shown(aDigits)) out.add("tel:" + m[1].trim());
+  }
+  const bLow = bText.toLowerCase(), aLow = aText.toLowerCase();
+  for (const m of String(after || "").matchAll(MAILTO)) {
+    const e = m[1].toLowerCase();
+    if (bLow.includes(e) && !aLow.includes(e)) out.add("mailto:" + m[1]);
+  }
+  return [...out];
+}
+
+// ── M-48: A NEW PAGE IS REACHABLE ────────────────────────────────────────────
+/** New pages (no route parameters) that no file links to. */
+export function unlinkedNewPages(files, orig) {
+  const entries = files instanceof Map ? [...files] : Object.entries(files || {});
+  const all = entries.map(([, s]) => String(s || "")).join("\n");
+  const out = [];
+  for (const [k] of entries) {
+    if (k.startsWith("-parts/") || !k.endsWith(".tsx") || k.includes("$") || k.includes("[") || (orig && orig.has(k)) || k === "index.tsx") continue;
+    const r = routeName(k);
+    const re = new RegExp("(?:href|to)\\s*=\\s*\\{?\\s*[\"'`]" + r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?:[\"'`/?#])");
+    if (!re.test(all)) out.push(r);
+  }
+  return out;
+}
+
+// ── M-64: A PAGE THE SITE DOES NOT HAVE ──────────────────────────────────────
+const MAKING = /\b(add|create|make|build|new|start|set up|put up)\b/i;
+/** "the X page" in the owner's words where the site has no X page, and nothing asks to make one. */
+export function pageNotThere(message, pages) {
+  const m = String(message || "").toLowerCase();
+  if (MAKING.test(m)) return "";
+  const have = new Set((Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.path === "string").map((p) => routeName(p.path).slice(1).replace(/[-_/]/g, " ")).filter(Boolean));
+  for (const x of m.matchAll(/\b(?:the|my|our) ((?:[a-z-]+ )?[a-z-]+) page\b/g)) {
+    const name = x[1].trim();
+    if (["home", "landing", "front", "main", "whole", "same", "this", "that", "next", "last", "first", "new"].includes(name)) continue;
+    if (!have.has(name) && ![...have].some((h) => h.includes(name) || name.includes(h))) return name;
+  }
+  return "";
 }

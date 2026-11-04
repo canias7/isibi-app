@@ -17459,7 +17459,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // the agent finished before the entries, rules and address were applied, so
   // whatever of those failed, and links left pointing at missing pages, are
   // added to its words from what really happened.
-  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [] });
+  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [] });
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.

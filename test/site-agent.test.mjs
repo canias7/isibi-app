@@ -330,12 +330,12 @@ test("SA21 each round's facts come from the tools' outcomes, for the live progre
   assert.deepEqual(f, [
     { state: "prepared", text: "Read the home page and the /about page." },
     { state: "doing", text: "Built the site; the compiler found errors, fixing them." },
-    { state: "applied", text: "Wrote the /about page." },
+    { state: "doing", text: "Writing the /about page (saved when the change is done)." },
   ]);
   const marks = [];
   const s = scripted([answer(use("write_file", { file: "about.tsx", source: "x" })), answer(use("build", {})), answer(use("finish", { summary: "s" }))]);
   await runSiteAgent({ send: s.send, build: okBuild, progress: (st, facts) => marks.push([st, facts.map((x) => x.text)]) }, { request: "r\nThey answered: Yes, go ahead", pages: PAGES });
-  assert.deepEqual(marks, [["agent", ["Wrote the /about page."]], ["agent", ["Built the site; it compiled cleanly."]]]);
+  assert.deepEqual(marks, [["agent", ["Writing the /about page (saved when the change is done)."]], ["agent", ["Built the site; it compiled cleanly."]]]);
 });
 
 test("SA22 the save: stylesheet stored before the publish and put back if it fails; rows written BEFORE the save (fix-all); only real compile-only css", () => {

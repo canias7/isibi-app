@@ -1,4 +1,4 @@
-// PARKED (2026-11-03, park-old-way): this whole file — it tests the old way (router, lanes, GF_OLD_LANES). Not run by the suite (test/*.test.mjs); see parked/old-way/README.md.
+// BACK FROM THE PARK (2026-11-04, carry-over M-95): a repository check, not the old way.
 // GENERATED DEPENDENCY PATHS NEVER ENTER A COMMIT (2026-10-15). Commit
 // c37cbc41 on main carried a `node_modules` SYMLINK made by a worktree's
 // test setup: `.gitignore` said `node_modules/`, which matches a directory

@@ -43,7 +43,7 @@ import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.
 import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
-import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE, rowProblems, keepsMost } from "./agent-gates.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE, rowProblems, keepsMost, staleContactLinks, unlinkedNewPages, pageNotThere } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -910,6 +910,12 @@ const CHANGING_TOOLS = new Set(["write_file", "delete_file", "change_rows", "set
 async function runTool(use, st, deps) {
   const input = use.input && typeof use.input === "object" ? use.input : {};
   if (st.questionOnly && CHANGING_TOOLS.has(use.name)) return { error: QUESTION_ONLY };
+  // A PAGE THE SITE DOES NOT HAVE (2026-11-04, carry-over M-64): said once,
+  // before the first change, so the agent asks rather than editing another page.
+  if (st.pageMissing && !st.pageMissingTold && CHANGING_TOOLS.has(use.name)) {
+    st.pageMissingTold = true;
+    return { error: "WAIT: the owner named the \u201c" + st.pageMissing + "\u201d page and this site has no such page (its pages: " + st.ws.keys().filter((k) => !k.startsWith("-parts/") && k.endsWith(".tsx")).map((k) => (k === "index.tsx" ? "/" : "/" + k.replace(/\.tsx$/, ""))).join(", ") + "). Never change another page in its place: ask with ask_owner which page they mean (or whether to make it). If you are sure which page they mean, call this tool again." };
+  }
   switch (use.name) {
     case "read_files": {
       const want = (Array.isArray(input.files) ? input.files : []).filter((f) => typeof f === "string").slice(0, MAX_READ);
@@ -1412,6 +1418,17 @@ async function runTool(use, st, deps) {
         st.newFacts = facts;
         if (facts.length && !st.factsHeld) { st.factsHeld = true; return { error: FACTS_NOTE(facts) }; }
       }
+      // A CHANGED NUMBER OR EMAIL TAKES ITS LINKS (M-47, M-54), AND A NEW PAGE IS
+      // REACHABLE (M-48): each held once; then the reply says what is left.
+      if (!st.onlyWrite && st.written.size) {
+        const stale = [];
+        for (const k of st.written) if (st.orig && st.orig.has(k) && st.ws.has(k)) for (const l of staleContactLinks(st.origFiles.get(k), st.ws.get(k))) stale.push(l);
+        st.staleLinks = stale;
+        if (stale.length && !st.staleHeld) { st.staleHeld = true; return { error: "THESE LINKS STILL DIAL OR WRITE TO WHAT THE PAGE NO LONGER SHOWS: " + stale.join(", ") + ". Change each to the new number or address too (a tel: link is the number without spaces), build, and finish." }; }
+        const lone = unlinkedNewPages(st.ws.files, st.orig);
+        st.unlinked = lone;
+        if (lone.length && !st.loneHeld) { st.loneHeld = true; return { error: "NOTHING LINKS TO THE NEW PAGE " + lone.join(", ") + ": add it to the site's menu (or where the owner asked), build, and finish; if it should stay unlinked, finish again and say so." }; }
+      }
       // PICTURE ADDRESSES THAT HOLD NO FILE (carry-over M-41): held twice; after
       // that the caller empties them (a fillable frame), and the reply says so.
       if (!st.onlyWrite && typeof deps.strays === "function") {
@@ -1498,8 +1515,10 @@ export function roundFacts(outcomes) {
   if (looked.length) out.unshift(fact("prepared", "Looked at " + listed([...new Set(looked)]) + "."));
   if (ran.length) out.push(fact("doing", "Ran " + listed(ran) + " in the site's project."));
   if (tried.length) out.push(fact("doing", "Tried " + listed([...new Set(tried)]) + " with a sample request, in a test sandbox."));
-  if (wrote.length) out.push(fact("applied", "Wrote " + listed([...new Set(wrote)]) + "."));
-  if (gone.length) out.push(fact("applied", "Removed " + listed([...new Set(gone)]) + "."));
+  // NOT SAID AS DONE BEFORE THE SAVE (2026-11-04, carry-over M-78): the save may
+  // still fail, so a workspace write is work in progress, never "applied".
+  if (wrote.length) out.push(fact("doing", "Writing " + listed([...new Set(wrote)]) + " (saved when the change is done)."));
+  if (gone.length) out.push(fact("doing", "Taking off " + listed([...new Set(gone)]) + " (saved when the change is done)."));
   if (queued.length) out.push(fact("prepared", "Lined up changes to " + listed([...new Set(queued)]) + ", saved at the end."));
   return out;
 }
@@ -1543,6 +1562,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, spec: spec && Array.isArray(spec.tables) ? spec : null, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
+    origFiles: new Map(ws.files), pageMissing: newProject || onlyWrite || foundationFirst ? "" : pageNotThere(String(request || "").split("\n\nWHAT THE OWNER ALREADY ANSWERED")[0], pages),
     message: String(request || "").split("\n\nWHAT THE OWNER ALREADY ANSWERED")[0], origText: [...ws.files.values()].join("\n"), readText: "",
     qrByText: new Map(), qrMap: new Map(), qrRun: Math.random().toString(36).slice(2, 10) || "a",
     questionOnly: !newProject && !onlyWrite && questionOnly(request),
@@ -1712,6 +1732,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // Words asked for and not found, and details nobody gave, left after one hold (M-67, M-69).
     missingWords: st.ask ? [] : (st.missingWords || []).slice(0, 8),
     newFacts: st.ask ? [] : (st.newFacts || []).slice(0, 10),
+    staleLinks: st.ask ? [] : (st.staleLinks || []).slice(0, 6), unlinked: st.ask ? [] : (st.unlinked || []).slice(0, 6),
   };
 }
 

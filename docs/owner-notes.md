@@ -16,6 +16,29 @@
 
 
 
+
+## 2026-11-04 (overnight) — Carry-over batch 6
+
+1. **Old phone and email links (M-47, M-54).** When a number or email on a page
+   changes but its tel:/mailto: link still goes to the old one, the agent is
+   sent back once; if still there, the reply lists the links.
+2. **New pages are reachable (M-48).** A new page nothing links to holds the
+   finish once (add it to the menu); if left, the reply says so.
+3. **A page the site doesn't have (M-64).** "Change the heading on the gallery
+   page" on a site with no gallery page stops the agent once, before its first
+   change, so it asks which page instead of editing another.
+4. **Files put back are told (M-71).** Files the build had to put back are named
+   in the reply as left as they were.
+5. **No "done" before the save (M-78).** Progress lines say "Writing the /about
+   page (saved when the change is done)" instead of "Wrote", since the save may
+   still fail.
+6. **The node_modules check is back (M-95).** It had been parked with the old
+   tests by mistake. (The other parked check, the model ceilings, measured the
+   router's own call and has no agent equivalent.)
+
+Tests: `agent-gates-batch6` (6). One helper test's header now links its pages.
+Not deployed.
+
 ## 2026-11-04 (overnight) — Carry-over batch 5: medium and low gaps
 
 1. **No blind overwrite (M-28).** A file your site had is rewritten only after the

@@ -35,7 +35,7 @@ test("HLP1 helpers write their pages at the same time; the agent builds and fini
   let release;
   const both = new Promise((r) => { release = r; });
   const s = router([
-    answer(use("write_file", { file: "-parts/site-header", source: "export default function H(){return <header/>}" }), use("write_file", { file: "index.tsx", source: "export default function Home(){return <h1>Home</h1>}" })),
+    answer(use("write_file", { file: "-parts/site-header", source: "export default function H(){return <header><a href=\"/about\">About</a><a href=\"/menu\">Menu</a></header>}" }), use("write_file", { file: "index.tsx", source: "export default function Home(){return <h1>Home</h1>}" })),
     answer(use("helpers", { tasks: [{ file: "about.tsx", brief: "Our story" }, { file: "menu.tsx", brief: "The menu" }] })),
     answer(use("build", {})),
     answer(use("finish", { summary: "Built three pages." })),
