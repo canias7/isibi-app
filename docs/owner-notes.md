@@ -10,6 +10,12 @@
 
 
 
+## 2026-11-04 — Critical fix 5 of 7: database changes and list entries wait for the pages to compile (branch `claude/cool-fermat-a06gie`; not deployed)
+
+The agent applied its new tables and columns, and wrote list entries, before the pages were compiled. When the compile then failed, the tables stayed (and entries were written, then undone), while the reply said "the site is untouched". Now, when there are pages to save, both run in the publish's "after the compile" step (the same one the old add-on used): only once the pages compile, before anything is written, and a database refusal stops the publish and is said plainly. With no pages to save, they run directly as before. Tests: `agent-fixall` FX5b now checks that no list write happens at all when the compile fails (it fails on the old code, which wrote and undid).
+
+Still to do from the critical list: holding list entries in the draft until you press Publish (they still go live at the save), and limiting what the server code the agent writes can reach in the database.
+
 ## 2026-11-04 — Critical fix 4 of 7: every agent build checks the forms and lists; tables the agent makes get the access it meant (branch `claude/cool-fermat-a06gie`; not deployed)
 
 - **The data check is back on edits.** The old check (`lintPages`) caught a page that writes to a list visitors can't write to, reads a list that doesn't exist or was closed, or calls a function it isn't allowed to: things that compile, publish, and then fail for the visitor (a form that saves nowhere). It only ran on a first build. Now every agent build runs its data part; the agent is told exactly what's wrong and can't finish until a build passes it (after two tries it may finish, so a false alarm can't loop forever). Tables the agent created in the same run count as real.

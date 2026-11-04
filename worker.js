@@ -17157,17 +17157,32 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (!conn) return fail(503, { ok: false, error: "agent-database", ours: true, layer: "agent", agent: steps, deferred: [],
       msg: "A database for the site's new tables could not be made just now, so nothing was saved." });
   }
-  if (schemaOps.length) {
+  // THE DATABASE CHANGES WAIT FOR THE PAGES TO COMPILE (2026-11-04, carry-over
+  // G8/M-14; the old add-on applied them in the publish's `afterCompile` seam).
+  // They were applied here, before the compile, and stayed when it failed while
+  // the reply said "untouched". With pages to save they now run inside that
+  // seam: after the compile, before anything is written, and a refusal stops
+  // the publish. With nothing to compile they run here, as before.
+  const willSave = !!(ag.changed.length || setKeys.length);
+  let schemaDone = null;
+  const applySchemaNow = async () => {
+    if (schemaDone) return schemaDone;
     let sr;
     try { sr = await applyAgentSchema(env, slug, conn, schemaOps, job); }
     catch (e) { sr = { ok: false, why: errorClassForLog(e) }; }
     tm("agent:schema", sr.ok ? "ok" : "fail", { ops: schemaOps.length, added: sr.ok ? sr.added.length : 0, skipped: sr.ok ? sr.skipped.length : 0 });
-    if (!sr.ok) {
-      return fail(503, { ok: false, error: "agent-schema", ours: true, layer: "agent", agent: steps, deferred: [],
-        msg: "The site agent's additions to your database could not be made, so nothing was saved." });
+    if (sr.ok) {
+      if (provisioned) schemaFacts.push("The site had no database, so one was made for it.");
+      if (sr.added.length) schemaFacts.push("Added to the database: " + sr.added.join(", ") + (sr.revision ? " (saved to your draft; it goes live when you publish)." : "."));
     }
-    if (provisioned) schemaFacts.push("The site had no database, so one was made for it.");
-    if (sr.added.length) schemaFacts.push("Added to the database: " + sr.added.join(", ") + (sr.revision ? " (saved to your draft; it goes live when you publish)." : "."));
+    schemaDone = sr;
+    return sr;
+  };
+  const schemaRefused = () => fail(503, { ok: false, error: "agent-schema", ours: true, layer: "agent", agent: steps, deferred: [],
+    msg: "The site agent's additions to your database could not be made, so nothing was saved." });
+  if (schemaOps.length && !willSave) {
+    const sr = await applySchemaNow();
+    if (!sr.ok) return schemaRefused();
   }
   // THE VERSION'S NAME (2026-10-30): the agent's own summary, first clause.
   const label = versionName(ag.summary, words);
@@ -17198,14 +17213,20 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   let rowsOut = { done: [], failed: 0, facts: [] };
   const rowConn = ag.rows.length ? await ownerRowConn(env, slug).catch(() => null) : null;
   const rowQuery = (q, p) => sqlQuery(rowConn, q, p || []);
-  if (ag.rows.length) {
+  let rowsWritten = false;
+  const writeRowsNow = async () => {
+    if (rowsWritten || !ag.rows.length) return;
+    rowsWritten = true;
     if (!rowConn) rowsOut = { done: [], failed: ag.rows.reduce((n, op) => n + op.add.length + op.update.length + op.remove.length, 0), facts: ["The table entries could not be saved: the site's database could not be reached."] };
     else {
       const fenceOk = () => { const f = jobFence(env, job); return !(f && f.lost) && !(job && typeof job.cancelled === "function" && job.cancelled()); };
       rowsOut = await writeAgentRows({ ops: ag.rows, query: rowQuery, fence: fenceOk, key: job && job.id ? String(job.id) : String(rowKey || "") });
     }
     tm("agent:rows", rowsOut.failed ? "fail" : "ok", { done: rowsOut.done.length, failed: rowsOut.failed });
-  }
+  };
+  // THE TABLE ENTRIES FOLLOW THE SAME ORDER: after the compile when there are
+  // pages to save (they may use new columns), at once when there are none.
+  if (!willSave) await writeRowsNow();
   const undoEntries = async () => {
     if (!rowsOut.done.length) return "";
     const u = await undoRows({ done: rowsOut.done, query: rowQuery });
@@ -17229,12 +17250,23 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
       touched: files.filter((k) => !k.startsWith("-parts/")),
       ...(renames.length ? { renamed: renames.map(([from, to]) => ({ from, to })) } : {}),
       ...(devScope ? { devices: devScope } : {}),
+      // After the compile, before anything is written: the database, then the entries.
+      ...(schemaOps.length || ag.rows.length ? { afterCompile: async () => {
+        if (schemaOps.length) {
+          const sr = await applySchemaNow();
+          if (!sr.ok) return { refuse: { error: "agent-schema", ours: true, detail: String(sr.why || "") } };
+        }
+        await writeRowsNow();
+        return null;
+      } } : {}),
     });
     if (!o.ok && cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
     return o;
   };
   if (ag.changed.length || setKeys.length) {
     out = await save(ag);
+    // THE DATABASE REFUSED IN THE SEAM: nothing was written or published.
+    if (out && out.ok === false && out.error === "agent-schema") { await putBack(); return schemaRefused(); }
     // A SAVE THAT FAILED ON THE AGENT'S OWN CODE gets the same one retry, with
     // the compiler's words, from the files it tried to save. That second run
     // is NOT billed: only the first run's usage is ever charged (`billUsage`),
@@ -17259,6 +17291,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
         renames = Object.entries(ag.redirects || {});
         Object.assign(steps, { rounds: steps.rounds + again.rounds, builds: steps.builds + again.builds, changed: ag.changed, removed: ag.removed });
         out = await save(ag);
+        if (out && out.ok === false && out.error === "agent-schema") { await putBack(); return schemaRefused(); }
       }
     }
     if (out && out.cssFailed) {

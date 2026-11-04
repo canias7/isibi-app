@@ -141,13 +141,20 @@ test("FX5 rows: by the table's own key, before the publish, told from what the d
   assert.ok(r.reply.facts.some((f) => /loaves table: changed 1 entry/.test(f)), r.reply.facts.join(" | "));
   assert.ok([...db.meta.keys()].some((k) => /^agent-row:/.test(k)), "the write carries its journal key");
 });
-test("FX5b rows: a save that fails puts the entries back", async () => {
+// STRONGER SINCE 2026-11-04 (carry-over G8/M-14): the entries wait for the
+// compile (the publish's afterCompile seam), so a save whose compile fails never
+// writes them at all, and "untouched" is true. (A failure after the compile
+// still puts written entries back: `undoEntries`.)
+test("FX5b rows: a save whose compile fails never writes the entries, and says untouched truthfully", async () => {
   const db = loavesDb();
   const r = await drive({ ask: "Rye costs 7 now; change the hours.", db, failCompileFrom: 2, rounds: ROWS() });
   assert.equal(r.reply.ok, false);
-  assert.equal(db.tables.get("loaves").find((x) => x.code === "rye").price, "5", "put back");
-  assert.match(r.reply.msg, /put back/);
-  assert.equal([...db.meta.keys()].filter((k) => /^agent-row:/.test(k)).length, 0, "the journal key goes with it");
+  assert.equal(db.tables.get("loaves").find((x) => x.code === "rye").price, "5", "an entry was written before the compile");
+  assert.match(r.reply.msg, /untouched/);
+  assert.equal([...db.meta.keys()].filter((k) => /^agent-row:/.test(k)).length, 0, "no journal key: nothing was written");
+  // The difference from writing and undoing: no UPDATE of the list ever ran.
+  assert.ok(db.log.length > 0, "the observer is alive: the database was asked something");
+  assert.ok(!db.log.some((q) => /^\s*UPDATE "?loaves/i.test(q)), "an entry was written before the compile, then undone: " + db.log.filter((q) => /loaves/.test(q)).join(" | "));
 });
 test("FX5c rows: the same job run again writes nothing twice (journal key)", async () => {
   const db = loavesDb();
