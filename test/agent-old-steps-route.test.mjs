@@ -42,7 +42,8 @@ function bucket(slug, uploads = []) {
     async put(k, v) { store.set(k, String(v)); },
     async delete(k) { store.delete(k); },
     async list(o) { return { objects: o && String(o.prefix || "").startsWith("uploads/") ? uploads.map((n) => ({ key: "uploads/" + slug + "/" + n, customMetadata: {} })) : [], truncated: false }; },
-    async head(k) { return store.has(k) ? { key: k } : null; },
+    // An owner's upload answers its stored type and size, as R2 does (2026-11-04, M-29: checked by bytes).
+    async head(k) { if (uploads.some((n) => k === "uploads/" + slug + "/" + n)) return { key: k, size: 2048, httpMetadata: { contentType: "image/png" } }; return store.has(k) ? { key: k } : null; },
   };
 }
 

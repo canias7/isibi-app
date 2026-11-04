@@ -144,7 +144,7 @@ export function deadLinkNote(list, max = 12) {
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
 export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [] } = {}) {
-  const own = typeof summary === "string" ? summary.trim() : "";
+  const own = typeof summary === "string" ? scrubSaid(summary) : "";
   if (!own) return "";
   const add = [];
   if (failed.length) add.push("What did not work: " + failed.join(" "));
@@ -415,3 +415,60 @@ export function newFacts(before, after, known) {
 
 export const FACTS_NOTE = (list) => "THESE DETAILS ARE NOT IN THE OWNER'S WORDS, THE SITE, OR ANYTHING YOU READ:\n" + list.map((f) => "- " + f).join("\n") +
   "\nNever supply a phone number, email or price yourself. Replace each with a clearly marked placeholder (for example \"[Phone number]\") and say in finish what is missing, unless the owner gave it.";
+
+// ══ CARRY-OVER BATCH 5 (2026-11-04) ══════════════════════════════════════════
+
+// ── M-30, M-79, M-81, M-85: WHAT REACHES THE CUSTOMER ────────────────────────
+// The agent's own words are shown as written, so they are cleaned the way the
+// old reply writer's were: no key-shaped strings or provider names we never
+// show, no emoji or checkmarks, no version ids, and no file names (the page or
+// section they are).
+export function scrubSaid(text) {
+  let t = String(text || "");
+  t = t.replace(/\b(?:sk|pk|rk|whsec)_(?:live|test)_[A-Za-z0-9]{6,}\b/g, "[hidden]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/g, "[hidden]")
+    .replace(/\b(?:xai|sk-ant|sk-proj|sk)-[A-Za-z0-9_-]{16,}\b/g, "[hidden]")
+    .replace(/\bfal(?:\.ai)?\b/gi, "the picture service");
+  t = t.replace(/\b\d{13,14}-[a-z0-9]{6}\b/g, "a saved version");
+  t = t.replace(/`?-parts\/server-([a-z0-9-]+)`?/g, (_, n) => "the " + n.replace(/-/g, " ") + " server function")
+    .replace(/`?-parts\/([a-z0-9-]+)`?/g, (_, n) => "the " + n.replace(/-/g, " ") + " section")
+    .replace(/`?\bindex\.tsx`?/g, "the home page")
+    .replace(/`?\b([a-z0-9][a-z0-9_-]*(?:\/[a-z0-9_$-]+)*)\.tsx`?/g, (_, p) => "the /" + p.replace(/\/index$/, "") + " page")
+    .replace(/`?\bstyles\.css`?/g, "the site's styles");
+  t = t.replace(/\p{Extended_Pictographic}\p{Variation_Selector}?\s?/gu, "");
+  return t.replace(/[ \t]{2,}/g, " ").trim();
+}
+
+// ── M-5: AN ENTRY THE DATABASE WILL REFUSE IS NOT QUEUED ─────────────────────
+/** Why each add or update would be refused by the table's own rules (required, allowed values, length). */
+export function rowProblems(tableSpec, add = [], update = [], pk = "id") {
+  const cols = tableSpec && Array.isArray(tableSpec.columns) ? tableSpec.columns.filter((c) => c && typeof c === "object" && c.name) : [];
+  const out = [];
+  const isEmpty = (v) => v === undefined || v === null || (typeof v === "string" && !v.trim());
+  const check = (o, where, isAdd) => {
+    for (const c of cols) {
+      if (c.name === pk || c.pk || c.primary) continue;
+      const v = o ? o[c.name] : undefined;
+      const req = !!(c.notnull || c.required || c.notNull) && c.default === undefined && c.defaultValue === undefined;
+      if (isAdd && req && isEmpty(v)) out.push(where + ": " + c.name + " is required");
+      if (v === undefined || v === null) continue;
+      const allowed = c.enum || c.oneOf || c.values;
+      if (Array.isArray(allowed) && allowed.length && !allowed.map(String).includes(String(v))) out.push(where + ": " + c.name + " must be one of " + allowed.slice(0, 8).join(", "));
+      const max = c.max !== undefined ? c.max : c.maxLength;
+      if (typeof v === "string" && Number.isInteger(max) && v.length > max) out.push(where + ": " + c.name + " is over " + max + " characters");
+    }
+  };
+  (Array.isArray(add) ? add : []).forEach((o, i) => check(o, "add " + (i + 1), true));
+  (Array.isArray(update) ? update : []).forEach((u, i) => check(u && u.set, "update " + (i + 1), false));
+  return out.slice(0, 10);
+}
+
+// ── M-28: NO BLIND OVERWRITE ─────────────────────────────────────────────────
+/** True when `after` keeps at least half of `before`'s non-blank lines (or `before` is tiny). */
+export function keepsMost(before, after) {
+  const lines = (s) => String(s || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const b = lines(before);
+  if (b.length < 3) return String(after || "").includes(String(before || "").trim().slice(0, 40));
+  const a = new Set(lines(after));
+  return b.filter((l) => a.has(l)).length * 2 >= b.length;
+}

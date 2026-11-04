@@ -43,7 +43,7 @@ import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.
 import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
-import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE } from "./agent-gates.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE, rowProblems, keepsMost } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -98,6 +98,8 @@ export const CREDIT_CHECK_EVERY = 1; // every round (2026-11-04, carry-over M-6)
 const ADDRESS = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** Rows `read_table` reads at most in one call (a pasted list of ~200 is updated from one read). */
 export const MAX_TABLE_READ = 500;
+/** QR codes one change may make (carry-over M-40). */
+export const MAX_QRS = 12;
 /** Characters one attachment or import answer carries at most; the rest is read with `from`. */
 export const MAX_TOOL_TEXT = 40000;
 
@@ -516,6 +518,16 @@ export function firstMessage({ request, map = null, ws, shown = [], history = ""
 }
 
 /** The attached files, by id, name, kind and size — what read_attachment takes. */
+/**
+ * TODAY'S DATE (2026-11-04, carry-over M-33): the agent was given no date, so
+ * "next Friday" or an event's date could be written as one already past.
+ */
+export function todayLine(ms) {
+  const d = new Date(Number(ms) || Date.now());
+  if (Number.isNaN(d.getTime())) return "";
+  return "\n\nTODAY: " + d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }) + " (UTC). Dates the owner gives without a year are the next one to come; never put an event or a booking date in the past unless they say so.";
+}
+
 export function attachedList(attached = [], unread = []) {
   const a = Array.isArray(attached) ? attached : [];
   const u = Array.isArray(unread) ? unread : [];
@@ -889,6 +901,9 @@ export function helperFact(e) {
 }
 
 // ── THE TOOLS, RUN ───────────────────────────────────────────────────────────
+/** Columns the database fills itself (carry-over M-36). */
+const SERVER_SET = /^(created_at|updated_at|inserted_at|modified_at|deleted_at)$/i;
+
 /** The tools that change the site, refused on a message that is only a question (M-89). */
 const CHANGING_TOOLS = new Set(["write_file", "delete_file", "change_rows", "set_site_settings", "set_logo", "set_languages", "set_table_rules", "rename_page", "sort_table", "attach_media", "rename_site", "forget_old_address", "change_schema", "helpers", "split_work", "restore_starter_file", "start_build"]);
 
@@ -917,6 +932,7 @@ async function runTool(use, st, deps) {
         missing = still;
       }
       const text = found.map((k) => fileBlock(k, st.ws.get(k))).concat(extra).join("\n\n") + (missing.length ? "\n\nNo such file: " + missing.join(", ") : "");
+      for (const k of found) st.seen.add(k);
       return { text, reads: found };
     }
     case "write_file": {
@@ -927,6 +943,11 @@ async function runTool(use, st, deps) {
       const src = typeof input.source === "string" ? input.source : "";
       if (!src.trim()) return { error: "the source is empty" };
       if (src.length > MAX_FILE_CHARS) return { error: "the file is over " + MAX_FILE_CHARS + " characters" };
+      // READ BEFORE OVERWRITING (2026-11-04, carry-over M-28): a file the site
+      // had is written only after its current text was shown or read this run.
+      // A write that keeps most of the file's own lines was not blind (it could
+      // not have been written without the text), so it goes in.
+      if (!st.onlyWrite && st.orig && st.orig.has(w.key) && st.ws.has(w.key) && !st.seen.has(w.key) && !st.written.has(w.key) && !keepsMost(st.ws.get(w.key), src)) return { error: "NOT WRITTEN: read " + w.key + " first (read_files), then write it with every line you are not changing exactly as it is." };
       { const why = writeGate(st, w.key, src); if (why) return { error: why }; }
       const name = w.key.startsWith("-parts/") ? w.key.slice(7) : "";
       st.ws.set(w.key, src);
@@ -963,7 +984,8 @@ async function runTool(use, st, deps) {
       const cols = new Set(table.columns);
       // THE TABLE'S OWN KEY (fix-all): never an assumed `id` column.
       const pk = table.pk || "id";
-      const bad = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o).filter((k) => !cols.has(k) || k === pk) : ["(not an object)"]);
+      // SERVER-SET COLUMNS ARE THE DATABASE'S (2026-11-04, carry-over M-36).
+      const bad = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.keys(o).filter((k) => !cols.has(k) || k === pk || SERVER_SET.test(k)) : ["(not an object)"]);
       const add = Array.isArray(input.add) ? input.add : [];
       const update = Array.isArray(input.update) ? input.update : [];
       const remove = Array.isArray(input.remove) ? input.remove : [];
@@ -975,6 +997,8 @@ async function runTool(use, st, deps) {
       ];
       if (wrong.length) return { error: "not columns of " + t + " (" + [...cols].join(", ") + "): " + [...new Set(wrong)].slice(0, 8).join("; ") };
       if (!add.length && !update.length && !remove.length) return { error: "nothing to change" };
+      // WHAT THE DATABASE WOULD REFUSE IS NOT QUEUED (2026-11-04, carry-over M-5).
+      { const ts = (st.ruleTables || []).find((x) => x.name === t); const probs = rowProblems(ts, add, update, pk); if (probs.length) return { error: "NOT QUEUED: the database would refuse these (" + t + "): " + probs.join("; ") + ". Fix them (ask the owner for a value they did not give), then change_rows again." }; }
       // THE SAME ENTRY IS NOT ADDED TWICE (carry-over M-22): checked against the
       // rows the table holds (as far as one read reaches) and the change itself.
       if (add.length && !String(st.request || "").includes("They answered: " + DUP_YES)) {
@@ -1032,6 +1056,8 @@ async function runTool(use, st, deps) {
       if (!cmd) return { error: "name a command" };
       if (cmd.length > 4000) return { error: "the command is over 4,000 characters" };
       if (typeof deps.run !== "function") return { error: "commands cannot be run here" };
+      // A file named in a command counts as read (cat, sed -n, grep).
+      for (const k of st.ws.keys()) if (cmd.includes(k.replace(/^-parts\//, ""))) st.seen.add(k);
       let r;
       try { r = await untilStopped(deps, () => deps.run({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, cmd)); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
@@ -1254,10 +1280,14 @@ async function runTool(use, st, deps) {
       if (r.error) return { error: r.error };
       // A PRINTED CODE NEVER OPENS A 404 (carry-over M-38): the page must exist.
       if (typeof input.page === "string" && !pageExists(st.ws.files, input.page.trim())) return { error: "the site has no page at " + input.page.trim() + "; a QR code can only point at a page that exists (make the page first, or use its real address)" };
+      // ONE CODE PER ADDRESS, AT MOST MAX_QRS A RUN (2026-11-04, carry-over M-40).
+      if (st.qrByText.has(r.text)) return { text: "The QR code for " + r.text + " was already made: use " + st.qrByText.get(r.text) + " again." };
+      if (st.qrs >= MAX_QRS) return { error: "at most " + MAX_QRS + " QR codes in one change" };
       st.qrs++;
       // A SHORT ADDRESS, NOT THE PICTURE (carry-over M-39): code puts the picture in.
       const token = qrToken(st.qrs, st.qrRun);
       st.qrMap.set(token, r.src);
+      st.qrByText.set(r.text, token);
       return { text: "The QR code for " + r.text + " is ready. Put this exact address in an <img src> (with alt text saying where it leads): " + token + "\nThe picture is put in for you when the page is built; never write a QR picture yourself." };
     }
     case "sort_table": {
@@ -1329,6 +1359,8 @@ async function runTool(use, st, deps) {
       const r = readAskInput(input);
       if (r.error) return { error: r.error };
       if (st.gated === "price") { const why = priceAskProblem(r.ask); if (why) return { error: why }; }
+      // THE SAME QUESTION IS NOT ASKED TWICE (2026-11-04, carry-over M-93).
+      { const q = String(r.ask.text || "").trim().toLowerCase().replace(/\s+/g, " "); const asked = String(st.request || "").toLowerCase().replace(/\s+/g, " "); if (q && asked.includes("you asked: " + q)) return { error: "you already asked this and the owner answered (see WHAT THE OWNER ALREADY ANSWERED): go on with their answer" }; }
       st.ask = r.ask;
       st.done = true;
       return { text: "Asked. Your turn ends here." };
@@ -1512,11 +1544,12 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
     message: String(request || "").split("\n\nWHAT THE OWNER ALREADY ANSWERED")[0], origText: [...ws.files.values()].join("\n"), readText: "",
-    qrMap: new Map(), qrRun: Math.random().toString(36).slice(2, 10) || "a",
+    qrByText: new Map(), qrMap: new Map(), qrRun: Math.random().toString(36).slice(2, 10) || "a",
     questionOnly: !newProject && !onlyWrite && questionOnly(request),
     history: String(history || ""), orig: newProject || ws.fresh ? null : new Set(ws.keys()), origDead: deadLinks(ws.files),
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked, lazy: lazyFiles === true });
+  st.seen = new Set(shown);
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
   // THE TOOLS OFFERED ARE THE TOOLS WIRED (2026-10-29, the second live build:
   // a first build was offered `look` with nothing behind it, tried it, was told
@@ -1548,7 +1581,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   // A NEW PROJECT WITH NO SITE YET (2026-11-02, agent-only): the agent answers
   // in words, asks, or starts the build; it writes nothing itself here.
   const tools = newProject ? toolsFor(deps).filter((t) => NEW_PROJECT_TOOLS.includes(t.name)) : onlyWrite ? toolsFor(deps).filter((t) => t.name !== "build") : toolsFor(deps);
-  let messages = [{ role: "user", content: [{ type: "text", text: newProject ? newProjectMessage({ request, history }) : firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }), cache_control: { type: "ephemeral" } }] }];
+  let messages = [{ role: "user", content: [{ type: "text", text: newProject ? newProjectMessage({ request, history }) : firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }) + todayLine(now()), cache_control: { type: "ephemeral" } }] }];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
   let sendWait = null;

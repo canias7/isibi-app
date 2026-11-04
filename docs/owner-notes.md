@@ -15,6 +15,33 @@
 
 
 
+
+## 2026-11-04 (overnight) — Carry-over batch 5: medium and low gaps
+
+1. **No blind overwrite (M-28).** A file your site had is rewritten only after the
+   agent read it, or when the new text keeps most of its lines.
+2. **Uploads checked by their bytes (M-29).** A logo or placed picture must be
+   stored as PNG, JPEG, WebP, GIF or AVIF (what its bytes said at upload) and at
+   most 5 MB; a name ending ".png" is not enough.
+3. **Clean words to you (M-30, M-79, M-81, M-85).** The agent's own reply has key-
+   shaped strings hidden, "fal" called "the picture service", emoji and
+   checkmarks removed, version ids called "a saved version", and file names
+   given as the page or section ("the /about page", "the site footer section").
+4. **Today's date (M-33).** The agent is told today's date, so it doesn't put an
+   event in the past.
+5. **Entries the database would refuse (M-36, M-5).** Server-set columns
+   (created_at…) can't be written; a missing required field, a value outside the
+   allowed list, or one too long is refused before anything is queued.
+6. **QR repeats (M-40).** The same address gives the same code; at most 12 a change.
+7. **No repeated question (M-93).** The agent can't ask a question you already
+   answered.
+8. **Unreadable attachment / empty message (M-9, M-11).** A file that can't be
+   read stops the request before anything runs, at no charge; an empty first
+   message never reaches the AI.
+
+Tests: `agent-gates-batch5` (8). One older route fixture now gives its uploads a
+stored type. Full suite: only `media-verify` fails (as on main). Not deployed.
+
 ## 2026-11-04 (overnight) — Carry-over batch 4: the last high gaps
 
 1. **One page named, one page changed (M-43).** A message that names exactly one

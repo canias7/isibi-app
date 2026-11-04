@@ -16907,6 +16907,9 @@ function agentAddress(env, slug, uid, job) {
   return { check, apply };
 }
 
+/** The largest picture the agent may set as the logo or place by name (carry-over M-29). */
+const AGENT_LOGO_MAX_BYTES = 5 * 1000 * 1000;
+
 async function runAgentChange(env, { slug, words, pages, parts, job = null, picker = "", trace = null, bill, billLang, charges = null, uid = "", chat = "", images = null, devices = null, context = null, canAsk = false, scope = null, look = false, refund = null, affords = null, rowKey = "", canSplit = false }) {
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
   if (!Array.isArray(parts)) return { status: 503, body: { ok: false, error: "agent-unread", layer: "agent", cost: 0, deferred: [], msg: "The site's components could not be read, so the site agent did not start. Nothing was changed and nothing was charged." } };
@@ -16954,6 +16957,13 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   } catch { history = HISTORY_UNREADABLE; }
   // THE FILES ON THIS MESSAGE (2026-10-30): before, the agent was given none.
   const inFiles = agentAttachments(Array.isArray(images) ? images.slice(0, MAX_ATTACHMENTS) : []);
+  // AN ATTACHMENT THAT CANNOT BE READ STOPS THE REQUEST BEFORE ANYTHING RUNS
+  // (2026-11-04, carry-over M-9): nothing started, nothing charged.
+  if (inFiles.skipped && inFiles.skipped.length) {
+    const said = inFiles.skipped.slice(0, 4).map((a) => (a && a.name ? a.name : "a file") + (a && a.reason ? " (" + a.reason + ")" : "")).join("; ");
+    return { status: 200, body: { ok: false, error: "attachment-unreadable", layer: "agent", cost: 0, unchanged: true, deferred: [],
+      msg: "I couldn't read " + said + ", so I didn't start and nothing was charged. Send it again as a PDF, a picture or a text file and I'll carry on." } };
+  }
   // THE OLD STEPS' WIRING (2026-10-30, `builder/agent-steps.mjs`). The screen
   // sizes the router read (`devices`) go in the agent's first message as the
   // lanes were told them (`deviceNote`), and the publish checks the other sizes
@@ -16974,7 +16984,16 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (!uploadIsImage(name)) return { ok: false, why: "that file is not a picture" };
     if (!uploads) uploads = await siteUploadList(env, slug);
     const hit = uploads.find((o) => o && !o.visitor && o.key.split("/").pop() === name);
-    return hit ? { ok: true, name, url: uploadUrl(slug, name) } : { ok: false, why: "that file is not one of the owner's uploads" };
+    if (!hit) return { ok: false, why: "that file is not one of the owner's uploads" };
+    // BY ITS BYTES AND ITS SIZE, NOT ITS NAME (2026-11-04, carry-over M-29): the
+    // type stored is what the file's leading bytes said at upload.
+    let head = null;
+    try { head = await env.SITES_BUCKET.head(hit.key); } catch { head = null; }
+    const type = head && head.httpMetadata ? String(head.httpMetadata.contentType || "") : "";
+    if (!head) return { ok: false, why: "that file could not be checked just now; try again" };
+    if (!/^image\/(png|jpeg|webp|gif|avif)$/i.test(type)) return { ok: false, why: "that file is not a PNG, JPEG, WebP, GIF or AVIF picture" + (type ? " (it is " + type.split(";")[0] + ")" : "") };
+    if (Number(head.size) > AGENT_LOGO_MAX_BYTES) return { ok: false, why: "that picture is over " + Math.round(AGENT_LOGO_MAX_BYTES / 1e6) + " MB; ask for a smaller one" };
+    return { ok: true, name, url: uploadUrl(slug, name) };
   };
   // THE GUARDRAILS (2026-10-30, `builder/agent-guard.mjs`): the files as
   // they were, the one check before finishing, the write scope a part's
@@ -25004,6 +25023,8 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
  * fails starts nothing and charges nothing, and the message stays in the box.
  */
 async function newProjectTurn(env, { rb, auth }) {
+  // AN EMPTY MESSAGE NEVER REACHES THE MODEL (2026-11-04, carry-over M-11).
+  if (!String((rb && rb.message) || "").trim()) return { ok: false, error: "empty", cost: 0, msg: "Type what you'd like first." };
   const qa = Array.isArray(rb.qa) ? rb.qa.slice(-12).filter((x) => x && typeof x.q === "string" && typeof x.a === "string") : [];
   const said = [];
   for (const x of qa) { said.push({ r: "a", t: x.q }); said.push({ r: "u", t: x.a }); }
