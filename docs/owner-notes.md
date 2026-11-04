@@ -21,6 +21,44 @@
 
 
 
+
+## 2026-11-04 — Carry-over batch 9 (your list: 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15)
+
+Checked first whether each already existed; what was half there is noted.
+
+1. **Removed entries come back (M-27).** Entries the agent removes are kept (newest
+   100) beside the site; a new `removed_entries` tool lets the agent find one and
+   add it again; the reply says "ask and I'll bring it back". Not yet: entries
+   held for Publish under draft-first are kept only once they really go.
+4. **Parts in order (M-61).** *Half there:* the engine already knew "wait for
+   part X"; the agent's split never told it. Now a split part can say `after`.
+5. **Database parts alone (M-31).** *Mostly there:* a split part with no pages
+   already ran alone. Now a part marked `database` runs alone even when it names
+   pages. (It relies on the agent marking it.)
+6. **Entries on a re-run (M-25, M-26).** *Half there:* entries were journaled by
+   position; now by what they are, so a re-run in another order never skips a
+   different entry or writes one twice. A write whose answer was lost is checked
+   and told "could not be confirmed: check it in Data", never "failed".
+7. **Unstyled changes (M-49).** *Half there:* the style check existed but the agent's
+   save never used it. Now the first save checks the rules the agent wrote; a
+   rule that matches nothing gets one correction round.
+8. **Translated wording (M-50).** New `change_translation` tool: your wording on a
+   translated page is kept as that language's own, so re-translation never undoes it.
+9. **Renaming the business (M-55).** A new name with the old one still in a file
+   holds the finish once; then the reply says where.
+10. **One language off (M-56).** *Half there:* the tool took the whole list. Now a
+   list that drops a language you didn't name is refused.
+11, 12. **Empty new lists (M-52, M-35).** A new table shown on a page with no
+   entries holds the finish once (add the ones you gave); then the reply says it
+   starts empty. Visitor tables (orders, bookings) are expected empty.
+15. **Long messages (M-76, M-91).** The reply writer now gets the words whole up to
+   generous bounds (message 12,000 chars, each part 2,000), any cut marked, and
+   room for a longer reply. *M-91's brief was already fine:* the build uses your
+   own words, not the agent's short brief.
+
+Tests: `agent-gates-batch9` (11). Full suite 9,662: only `media-verify` fails (as
+on main). Not deployed.
+
 ## 2026-11-04 — Failure messages written by the AI (your "3A")
 
 The site agent's failure messages (a save that failed, the agent stopping, the

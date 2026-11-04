@@ -18,6 +18,7 @@ import { routeOf } from "./site-addon.mjs";
 import { readAsk } from "./route-shared.mjs";
 import { qrSvg } from "./site-qr.mjs";
 import { markRemove } from "./site-mark.mjs";
+import { addOverrides } from "./lang-override.mjs";
 
 export const MAX_NAME_CHARS = 80;
 export const MAX_LANGS = 12;
@@ -204,5 +205,12 @@ export function agentSettingsPatch(config, settings) {
   if (Array.isArray(s.langs)) set("langs", s.langs.slice());
   const out = touched ? { look } : {};
   if (typeof s.share === "string") out.share = s.share;
+  // THE OWNER'S OWN WORDING ON A TRANSLATED PAGE (2026-11-04, carry-over M-50):
+  // stored as that language's override, so a re-translation never undoes it.
+  if (s.langOverrides && typeof s.langOverrides === "object") {
+    let store = c.langOverrides && typeof c.langOverrides === "object" ? c.langOverrides : {};
+    for (const [tag, found] of Object.entries(s.langOverrides)) if (Array.isArray(found) && found.length) store = addOverrides(store, tag, found);
+    out.langOverrides = store;
+  }
   return out;
 }

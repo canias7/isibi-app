@@ -43,7 +43,8 @@ import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.
 import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
-import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE, rowProblems, keepsMost, staleContactLinks, unlinkedNewPages, pageNotThere } from "./agent-gates.mjs";
+import { overridesFromEdits } from "./lang-override.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE, rowProblems, keepsMost, staleContactLinks, unlinkedNewPages, pageNotThere, droppedLanguages } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -194,6 +195,16 @@ export const AGENT_TOOLS = Object.freeze([
     input_schema: { type: "object", properties: { lang: { type: "string" }, langs: { type: "array", items: { type: "string" }, maxItems: 12 } } },
   },
   {
+    name: "removed_entries",
+    description: "The entries earlier changes took off the site's tables (newest first, at most 100), as they were. When the owner wants one back, find it here and add it again with change_rows (its values, without its id). `table` narrows the list.",
+    input_schema: { type: "object", properties: { table: { type: "string" } } },
+  },
+  {
+    name: "change_translation",
+    description: "Change the wording on one of the site's TRANSLATED pages (an address like /es/menu). Those pages are made from the main pages on every publish, so never edit them as files: name the language (`lang`, e.g. \"es\"), the words as they read on the translated page now (`from`) and the owner's wording (`to`). It is kept as that language's own wording, so a later translation never undoes it. Saved when you finish.",
+    input_schema: { type: "object", properties: { lang: { type: "string" }, from: { type: "string" }, to: { type: "string" } }, required: ["lang", "from", "to"] },
+  },
+  {
     name: "set_table_rules",
     description: "Change what one of the site's tables allows, saved to its database when you finish: `read` (who sees entries: public, members, own, none), `write` (who adds: anyone, members, own, none), `unique` (columns that together may not repeat), `oncePerUser` (columns one person may use once), `noOverlap` ({start, end, on?}: whole-number time columns), `maxRows` (a limit), `retired` (true closes it, keeping its entries). Letting more people see entries needs the owner's own words, quoted in `readWords`.",
     input_schema: { type: "object", properties: { table: { type: "string" }, read: { type: "string" }, readWords: { type: "string" }, write: { type: "string" }, unique: { type: "array", items: { type: "string" } }, oncePerUser: { type: "array", items: { type: "string" } }, noOverlap: { type: "object" }, maxRows: { type: "integer" }, retired: { type: "boolean" } }, required: ["table"] },
@@ -247,8 +258,8 @@ export const AGENT_TOOLS = Object.freeze([
   // site's build, were the router's; they are the agent's own judgement now.
   {
     name: "split_work",
-    description: "Hand this request to " + SPLIT_MIN + " to " + SPLIT_MAX + " agents that work AT THE SAME TIME, one per independent part, instead of doing it all yourself. Use it only when the request holds several changes that do not depend on each other and touch different pages (for example three changes on three pages); one change, or changes on the same page, you do yourself. Call it BEFORE you change anything: it ends your turn, and each part is then done by its own agent, with its own instruction (complete and self-contained: that agent sees only it and the site) and the pages it alone owns. Two parts never own the same page. If part of the work is yours, list it as a part too.",
-    input_schema: { type: "object", properties: { parts: { type: "array", minItems: SPLIT_MIN, maxItems: SPLIT_MAX, items: { type: "object", properties: { instruction: { type: "string" }, pages: { type: "array", items: { type: "string" }, description: "The addresses this part alone changes, e.g. [\"/about\"]. [] when it changes no page (a table, a setting)." } }, required: ["instruction", "pages"] } } }, required: ["parts"] },
+    description: "Hand this request to " + SPLIT_MIN + " to " + SPLIT_MAX + " agents that work AT THE SAME TIME, one per independent part, instead of doing it all yourself. Use it when the request holds several changes that touch different pages (for example three changes on three pages); one change, or changes on the same page, you do yourself. When a part needs another finished first (a menu link to a page another part makes), give it `after` with that part's number: it waits, the rest start at once. Call it BEFORE you change anything: it ends your turn, and each part is then done by its own agent, with its own instruction (complete and self-contained: that agent sees only it and the site) and the pages it alone owns. Two parts never own the same page. If part of the work is yours, list it as a part too.",
+    input_schema: { type: "object", properties: { parts: { type: "array", minItems: SPLIT_MIN, maxItems: SPLIT_MAX, items: { type: "object", properties: { instruction: { type: "string" }, pages: { type: "array", items: { type: "string" }, description: "The addresses this part alone changes, e.g. [\"/about\"]. [] when it changes no page (a table, a setting)." }, after: { type: "array", items: { type: "integer" }, description: "The numbers of EARLIER parts this one needs finished first (1 is the first part), e.g. a menu link to a page another part makes. Leave it out when it needs none." }, database: { type: "boolean", description: "true when this part adds or changes tables or columns: it then runs alone, never beside another part." } }, required: ["instruction", "pages"] } } }, required: ["parts"] },
   },
   {
     name: "start_build",
@@ -602,7 +613,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", make_qr: "siteUrl", ask_owner: "canAsk", split_work: "split", start_build: "startBuild", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address", restore_starter_file: "restoreStarter" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", change_translation: "translations", removed_entries: "removedRows", make_qr: "siteUrl", ask_owner: "canAsk", split_work: "split", start_build: "startBuild", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address", restore_starter_file: "restoreStarter" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -889,7 +900,15 @@ export function readSplitWork(raw) {
       owned.set(k, i);
       if (!pages.includes(k)) pages.push(k);
     }
-    parts.push({ instruction, pages });
+    // WHAT IT WAITS FOR (2026-11-04, carry-over M-61): earlier parts only, by
+    // their number in this list (1 is the first), so an order never loops.
+    let after = [];
+    if (p.after !== undefined) {
+      if (!Array.isArray(p.after) || p.after.some((x) => !Number.isInteger(x) || x < 1 || x > i)) return { error: "part " + (i + 1) + ": after is a list of EARLIER parts' numbers (1 is the first)" };
+      after = [...new Set(p.after)];
+    }
+    if (p.database !== undefined && typeof p.database !== "boolean") return { error: "part " + (i + 1) + ": database is true or false" };
+    parts.push({ instruction, pages, ...(after.length ? { after } : {}), ...(p.database === true ? { database: true } : {}) });
   }
   return { parts };
 }
@@ -1258,8 +1277,40 @@ async function runTool(use, st, deps) {
       if (use.name === "set_logo" && st.images >= 2 && !st.logoAsked && !/They answered: /.test(st.request)) { st.logoAsked = true; return { error: "the owner sent " + st.images + " pictures: ask with ask_owner which one is the logo (name each by its file name) before setting it" }; }
       const r = use.name === "set_languages" ? readLanguagesInput(input) : await (use.name === "set_logo" ? readLogoInput : readSettingsInput)(input, { checkUpload: deps.checkUpload });
       if (r.error) return { error: r.error };
+      // ONE LANGUAGE OFF IS ONE LANGUAGE OFF (2026-11-04, carry-over M-56): the
+      // list is sent whole, so a language dropped that the owner never named is
+      // refused, and one they named that the site does not have is said.
+      if (use.name === "set_languages" && Array.isArray(r.settings.langs) && Array.isArray(deps.currentLangs)) {
+        const lost = droppedLanguages(deps.currentLangs, r.settings.langs, st.request);
+        if (lost.unnamed.length) return { error: "NOT QUEUED: this list would also take off " + lost.unnamed.join(", ") + ", which the owner did not name. Send every language that stays (the site has " + deps.currentLangs.join(", ") + ")." };
+        if (lost.missing.length) st.langsMissing = lost.missing;
+      }
       Object.assign(st.settings, r.settings);
       return { text: "Queued: " + Object.keys(r.settings).join(", ") + ". Saved when you finish.", settings: Object.keys(r.settings) };
+    }
+    case "removed_entries": {
+      // ENTRIES TAKEN OFF EARLIER, TO BRING BACK (2026-11-04, carry-over M-27).
+      let list = [];
+      try { list = (await deps.removedRows()) || []; } catch { return { error: "the removed entries could not be read just now" }; }
+      const t = typeof input.table === "string" ? input.table.trim() : "";
+      const mine = list.filter((r) => !t || r.table === t).filter((r) => { const x = (st.tables || []).find((y) => y.name === r.table); return !x || !x.visitors; });
+      if (!mine.length) return { text: "No removed entries" + (t ? " from " + t : "") + " are kept." };
+      return { text: fitRows(mine.map((r) => ({ table: r.table, removedAt: new Date(r.at || 0).toISOString().slice(0, 16), values: Object.fromEntries(Object.entries(r.row).filter(([k]) => k !== r.pk && !SERVER_SET.test(k))) })), 12000) };
+    }
+    case "change_translation": {
+      // THE OWNER'S OWN WORDING ON A TRANSLATED PAGE (2026-11-04, carry-over M-50).
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      const lang = typeof input.lang === "string" ? input.lang.trim() : "";
+      const from = typeof input.from === "string" ? input.from.trim() : "";
+      const to = typeof input.to === "string" ? input.to.trim() : "";
+      if (!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(lang) || !from || !to || to.length > 400) return { error: "send lang (a tag like \"es\"), from (the words on the translated page now) and to (the new wording, at most 400 characters)" };
+      let cache = null;
+      try { cache = await deps.translations(lang); } catch { cache = null; }
+      if (!cache || typeof cache !== "object") return { error: "the site has no " + lang + " translation, or it could not be read just now" };
+      const r = overridesFromEdits([{ from, to }], cache);
+      if (!r.found.length) return { error: "\u201c" + from.slice(0, 80) + "\u201d is not on the site's " + lang + " pages; read the page and copy the words exactly" };
+      st.settings.langOverrides = { ...(st.settings.langOverrides || {}), [lang]: [...((st.settings.langOverrides || {})[lang] || []), ...r.found] };
+      return { text: "Queued: the " + lang + " wording \u201c" + to.slice(0, 80) + "\u201d (" + r.found.length + (r.found.length === 1 ? " place" : " places") + "). Saved when you finish; later translations keep it.", settings: ["langOverrides"] };
     }
     case "set_table_rules": {
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
@@ -1437,6 +1488,27 @@ async function runTool(use, st, deps) {
         st.unlinked = lone;
         if (lone.length && !st.loneHeld) { st.loneHeld = true; return { error: "NOTHING LINKS TO THE NEW PAGE " + lone.join(", ") + ": add it to the site's menu (or where the owner asked), build, and finish; if it should stay unlinked, finish again and say so." }; }
       }
+      // A NEW LIST A PAGE SHOWS, WITH NOTHING IN IT (2026-11-04, carry-over M-35,
+      // M-52): a new table the owner fills (not one visitors fill: orders,
+      // bookings start empty) that a page reads and no entries were queued for.
+      // Held once (add starter entries from the owner's words); then the reply says it starts empty.
+      if (!st.onlyWrite) {
+        const all = [...st.ws.files.values()].join("\n");
+        const empty = st.schema.filter((op) => op && op.create).map((op) => op.table)
+          .filter((t) => { const x = st.tables.find((y) => y.name === t); return x && !x.visitors; })
+          .filter((t) => new RegExp("[\"'`]" + t + "[\"'`]").test(all))
+          .filter((t) => !st.rows.some((o) => o.table === t && o.add && o.add.length));
+        st.emptyLists = empty;
+        if (empty.length && !st.emptyHeld) { st.emptyHeld = true; return { error: "the new " + empty.join(", ") + " table" + (empty.length > 1 ? "s are" : " is") + " shown on a page but has no entries, so the page will show an empty list. Add the entries the owner gave with change_rows (never invent any), or, if they gave none, finish again and say it starts empty." }; }
+      }
+      // THE OLD NAME LEFT BEHIND (2026-11-04, carry-over M-55): a new site name
+      // reaches the header and sections too; held once, then the reply names the places.
+      if (!st.onlyWrite && st.settings && typeof st.settings.name === "string" && typeof deps.oldName === "string" && deps.oldName.trim() && deps.oldName.trim().toLowerCase() !== st.settings.name.trim().toLowerCase()) {
+        const old = deps.oldName.trim();
+        const where = st.ws.keys().filter((k) => k !== CSS_KEY && String(st.ws.get(k)).includes(old));
+        st.oldNameLeft = where;
+        if (where.length && !st.nameHeld) { st.nameHeld = true; return { error: "the site is being renamed to \u201c" + st.settings.name + "\u201d but these files still say \u201c" + old + "\u201d: " + where.join(", ") + ". Change each to the new name (read them first), build, and finish; keep it only where the owner asked." }; }
+      }
       // A LOGO NOBODY SHOWS (2026-11-04, carry-over M-53): the stored mark is
       // SITE_LOGO from @/site-brand; a header the agent wrote must show it.
       if (!st.onlyWrite && st.settings && st.settings.wordmark && !st.logoHeld) {
@@ -1497,7 +1569,7 @@ export function fileName(k) {
 }
 const fact = (state, text) => ({ state, text });
 const listed = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]);
-const SETTING_SAID = { name: "the site's name", description: "the site's description", share: "the link-preview picture", favicon: "the browser-tab icon", wordmark: "the header logo", lang: "the site's language", langs: "the site's extra languages" };
+const SETTING_SAID = { langOverrides: "the wording on a translated page", name: "the site's name", description: "the site's description", share: "the link-preview picture", favicon: "the browser-tab icon", wordmark: "the header logo", lang: "the site's language", langs: "the site's extra languages" };
 export function roundFacts(outcomes) {
   const out = [];
   const reads = [], wrote = [], gone = [], looked = [], queued = [], ran = [], tried = [];
@@ -1747,6 +1819,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // Words asked for and not found, and details nobody gave, left after one hold (M-67, M-69).
     missingWords: st.ask ? [] : (st.missingWords || []).slice(0, 8),
     newFacts: st.ask ? [] : (st.newFacts || []).slice(0, 10),
+    oldNameLeft: st.ask ? [] : (st.oldNameLeft || []).slice(0, 8),
+    emptyLists: st.ask ? [] : (st.emptyLists || []).slice(0, 6),
     logoUnshown: !st.ask && st.logoUnshown === true && !/\bSITE_LOGO\b/.test([...ws.files.values()].join("\n")),
     staleLinks: st.ask ? [] : (st.staleLinks || []).slice(0, 6), unlinked: st.ask ? [] : (st.unlinked || []).slice(0, 6),
   };

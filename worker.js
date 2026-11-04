@@ -178,7 +178,7 @@ import { MIGRATIONS_KEY, readMigrations, markMigration, pendingMigration, jobMig
 import { ASKABLE as SITE_TOKEN_NAMES } from "./builder/site-tokens.mjs";
 // THE MODEL'S OWN STYLESHEET — read, never validated. See site-freecss.mjs for
 // why that is the whole point and what it reports instead.
-import { readCss, cssNote, MAX_CSS } from "./builder/site-freecss.mjs";
+import { readCss, cssNote, MAX_CSS, changedSelectors } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, carryEmailChange } from "./builder/site-text.mjs";
 import { runTextEdit } from "./builder/site-apply.mjs";
 import { insertStatement } from "./builder/site-rows.mjs";
@@ -16926,6 +16926,24 @@ async function aiFailureText(env, msg, { request = "", picker = "" } = {}) {
   } catch (e) { console.error("reply: agent failure", errorClassForLog(e)); return fixed; }
 }
 
+const REMOVED_ROWS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/removed-rows.json";
+const REMOVED_ROWS_MAX = 100;
+/** Entries the agent took off, newest first, as the database last held them (carry-over M-27). */
+async function readRemovedRows(env, slug) {
+  if (!env.SITES_BUCKET) return [];
+  const o = await env.SITES_BUCKET.get(REMOVED_ROWS_KEY(slug));
+  if (!o) return [];
+  const v = JSON.parse(await o.text());
+  return Array.isArray(v) ? v.filter((r) => r && typeof r.table === "string" && r.row && typeof r.row === "object") : [];
+}
+async function keepRemovedRows(env, slug, done) {
+  const gone = (Array.isArray(done) ? done : []).filter((d) => d && d.kind === "remove" && d.old && typeof d.old === "object").map((d) => ({ table: d.table, pk: d.pk || "id", row: d.old, at: Date.now() }));
+  if (!gone.length || !env.SITES_BUCKET) return;
+  let had = [];
+  try { had = await readRemovedRows(env, slug); } catch { had = []; }
+  await env.SITES_BUCKET.put(REMOVED_ROWS_KEY(slug), JSON.stringify([...gone, ...had].slice(0, REMOVED_ROWS_MAX)), { httpMetadata: { contentType: "application/json" } });
+}
+
 /** The largest picture the agent may set as the logo or place by name (carry-over M-29). */
 const AGENT_LOGO_MAX_BYTES = 5 * 1000 * 1000;
 
@@ -16956,8 +16974,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     }
   } catch { spec = null; unreadable = true; }
   // THE STYLESHEET, or null when the config cannot be read (then not offered).
-  let css = null, cfgDb = null;
-  try { cfgDb = await siteBackendBySlug(env, slug); const cfg = await readSiteConfig(env, slug, cfgDb); if (cfg.ok) css = typeof cfg.config.css === "string" ? cfg.config.css : ""; } catch { css = null; }
+  let css = null, cfgDb = null, cfgRead = null;
+  try { cfgDb = await siteBackendBySlug(env, slug); const cfg = await readSiteConfig(env, slug, cfgDb); if (cfg.ok) { css = typeof cfg.config.css === "string" ? cfg.config.css : ""; cfgRead = cfg.config; } } catch { css = null; }
   // PROGRESS AS THE OLD STEPS SHOWED IT (fix-all): recorded whenever the job
   // keeps a progress record (the lanes marked plan, applied and publish with
   // or without the talk), not only when the talk is on.
@@ -17083,6 +17101,14 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     // when the agent finishes, before they are applied.
     ...(!conn && noDb && uid && neonConfigured(env) ? { applySchema: () => true } : {}),
     review: (w) => reviewNote(changeReport(before, w, request)),
+    // THE TRANSLATED PAGES' WORDING, for the owner's own wording there (M-50).
+    // ENTRIES TAKEN OFF EARLIER, to bring back (M-27).
+    ...(env.SITES_BUCKET ? { removedRows: () => readRemovedRows(env, slug) } : {}),
+    // THE LANGUAGES THE SITE HAS, so one taken off does not take the rest (M-56).
+    ...(cfgRead && cfgRead.look && Array.isArray(cfgRead.look.langs) ? { currentLangs: cfgRead.look.langs.filter((t) => typeof t === "string") } : {}),
+    // THE NAME BEFORE A RENAME, so the old one is not left behind (M-55).
+    ...(cfgRead && cfgRead.look && typeof cfgRead.look.brand === "string" ? { oldName: cfgRead.look.brand } : {}),
+    ...(cfgRead && cfgRead.langStrings && typeof cfgRead.langStrings === "object" ? { translations: async (tag) => { const m = cfgRead.langStrings[tag]; return m && typeof m === "object" ? m : null; } } : {}),
     // UNASKED REMOVALS THE AGENT INSISTS ON ARE ASKED ABOUT (2026-11-04, M-42).
     unasked: (w) => unaskedLines(changeReport(before, w, request)),
     // PICTURE ADDRESSES THAT HOLD NO FILE (2026-11-04, M-41): only the site's own
@@ -17332,6 +17358,10 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     else {
       const fenceOk = () => { const f = jobFence(env, job); return !(f && f.lost) && !(job && typeof job.cancelled === "function" && job.cancelled()); };
       rowsOut = await writeAgentRows({ ops: ag.rows, query: rowQuery, fence: fenceOk, key: job && job.id ? String(job.id) : String(rowKey || "") });
+      // REMOVED ENTRIES ARE KEPT TO BRING BACK (2026-11-04, carry-over M-27):
+      // a saved version restores no entry, so each removed entry's last values
+      // are kept beside the site (the newest 100), for the agent's restore tool.
+      try { await keepRemovedRows(env, slug, rowsOut.done); } catch (e) { console.error("removed rows keep:", slug, errorClassForLog(e)); }
       // Before and after, not only counts (carry-over M-80).
       try { const vf = agentValueFacts(rowsOut.done); if (vf.length) rowsOut = { ...rowsOut, facts: [...rowsOut.facts, ...vf] }; } catch { /* the counts stand */ }
     }
@@ -17345,7 +17375,10 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     const u = await undoRows({ done: rowsOut.done, query: rowQuery });
     return u.ok ? "The table entries it had saved were put back." : u.left + " table " + (u.left === 1 ? "entry" : "entries") + " it had saved could not be put back.";
   };
-  const save = async (r) => {
+  // A STYLE RULE THAT MATCHES NOTHING (2026-11-04, carry-over M-49): the first
+  // save checks the rules this change wrote (`verifyCss`); a dead one is sent
+  // back once through the save retry below, whose save checks nothing (one round).
+  const save = async (r, { verify = false } = {}) => {
     const files = r.changed.filter((k) => k !== "styles.css");
     let cssBefore = null;
     // THE STYLESHEET FIRST, as the look step stores it: the publish reads it from the config.
@@ -17360,6 +17393,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     const o = await recompileAndPublish(env, {
       slug, pages: r.pages, parts: r.parts, label,
       job, charge: billLang, charges, models, trace,
+      ...(verify && r.cssChanged && typeof r.css === "string" ? { verifyCss: changedSelectors(typeof css === "string" ? css : "", r.css) } : {}),
       touched: files.filter((k) => !k.startsWith("-parts/")),
       ...(renames.length ? { renamed: renames.map(([from, to]) => ({ from, to })) } : {}),
       ...(devScope ? { devices: devScope } : {}),
@@ -17383,7 +17417,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     ag = { ...ag, pages: dp.files, parts: dq.files };
   }
   if (ag.changed.length || setKeys.length) {
-    out = await save(ag);
+    out = await save(ag, { verify: true });
     // THE DATABASE REFUSED IN THE SEAM: nothing was written or published.
     if (out && out.ok === false && out.error === "agent-schema") { await putBack(); return schemaRefused(); }
     // A SAVE THAT FAILED ON THE AGENT'S OWN CODE gets the same one retry, with
@@ -17501,7 +17535,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // the agent finished before the entries, rules and address were applied, so
   // whatever of those failed, and links left pointing at missing pages, are
   // added to its words from what really happened.
-  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [], logoUnshown: ag.logoUnshown === true, values: (rowsOut.facts || []).filter((f) => /\u2192/.test(f)) });
+  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [], logoUnshown: ag.logoUnshown === true, values: (rowsOut.facts || []).filter((f) => /\u2192/.test(f)), oldName: ag.oldNameLeft || [], emptyLists: ag.emptyLists || [], removedRows: (rowsOut.done || []).filter((d) => d && d.kind === "remove" && d.old).length });
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.

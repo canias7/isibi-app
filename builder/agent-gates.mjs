@@ -143,7 +143,7 @@ export function deadLinkNote(list, max = 12) {
 
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
-export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [], logoUnshown = false, values = [] } = {}) {
+export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [], logoUnshown = false, values = [], oldName = [], emptyLists = [], removedRows = 0 } = {}) {
   const own = typeof summary === "string" ? scrubSaid(summary) : "";
   if (!own) return "";
   const add = [];
@@ -164,6 +164,12 @@ export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], d
   // M-80: the values that changed, when the agent's words do not already give them.
   const newVals = values.filter((v) => { const m = String(v).match(/\u2192 ([^,.]+)/); return m && !own.includes(m[1].trim()); });
   if (newVals.length) add.push(newVals.join(" "));
+  // M-55: the old business name still on the site.
+  if (oldName.length) add.push("Your old name is still on " + scrubSaid(oldName.slice(0, 5).join(", ")) + ".");
+  // M-35, M-52: a new list that starts with nothing in it.
+  if (emptyLists.length) add.push("The " + emptyLists.join(", ") + " list" + (emptyLists.length > 1 ? "s start" : " starts") + " empty: add entries in your Data panel, or tell me what to put in.");
+  // M-27: removed entries can be brought back.
+  if (removedRows > 0) add.push((removedRows === 1 ? "The removed entry is" : "The " + removedRows + " removed entries are") + " kept: ask and I'll bring " + (removedRows === 1 ? "it" : "them") + " back.");
   // M-53: the logo is stored but the header does not show it.
   if (logoUnshown) add.push("Your logo is saved, but the site's header doesn't show it yet.");
   // M-70: the change is in the draft until they press Publish (said once, unless the agent said it).
@@ -538,4 +544,15 @@ export function pageNotThere(message, pages) {
     if (!have.has(name) && ![...have].some((h) => h.includes(name) || name.includes(h))) return name;
   }
   return "";
+}
+
+// ── M-56: ONE LANGUAGE OFF IS ONE LANGUAGE OFF ───────────────────────────────
+const langName = (tag) => { try { return new Intl.DisplayNames(["en"], { type: "language" }).of(tag) || tag; } catch { return tag; } };
+/** Languages the new whole list drops that the owner's words never name (`unnamed`). */
+export function droppedLanguages(current, next, words) {
+  const w = String(words || "").toLowerCase();
+  const keep = new Set((next || []).map((t) => String(t).toLowerCase()));
+  const named = (t) => w.includes(String(t).toLowerCase()) || w.includes(langName(t).toLowerCase().split(" (")[0]);
+  const dropped = (current || []).filter((t) => !keep.has(String(t).toLowerCase()));
+  return { unnamed: dropped.filter((t) => !named(t)).map((t) => langName(t) + " (" + t + ")"), missing: [] };
 }

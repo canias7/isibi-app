@@ -80,8 +80,27 @@ const isDuplicateKey = (e) => String((e && (e.code || "")) || "") === "23505" &&
  * retry key's) stable name; with none, the writes carry no journal and say so.
  * Answers `{ done: [{table, kind, pk, old, row, key}], failed, already, stopped, facts }`.
  */
+/**
+ * THE JOURNAL KEY BY WHAT THE ENTRY IS, NOT WHERE IT SITS (2026-11-04,
+ * carry-over M-25): a redelivered job's second model run can list its entries
+ * in another order or differ; keyed by position, a different entry could be
+ * taken as already done. Keyed by table, kind and content (and which copy of
+ * an identical entry it is), the same entry is never written twice and a
+ * different one is never skipped.
+ */
+export function rowContentKey(base, table, w, nth = 0) {
+  const b = typeof base === "string" ? base.trim() : "";
+  if (!/^[A-Za-z0-9_:-]{8,80}$/.test(b)) return "";
+  const body = JSON.stringify([String(table), w.kind, w.kind === "add" ? sortKeys(w.values) : w.kind === "update" ? [String(w.id), sortKeys(w.set)] : String(w.id)]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < body.length; i++) { h ^= body.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return "agent-row:" + b + ":" + h.toString(16).padStart(8, "0") + ":" + body.length + ":" + nth;
+}
+const sortKeys = (o) => (o && typeof o === "object" && !Array.isArray(o) ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]])) : o);
+
 export async function writeAgentRows({ ops = [], query, fence = () => true, key = "" } = {}) {
-  const done = [], failedBy = new Map(), countBy = new Map();
+  const done = [], failedBy = new Map(), countBy = new Map(), unknownBy = new Map();
+  const seenKeys = new Map();
   let already = 0, stopped = false;
   const bump = (m, t, k) => { const c = m.get(t) || { add: 0, update: 0, remove: 0 }; c[k]++; m.set(t, c); };
   const list = Array.isArray(ops) ? ops : [];
@@ -95,7 +114,10 @@ export async function writeAgentRows({ ops = [], query, fence = () => true, key 
     ];
     for (const w of work) {
       if (!fence()) { stopped = true; break; }
-      const k = rowOpKey(key, oi, w.kind, w.n);
+      const k0 = rowContentKey(key, op.table, w, 0);
+      const nth = k0 ? (seenKeys.get(k0) || 0) : 0;
+      if (k0) seenKeys.set(k0, nth + 1);
+      const k = k0 ? rowContentKey(key, op.table, w, nth) : "";
       let got = null;
       // ALREADY DONE BY AN EARLIER RUN OF THIS JOB: read first, so a removal
       // (which finds nothing the second time, and so writes no key) is known
@@ -119,6 +141,14 @@ export async function writeAgentRows({ ops = [], query, fence = () => true, key 
             if (v) { done.push({ table: op.table, kind: w.kind, pk, old: v.old || null, row: v.row || null, key: k, repeat: true }); bump(countBy, op.table, w.kind); already++; continue; }
           } catch { /* told as failed below */ }
         }
+        // AN ANSWER LOST IS "NOT KNOWN", NEVER "FAILED" (2026-11-04, carry-over
+        // M-26): the journal is read; there means saved, unreadable means unknown.
+        if (k && !isDuplicateKey(e)) {
+          let v = null, unread = false;
+          try { const r = await query("SELECT v FROM _meta WHERE k = ?", [k]); v = parse(r && r[0] && r[0].v); } catch { unread = true; }
+          if (v) { done.push({ table: op.table, kind: w.kind, pk, old: v.old || null, row: v.row || null, key: k }); bump(countBy, op.table, w.kind); continue; }
+          if (unread || lostAnswer(e)) { bump(unknownBy, op.table, w.kind); continue; }
+        }
         bump(failedBy, op.table, w.kind);
         continue;
       }
@@ -129,7 +159,24 @@ export async function writeAgentRows({ ops = [], query, fence = () => true, key 
       } else bump(failedBy, op.table, w.kind);
     }
   }
-  return { done, already, stopped, failed: [...failedBy.entries()].reduce((n, [, c]) => n + c.add + c.update + c.remove, 0), facts: rowFacts(countBy, failedBy, stopped) };
+  const unknown = [...unknownBy.entries()].reduce((n, [, c]) => n + c.add + c.update + c.remove, 0);
+  return { done, already, stopped, unknown, failed: [...failedBy.entries()].reduce((n, [, c]) => n + c.add + c.update + c.remove, 0), facts: [...rowFacts(countBy, failedBy, stopped), ...unknownFacts(unknownBy)] };
+}
+
+/** A database error that is a lost answer (the network, a timeout), not a refusal. */
+function lostAnswer(e) {
+  const m = String((e && (e.message || e.code)) || "").toLowerCase();
+  return !(e && (e.code || e.sqlState)) && /timeout|timed out|network|fetch failed|socket|reset|aborted|terminated|503|502/.test(m);
+}
+
+/** Entries whose answer was lost: said as not known, so the owner checks them. */
+export function unknownFacts(unknownBy) {
+  const out = [];
+  for (const [t, c] of unknownBy || []) {
+    const n = c.add + c.update + c.remove;
+    if (n) out.push(n + (n === 1 ? " entry" : " entries") + " in the " + t + " table could not be confirmed (the database's answer was lost): check them in Data.");
+  }
+  return out;
 }
 
 /** The entries as facts: per table, what the database answered it did; what it refused. */

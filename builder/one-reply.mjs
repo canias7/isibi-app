@@ -159,12 +159,12 @@ export function requestFacts(view, { missingKeys = null, answers = null } = {}) 
     else if (Number.isInteger(p.charged) && p.charged > 0) charged += p.charged;
     for (const k of Array.isArray(p.needKeys) ? p.needKeys : []) if (plain(k) && typeof k.name === "string" && KEY_RE.test(k.name)) asked.push(k.name);
     const notMade = p.status === "partial" && Array.isArray(p.notDone)
-      ? uniq(p.notDone.map((x) => (plain(x) && typeof x.what === "string" ? x.what.trim().slice(0, 160) : "")).filter((x) => x && !/^[a-z-]+$/.test(x))) : [];
+      ? uniq(p.notDone.map((x) => (plain(x) && typeof x.what === "string" ? cutSaid(x.what.trim(), 600) : "")).filter((x) => x && !/^[a-z-]+$/.test(x))) : [];
     out.push({
-      n: Number.isInteger(p.n) ? p.n : out.length, asked: String(p.words || "").slice(0, 300), ending,
+      n: Number.isInteger(p.n) ? p.n : out.length, asked: cutSaid(String(p.words || ""), 2000), ending,
       ...(finished || ending === "working" ? {} : ((r) => (r ? { reason: r } : {}))(reasonOf(p))),
       ...(notMade.length ? { notMade } : {}),
-      ...(p.question && typeof p.question.text === "string" && p.status === "waiting" ? { question: p.question.text.slice(0, 300) } : {}),
+      ...(p.question && typeof p.question.text === "string" && p.status === "waiting" ? { question: cutSaid(p.question.text, 1000) } : {}),
     });
   }
   const clean = (a) => uniq(a.filter(Boolean));
@@ -179,7 +179,7 @@ export function requestFacts(view, { missingKeys = null, answers = null } = {}) 
   // what they named there was asked for, as much as the message's own words.
   // Read strictly: a list that does not read whole adds nothing.
   const ans = Array.isArray(answers) && answers.every((c) => plain(c) && typeof c.q === "string" && typeof c.a === "string")
-    ? clean(answers.map((c) => c.a.trim().slice(0, 300))) : [];
+    ? clean(answers.map((c) => cutSaid(c.a.trim(), 1000))) : [];
   return {
     ended: plain(view) && view.ended === true,
     parts: out,
@@ -297,7 +297,11 @@ export const ONE_REPLY_SYSTEM =
   "If keys are missing, say so and point to the key box below. If something is paused for credits, say it is paused and carries on after a top-up. " +
   "Keep it short: a few sentences.";
 
-export const ONE_REPLY_MAX_TOKENS = 600;
+// WHOLE, OR SAID TO BE CUT (2026-11-04, carry-over M-76): the reply writer is
+// handed each part's words, what was not made, the question and the answers
+// whole up to generous bounds, and a cut is marked, never silent.
+export function cutSaid(s, n) { const t = String(s || ""); return t.length > n ? t.slice(0, n) + "\u2026 [cut]" : t; }
+export const ONE_REPLY_MAX_TOKENS = 1200;
 
 /** The one call's request, in the builder model's own shape (`callBuilderModel`). */
 export function oneReplyRequest({ message, facts, model }) {
@@ -305,7 +309,7 @@ export function oneReplyRequest({ message, facts, model }) {
     model,
     max_tokens: ONE_REPLY_MAX_TOKENS,
     system: [{ type: "text", text: ONE_REPLY_SYSTEM }],
-    messages: [{ role: "user", content: "THEIR MESSAGE:\n" + String(message || "").slice(0, 4000) + "\n\nWHAT REALLY HAPPENED (facts):\n" + JSON.stringify(facts) }],
+    messages: [{ role: "user", content: "THEIR MESSAGE:\n" + cutSaid(String(message || ""), 12000) + "\n\nWHAT REALLY HAPPENED (facts):\n" + JSON.stringify(facts) }],
   };
 }
 

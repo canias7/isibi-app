@@ -695,10 +695,18 @@ export function splitParts(rec, parentN, list) {
       at: Math.max(0, parent.at), source: "agent", parent: parentN, phase: "run",
       route: { op: "edit", intent: "edit", layer: "page", page: pages[0] || "/", remove: false, rename: "", tab: false, handOver: null, cost: 0, handedOff: false, fromAddon: false, agent: true },
     });
-    if (pages.length) part.targets = { writes: pages.map((g) => "page:" + g), reads: [] };
+    // A PART THAT CHANGES THE DATABASE RUNS ALONE (2026-11-04, carry-over M-31):
+    // with no page targets it counts as writing the whole site (`SITE`), which
+    // the scheduler never runs beside another writer, so two database changes
+    // never meet.
+    if (pages.length && it.database !== true) part.targets = { writes: pages.map((g) => "page:" + g), reads: [] };
     part.status = "blocked";
     rec.parts.push(part);
     made.push(n);
+    // WHAT IT WAITS FOR (2026-11-04, carry-over M-61): the agent's own `after`,
+    // earlier parts of this split only, read as the engine's `needs`.
+    const after = Array.isArray(it.after) ? it.after.filter((x) => Number.isInteger(x) && x >= 1 && x <= made.length - 1) : [];
+    if (after.length) part.needs = [...new Set([...(part.needs || []), ...after.map((x) => made[x - 1])])];
   }
   return made;
 }
