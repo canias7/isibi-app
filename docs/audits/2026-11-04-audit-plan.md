@@ -31,7 +31,7 @@ The owner, 2026-11-04: *"i want to audit the builder dude."* Only what happens f
 | 4 | Edits and additions: apply, compile, repair, the browser check, save to draft | `site-apply.mjs`, `edit-job.mjs`, `site-render.mjs`, `compile-repair.mjs`, `site-add.mjs` |
 | 5 | Where the work runs: containers, time limits, recovery after a crash | `build-server.mjs`, job routes |
 | 6 | Draft, preview, Publish, versions, restore | `publish-pages.mjs`, `site-draft.mjs`, `site-versions.mjs`, preview routes |
-| 7 | What a site can do: its database, server code, keys, payments, mail | `site-db.mjs`, `server-code.mjs`, `site-requirements.mjs`, `site-secrets.mjs` |
+| 7 | What a site can do: its database, server code, keys, payments (any provider, the owner's own key), mail | `site-db.mjs`, `server-code.mjs`, `site-requirements.mjs`, `site-secrets.mjs` |
 | 8 | Credits while building: reserve, charge, refund | the agent's billing, ledger routes |
 | 9 | The chat: messages, cards, progress steps, replies, questions | `public/chat.js`, `edit-poll.js`, `chat-talk.js` |
 | 10 | The message box: Send/Stop, queue, attachments, picker, effort, the key box | `public/chat.js`, `key-card.js` |
@@ -51,7 +51,7 @@ The owner, 2026-11-04: *"i want to audit the builder dude."* Only what happens f
 - J6 Stop at every moment: routing, building, saving, publishing.
 - J7 Reload or open on a second device mid-work and after it ends.
 - J8 Publish, then restore an older version.
-- J9 A shop: products load, checkout, Stripe, the order recorded (the stuck "Loading goods…").
+- J9 A shop: products load, checkout with whatever payment provider the owner chose (any provider, with the owner's own key: owner, 2026-11-02), the order recorded (the stuck "Loading goods…").
 - J10 Run out of credits halfway; top up; resume.
 - J12 Add something new ("add a booking page"): the add-on, its database, its keys.
 - J14 A visitor on the published site: forms, sign-in, booking, a paid order.
@@ -63,6 +63,7 @@ The owner, 2026-11-04: *"i want to audit the builder dude."* Only what happens f
 - What a reply says comes from what was really done.
 - Stop is always reachable while work runs.
 - No secret value is ever stored outside the vault or shown back.
+- Payments are not tied to one provider: any provider the owner picks, with their own key (owner, 2026-11-02).
 - The owner's money: no charge without the work, every refund taken back on failure.
 - A test's fixture comes from its real producer (tonight's steps bug passed a test built by hand).
 
@@ -92,4 +93,4 @@ Each session ends with its findings written and a short plain-English summary fo
 
 - **What the models really do.** Reading shows what the agent is told and what the code does with its answer; how often a real model misreads a message is only measured live. Live checks are proposed with costs, never run without the owner's word.
 - **Production's own state**: data already stored wrong, keys, the live database. Read-only queries are allowed (non-secret columns); anything that writes asks first.
-- **Third parties** (Stripe, Neon, Cloudflare, xAI) behaving differently from their documentation.
+- **Third parties** (payment and mail providers, Neon, Cloudflare, xAI) behaving differently from their documentation.
