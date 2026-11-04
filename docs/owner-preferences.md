@@ -13,6 +13,14 @@
 >
 > "You" below is the owner: these notes are written to them.
 
+## The big agent inherits everything (2026-11-04)
+
+> *"all of this was already built and we switch to big agent and everything disappear … the only thing I wanted you to change was the way things were done, like before there was a router for a lot of things, but mainly what I wanted was all those converted into the big agent."*
+
+- Moving to the site agent changed **who decides** (one agent instead of the router and its steps), **not what the builder does**. Every protection, wait, check, question, limit and reply rule the old way had must exist on the agent path too: provider-outage waiting, "a question only answers", narrow write scopes, price and keys before work, history, and the rest.
+- Anything parked with the old way is checked for what it protected, and that protection is carried into the agent path before the old code is considered gone.
+- A change that replaces a path must list what the old path guaranteed and show each guarantee on the new one, with a test.
+
 ## How you like things done
 
 **Communication**
