@@ -69,7 +69,8 @@ test("AC6 the route keeps a carry on a credit pause, reads it on the next attemp
   const pause = fn.slice(fn.indexOf('ag.stopped === "no-credits") {'));
   assert.match(pause.slice(0, 400), /makeCarry\(before, ag/);
   assert.match(pause.slice(0, 400), /SITES_BUCKET\.put\(cKey/);
-  assert.match(fn, /ag\.stopped !== "no-credits"\) \{ try \{ await env\.SITES_BUCKET\.delete\(cKey\)/);
+  // Kept too when the provider is down (2026-11-04, carry-over M-74).
+  assert.match(fn, /ag\.stopped !== "no-credits" && !providerDown\) \{ try \{ await env\.SITES_BUCKET\.delete\(cKey\)/);
 });
 
 test("AC7 a save refused for credits pauses the part with its finished files, as a stop mid-work does", () => {

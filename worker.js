@@ -17121,7 +17121,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (ag.ok && !ag.ask && ag.changed.length && !ag.builds) ag = { ...ag, ok: false, stopped: "no-tool" };
   }
   // A CARRY IS USED ONCE: any ending but another pause clears it.
-  if (cKey && ag.stopped !== "no-credits") { try { await env.SITES_BUCKET.delete(cKey); } catch { /* an old carry's files only win where the site still matches */ } }
+  // A PROVIDER OUTAGE KEEPS THE WORK TOO (2026-11-04, carry-over M-74): its
+  // files wait as the part's carry, so a re-run of this part goes on from them;
+  // the ending says the provider is down (never "stopped answering with actions").
+  const providerDown = ag.stopped === "send" && !!ag.wait;
+  if (cKey && ag.stopped !== "no-credits" && !providerDown) { try { await env.SITES_BUCKET.delete(cKey); } catch { /* an old carry's files only win where the site still matches */ } }
   tm("agent", ag.ok ? "ok" : "fail", { rounds: ag.rounds, builds: ag.builds, credits: ag.credits, stopped: ag.stopped, changed: ag.changed.length, rows: ag.rows.length, retried });
   const steps = { rounds: ag.rounds, builds: ag.builds, stopped: ag.stopped, changed: ag.changed, removed: ag.removed, ...(retried ? { retried } : {}) };
   // A KEY ASKED FOR REACHES THE OWNER ON EVERY ENDING (2026-11-01,
@@ -17147,6 +17151,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (cKey) { try { const c = makeCarry(before, ag, stoppedFacts(ag)); if (c) await env.SITES_BUCKET.put(cKey, JSON.stringify(c), { httpMetadata: { contentType: "application/json" } }); } catch { /* the part still pauses; it starts again from the site */ } }
     return { status: 402, body: { ok: false, error: "unbilled", detail: "insufficient", layer: "agent", cost: 0, unchanged: true, agent: steps, deferred: [],
       msg: stoppedFacts(ag) + " Nothing was charged; it can run again once credits are added.", ...(await askedKeys()) } };
+  }
+  if (providerDown) {
+    if (cKey) { try { const c = makeCarry(before, ag, stoppedFacts(ag)); if (c) await env.SITES_BUCKET.put(cKey, JSON.stringify(c), { httpMetadata: { contentType: "application/json" } }); } catch { /* it starts again from the site */ } }
+    return { status: 200, body: { ok: false, error: "agent-stopped", waiting: true, wait: ag.wait, layer: "agent", cost: 0, agent: steps, deferred: [],
+      msg: "The AI provider is not answering right now, so I stopped. Nothing on the site was changed and nothing was charged. Send it again when it's back.", ...(await askedKeys()) } };
   }
   if (!ag.ok) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],

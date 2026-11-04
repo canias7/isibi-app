@@ -18,6 +18,16 @@
 
 
 
+
+## 2026-11-04 (overnight) — Carry-over batch 8: provider outage mid-edit
+
+**M-74.** When the AI provider stops answering in the middle of an edit, the
+part's unsaved work is kept (so a re-run of that part goes on from it), the reply
+says "The AI provider is not answering right now…", and nothing is charged.
+A resend as a new message still starts fresh: a true "pause and continue" for
+outages (like the credit pause) is a new feature, left for you to decide.
+Test: `agent-gates-batch8`. Not deployed.
+
 ## 2026-11-04 (overnight) — Carry-over batch 7
 
 1. **Several pictures, one logo (M-51).** When you send two or more pictures and
