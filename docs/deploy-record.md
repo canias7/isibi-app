@@ -1731,7 +1731,7 @@ and names the wrong person to go and ask.
 
 ## Deploy — 2026-11-04 00:24 UTC (`1a424a9c7`)
 
-On the owner's word ("double check and deploy"). A fast-forward from `f41c94c25`: the working sign as three dots, Stop stops at once (and shows Stopping), a conversation first (build or change only when asked), and the five Stop/queue fixes. Unit CI green (run 41744913000) and site build green (run 41744913015) on `1a424a9c7`; local suite 9,628, 1 failing (media-verify's browser mode). Image predicted `ddb3c31db826e1c9` → `3ac4be0e847092bf` (253 inputs). Deployed, not runtime-confirmed: the owner's canary press is owed ~20 minutes after the deploy.
+On the owner's word ("double check and deploy"). A fast-forward from `f41c94c25`: the working sign as three dots, Stop stops at once (and shows Stopping), a conversation first (build or change only when asked), and the five Stop/queue fixes. Unit CI green (run 41744913000) and site build green (run 41744913015) on `1a424a9c7`; local suite 9,628, 1 failing (media-verify's browser mode). Image predicted `ddb3c31db826e1c9` → `3ac4be0e847092bf` (253 inputs). Deploy run 41746542610 green. **Runtime-confirmed by the owner's free canary press, run 193** (00:51 UTC): both readers answered `1a424a9c7615`, image `3ac4be0e847092bf`, queued jobs and the runner on; balance 235; nothing charged.
 
 ## Deploy 2308 — 2026-11-03 21:46 UTC (`f41c94c25`)
 
