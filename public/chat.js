@@ -7874,7 +7874,8 @@ function renderSiteWorkspace(view, site) {
           // published, still being made, or published — read from the server
           // (`GET /api/site/<slug>/draft`) after the bar is drawn, and drawn
           // only when the server says draft-first is on.
-          '<span class="st-draft-state" id="stDraftState" hidden></span>' +
+          // NO STATUS PILL BESIDE SHARE (owner, 2026-11-04: "I don't want that there"): "Still processing…", "Saved · not published" and the rest
+          // are gone from the top bar; `paintDraftChip` finds no element and does nothing.
           '<button type="button" class="st-publish" id="stPublish"' +
             (site.slug && globalThis.draftFirstOn === true
               ? ' title="Publish your saved changes, see its link, or take it off the web"'

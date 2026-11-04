@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — No status pill beside Share (branch `park-old-way`; not deployed)
+
+On the owner's word ("next to the share button … when it's processing or when it's not published, there's a sign there. I don't want that there"). The top bar's draft pill ("Still processing…", "Saved · not published", "Published", "Not published yet", "Publishing…") is gone; its painter finds no element and does nothing. Screenshot of the top bar taken; its three tests pass.
+
 ## 2026-11-04 — The working dots go under the answer (branch `park-old-way`; not deployed)
 
 On the owner's photo (Market Lane, 8:38 PM, while it built Stripe): the three dots sat up where the request began, above "Which payment service…", and nothing showed under the answer "Stripe". An answer resumes the same request, whose card was drawn where it started. Now answering moves that request's empty working card to just under the answer, so the dots, the steps and the reply come after it. Checked in a browser: old code put the card above the question, new code under "Stripe". Test DL5 in `test/done-lines.test.mjs`. Full suite 9,637, 1 failing (media-verify's browser mode).
