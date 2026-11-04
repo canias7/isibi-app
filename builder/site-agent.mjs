@@ -77,7 +77,11 @@ export const SPLIT_MAX = 6;
 export const MAX_HELPER_TASKS = 24;
 export const HELPER_ROUNDS = Infinity;
 const PAGE_KEY = /^[a-z0-9][a-z0-9._$-]*(?:\/[a-z0-9._$-]+)*\.tsx$/i;
-const PART_KEY = /^-parts\/[a-z0-9][a-z0-9-]{0,62}$/i;
+// ONE NAME RULE FOR A COMPONENT, THE CONTAINER'S (2026-11-04, carry-over A-2):
+// this accepted "Hero", "2col", "a--b" and "end-", which the container's shell
+// (builder/agent-shell.mjs PART) silently skips, so the file vanished from the
+// workspace after any command. test/agent-sync-limits.test.mjs holds the two equal.
+const PART_KEY = /^-parts\/[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const TABLE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 /** A table's key column, from its spec (`pk: true`), else the schema engine's own `id`. */
 export function tableKey(t) {
@@ -441,6 +445,7 @@ export function writableKey(key, ws = null) {
   }
   if (PAGE_KEY.test(k) && !k.startsWith("-parts/")) return { ok: true, key: k };
   if (PART_KEY.test(k)) return { ok: true, key: k };
+  if (/^-parts\//.test(k)) return { ok: false, why: "a component's name is lowercase words joined by single dashes, starting with a letter (\"-parts/hero\", \"-parts/price-list\")" };
   return { ok: false, why: "a file key is a page (\"about.tsx\") or a component (\"-parts/<name>\")" };
 }
 
@@ -653,15 +658,46 @@ export function commandKinds(command) {
  * component changed, added or removed, and the stylesheet when the workspace
  * holds one. Answers the keys that moved; marks the workspace unbuilt when any did.
  */
-export function syncFromRun(st, files) {
+export function syncFromRun(st, files, deps = null) {
+  st.refusedByRun = [];
   if (!files || !Array.isArray(files.pages) || !Array.isArray(files.parts)) return [];
   const ws = st.ws, moved = [];
   const now = new Map();
   for (const p of files.pages) if (p && typeof p.path === "string" && typeof p.source === "string" && writableKey(p.path).ok) now.set(p.path, p.source);
   for (const p of files.parts) if (p && typeof p.name === "string" && typeof p.source === "string" && writableKey(partKey(p.name)).ok) now.set(partKey(p.name), p.source);
-  for (const [k, v] of now) if (ws.get(k) !== v) { ws.set(k, v); moved.push(k); }
-  for (const k of ws.keys()) if (k !== CSS_KEY && !now.has(k)) { ws.delete(k); moved.push(k); }
-  if (ws.has(CSS_KEY) && typeof files.css === "string" && files.css !== ws.get(CSS_KEY)) { ws.set(CSS_KEY, files.css); moved.push(CSS_KEY); }
+  // A COMMAND OBEYS THE SAME LIMITS AS THE WRITE TOOLS (2026-11-04, carry-over
+  // G10/A-3). A change a command made is taken only when write_file or
+  // delete_file would have taken it: the part's own scope (`outOfScope`), a
+  // helper's one file, never the home page removed, the size limit, no empty
+  // file. Anything else stays as it was in the workspace, and the agent is told.
+  const refuse = (k, why) => { st.refusedByRun.push(k + ": " + why); };
+  const mayChange = (k, src) => {
+    if (st.onlyWrite && k !== st.onlyWrite) return "a helper writes only its own page, " + st.onlyWrite;
+    const scope = outOfScope(deps, k); if (scope) return scope;
+    if (typeof src === "string" && !src.trim()) return "the file would be empty";
+    if (typeof src === "string" && src.length > MAX_FILE_CHARS) return "the file would be over " + MAX_FILE_CHARS + " characters";
+    return "";
+  };
+  for (const [k, v] of now) {
+    if (ws.get(k) === v) continue;
+    const why = mayChange(k, v);
+    if (why) { refuse(k, why); continue; }
+    ws.set(k, v); moved.push(k);
+  }
+  for (const k of ws.keys()) {
+    if (k === CSS_KEY || now.has(k)) continue;
+    // A FILE THE COMMAND WAS NEVER GIVEN is not a removal (carry-over A-2):
+    // only a key the container's own name rule accepts could have come back.
+    if (!writableKey(k).ok) continue;
+    if (k === "index.tsx") { refuse(k, "the home page cannot be removed"); continue; }
+    const why = mayChange(k, undefined);
+    if (why) { refuse(k, why); continue; }
+    ws.delete(k); moved.push(k);
+  }
+  if (ws.has(CSS_KEY) && typeof files.css === "string" && files.css !== ws.get(CSS_KEY)) {
+    const why = st.onlyWrite ? "a helper writes only its own page, " + st.onlyWrite : outOfScope(deps, CSS_KEY);
+    if (why) refuse(CSS_KEY, why); else { ws.set(CSS_KEY, files.css); moved.push(CSS_KEY); }
+  }
   if (moved.length) { st.dirty = true; for (const k of moved) st.written.add(k); }
   return moved;
 }
@@ -940,8 +976,9 @@ async function runTool(use, st, deps) {
       try { r = await untilStopped(deps, () => deps.run({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, cmd)); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       if (!r || r.ok !== true) return { error: "the command could not be run: " + String((r && r.error) || "no answer").slice(0, 300) };
-      const moved = syncFromRun(st, r.files);
-      const head = (r.timedOut ? "stopped at the time limit" : "exit code " + r.code) + (moved.length ? "; files changed: " + moved.join(", ") : "");
+      const moved = syncFromRun(st, r.files, deps);
+      const kept = st.refusedByRun && st.refusedByRun.length ? "; changes NOT taken (put back as they were): " + st.refusedByRun.join("; ") : "";
+      const head = (r.timedOut ? "stopped at the time limit" : "exit code " + r.code) + (moved.length ? "; files changed: " + moved.join(", ") : "") + kept;
       return { text: head + "\n" + String(r.output || "(no output)") };
     }
     case "look": {

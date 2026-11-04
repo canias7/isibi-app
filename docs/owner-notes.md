@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Critical fix 1 of 7: shell commands obey the same safety limits (branch `claude/cool-fermat-a06gie`; not deployed)
+
+The agent can run shell commands on a copy of the site. Files a command changed came back with none of the write tool's checks, so a part told "only /about" could rewrite every page, and `rm index.tsx` could delete the home page. Now a command's changes are taken only when the write tools would have taken them (the part's own pages, a helper's own file, never the home page removed, the size limit, no empty file); anything else is put back and the agent is told. Also fixed: components named with capitals or digits first ("Hero") were accepted by the agent but skipped by the container, so they vanished after any command; there is now one name rule (lowercase words with dashes), checked by a test to match the container's. Tests: `test/agent-sync-limits.test.mjs` (fails on the old code).
+
 ## 2026-11-04 — The agent uses the chat's own window for history (branch `claude/cool-fermat-a06gie`; not deployed)
 
 You: "use the same system". The agent no longer takes a fixed last-30 messages: it reads the conversation through the same window system the chat replies use since 2026-10-20 (`chatWindowFor`): as much of the chat as fits, and once it is full the older part is summarised and the summary kept on the chat, the newest messages whole. Half of the model's window is left for the agent's own work (its rules, the site's files, what it reads each round). A long chat costs more per message than 30 messages did; repeated rounds are mostly cached by the provider. Tests: `test/edit-sends-chat.test.mjs` (through the real planner), `site-agent-route` SAR6.
