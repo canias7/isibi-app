@@ -243,7 +243,8 @@ test("MQ4 the rule: running and earlier-queued requests hold the line; credits, 
   assert.deepEqual(RQ.queueBlockers(late, [R("rqa", now - 5, "credits")]), []);
   assert.deepEqual(RQ.queueBlockers(late, [R("rqa", now - 5, "waiting")]), []);
   assert.deepEqual(RQ.queueBlockers(late, [R("rqa", now - 5, "done")]), []);
-  assert.deepEqual(RQ.queueBlockers(late, [R("rqa", now - RQ.QUEUE_HOLD_MS - 1, "started")]), [], "a request stuck past the hold keeps the line for ever");
+  // NO TIME LIMIT (owner, 2026-11-03): a request still running after two hours still holds the line.
+  assert.deepEqual(RQ.queueBlockers(late, [R("rqa", now - 2 * 60 * 60 * 1000, "started")]), ["rqa"], "a long-running request let the next message start beside it");
   assert.deepEqual(RQ.queueBlockers(late, [{ ...R("rqa", now - 5, "ready"), queued: true }]), ["rqa"], "an earlier queued one keeps its place");
   assert.deepEqual(RQ.queueBlockers(late, [R("rqb", now + 5, "started")]), ["rqb"], "one request at a time: any running request holds the line");
   assert.deepEqual(RQ.queueBlockers(late, [{ ...R("rqa", now - 5, "started"), uid: "other" }]), []);

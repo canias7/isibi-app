@@ -7945,12 +7945,9 @@ function renderSiteWorkspace(view, site) {
                   // (`siteBgHTML`); Stop stays only for this project's own send
                   // in flight with nothing in the panel, and a standalone job.
                   ctxLineHTML(site) +
-                  // STOPPING (owner, 2026-11-03): pressed, and the work is still
-                  // winding down — the button stays, marked, until it has stopped.
-                  (siteStopping(site)
-                    ? '<button type="button" class="st-sendc st-stopc st-stopping" id="stStop" title="Stopping…" aria-label="Stopping" disabled>■</button>'
-                    : siteComposerStops(site)
-                    ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop">■</button>'
+                  // STOPPING (owner, 2026-11-03): pressed, and the work still winding down — marked until it has stopped.
+                  (siteComposerStops(site)
+                    ? '<button type="button" class="st-sendc st-stopc" id="stStop"' + (siteStopping(site) ? ' data-stopping="1" disabled title="Stopping…"' : ' title="Stop"') + ' aria-label="Stop">■</button>'
                     : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
                 '</div>' +
               '</div>') +
@@ -8093,9 +8090,12 @@ function renderSiteWorkspace(view, site) {
         if (!x) return;
         const key = x.getAttribute('data-queue-cancel');
         const st = site.requests && site.requests[key];
+        const was = st && st.view ? st.view : null;
         if (st && st.view) st.view = { ...st.view, stop: true };
         x.closest('.st-qchip').remove();
-        siteRequestStop(site.id, key);
+        // THE CANCEL FAILED (owner, 2026-11-03): the chip comes back, so it never
+        // looks cancelled while it is still going to run.
+        siteRequestStop(site.id, key, () => { const s2 = siteById(site.id); const st2 = s2 && s2.requests && s2.requests[key]; if (st2 && was) st2.view = was; if (siteOpenId === site.id) renderSites(); });
       };
     }
     // THE KEY CARD, back under the redrawn thread with whatever was typed in it.
@@ -8115,6 +8115,15 @@ function renderSiteWorkspace(view, site) {
       // PICK, THEN CONTINUE (option E): a click picks, Continue sends.
       const askPick = e.target.closest('[data-ask-pick]');
       if (askPick && thread.contains(askPick)) { sitePick(sitePickKeyLive(siteById(siteOpenId)), askPick.getAttribute('data-ask-pick')); return; }
+      // ✕ ON A MESSAGE WAITING ITS TURN AGAIN (owner, 2026-11-03): cancelled on the server; back if that fails.
+      const waitX = e.target.closest('.st-req-waitx[data-queue-cancel]');
+      if (waitX && thread.contains(waitX)) {
+        const key = waitX.getAttribute('data-queue-cancel'); const s1 = siteById(siteOpenId);
+        const st = s1 && s1.requests && s1.requests[key]; const was = st && st.view ? st.view : null;
+        if (st && st.view) { st.view = { ...st.view, stop: true }; renderSites(); }
+        siteRequestStop(siteOpenId, key, () => { const s2 = siteById(siteOpenId); const st2 = s2 && s2.requests && s2.requests[key]; if (st2 && was) st2.view = was; renderSites(); });
+        return;
+      }
       const askOwn = e.target.closest('[data-ask-own]');
       if (askOwn && thread.contains(askOwn)) { sitePickOwn(askOwn.getAttribute('data-pick-key') || ''); return; }
       const askGo = e.target.closest('[data-ask-go]');
@@ -8756,7 +8765,9 @@ function wireSiteComposer(site) {
       // A SITE STILL BEING BUILT (2026-10-24): the words stay in the box, and it says so.
       if (t && siteBusy && site.buildJob && (site.buildJob.state === 'run' || site.buildJob.state === 'stopping')) { if (typeof sbToast === 'function') sbToast('Your site is still being built \u2014 your message stays here. Send it once the build is done.'); return; }
       if (t && typeof siteKeyShapedStop === 'function' && siteKeyShapedStop(site, ta)) return;
-      if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t);
+      // STILL WORKING (owner, 2026-11-03: send was ignored with no word): the words stay, and it says so.
+      if (t && siteBusy) { if (typeof sbToast === 'function') sbToast('Still working on your last message \u2014 yours stays here. Send it when this finishes.'); return; }
+      if (!t) return; ta.value = ''; draft.t = ''; siteSend(t);
     };
     ta.onkeydown = (e) => { if (slashKey(e, ta, site)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
     ta.focus();
@@ -9571,6 +9582,9 @@ function siteTablesAfter(origin, e) {
 // reply that may never be read as conversation. A typed reply may be a side
 // question, and stays one.
 function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key, picked, split) {
+  // THE KEY OF THE MESSAGE IN FLIGHT (owner, 2026-11-03): a Stop pressed before
+  // the answer comes stops its request on the server too, once it exists.
+  if (!isBuild && typeof key === 'string' && key && typeof siteRouteKeys !== 'undefined') siteRouteKeys.set(origin, key);
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
   // in Leeds" — is three messages back. Losing it here would build a site about
@@ -9707,6 +9721,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       tz: !isBuild ? browserTimeZone() : undefined,
       recent: !isBuild && Array.isArray(site.undoRows) && site.undoRows.length ? site.undoRows.slice(0, 3) : undefined }),
   })).then(async (r) => {
+    if (typeof siteRouteKeys !== 'undefined' && siteRouteKeys.get(origin) === key) siteRouteKeys.delete(origin);
     const d = await r.json().catch(() => null);
     // ── THE ROUTER'S MODEL IS DOWN (owner, 2026-10-24) ────────────────────
     // Nothing was routed, run or charged. The server's fixed notice goes on
@@ -10498,10 +10513,10 @@ function siteReqRefresh(origin, httpOk, body, addon) {
   return true;
 }
 /** Stop what is left of a request: the server's stop, through the jobs' own cancel. */
-function siteRequestStop(origin, key) {
+function siteRequestStop(origin, key, onFail) {
   const s = siteById(origin);
   if (!s || !s.slug) return;
-  const failed = () => siteReqSay(origin, 'I couldn’t stop that just now, so the rest is still going ahead. Try again in a moment.', { key });
+  const failed = () => (typeof onFail === 'function' && onFail(), siteReqSay(origin, 'I couldn’t stop that just now, so the rest is still going ahead. Try again in a moment.', { key }));
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' }).then(async (r) => {
     const b = await r.json().catch(() => null);
     if (!r.ok || !b || b.ok !== true || !siteRequestOf(b)) { failed(); return; }
@@ -10950,7 +10965,7 @@ function siteReqCardShows(m, site) {
 /** The request's card: the parallel card for several parts, today's for one — or, while the panel holds it, only its opening line and soft box. */
 function siteReqCardHTML(m, site) {
   // ONCE STARTED (2026-11-02, the message queue), A ONE-PART MESSAGE'S WORKING LINE until its reply comes.
-  { const wl = siteReqWorkingLine(m, site); if (wl === 'wait') return '<div class="st-think st-req-waiting">' + esc(SITE_QUEUE_WAIT) + '</div>';
+  { const wl = siteReqWorkingLine(m, site); if (wl === 'wait') return '<div class="st-think st-req-waiting">' + esc(SITE_QUEUE_WAIT) + ' <button type="button" class="st-qx st-req-waitx" data-queue-cancel="' + esc(m.request) + '" aria-label="Cancel this message"></button></div>';
     // …ITS LIVE STEPS ONCE IT TALKS (2026-11-02, request-talk), newest last, as a first build's.
     if (wl) { const ll = typeof siteParLiveLines === 'function' ? siteParLiveLines(site.requests[m.request].view.parts[0]) : []; return ll.length ? '<div class="st-req-live">' + progressListHTML(ll, true) + '</div>' : '<div class="st-think st-req-working"><i></i>Working on it</div>'; } }
   const v = siteParView(m, site);
@@ -16192,7 +16207,23 @@ function siteStopWork(site) {
   if (site && !site.slug && siteBusyHere(site)) { siteBuildServerStop(site.id); return; }
   siteStop(site);
 }
+const siteRouteKeys = new Map();
+/** Stop a message whose request the server may only now be making: asked a few times, a second apart, until it answers. */
+function siteStopInFlight(site) {
+  const key = site ? siteRouteKeys.get(site.id) : '';
+  if (!key || !site.slug) return;
+  siteRouteKeys.delete(site.id);
+  let tries = 0;
+  const once = () => {
+    tries++;
+    apiFetch('/api/site/request/' + encodeURIComponent(site.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' })
+      .then((r) => { if (r.status === 404 && tries < 6) setTimeout(once, 1500); })
+      .catch(() => { if (tries < 6) setTimeout(once, 1500); });
+  };
+  once();
+}
 function siteStop(site) {
+  if (typeof siteStopInFlight === 'function') siteStopInFlight(site);
   // ONLY THIS PROJECT'S OWN SEND (#138): another project's build is never stopped from here.
   if (typeof siteAborts === 'undefined') { if (siteAbort) { try { siteAbort.abort(); } catch (e) {} } return; }
   const a = siteAborts.get(site ? site.id : siteOpenId);
@@ -16200,6 +16231,7 @@ function siteStop(site) {
 }
 /** Whether the box shows Stop: this project's own send in flight with nothing in the panel, or a standalone job (no request) running. */
 function siteComposerStops(site) {
+  if (typeof siteStopping === 'function' && siteStopping(site)) return true;
   const w = siteRunningWork(site);
   // A REQUEST'S STOP IS THE PANEL'S only while the panel lists it with work
   // left (2026-10-25, stop-panel); otherwise the box keeps Stop, which stops

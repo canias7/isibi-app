@@ -94,7 +94,8 @@ test("CONTROL: one job per site stays — a project's own busy state still refus
   p.open("B");
   p.open("A");
   assert.equal(p.ctx.siteBusy, true);
-  assert.match(SRC, /if \(!t \|\| siteBusy\) return; ta\.value = ''; draft\.t = ''; siteSend\(t\);/, "the project's own Send is no longer refused while it is busy");
+  // STILL WORKING (owner, 2026-11-03): refused with a word, the words left in the box.
+  assert.match(SRC, /if \(t && siteBusy\) \{ if \(typeof sbToast === 'function'\) sbToast\('Still working on your last message[^]*?return; \}\s*if \(!t\) return; ta\.value = ''; draft\.t = ''; siteSend\(t\);/, "the project's own Send is no longer refused while it is busy");
 });
 
 test("the page no longer refuses Send because another project is building", () => {

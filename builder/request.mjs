@@ -736,18 +736,19 @@ export function joinableRequest(rec) {
 // out. What holds the line, read from the earlier request's own record:
 //   - an earlier request still queued (so the order is kept), or
 //   - one whose state is "running" (a part ready, queued, started or
-//     recovering), for at most QUEUE_HOLD_MS since it started.
+//     recovering), however long that takes (no time limit since 2026-11-03).
 // A request paused for credits ("credits"), waiting on the owner's answer or
 // go-ahead ("waiting"), in review or only blocked holds nothing: a paused or
 // asking request never keeps the next message waiting for ever.
+/** Kept for older readers; the line no longer has a time limit (2026-11-03). */
 export const QUEUE_HOLD_MS = 60 * 60 * 1000;
 
 /** Whether an (earlier) request keeps later messages of its site waiting. */
 export function holdsQueue(rec, now = Date.now()) {
   if (!rec || !Array.isArray(rec.parts) || rec.ended === true) return false;
   if (rec.queued === true) return true;
-  const since = Number.isFinite(rec.startedAt) ? rec.startedAt : rec.at;
-  if (Number.isFinite(since) && now - since > QUEUE_HOLD_MS) return false;
+  // NO TIME LIMIT (owner, 2026-11-03): one request runs on a site at a time, however
+  // long it runs; a running request ends when its jobs end or are found lost.
   return settleState(clone(rec), now).state === "running";
 }
 

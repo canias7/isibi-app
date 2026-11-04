@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-03 — Stop and the queue: five fixes (branch `park-old-way`; not deployed)
+
+On the owner's word ("fix those five"). (1) ✕ on a waiting message whose cancel fails brings the chip back at once (the next poll already did, slowly). (2) Stop pressed while a message is still on its way also stops its request on the server, under the message's own key, asked a few times until the request exists. (3) A message waiting its turn again after an answer or a top-up has its own ✕. (4) No time limit on the line: one request runs on a site at a time however long it runs (was one hour). (5) Send while something is still working says so ("Still working on your last message — yours stays here") and keeps the words. Also the Stop button's Stopping state kept the box's existing shape. Tests: `test/stop-queue-browser.test.mjs` (4; SQ2–SQ4 fail on the old page), `msg-queue` MQ4 updated, `site-busy-per-project` updated for (5). Full suite 9,628, 1 failing (media-verify's browser mode, as before).
+
 ## 2026-11-03 — A conversation first: build or change only when asked (branch `park-old-way`; not deployed)
 
 On the owner's word (Market Lane started building on a side question; "sometimes customers want to chat about different businesses … it's not always just to start building"). A new project builds only when the current message asks: a first message describing a site, or a clear go-ahead ("build it", "yes"); chat, ideas and questions get words, even after a site was described; a settled plan gets an ask_owner question with Build it / Not yet. On an existing site, ideas being talked through ("what about a gallery?") change nothing; the agent offers instead ("Want me to add it?"). Wording only (`builder/site-agent.mjs`); proven with a guard test, not a real model run.
