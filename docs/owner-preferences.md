@@ -1517,4 +1517,4 @@ When a model's answer fails a check, retry once with the reason, on the **same m
 - **Broken database links (M-32): not repaired automatically** ("1, B"). The owner fixes those sites by hand.
 - **Failure messages (M-83): build the AI-written ones now** ("3 A"), tried in a live test before they are switched on.
 - **Provider outage mid-edit (M-74): pause like the credit pause** ("4A"): the work waits and Continue carries on from where it stopped.
-- **One message, several publishes (M-65):** asked to be explained again; not decided yet.
+- **One message, several saves (M-65): B, each part saves on its own** ("B"): a split message's parts each save their own draft version as they finish, so the first change shows sooner and each can be undone alone. This is how the split parts already work; it is kept.
