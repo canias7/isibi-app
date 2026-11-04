@@ -16740,18 +16740,38 @@ async function siteDatabase(site) {
 // the console or a message to the builder. The card lives in memory, outside
 // the stored thread, and is re-attached after each redraw so a half-typed key
 // is not lost.
+// THE KEY NAMES CANCEL CLOSED, KEPT ACROSS A RELOAD (owner, 2026-11-04: "i
+// refreshed the page and the box to put the keys appeared again even after i
+// pressed cancel"). Outside the key card on purpose: the card never touches
+// storage (key-card.test.mjs). Only strings shaped like a key's NAME pass in or
+// out (capitals, digits, underscores), so no typed value can be kept here.
+const KeyNamesClosed = (() => {
+  const PREFIX = 'gf.keysClosed.';
+  const names = (l) => (Array.isArray(l) ? l : []).filter((n) => typeof n === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(n)).slice(0, 50);
+  return {
+    read(siteId) { try { return names(JSON.parse(localStorage.getItem(PREFIX + siteId) || '[]')); } catch (e) { return []; } },
+    write(siteId, list) { try { localStorage.setItem(PREFIX + siteId, JSON.stringify(names(list))); } catch (e) { /* kept in this page */ } },
+  };
+})();
 const siteKeyCards = new Map();
 // CANCEL (owner, 2026-11-04: "it has a save button, but it would need something to
 // cancel … what if the user just regrets at the moment"): the names closed per
 // project, so the same ask does not open the box again; a new key does.
 const siteKeyCardsClosed = new Map();
+/** The key names Cancel closed for a project: this page's, and those kept on the project across a reload. */
+function siteKeyCardsClosedFor(siteId) {
+  const set = siteKeyCardsClosed.get(siteId) || new Set();
+  for (const n of KeyNamesClosed.read(siteId)) set.add(n);
+  siteKeyCardsClosed.set(siteId, set);
+  return set;
+}
 function siteKeySlug(s) { return (s && (s.slug || (s.liveUrl || '').split('/s/')[1])) || ''; }
 function siteKeyCardOffer(siteId, list, extra) {
   if (typeof KeyCard === 'undefined') return;
   const keys = KeyCard.needKeys(list);
   const s = siteById(siteId);
   if (!s || !siteKeySlug(s) || (!keys.length && !extra)) return;
-  { const closed = siteKeyCardsClosed.get(siteId); const names = keys.map((k) => k.name).concat(extra && extra.name ? [extra.name] : []);
+  { const closed = siteKeyCardsClosedFor(siteId); const names = keys.map((k) => k.name).concat(extra && extra.name ? [extra.name] : []);
     if (closed && names.length && names.every((n) => closed.has(n))) return; }
   let c = siteKeyCards.get(siteId);
   if (!c) { c = { keys: [], set: new Set(), el: null, draft: null }; siteKeyCards.set(siteId, c); }
@@ -16779,9 +16799,13 @@ function siteReqKeyCard(siteId, b) {
 function siteKeyCardClose(siteId) {
   const c = siteKeyCards.get(siteId);
   if (!c) return;
-  const closed = siteKeyCardsClosed.get(siteId) || new Set();
+  const closed = siteKeyCardsClosedFor(siteId);
   for (const k of c.keys) closed.add(k.name);
   siteKeyCardsClosed.set(siteId, closed);
+  // KEPT ACROSS A RELOAD (owner, 2026-11-04: "i refreshed the page and the box
+  // … appeared again even after i pressed cancel"): on the project, saved.
+  // KEPT ACROSS A RELOAD, NAMES ONLY (`KeyNamesClosed`, outside the card).
+  KeyNamesClosed.write(siteId, [...closed]);
   try { for (const i of c.el ? c.el.querySelectorAll('input') : []) i.value = ''; } catch (e) { /* nothing typed */ }
   if (c.el) c.el.remove();
   siteKeyCards.delete(siteId);

@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Cancel on the key box survives a refresh (branch `claude/cool-fermat-a06gie`; not deployed)
+
+You pressed Cancel on the keys box, refreshed, and it came back. Cancel was remembered only in the open page. Now the closed key names (names only, never values) are kept in the browser under their own entry, so a refresh keeps the box closed; a key it has not asked for before still opens it. The storage sits outside the key box's own code (which is tested to never touch storage) and accepts only key-name-shaped words like STRIPE_SECRET_KEY. It is per browser: another device would show the box once. Test: `test/key-card-cancel-reload.test.mjs`.
+
 ## 2026-11-04 — A finished message's steps really stay now (branch `claude/cool-fermat-a06gie`; not deployed)
 
 Last night's fix ("a finished message keeps its steps above the reply") looked for the steps on messages marked as the request's card, but the reply is marked differently (`req`, not `request`), so on Market Lane the steps still vanished when the reply came. It now reads both. Its test had used a hand-made message; the new case (DL4) uses the reply exactly as the page makes it, and fails on the old code. Two older tests updated for the chat-history fix (an edit now carries its chat; the server still lets only a new unnamed build claim one).
