@@ -4,7 +4,11 @@ Four readers (A agent core, B agent's server side, C request engine, D requests 
 
 ## Findings, merged (30 raised, 29 after merging B-1 and D-1)
 
-### High (9)
+### Re-check (2026-11-04, by me, after the owner asked)
+- Confirmed with my own evidence: B-1/D-1 (a request built with a chat id drops it; the job body has no `chat`), A-1/B-2 (both instruction lines), B-3 (also: a failed server request on a new project builds, `public/chat.js:9835`), A-2 (`writableKey` accepts five names the container's `PART` rule refuses), A-3 (`syncFromRun` never calls the scope check), C-3/C-4/C-5 (the reader's probes re-run, same results).
+- **Downgraded to medium**: C-1 ("start over" go-ahead) and C-2 (additions skip the line): real in code, but reached only on rare paths now that the agent takes every message.
+
+### High (as raised: 9; after the re-check: 7)
 | Id | What the customer sees |
 |---|---|
 | **B-1 = D-1** (checked) | Most messages reach the agent with **no conversation history**: the request path (`acceptRequest` → request record → `jobBody`) never stores or sends the chat id; tonight's page fix only covered the direct edit body. "Delete that" can still be misread. |
