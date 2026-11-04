@@ -58,7 +58,8 @@ test("a foundation file is one the REPOSITORY has, never one a build made", () =
   );
   // THE OBSERVER IS ALIVE FIRST: a `git ls-files` that answered nothing would
   // make every assertion below vacuous and report a clean set over no data.
-  assert.ok(tracked.size > 1000, "the template listing came back empty — this check is measuring nothing (" + tracked.size + ")");
+  assert.ok(tracked.size > 50, // the kit's 3,353 stock components were deleted (owner, 2026-11-04)
+     "the template listing came back empty — this check is measuring nothing (" + tracked.size + ")");
   for (const rel of FOUNDATION_PATHS) {
     assert.ok(tracked.has(rel),
       "the foundation names a file git does not track — a build made it, so it is site-specific and differs per machine: " + rel);

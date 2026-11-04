@@ -631,19 +631,6 @@ test("the lint passes a token in ANY component that draws through SafeImage", ()
   }
 });
 
-test("the allow-list is DERIVED from the kit, in both directions", () => {
-  // A hand-kept list goes stale the first time a card starts using the guard,
-  // and the failure is the lint scolding the model for being right.
-  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
-  const found = new Set();
-  for (const f of readdirSync(dir).filter((f) => f.endsWith(".tsx"))) {
-    const src = readFileSync(new URL(f, dir), "utf8");
-    if (!/from "@\/components\/ui\/safe-image"/.test(src) && f !== "safe-image.tsx") continue;
-    for (const m of src.matchAll(/export function ([A-Z][\w]*)/g)) found.add(m[1]);
-  }
-  assert.ok(found.size > 30, "the scan broke — only found " + found.size);
-  assert.deepEqual([...SAFE_IMAGE_COMPONENTS].sort(), [...found].sort());
-});
 
 test("the lint names SafeImage exactly, not any tag that resembles it", () => {
   // Found by mutation: `!tag.startsWith("S")` passed the whole suite, because

@@ -4,7 +4,7 @@ The owner, 2026-11-04: *"i think is time to do an audit … i have seen way too 
 
 ## Scope: everything, old and new
 
-The owner, 2026-11-04: *"in general not only the new things."* The whole builder is audited: every live line, whatever its age. The last audit's fixed findings are re-checked too (a fix can expire when the layer under it moves). Only the parked old way (`parked/old-way/`) and the component kit's own files are out, and the coverage file lists them as excluded by name, so even that is explicit.
+The owner, 2026-11-04: *"in general not only the new things."* The whole builder is audited: every live line, whatever its age. The last audit's fixed findings are re-checked too (a fix can expire when the layer under it moves). Only the parked old way (`parked/old-way/`) and the component kit's remaining files are out, and the coverage file lists them as excluded by name, so even that is explicit.
 
 ## Why now
 
@@ -15,7 +15,7 @@ The owner, 2026-11-04: *"in general not only the new things."* The whole builder
 
 Three nets, each checked by a script, not by memory:
 
-1. **Every line has an owner.** Session 0 writes `docs/audits/2026-11-04-coverage.json`: **every file git tracks**, cut into ranges, each range assigned to exactly one area below. A script (`scripts/audit-coverage.mjs`) lists the files from `git ls-files` itself and fails if any file or line is unassigned or assigned twice. A file is left out only by name in the coverage file's `excluded` list, each with its reason (pictures, generated lists, the kit's 2,112 stock components, docs that are records), so a new file can never slip past. An area is done only when its ranges are marked read.
+1. **Every line has an owner.** Session 0 writes `docs/audits/2026-11-04-coverage.json`: **every file git tracks**, cut into ranges, each range assigned to exactly one area below. A script (`scripts/audit-coverage.mjs`) lists the files from `git ls-files` itself and fails if any file or line is unassigned or assigned twice. A file is left out only by name in the coverage file's `excluded` list, each with its reason (pictures, generated lists, the component kit's remaining files, docs that are records), so a new file can never slip past. An area is done only when its ranges are marked read.
 2. **Every journey is walked end to end.** The customer journeys below are traced across files (browser → Worker → container → storage → back to the screen). Tonight's bugs were all crossings; line-by-line reading alone misses them.
 3. **Every cross-cutting rule is checked everywhere.** The owner's standing rules (below) are each checked across the whole codebase in one pass, not left to whichever area happens to see them.
 

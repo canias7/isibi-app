@@ -2099,7 +2099,7 @@ try {
   // fails class the lint exists to prevent. A chart is broken in memory here; the
   // file on disk is never touched.
   console.log("\nimporting an EXCLUDED file that has a type error…");
-  const chartRel = "src/components/charts/chart-bar-label.tsx";
+  const chartRel = "src/components/charts/lib/bullet.tsx"; // the one chart file left after the kit was cut (2026-11-04)
   const chartAbs = path.join(sandbox, chartRel);
   ok("the excluded chart is really there to break", fs.existsSync(chartAbs), chartAbs);
   const chartWas = fs.readFileSync(chartAbs, "utf8");
@@ -2113,7 +2113,7 @@ try {
     files: {
       "index.tsx": INDEX.replace(
         'export const Route = createFileRoute("/")({ component: Home });',
-        'import { _typeBomb } from "@/components/charts/chart-bar-label";\nvoid _typeBomb;\nexport const Route = createFileRoute("/")({ component: Home });',
+        'import { _typeBomb } from "@/components/charts/lib/bullet";\nvoid _typeBomb;\nexport const Route = createFileRoute("/")({ component: Home });',
       ),
       "menu.tsx": MENU,
     },
@@ -2128,7 +2128,7 @@ try {
   ok("a type error inside an EXCLUDED but imported file is still REPORTED",
     !!importsExcluded.typeErrors, JSON.stringify(importsExcluded).slice(0, 200));
   ok("and it is blamed on the excluded file, not the page",
-    /chart-bar-label/.test(importsExcluded.typeErrors || ""), (importsExcluded.typeErrors || "").slice(0, 300));
+    /charts\/lib\/bullet/.test(importsExcluded.typeErrors || ""), (importsExcluded.typeErrors || "").slice(0, 300));
   }
 
   if (SECTION("empty-state", 3)) {

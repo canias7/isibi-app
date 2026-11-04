@@ -602,7 +602,10 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // RE-PINNED 2026-10-30 (owner: "Do 1,2,3,4", the server-code checks): only the
   // `server` field's two descriptions moved — `site: SiteHelper` and the KEEP IT
   // SAFE rules. Compared key by key against the request before it; nothing else differs.
-  const pinned = { build: "74db85a50ec0bcc5", revise: "6bc520a83a8e800c", addon: "d4da33ecf0ebb1ca" };
+  // RE-PINNED 2026-11-04 (owner: "just delete the kit"): the page writer's
+  // component list shrank to the 43 files left after the stock components were
+  // deleted; nothing else in the request moved.
+  const pinned = { build: "c46238bf9a1b1efc", revise: "4deee3ee7efe8e9b", addon: "e1e57aee141a7c23" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last

@@ -749,7 +749,7 @@ The full map is `docs/platform.md`.
 - **`worker.js`**: the Cloudflare Worker — the assets and the whole
   `/api/site/*` and `/api/db/*` surface. Tests can import it.
 - **`builder/`**: the site builder. `lovable/template/` is the kit (React 19,
-  Tailwind v4, TanStack Start, 2,112 components); `build-server.mjs` is the
+  Tailwind v4, TanStack Start; since 2026-11-04 only the 43 component files new sites still import: the builder writes its own components); `build-server.mjs` is the
   container's service; the rest are plain modules tested outside the Worker.
 - **Supabase** (`ujrqdmmtcptvimazlhom`): sign-in, the credit ledger, the site
   tables (`site_backends`, `site_project`, `site_builds`) and the edit queue.

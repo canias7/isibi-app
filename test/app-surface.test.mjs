@@ -39,7 +39,7 @@ test("the page: picking an app makes the project an app, sends it to the build, 
   assert.match(page, /const isApp = kindNow === 'android' \|\| kindNow === 'ios';/);
   assert.match(page, /\.\.\.\(isApp \? \{ surface: 'app', appOs: kindNow \} : \{\}\)/);
   assert.match(page, /surface: site\.surface === 'app' \? 'app' : undefined,/);
-  assert.match(page, /surface: s\.surface === 'app' \? 'app' : undefined, appOs: s\.appOs === 'android' \|\| s\.appOs === 'ios' \? s\.appOs : undefined \};/, "the chat carries it, and which phone, to other devices");
+  assert.match(page, /surface: s\.surface === 'app' \? 'app' : undefined, appOs: s\.appOs === 'android' \|\| s\.appOs === 'ios' \? s\.appOs : undefined[,}]/, "the chat carries it, and which phone, to other devices");
   // Only the phone the app was made for shows it.
   assert.match(page, /\(madeFor\(v\) \? inside : words\)/, "the other phone stays empty");
   assert.match(page, /siteMobilePanel\(hasSite, siteMobileOs, appSrc, site\.appOs\)/);

@@ -176,13 +176,6 @@ test("PRE-FIX: by the module's real exports — kit aliasing, part default/named
   assert.deepEqual([...exportsOfSource("export default X; export { y as Z }").names], ["Z"]);
 });
 
-test("GUARD: the kit exports by name only, which is what the kit half of the pre-fix relies on", () => {
-  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".tsx"));
-  assert.ok(files.length > 1000, "the kit was not read: " + files.length);
-  const withDefault = files.filter((f) => /\bexport\s+default\b/.test(fs.readFileSync(new URL(f, dir), "utf8")));
-  assert.deepEqual(withDefault, []);
-});
 
 /* ───────────────────────── the shared module (every seam) ─────────────── */
 

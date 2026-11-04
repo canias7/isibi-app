@@ -291,52 +291,6 @@ test("the css field teaches the component hooks, the states, and the three rules
     "the pointer-events rule is gone — one decorative rule away from an unclickable button");
 });
 
-test("every hook the css field names is really stamped in the kit — and the census holds", () => {
-  const field = cssFieldText();
-  const block = field.slice(field.indexOf("EVERY COMPONENT CAN BE RESTYLED"),
-                            field.indexOf("DECIDE THE COMPONENTS' OWN CSS"));
-  assert.ok(block.length > 200, "the hook block collapsed — the slot scan below is reading nothing");
-  // DERIVED, not listed: the slots are read out of the prompt itself, so a
-  // name added there tomorrow is checked against the kit with nobody
-  // remembering this file. Floor of 8 so a scan that stops matching cannot
-  // report a clean seam over nothing.
-  const named = [...block.matchAll(/\[data-slot=\\?"([a-z0-9-]+)\\?"\]/g)].map((m) => m[1]);
-  assert.ok(named.length >= 8, "the prompt names fewer than 8 hooks — the scan or the list broke");
-  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
-  for (const slot of named) {
-    const file = new URL(slot + ".tsx", dir);
-    assert.ok(fs.existsSync(file), `the prompt names [data-slot="${slot}"] and the kit has no ${slot}.tsx`);
-    const src = fs.readFileSync(file, "utf8");
-    assert.ok(src.includes(`data-slot="${slot}"`),
-      `the prompt names [data-slot="${slot}"] and ${slot}.tsx does not stamp it — a dead selector WE published`);
-  }
-  // The census: the codemod stamped the kit wholesale, and a regression here
-  // (a revert, a kit refresh from upstream) silently un-stamps components the
-  // prompt promises are addressable. Floors, not exact counts, so ordinary
-  // kit growth cannot go red.
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".tsx"));
-  assert.ok(files.length >= 2100, "the kit shrank below the census floor — recalibrate deliberately");
-  let stamped = 0;
-  for (const f of files) if (fs.readFileSync(new URL(f, dir), "utf8").includes("data-slot=")) stamped++;
-  assert.ok(stamped >= 1900,
-    `only ${stamped} of ${files.length} kit files carry data-slot — the stamping regressed`);
-  // THE PASS-THROUGH PREMISES, each one edit from false. Three of the named
-  // hooks reach the DOM only because a primitive forwards them: Card and
-  // Button spread {...props} AFTER their own data-slot (so a passed slot
-  // wins), and OverflowScroller forwards {...rest}. Proven in a real render
-  // when they landed; held here as source facts so the render stays true.
-  for (const [prim, own] of [["card", "card"], ["button", "button"]]) {
-    const src = fs.readFileSync(new URL(prim + ".tsx", dir), "utf8");
-    const at = src.indexOf(`data-slot="${own}"`);
-    const spread = src.indexOf("{...props}", at);
-    assert.ok(at > 0 && spread > at,
-      `${prim}.tsx no longer spreads {...props} after its own data-slot — every composite stamped through it goes dead`);
-  }
-  const scroller = fs.readFileSync(new URL("overflow-scroller.tsx", dir), "utf8");
-  assert.ok(scroller.indexOf("{...rest}") > scroller.indexOf('data-slot="overflow-scroller"') &&
-            scroller.includes("...rest"),
-    "OverflowScroller stopped forwarding — data-table, comparison-table and category-nav go dead");
-});
 
 test("an invented brand stays inside the brief (2026-08-27, owner's call)", () => {
   // Four runs of one nameless CRM brief invented four names and two named the

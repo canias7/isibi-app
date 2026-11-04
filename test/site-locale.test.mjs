@@ -183,11 +183,6 @@ const formatCalls = () => {
 
 // THE SCAN'S OWN FLOOR. A regex that silently stops matching reports a clean kit,
 // which is the most reassuring way to check nothing at all.
-test("the format scan still finds the kit's formatting calls", () => {
-  const calls = formatCalls();
-  assert.ok(calls.length > 100, "the format scan found only " + calls.length + " calls — it has stopped matching");
-  assert.ok(calls.some((c) => /weekday/.test(c.args)), "the scan sees no weekday option at all");
-});
 
 test("NO KIT COMPONENT ASKS ICU FOR AN OFFSET LITERAL", () => {
   // Unstable at ZERO offset in both the short and the long form, so asking for
@@ -216,51 +211,6 @@ const WEEKDAY_DAY_MONTH = [
   "nl-date-input.tsx", "return-window.tsx", "site-diary.tsx", "week-strip.tsx",
 ];
 
-test("the weekday+day+month family does not grow", () => {
-  const hit = formatCalls().filter((c) =>
-    /weekday\s*:/.test(c.args) && /\bday\s*:/.test(c.args) && /month\s*:/.test(c.args));
-  const files = [...new Set(hit.map((c) => c.file))].sort();
-  assert.deepEqual(files, [...WEEKDAY_DAY_MONTH].sort(),
-    "the weekday+day+month set moved. On an en-GB site these render different text on the " +
-    "server and in the browser. Compose the weekday yourself — two formatters and your own " +
-    "separator — the way date-enquiry.tsx does, then take the file out of this list.");
-});
 
-test("date-enquiry composes the weekday itself", () => {
-  // The fix that closed `entertainer /`. Asserted as the PROPERTY — two
-  // formatters and a separator of ours — rather than the spelling, and paired
-  // with the negative, since a single four-field formatter is what it replaced.
-  const src = blankComments(fs.readFileSync(new URL("date-enquiry.tsx", KIT), "utf8"));
-  const pretty = src.slice(src.indexOf("const pretty ="), src.indexOf("return (", src.indexOf("const pretty =")));
-  assert.ok(pretty.length > 100, "the pretty() window is empty — the anchor moved");
-  assert.equal((pretty.match(/new Intl\.DateTimeFormat/g) || []).length, 2,
-    "pretty() no longer builds the date from two separate formatters");
-  assert.ok(!/weekday[^}]*month:\s*"long"/.test(pretty),
-    "pretty() asks one formatter for the weekday and a long month again — that literal differs between engines");
-});
 
-test("Countdown never reads the clock on its first render", () => {
-  // The fix that closed `festival /` and `box-office /event`. The server cannot
-  // know this number, so seeding state from `Date.now()` guaranteed a mismatch
-  // as soon as the SSR-to-hydration gap crossed a second — a race in the
-  // harness and, at network latency, the ordinary case in production.
-  const src = blankComments(fs.readFileSync(new URL("countdown.tsx", KIT), "utf8"));
-  const init = src.slice(src.indexOf("React.useState"), src.indexOf("\n", src.indexOf("React.useState")));
-  assert.ok(init.length > 10, "the useState window is empty — the anchor moved");
-  assert.ok(!/Date\.now\(\)/.test(init),
-    "Countdown seeds its state from the clock again — the server and the browser will disagree");
-  assert.match(src, /React\.useEffect/, "Countdown no longer fills the value in after mount");
-});
 
-test("TimezonePicker does not guess the visitor's zone during SSR", () => {
-  // `resolvedOptions().timeZone` answers with the RUNTIME's zone, so the server
-  // and the visitor built option lists of different lengths with different first
-  // entries — a structural mismatch rather than a cosmetic one, for every
-  // visitor outside the server's zone.
-  const src = blankComments(fs.readFileSync(new URL("timezone-picker.tsx", KIT), "utf8"));
-  const guessAt = src.indexOf("resolvedOptions()");
-  assert.ok(guessAt > 0, "the zone guess is gone — this guard no longer describes the file");
-  const effectAt = src.indexOf("React.useEffect");
-  assert.ok(effectAt > 0 && effectAt < guessAt,
-    "the visitor's zone is guessed during render again, not after mount");
-});

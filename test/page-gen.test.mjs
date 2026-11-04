@@ -110,11 +110,6 @@ const page = (source, p = "index.tsx") => [{ path: p, source }];
 // duplicated into the module. GENERATOR.md's rule is that the file wins, which is
 // only enforceable if something notices when they diverge.
 
-test("the advertised ui components are the ones that exist", () => {
-  const onDisk = fs.readdirSync(path.join(TEMPLATE, "src/components/ui"))
-    .filter((f) => f.endsWith(".tsx")).map((f) => f.slice(0, -4)).sort();
-  assert.deepEqual([...UI_COMPONENTS].sort(), onDisk);
-});
 
 test("the rules name the data API and the tool asks for files", () => {
   // This asserted that the home page was in the prompt. What survives the cut is
@@ -1745,28 +1740,6 @@ test("a navigate({to}) target is covered too, not just <Link>", () => {
 
 // ── The props the model was guessing ────────────────────────────────────────
 
-test("EVERY COMPONENT WHOSE PROPS ARE PROMISED REALLY HAS THEM STATED", () => {
-  // Measured 2026-08-04 on one CRM sample: a `badge` prop that does not exist, a
-  // `subtitle` that is really `description`, an `id` on a row type that has none,
-  // and `"error"` for a state whose values are success/warning/danger/neutral/
-  // quiet. Four compile errors, one root cause — names and no signatures — and
-  // the whole site published as its data model.
-  //
-  // ONE PLACE NOW, NOT TWO (owner, 2026-08-29: "it should be only 15, the 15 on
-  // the design step"). The props used to come from the always-on core AND the
-  // manifest, and this asserted both. The core is gone: what the designer names
-  // is the whole set the page writer is shown, so the promise is about the
-  // manifest alone — and it is a stronger promise than before, because a name
-  // the manifest omits is now unusable rather than merely unexplained.
-  const named = ["site-chrome", "faq", "price-list", "gallery", "stats-band"];
-  const block = siteComponentApi(named);
-  assert.ok(block.length > 200, "the per-site block is empty — this guard is watching nothing");
-  for (const n of named) {
-    assert.ok(COMPONENT_API[n], `${n} has no signature in COMPONENT_API — the fixture names something the kit lacks`);
-    assert.ok(block.includes(n + " — "),
-      `${n} was named to the page writer with no props behind it — the failure this test exists for`);
-  }
-});
 
 test("the manifest is sent WHOLE — nothing is withheld as already-cached", () => {
   // THE OPPOSITE OF WHAT THIS ASSERTED. It required a component in the always-on
@@ -1790,19 +1763,6 @@ test("the manifest is sent WHOLE — nothing is withheld as already-cached", () 
     "the per-site block carries components the designer did not name: " + names.join(","));
 });
 
-test("a string-literal union is never truncated — a half-shown enum is worse than none", () => {
-  // `shortType` capped every type at 46 characters, so StatusBadge arrived as
-  // `"success" | "warning" | "danger" | "neutral…`. The generator wrote "error",
-  // which is a reasonable guess at what the ellipsis hid and is not a member.
-  // A trimmed union reads as authoritative while hiding the value you needed.
-  const enums = Object.values(COMPONENT_API).filter((v) => /\?\s*:\s*"/.test(v) || /:\s*"/.test(v));
-  assert.ok(enums.length > 20, "no string-union props found — the scan stopped working");
-  const cut = enums.filter((v) => /"[^"]*…/.test(v) && !/…"/.test(v));
-  assert.deepEqual(cut, [], "these unions are truncated mid-value");
-  // The one that caused it, spelled out.
-  assert.equal(COMPONENT_API["status-badge"],
-    'StatusBadge(state?: "success" | "warning" | "danger" | "neutral" | "quiet" = "neutral", children: React.ReactNode)');
-});
 
 test("component-api.mjs is what the generator produces right now", () => {
   // A DERIVED FILE THAT NOBODY REGENERATES IS A LIE THAT COMPILES. The
@@ -1819,34 +1779,7 @@ test("component-api.mjs is what the generator produces right now", () => {
     "builder/component-api.mjs is stale — run `node builder/gen-component-api.mjs`");
 });
 
-test("a signature that names a type also shows that type's SHAPE", () => {
-  // `ActivityFeed(items: Activity[], …)` names a type the model cannot see. It
-  // passed `{title, description}[]` where Activity is `{who, what, at, avatar?}`
-  // — one error, and the only thing between the booking sample and a pass.
-  // DRIVEN THROUGH THE GENERATOR WITH THE NAME IN HAND, rather than searched for
-  // in one fixed list. `UI_SHORTLIST_API()` printed 292 components and this
-  // hunted `activity-feed` among them; `componentApiFor` takes whatever list its
-  // caller has, so the component under test is simply asked for — which also
-  // stops the test depending on whether that one happens to be in the core.
-  const line = componentApiFor(["activity-feed"]).split("\n").find((l) => l.includes("activity-feed"));
-  assert.ok(line, "activity-feed has no signature at all — pick another component with a named type");
-  assert.match(line, /where Activity = \{ who: string/, line);
-});
 
-test("and the shape comes from THAT component's file, not a name lookup", () => {
-  // TWO components in this kit export a type called `Activity` and they are
-  // different shapes. A flat name -> shape map collapsed them, last one winning,
-  // so the prompt would have carried the wrong fields for one of them. A wrong
-  // type is worse than none: it looks authoritative, exactly like the truncated
-  // enum did earlier the same day.
-  const a = COMPONENT_TYPES["activity-feed"];
-  const b = COMPONENT_TYPES["facility-status"];
-  assert.ok(a && a.Activity, "activity-feed lost its type");
-  assert.ok(b && b.Activity, "facility-status lost its type");
-  assert.notEqual(a.Activity, b.Activity, "the two Activity types collapsed into one");
-  assert.match(a.Activity, /who: string/);
-  assert.match(b.Activity, /state\?*:/);
-});
 
 test("a type RE-EXPORTED from a sibling still resolves, where the name is unambiguous", () => {
   // `COMPONENT_TYPES` is per module, so a component that imports its type from a
@@ -1868,59 +1801,7 @@ test("a type RE-EXPORTED from a sibling still resolves, where the name is unambi
     "site-chrome documents SiteContact itself now — this no longer tests the cross-module path");
 });
 
-test("…and a type name with SEVERAL shapes in the kit stays bare", () => {
-  // The safety argument, and it is the reason the own-module rule was written in
-  // the first place. A confidently WRONG shape is worse than no shape: it leads
-  // the model into a compile error, where a missing one only leaves it cautious.
-  // Same rule `repairImports` lives under — resolve only where there is exactly
-  // one answer.
-  const shapes = new Set();
-  for (const types of Object.values(COMPONENT_TYPES)) if (types.TreeNode) shapes.add(types.TreeNode);
-  assert.ok(shapes.size > 1,
-    "TreeNode has one shape now — pick another ambiguous name or this asserts nothing");
-  const own = COMPONENT_TYPES["checkbox-tree"] || {};
-  assert.ok(!own.TreeNode, "checkbox-tree documents TreeNode itself now — pick another citer");
-  const line = componentApiFor(["checkbox-tree"]).split("\n").find((l) => l.includes("checkbox-tree"));
-  assert.match(line, /nodes: TreeNode\[\]/, "the signature stopped naming the type");
-  assert.ok(!/where[\s\S]*TreeNode =/.test(line), "an ambiguous type was resolved anyway: " + line);
-});
 
-test("the platform index never disagrees with a component's own answer", () => {
-  // THE FALSIFIABLE HALF, and it replaces a test that could not fail. That one
-  // asserted "own-module wins" by reading two components' output — and a mutation
-  // swapping the lookup order SURVIVED it, correctly: measured over all 630,390
-  // (component, type-name) pairs either order can answer, the two orderings
-  // differ ZERO times. The index holds only names with one shape kit-wide, so
-  // where it answers it answers the same string, and where it does not it is
-  // undefined. There was nothing for that test to catch.
-  //
-  // WHAT THIS ONE ACTUALLY CATCHES, measured rather than claimed: the widening
-  // ALONE is already caught by the ambiguous-name guard above and by `shapeOf`'s
-  // (2 failures, driven); the order swap alone is inert. It takes BOTH — a
-  // widened index AND the index asked first — to show a component a foreign
-  // shape, and that combination fails here (7 failures, driven). So this is the
-  // line that goes red if somebody ever simplifies the other two away, which is
-  // exactly why the invariant is worth stating in its own right rather than
-  // left implied by two checks that could each be removed as redundant.
-  let checked = 0;
-  for (const [component, types] of Object.entries(COMPONENT_TYPES)) {
-    const line = componentApiFor([component]);
-    for (const [name, body] of Object.entries(types)) {
-      if (!line.includes(name + " = ")) continue;  // not cited by this signature
-      checked++;
-      assert.ok(line.includes(name + " = " + body),
-        component + " is shown a " + name + " that is not its own");
-    }
-  }
-  // The scan is proved alive, or a walk that resolved nothing reports a clean
-  // kit — the reassuring way to say the check ran over nothing.
-  assert.ok(checked >= 100, "only " + checked + " component types were resolved — the scan is broken");
-  // …and both Activity components really do document DIFFERENT shapes, or the
-  // sweep above runs over a kit where the hazard does not exist.
-  const a = COMPONENT_TYPES["activity-feed"], b = COMPONENT_TYPES["facility-status"];
-  assert.ok(a?.Activity && b?.Activity && a.Activity !== b.Activity,
-    "the two Activity shapes converged — pick another ambiguous pair or this asserts nothing");
-});
 
 test("shapeOf resolves across modules under the same rule", () => {
   // The lint reads the same index as the prompt, or a page is told off for a
@@ -1930,41 +1811,6 @@ test("shapeOf resolves across modules under the same rule", () => {
     "an ambiguous type must stay unresolved for the lint too");
 });
 
-test("a type is read with balanced braces, not up to the first semicolon", () => {
-  // These are object literals whose fields are semicolon-separated, so a lazy
-  // match returns `Activity = { who: string` and looks like it worked.
-  //
-  // A TRAILING `[]` IS NOT BEING CUT OFF, it is the type. This asserted
-  // `endsWith("}")`, which is a description of the shapes that existed when it
-  // was written rather than of the property it names — and it went red on the
-  // fix for `QuoteFiles`, an array recorded as one of its items. What must hold
-  // is that the braces are balanced and nothing was truncated mid-object.
-  // A LIST ALIAS IS THE OTHER LEGAL SHAPE. `WeekHours = DaySpans[]` carries the
-  // one fact a signature cannot — how many — and it has no braces at all, so a
-  // blanket `startsWith("{")` refuses the thing that was added to fix a real
-  // gap. It has to RESOLVE, though: an alias pointing at a name recorded nowhere
-  // leaves the model exactly where it started, reading a name it cannot look up.
-  let aliases = 0;
-  for (const [mod, types] of Object.entries(COMPONENT_TYPES)) {
-    for (const [name, body] of Object.entries(types)) {
-      const alias = /^([A-Z][A-Za-z0-9]*)\[\]$/.exec(body);
-      if (alias) {
-        aliases++;
-        assert.ok(types[alias[1]],
-          `${mod}.${name} is an alias to ${alias[1]}, whose shape is recorded nowhere: ${body}`);
-        continue;
-      }
-      assert.ok(body.startsWith("{"), `${name} does not start with a shape: ${body}`);
-      assert.ok(/\}(\[\])*$/.test(body), `${name} was cut off: ${body}`);
-      const opens = (body.match(/\{/g) || []).length, closes = (body.match(/\}/g) || []).length;
-      assert.equal(opens, closes, `${name} has unbalanced braces: ${body}`);
-    }
-  }
-  // Or the alias branch above is a rule about nothing and the resolve check is
-  // vacuous — the shape this repo keeps recording as a guard that passes for the
-  // wrong reason.
-  assert.ok(aliases > 0, "no list alias is recorded — the alias branch checks nothing");
-});
 
 test("Row and PublicRow agree that a column value is a SCALAR", () => {
   // `PublicRow` was fixed on 2026-08-04 and `Row` was not, though the reasoning
@@ -2023,23 +1869,6 @@ test("Row names created_at, and the schema engine really does always add it", ()
   assert.match(src, /updated_at\?: string;/, "updated_at must be OPTIONAL, matching the flag it sits behind");
 });
 
-test("a component's prop shape is printed, never collapsed to `object`", () => {
-  // THE SAME FAILURE AS THE TRUNCATED STRING UNION, one type-kind over. An
-  // inline object literal names the exact properties a caller must write, and
-  // `object` reads as "any object" — measured live 2026-08-05,
-  // `BulkActions(actions: object[])` was called with `{label, onClick}` against
-  // `{label, onSelect, destructive?}`. TS2353, page refused.
-  //
-  // Worse than the union was, because there is nowhere else to look it up:
-  // COMPONENT_TYPES only resolves `export type` names.
-  const all = Object.values(COMPONENT_API).join(" ");
-  assert.ok(!/:\s*object[,)\]]/.test(all), "a prop is still typed `object`: " + (all.match(/\w+\??:\s*object[,)\]]/) || [])[0]);
-  assert.ok(!/:\s*object\[\]/.test(all), "a prop is still typed `object[]`");
-  assert.match(COMPONENT_API["bulk-actions"], /onSelect/, "the prop the generator guessed wrong must now be stated");
-  // A function's parameters are a contract too — `(next: string) => void` and
-  // `(id: number, done: boolean) => void` are not interchangeable.
-  assert.ok(!/:\s*function[,)]/.test(all), "a callback prop is still typed `function`");
-});
 
 test("a shape too long to print keeps its property NAMES", () => {
   // Between `object` and the full type there is a third answer, and it is most
@@ -2158,27 +1987,6 @@ test("the extractor reads a generic with a nested constraint", () => {
   assert.ok(extractApi('export function B({ x }: { x: string; }) { return null; }')[0]);
 });
 
-test("a named type with a generic parameter still resolves to its shape", () => {
-  // THE SAME CLASS AS THE COMPONENT REGEX, one layer over and found the moment
-  // that one was fixed: `export type Column<T> = ` never matched, so `Column`
-  // had no shape, so `DataTable(columns: Column<T>[], …)` stopped at a name the
-  // model could not see — and it wrote `render:` where the prop is `cell:`.
-  // Measured live 2026-08-05. `sortable-list`'s `SortOption<T>` was hidden the
-  // same way.
-  //
-  // A signature that stops at a type NAME is the failure `COMPONENT_TYPES`
-  // exists to prevent; a name it cannot resolve is that failure wearing a fix.
-  assert.ok(COMPONENT_TYPES["data-table"] && COMPONENT_TYPES["data-table"].Column,
-    "Column<T> is cited by DataTable's signature and has no shape");
-  assert.match(COMPONENT_TYPES["data-table"].Column, /cell\?: \(row: T\) => React\.ReactNode/,
-    "the prop the generator guessed wrong must be the one stated");
-  // Driven through the real builder as well, so this still fails if the kit ever
-  // loses its only generic exported type.
-  const types = buildTypesApi();
-  assert.ok(types["data-table"] && types["data-table"].Column, "the generated file and the builder disagree");
-  // And a default containing `=` must not end the parameter list early.
-  assert.ok(COMPONENT_TYPES["sortable-list"] && COMPONENT_TYPES["sortable-list"].SortOption);
-});
 
 test("a generic DEFAULT does not end the type-parameter list early", () => {
   // FOUND BY MUTATION, on my own new code: swapping the generic pattern for
@@ -2820,20 +2628,6 @@ test("an item type drawn through SafeImage carries fallbackSeed", () => {
     "so the generator passing one — which it does — refuses to compile");
 });
 
-test("the guard above is looking at the right thing", () => {
-  // It passes vacuously if the scan finds no picture types at all, which is what
-  // a broken regex would do. Three are known today.
-  const dir = path.join(TEMPLATE, "src/components/ui");
-  let found = 0;
-  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".tsx"))) {
-    const src = fs.readFileSync(path.join(dir, f), "utf8");
-    if (!src.includes("<SafeImage")) continue;
-    for (const m of src.matchAll(/export type ([A-Z][A-Za-z]*) = \{([^}]*)\}/g)) {
-      if (/\b(src|image|photo|cover|thumbnail)\??\s*:/.test(m[2])) found++;
-    }
-  }
-  assert.ok(found >= 3, "the picture-type scan found only " + found + " — it has stopped matching");
-});
 
 test("the prompt tells the model the field exists", () => {
   // Carrying it on the type is half. If the resolved shape in the prompt still
@@ -2874,65 +2668,8 @@ test("a module with no known export list is skipped, not guessed at", () => {
   assert.deepEqual(lintPages(page('import { Whatever } from "@/components/ui/button";'), SPEC).filter((x) => /does not export it/.test(x)), []);
 });
 
-test("A LOWERCASE HELPER IS NEVER REFUSED — the export list only covers components", () => {
-  // FOUND 2026-08-14, and it was live from the day this check shipped. The list
-  // is derived from COMPONENT_API, whose extractor matches
-  // `export function Name({ … })` — a destructured props object, i.e. a
-  // COMPONENT — and then harvests names with /[A-Z][A-Za-z0-9]*\(/. So a
-  // lowercase helper exported beside a component is invisible to it TWICE, and
-  // an import of one was reported as a member the module does not have.
-  //
-  // Driven over the REAL KIT rather than a fixture, because the point is how
-  // many legitimate imports this refused. Every module here is one a page can
-  // import from today.
-  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
-  const helpers = [];
-  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".tsx"))) {
-    const src = fs.readFileSync(new URL(f, dir), "utf8");
-    for (const m of src.matchAll(/export (?:function|const) ([a-z][A-Za-z0-9]*)/g)) {
-      helpers.push({ mod: f.replace(/\.tsx$/, ""), name: m[1] });
-    }
-  }
-  // A SCAN THAT SILENTLY STOPPED MATCHING would report a clean kit and prove
-  // nothing — the vacuous-guard failure this repo keeps recording.
-  assert.ok(helpers.length > 50,
-    "the helper scan found only " + helpers.length + " — it has stopped matching the kit");
 
-  const flagged = [];
-  for (const h of helpers) {
-    const out = lintPages(page('import { ' + h.name + ' } from "@/components/ui/' + h.mod + '";'), SPEC)
-      .filter((x) => /does not export it/.test(x));
-    if (out.length) flagged.push(h.mod + "." + h.name);
-  }
-  assert.deepEqual(flagged, [],
-    "the lint refuses " + flagged.length + " REAL kit helpers, e.g. " + flagged.slice(0, 5).join(", ") +
-    " — every one teaches the model away from something that exists");
 
-  // And the thing rule 18 actually tells the model to write.
-  assert.deepEqual(
-    lintPages(page('import { SeoJsonLd, localBusinessJsonLd } from "@/components/ui/seo-jsonld";'), SPEC),
-    [], "a page obeying rule 18 exactly is reported as broken");
-});
-
-test("…and an invented COMPONENT name is still refused", () => {
-  // The narrowing must not cost the FaqAccordion protection: an invented
-  // component name is capital-initial by React's own rule, so it stays in
-  // range. Asserted beside the fix, because a narrowing that quietly disabled
-  // the whole check would pass the test above perfectly.
-  const p = lintPages(page('import { SeoJsonLdCard } from "@/components/ui/seo-jsonld";'), SPEC);
-  assert.match(p.join(" "), /does not export it/,
-    "the narrowing disabled the check it was meant to keep");
-});
-
-test("the naming law and its exceptions are in the prompt", () => {
-  // The lint reports; it does not block publishing, so it cannot save the build
-  // on its own. What stops the error happening is the model knowing the rule.
-  assert.match(PAGE_RULES, /THE EXPORT NAME IS THE FILE NAME IN PascalCase/);
-  assert.match(PAGE_RULES, /FaqAccordion/, "the measured case is what makes it concrete");
-  // The exceptions are DERIVED, so a new odd-named component appears here
-  // without anybody remembering to add it.
-  assert.match(PAGE_RULES, /landmark → PageMain/, "the underivable names are not listed");
-});
 
 test("the category-ordering rule is GONE, and the fact under it is still stated", () => {
   // THE INVERSE OF WHAT STOOD HERE, on the owner's call of 2026-08-24: this was
@@ -3483,19 +3220,6 @@ function listboxesWithNoWayIn(sources) {
   return out;
 }
 
-test("a listbox that owns its arrow keys can be reached by a keyboard", () => {
-  // `font-picker` is why this exists. Converting its options from nested
-  // `<button>`s to real `role="option"` rows is right, and doing it without a
-  // roving tab stop would have left a list nothing can focus at all — mouse
-  // only, silently, with every other check in this repo still green. A mutation
-  // setting every row to `tabIndex={-1}` survived the whole suite until this.
-  const offenders = listboxesWithNoWayIn(UI_SOURCES);
-  assert.deepEqual(offenders, [], "these listboxes handle arrow keys and nothing can focus them:\n  " + offenders.join("\n  "));
-  // And the scan must still SEE the self-driving listboxes, or it is passing
-  // because its filter stopped matching anything.
-  const owning = UI_SOURCES.filter(([, s]) => /role="listbox"/.test(s) && /ArrowDown/.test(s));
-  assert.ok(owning.length >= 2, "only " + owning.length + " listboxes own their keys — the scan filtered everything out");
-});
 
 test("…and that reachability scan can see a listbox with no way in", () => {
   const roving = `<ul role="listbox" onKeyDown={(e) => { if (e.key === "ArrowDown") move(1); }}>
@@ -3552,62 +3276,7 @@ test("…and that nesting scan can see one, through a wrapper and a role alike",
   assert.ok(!found.some((h) => h.includes("<a>")), "asChild is treated as a real button");
 });
 
-test("a date is never turned into an ISO attribute without a guard", () => {
-  // `new Date(x).toISOString()` throws RangeError on an unparseable value, DURING
-  // RENDER, so the error boundary takes the whole page rather than one
-  // timestamp — and `Row`'s index signature means `at={row.collected_at}`
-  // typechecks against any column at all. Forty sites had it.
-  //
-  // V8's parser is why it survived: it reads "Sample 0" as the year 2000, so
-  // even a test feeding a component nonsense gets a valid Date most of the time
-  // and the crash appears only for whichever nonsense happens not to parse.
-  // THE RULE IS ABOUT WHERE THE CONVERSION HAPPENS, not about which date it is:
-  // `.toISOString()` may not appear inside a `dateTime` attribute. Anything
-  // computed there has, by construction, not been checked — and the alternative
-  // shapes are already in the kit and already correct: `dateTime={isoAttr(x)}`,
-  // or a `const iso` computed once and rendered behind a ternary.
-  //
-  // A draft that judged a LOCAL by whether its file contained a NaN check went
-  // through three roundsn of tuning and still cried wolf on `iso ? <time
-  // dateTime={iso}>`, which is right. A rule being tuned to its corpus is a rule
-  // about the corpus.
-  const sites = [], bad = [];
-  for (const [f, src] of UI_SOURCES) {
-    src.split("\n").forEach((ln, i) => {
-      if (/^\s*(\/\/|\*)/.test(ln)) return;
-      for (const m of ln.matchAll(/dateTime=\{([^}]*)\}/g)) {
-        sites.push(`${f}:${i + 1}`);
-        // `date-format.tsx` is the one exemption and it earns it by returning
-        // early on an unreadable date — it is where the guard lives, so it
-        // cannot be asked to call the helper built out of it.
-        if (f === "date-format.tsx") continue;
-        if (/\.toISOString\(\)/.test(m[1])) bad.push(`${f}:${i + 1}  ${ln.trim().slice(0, 100)}`);
-      }
-    });
-  }
-  assert.deepEqual(bad, [], "these throw on a date they cannot read — use isoAttr():\n  " + bad.join("\n  "));
-  assert.ok(sites.length > 0, "nothing in the kit renders a <time dateTime> — the scan is asserting nothing");
-  const df = UI_SOURCES.find(([f]) => f === "date-format.tsx");
-  assert.ok(df && /Number\.isNaN\(d\.getTime\(\)\)/.test(df[1]),
-    "date-format.tsx is exempt because it guards, and that guard is gone");
-});
 
-test("a <time> never wraps a DateFormat, which is already a <time>", () => {
-  // `DateFormat` renders its OWN `<time dateTime>`, so
-  // `<time dateTime={…}><DateFormat/></time>` emitted a time inside a time —
-  // measured in the rendered output, 35 sites. Worse than redundant: the outer
-  // used `new Date()` and the inner uses `toDate()`, which disagree about a
-  // bare `YYYY-MM-DD` by the local UTC offset, so the two nested elements
-  // carried two different machine-readable instants for one date.
-  const bad = [];
-  for (const [f, src] of UI_SOURCES) {
-    for (const m of src.matchAll(/<time[^>]*>\s*<DateFormat/g)) {
-      bad.push(`${f}:${src.slice(0, m.index).split("\n").length}`);
-    }
-  }
-  assert.deepEqual(bad, [], "a <time> wrapping a <DateFormat>:\n  " + bad.join("\n  "));
-  assert.ok(UI_SOURCES.some(([f]) => f === "date-format.tsx"), "DateFormat is gone — this rule is about nothing");
-});
 
 test("no MODAL SURFACE paints itself with the page-root token", () => {
   // Found 2026-08-12 while fixing the floating-panel class above: four
@@ -3620,17 +3289,6 @@ test("no MODAL SURFACE paints itself with the page-root token", () => {
     "a visitor can read the page through these dialogs:\n  " + offenders.join("\n  "));
 });
 
-test("…and the dialog check can see one, and is not just matching nothing", () => {
-  // A rule that has stopped matching reports a clean kit. Reading the SAME
-  // predicate back for the token the correct dialogs use proves it still finds
-  // dialog surfaces at all — 14 of them, including the four just fixed.
-  const correct = dialogSurfacesPaintedWithThePageToken("bg-popover");
-  assert.ok(correct.length >= 10,
-    "the dialog scan found only " + correct.length + " surfaces — it has stopped matching");
-  for (const f of ["modal-stack.tsx", "filter-drawer.tsx", "shortcut-overlay.tsx", "guided-step.tsx"]) {
-    assert.ok(correct.some((c) => c.startsWith(f)), "the scan no longer sees " + f);
-  }
-});
 
 test("no FLOATING panel paints itself with the page-root token", () => {
   // A theme with a decorative backdrop re-emits `--background` at 35% alpha on
@@ -3662,20 +3320,6 @@ test("no FLOATING panel paints itself with the page-root token", () => {
     "these float over the page and would be translucent on a backdrop theme:\n  " + offenders.join("\n  "));
 });
 
-test("…and the check can actually see a violation — in all three shapes it once missed", () => {
-  // The scan returning [] is worth something only if it would find one. Reading
-  // the kit back for `bg-popover` puts the ELEVEN fixed components in front of
-  // the predicate exactly as they were when they were broken, so this cannot
-  // rot into a check on a hand-typed string that no longer resembles the bug.
-  const caught = floatingPanelsPaintedWithThePageToken("bg-popover").join("\n");
-  for (const [file, shape] of [
-    ["rich-tooltip.tsx", "an `absolute` panel"],
-    ["drawer-stack.tsx", "a `fixed` panel whose zIndex is in style={{}}"],
-    ["mega-menu.tsx", "a class list that wraps onto the next line"],
-  ]) {
-    assert.ok(caught.includes(file), "the predicate stopped seeing " + shape + " (" + file + ")");
-  }
-});
 
 test("the rules show an UPDATE call, not just the hook's name", () => {
   // `useUpdateRow` was named ONCE in the whole prompt with no worked example,
@@ -3695,24 +3339,6 @@ test("the rules show an UPDATE call, not just the hook's name", () => {
 
 /* ------------------------- a prop the component does not take */
 
-test("the lint catches a prop invented on a component it CAN see", () => {
-  // The failure the eval actually records. Every recorded compile error was on a
-  // component whose signature was in the prompt — `render` on a `Column`,
-  // `title` on an `Activity` — not on one the model could not see. Caught here
-  // it costs nothing; caught by `tsc` it costs the page.
-  const page = (body) => ({ path: "p.tsx", source:
-    'import { createFileRoute } from "@tanstack/react-router";\n' +
-    'export const Route = createFileRoute("/")({ component: P });\n' + body });
-  const hits = (body) => lintPages([page(body)], { tables: [] })
-    .filter((x) => /not part of that shape|does not take/.test(x));
-
-  assert.equal(hits('import { SafeImage } from "@/components/ui/safe-image";\nfunction P(){ return <SafeImage src="/x" caption="no" />; }').length, 1,
-    "a wrong JSX attribute is not caught");
-  assert.equal(hits('import { DataTable } from "@/components/ui/data-table";\nfunction P(){ return <DataTable columns={[{ key:"a", header:"A", render:(r:any)=>r.x }]} rows={[]} />; }').length, 1,
-    "a wrong key inside a prop's object is not caught");
-  assert.equal(hits('import { ActivityFeed } from "@/components/ui/activity-feed";\nfunction P(){ return <ActivityFeed items={[{ who:"a", what:"b", at:"c", title:"x" }]} />; }').length, 1,
-    "a wrong key in an Activity is not caught");
-});
 
 test("…and never flags a correct page", () => {
   // THE MEASUREMENT THAT DECIDES WHETHER THIS LINT CAN EXIST. A rule that cries
@@ -3791,82 +3417,7 @@ test("…and never flags a correct page", () => {
   assert.ok(unfiltered > 300, "the full lint found almost nothing over 324 pages — the sweep has gone vacuous");
 });
 
-test("a TYPE import is not judged against the export list", () => {
-  // MEASURED: this was the entire output of the full lint over the 324 family
-  // exemplars — 4 pages, all correct, all this shape. `UI_EXPORTS` records value
-  // exports plus only the shapes `extractTypes` kept, so it has no opinion about
-  // a string union; stripping the `type ` and judging the name anyway is the
-  // guess the skip-an-unknown-module rule beside it exists to refuse.
-  //
-  // Driven with a REAL pair off the kit, so the case cannot rot into fiction.
-  const ui = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui", "rsvp-buttons.tsx");
-  const kit = fs.readFileSync(ui, "utf8");
-  assert.match(kit, /export type Rsvp\b/, "rsvp-buttons no longer exports the type this case is built on");
-  assert.match(kit, /export function RsvpButtons\b/, "rsvp-buttons no longer exports the component this case is built on");
 
-  const lint = (src) => lintPages([{ path: "x.tsx", source: src }], { tables: [] })
-    .filter((x) => /does not export it/.test(x));
-
-  assert.deepEqual(lint('import { RsvpButtons, type Rsvp } from "@/components/ui/rsvp-buttons";'), [],
-    "an inline type specifier is judged against a list that does not know the kit's unions");
-  assert.deepEqual(lint('import type { Rsvp } from "@/components/ui/rsvp-buttons";'), [],
-    "a whole-clause type import is judged against a list that does not know the kit's unions");
-
-  // AND `type` IS NOT A PASSWORD. Skipping type specifiers was the first fix and
-  // is strictly worse: an invented type is a real TS2305, and with an honest
-  // export list it is catchable. Measured, the skip also changed no answer —
-  // dropping the `type ` strip made the name fail the capital-initial test one
-  // line down, so it was inert protection reading as real.
-  assert.equal(lint('import { RsvpButtons, type Invented } from "@/components/ui/rsvp-buttons";').length, 1,
-    "an invented TYPE is not caught — the rule is skipping instead of judging");
-  assert.equal(lint('import type { Invented } from "@/components/ui/rsvp-buttons";').length, 1,
-    "an invented type in a whole-clause import is not caught");
-
-  // AND THE UN-PREFIXED FORM IS CLEAN TOO, which is a fact about the EXPORT LIST
-  // rather than about this rule. `verbatimModuleSyntax` is false in the template
-  // (builder/lovable/template/tsconfig.json), so `import { RsvpButtons, Rsvp }`
-  // compiles — and skipping only the `type`-prefixed form would still have
-  // refused it, on 30 modules whose one exported type is a string union that
-  // `COMPONENT_TYPES` drops by design. `COMPONENT_TYPE_NAMES` is what makes the
-  // list honest; without it this line reports and the message lists the exports
-  // without the name it just refused.
-  assert.deepEqual(lint('import { RsvpButtons, Rsvp } from "@/components/ui/rsvp-buttons";'), [],
-    "a union type imported without the keyword is refused — UI_EXPORTS does not know the kit's type exports");
-  assert.deepEqual(lint('import { DateEnquiry, DateStatus } from "@/components/ui/date-enquiry";'), [],
-    "same, on the module the gap was measured against");
-
-  // AND THE PROTECTION IS UNTOUCHED — the failure this rule was written for.
-  assert.equal(lint('import { FaqAccordion } from "@/components/ui/faq";').length, 1,
-    "an invented component name is no longer caught");
-  assert.equal(lint('import { DateEnquiry, Invented } from "@/components/ui/date-enquiry";').length, 1,
-    "an invented name beside a real one is no longer caught");
-});
-
-test("UI_EXPORTS knows every type the kit exports, not only the shaped ones", () => {
-  // DERIVED FROM THE KIT, both directions, because the failure it prevents is
-  // silent: a name missing here is a false alarm on a page that compiles, and
-  // the message helpfully lists the exports without the one it just refused.
-  //
-  // `COMPONENT_TYPES` cannot answer this on its own — `extractTypes` walks braces
-  // and keeps only object shapes, so a string union has no entry. Asserted as a
-  // sweep rather than as a list of the 30 known today, so a 31st union added
-  // tomorrow is covered without anybody remembering this file.
-  const dir = path.join(import.meta.dirname, "..", "builder", "lovable", "template", "src", "components", "ui");
-  const gaps = [];
-  let seen = 0;
-  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith(".tsx"))) {
-    const mod = f.replace(/\.tsx$/, "");
-    const known = UI_EXPORTS[mod];
-    if (!known) continue;
-    for (const m of fs.readFileSync(path.join(dir, f), "utf8").matchAll(/^export\s+(?:type|interface)\s+([A-Z][A-Za-z0-9]*)/gm)) {
-      seen++;
-      if (!known.has(m[1])) gaps.push(mod + "." + m[1]);
-    }
-  }
-  // A scan that silently stopped matching would report a perfect kit.
-  assert.ok(seen > 300, `only ${seen} exported types found across the kit — the scan has drifted`);
-  assert.deepEqual(gaps, [], "UI_EXPORTS does not know these exported types, so importing one is falsely refused:\n  " + gaps.slice(0, 10).join("\n  "));
-});
 
 test("aria-* and data-* are DOM passthrough, never a signature miss", () => {
   // These reach the DOM through the component's rest props and are in no
@@ -3887,74 +3438,8 @@ test("aria-* and data-* are DOM passthrough, never a signature miss", () => {
     "the passthrough case passes because nothing is checked, not because the guard held");
 });
 
-test("`=>` is not a closing bracket, and the case that proves it is in a PAGE", () => {
-  // `(row: T) => React.ReactNode` drove the depth negative, so every field after
-  // a function-typed one was lost — and a field the reader cannot see is a FALSE
-  // ALARM on correct code, which is the one thing this lint must never produce.
-  //
-  // WHERE THE PROOF HAD TO COME FROM IS THE POINT. Removing the guard changes
-  // the extracted props of ZERO of the 2,017 kit components (measured), because
-  // `Math.max(0, d - 1)` absorbs the negative depth whenever the arrow sits at
-  // the top of a shape — which is where every un-truncated kit signature puts
-  // it. So the whole 328-page corpus stayed green and the mutant read as inert.
-  // It is not: a PAGE can nest an arrow one brace deeper than any signature
-  // does, and there the clamp does not save it. Driven with exactly that.
-  const page = (body) => ({ path: "p.tsx", source:
-    'import { createFileRoute } from "@tanstack/react-router";\n' +
-    'import { ActivityFeed } from "@/components/ui/activity-feed";\n' +
-    'export const Route = createFileRoute("/")({ component: P });\n' + body });
-  const hits = (body) => lintPages([page(body)], { tables: [] })
-    .filter((x) => /not part of that shape|does not take/.test(x));
 
-  // An object-valued field holding an arrow. Every key here is real; without the
-  // guard the depth drops to 0 at the `>` and the comma after it splits the
-  // item, so `tz` — a key of the INNER object — is judged against Activity.
-  assert.deepEqual(hits('function P(){ return <ActivityFeed items={[{ who:"a", what:"b", at:{ on:(x)=>x, tz:"UTC" } }]} />; }'), [],
-    "an arrow nested inside a field's object breaks the depth count");
-  // …and the same page with a genuinely wrong key still reports, so the
-  // assertion above is not passing on a lint that has stopped looking.
-  assert.equal(hits('function P(){ return <ActivityFeed items={[{ who:"a", what:"b", at:{ on:(x)=>x }, title:"t" }]} />; }').length, 1,
-    "the clean case passes because the lint went quiet, not because the guard held");
-});
 
-test("a spread makes the lint SKIP, in both places it can appear", () => {
-  // A spread can supply ANYTHING, so there is no honest answer about which
-  // props or keys are present — and the whole justification for this lint is
-  // that it never cries wolf. Two separate guards, because a spread lands in
-  // two different places and a mutation proved neither was held: `{...props}`
-  // on the element, and `...base` inside the object handed to a prop. Each is
-  // driven with a case the lint WOULD otherwise flag, so a passing assertion
-  // means the guard fired rather than that the page happened to be clean.
-  const page = (body) => ({ path: "p.tsx", source:
-    'import { createFileRoute } from "@tanstack/react-router";\n' +
-    'export const Route = createFileRoute("/")({ component: P });\n' + body });
-  const hits = (body) => lintPages([page(body)], { tables: [] })
-    .filter((x) => /not part of that shape|does not take/.test(x));
-
-  const attrSpread = 'import { SafeImage } from "@/components/ui/safe-image";\n' +
-    'function P(){ return <SafeImage src="/x" {...rest} caption="no" />; }';
-  assert.equal(hits(attrSpread).length, 0, "an element carrying {...} must not have its attributes judged");
-  assert.equal(hits(attrSpread.replace(" {...rest}", "")).length, 1,
-    "the spread case passes because the page is clean, not because the guard fired");
-
-  const keySpread = 'import { ActivityFeed } from "@/components/ui/activity-feed";\n' +
-    'function P(){ return <ActivityFeed items={[{ ...base, title:"x" }]} />; }';
-  assert.equal(hits(keySpread).length, 0, "an object containing a spread must not have its keys judged");
-  assert.equal(hits(keySpread.replace(" ...base,", "")).length, 1,
-    "the key-spread case passes because the object is clean, not because the guard fired");
-});
-
-test("an unreadable signature makes the lint SKIP, never guess", () => {
-  // `gen-component-api` elides a long nested type with an ellipsis, which leaves
-  // an unbalanced brace — so the prop list looks complete and is not. 15 of 2,032
-  // components are in that state, and on one of them a correct page was reported
-  // as wrong. Skipping is the only safe answer.
-  const withEllipsis = Object.entries(COMPONENT_API).find(([, v]) => String(v).includes("…"));
-  assert.ok(withEllipsis, "no component has a truncated signature — this guard now checks nothing");
-  assert.equal(propsOf(withEllipsis[0]), null, "a truncated signature must not yield a partial prop list");
-  // …and a component with a whole signature still answers.
-  assert.ok((propsOf("safe-image") || []).includes("fallbackSeed"));
-});
 
 test("the designer can DECLARE the pair, or the whole grid is unreachable", () => {
   // THE HALF THAT MAKES IT A FEATURE. The policy layer can express all sixteen
@@ -4625,54 +4110,6 @@ test("the export-name rule states a count it can still count", async () => {
 });
 
 
-test("repairImports fixes the measured failure and refuses to guess", () => {
-  const page = (source) => [{ path: "index.tsx", source }];
-
-  // The real one, from a real build.
-  const r = repairImports(page(
-    'import { Hero } from "@/components/ui/hero-split";\nexport default function P(){ return <Hero title="x" />; }'));
-  assert.match(r.pages[0].source, /import \{ HeroSplit \} from "@\/components\/ui\/hero-split"/);
-  assert.match(r.pages[0].source, /<HeroSplit title="x" \/>/,
-    "the import was fixed and the usage was not — that still fails to compile");
-  assert.deepEqual(r.fixed, [{ path: "index.tsx", module: "hero-split", from: "Hero", to: "HeroSplit" }]);
-
-  // A CORRECT IMPORT IS UNTOUCHED — byte-identical, so no build that works today changes.
-  const good = 'import { HeroSplit } from "@/components/ui/hero-split";\n<HeroSplit />';
-  const untouched = repairImports(page(good));
-  assert.equal(untouched.pages[0].source, good);
-  assert.deepEqual(untouched.fixed, []);
-
-  // A MODULE WE KNOW NOTHING ABOUT IS LEFT ALONE. Guessing here would rename an
-  // import to something that does not exist either, and a wrong rename that
-  // COMPILES renders the wrong component — far worse than a failed build.
-  const unknown = 'import { Whatever } from "@/components/ui/not-a-real-module-xyz";';
-  assert.equal(repairImports(page(unknown)).pages[0].source, unknown);
-
-  // A lowercase helper is a different class and is not touched. `seo-jsonld`
-  // exports both `SeoJsonLd` and `localBusinessJsonLd`, so without the
-  // capital-initial test the helper would be renamed to the component.
-  const helper = 'import { localBusinessJsonLd } from "@/components/ui/seo-jsonld";\nlocalBusinessJsonLd({});';
-  assert.equal(repairImports(page(helper)).pages[0].source, helper);
-
-  // A MULTI-EXPORT MODULE IS STILL REPAIRED when its PascalCase name is one of
-  // the exports — that is the commonest shape in the kit (378 modules), so a
-  // repair that only handled single-export modules would miss nearly all of it.
-  // `access-hours` exports AccessHours and AccessDay.
-  const multi = repairImports(page(
-    'import { AccessHour } from "@/components/ui/access-hours";\n<AccessHour />'));
-  assert.match(multi.pages[0].source, /import \{ AccessHours \}/);
-  assert.match(multi.pages[0].source, /<AccessHours \/>/);
-
-  // AND IT REFUSES TO GUESS when the PascalCase name is NOT among them.
-  // `heading-level` exports Section and Heading — neither is `HeadingLevel`, so
-  // there is no answer we can be sure of, and picking one at random renames the
-  // import to something that COMPILES and renders the wrong component. That is
-  // strictly worse than the failed build, which is the whole rule this function
-  // lives under.
-  const guessy = 'import { Header } from "@/components/ui/heading-level";\n<Header />';
-  assert.equal(repairImports(page(guessy)).pages[0].source, guessy,
-    "it guessed on a module with several exports and no PascalCase match");
-});
 
 /* ------------------------- an import path that names no file at all (2026-09-11) */
 
@@ -4858,31 +4295,6 @@ test("a path the repair cannot place is REPORTED, and a real one is silent", () 
 // A check that flags correct code teaches the model — and the next session —
 // away from something that works, which this file rates strictly worse than the
 // miss it prevents.
-test("ZERO FALSE ALARMS: the path repair and its lint over every real file we have", () => {
-  const walk = (dir, out = []) => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, e.name);
-      if (e.isDirectory()) walk(p, out);
-      else if (/\.tsx?$/.test(e.name)) out.push(p);
-    }
-    return out;
-  };
-  const read = (dir) => walk(dir).map((f) => ({ path: f, source: fs.readFileSync(f, "utf8") }));
-  const corpus = read(CORPUS_DIR);
-  const kit = read(fileURLToPath(new URL("../builder/lovable/template/src", import.meta.url)));
-  // THE OBSERVER IS PROVED ALIVE FIRST — a walk that found nothing reports a
-  // clean sweep over nothing, and every assertion below would pass.
-  assert.ok(corpus.length >= 300, "the corpus scan found only " + corpus.length + " files — it has drifted");
-  assert.ok(kit.length >= 3000, "the kit scan found only " + kit.length + " files — it has drifted");
-
-  for (const [what, files] of [["corpus", corpus], ["kit", kit]]) {
-    const out = repairImports(files);
-    const moved = out.pages.filter((p, i) => p.source !== files[i].source).map((p) => p.path);
-    assert.deepEqual(moved, [], "the repair rewrote correct " + what + " files: " + moved.slice(0, 3).join(", "));
-    const said = lintPages(files, { pages: [], tables: [] }).filter((p) => /which is not a file/.test(p));
-    assert.deepEqual(said.slice(0, 3), [], "the lint cried wolf on the " + what);
-  }
-});
 
 // A PART IS REPAIRED TOO, and the label follows the file. They compile in the
 // SAME PROGRAM — `validatePages` says exactly that where it runs `undupe` over
@@ -5124,36 +4536,6 @@ test("an unterminated string stops the scan rather than eating the file", () => 
   assert.match(out.source, /import \{ B \} from "b$/, "the unreadable tail was edited");
 });
 
-test("ZERO FALSE ALARMS ON THE REAL CORPUS — measured, not argued", () => {
-  // THE BAR THIS REPO SETS FOR ANY NEW CHECK: a check that flags correct code is
-  // strictly worse than the miss it prevents, and the rate is measured against
-  // real files rather than reasoned about. Every file here compiles, so any
-  // rewrite at all is a false alarm.
-  const walk = (d, hit = []) => {
-    for (const n of fs.readdirSync(d)) {
-      const f = path.join(d, n);
-      if (fs.statSync(f).isDirectory()) walk(f, hit);
-      else if (/\.tsx?$/.test(n)) hit.push(f);
-    }
-    return hit;
-  };
-  const files = [...walk(CORPUS_DIR), ...walk(fileURLToPath(new URL("../builder/lovable/template/src/", import.meta.url)))];
-  // THE OBSERVER IS ALIVE. An empty walk reports a perfect rate over nothing.
-  assert.ok(files.length > 3000, "only " + files.length + " real files found — this sweep has drifted and proves nothing");
-
-  const alarms = [];
-  let withImports = 0;
-  for (const f of files) {
-    const src = fs.readFileSync(f, "utf8");
-    if (/^import\b/m.test(src)) withImports++;
-    if (dedupeImports(src).source !== src) alarms.push(path.relative(CORPUS_DIR, f));
-  }
-  // AND THE SCAN REALLY REACHED THEM. Files with no imports at all cannot
-  // produce a false alarm, so a sweep of those would report zero honestly and
-  // measure nothing.
-  assert.ok(withImports > 3000, "only " + withImports + " of " + files.length + " files carried an import — the scan is reading the wrong things");
-  assert.deepEqual(alarms, [], "these correct files were rewritten by the duplicate-import repair:\n  " + alarms.join("\n  "));
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE SITE'S OWN COMPONENTS, AND THE LOOK IT IS WEARING (2026-09-17)

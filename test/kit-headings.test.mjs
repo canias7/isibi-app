@@ -25,33 +25,7 @@ test("the committed table is what the generator reads off the kit today", () => 
   assert.equal(render(build()), committed, "builder/kit-headings.mjs is stale — run `node builder/gen-kit-headings.mjs`");
 });
 
-test("the scan covered the kit, and the table holds the headings the corpus uses", () => {
-  // THE OBSERVER IS ALIVE: a scan over nothing would answer an empty table and
-  // the comparison above would pass on it.
-  const files = fs.readdirSync(UI_DIR).filter((f) => f.endsWith(".tsx"));
-  assert.ok(files.length >= 2000, "the kit directory read as " + files.length + " files");
-  const rows = Object.entries(KIT_HEADINGS).flatMap(([m, t]) => Object.entries(t).map(([c, h]) => m + ":" + c + "." + h.prop + "=" + h.tag));
-  assert.ok(rows.length >= 15, "the table has shrunk to " + rows.length + " rows — re-derive it");
-  for (const want of ["section-header:SectionHeader.title=h2", "page-header:PageHeader.title=h1", "cta-band:CtaBand.title=h2", "hero:Hero.title=h1"]) {
-    assert.ok(rows.includes(want), "missing " + want);
-  }
-  for (const h of Object.values(KIT_HEADINGS).flatMap((t) => Object.values(t))) assert.match(h.tag, /^h[12]$/);
-});
 
-test("what the kit's own source says each excluded component does", () => {
-  const why = (file, component) => {
-    const found = examine(fs.readFileSync(path.join(UI_DIR, file), "utf8"), file).filter((r) => r.component === component);
-    assert.ok(found.length, component + " shows a prop as a heading — the reason below is about it");
-    return found.flatMap((r) => r.why).join("; ");
-  };
-  assert.match(why("dish-card.tsx", "DishCard"), /an h3 heads a card/);
-  assert.match(why("story-lead.tsx", "StoryLead"), /reached through a VariableDeclaration/);
-  assert.match(why("counter-services.tsx", "CounterServices"), /can return without it \(2 returns\)/);
-  assert.match(why("welcome-card.tsx", "WelcomeCard"), /inside <CardContent>/);
-  assert.match(why("house-rules.tsx", "HouseRules"), /shown only when rules\.length > 0/);
-  // A `title` shown in no heading at all is not even a candidate.
-  assert.deepEqual(examine(fs.readFileSync(path.join(UI_DIR, "callout.tsx"), "utf8")), []);
-});
 
 test("the rule, clause by clause, on components written for it", () => {
   const one = (src) => examine("export function X(" + src);

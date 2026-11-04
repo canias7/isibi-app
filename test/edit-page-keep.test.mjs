@@ -1073,65 +1073,6 @@ const VISIT_QUIET = VISIT.replace("<p>Quay Street, by the lifeboat station.</p>"
 const kitSlug = (mode) => "kit-" + mode + "-" + hex(4);
 const OTHERS = OTHER_PAGES.map((o) => o.source);
 
-test("KIT: which headings name a section, read off the page's own imports", async () => {
-  const parse = await tweakParser();
-  assert.equal(typeof parse, "function", "the parser is here — this case would be vacuous without it");
-  const sectionNamed = (src, cls = "bake") => {
-    const inv = proseInventory(src, parse);
-    const b = inv.blocks.find((x) => x.section && x.anchor === "className:" + cls);
-    assert.ok(b, "the section is in the inventory: " + cls);
-    return { names: b.names, kit: b.kit };
-  };
-  const one = (imports, heading, body = BAKE_BODY) => sectionNamed(withImports(imports, bakeWith(heading, body)));
-  const named = { names: ["todays bake"], kit: ["todays bake"] };
-  const unnamed = { names: [], kit: [] };
-  // THE OBSERVER IS ALIVE: the literal <h2> names the section, as it always did.
-  assert.deepEqual(sectionNamed(bare(BAKE_H2)), { names: ["todays bake"], kit: [] });
-  // THE KIT'S OWN HEADING, BY THE PAGE'S OWN IMPORT — under any alias.
-  assert.deepEqual(one(KIT_SH, SH_BAKE), named);
-  assert.deepEqual(one('import { SectionHeader as Heading } from "@/components/ui/section-header"\n', '<Heading title="Today\'s bake" />'), named);
-  assert.deepEqual(one('import * as UI from "@/components/ui/section-header"\n', '<UI.SectionHeader title="Today\'s bake" />'), named);
-  assert.deepEqual(one('import * as ui from "@/components/ui/section-header"\n', '<ui.SectionHeader title="Today\'s bake" />'), named);
-  assert.deepEqual(one('import { SectionHeader } from "@/components/ui/section-header.tsx"\n', SH_BAKE), named);
-  assert.deepEqual(one(KIT_SH, '<SectionHeader title={"Today\'s bake"} />'), named, "a braced literal is a literal");
-  assert.deepEqual(one('import { PageHeader } from "@/components/ui/page-header"\n', '<PageHeader title="Today\'s bake" />'), named, "an h1 heading");
-  assert.deepEqual(one('import { CtaBand } from "@/components/ui/cta-band"\n', '<CtaBand title="Today\'s bake" />'), named, "a band with its own heading");
-  // A WRAPPER AROUND IT ENDS AFTER IT, so it never counts against it.
-  assert.deepEqual(one(KIT_SH, "<div className=\"reveal\">" + SH_BAKE + "</div>"), named);
-  // WHAT IS NOT ESTABLISHED NAMES NOTHING.
-  for (const [label, imports, heading] of [
-    ["no import at all: a page's own SectionHeader", "", SH_BAKE],
-    ["a default import (the kit exports it by name)", 'import SectionHeader from "@/components/ui/section-header"\n', SH_BAKE],
-    ["a type-only import renders nothing", 'import type { SectionHeader } from "@/components/ui/section-header"\n', SH_BAKE],
-    ["a component the site wrote itself, whatever it is called", 'import { SectionHeader } from "./-parts/section-header"\n', SH_BAKE],
-    ["a relative path this check does not resolve", 'import { SectionHeader } from "../components/ui/section-header"\n', SH_BAKE],
-    ["a title on a component that shows it in no heading", 'import { Callout } from "@/components/ui/callout"\n', '<Callout title="Today\'s bake">Fresh.</Callout>'],
-    ["a card's title is an h3, not the section's heading", 'import { FormSection } from "@/components/ui/form-section"\n', '<FormSection title="Today\'s bake" />'],
-    ["a computed title", KIT_SH, "<SectionHeader title={bakeTitle} />"],
-    ["a template literal is not read as prose", KIT_SH, "<SectionHeader title={`Today's bake`} />"],
-    ["a spread may carry the title", KIT_SH, "<SectionHeader {...header} title=\"Today's bake\" />"],
-    ["the title given twice", KIT_SH, "<SectionHeader title=\"Today's bake\" title=\"Bread\" />"],
-    ["a hidden heading", KIT_SH, "<SectionHeader title=\"Today's bake\" className=\"sr-only\" />"],
-    ["a heading marked aria-hidden", KIT_SH, "<SectionHeader title=\"Today's bake\" aria-hidden />"],
-    ["another component opens the section first", KIT_SH + KIT_IMG, "<SafeImage src=\"\" alt=\"bread\" />" + SH_BAKE],
-    ["a namespaced component opens it first", KIT_SH + 'import * as media from "@/components/ui/safe-image"\n', "<media.SafeImage src=\"\" alt=\"bread\" />" + SH_BAKE],
-    ["a name two imports bind", KIT_SH + 'import { SectionHeader } from "./-parts/other"\n', SH_BAKE],
-  ]) assert.deepEqual(one(imports, heading), unnamed, label);
-  // A NAME THE PAGE DECLARES AGAIN may be something else where it is drawn.
-  const shadowed = IMPORTS + KIT_SH + ROUTE + "function Home(){const SectionHeader = (p) => <p>{p.title}</p>;return <main>" + BAKE + "</main>}\n";
-  assert.deepEqual(sectionNamed(shadowed), unnamed);
-  // ONLY THE HEADING THAT OPENS A SECTION NAMES IT: a literal heading or a kit
-  // heading before it, and the second kit heading names nothing.
-  assert.deepEqual(one(KIT_SH, "<h2>Bread</h2>" + SH_BAKE), { names: ["bread"], kit: [] });
-  assert.deepEqual(one(KIT_SH, '<SectionHeader title="Bread" />' + SH_BAKE), { names: ["bread"], kit: ["bread"] });
-  // AN IMPORT READER THAT IS MISSING OR THROWS leaves the kit's headings
-  // uncertain: nothing is named by them, the literal headings still are.
-  const blind = (fn) => (text) => ({ ...parse(text), importsOf: fn });
-  for (const reader of [undefined, () => { throw new Error("nope"); }]) {
-    const inv = proseInventory(withImports(KIT_SH, BAKE, BAKE_H2.replace('"bake"', '"bake2"')), blind(reader));
-    assert.deepEqual(inv.blocks.filter((b) => b.section).map((b) => b.names), [[], ["todays bake"]]);
-  }
-});
 
 // ── A KIT HEADING THAT DOES NOT RENDER NAMES NOTHING (2026-09-26, owner) ────
 //

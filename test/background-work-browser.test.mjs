@@ -146,7 +146,9 @@ test("BACKGROUND WORK — Send while parts run; the pill, the panel, a part's ow
     assert.equal((await page.textContent(".st-bg-pill")).trim(), "2 tasks in progress ▾");
     // SEND, NEVER STOP, while they run.
     assert.ok(await page.$("#stSend"), "the box has no Send while parts run");
-    assert.equal(await page.$("#stStop"), null, "the box shows Stop while parts run");
+    // STOP BESIDE SEND (owner, 2026-11-04: Stop was nowhere for one message's
+    // work): the box has Stop while parts run, and Send stays to queue a message.
+    assert.ok(await page.$("#stStop"), "the box has no Stop while parts run");
     // NO DUPLICATE: the thread keeps the model's opening line, never the card the panel lists.
     assert.match(await page.textContent("#stThread"), /I'll work on these three side by side\./);
     assert.equal(await page.$$eval("#stThread .st-par, #stThread .st-req, #stThread .st-par-row", (els) => els.filter((e) => e.getClientRects().length > 0).length), 0, "the request card is drawn on the thread beside the panel");

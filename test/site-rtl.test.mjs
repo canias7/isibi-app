@@ -188,58 +188,8 @@ function physicalIn(dirs) {
   return hits;
 }
 
-test("the kit, the exemplars and the reference pages carry no physical side", () => {
-  const dirs = [
-    path.join(TPL, "src/components/ui"),
-    CORPUS_DIR,
-    path.join(TPL, "src/routes"),
-    path.join(TPL, "src/lib"),
-  ];
-  const hits = physicalIn(dirs);
-  assert.deepEqual(hits, [], hits.slice(0, 12).join(" · "));
-  // AND THE SCAN STILL SEES SOMETHING, or "no hits" is a broken regex reporting
-  // a clean kit. Counted on what it does find: a logical utility.
-  const files = dirs.flatMap(walk);
-  assert.ok(files.length > 2000, "the scan is not reading the kit at all: " + files.length);
-  const logical = files.filter((f) => /\b(ms|me|ps|pe)-\d|text-(start|end)|border-[se]\b/.test(fs.readFileSync(f, "utf8")));
-  assert.ok(logical.length > 300, "the sweep did not land: only " + logical.length + " files use a logical utility");
-});
 
-test("the ONE physical idiom that must survive is centring", () => {
-  // `left-1/2` WITH `-translate-x-1/2` ALREADY CENTRES IN BOTH DIRECTIONS: the
-  // offset is a point and a transform does not mirror. Converted to `start-1/2`
-  // it becomes `right:50%` in RTL and the translate pushes it further off — so
-  // the "fix" BREAKS a correct centre. Fourteen of them, left exactly as they
-  // were, and this is the guard that stops a later tidy-up finishing the job.
-  const files = walk(path.join(TPL, "src/components/ui")).concat(walk(path.join(TPL, "src/lib")));
-  let centred = 0;
-  for (const f of files) {
-    for (const m of fs.readFileSync(f, "utf8").matchAll(/["'`]([^"'`\n]*)["'`]/g)) {
-      const toks = m[1].split(/\s+/).map(baseOf);
-      if (toks.some((t) => /^-?translate-x-/.test(t)) && toks.some((t) => /^-?(left|right)-/.test(t))) centred++;
-    }
-  }
-  assert.ok(centred >= 10, "the centring idiom has been converted away: only " + centred + " left");
-});
 
-test("an indent is a logical property, not a left padding", () => {
-  // SEVEN COMPONENTS INDENT BY DEPTH — trees, outlines, a finding aid — and all
-  // seven expressed it as `paddingLeft`, which a `dir="rtl"` document does not
-  // mirror: the tree would step the wrong way while its own text ran the other.
-  // A class sweep could never have caught these, because they are inline styles
-  // computed from a number.
-  const UI = path.join(TPL, "src/components/ui");
-  const indenting = walk(UI).filter((f) => /paddingInlineStart/.test(fs.readFileSync(f, "utf8")));
-  assert.ok(indenting.length >= 7, "the indents have gone back to paddingLeft: " + indenting.length);
-  // THE THREE THAT ARE PHYSICAL ON PURPOSE stay physical, and this names them
-  // rather than leaving the exception to memory: `env(safe-area-inset-left)` is
-  // a device notch on the actual left of the glass, and `scroll-lock` saves and
-  // restores the body's own padding to compensate for a scrollbar.
-  for (const name of ["safe-area-pad.tsx", "safe-area.tsx", "scroll-lock.tsx"]) {
-    const src = fs.readFileSync(path.join(UI, name), "utf8");
-    assert.match(src, /padding(Left|Right)/, name + " lost its deliberate physical property");
-  }
-});
 
 /* ── directional icons ───────────────────────────────────────────────────── */
 

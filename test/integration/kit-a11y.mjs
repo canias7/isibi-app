@@ -102,7 +102,9 @@ try {
   browser = null;
 
   // A FLOOR, or a harness that stopped rendering anything reports a clean kit.
-  if (controls > 1000) ok(`${controls} named controls across ${rendered.length} components`);
+  // RESIZED 2026-11-04: the kit's 3,353 stock components were deleted (owner:
+  // "just delete the kit"); the floor is set to the 43 files new sites still use.
+  if (controls > 20) ok(`${controls} named controls across ${rendered.length} components`);
   else bad(`only ${controls} controls found — the render or the AX tree is broken, not the kit`);
 
   const uniq = [...new Set(missing)];

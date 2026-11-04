@@ -45,7 +45,7 @@ function cutConst(head) {
   return CHAT.slice(open, CHAT.indexOf("\n};\n", open) + 4);
 }
 const FNS = ["esc", "progressListHTML", "siteSaidFor", "siteMsgText", "siteParState", "siteParTitle", "siteRowTitle", "siteBoxItems", "siteParTag", "siteParSnap",
-  "siteRequestWorking", "siteRunningWork", "siteBusyHere", "siteComposerStops",
+  "siteRequestWorking", "siteRunningWork", "siteBusyHere", "siteComposerStops", "siteComposerSends",
   "siteBgState", "siteBgKeep", "siteBgHolds", "siteReqCardHTML", "siteReqCardShows", "siteReqQueued", "siteReqWorkingLine", "siteParView", "siteReqKeys", "siteBgItems", "siteBgWhen", "siteBgLine", "siteBgEnding", "siteBgEndings", "siteBgHTML", "siteBgJobHTML", "siteBgPaint", "siteBgScrolled", "siteBgClick", "siteBgStopAll", "siteBgStopPart", "siteBgRetry", "siteBgShowMe"];
 const CONSTS = ["const SITE_BG_ENDING =", "const SITE_PAR_STATE =", "const SITE_PAR_LABEL =", "const SITE_REQ_PREP =", "const SITE_SAID_FOR =", "const SITE_BG_KEEP_MS =", "const siteBgUi =", "const SITE_BG_KEEP_KEY =", "const siteParOpen ="];
 const SRC = [...FNS.map((n) => cut("function " + n + "(")), ...CONSTS.map(cutConst)].join("\n");
@@ -114,6 +114,12 @@ test("C — the box always has Stop while work runs (owner, 2026-11-04): a runni
   const job = { id: "s1", msgs: [], requests: {}, jobCards: { x: { view: { job: "j1" } } } };
   const pj = load(job); pj.ctx.siteJobOutcome = () => "running";
   assert.equal(vm.runInContext("siteComposerStops", pj.ctx)(job), true, "a standalone job lost its Stop");
+  // SEND STAYS BESIDE STOP where a message can be queued (a running request), and
+  // only a standalone job or this project's own send in flight has Stop alone.
+  assert.equal(load(site).ctx.siteComposerSends(site), true, "a running request lost Send: nothing can be queued");
+  assert.equal(vm.runInContext("siteComposerSends", pj.ctx)(job), false, "a standalone job drew Send beside Stop");
+  assert.equal(load(idle, { busy: true }).ctx.siteComposerSends(idle), false, "a build in flight drew Send");
+  assert.equal(load(idle).ctx.siteComposerSends(idle), true, "Send went with nothing running");
   // THE RAIL ASKS THE PREDICATE, and the Enter key sends through Send.
   const row = CHAT.slice(CHAT.indexOf("buildPickerHTML() + buildEffortHTML() +"), CHAT.indexOf("'<div class=\"st-stage\" id=\"stStage\""));
   assert.match(row, /\(siteComposerStops\(site\)\n/);

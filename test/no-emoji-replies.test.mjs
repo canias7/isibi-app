@@ -41,7 +41,6 @@ const ALLOWED = [
   "(o.body ? '▶' : '')",            // a build step's expand chevron
   ".replace(/^✅",                   // reading a reply stored before this rule
   "⚠ THE LINE IS ENFORCEMENT",      // the router's own instructions, never shown
-  "Pictogram",                      // a kit component's name in a usage example
   // FOUND ONLY ONCE THE SET WAS PINNED (2026-10-14): ✓ U+2713 and ✕ U+2715 are
   // not \p{Extended_Pictographic} on any Unicode, so the scanner never saw them.
   // Interface controls and form notes, not a reply or a progress line:

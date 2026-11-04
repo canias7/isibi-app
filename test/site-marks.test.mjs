@@ -486,32 +486,6 @@ test("the component the QR directive names really accepts children", async () =>
     "this is run 84's TS2322 exactly");
 });
 
-test("…and it is a WALL rather than a rule — the named component cannot be got wrong", () => {
-  // WHAT CHANGED AND WHY, because this test asserted the OPPOSITE this morning.
-  //
-  // The first fix for runs 84/85 was to name the right component in the prompt
-  // and warn off `Figure`, which draws its own picture from `src`. That is a
-  // rule in prose, and run 85 read past it exactly as this repo says a model
-  // eventually will: same TS2322, same component, a different line.
-  //
-  // So `Figure` takes children now. The capability was never missing —
-  // `MediaCaption` had it — what was missing was any way for a model to know
-  // which of two captioned figures holds children, because their names do not
-  // say. Making the obvious name work removes the choice instead of governing
-  // it, and that is the difference between a wall and a rule.
-  //
-  // ASSERTED ON THE COMPONENT, NOT ON THE PROMPT. A directive naming a component
-  // that cannot hold what it is handed is the defect; a component that can hold
-  // it makes every phrasing of the directive correct.
-  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url).pathname;
-  for (const [file, comp] of [["figure", "Figure"], ["media-caption", "MediaCaption"]]) {
-    const src = readFileSync(dir + file + ".tsx", "utf8");
-    const sig = src.slice(src.indexOf("export function " + comp), src.indexOf("return (", src.indexOf("export function " + comp)));
-    assert.match(sig, /\bchildren\b/,
-      "`" + comp + "` no longer takes children — a page told to render its own <img> and caption it " +
-      "cannot use it, which is runs 84 and 85 exactly (TS2322, 22 credits)");
-  }
-});
 
 // ── THE QR FIELD MUST NOT OUT-PROHIBIT THE ONE THAT WORKS ───────────────────
 //

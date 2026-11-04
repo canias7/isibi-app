@@ -110,46 +110,7 @@ test("the parallax timeline is behind @supports", () => {
     "the parallax animation is not guarded by @supports");
 });
 
-test("parallax no longer reads layout on scroll", () => {
-  // The whole point of the migration. getBoundingClientRect in a scroll path is
-  // a forced synchronous layout, and it was running per frame per element.
-  // Comments stripped first. The header describes exactly what this component no
-  // longer does, so a raw substring search finds every banned name in the prose
-  // explaining their absence — a test failing on its own documentation.
-  const src = read("parallax.tsx").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
-  for (const banned of ["getBoundingClientRect", "requestAnimationFrame", "addEventListener", "IntersectionObserver"]) {
-    assert.ok(!src.includes(banned), `parallax still uses ${banned}`);
-  }
-});
 
-test("an entrance is on a root that actually appears, not on a sub-element", () => {
-  // THE MISTAKE A SCRIPT MADE AND A PERSON WOULD NOT. Looking for "the first
-  // element rendered behind a condition" is syntactic; "the thing that appears"
-  // is semantic. That heuristic put the class on a banner's optional TITLE, a
-  // toast's optional DETAIL LINE, and a dozen hints and badges — sub-elements of
-  // components that were already on screen, where the effect is a flicker
-  // inside something static. 32 files, essentially all wrong.
-  //
-  // So each one is checked to sit on a root guarded by an early `return null`,
-  // which is what makes it a component that genuinely arrives and departs.
-  // TWO SHAPES COUNT AS ARRIVING, and the first version of this test only knew
-  // one. An early `return null` is the obvious case. The other is an element
-  // rendered from a `.map()` over state — a toast in a stack mounts when it is
-  // pushed and unmounts when it is dismissed, which is the most canonical
-  // arrival in the kit, and the test flagged it as a mistake. Asserting a proxy
-  // for the property you care about is fine right up until the proxy is wrong.
-  const wearing = files.filter((f) => /motion-(enter|fade)/.test(read(f)));
-  assert.ok(wearing.length > 0, "nothing has an entrance");
-  for (const f of wearing) {
-    const src = read(f);
-    const at = src.search(/motion-(enter|fade)/);
-    const guard = src.search(/if \([^)]*\)\s*return null;/);
-    const mapped = /\.map\(\([^)]*\)\s*=>\s*</.test(src);
-    assert.ok((guard >= 0 && guard < at) || mapped,
-      `${f}: the entrance is on an element that never mounts or unmounts — ` +
-      `no early return null before it, and nothing rendered from a list`);
-  }
-});
 
 test("every effect is reachable, and every named effect exists", () => {
   // BOTH DIRECTIONS, because each failure is silent in its own way and this

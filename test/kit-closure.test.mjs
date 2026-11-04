@@ -139,52 +139,7 @@ test("DRIVEN: a kit file's relative imports are followed, fenced to src/", () =>
   assert.deepEqual(kitClosure(['import P from "./-parts/hero";'], mapReader(files)).files, []);
 });
 
-test("REAL: a chart domain the page writer is told to import brings its `_ink.ts`", () => {
-  const readKit = (rel) => { try { return fs.readFileSync(path.join(TEMPLATE, rel), "utf8"); } catch { return null; } };
-  const r = kitClosure(['import { MortalityTable } from "@/components/charts/lib/actuarial";'], readKit);
-  const paths = r.files.map((f) => f.path);
-  assert.ok(paths.includes("src/components/charts/lib/actuarial.tsx"), "the observer is dead: the domain module itself is missing");
-  assert.ok(paths.includes("src/components/charts/lib/_ink.ts"), "actuarial.tsx imports ./_ink and the closure left it out: " + paths.join(", "));
-});
 
-test("MEASURED: the closure over 100 real generated sites, and the defect it closes", () => {
-  const corpus = path.join(here, "fixtures/corpus");
-  const readKit = (rel) => {
-    const full = path.resolve(TEMPLATE, rel);
-    if (full !== TEMPLATE && !full.startsWith(TEMPLATE + path.sep)) return null;
-    try { return fs.statSync(full).isFile() ? fs.readFileSync(full, "utf8") : null; } catch { return null; }
-  };
-  const have = shared.map((f) => f.path);
-  const dirs = fs.readdirSync(corpus).filter((d) => fs.statSync(path.join(corpus, d)).isDirectory());
-  // THE OBSERVER IS ALIVE before anything is concluded from what it did not find.
-  assert.ok(dirs.length >= 50, "the corpus is not there — everything below would be vacuous (" + dirs.length + " sites)");
-  assert.ok(shared.length >= 20, "the shared set is not loaded");
-
-  let worst = 0, worstBytes = 0, sitesScanned = 0;
-  const everMissing = new Set();
-  for (const d of dirs) {
-    const dir = path.join(corpus, d);
-    const pages = fs.readdirSync(dir).filter((f) => f.endsWith(".tsx")).map((f) => fs.readFileSync(path.join(dir, f), "utf8"));
-    if (!pages.length) continue;
-    sitesScanned += 1;
-    const r = kitClosure([...pages, ...shared.map((f) => f.source)], readKit, have);
-    for (const m of r.missing) everMissing.add(m);
-    assert.equal(r.capped, false, d + " hit the cap — the closure has stopped being a closure");
-    assert.ok(r.files.length > 0, d + " resolved no kit files at all, which no real site does");
-    worst = Math.max(worst, r.files.length);
-    worstBytes = Math.max(worstBytes, r.files.reduce((n, f) => n + f.source.length, 0));
-  }
-  assert.ok(sitesScanned >= 50, "only " + sitesScanned + " sites had pages");
-  // ZERO UNRESOLVED, ACROSS EVERY SITE. This is the number that says the
-  // resolver understands the import shapes real generated pages use — if it
-  // starts missing some, the Download stops building again and quietly.
-  assert.deepEqual([...everMissing], [], "imports resolved to nothing: " + [...everMissing].join(", "));
-  // AND THE SIZE IS WHY THIS IS SENT WITH THE SOURCE RATHER THAN LAZY-LOADED.
-  // The kit is 3,394 files and 17 MB; a SITE needs this. If that stops being
-  // true the design has to change, so the bound is asserted rather than trusted.
-  assert.ok(worst <= 120, "the worst closure is " + worst + " files — it was 53 when this shipped; past ~120 it stops being something to send eagerly");
-  assert.ok(worstBytes <= 600000, "the worst closure is " + worstBytes + " bytes — it was 126,082 when this shipped");
-});
 
 test("MEASURED: the shared set's own first import is what the Download was missing", () => {
   const root = shared.find((f) => f.path === "src/routes/__root.tsx");

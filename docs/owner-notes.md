@@ -10,6 +10,21 @@
 
 
 
+## 2026-11-04 — Stop sits beside Send (branch `claude/cool-fermat-a06gie`; not deployed)
+
+Correction to today's Stop fix: it swapped Send for Stop while work ran, which took away sending a second message to wait in line. Now the box shows ■ Stop and ↑ Send side by side while a message's work runs; a first build in flight or a standalone job still shows Stop alone, as before. Caught by the browser tests (`background-work-browser`, `stop-queue-browser`), which also had to be updated: one asserted the old rule "no Stop in the box while parts run".
+
+## 2026-11-04 — The component kit is deleted (branch `claude/cool-fermat-a06gie`; not deployed)
+
+You: "just delete the kit … if we have the builder writing its own components why the heck do we need the 2112 components." Since 2026-10-23 new sites write their own components and the page writer is not sent the list, so the kit sat there unused.
+
+- **Deleted: 3,353 of the kit's 3,396 files** (17 MB → 392 KB).
+- **Kept: 43 files** that new sites still import, found by following every import from the builder's code and the starter files: the site frame (`site-chrome`, header, footer), the error and not-found pages, the form pieces the starter pages use, `safe-image` (every picture), `lang-switch` (the language switcher), `scene-3d` (the 3D object), and what those import.
+- **Old sites** built before 2026-10-23 that used kit pieces keep working live, but editing them would fail to compile. You said you don't care about past sites.
+- **Rebuilt from what is left**: the component lists the builder reads (`component-api.mjs`, `chart-api.mjs`, `chart-usage.mjs`, `kit-headings.mjs`) and `docs/components.md`.
+- **Tests**: 86 test cases that checked deleted components (their props, charts, video/audio players, date formats, keyboard behaviour) were removed; thresholds sized for thousands of components were resized; three prompt fingerprints re-pinned (the component list in the prompt shrank). `isibi-marquee` left the do-not-rename table (its component is gone). Full suite: `9558 / 9458 / 3 / 97` (the 3 are the `device-scope` browser cases that fail on main here too). The site-build checks run locally: kit-typecheck, kit-render, kit-a11y, kit-effects, kit-paint, theme-seam, theme-render, site-routing, site-runtime and the excluded-import section green; contrast-cases could not start its browser in this container (CI installs its own).
+- **Still to do (audit)**: the old kit-mode code in the builder (rules and lists for sites that use the kit) is now dead and can be removed.
+
 ## 2026-11-04 — Cancel on the key box is kept on the server (branch `claude/cool-fermat-a06gie`; not deployed)
 
 You pressed Cancel on the keys box, refreshed, and it came back: Cancel was remembered only in the open page. A first fix kept it in the browser; you said "it should be server … nothing should be only browser". Now the closed key NAMES (never values) are saved with the project's chat on the server (`keysClosed`, sent by the chat sync, cleaned by the server to name-shaped words like STRIPE_SECRET_KEY), so a refresh or another device keeps the box closed; a key not asked for before still opens it. Test: `test/key-card-cancel-reload.test.mjs` (Cancel on one device, the server's own check, a second device stays closed).
@@ -32485,6 +32500,8 @@ the free `rum report` check.
 
 ## Names that must not be renamed
 
+_2026-11-04: `isibi-marquee` left this table with the kit's marquee component, deleted on the owner's word ("just delete the kit")._
+
 The brand became **Go Farther** on 2026-08-30 and everything a person reads was
 renamed with it. The strings below were NOT, and must not be: they are not
 branding, they are identifiers something outside this repo already wrote down.
@@ -32503,7 +32520,6 @@ so adding a name here is what puts it under guard.
 | `site-secrets-v1` | the v1 key-derivation suffix, and the `"isibi"` fallback beside it in `site-secrets.mjs`; change either and every secret already encrypted under v1 stops decrypting |
 | `isibi-ambient` | a CSS animation name baked into published sites, matched against its own @keyframes |
 | `isibi-reveal` | the same, for the reveal keyframe |
-| `isibi-marquee` | the same again, for the marquee — found 2026-09-12 sitting beside the two above and NOT on this list, which is the hole this table exists to close |
 | `isibi:runtime-error` | the postMessage type every published site's frozen bundle sends to the workspace preview; rename the reader and a live site's runtime errors stop reaching the Fix-with-AI badge until that site republishes |
 | `zephyr_session_v1` | a live user's session, in their browser; renaming signs everyone out |
 | `zephyr_chats_v1` | their chat history — renaming does not migrate it, it orphans it |

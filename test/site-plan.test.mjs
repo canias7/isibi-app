@@ -917,16 +917,6 @@ test("A NAME LISTED TWICE IS SENT ONCE, and does not spend two slots", () => {
   assert.deepEqual(out.components, ["faq", "week-strip"], "a duplicate spent a slot in the manifest");
 });
 
-test("A MANIFEST NAMING SOMETHING THAT DOES NOT EXIST COSTS NOTHING", () => {
-  // The designer writes this list and a model can name a component the kit does
-  // not have. There is nothing to validate separately — a name with no signature
-  // has no line to print — and the lint refuses an import of it anyway. What
-  // must not happen is the junk name reaching the prompt as an empty entry,
-  // which reads to the model as a component with no props.
-  const block = siteComponentApi(["totally-invented-thing", "week-strip", 7, null, ["a"]]);
-  assert.ok(!block.includes("totally-invented-thing"), "an invented component name reached the prompt");
-  assert.ok(block.includes("week-strip"), "the real one was lost with the junk");
-});
 
 /* ── the image budget follows the plan ──────────────────────────────────── */
 
@@ -1014,31 +1004,6 @@ test("THE BUILD CALL IS HANDED A REAL PLAN, not a null the fallback swallows", (
   assert.doesNotMatch(args, /plan: null,/, "the plan is hardcoded null and the family fallback hides it");
 });
 
-test("THE MANIFEST'S SIGNATURES REACH THE USER TURN, and only there", () => {
-  // FOUND BY THE SAME CLASS OF MUTATION AS THE PLAN ITSELF: `siteComponentApi`
-  // can be perfectly correct and called by nobody, and every module test still
-  // passes while the page writer sees no site-specific props at all.
-  const plan = {
-    ...GOOD,
-    components: ["week-strip", "menu-section", "countdown", "live-badge"],
-  };
-  const turn = briefWithLayout({ brief: "A barber shop in Leeds", plan });
-  assert.match(turn, /THE COMPONENTS THIS SITE NEEDS/, "the manifest's signatures never reach the model");
-  assert.match(turn, /week-strip — WeekStrip\(/, "a named component's props are not stated");
-
-  // IN THE USER TURN, NEVER THE CACHED BLOCK. A block that varies per site would
-  // miss the ~45,000-token prefix on every single build — measured at thirteen
-  // times the input cost on the family exemplar. Asserted as the ABSENCE of the
-  // per-site block's own heading from the cached rules, which is the one place
-  // this could go wrong and is invisible from either side alone.
-  assert.ok(!PAGE_RULES.includes("THE COMPONENTS THIS SITE NEEDS"),
-    "the per-site component block was folded into the CACHED rules — every build now misses the prefix");
-
-  // …and a caller with no plan sends what it always sent.
-  const bare = briefWithLayout({ brief: "A barber shop in Leeds" });
-  assert.ok(!bare.includes("THE COMPONENTS THIS SITE NEEDS"),
-    "a build with no manifest now carries an empty component block");
-});
 
 test("A SITE BUILT BEFORE THE PLAN EXISTED KEEPS ITS LAYOUT", () => {
   // WHAT MAKES THIS SAFE TO DEPLOY. Nothing sets a `family` any more, but every

@@ -416,33 +416,6 @@ test("the upload route passes the filename and bounds on the LARGER cap", () => 
 
 // ─────────────────────────────────── the kit and the prompt have to agree
 
-test("DownloadCard's href is optional AND the rules say to leave it off", () => {
-  // BOTH ENDS, because a kit that accepts the shape while the prompt still shows
-  // the old one is a fix nothing can use — the `fallbackSeed` lesson, where the
-  // type was corrected and the resolved shape in PAGE_RULES was not.
-  const card = read("builder/lovable/template/src/components/ui/download-card.tsx");
-  assert.match(card, /href\?: string/, "href is still required, so an honest page cannot compile");
-  // `<a href="" download>` RELOADS THE CURRENT PAGE — a Download button that
-  // appears to work and does nothing, invisible to tsc, to the lint and to every
-  // test here. The card must not render an anchor with nothing behind it.
-  // ANCHORED ON `{href`, not on `href` — the first draft matched `href?: string`
-  // in the type two lines above, so a mutation replacing the whole condition
-  // with `{true` SURVIVED the sweep. A vacuous match reads exactly like
-  // coverage.
-  assert.match(card, /\{href\s*\n?\s*\?/, "the anchor is not gated on there being an href");
-  assert.match(card, /:\s*<span[^>]*>Not available yet/, "there is no else branch — the anchor is unconditional");
-
-  const api = read("builder/component-api.mjs");
-  assert.match(api, /DownloadCard\(name: string, description\?: string, size\?: number, href\?: string\)/,
-    "the derived API still describes the old signature to the model");
-
-  const rules = read("builder/page-gen.mjs");
-  const i = rules.indexOf("A DOCUMENT TO DOWNLOAD");
-  assert.ok(i > 0, "the rules never mention a document");
-  const win = rules.slice(i, i + 900);
-  assert.match(win, /leave \\?`href\\?` OFF/i, "the rule does not say to leave the address off");
-  assert.match(win, /NEVER point it at a route/i, "the rule does not forbid the thing every exemplar used to do");
-});
 
 test("no corpus page writes a DownloadCard href", () => {
   // All 34 of them pointed at a ROUTE or at `#dl`, so every one downloaded a

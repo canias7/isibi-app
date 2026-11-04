@@ -180,7 +180,8 @@ try {
     // below are a statement about an empty set.
     // The exempt count is PRINTED rather than swallowed: an exemption nobody can
     // see is how a check quietly stops covering the thing it was written for.
-    if (checked > 3000) ok(`${mode}: read the contrast of ${checked} pieces of text (${exempt} exempt: decoration or an inactive control)`);
+    // RESIZED 2026-11-04 with the kit (43 files left).
+    if (checked > 80) ok(`${mode}: read the contrast of ${checked} pieces of text (${exempt} exempt: decoration or an inactive control)`);
     else bad(`${mode}: only ${checked} pieces of text were measured — the render or the CSS is broken, not the kit`);
 
     // CHART TEXT IS REPORTED, NOT ASSERTED — and the triage below is MEASURED,

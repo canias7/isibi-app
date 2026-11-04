@@ -133,7 +133,8 @@ test("no checked-in template file names a route with a literal `<Link to=\"…\"
   // reading nothing — this repo's vacuous-assertion trap. The kit alone is over
   // two thousand components, so the floor sits well below the real number and
   // far above anything a broken walk could produce.
-  assert.ok(files.length > 500,
+  assert.ok(files.length > 40, // the kit's stock components were deleted (owner, 2026-11-04)
+   
     "only " + files.length + " template sources found — this walk has drifted and proves nothing");
 
   const offenders = [];

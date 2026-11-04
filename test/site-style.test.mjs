@@ -483,60 +483,6 @@ test("THE ROUTER FLAG AND THE ANIMATION ASK ONE QUESTION", () => {
   assert.equal(optionsFor("transition")[0], "cut", "the default option is not the one that changes nothing");
 });
 
-test("EVERY STYLE TARGET SELECTS SOMETHING THE KIT REALLY RENDERS", () => {
-  // THE DEAD-AXIS FAILURE, ONE LAYER UP. `displayCss` named `.font-heading`, a
-  // class in 0 of the 2,112 kit files, and was inert for its whole life while
-  // every unit test passed. A target list is the same trap multiplied: one entry
-  // pointing at a hook nothing carries is a whole vocabulary the customer can
-  // name and nothing can act on.
-  //
-  // DERIVED FROM THE KIT ON DISK, so a primitive that stops stamping its hook
-  // fails here rather than shipping a lane that silently does nothing.
-  const uiDir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
-  const read = (f) => fs.readFileSync(new URL(f, uiDir), "utf8");
-  const kit = fs.readdirSync(uiDir).filter((f) => f.endsWith(".tsx"));
-  assert.ok(kit.length > 1000, "the kit scan found " + kit.length + " files — it is reading the wrong place");
-  const all = kit.map(read).join("\n");
-
-  for (const [name, t] of Object.entries(T.STYLE_TARGETS)) {
-    assert.ok(t && typeof t.sel === "string" && t.sel, name + " has no selector");
-    assert.ok(t && typeof t.said === "string" && t.said.length > 2, name + " has no plain name");
-    const slot = (t.sel.match(/^\[data-slot="([a-z-]+)"\]$/) || [])[1];
-    if (slot) {
-      // A STAMPED HOOK has to be stamped BY something. Counted across the whole
-      // kit, because a component composing another one inherits it.
-      // A WHOLE ATTRIBUTE, NOT A SUBSTRING. `data-slot="input"` is a PREFIX of
-      // `data-slot="input-group-control"`, so a plain `includes` reported the
-      // input hook as stamped by a component that stamps something else — and
-      // the mutation deleting the real one survived. The same class as the RTL
-      // sweep's first grep, where `items-center` contained `ms-`.
-      const stamped = new RegExp('data-slot="' + slot + '"(?![-\\w])');
-      assert.match(all, stamped,
-        name + ' selects [data-slot="' + slot + '"] and no kit component stamps exactly that');
-    } else {
-      // AN ELEMENT SELECTOR has to name real elements, never a class — the
-      // `.font-heading` mistake.
-      for (const part of t.sel.split(",").map((s) => s.trim())) {
-        assert.match(part, /^[a-z][a-z0-9]*$/, name + " selects `" + part + "`, which is not an element");
-      }
-    }
-  }
-  // …and every plain name has to read differently, or one reply says "Updated
-  // the look — buttons, buttons" about two different things.
-  const said = Object.values(T.STYLE_TARGETS).map((t) => t.said);
-  assert.equal(new Set(said).size, said.length, said.join(", "));
-
-  // EACH PRIMITIVE CARRIES ITS OWN, which the kit-wide scan above cannot say.
-  // `input` is stamped by BOTH `input.tsx` and `textarea.tsx` — deliberately,
-  // because "the input boxes" means both — so deleting it from one leaves the
-  // scan perfectly green while every text field on every site silently stops
-  // following the lane. Found by mutation.
-  for (const [file, slot] of [["button", "button"], ["input", "input"], ["textarea", "input"],
-                              ["card", "card"], ["badge", "badge"]]) {
-    assert.match(read(file + ".tsx"), new RegExp('data-slot="' + slot + '"(?![-\\w])'),
-      file + ".tsx no longer stamps its hook");
-  }
-});
 
 test("the button axis selects the PRIMITIVE, not a guess at its utility classes", () => {
   // IT USED TO SELECT `button.justify-center, a.justify-center.whitespace-nowrap`
@@ -1514,28 +1460,6 @@ test("SELECTION USES FITTED TOKEN PAIRS, never a colour picked here", () => {
   }
 });
 
-test("`--scrim` IS READ BY THE KIT — a token nothing references changes nothing", () => {
-  // The state this template was already in, and the reason the `display` axis
-  // was dead for as long as it was: a value can be derived perfectly, emitted
-  // into both blocks and reported as applied while no element on the page ever
-  // reads it. Measured against the kit rather than assumed.
-  const dir = new URL("../builder/lovable/template/src/components/ui/", import.meta.url);
-  const overlays = ["sheet.tsx", "dialog.tsx", "alert-dialog.tsx", "drawer.tsx"];
-  for (const f of overlays) {
-    const src = fs.readFileSync(new URL(f, dir), "utf8");
-    assert.match(src, /bg-\(--scrim\)/, f + " does not read --scrim — its overlay is back on a literal");
-    assert.equal(/bg-black\/\d+/.test(src), false, f + " still carries a flat black overlay");
-    assert.match(src, /data-slot="overlay"/, f + " lost the hook the scrim axis selects");
-  }
-  // …and the token really is emitted, in BOTH blocks, or the class above
-  // resolves to nothing and every overlay renders fully transparent.
-  const theme = normalizeSeeds({ name: "W", paper: "#faf7f2", ink: "#1b1714", accent: "#b44a2e" }).theme;
-  const css = T.themeCss(theme);
-  for (const sel of [":root", ".dark"]) {
-    const block = css.slice(css.indexOf(sel + " {"), css.indexOf("}", css.indexOf(sel + " {")));
-    assert.match(block, /--scrim: oklch\([^)]* \/ [\d.]+\)/, sel + " has no translucent --scrim");
-  }
-});
 
 test("THE SCRIM'S CHROMA CAP BINDS, and it binds on ordinary palettes", () => {
   // A scrim covers the WHOLE viewport, so a saturated brand at full chroma

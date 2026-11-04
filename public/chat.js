@@ -7949,9 +7949,12 @@ function renderSiteWorkspace(view, site) {
                   // in flight with nothing in the panel, and a standalone job.
                   ctxLineHTML(site) +
                   // STOPPING (owner, 2026-11-03): pressed, and the work still winding down — marked until it has stopped.
+                  // STOP BESIDE SEND (2026-11-04): while work runs Stop is always
+                  // there, and Send stays too wherever a message can be queued.
                   (siteComposerStops(site)
                     ? '<button type="button" class="st-sendc st-stopc" id="stStop"' + (siteStopping(site) ? ' data-stopping="1" disabled title="Stopping…"' : ' title="Stop"') + ' aria-label="Stop">■</button>'
-                    : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
+                    : '') +
+                  (siteComposerSends(site) ? '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' : '') +
                 '</div>' +
               '</div>') +
         '</div>' +
@@ -16271,6 +16274,18 @@ function siteComposerStops(site) {
   // Lane). The panel keeps its own Stop per task; the box's stops the request.
   if (siteRunningWork(site)) return true;
   return siteBusyHere(site);
+}
+/**
+ * SEND STAYS BESIDE STOP (2026-11-04): a message sent while a request's parts run
+ * is queued, so Send is kept then. Only a send of this project's own still in
+ * flight with no request, or a standalone job, has Stop alone (the rule before).
+ */
+function siteComposerSends(site) {
+  if (typeof siteStopping === 'function' && siteStopping(site)) return true;
+  const w = siteRunningWork(site);
+  if (w && w.kind === 'request') return true;
+  if (w && w.kind === 'job') return false;
+  return !(siteBusyHere(site) && !siteBgItems(site).some((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask'));
 }
 /** A request this page stopped that has not finished stopping yet (its job still winding down). */
 function siteStopping(site) {

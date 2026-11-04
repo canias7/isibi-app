@@ -264,17 +264,6 @@ test("A PUBLISHED SITE MAY FRAME THE VIDEO HOSTS ITS OWN COMPONENT USES", () => 
   }
 });
 
-test("the video hosts are the PRIVACY-PRESERVING ones the component chose", () => {
-  // youtube-nocookie and Vimeo-with-dnt are what `video-embed.tsx` emits
-  // deliberately, so a small business's site does not drop a tracking cookie on
-  // somebody who never pressed play. Naming plain youtube.com here would widen
-  // the policy past what the component needs AND undo that.
-  const m = /"frame-src ([^"]+)"/.exec(fs.readFileSync(new URL("../site-headers.mjs", import.meta.url), "utf8")) /* 2026-10-28: one shared module */;
-  assert.ok(!/https:\/\/www\.youtube\.com/.test(m[1]), "the cookie-setting YouTube host is on the policy");
-  const embed = fs.readFileSync(new URL("../builder/lovable/template/src/components/ui/video-embed.tsx", import.meta.url), "utf8");
-  assert.match(embed, /youtube-nocookie\.com/, "the component no longer uses the host the policy allows");
-  assert.match(embed, /player\.vimeo\.com/);
-});
 
 test("a delete that answers 'already gone' clears the card instead of asking for a retry", () => {
   // THE SAME FAILURE THIS FILE WAS WRITTEN FOR, one layer along: a button whose

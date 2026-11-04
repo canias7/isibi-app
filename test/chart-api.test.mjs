@@ -28,39 +28,7 @@ test("the committed chart api matches what the modules actually export", () => {
     "builder/chart-api.mjs is stale — run `node builder/gen-chart-api.mjs`");
 });
 
-test("every domain on disk is in the catalogue, and every catalogued one exists", () => {
-  // BOTH directions, because each failure is silent in its own way: a module on
-  // disk the model is never told about is dead weight of the kind deleted twice
-  // already, and a module in the prompt that does not exist is an import the
-  // model is invited to write and tsc then refuses.
-  const onDisk = fs.readdirSync(LIB).filter((f) => f.endsWith(".tsx"))
-    .map((f) => f.replace(/\.tsx$/, "")).sort();
-  assert.deepEqual(Object.keys(CHART_COMPONENTS).sort(), onDisk);
-  assert.ok(onDisk.length > 100, `only ${onDisk.length} chart domains — something has gone missing`);
-});
 
-test("every name in the catalogue is really exported by the module it is listed under", () => {
-  // The listing is what the model picks from; if a name is filed under the wrong
-  // domain the import compiles nowhere and the lint below cannot help, because
-  // the lint reads this same table.
-  //
-  // COMPONENTS ONLY on both sides. The catalogue used to be every export, which
-  // put data FABRICATORS in it — `sampleBoxes`, `rng`, `density`, `seed`. Those
-  // import and compile, and a model reading a list of "chart components" cannot
-  // tell them apart, so it would publish a chart of random numbers to a real
-  // business's visitors. The filter is the PascalCase convention every real
-  // component here follows, derived rather than a deny-list.
-  for (const [domain, names] of Object.entries(CHART_COMPONENTS)) {
-    const real = exportedNames(fs.readFileSync(path.join(LIB, domain + ".tsx"), "utf8"));
-    assert.deepEqual(names, real.filter((n) => /^[A-Z]/.test(n)), `${domain} is listed with names it does not export`);
-    assert.deepEqual(names.filter((n) => !/^[A-Z]/.test(n)), [], `${domain} lists a non-component export`);
-  }
-  // And the filter really removes something, or it is decoration: several modules
-  // ship a fabricator beside the chart.
-  const anyLower = Object.keys(CHART_COMPONENTS).some((d) =>
-    exportedNames(fs.readFileSync(path.join(LIB, d + ".tsx"), "utf8")).some((n) => !/^[A-Z]/.test(n)));
-  assert.ok(anyLower, "no module exports a non-component any more — the filter is now a no-op");
-});
 
 test("the catalogue is in the prompt, or none of this is reachable", () => {
   // The single assertion this whole tier stands on. Everything else here can be
@@ -86,23 +54,6 @@ test("the rules never tell the model the kit stops at @/components/ui", () => {
   assert.match(PAGE_RULES, /part of the\s+same kit/);
 });
 
-test("a demo import is refused by name, not left to tsc", () => {
-  // The examples lint rule was retired when its folder went, on the reasoning
-  // that a missing module is caught by tsc like any other. These 1,140 files are
-  // NOT missing: an import of one compiles, bundles and publishes invented
-  // figures to a real business's visitors, which nothing else in the pipeline
-  // can distinguish from a real chart.
-  const got = lint('import Chart from "@/components/charts/chart-bullet-default";');
-  assert.equal(got.length, 1);
-  assert.match(got[0], /DEMO/);
-  assert.match(got[0], /charts\/lib\//, "the message has to say where the real one is");
-  // The premise, asserted rather than assumed — delete the demos and this rule
-  // should go the way the examples rule did.
-  const demos = fs.readdirSync(path.join(TEMPLATE, "src/components/charts"))
-    .filter((f) => f.endsWith(".tsx"));
-  assert.ok(demos.length > 0,
-    "no demo files left — this lint rule now guards a path that does not resolve, and should be removed");
-});
 
 test("a good chart import passes clean", () => {
   assert.deepEqual(lint('import { Bullet } from "@/components/charts/lib/bullet";'), []);
@@ -124,22 +75,6 @@ test("the demo rule spares lib/ and still reaches a nested path", () => {
   assert.match(nested[0], /DEMO/);
 });
 
-test("a name imported from the wrong domain is pointed at the right one", () => {
-  // Six names live in two modules each, so "does this name exist" is not the
-  // question — "does it exist HERE" is.
-  const dupes = {};
-  for (const [domain, names] of Object.entries(CHART_COMPONENTS)) {
-    for (const n of names) (dupes[n] ??= []).push(domain);
-  }
-  const shared = Object.entries(dupes).filter(([, ds]) => ds.length > 1);
-  assert.ok(shared.length > 0, "no shared names — this rule is guarding nothing");
-
-  const [name, domains] = shared[0];
-  const wrong = Object.keys(CHART_COMPONENTS).find((d) => !domains.includes(d));
-  const got = lint(`import { ${name} } from "@/components/charts/lib/${wrong}";`);
-  assert.equal(got.length, 1);
-  for (const d of domains) assert.match(got[0], new RegExp(d), "the real domains are named");
-});
 
 test("an unknown domain and an unknown name are both caught", () => {
   const badDomain = lint('import { Bullet } from "@/components/charts/lib/nosuchthing";');
@@ -255,22 +190,6 @@ test("a signature names every required prop, not just the first", () => {
   assert.deepEqual(wrong.slice(0, 12), [], `${wrong.length} signatures are missing props`);
 });
 
-test("no signature collapses a row shape to the word object", () => {
-  // The visible symptom of the same bug, asserted separately because it is what
-  // anybody reading the file would notice first. A row's FIELDS are the whole
-  // value of the note — `object` tells the model strictly less than the prop
-  // name already did.
-  const collapsed = [];
-  for (const [domain, sig] of Object.entries(CHART_API)) {
-    for (const one of sig.split(" · ")) {
-      if (/\(\w+\??: object\)$/.test(one)) collapsed.push(domain + "." + one);
-    }
-  }
-  assert.deepEqual(collapsed, []);
-  // And a known row shape survives intact, so this cannot pass by the signatures
-  // being empty.
-  assert.match(CHART_API.salon, /chairs: \{ name: string; bookedHours: number/);
-});
 
 test("every documented signature belongs to a catalogued domain", () => {
   for (const domain of Object.keys(CHART_API)) {
@@ -285,25 +204,6 @@ test("the committed worked examples match what the demos actually do", () => {
     "builder/chart-usage.mjs is stale — run `node builder/gen-chart-usage.mjs`");
 });
 
-test("no worked example teaches the model to fabricate data", () => {
-  // Several lib modules export a generator beside the component — `sampleBoxes`,
-  // `sampleCandles`, `sample`, `rng`. They are real exports, so an example using
-  // one COMPILES, and that is the danger: the model copies
-  // `sampleBoxes(["Mon","Tue"], 9)` into a real page and a business publishes
-  // random numbers. The demo-import lint exists to stop exactly that, and an
-  // example is a second door into it.
-  //
-  // It also shows nothing. The whole value here is the SHAPE of the data, which
-  // a generator call hides behind a function name.
-  const dirty = Object.entries(CHART_USAGE).filter(([, v]) => fabricates(v));
-  assert.deepEqual(dirty.map(([k]) => k), []);
-  // The rule must be doing work: `boxplot.BoxPlot`'s only demo fabricates, so it
-  // has to be absent. Without that this test passes on a build where the filter
-  // was never applied because nothing fabricated in the first place.
-  assert.ok(!CHART_USAGE["boxplot.BoxPlot"],
-    "boxplot.BoxPlot's demo calls sampleBoxes — it must be dropped, not cleaned up");
-  assert.ok(CHART_USAGE["waterfall.Waterfall"], "a clean example must still survive");
-});
 
 test("every worked example names a primitive that exists", () => {
   for (const key of Object.keys(CHART_USAGE)) {
@@ -316,77 +216,8 @@ test("every worked example names a primitive that exists", () => {
   }
 });
 
-test("a repair gets worked calls only for the charts the page imported", () => {
-  const usage = importedChartUsage([{
-    path: "index.tsx",
-    source: 'import { Waterfall } from "@/components/charts/lib/waterfall";\n' +
-            'import { Button } from "@/components/ui/button";',
-  }]);
-  assert.match(usage, /^waterfall\.Waterfall$/m);
-  assert.match(usage, /<Waterfall steps=/);
-  // The shape a bare signature could never give: `Step` is a name the model
-  // cannot resolve, and the example shows its fields AND the optional `total`.
-  assert.match(usage, /label:/);
-  assert.match(usage, /total: true/);
-  assert.ok(!/histogram\./.test(usage), "only what the page imported");
 
-  assert.equal(importedChartUsage([{ path: "index.tsx", source: "const x = 1;" }]), null,
-    "a page with no chart imports adds no section at all");
 
-  // An IMPORTED primitive with no mined example must be omitted, not emitted
-  // empty. `salon` has no demo — like every one of the 96 industry domains — so
-  // this is the common case, not an edge one, and a survivor proved nothing was
-  // checking it: without the guard the prompt gets "salon.StationHours" followed
-  // by the word `undefined`, which reads as a worked call showing no props.
-  const none = importedChartUsage([{
-    path: "index.tsx",
-    source: 'import { StationHours } from "@/components/charts/lib/salon";',
-  }]);
-  assert.equal(none, null, "a primitive with no example must add nothing");
-  const mixed = importedChartUsage([{
-    path: "index.tsx",
-    source: 'import { StationHours } from "@/components/charts/lib/salon";\n' +
-            'import { Waterfall } from "@/components/charts/lib/waterfall";',
-  }]);
-  assert.ok(!/undefined/.test(mixed), "never the string `undefined` in the prompt");
-  assert.ok(!/salon\./.test(mixed), "the unmined one is left out entirely");
-});
-
-test("worked examples ride on the repair only, never the first call", () => {
-  const pages = [{ path: "index.tsx", source: 'import { Waterfall } from "@/components/charts/lib/waterfall";' }];
-  const repair = repairPrompt("a cafe", { tables: [] }, pages, ["boom"], "Cafe");
-  assert.match(repair, /WORKING CALLS FOR THE CHARTS YOU IMPORTED/);
-  // Ordering is deliberate: the signature is the whole surface, the example is
-  // one working point on it. Read the other way round, a call showing four of
-  // nine props reads as the four that exist.
-  //
-  // BOTH markers are asserted present FIRST. Written as a bare `<` comparison
-  // this passed with the signatures gone entirely — `indexOf` answers -1, and
-  // -1 is less than any real index, so a mutant deleting the section survived an
-  // assertion whose whole subject was that section.
-  const props = repair.indexOf("THE EXACT PROPS");
-  const calls = repair.indexOf("WORKING CALLS");
-  assert.ok(props >= 0, "the signatures section is missing");
-  assert.ok(calls >= 0, "the worked-calls section is missing");
-  assert.ok(props < calls, "signatures must come before examples");
-
-  const plain = pagesRequest({ brief: "a cafe", spec: { tables: [] }, brand: "Cafe" });
-  assert.ok(!/WORKING CALLS/.test(plain.system[0].text + plain.messages[0].content),
-    "a build that worked must not pay for these");
-});
-
-test("the examples cover the demoed domains and cannot cover the others", () => {
-  // An honest statement of the ceiling. The 1,140 demos import only 45 of the
-  // 141 lib modules, so 96 domains — every industry one, which is what this
-  // platform actually builds for — can never have a mined example. That is a
-  // property of the demos, not a bug here, and it is the reason the signatures
-  // have to stand on their own.
-  const domains = new Set(Object.keys(CHART_USAGE).map((k) => k.split(".")[0]));
-  assert.ok(domains.size > 20, `only ${domains.size} domains have an example — the miner has regressed`);
-  assert.ok(domains.size < Object.keys(CHART_COMPONENTS).length,
-    "if every domain has an example the demos have grown — re-check this claim");
-  assert.ok(!domains.has("salon"), "salon has no demo, so it cannot have a mined example");
-});
 
 test("nothing in the chart lib carries meaning by colour alone", () => {
   // The prompt tells the model these are monochrome. That sentence was FALSE

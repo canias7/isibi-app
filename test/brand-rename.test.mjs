@@ -177,7 +177,6 @@ test("DRIVEN: the copy filter still refuses the bare word, and exempts only the 
     'type: "isibi:runtime-error"',             // the postMessage wire, on the table
     "startsWith('zephyr_')",                   // a storage prefix
     "[backface-visibility:hidden]",            // v-ISIBI-lity, ~107 times in the tree
-    "className='isibi-marquee'",               // a baked animation name, on the table
   ]) {
     const left = customerCopy(ok);
     assert.ok(!BRAND_WORDS.some((w) => left.includes(w)),

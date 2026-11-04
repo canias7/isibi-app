@@ -299,37 +299,4 @@ test("the structured-data RULE is gone, and so is the constant that carried it",
     "a rule cites a component in prose again — its signature must ride the cached core");
 });
 
-test("the kit still exports both, so restoring the rule is a prompt change and nothing else", () => {
-  // Kept as it was. The component is not deleted — it is in the kit, in the
-  // 2,112 names, and `SeoJsonLd`'s own signature is still resolvable — so the
-  // rule can come back whenever somebody wants to pay for it. What must come
-  // back WITH it is the argument shape, which is what the next assertion pins.
-  const src = fs.readFileSync(new URL("../builder/lovable/template/src/components/ui/seo-jsonld.tsx", import.meta.url), "utf8");
-  assert.match(src, /export function SeoJsonLd\(/);
-  assert.match(src, /export function localBusinessJsonLd\(/);
-});
 
-test("the helper's shape is STILL undiscoverable from the prompt — which is why the rule needed it", () => {
-  // THE MEASUREMENT THAT MAKES THE DELETION SAFE, and the one that would make a
-  // careless restoration unsafe. A first draft of the old rule wrote the call as
-  // ES6 shorthand — `localBusinessJsonLd({ name, telephone, address,
-  // openingHours })` — which reads as four scalars. The real signature nests
-  // `address` and takes `openingHours` as a string ARRAY, so the natural call is
-  // `address: "42 High Street, Leeds"` → TS2322 → and it sits on the HOME page,
-  // which salvage refuses to stub, so the customer loses THE WHOLE SITE.
-  //
-  // Asserted from BOTH ends. The helper really does take those shapes, and the
-  // prompt really does not state them anywhere — so anybody putting the rule
-  // back has to bring the worked call with it, and anybody who does not is
-  // leaving the model unable to write the call at all, which is the safe end.
-  const src = fs.readFileSync(new URL("../builder/lovable/template/src/components/ui/seo-jsonld.tsx", import.meta.url), "utf8");
-  const sig = src.slice(src.indexOf("export function localBusinessJsonLd"), src.indexOf("): Record<string, unknown>"));
-  assert.match(sig, /address\?:\s*\{/, "the helper stopped nesting address");
-  assert.match(sig, /openingHours\?:\s*string\[\]/, "the helper's hours type changed");
-  for (const f of ["street", "city", "postcode", "country"])
-    assert.ok(sig.includes(f + "?:"), "the helper no longer declares address." + f);
-
-  assert.ok(!/localBusinessJsonLd/.test(PAGE_RULES),
-    "the prompt names localBusinessJsonLd again — it MUST show the nested `address` and the "
-    + "`openingHours` array with it, or the natural call is a type error that costs the site");
-});

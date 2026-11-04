@@ -516,11 +516,9 @@ test("THE PAGE PROMPT DOES NOT NAME THE KIT — the designer already picked", ()
   const CHART_PROBES = ["MortalityTable", "PrintTimeStack", "FlightEnvelope"];
   assert.equal(COMPONENT_MENU.filter((n) => CHART_PROBES.includes(n)).length, 0,
     "the designer's menu now covers charts — this guard's premise has changed");
-  for (const n of CHART_PROBES) {
-    assert.ok(CHART_CATALOGUE.includes(n), "`" + n + "` left the chart kit — pick another probe");
-    assert.ok(PAGE_RULES.includes(n),
-      "the chart list left the page prompt and the designer cannot name one either — the tier is unreachable");
-  }
+  // THE CHART KIT WAS DELETED (owner, 2026-11-04: the builder writes its own
+  // components); its 865 charts are gone on purpose, so their reachability is
+  // no longer checked. The menu half above still holds.
 });
 
 /* ------------------------------------------------------------ photographs */
