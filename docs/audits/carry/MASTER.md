@@ -189,3 +189,14 @@ Already decided, so dropped: a balance that cannot be read never stops the work 
 - notes/notes4-findings.md — read
 - notes/prefs-findings.md — read
 - unknowns-traced.md — read (NO: #1, #4, #10, #15; PARTLY: #5, #6, #8, #11, #12, #13, #16, #19 — all merged above)
+
+
+## Re-checked by me against the code (2026-11-04)
+All seven critical gaps confirmed:
+- M-13: `runAgentChange` writes `ag.rows` through `ownerRowConn` → `writeAgentRows` before the save, with no draft hold.
+- M-14: schema ops run during the rounds (`applySchema` → `applyAgentSchema`) and before `save()`; a compile failure replies "the site is untouched".
+- M-15: `change_rows` (site-agent.mjs ~882) checks only that the table and columns exist; no access check.
+- M-16: `read_table` (~908) reads any table name and returns its rows to the model.
+- M-17: `syncFromRun` (~656) never calls `outOfScope`.
+- M-18: `lintPages` runs only in `publishPages` (first builds, publish-pages.mjs:1578); agent edits go through `recompileAndPublish`, which never calls it.
+- M-19: `site.sql` in server code runs on `APP_CONN` (template/src/lib/site-functions.ts:152).
