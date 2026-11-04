@@ -143,7 +143,7 @@ export function deadLinkNote(list, max = 12) {
 
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
-export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [] } = {}) {
+export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [], logoUnshown = false, values = [] } = {}) {
   const own = typeof summary === "string" ? scrubSaid(summary) : "";
   if (!own) return "";
   const add = [];
@@ -161,6 +161,11 @@ export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], d
   if (stale.length) add.push("These links still go to the old details: " + stale.join(", ") + ".");
   // M-48: a new page nothing links to.
   if (unlinked.length) add.push("Nothing links to " + unlinked.join(", ") + " yet; visitors reach it only by its address.");
+  // M-80: the values that changed, when the agent's words do not already give them.
+  const newVals = values.filter((v) => { const m = String(v).match(/\u2192 ([^,.]+)/); return m && !own.includes(m[1].trim()); });
+  if (newVals.length) add.push(newVals.join(" "));
+  // M-53: the logo is stored but the header does not show it.
+  if (logoUnshown) add.push("Your logo is saved, but the site's header doesn't show it yet.");
   // M-70: the change is in the draft until they press Publish (said once, unless the agent said it).
   if (draft && !/\bpublish/i.test(own)) add.push("These changes are in your draft: press Publish to put them on your live site.");
   return (own + (add.length ? "\n\n" + add.join("\n") : "")).slice(0, 4000);

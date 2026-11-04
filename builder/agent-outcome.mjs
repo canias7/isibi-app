@@ -209,3 +209,19 @@ export function pickMedia(files, name) {
     (String(x.name || "").toLowerCase() === n || String(x.url).split("?")[0].split("/").pop().toLowerCase() === n));
   return f ? { ok: true, name: f.download || f.name, url: f.url, kind: f.kind, mime: f.mime || "" } : { ok: false, why: "that is not one of the owner's uploaded videos or recordings" };
 }
+
+/**
+ * BEFORE AND AFTER, NOT ONLY COUNTS (2026-11-04, carry-over M-80): for up to
+ * `max` changed entries, the fields that moved, as the database answered them.
+ */
+export function valueFacts(done, max = 3) {
+  const out = [];
+  for (const d of (Array.isArray(done) ? done : []).filter((x) => x && x.kind === "update" && x.old && x.row).slice(0, max)) {
+    const moved = Object.keys(d.row).filter((k) => k !== (d.pk || "id") && !/^(created_at|updated_at)$/.test(k) && String(d.old[k]) !== String(d.row[k]));
+    if (!moved.length) continue;
+    const name = ["name", "title", "label"].map((k) => d.row[k]).find((v) => typeof v === "string" && v.trim());
+    out.push("In " + d.table + (name ? " (" + String(name).slice(0, 60) + ")" : "") + ": " + moved.slice(0, 4).map((k) => k + " " + short(d.old[k]) + " → " + short(d.row[k])).join(", ") + ".");
+  }
+  return out;
+}
+const short = (v) => (v === null || v === undefined ? "empty" : String(v).length > 40 ? String(v).slice(0, 40) + "…" : String(v));

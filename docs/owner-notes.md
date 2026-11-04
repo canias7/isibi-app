@@ -17,6 +17,29 @@
 
 
 
+
+## 2026-11-04 (overnight) — Carry-over batch 7
+
+1. **Several pictures, one logo (M-51).** When you send two or more pictures and
+   say "my logo", the agent asks which one.
+2. **A logo the header doesn't show (M-53).** If the logo is saved but no header
+   shows it, the agent is sent back once; if still not shown, the reply says so.
+3. **The draft's tables are shown (M-34).** Under draft-first the agent sees the
+   tables your draft will make, not only the live ones; an unreadable draft makes
+   the tables "unknown", never "as live".
+4. **A failed put-back is told (M-37).** If putting your settings or styles back
+   after a failed save fails too, it is logged and the reply tells you to check
+   them before publishing.
+5. **Before and after values (M-80).** A changed entry is told as "In products
+   (Rye): price 40 → 42." when the agent's own words don't say it.
+6. **Instructions only (M-57, M-58, M-59, M-63, M-75, M-77, M-82, M-84):** new things
+   look like the site; ask where something goes instead of the home page; photo
+   "take off" vs "keep the space"; never claims to have watched a video or made
+   a picture; short answers, facts apart from suggestions, numbered options,
+   one next step and never the same one twice. Code can't check these.
+
+Tests: `agent-gates-batch7` (6). Not deployed.
+
 ## 2026-11-04 (overnight) — Carry-over batch 6
 
 1. **Old phone and email links (M-47, M-54).** When a number or email on a page

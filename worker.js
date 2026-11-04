@@ -206,6 +206,7 @@ import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "./bu
 import { fileMap, workspaceDiff, changeReport, reviewNote, unaskedLines, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
 import { agentSaidTruth, sideQuestion as agentSideQuestion, schemaRefusals as agentSchemaRefusals, namedScope as agentNamedScope } from "./builder/agent-gates.mjs";
 import { newImageRefs as agentNewImageRefs, strayImages as agentStrayImages, dropStrayPhotos as agentDropStrays, uploadKeyFor as agentUploadKey } from "./builder/site-images.mjs";
+import { valueFacts as agentValueFacts } from "./builder/agent-outcome.mjs";
 import { writeAgentRows, undoRows, outcomeFacts, keyFacts, pickMedia } from "./builder/agent-outcome.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
@@ -16927,6 +16928,14 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (back && back.state === "unreadable") unreadable = true;
     else if (!conn) noDb = !!(back && back.state === "none");
     if (conn) { const rd = await specForAddon(conn); if (rd.ok) spec = rd.spec; else unreadable = true; }
+    // THE TABLES THE DRAFT WILL MAKE ARE SHOWN TOO (2026-11-04, carry-over
+    // M-34): under draft-first a held change is not in the live database yet,
+    // and pages written without it would be written against another schema.
+    // A draft that cannot be read makes the tables unknown, never "as live".
+    if (spec && draftFirst(env)) {
+      try { const view = await draftView(env, slug); if (view) spec = specOverlay(spec, view.ops); }
+      catch { spec = null; unreadable = true; }
+    }
   } catch { spec = null; unreadable = true; }
   // THE STYLESHEET, or null when the config cannot be read (then not offered).
   let css = null, cfgDb = null;
@@ -17152,9 +17161,12 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const billUsage = ag.usage;
   let took = 0, billed = false;
   const charge = async () => { if (!billed) { billed = true; took = Number(await bill(billUsage)) || 0; } return took; };
+  // A PUT-BACK THAT FAILS IS LOGGED AND TOLD (2026-11-04, carry-over M-37), never swallowed.
+  let putBackFailed = false;
+  const putBackNote = (b) => (putBackFailed && b && typeof b.msg === "string" ? { msg: b.msg + " Your site's settings could not be put back as they were; check them before you publish." } : {});
   const fail = async (status, body) => {
     if (billed && took > 0 && typeof refund === "function") { try { await refund(took); } catch { /* the job's end or the ledger settles it */ } }
-    return { status, body: { ...body, cost: 0, ...(body && body.needKeys ? {} : await askedKeys()) } };
+    return { status, body: { ...body, cost: 0, ...(body && body.needKeys ? {} : await askedKeys()), ...putBackNote(body) } };
   };
   if (job) await charge();
   // A QUESTION FOR THE OWNER (`ask_owner`): nothing saved; the ending keeps it
@@ -17253,7 +17265,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
         msg: "The site agent's settings could not be stored, so nothing was saved." });
     }
   }
-  const putBack = async () => { if (cfgBefore) { try { await patchSiteConfig(env, slug, cfgDb, cfgBefore, jobFence(env, job)); } catch { /* told below */ } } };
+  const putBack = async () => { if (cfgBefore) { try { await patchSiteConfig(env, slug, cfgDb, cfgBefore, jobFence(env, job)); } catch (e) { putBackFailed = true; console.error("agent settings put-back failed:", slug, errorClassForLog(e)); } } };
   // THE TABLE ENTRIES, BEFORE THE PUBLISH (fix-all), each one statement with
   // its own journal key (a re-run of this job writes nothing twice), named by
   // the table's own key, and only while this job still holds the site. A save
@@ -17292,6 +17304,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     else {
       const fenceOk = () => { const f = jobFence(env, job); return !(f && f.lost) && !(job && typeof job.cancelled === "function" && job.cancelled()); };
       rowsOut = await writeAgentRows({ ops: ag.rows, query: rowQuery, fence: fenceOk, key: job && job.id ? String(job.id) : String(rowKey || "") });
+      // Before and after, not only counts (carry-over M-80).
+      try { const vf = agentValueFacts(rowsOut.done); if (vf.length) rowsOut = { ...rowsOut, facts: [...rowsOut.facts, ...vf] }; } catch { /* the counts stand */ }
     }
     tm("agent:rows", rowsOut.failed ? "fail" : "ok", { done: rowsOut.done.length, failed: rowsOut.failed });
   };
@@ -17331,7 +17345,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
         return null;
       } } : {}),
     });
-    if (!o.ok && cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
+    if (!o.ok && cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch (e) { putBackFailed = true; console.error("agent css put-back failed:", slug, errorClassForLog(e)); } }
     return o;
   };
   // STRAYS LEFT AFTER THE AGENT WAS TOLD TWICE are emptied (a frame the owner
@@ -17459,7 +17473,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // the agent finished before the entries, rules and address were applied, so
   // whatever of those failed, and links left pointing at missing pages, are
   // added to its words from what really happened.
-  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [] });
+  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [], logoUnshown: ag.logoUnshown === true, values: (rowsOut.facts || []).filter((f) => /\u2192/.test(f)) });
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.

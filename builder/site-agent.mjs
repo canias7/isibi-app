@@ -325,6 +325,11 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
 - WHEN THE REQUEST COULD MEAN TWO DIFFERENT THINGS (which page, which item, which of two sections, "make it bigger" with several candidates), and reading the site does not settle it, ask with ask_owner BEFORE changing anything, with the readings as options. Never pick one and hope.
 - THE PRICE FIRST: a new page, new server code, or a rewrite of ${REWRITE_FILES} or more existing files needs the owner's yes to the price before you write it (the write tool refuses it until they have answered "${PRICE_YES}"). Ask with ask_owner as soon as you know the change is that big, before writing anything.
+- NEW THINGS LOOK LIKE THE SITE (carry-over M-59): a section, page or component you add uses the site's existing components, colours, fonts and spacing (read a page that has them first); adding a second thing never restyles the first.
+- WHERE IT GOES (carry-over M-63, M-58): when the owner does not say which page something goes on and it is not obvious, ask with ask_owner; never put it on the home page by default. A footer or contact block added site-wide never copies one page's own details over another page's.
+- PHOTOS (carry-over M-57): "take the photo off" removes the picture; "keep the space" or "leave a gap" empties its frame. When two photos match the description, ask which.
+- PICTURES AND MEDIA (carry-over M-75, M-77): you cannot make or edit pictures, and you never watched or listened to a video or recording (you only know its name and length): never say otherwise. When a picture is needed that the owner has not given, say so plainly and leave a clearly marked frame.
+- ANSWERING IN WORDS (carry-over M-82, M-84): keep it short; say what is fact (from the site) apart from what is a suggestion; when you list options, number them, best first; offer at most one next step, and never one you already offered in this chat.
 - YOUR CHANGES GO TO THE OWNER'S DRAFT, not the live site: they go live when the owner presses Publish. When they ask you to publish or put changes live, change nothing and tell them to press the Publish button; you cannot publish.
 - A MESSAGE THAT ONLY ASKS A QUESTION changes nothing: the tools that change the site refuse it. Answer, and offer the change with ask_owner if they might want it.
 - NEVER CHOOSE A PROVIDER (payments, email, texts, AI): when the owner has not named one, ask with ask_owner which one they use. Code that calls a provider they never named is refused.
@@ -1248,6 +1253,9 @@ async function runTool(use, st, deps) {
     case "set_logo":
     case "set_languages": {
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      // SEVERAL PICTURES, ONE LOGO (2026-11-04, carry-over M-51): when the owner
+      // sent more than one picture, which is the logo is theirs to say (once).
+      if (use.name === "set_logo" && st.images >= 2 && !st.logoAsked && !/They answered: /.test(st.request)) { st.logoAsked = true; return { error: "the owner sent " + st.images + " pictures: ask with ask_owner which one is the logo (name each by its file name) before setting it" }; }
       const r = use.name === "set_languages" ? readLanguagesInput(input) : await (use.name === "set_logo" ? readLogoInput : readSettingsInput)(input, { checkUpload: deps.checkUpload });
       if (r.error) return { error: r.error };
       Object.assign(st.settings, r.settings);
@@ -1429,6 +1437,13 @@ async function runTool(use, st, deps) {
         st.unlinked = lone;
         if (lone.length && !st.loneHeld) { st.loneHeld = true; return { error: "NOTHING LINKS TO THE NEW PAGE " + lone.join(", ") + ": add it to the site's menu (or where the owner asked), build, and finish; if it should stay unlinked, finish again and say so." }; }
       }
+      // A LOGO NOBODY SHOWS (2026-11-04, carry-over M-53): the stored mark is
+      // SITE_LOGO from @/site-brand; a header the agent wrote must show it.
+      if (!st.onlyWrite && st.settings && st.settings.wordmark && !st.logoHeld) {
+        const all = [...st.ws.files.values()].join("\n");
+        if (!/\bSITE_LOGO\b/.test(all) && !/components\/ui\/site-header/.test(all)) { st.logoHeld = true; st.logoUnshown = true; return { error: "the logo is stored as SITE_LOGO (import { SITE_LOGO } from \"@/site-brand\") but no file shows it: show it in the site's header (an <img src={SITE_LOGO}> when it is set), build, and finish" }; }
+        st.logoUnshown = false;
+      }
       // PICTURE ADDRESSES THAT HOLD NO FILE (carry-over M-41): held twice; after
       // that the caller empties them (a fillable frame), and the reply says so.
       if (!st.onlyWrite && typeof deps.strays === "function") {
@@ -1562,7 +1577,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, spec: spec && Array.isArray(spec.tables) ? spec : null, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
-    origFiles: new Map(ws.files), pageMissing: newProject || onlyWrite || foundationFirst ? "" : pageNotThere(String(request || "").split("\n\nWHAT THE OWNER ALREADY ANSWERED")[0], pages),
+    origFiles: new Map(ws.files), images: files.filter((f) => f.kind === "image").length, pageMissing: newProject || onlyWrite || foundationFirst ? "" : pageNotThere(String(request || "").split("\n\nWHAT THE OWNER ALREADY ANSWERED")[0], pages),
     message: String(request || "").split("\n\nWHAT THE OWNER ALREADY ANSWERED")[0], origText: [...ws.files.values()].join("\n"), readText: "",
     qrByText: new Map(), qrMap: new Map(), qrRun: Math.random().toString(36).slice(2, 10) || "a",
     questionOnly: !newProject && !onlyWrite && questionOnly(request),
@@ -1732,6 +1747,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // Words asked for and not found, and details nobody gave, left after one hold (M-67, M-69).
     missingWords: st.ask ? [] : (st.missingWords || []).slice(0, 8),
     newFacts: st.ask ? [] : (st.newFacts || []).slice(0, 10),
+    logoUnshown: !st.ask && st.logoUnshown === true && !/\bSITE_LOGO\b/.test([...ws.files.values()].join("\n")),
     staleLinks: st.ask ? [] : (st.staleLinks || []).slice(0, 6), unlinked: st.ask ? [] : (st.unlinked || []).slice(0, 6),
   };
 }
