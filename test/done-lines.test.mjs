@@ -31,3 +31,13 @@ test("DL4 the reply is the agent's own words: the step answer carries `said`, an
   assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /msg: facts\.join\(" "\), facts, \.\.\.\(typeof ag\.summary === "string" && ag\.summary\.trim\(\) \? \{ said: ag\.summary\.trim\(\)\.slice\(0, 4000\) \} : \{\}\),/);
   assert.ok(RQ);
 });
+
+// THE WORKING SIGN UNDER THE ANSWER (owner, 2026-11-04, Market Lane's photo: the
+// dots stayed above the question while it worked on "Stripe").
+test("DL5 answering a request's question moves its empty working card to just under the answer", () => {
+  const fn = chat.slice(chat.indexOf("function siteAskReply("), chat.indexOf("\n}\n", chat.indexOf("function siteAskReply(")));
+  const push = fn.indexOf("site.msgs.push(siteSentMsg({ r: 'u', t: said");
+  const move = fn.indexOf("site.msgs.push(site.msgs.splice(at, 1)[0])");
+  assert.ok(push > 0 && move > push, "the card is not moved after the answer is pushed");
+  assert.match(fn, /m\.r === 'a' && m\.request === asked\.request\.key && !m\.t/);
+});

@@ -15842,6 +15842,13 @@ function siteAskReply(label, chosen, leaveDraft) {
   // ITS REQUEST'S, when the question is one's (2026-10-05): what that request
   // says next goes under this answer.
   site.msgs.push(siteSentMsg({ r: 'u', t: said, ...(asked.request ? { req: asked.request.key } : {}) }, key));
+  // …AND ITS WORKING SIGN TOO (owner, 2026-11-04: the dots stayed up where the
+  // request began, above the question, while it worked on the answer): the
+  // request's card, empty while it works, moves to just under the answer.
+  if (asked.request) {
+    const at = site.msgs.findIndex((m) => m && m.r === 'a' && m.request === asked.request.key && !m.t);
+    if (at >= 0 && at < site.msgs.length - 1) site.msgs.push(site.msgs.splice(at, 1)[0]);
+  }
   siteBusyBegin(origin);
   siteBuildStart(true, origin);
   sitesSave();
