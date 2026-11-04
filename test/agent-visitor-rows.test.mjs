@@ -45,7 +45,8 @@ test("read_table on a visitor table sends nothing to the model, and never calls 
 
 test("the owner's own lists still read and change (control)", async () => {
   const r = await drive([[use("read_table", { table: "products" })], [use("change_rows", { table: "products", add: [{ name: "Mug", price: 9 }] })]]);
-  assert.deepEqual(r.reads, ["products"]);
+  // The agent's read, then the duplicate check's (2026-11-04, M-22): the owner's table only.
+  assert.deepEqual(r.reads, ["products", "products"]);
   assert.equal(r.ag.rows.length, 1);
   assert.equal(r.ag.rows[0].table, "products");
 });

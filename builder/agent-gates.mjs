@@ -143,12 +143,101 @@ export function deadLinkNote(list, max = 12) {
 
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
-export function agentSaidTruth(summary, { failed = [], dead = [] } = {}) {
+export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false } = {}) {
   const own = typeof summary === "string" ? summary.trim() : "";
   if (!own) return "";
   const add = [];
   if (failed.length) add.push("What did not work: " + failed.join(" "));
   if (dead.length) add.push("Links that point at pages your site does not have: " + dead.slice(0, 6).map((d) => d.to).join(", ") + ".");
+  // M-41: a picture whose address held no file was left as an empty frame.
+  if (strays.length) add.push(strays.length + (strays.length === 1 ? " picture was" : " pictures were") + " left empty: the address held no file. Send the photo and I'll put it in.");
+  // M-70: the change is in the draft until they press Publish (said once, unless the agent said it).
+  if (draft && !/\bpublish/i.test(own)) add.push("These changes are in your draft: press Publish to put them on your live site.");
   return (own + (add.length ? "\n\n" + add.join("\n") : "")).slice(0, 4000);
 }
 
+
+// ══ CARRY-OVER BATCH 2 (2026-11-04) ══════════════════════════════════════════
+
+// ── M-87 / M-89: A QUESTION IS NOT AN ANSWER, AND NEVER CHANGES THE SITE ─────
+const ASKS_FOR_WORK = /\b(can|could|would|will) you\b|\bplease\b|\bi want\b|\bi.d like\b/i;
+const QUESTION_START = /^\s*(what|how|why|when|where|which|who|whose|is|are|does|do|did|was|were|has|have|should|shall|am)\b/i;
+
+/**
+ * ONLY A QUESTION (M-89): the message asks about the site and asks for no
+ * work. True only when every sentence that ends with "?" is a question, the
+ * message has nothing else asking for work, and nothing in it is a request
+ * ("can you…", "please", "add…"). When in doubt, false: the agent decides.
+ */
+export function questionOnly(message) {
+  const m = String(message || "").trim();
+  if (!m || !m.endsWith("?") || m.length > 400) return false;
+  if (ASKS_FOR_WORK.test(m)) return false;
+  const parts = m.split(/(?<=[?.!])\s+/).filter(Boolean);
+  return parts.every((p) => p.endsWith("?") && QUESTION_START.test(p));
+}
+
+export const QUESTION_ONLY = "NOT DONE: the owner's message is only a question, so nothing on the site changes. Answer it in plain words in finish (read what you need first); if they might want a change, offer it with ask_owner.";
+
+/**
+ * A SIDE QUESTION WHILE A QUESTION WAITS (M-87): a typed message that is
+ * itself a question, and not one of the waiting question's answers, leaves
+ * the question waiting. A tapped answer is always the answer.
+ */
+export function sideQuestion(message, { chosen = false, options = [] } = {}) {
+  if (chosen === true) return false;
+  const m = String(message || "").trim();
+  const low = m.toLowerCase().replace(/[?.!\s]+$/, "");
+  if ((Array.isArray(options) ? options : []).some((o) => typeof o === "string" && o.trim().toLowerCase().replace(/[?.!\s]+$/, "") === low)) return false;
+  return questionOnly(m);
+}
+
+// ── M-22: THE SAME ENTRY IS NOT ADDED TWICE ──────────────────────────────────
+export const DUP_YES = "Add it again";
+const norm = (v) => (v == null ? "" : typeof v === "string" ? v.trim().toLowerCase().replace(/\s+/g, " ") : String(v));
+
+/** The adds that repeat an existing row (every value given equal) or each other: `[{i, why}]`. */
+export function duplicateAdds(adds, rows = [], pk = "id") {
+  const out = [];
+  const same = (a, r) => { const ks = Object.keys(a).filter((k) => k !== pk && a[k] != null && a[k] !== ""); return ks.length > 0 && ks.every((k) => norm(a[k]) === norm(r[k])); };
+  (Array.isArray(adds) ? adds : []).forEach((a, i) => {
+    if (!a || typeof a !== "object") return;
+    if ((Array.isArray(rows) ? rows : []).some((r) => r && same(a, r))) out.push({ i, why: "already in the table" });
+    else if (adds.slice(0, i).some((b) => b && same(a, b) && same(b, a))) out.push({ i, why: "twice in this change" });
+  });
+  return out;
+}
+
+export function duplicateRefusal(table, dups, adds) {
+  const name = (a) => { const v = Object.values(a || {}).find((x) => typeof x === "string" && x.trim()); return v ? "“" + v.slice(0, 60) + "”" : "an entry"; };
+  return "NOT QUEUED: " + dups.slice(0, 6).map((d) => name(adds[d.i]) + " is " + d.why).join("; ") + " (" + table + "). Leave the repeats out, or, if the owner may really want it twice, ask with ask_owner, offering exactly \"" + DUP_YES + "\".";
+}
+
+// ── M-20: A LIST IS SHOWN WHOLE OR SAID TO BE CUT ────────────────────────────
+/** Whole rows that fit in `max` characters, and a line saying how many were left out. */
+export function fitRows(rows, max) {
+  const list = Array.isArray(rows) ? rows : [];
+  const kept = [];
+  let size = 2;
+  for (const r of list) {
+    const s = JSON.stringify(r);
+    if (size + s.length + 1 > max) break;
+    kept.push(r); size += s.length + 1;
+  }
+  const text = JSON.stringify(kept);
+  return kept.length === list.length ? text : text + "\n[" + kept.length + " of the " + list.length + " rows read are shown; the rest did not fit. Read fewer columns' worth, or change rows only by the ids you have seen.]";
+}
+
+// ── M-38: A QR CODE POINTS AT A PAGE THE SITE HAS ────────────────────────────
+/** True when `path` is one of the workspace's pages (params match any one segment). */
+export function pageExists(files, path) {
+  const entries = files instanceof Map ? [...files.keys()] : Object.keys(files || {});
+  const p = String(path || "").split(/[?#]/)[0].replace(/\/+$/, "") || "/";
+  return entries.filter((k) => !k.startsWith("-parts/") && k.endsWith(".tsx")).some((k) => matcher(routeOf(k))(p));
+}
+
+// ── M-41: PICTURE ADDRESSES THAT HOLD NO FILE ────────────────────────────────
+export function strayNote(urls) {
+  return "THESE PICTURE ADDRESSES HOLD NO FILE (they would show as broken images):\n" + urls.slice(0, 10).map((u) => "- " + u).join("\n") +
+    "\nUse only addresses read_attachment or attach_media gave you, or the site already uses. Fix them, build, and finish.";
+}

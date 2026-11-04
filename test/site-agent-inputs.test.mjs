@@ -155,7 +155,7 @@ test("SAI9 a 200-row list is queued in one change_rows call, and read_table read
   let readN = 0;
   const { r, results } = await agent([[use("read_table", { table: "products", limit: 300 }, "rt"), use("change_rows", { table: "products", add: rows }, "cr")], [use("finish", { summary: "added 200" })]],
     { spec: { tables: [{ name: "products", access: "display", columns: [{ name: "id" }, { name: "name" }, { name: "price" }] }] } },
-    { readTable: async (t, n) => { readN = n; return []; } });
+    { readTable: async (t, n) => { if (!readN) readN = n; return []; } }); // the first read is the agent's; the duplicate check reads again (2026-11-04, M-22)
   assert.equal(results(1).find((b) => b.tool_use_id === "cr").is_error, undefined);
   assert.equal(r.rows.length, 1);
   assert.equal(r.rows[0].add.length, 200);

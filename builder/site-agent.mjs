@@ -43,7 +43,7 @@ import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.
 import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
-import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote } from "./agent-gates.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -323,6 +323,8 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
 - WHEN THE REQUEST COULD MEAN TWO DIFFERENT THINGS (which page, which item, which of two sections, "make it bigger" with several candidates), and reading the site does not settle it, ask with ask_owner BEFORE changing anything, with the readings as options. Never pick one and hope.
 - THE PRICE FIRST: a new page, new server code, or a rewrite of ${REWRITE_FILES} or more existing files needs the owner's yes to the price before you write it (the write tool refuses it until they have answered "${PRICE_YES}"). Ask with ask_owner as soon as you know the change is that big, before writing anything.
+- YOUR CHANGES GO TO THE OWNER'S DRAFT, not the live site: they go live when the owner presses Publish. When they ask you to publish or put changes live, change nothing and tell them to press the Publish button; you cannot publish.
+- A MESSAGE THAT ONLY ASKS A QUESTION changes nothing: the tools that change the site refuse it. Answer, and offer the change with ask_owner if they might want it.
 - NEVER CHOOSE A PROVIDER (payments, email, texts, AI): when the owner has not named one, ask with ask_owner which one they use. Code that calls a provider they never named is refused.
 - EVERY MESSAGE ABOUT THE SITE COMES TO YOU, questions and chat included. When the message is only a question or conversation (a greeting, thanks, "how does my booking form work?", "can my site send texts?"), answer it in plain words in finish and change nothing: no write_file, no build. The same when they are thinking out loud or weighing ideas ("what about a gallery?", "would a booking page help?", "which colour is better?"): talk it through and change nothing; when it sounds like they want it but have not asked, offer it ("Want me to add it?") with ask_owner when it is offered. Change the site only when the message asks for a change. Read what you need first when the answer depends on the site. When they ask whether the site can do something, say what it would take: email and text messages (SMS) can be sent by a server function on the owner's own key (texts: Twilio or Vonage; email: Resend, SendGrid, Mailgun or Postmark), so never tell them it is not possible. When the message asks for something to be done, do it.
 
@@ -677,6 +679,7 @@ export function syncFromRun(st, files, deps = null) {
   // file. Anything else stays as it was in the workspace, and the agent is told.
   const refuse = (k, why) => { st.refusedByRun.push(k + ": " + why); };
   const mayChange = (k, src) => {
+    if (st.questionOnly) return QUESTION_ONLY;
     if (st.onlyWrite && k !== st.onlyWrite) return "a helper writes only its own page, " + st.onlyWrite;
     const scope = outOfScope(deps, k); if (scope) return scope;
     if (typeof src === "string" && !src.trim()) return "the file would be empty";
@@ -881,8 +884,12 @@ export function helperFact(e) {
 }
 
 // ── THE TOOLS, RUN ───────────────────────────────────────────────────────────
+/** The tools that change the site, refused on a message that is only a question (M-89). */
+const CHANGING_TOOLS = new Set(["write_file", "delete_file", "change_rows", "set_site_settings", "set_logo", "set_languages", "set_table_rules", "rename_page", "sort_table", "attach_media", "rename_site", "forget_old_address", "change_schema", "helpers", "split_work", "restore_starter_file", "start_build"]);
+
 async function runTool(use, st, deps) {
   const input = use.input && typeof use.input === "object" ? use.input : {};
+  if (st.questionOnly && CHANGING_TOOLS.has(use.name)) return { error: QUESTION_ONLY };
   switch (use.name) {
     case "read_files": {
       const want = (Array.isArray(input.files) ? input.files : []).filter((f) => typeof f === "string").slice(0, MAX_READ);
@@ -963,6 +970,15 @@ async function runTool(use, st, deps) {
       ];
       if (wrong.length) return { error: "not columns of " + t + " (" + [...cols].join(", ") + "): " + [...new Set(wrong)].slice(0, 8).join("; ") };
       if (!add.length && !update.length && !remove.length) return { error: "nothing to change" };
+      // THE SAME ENTRY IS NOT ADDED TWICE (carry-over M-22): checked against the
+      // rows the table holds (as far as one read reaches) and the change itself.
+      if (add.length && !String(st.request || "").includes("They answered: " + DUP_YES)) {
+        let have = [];
+        if (typeof deps.readTable === "function") { try { const got = await deps.readTable(t, MAX_TABLE_READ); have = Array.isArray(got) ? got : []; } catch { have = []; } }
+        have = have.concat(st.rows.filter((o) => o.table === t).flatMap((o) => o.add));
+        const dups = duplicateAdds(add, have, pk);
+        if (dups.length) return { error: duplicateRefusal(t, dups, add) };
+      }
       st.rows.push({ table: t, pk, add, update: update.map((u) => ({ id: u.id, set: u.set })), remove });
       return { text: "Queued for " + t + ": " + [add.length && add.length + " to add", update.length && update.length + " to update", remove.length && remove.length + " to remove"].filter(Boolean).join(", ") + ". Saved when you finish." };
     }
@@ -977,7 +993,8 @@ async function runTool(use, st, deps) {
       try {
         const n = Number.isInteger(input.limit) && input.limit > 0 ? Math.min(input.limit, MAX_TABLE_READ) : 20;
         const rows = await deps.readTable(t, n);
-        return { text: JSON.stringify(rows).slice(0, n > 20 ? MAX_TOOL_TEXT : 12000) };
+        // WHOLE ROWS, OR SAID TO BE CUT (carry-over M-20): never broken JSON.
+        return { text: fitRows(rows, n > 20 ? MAX_TOOL_TEXT : 12000) };
       } catch (e) { return { error: "could not read " + t + ": " + String((e && e.message) || e).slice(0, 200) }; }
     }
     case "build": {
@@ -1230,6 +1247,8 @@ async function runTool(use, st, deps) {
       try { url = await deps.siteUrl(); } catch { url = ""; }
       const r = readQrInput(input, url);
       if (r.error) return { error: r.error };
+      // A PRINTED CODE NEVER OPENS A 404 (carry-over M-38): the page must exist.
+      if (typeof input.page === "string" && !pageExists(st.ws.files, input.page.trim())) return { error: "the site has no page at " + input.page.trim() + "; a QR code can only point at a page that exists (make the page first, or use its real address)" };
       st.qrs++;
       return { text: "The QR code for " + r.text + " is this picture address; put it in an <img src> (with alt text saying where it leads):\n" + r.src };
     }
@@ -1334,6 +1353,14 @@ async function runTool(use, st, deps) {
         const dead = deadLinks(st.ws.files).filter((d) => !was.has(d.file + " " + d.to));
         st.deadLinks = dead;
         if (dead.length && (st.linksHeld || 0) < 2) { st.linksHeld = (st.linksHeld || 0) + 1; return { error: deadLinkNote(dead) }; }
+      }
+      // PICTURE ADDRESSES THAT HOLD NO FILE (carry-over M-41): held twice; after
+      // that the caller empties them (a fillable frame), and the reply says so.
+      if (!st.onlyWrite && typeof deps.strays === "function") {
+        let urls = [];
+        try { urls = (await deps.strays({ pages: st.ws.pages(), parts: st.ws.parts() })) || []; } catch { urls = []; }
+        st.strays = urls;
+        if (urls.length && (st.straysHeld || 0) < 2) { st.straysHeld = (st.straysHeld || 0) + 1; return { error: strayNote(urls) }; }
       }
       // UNASKED REMOVALS (M-42): the agent was asked once (below); finishing
       // again still taking things away the request never named is not saved on
@@ -1458,6 +1485,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, spec: spec && Array.isArray(spec.tables) ? spec : null, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
+    questionOnly: !newProject && !onlyWrite && questionOnly(request),
     history: String(history || ""), orig: newProject || ws.fresh ? null : new Set(ws.keys()), origDead: deadLinks(ws.files),
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked, lazy: lazyFiles === true });
@@ -1616,6 +1644,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     wait: sendWait,
     // Links to pages the site does not have, left after the finish was held (M-45).
     deadLinks: st.ask ? [] : (st.deadLinks || []).slice(0, 12),
+    // Picture addresses that hold no file, left after the finish was held (M-41).
+    strays: st.ask ? [] : (st.strays || []).slice(0, 20),
   };
 }
 

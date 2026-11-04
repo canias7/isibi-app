@@ -12,6 +12,32 @@
 
 
 
+
+## 2026-11-04 — Carry-over batch 2: seven more old protections rebuilt around the big agent
+
+1. **A side question isn't the answer (M-87).** While a question waits, a typed
+   message that is itself a question (and not one of the answers) runs on its
+   own; the waiting question keeps waiting. A tapped answer is always the answer.
+2. **A question never changes the site (M-89).** A message that only asks
+   ("What does my booking form do?") can't write files, change entries,
+   settings or anything else; the agent answers and can offer the change.
+   "Can you…", "please", "I want…" count as requests.
+3. **No duplicate entries (M-22).** Adding an entry already in the table (same
+   values) or twice in one change is refused; the agent asks the owner, and
+   "Add it again" lets it through.
+4. **Whole lists (M-20).** A long table read shows whole rows and says "N of M
+   rows shown" instead of cut, broken text.
+5. **QR codes only to real pages (M-38).** A code for a page the site doesn't
+   have is refused.
+6. **No made-up picture addresses (M-41).** An upload address with no file
+   holds the finish twice; if still there, the picture is left as an empty frame
+   (never a broken image) and the reply says so.
+7. **Draft told (M-70).** After a draft save the reply says "press Publish to put
+   them on your live site"; the agent is told it can't publish.
+
+Tests: `agent-gates-batch2` (9; 7 fail on the old code, 2 controls pass). Two
+older tests now expect the duplicate check's extra read. Not deployed.
+
 ## 2026-11-04 — Carry-over batch 1: six old protections rebuilt around the big agent
 
 The agent still decides; these are now checks in code (`builder/agent-gates.mjs`):

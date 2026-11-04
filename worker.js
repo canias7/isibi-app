@@ -204,7 +204,8 @@ import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mj
 import { pdfText } from "./builder/pdf-text.mjs";
 import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "./builder/agent-carry.mjs";
 import { fileMap, workspaceDiff, changeReport, reviewNote, unaskedLines, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
-import { agentSaidTruth } from "./builder/agent-gates.mjs";
+import { agentSaidTruth, sideQuestion as agentSideQuestion } from "./builder/agent-gates.mjs";
+import { newImageRefs as agentNewImageRefs, strayImages as agentStrayImages, dropStrayPhotos as agentDropStrays, uploadKeyFor as agentUploadKey } from "./builder/site-images.mjs";
 import { writeAgentRows, undoRows, outcomeFacts, keyFacts, pickMedia } from "./builder/agent-outcome.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
@@ -17025,6 +17026,15 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     review: (w) => reviewNote(changeReport(before, w, request)),
     // UNASKED REMOVALS THE AGENT INSISTS ON ARE ASKED ABOUT (2026-11-04, M-42).
     unasked: (w) => unaskedLines(changeReport(before, w, request)),
+    // PICTURE ADDRESSES THAT HOLD NO FILE (2026-11-04, M-41): only the site's own
+    // upload addresses this change brought in, each looked up in the bucket;
+    // one that cannot be looked up is left alone (unknown is never "missing").
+    ...(env.SITES_BUCKET ? { strays: async (w) => {
+      const fresh = agentNewImageRefs([...pages, ...parts.map((p) => ({ path: "-parts/" + p.name, source: p.source }))], [...w.pages, ...w.parts.map((p) => ({ path: "-parts/" + p.name, source: p.source }))], slug);
+      if (!fresh.length) return [];
+      const r = await agentStrayImages(fresh, async (u) => { const k = agentUploadKey(slug, u); if (!k) return null; const o = await env.SITES_BUCKET.head(k); return o ? true : false; });
+      return r.stray;
+    } } : {}),
     ...(mayWrite ? { mayWrite } : {}),
   }, {
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
@@ -17291,6 +17301,12 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (!o.ok && cssBefore !== null) { try { await patchSiteConfig(env, slug, cfgDb, { css: cssBefore }, jobFence(env, job)); } catch { /* the stored sheet stays the agent's; told below */ } }
     return o;
   };
+  // STRAYS LEFT AFTER THE AGENT WAS TOLD TWICE are emptied (a frame the owner
+  // can fill), never published as broken images (carry-over M-41).
+  if (Array.isArray(ag.strays) && ag.strays.length) {
+    const dp = agentDropStrays(ag.pages, ag.strays), dq = agentDropStrays(ag.parts, ag.strays);
+    ag = { ...ag, pages: dp.files, parts: dq.files };
+  }
   if (ag.changed.length || setKeys.length) {
     out = await save(ag);
     // THE DATABASE REFUSED IN THE SEAM: nothing was written or published.
@@ -17410,7 +17426,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // the agent finished before the entries, rules and address were applied, so
   // whatever of those failed, and links left pointing at missing pages, are
   // added to its words from what really happened.
-  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [] });
+  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft) });
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
@@ -33687,7 +33703,11 @@ async function handleRequest(request, env, ctx) {
       // run side by side in this same request. An answer to a waiting question
       // is that answer (`answered`). The router runs only under the unit
       // suite's GF_OLD_LANES=1 (`agentTakes`), for the older steps' tests.
-      let routed = agentRouted({ waiting: rWaiting });
+      // A SIDE QUESTION IS NOT THE ANSWER (2026-11-04, carry-over M-87): a typed
+      // message that is itself a question, and none of the waiting question's
+      // answers, is run as its own message and the question keeps waiting.
+      const rSide = !!(rWaiting && rLive && agentSideQuestion(rb.message, { chosen: rWaiting.chosen, options: rWaiting.question && rWaiting.question.options }));
+      let routed = rSide ? { ...agentRouted({}), side: true } : agentRouted({ waiting: rWaiting });
       // A SCOPED ANSWER THAT REACHES OUTSIDE ITS SCOPE IS ASKED AGAIN, of the
       // site as it is now (`routeInScope`): the scope saves a call, it never
       // decides a route. Both calls are billed, as every call the job made is.
@@ -33856,7 +33876,7 @@ async function handleRequest(request, env, ctx) {
           // WHAT THEY TOLD US rides beside the request to the step that runs
           // it, so every model there is shown it and none asks it again.
           rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, context: rContext };
-        } else if (rWaiting && !resumed && routed.intent === "ask") {
+        } else if (rWaiting && !resumed && (routed.intent === "ask" || routed.side === true)) {
           // A SIDE QUESTION LEAVES THE QUESTION WAITING (2026-10-14): nothing is
           // closed, and the page keeps its card (`waiting`).
           rAsk = { answered: false, waiting: true };
