@@ -21,6 +21,20 @@ test("DL2 none while it still works, and none before its reply", () => {
   assert.equal(ctx.siteReqDoneLines({ request: "rq1", t: "x" }, site({ working: true })).length, 0);
   assert.equal(ctx.siteReqDoneLines({ request: "rq1", t: "" }, site()).length, 0);
 });
+test("DL4 the reply as siteReqPut really puts it (marked `req`, not `request`) gets the steps; its card does not", () => {
+  // THE REAL PRODUCER (2026-11-04): DL1's hand-made `request` mark was not what
+  // the thread holds, so the steps still disappeared live.
+  const c2 = vm.createContext({ siteReqTalk: new Map(), siteReqWorkingLine: (m, s) => s.working === true, siteMsgsSent: new Map(), siteReqCardAt: () => 0 });
+  for (const h of ["function siteReqDoneLines(", "function siteReqOwnMsg(", "function siteReqCard(", "function siteReqPut("]) vm.runInContext(cut(h), c2);
+  const s = { msgs: [], ...site() };
+  const reply = c2.siteReqPut(s, "rq1", { r: "a", t: "Removed the strip.", for: "end:1", one: true });
+  assert.equal(reply.request, undefined);
+  assert.equal(reply.req, "rq1");
+  assert.deepEqual(c2.siteReqDoneLines(reply, s).map((l) => l.text), ["Reading the buy page", "Writing the checkout"]);
+  const card = s.msgs.find((m) => m.request === "rq1");
+  assert.ok(card, "the card exists");
+  assert.equal(c2.siteReqDoneLines(card, s).length, 0, "the empty card drew the steps too");
+});
 test("DL3 the thread draws them, done, before the reply's text", () => {
   assert.match(chat, /: \(typeof siteReqDoneLines === 'function' \? \(\(dl\) => \(dl\.length \? progressListHTML\(dl, false, true\) : ''\)\)\(siteReqDoneLines\(m, site\)\) : ''\)\) \+ siteMsgText\(/);
 });

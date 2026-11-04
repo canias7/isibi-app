@@ -219,7 +219,7 @@ const ASK = "Make the footer navy";
 const CF_HTML = "<!DOCTYPE html><html><head><title>Worker threw exception | Cloudflare</title></head><body>Error 1101</body></html>";
 const json = (o) => JSON.stringify(o);
 const ok200 = (o) => ({ status: 200, body: json(o) });
-const REWRITE = { url: "/api/site/react-revise", body: { slug: "fretwork-1", instruction: ASK, images: [], picker: "grok" } };
+const REWRITE = { url: "/api/site/react-revise", body: { slug: "fretwork-1", instruction: ASK, images: [], picker: "grok", chat: "origin-1" } }; // chat: an edit carries its chat (2026-11-04)
 const STOPPED = "I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
 const SIGNED_OUT = "You’re signed out. Sign in and send that again.";
 
@@ -391,7 +391,7 @@ test("CONTROL: a valid addon posts the addon route", async () => {
 test("CONTROL: an explicit build on a live site is the revise", async () => {
   const ask = "Scrap this and make me a bakery site";
   const o = await drive({ site: LIVE, message: ask, route: ok200({ ok: true, intent: "build", cost: 2 }) });
-  assert.deepEqual(o.posts, [{ url: "/api/site/react-revise", body: { slug: "fretwork-1", instruction: ask, images: [], picker: "grok" } }]);
+  assert.deepEqual(o.posts, [{ url: "/api/site/react-revise", body: { slug: "fretwork-1", instruction: ask, images: [], picker: "grok", chat: "origin-1" } }]);
   assert.equal(o.rail, "planning", "the revise has started");
 });
 

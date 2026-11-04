@@ -155,8 +155,12 @@ test("DRIVEN: a build posts the chat it was asked in, and a revise does not", ()
   assert.equal(built.chat, "site_1757000000000_abcde");
 
   const revised = make("revise", "make it blue", [], "grok", [], { slug: "fretwork-1" }, "site_OTHER_chat");
-  assert.equal(revised.chat, undefined,
-    "a revise carries a chat -- a revise names its slug already, and one sent from a second workspace would re-bind the site away from the first");
+  // CHANGED 2026-11-04: a revise carries its chat so the site agent reads the
+  // conversation so far (Market Lane's "delete that" reached it alone). It
+  // still cannot re-bind: the server claims a chat only for an unnamed build
+  // (`const chatId = !named && body ? cleanChatId(body.chat)`), checked below.
+  assert.equal(revised.chat, "site_OTHER_chat", "a revise does not carry its chat, so the agent hears no history");
+  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /const chatId = !named && body \? cleanChatId\(body\.chat\) : "";/, "a named send can claim a chat");
   assert.equal(revised.slug, "fretwork-1", "the observer is alive: the revise branch still composes a body");
   assert.equal(revised.alsoAsked, undefined, "a revise with nothing put off posts a part to hold back");
   // A CLIMB'S HAND-OVER RIDES THE REVISE, and only the revise.

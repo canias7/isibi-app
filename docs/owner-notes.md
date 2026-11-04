@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — A finished message's steps really stay now (branch `claude/cool-fermat-a06gie`; not deployed)
+
+Last night's fix ("a finished message keeps its steps above the reply") looked for the steps on messages marked as the request's card, but the reply is marked differently (`req`, not `request`), so on Market Lane the steps still vanished when the reply came. It now reads both. Its test had used a hand-made message; the new case (DL4) uses the reply exactly as the page makes it, and fails on the old code. Two older tests updated for the chat-history fix (an edit now carries its chat; the server still lets only a new unnamed build claim one).
+
 ## 2026-11-04 — Stop is always in the box while work runs (branch `claude/cool-fermat-a06gie`; not deployed)
 
 On Market Lane the agent was working and the box showed Send, with no Stop anywhere. The box handed Stop to the task panel whenever the panel listed the work, but since 2026-11-02 the panel only appears for two or more tasks (and folded it is a pill with no Stop). Now the box shows Stop whenever anything runs; the panel keeps its own per-task Stops. Tests: `background-work` C and `site-busy-origin` (both fail on the old code).

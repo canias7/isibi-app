@@ -10059,8 +10059,11 @@ function siteReqTalkFollow(origin, key, job) {
 // drawn as done above the reply. From the live talk this page heard, else the
 // lines the request's reading carries; none while it still works.
 function siteReqDoneLines(m, site) {
-  if (!m || !m.request || !m.t || !site || !site.requests) return [];
-  const st = site.requests[m.request];
+  // THE REPLY IS MARKED `req`, the card `request` (siteReqPut): the steps go
+  // above the reply, so both are read (2026-11-04: they still disappeared).
+  const key = m && typeof m.request === 'string' && m.request ? m.request : m && typeof m.req === 'string' ? m.req : '';
+  if (!key || !m.t || !site || !site.requests) return [];
+  const st = site.requests[key];
   const v = st && st.view;
   if (!v || !Array.isArray(v.parts) || v.parts.length !== 1 || siteReqWorkingLine(m, site)) return [];
   const p = v.parts[0] || {};
