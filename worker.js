@@ -16926,6 +16926,27 @@ async function aiFailureText(env, msg, { request = "", picker = "" } = {}) {
   } catch (e) { console.error("reply: agent failure", errorClassForLog(e)); return fixed; }
 }
 
+/**
+ * ONE RUN OF THE SITE AGENT, AS IT ANSWERED (2026-11-04, carry-over M-94):
+ * each round's words and tool calls (never the tools' answers), with its
+ * ending, under `source/<slug>/agent-runs/`, the newest 30 named in an index.
+ * For a run someone disputes; nothing here is shown to the customer.
+ */
+const AGENT_RUNS_INDEX = (slug) => "source/" + String(slug).toLowerCase() + "/agent-runs/index.json";
+const AGENT_RUNS_MAX = 30;
+async function keepAgentRun(env, slug, { job = "", part = "", transcript = [], stopped = "", credits = 0 } = {}) {
+  if (!env.SITES_BUCKET || !Array.isArray(transcript) || !transcript.length) return;
+  const at = Date.now();
+  const key = "source/" + String(slug).toLowerCase() + "/agent-runs/" + at + "-" + (String(job || part).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40) || "run") + ".json";
+  await env.SITES_BUCKET.put(key, JSON.stringify({ at, job, part, stopped: String(stopped || ""), credits: Number(credits) || 0, rounds: transcript.map((t) => { try { return JSON.parse(t); } catch { return { cut: t.slice(0, 2000) }; } }) }), { httpMetadata: { contentType: "application/json" } });
+  let index = [];
+  try { const o = await env.SITES_BUCKET.get(AGENT_RUNS_INDEX(slug)); index = o ? JSON.parse(await o.text()) : []; } catch { index = []; }
+  if (!Array.isArray(index)) index = [];
+  const next = [key, ...index.filter((k) => typeof k === "string")];
+  for (const old of next.slice(AGENT_RUNS_MAX)) { try { await env.SITES_BUCKET.delete(old); } catch { /* left; the index forgets it */ } }
+  await env.SITES_BUCKET.put(AGENT_RUNS_INDEX(slug), JSON.stringify(next.slice(0, AGENT_RUNS_MAX)), { httpMetadata: { contentType: "application/json" } });
+}
+
 const REMOVED_ROWS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/removed-rows.json";
 const REMOVED_ROWS_MAX = 100;
 /** Entries the agent took off, newest first, as the database last held them (carry-over M-27). */
@@ -17050,7 +17071,9 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const mayWrite = scopeGuard({ pages, parts, routes: scope || agentNamedScope(request, pages), look });
   let restoreTo = "";
   try { const ptr = await readPointer(buildDeps(env), slug); restoreTo = ptr && typeof ptr.version === "string" ? ptr.version : ""; } catch { restoreTo = ""; }
-  const runOnce = (ask, from) => runSiteAgent({
+  // EVERY RUN'S OWN ANSWERS ARE KEPT (2026-11-04, carry-over M-94).
+  const runOnce = async (ask, from) => { const r = await runOnce0(ask, from); try { await keepAgentRun(env, slug, { job: job && job.id ? String(job.id) : "", part: rowKey || "", transcript: r && r.transcript, stopped: r && r.stopped, credits: r && r.credits }); } catch (e) { console.error("agent run keep:", slug, errorClassForLog(e)); } return r; };
+  const runOnce0 = (ask, from) => runSiteAgent({
     ...agentInputDeps(env, slug),
     // THE PROJECT FOLDER, READ ONLY (2026-10-31, the code mirror), and the
     // one way back for a starter file the site changed (the owner's fix 3).
@@ -17102,6 +17125,9 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     ...(!conn && noDb && uid && neonConfigured(env) ? { applySchema: () => true } : {}),
     review: (w) => reviewNote(changeReport(before, w, request)),
     // THE TRANSLATED PAGES' WORDING, for the owner's own wording there (M-50).
+    // THE SAVED THEME AND THE STORED QR CODES (M-60).
+    themes: () => THEME_SHORTLIST.slice(),
+    ...(cfgRead ? { qrCodes: async () => qrList(cfgRead.qr) } : {}),
     // ENTRIES TAKEN OFF EARLIER, to bring back (M-27).
     ...(env.SITES_BUCKET ? { removedRows: () => readRemovedRows(env, slug) } : {}),
     // THE LANGUAGES THE SITE HAS, so one taken off does not take the rest (M-56).
@@ -17348,6 +17374,17 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     const per = ag.rows.map((op) => op.table + " table: " + [op.add && op.add.length ? "added " + op.add.length : "", op.update && op.update.length ? "changed " + op.update.length : "", op.remove && op.remove.length ? "removed " + op.remove.length : ""].filter(Boolean).join(", ") + " " + ((op.add || []).length + (op.update || []).length + (op.remove || []).length === 1 ? "entry" : "entries"));
     rowsOut = { done: [], failed: 0, held: n, facts: per.map((f) => f + " (saved to your draft; it goes live when you publish).") };
     tm("agent:rows", "held", { held: n, revision: sealed.revision });
+    // A REMOVAL HELD FOR PUBLISH IS KEPT TO BRING BACK TOO (2026-11-04, the
+    // owner's "fix 9"): the entry is still live, so its values are read now.
+    if (rowConn) {
+      const gone = [];
+      for (const op of ag.rows) for (const id of op.remove || []) {
+        try { const r = await rowQuery("SELECT * FROM " + sqlIdent(op.table) + " WHERE " + sqlIdent(op.pk || "id") + " = ? LIMIT 1", [id]); if (Array.isArray(r) && r[0]) gone.push({ table: op.table, kind: "remove", pk: op.pk || "id", old: r[0] }); } catch { /* not kept; the draft still holds the removal */ }
+      }
+      try { await keepRemovedRows(env, slug, gone); } catch (e) { console.error("removed rows keep (held):", slug, errorClassForLog(e)); }
+      // Counted for the reply only, never in `done`: nothing was written yet, so nothing may be "put back".
+      rowsOut.heldRemoved = gone.length;
+    }
     return true;
   };
   const writeRowsNow = async () => {
@@ -17535,7 +17572,9 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // the agent finished before the entries, rules and address were applied, so
   // whatever of those failed, and links left pointing at missing pages, are
   // added to its words from what really happened.
-  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [], logoUnshown: ag.logoUnshown === true, values: (rowsOut.facts || []).filter((f) => /\u2192/.test(f)), oldName: ag.oldNameLeft || [], emptyLists: ag.emptyLists || [], removedRows: (rowsOut.done || []).filter((d) => d && d.kind === "remove" && d.old).length });
+  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [], logoUnshown: ag.logoUnshown === true, values: (rowsOut.facts || []).filter((f) => /\u2192/.test(f)), oldName: ag.oldNameLeft || [], emptyLists: ag.emptyLists || [], removedRows: (rowsOut.done || []).filter((d) => d && d.kind === "remove" && d.old).length + (Number(rowsOut.heldRemoved) || 0),
+    seeded: (ag.schema || []).filter((op) => op && op.create).map((op) => ({ table: op.table, n: (rowsOut.done || []).filter((d) => d && d.kind === "add" && d.table === op.table).length })).filter((x) => x.n > 0),
+    stylesChecked: !!(out && out.ok !== false && ag.cssChanged) });
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.

@@ -203,8 +203,12 @@ export function agentSettingsPatch(config, settings) {
   for (const f of ["wordmark", "favicon"]) if (typeof s[f] === "string") set(f, s[f] ? { form: "image", url: s[f] } : markRemove(c, f));
   if (typeof s.lang === "string" && s.lang) set("lang", s.lang);
   if (Array.isArray(s.langs)) set("langs", s.langs.slice());
+  // THE SAVED THEME (2026-11-04, carry-over M-60): one of the site's themes, rebuilt from on the next publish.
+  if (typeof s.theme === "string" && s.theme) set("theme", s.theme);
   const out = touched ? { look } : {};
   if (typeof s.share === "string") out.share = s.share;
+  // THE SITE'S STORED QR CODES (2026-11-04, carry-over M-60): the whole list as it should be.
+  if (Array.isArray(s.qr)) out.qr = s.qr.map((c) => ({ name: c.name, points: c.points, label: c.label }));
   // THE OWNER'S OWN WORDING ON A TRANSLATED PAGE (2026-11-04, carry-over M-50):
   // stored as that language's override, so a re-translation never undoes it.
   if (s.langOverrides && typeof s.langOverrides === "object") {

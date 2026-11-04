@@ -682,6 +682,14 @@ export function carveParts(rec, parentN, words, { dependsOn = [], sibling = [], 
  * and it never splits again (`partOf`'s `splitChild`). At most 6, read
  * strictly; anything that does not read is not a part. Returns the new numbers.
  */
+/** Words that ask for a database change: a table, a column, a list kept, a form that stores, bookings, orders, sign-ups. */
+export function touchesDatabase(words) {
+  const w = String(words || "");
+  return /\b(tables?|columns?|database|data ?base|fields?|entries|records?|rows?|sign[- ]?ups?|subscribers?|submissions?|inventory)\b/i.test(w)
+    || /\b(booking|order|contact|enquiry|inquiry|sign[- ]?up|newsletter|registration|reservation|feedback|review)s? forms?\b/i.test(w)
+    || /\b(save|saves|store|stores|collect|collects|keep|keeps|record|records)\s+(the\s+|their\s+|visitors'?\s+|customers'?\s+)?(answers|details|emails|messages|bookings|orders|sign[- ]?ups|enquiries)\b/i.test(w);
+}
+
 export function splitParts(rec, parentN, list) {
   const parent = rec && Array.isArray(rec.parts) ? rec.parts[parentN] : null;
   if (!parent || parent.source === "agent" || !Array.isArray(list) || list.length < 2 || list.length > 6) return [];
@@ -699,7 +707,11 @@ export function splitParts(rec, parentN, list) {
     // with no page targets it counts as writing the whole site (`SITE`), which
     // the scheduler never runs beside another writer, so two database changes
     // never meet.
-    if (pages.length && it.database !== true) part.targets = { writes: pages.map((g) => "page:" + g), reads: [] };
+    // …AND CODE READS IT TOO (2026-11-04, carry-over M-31, the owner's "fix 10"):
+    // the agent's own `database` flag, or words in the part that ask for a
+    // table, a form that keeps what visitors send, bookings, orders, sign-ups
+    // or a column. When in doubt, it runs alone: slower, never clashing.
+    if (pages.length && it.database !== true && !touchesDatabase(words)) part.targets = { writes: pages.map((g) => "page:" + g), reads: [] };
     part.status = "blocked";
     rec.parts.push(part);
     made.push(n);

@@ -101,6 +101,8 @@ const ADDRESS = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 export const MAX_TABLE_READ = 500;
 /** QR codes one change may make (carry-over M-40). */
 export const MAX_QRS = 12;
+/** How much of one run's own answers is kept for a dispute (carry-over M-94). */
+export const TRANSCRIPT_MAX = 400000;
 /** Characters one attachment or import answer carries at most; the rest is read with `from`. */
 export const MAX_TOOL_TEXT = 40000;
 
@@ -193,6 +195,16 @@ export const AGENT_TOOLS = Object.freeze([
     name: "set_languages",
     description: "The site's languages, saved when you finish. `lang`: the language its pages are ALREADY written in, as a tag (\"es\", \"pt-BR\"); a declaration, never a translation. `langs`: the WHOLE list of extra languages the site is also offered in (the publish translates it), [] for none: send every one that stays.",
     input_schema: { type: "object", properties: { lang: { type: "string" }, langs: { type: "array", items: { type: "string" }, maxItems: 12 } } },
+  },
+  {
+    name: "set_theme",
+    description: "Switch the site's saved theme (its colours, fonts and surfaces, rebuilt on every publish). `theme` is one of the names this tool's error lists. Saved when you finish. Only when the owner asks for a different theme.",
+    input_schema: { type: "object", properties: { theme: { type: "string" } }, required: ["theme"] },
+  },
+  {
+    name: "site_qr_codes",
+    description: "The site's own stored QR codes (the printed ones the site serves, by name). `action`: \"list\" shows them; \"change\" points one (`name`) at a page of the site (`page`, \"/menu\") or a web address (`url`), and/or relabels it (`label`); \"remove\" takes one off (`name`). Saved when you finish. A code on a printed card keeps its name, so changing where it points updates every printed copy.",
+    input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "change", "remove"] }, name: { type: "string" }, page: { type: "string" }, url: { type: "string" }, label: { type: "string" } }, required: ["action"] },
   },
   {
     name: "removed_entries",
@@ -613,7 +625,7 @@ export function compact(messages, { keep = KEEP_RECENT } = {}) {
 
 // ── THE TOOLS A CALLER HAS WIRED ────────────────────────────────────────────
 /** Which tool needs which dependency; a tool whose dependency is missing is never offered. */
-export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", change_translation: "translations", removed_entries: "removedRows", make_qr: "siteUrl", ask_owner: "canAsk", split_work: "split", start_build: "startBuild", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address", restore_starter_file: "restoreStarter" });
+export const TOOL_NEEDS = Object.freeze({ look: "look", run: "run", read_table: "readTable", helpers: "helpers", call_function: "callFunction", read_errors: "readErrors", list_keys: "listKeys", change_schema: "applySchema", read_docs: "fetchDocs", read_attachment: "attachment", import_site: "importSite", set_site_settings: "saveSettings", set_logo: "checkUpload", set_languages: "saveSettings", set_table_rules: "saveRules", rename_page: "saveRedirects", change_translation: "translations", removed_entries: "removedRows", set_theme: "themes", site_qr_codes: "qrCodes", make_qr: "siteUrl", ask_owner: "canAsk", split_work: "split", start_build: "startBuild", sort_table: "sortTables", attach_media: "media", rename_site: "address", forget_old_address: "address", restore_starter_file: "restoreStarter" });
 export function toolsFor(deps) {
   const d = deps || {};
   return AGENT_TOOLS.filter((t) => !Object.hasOwn(TOOL_NEEDS, t.name) || typeof d[TOOL_NEEDS[t.name]] === "function");
@@ -648,6 +660,12 @@ export function checkNotes(r) {
   return lines.length ? "\nThe checks found:\n" + lines.join("\n") : "";
 }
 const mustFix = (r) => !!(r && r.render && Array.isArray(r.render.findings) && r.render.findings.some((f) => f && MUST_FIX.includes(f.kind)));
+/** The pages a check found that do not show at all (an error, or nothing on screen): `["/menu", …]`. */
+export function brokenRoutes(r) {
+  const out = new Set();
+  for (const f of r && r.render && Array.isArray(r.render.findings) ? r.render.findings : []) if (f && (f.kind === "threw" || f.kind === "blank")) out.add(String(f.route || "/"));
+  return [...out];
+}
 /** The must-fix findings of a check, counted by kind, for the record (numbers only, never text). */
 export function mustFixKinds(r) {
   const out = {};
@@ -1062,7 +1080,7 @@ async function runTool(use, st, deps) {
       try { r = await untilStopped(deps, () => deps.build({ pages: expandQr(st.ws.pages(), st.qrMap), parts: expandQr(st.ws.parts(), st.qrMap), css: st.ws.css() })); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       st.lastBuild = r && r.ok === true ? "ok" : "fail";
-      if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); }
+      if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); st.broken = brokenRoutes(r); }
       if (r && r.ok === true && !st.unreadable && st.spec) {
         const dp = dataProblems(st.ws, st.spec, st.schema);
         st.dataProblems = dp;
@@ -1101,6 +1119,10 @@ async function runTool(use, st, deps) {
       const route = typeof input.page === "string" ? input.page.trim() : "";
       if (!/^\/[a-z0-9/_-]*$/i.test(route)) return { error: "a page address starts with / (\"/\", \"/about\")" };
       if (typeof deps.look !== "function") return { error: "pages cannot be looked at here" };
+      // NOTHING VISIBLE CHANGED, NOTHING TO LOOK AT (2026-11-04, carry-over M-10):
+      // a change that only wrote server code (or only queued entries) is not
+      // looked at in a browser; the build and call_function check it.
+      if (st.written.size && [...st.written].every((k) => k.startsWith("-parts/" + SERVER_PREFIX))) return { error: "this change only wrote server code: nothing on the page changed, so there is nothing to look at. Try the function with call_function instead." };
       let r;
       try { r = await untilStopped(deps, () => deps.look({ pages: expandQr(st.ws.pages(), st.qrMap), parts: expandQr(st.ws.parts(), st.qrMap), css: st.ws.css() }, route)); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
@@ -1109,6 +1131,7 @@ async function runTool(use, st, deps) {
       if (!shots.length) return { error: "no screenshot of " + route + " came back (is that a page of this site?)" };
       st.mustFix = mustFix(r);
       st.mustFixKinds = mustFixKinds(r);
+      st.broken = brokenRoutes(r);
       st.looked.add(route);
       return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + "." + checkNotes(r), images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
     }
@@ -1288,6 +1311,42 @@ async function runTool(use, st, deps) {
       Object.assign(st.settings, r.settings);
       return { text: "Queued: " + Object.keys(r.settings).join(", ") + ". Saved when you finish.", settings: Object.keys(r.settings) };
     }
+    case "set_theme": {
+      // THE SAVED THEME (2026-11-04, carry-over M-60).
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      let names = []; try { names = deps.themes() || []; } catch { names = []; }
+      const t = typeof input.theme === "string" ? input.theme.trim().toLowerCase() : "";
+      if (!names.includes(t)) return { error: "the themes are: " + names.join(", ") };
+      st.settings.theme = t;
+      return { text: "Queued: the " + t + " theme. Saved when you finish; the pages are rebuilt in it.", settings: ["theme"] };
+    }
+    case "site_qr_codes": {
+      // THE SITE'S STORED QR CODES (2026-11-04, carry-over M-60).
+      let list = Array.isArray(st.settings.qr) ? st.settings.qr : null;
+      if (!list) { try { list = (await deps.qrCodes()) || []; } catch { return { error: "the site's QR codes could not be read just now" }; } }
+      const action = typeof input.action === "string" ? input.action : "";
+      if (action === "list") return { text: list.length ? list.map((c) => "- " + c.name + ": " + c.label + " \u2192 " + c.points).join("\n") : "The site has no stored QR codes." };
+      if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
+      const name = typeof input.name === "string" ? input.name.trim() : "";
+      const at = list.findIndex((c) => c.name === name);
+      if (at < 0) return { error: list.length ? "no QR code named " + JSON.stringify(name).slice(0, 60) + "; the site's codes are " + list.map((c) => c.name).join(", ") : "the site has no stored QR codes" };
+      if (action === "remove") { st.settings.qr = list.filter((_, i) => i !== at); return { text: "Queued: the " + name + " QR code comes off. Saved when you finish; printed copies of it will stop working.", settings: ["qr"] }; }
+      if (action !== "change") return { error: "action is list, change or remove" };
+      let points = list[at].points;
+      if (typeof input.page === "string" && input.page.trim()) {
+        const pg = input.page.trim();
+        if (!pageExists(st.ws.files, pg)) return { error: "the site has no page at " + pg };
+        let base = ""; try { base = typeof deps.siteUrl === "function" ? String(await deps.siteUrl()) : ""; } catch { base = ""; }
+        if (!/^https:\/\//.test(base)) return { error: "this site's address is not known here" };
+        points = base.replace(/\/+$/, "") + (pg === "/" ? "/" : pg);
+      } else if (typeof input.url === "string" && input.url.trim()) {
+        if (!/^https?:\/\/\S+$/i.test(input.url.trim())) return { error: "url is a web address starting with https://" };
+        points = input.url.trim();
+      }
+      const label = typeof input.label === "string" && input.label.trim() ? input.label.trim().slice(0, 80) : list[at].label;
+      st.settings.qr = list.map((c, i) => (i === at ? { name: c.name, points, label } : c));
+      return { text: "Queued: the " + name + " QR code now opens " + points + ". Saved when you finish; every printed copy follows it.", settings: ["qr"] };
+    }
     case "removed_entries": {
       // ENTRIES TAKEN OFF EARLIER, TO BRING BACK (2026-11-04, carry-over M-27).
       let list = [];
@@ -1415,6 +1474,9 @@ async function runTool(use, st, deps) {
     case "start_build": {
       const brief = input && typeof input.brief === "string" ? input.brief.trim().slice(0, 2000) : "";
       if (!brief) return { error: "say in one or two lines what to build" };
+      // WHAT THE BUSINESS IS, BEFORE A PAID BUILD (2026-11-04, carry-over M-92):
+      // when the owner's words never say what the site is for, ask (once).
+      if (!st.vagueTold && vagueBrief(String(st.request || "") + "\n" + String(st.history || ""))) { st.vagueTold = true; return { error: "NOT STARTED: the owner has not said what the business or site is (what they do, what it's called, who it's for). Ask with ask_owner what the business is, with a few examples as options, before building." }; }
       st.startBuild = brief;
       st.done = true;
       return { text: "The build starts. Your turn ends here." };
@@ -1442,6 +1504,19 @@ async function runTool(use, st, deps) {
       // and the final reply says what the check still found.
       // WHY IT WAS SENT BACK, for the record (2026-10-29): which kinds of
       // finding, as counts; a label for us, never a message to the customer.
+      // A PAGE THIS CHANGE WROTE THAT DOES NOT SHOW IS NEVER SAVED (2026-11-04,
+      // carry-over M-62): held twice; after that the run ends without saving.
+      if (!st.onlyWrite) {
+        const mine = new Set([...st.written].filter((k) => !k.startsWith("-parts/") && k.endsWith(".tsx")).map((k) => (k === "index.tsx" ? "/" : "/" + k.replace(/\.tsx$/, "").replace(/\/index$/, ""))));
+        const touchedPart = [...st.written].some((k) => k.startsWith("-parts/"));
+        const bad = (st.broken || []).filter((r) => mine.has(r) || touchedPart);
+        if (bad.length) {
+          st.brokenHeld = (st.brokenHeld || 0) + 1;
+          if (st.brokenHeld <= 2) return { error: "THESE PAGES DO NOT SHOW (an error, or a blank screen) in the browser check: " + bad.join(", ") + ". Fix them, build, and finish. A page that does not show is never saved." };
+          st.pageBroken = bad; st.done = false; st.stopBroken = true;
+          return { text: "Stopped: the page still does not show, so nothing is saved." };
+        }
+      }
       if (st.mustFix && !st.heldOnce) { st.heldOnce = true; try { st.log({ event: "held", ...(st.mustFixKinds || {}) }); } catch { /* the record never costs the change */ } return { error: "the last check still found something marked FIX THIS: fix it, build, and finish again" }; }
       // NOTHING ELSE CHANGED (2026-10-30, `agent-guard.mjs`): the caller's
       // check of what this change took away that the request did not name,
@@ -1569,7 +1644,7 @@ export function fileName(k) {
 }
 const fact = (state, text) => ({ state, text });
 const listed = (xs) => (xs.length <= 1 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]);
-const SETTING_SAID = { langOverrides: "the wording on a translated page", name: "the site's name", description: "the site's description", share: "the link-preview picture", favicon: "the browser-tab icon", wordmark: "the header logo", lang: "the site's language", langs: "the site's extra languages" };
+const SETTING_SAID = { theme: "the site's theme", qr: "the site's QR codes", langOverrides: "the wording on a translated page", name: "the site's name", description: "the site's description", share: "the link-preview picture", favicon: "the browser-tab icon", wordmark: "the header logo", lang: "the site's language", langs: "the site's extra languages" };
 export function roundFacts(outcomes) {
   const out = [];
   const reads = [], wrote = [], gone = [], looked = [], queued = [], ran = [], tried = [];
@@ -1691,7 +1766,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   let messages = [{ role: "user", content: [{ type: "text", text: newProject ? newProjectMessage({ request, history }) : firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }) + todayLine(now()), cache_control: { type: "ephemeral" } }] }];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
-  let sendWait = null;
+  let sendWait = null, sendWhy = "";
+  const transcript = []; let transcriptChars = 0;
   let rounds = 0;
   let lastCost = 0;
   // STOP (2026-10-30, fix-all): the owner's Stop is read at the top of every
@@ -1738,7 +1814,10 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       // the parked call's fixed notice is kept, so the caller waits and asks
       // again (the route's "waiting" answer) instead of acting on a failure.
       if (e && e.parked === true && e.providerWait && e.providerWait.notice) sendWait = e.providerWait.notice;
-      stopped = "send"; log({ event: "send-failed", why: String((e && e.message) || e).slice(0, 200) }); break;
+      // THE REAL CAUSE, NAMED (2026-11-04, carry-over M-73): our own time limit,
+      // the provider's billing refusal, the provider busy or failing, or not reached.
+      sendWhy = sendCause(e);
+      stopped = "send"; log({ event: "send-failed", cause: sendWhy, why: String((e && e.message) || e).slice(0, 200) }); break;
     }
     alive("round");
     const u = usageOf(j, model);
@@ -1762,6 +1841,10 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       if (!st.needsPages && said && j && j.stop_reason !== "max_tokens" && !st.written.size && !st.dirty && !st.rows.length && !st.schema.length && !st.rules.length && !st.address && !st.forget.length && !Object.keys(st.settings).length) { st.done = true; st.summary = said.slice(0, 4000); break; }
       stopped = j && j.stop_reason === "max_tokens" ? "too-long" : "no-tool"; break;
     }
+    // WHAT THE AI SAID AND DID, KEPT (2026-11-04, carry-over M-94): each round's
+    // own answer (its words and its tool calls), never what the tools returned,
+    // bounded, for a run someone later disputes.
+    if (transcriptChars < TRANSCRIPT_MAX) { const one = JSON.stringify({ round: rounds, at: now(), content: content.map((b) => (b && b.type === "tool_use" ? { tool: b.name, input: b.input } : b && b.type === "text" ? { text: b.text } : null)).filter(Boolean) }); transcript.push(one.slice(0, TRANSCRIPT_MAX - transcriptChars)); transcriptChars += one.length; }
     const ids = uses.map((b, i) => (typeof b.id === "string" && b.id ? b.id : "t" + rounds + "_" + i));
     messages.push({ role: "assistant", content: content.map((b) => (b && b.type === "tool_use" ? { ...b, id: ids[uses.indexOf(b)] } : b)) });
     // A STOP WHILE THE MODEL ANSWERED: its tools are not run.
@@ -1785,6 +1868,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       }
     }
     messages.push({ role: "user", content: [...results, ...images] });
+    if (st.stopBroken) { stopped = "page-broken"; break; }
     try { const f = roundFacts(outcomes.splice(0)); if (f.length) progress("agent", f); } catch { /* the record never costs the change */ }
   }
 
@@ -1812,10 +1896,13 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     usage, credits, rounds, builds: st.builds,
     // The provider's waiting notice when the model call parked (G1); null otherwise.
     wait: sendWait,
+    sendWhy,
+    transcript,
     // Links to pages the site does not have, left after the finish was held (M-45).
     deadLinks: st.ask ? [] : (st.deadLinks || []).slice(0, 12),
     // Picture addresses that hold no file, left after the finish was held (M-41).
     strays: st.ask ? [] : (st.strays || []).slice(0, 20),
+    pageBroken: (st.pageBroken || []).slice(0, 8),
     // Words asked for and not found, and details nobody gave, left after one hold (M-67, M-69).
     missingWords: st.ask ? [] : (st.missingWords || []).slice(0, 8),
     newFacts: st.ask ? [] : (st.newFacts || []).slice(0, 10),
@@ -1877,16 +1964,36 @@ export function agentTakes() {
 
 
 /** What the reply writer is told when the agent stopped short: facts, never a sentence for the customer. */
+/** Why a model call failed, as one of a few kinds (never its text). */
+export function sendCause(e) {
+  const status = e && Number.isInteger(e.status) ? e.status : null;
+  const name = e && typeof e.name === "string" ? e.name : "";
+  const msg = String((e && e.message) || "").toLowerCase();
+  if (status === 401 || status === 402 || status === 403 || /billing|credit balance|insufficient (funds|credit|quota)|quota exceeded/.test(msg)) return "billing";
+  if (status === 429 || /rate limit|overloaded|too many requests/.test(msg)) return "busy";
+  if (name === "TimeoutError" || name === "AbortError" || /deadline|timed out|time limit/.test(msg)) return "our-timeout";
+  if (status !== null && status >= 500) return "provider-error";
+  return "unreachable";
+}
+const SEND_SAID = Object.freeze({
+  billing: "the AI provider refused the call because of our account with them (billing), which is ours to fix, not yours",
+  busy: "the AI provider was too busy to answer",
+  "our-timeout": "our builder's own time limit for one AI call ran out",
+  "provider-error": "the AI provider answered with an error",
+  unreachable: "the AI model could not be reached",
+});
+
 export function stoppedFacts(r) {
   const why = {
     rounds: "it reached its limit of steps before finishing",
     credits: "it reached its spending limit before finishing",
     "no-credits": "the account ran out of credits before it finished",
     time: "it ran out of time before finishing",
-    send: "the AI model could not be reached",
+    send: SEND_SAID[(r && r.sendWhy) || ""] || "the AI model could not be reached",
     "no-tool": "the model stopped answering with actions",
     "too-long": "the model's answer was cut off for length",
     cancelled: "the owner stopped it",
+    "page-broken": "a page it changed still did not show in the browser check (" + ((r && r.pageBroken) || []).join(", ") + "), so nothing was saved",
   }[r && r.stopped] || "it did not finish";
   return "The site agent stopped: " + why + ". Nothing on the site was changed" +
     (r && r.lastBuild === "fail" ? "; its last build had errors" : "") + ".";
@@ -1980,6 +2087,13 @@ export const NEW_PROJECT_TOOLS = Object.freeze(["start_build", "ask_owner", "fin
  * yet, so the agent either answers in words (a greeting, a question), asks
  * the owner one thing with ask_owner, or starts the build with start_build.
  */
+/** True when the owner's words say nothing about what the site is for ("make me a website", "build it"). */
+const GENERIC = new Set("a an the me my our us i we you it this that please make create build start do new website site web page pages app online can could would will want need like let lets let's go ahead yes ok okay sure now for to of and with just some one get have me, hi hello hey".split(/\s+/));
+export function vagueBrief(text) {
+  const words = String(text || "").toLowerCase().replace(/^owner(?: \(earlier\))?:/gm, " ").match(/[a-z][a-z'-]*/g) || [];
+  return words.filter((w) => !GENERIC.has(w) && w.length > 2).length < 2;
+}
+
 export function newProjectMessage({ request, history = "" } = {}) {
   return [
     history ? "THE CONVERSATION SO FAR (for what the message refers to)\n" + history : "",

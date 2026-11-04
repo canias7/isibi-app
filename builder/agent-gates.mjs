@@ -143,7 +143,7 @@ export function deadLinkNote(list, max = 12) {
 
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
-export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [], logoUnshown = false, values = [], oldName = [], emptyLists = [], removedRows = 0 } = {}) {
+export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [], logoUnshown = false, values = [], oldName = [], emptyLists = [], removedRows = 0, seeded = [], stylesChecked = false } = {}) {
   const own = typeof summary === "string" ? scrubSaid(summary) : "";
   if (!own) return "";
   const add = [];
@@ -170,6 +170,9 @@ export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], d
   if (emptyLists.length) add.push("The " + emptyLists.join(", ") + " list" + (emptyLists.length > 1 ? "s start" : " starts") + " empty: add entries in your Data panel, or tell me what to put in.");
   // M-27: removed entries can be brought back.
   if (removedRows > 0) add.push((removedRows === 1 ? "The removed entry is" : "The " + removedRows + " removed entries are") + " kept: ask and I'll bring " + (removedRows === 1 ? "it" : "them") + " back.");
+  // M-86: the small notes the old replies gave, only when the agent's words did not.
+  for (const x of seeded) if (x && x.table && x.n && !own.includes(x.table)) add.push("Added " + x.n + " starter " + (x.n === 1 ? "entry" : "entries") + " to the new " + x.table + " list.");
+  if (stylesChecked && !/\bstyle/i.test(own)) add.push("Your new styles were checked on the pages.");
   // M-53: the logo is stored but the header does not show it.
   if (logoUnshown) add.push("Your logo is saved, but the site's header doesn't show it yet.");
   // M-70: the change is in the draft until they press Publish (said once, unless the agent said it).

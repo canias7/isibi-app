@@ -22,6 +22,34 @@
 
 
 
+
+## 2026-11-04 — Carry-over batch 10 (your "fix 2 … fix 10")
+
+- **A page that doesn't show is never saved (M-62).** If a page this change wrote
+  shows an error or a blank screen in the browser check, the agent is sent back
+  twice; if it still doesn't show, the run stops and nothing is saved.
+- **Database parts known by code (M-31).** A split part whose words ask for a table,
+  a form that keeps what visitors send (booking, contact, sign-up…), or entries
+  runs alone, whether or not the agent marked it.
+- **The real cause named (M-73).** A failed AI call says which: our account's
+  billing with the provider (ours to fix), the provider busy, the provider's
+  error, our own time limit, or not reachable.
+- **What the business is, before a first build (M-92).** "Make me a website" with
+  no word about the business asks once what it is before any paid build.
+- **Each run's answers kept (M-94).** Every agent run's own words and tool calls
+  (never the tools' results) are kept beside the site, the newest 30, for a
+  disputed run.
+- **No look after server-only work (M-10).**
+- **Small notes (M-86).** "Added 3 starter entries to the new timetable list",
+  "Your new styles were checked", when the agent didn't say it.
+- **Undo with drafts on (fix 9).** A removal held for Publish keeps the entry's
+  values now, so it can be brought back; it is never "put back" by a failed save.
+- **Theme and QR tools (M-60).** The agent can switch the saved theme and list,
+  re-point, relabel or remove the site's stored QR codes.
+
+Tests: `agent-gates-batch10` (9). Full suite: only `media-verify` fails (as on main).
+Not deployed.
+
 ## 2026-11-04 — Carry-over batch 9 (your list: 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15)
 
 Checked first whether each already existed; what was half there is noted.
