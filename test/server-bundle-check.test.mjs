@@ -58,9 +58,14 @@ const PARTS = [
 export default async function (request: Request, site: SiteHelper): Promise<Response> {
   const { message } = await request.json();
   const r = await site.fetch("https://api.example.com/x", { headers: { authorization: "Bearer " + site.key("EXAMPLE_KEY") } });
-  const rows = await site.sql("select 1");
   await site.files.put("last.txt", String(message));
-  return Response.json({ ok: r.ok, rows: rows.length, key: site.hasKey("EXAMPLE_KEY") });
+  return Response.json({ ok: r.ok, key: site.hasKey("EXAMPLE_KEY") });
+}` },
+  // A VISITOR'S CALL MAY NOT USE THE FULL LOGIN (2026-11-04, owner: option A).
+  { name: "server-closed", source: `export const hosts = [];
+export default async function (request: Request, site: SiteHelper): Promise<Response> {
+  const rows = await site.sql("select 1");
+  return Response.json({ rows: rows.length });
 }` },
   { name: "server-big", source: `export const hosts = [];
 export default async function (): Promise<Response> {
@@ -108,10 +113,12 @@ test("SB1 each part is asked through the built site: its route, its helper, its 
     const r = await bundleCheckServerParts(b.entry, "Kiln", PARTS.concat({ name: "band-a", source: "export default function A(){ return null }" }));
     assert.equal(r.ran, true, r.why);
     const by = Object.fromEntries(r.results.map((x) => [x.name, x]));
-    assert.deepEqual(Object.keys(by).sort(), ["big", "hello", "leak", "nightly", "oops", "paid", "shaky", "sweep"], "server parts only");
+    assert.deepEqual(Object.keys(by).sort(), ["big", "closed", "hello", "leak", "nightly", "oops", "paid", "shaky", "sweep"], "server parts only");
     assert.equal(by.hello.ok, true, by.hello.error);
     assert.equal(by.hello.status, 200);
     assert.deepEqual(by.hello.ran, ["request"]);
+    assert.equal(by.closed.ok, false, "a visitor's call used the full database login");
+    assert.match(by.closed.error, /full database login/);
     assert.equal(by.big.ok, false); assert.equal(by.big.kind, "code"); assert.equal(by.big.status, 500); assert.match(by.big.error, /too large/);
     assert.equal(by.paid.ok, true, "an unsigned sample refused with 400 is not a fault"); assert.equal(by.paid.status, 400);
     assert.equal(by.oops.ok, false); assert.equal(by.oops.kind, "code"); assert.match(by.oops.error, /notDefined is not defined/);

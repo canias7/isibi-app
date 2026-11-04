@@ -10,6 +10,28 @@
 
 
 
+
+## 2026-11-04 — Critical fix 7 of 7: site server code acts as the visitor (option A)
+
+Your choice "option A, new sites only". Before, every piece of server code a site
+ran used the master database login, so a visitor's call could read or change any
+row (anyone's order, a price). Now:
+
+- A visitor's call reaches the database through `site.rows / insert / update /
+  remove`, **as that visitor** (their sign-in, or an anonymous token), so the
+  database's own rules decide what they may see and change.
+- `site.sql` (the master login) is shut in a visitor's call. It opens only in
+  scheduled jobs, hooks (a row saved, a tick), or after `site.verify(...)` has
+  proved a signed message (a payment provider's "paid") in that same call.
+- The AI's instructions (agent, page writer, server-code checker) teach this
+  rule; the prompt fingerprints were re-pinned. A page that calls `site.sql`
+  from a visitor's call is refused before it ships.
+- Tests: `site-visitor-key` (4, red on the old code), `server-bundle-check`.
+  Full suite 9,591: everything green except `media-verify` (already failing
+  on main) and one browser test that failed under load and passes on its own.
+- **Not live-tested.** Proving it needs one fresh test site with a shop
+  (a first build, about 11–45 credits); I won't run it without your yes.
+
 ## 2026-11-04 — Critical fix 6 of 7: list changes wait for Publish, like the pages (branch `claude/cool-fermat-a06gie`; not deployed)
 
 On a published site with draft-first on, the agent's page changes waited in the draft but its list changes (products, prices, menu items) went live at once. Now they're held in the draft too (the old add-on's way: `hold` + `sealHeld`) and go live when you press Publish; the reply says "saved to your draft; it goes live when you publish". Held changes can now name a row by the list's own key (a list keyed by "code", not a number), in the draft preview and at Publish; before, Publish could only find rows by a numeric id. A site that has never been published, or has draft-first off, writes as before.

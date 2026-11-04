@@ -1276,7 +1276,7 @@ or an access level — anything not in the schema below does not exist.
     read and write with the hooks from "@/lib/rows", and visitor sign-in), its own files
     (uploads), and its own server — code you write as a part named "-parts/server-<name>",
     reached at \`/api/db/\${SITE_SLUG}/fn/<name>\`, which can call outside services with the
-    owner's own keys (\`site.fetch\`, \`site.key\`), use the database (\`site.sql\`), run when an
+    owner's own keys (\`site.fetch\`, \`site.key\`), use the database as the visitor (\`site.rows\`, \`site.insert\`, \`site.update\`, \`site.remove\`; \`site.sql\` only in a job, a hook or after \`site.verify\`), run when an
     entry is saved (\`created:<table>\`) or on a schedule (\`cron:\`), and receive messages from
     outside (a payment provider, a form service) at its own address. There is NO ready-made checkout,
     email, text message, outside-data reader or scheduled job: when the owner asks for a
@@ -1907,7 +1907,7 @@ export const SITE_PAGES_TOOL = {
                 "Use only the `site` helper (its type, SiteHelper, is declared for you; the typecheck checks every call): site.fetch(url, init) for every outside call (only to the hosts listed), " +
                 "site.key(\"NAME\") where an owner's key belongs (a header or body value — it is filled in on the way out, " +
                 "never readable), site.hasKey(\"NAME\") to tell the visitor the feature is not set up yet, " +
-                "site.sql(text, params) for the site's own database (`?` placeholders). Never read env, process or " +
+                "site.rows / site.insert / site.update / site.remove for the site's own database AS THE VISITOR who called (the database's own rules decide what they may see and change); site.sql(text, params), the full login, works only in a scheduled job, a hook, or after site.verify(...) has proved a signed message in that same call (`?` placeholders in site.sql). Never read env, process or " +
                 "globals, never call fetch directly, never put a key in the answer. Return a Response (Response.json(...)).",
             },
           },
@@ -1945,7 +1945,7 @@ export const SITE_PAGES_TOOL = {
           "(e.g. save a generated invoice, then return site.files.get(name) to download it).\n" +
           "KEEP IT SAFE: check the request body before using it (the fields, their types and sizes) and answer 400 " +
           "when it is wrong. Anyone can call a visitor's function with any body: never trust an id, role, price or " +
-          "owner flag it sends; look it up with site.sql and check this visitor may do it. A webhook: read the raw " +
+          "owner flag it sends; read it through site.rows as this visitor, so the database checks what this visitor may do. A webhook: read the raw " +
           "body (await request.text()), act only when site.verify(\"KEY_NAME\", signedText, signature) is true, refuse " +
           "a timestamp over 5 minutes old, and record each event id so a replay does nothing. Use only the tables and " +
           "columns the site's schema declares. site.fetch can fail or time out: check r.ok, catch the error, and " +

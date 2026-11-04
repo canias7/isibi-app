@@ -97,7 +97,7 @@ export function vetServerCode({ pages = [], parts = [] } = {}) {
 export const SERVER_REPAIR_RULES = [
   "Keep exactly this shape: `export const hosts = [\"…\"]` (plain addresses it calls) and `export default async function (request: Request, site: SiteHelper): Promise<Response>` (SiteHelper is declared for you; import nothing).",
   "Import nothing. Never read env, process, globalThis, window or self; never call fetch directly; never eval, new Function or import().",
-  "Every outside call is site.fetch(url, init) to a host in `hosts`; an owner's key goes in only as site.key(\"NAME\"); the database is site.sql(text, params).",
+  "Every outside call is site.fetch(url, init) to a host in `hosts`; an owner's key goes in only as site.key(\"NAME\"); the database is site.rows/insert/update/remove as the visitor, and site.sql(text, params) only in a job, a hook or after site.verify(...) proves a signature.",
   "Change only what the check refused; keep everything the function does.",
 ].join("\n");
 

@@ -607,7 +607,7 @@ test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so is a 
   // RE-PINNED 2026-11-04 (owner: "just delete the kit"): the page writer's
   // component list shrank to the 43 files left after the stock components were
   // deleted; nothing else in the request moved.
-  const pinned = { build: "482634168ce2c0ec", revise: "c1f199fcbb27ef19", addon: "3df06543ac36e45b" };
+  const pinned = { build: "574ec48ec7d652b3", revise: "77b0df0394b59098", addon: "60504d36a30f5535" };
   assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
   assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
   // THE ADD-ON'S WRITER MAY ASK (2026-10-11, the generality round: the last

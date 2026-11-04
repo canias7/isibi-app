@@ -81,9 +81,56 @@ function fill(s: string, keys: Record<string, string>): string | null {
 }
 
 /** The helper handed to the model's code. */
-export function makeSite(env: FnEnv, slug: string, hosts: string[], fetcher: typeof fetch = fetch) {
+// ── THE VISITOR'S KEY AND THE MASTER KEY (2026-11-04, owner: option A) ──────
+// Server code a visitor calls works AS THAT VISITOR: `site.rows/insert/update/
+// remove` go through the site's own Data API with the visitor's sign-in (or an
+// anonymous one), so the database's own rules decide what they may see and
+// change — a careless function cannot hand one customer another's orders or let
+// a visitor set a price. `site.sql`, the site's full login, opens only where no
+// visitor is driving: a scheduled job, a hook, or after `site.verify(...)` has
+// proved a signed message (a payment provider's "paid") in this same call.
+export const SQL_CLOSED = "site.sql is the site's full database login. It works only in a scheduled job, a hook, or after site.verify(...) has proved a signed message in this call. A visitor's call works as that visitor: use site.rows, site.insert, site.update and site.remove, which the database's own rules check.";
+const TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
+let anonTokFn = "", anonAtFn = 0;
+async function anonTokenFn(env: FnEnv, fetcher: typeof fetch): Promise<string> {
+  if (anonTokFn && Date.now() - anonAtFn < 60_000) return anonTokFn;
+  if (typeof env.AUTH_BASE !== "string" || !env.AUTH_BASE) return "";
+  const r = await fetcher(env.AUTH_BASE + "/token/anonymous", { headers: { accept: "application/json" } });
+  if (!r.ok) return "";
+  const text = await r.text();
+  let tok = "";
+  try { const j = JSON.parse(text); tok = j.token || j.access_token || j.accessToken || j.jwt || ""; } catch { /* below */ }
+  if (!tok) { const m = /\b(ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/.exec(text); tok = m ? m[1] : ""; }
+  if (tok) { anonTokFn = tok; anonAtFn = Date.now(); }
+  return tok;
+}
+export function makeSite(env: FnEnv, slug: string, hosts: string[], fetcher: typeof fetch = fetch, { visitor = null, trusted = false }: { visitor?: Request | null; trusted?: boolean } = {}) {
   const keys = ownerKeys(env);
   let calls = 0;
+  // THE MASTER KEY IS SHUT FOR A VISITOR'S CALL until a signature is proved.
+  let open = trusted === true;
+  const asVisitor = async (method: string, table: string, query: string, body?: unknown): Promise<unknown> => {
+    if (!TABLE_NAME.test(String(table))) throw new Error("a table name is lowercase letters, digits and _");
+    if (typeof env.DATA_API_BASE !== "string" || !env.DATA_API_BASE) throw new Error("this site has no database");
+    const h = new Headers({ accept: "application/json" });
+    const auth = visitor ? visitor.headers.get("authorization") : null;
+    if (auth && /^Bearer\s+\S+$/i.test(auth)) h.set("authorization", auth);
+    else { const t = await anonTokenFn(env, fetcher).catch(() => ""); if (!t) throw new Error("the site's database could not be reached as this visitor"); h.set("authorization", "Bearer " + t); }
+    if (body !== undefined) { h.set("content-type", "application/json"); h.set("prefer", "return=representation"); }
+    const q = String(query || "").replace(/^\?/, "");
+    const r = await fetcher(env.DATA_API_BASE + "/" + table + (q ? "?" + q : ""), { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+    const text = await r.text();
+    if (!r.ok) throw new Error("the database refused this for this visitor (" + r.status + ")");
+    return text ? JSON.parse(text) : null;
+  };
+  const match = (where: Record<string, unknown>) => {
+    const parts = Object.entries(where || {}).map(([k, v]) => {
+      if (!/^[a-z_][a-z0-9_]{0,62}$/.test(k)) throw new Error("a column name is lowercase letters, digits and _");
+      return encodeURIComponent(k) + "=eq." + encodeURIComponent(String(v));
+    });
+    if (!parts.length) throw new Error("name the rows to change, e.g. { id: 3 }");
+    return parts.join("&");
+  };
   return {
     slug,
     /** A stand-in for the owner's key: usable only inside `site.fetch`. */
@@ -93,6 +140,14 @@ export function makeSite(env: FnEnv, slug: string, hosts: string[], fetcher: typ
     },
     /** Whether the owner has set a key, without its value. */
     hasKey(name: string): boolean { return Object.hasOwn(keys, String(name)); },
+    /** Rows of a table AS THIS VISITOR may see them (the database's own rules). `query` is the Data API's, e.g. "select=name,price&order=name". */
+    async rows(table: string, query = ""): Promise<Record<string, unknown>[]> { const r = await asVisitor("GET", table, query); return Array.isArray(r) ? (r as Record<string, unknown>[]) : []; },
+    /** Add a row AS THIS VISITOR; refused when the table does not take visitors' rows. */
+    async insert(table: string, row: Record<string, unknown>): Promise<Record<string, unknown> | null> { const r = await asVisitor("POST", table, "", row); return Array.isArray(r) ? ((r[0] as Record<string, unknown>) || null) : null; },
+    /** Change rows AS THIS VISITOR (only their own, where the table allows it). */
+    async update(table: string, where: Record<string, unknown>, set: Record<string, unknown>): Promise<Record<string, unknown>[]> { const r = await asVisitor("PATCH", table, match(where), set); return Array.isArray(r) ? (r as Record<string, unknown>[]) : []; },
+    /** Remove rows AS THIS VISITOR (only their own, where the table allows it). */
+    async remove(table: string, where: Record<string, unknown>): Promise<void> { await asVisitor("DELETE", table, match(where)); },
     /**
      * WHETHER A SIGNATURE IS GENUINE, without the key ever reaching this code
      * (2026-10-29): an outside service (Stripe's "paid", a form service) signs
@@ -112,6 +167,8 @@ export function makeSite(env: FnEnv, slug: string, hosts: string[], fetcher: typ
       const x = new Uint8Array(a), y = new Uint8Array(b);
       let diff = 0;
       for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+      // A PROVED SIGNATURE opens the full login for the rest of this call.
+      if (diff === 0) open = true;
       return diff === 0;
     },
     async fetch(url: string, init: RequestInit = {}): Promise<Response> {
@@ -150,6 +207,7 @@ export function makeSite(env: FnEnv, slug: string, hosts: string[], fetcher: typ
       },
     },
     async sql(text: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
+      if (!open) throw new Error(SQL_CLOSED);
       if (!env.APP_CONN) throw new Error("this site has no database");
       return siteSql(String(env.APP_CONN), String(text), params);
     },
@@ -228,7 +286,7 @@ export async function siteFunction(request: Request, env: FnEnv, url: URL, slug:
   if (wait) return limited(wait);
   let res: unknown;
   try {
-    res = await (mod.default as (r: Request, s: Site) => unknown)(request, makeSite(env, slug, declaredHosts(mod)));
+    res = await (mod.default as (r: Request, s: Site) => unknown)(request, makeSite(env, slug, declaredHosts(mod), fetch, { visitor: request }));
   } catch (e) {
     const msg = String((e as Error)?.message || e).slice(0, 300);
     await logFnError(env, m[2], "answering a visitor", msg);
@@ -288,7 +346,7 @@ export async function fireHooks(env: FnEnv, slug: string, event: string, data: {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ event, table: data.table || null, row: data.row ?? null }),
       });
-      await (m.default as (r: Request, s: Site) => unknown)(req, makeSite(env, slug, declaredHosts(m)));
+      await (m.default as (r: Request, s: Site) => unknown)(req, makeSite(env, slug, declaredHosts(m), fetch, { trusted: true }));
     } catch (e) { await logFnError(env, nameOf(m, mods), "on " + event, String((e as Error)?.message || e)); }
   }));
   return due.length;
@@ -365,7 +423,7 @@ export async function fireSchedules(env: FnEnv, slug: string, now = Date.now(), 
       fired++;
       try {
         const req = new Request("https://" + slug + ".hook/__gf/hook", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: hook, table: null, row: null }) });
-        await (m.default as (r: Request, s: Site) => unknown)(req, makeSite(env, slug, declaredHosts(m)));
+        await (m.default as (r: Request, s: Site) => unknown)(req, makeSite(env, slug, declaredHosts(m), fetch, { trusted: true }));
       } catch (e) { await logFnError(env, nameOf(m, mods), "on its schedule", String((e as Error)?.message || e)); }
     }
   }
