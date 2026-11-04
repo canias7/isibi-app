@@ -200,3 +200,9 @@ All seven critical gaps confirmed:
 - M-17: `syncFromRun` (~656) never calls `outOfScope`.
 - M-18: `lintPages` runs only in `publishPages` (first builds, publish-pages.mjs:1578); agent edits go through `recompileAndPublish`, which never calls it.
 - M-19: `site.sql` in server code runs on `APP_CONN` (template/src/lib/site-functions.ts:152).
+
+
+## Owner decisions taken (2026-11-04)
+- **Charge every token** (asking, nothing done, removals, moves, logo, splits): M-1, M-2, M-3 and M-12's charging half are **not gaps** — closed by decision. The reply must still say truthfully what was and wasn't done.
+- **Price first for new features and full rewrites**: M-7 and M-8 are to be built (the agent shows plan + estimate and waits for a yes).
+- Still open: the 24-hour question expiry (M-88), healing blank database links (M-32), fixed-text vs model-written failure endings (M-83), and whether one message may publish several times (M-65).

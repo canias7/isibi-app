@@ -13,6 +13,13 @@
 >
 > "You" below is the owner: these notes are written to them.
 
+## Charging on the agent path (2026-11-04)
+
+> Asked whether questions, "nothing was done" endings and removals should be free again: *"we charge for every single token"*, *"charge for every token"*, removals *"charged by usage"*.
+
+- **Every token the agent uses is charged**: a run that ends by asking the owner a question, a run that changes nothing ("already like that", gave up, not found), page removals, page moves and logo changes, and the rounds before a split. This replaces the older free rules (2026-09-08 "a delete must never cost", 2026-09-17 nothing-to-save free, 2026-10-24/25 "already so" free, split routing free).
+- **Price first** (2026-11-04, *"Yes, new features + rewrites"*): before a new feature (payments, bookings, a new page and the like) or a full rewrite, the agent shows the plan and an estimated cost and waits for the owner's yes. Small changes go straight ahead.
+
 ## The big agent inherits everything (2026-11-04)
 
 > *"all of this was already built and we switch to big agent and everything disappear … the only thing I wanted you to change was the way things were done, like before there was a router for a lot of things, but mainly what I wanted was all those converted into the big agent."*
