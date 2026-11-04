@@ -5223,7 +5223,9 @@ body { font-family: var(--display); color: var(--ink); -webkit-font-smoothing: a
 .st-keycard .kc-done { font-size: .84rem; font-weight: 650; color: #1a7f45; }
 .st-keycard .kc-row.is-set .kc-label, .st-keycard .kc-row.is-set .kc-why { display: none; }
 .st-keycard .kc-err { font-size: .8rem; color: #b42318; }
-.st-keycard .kc-foot { display: flex; justify-content: flex-end; }
+.st-keycard .kc-foot { display: flex; justify-content: flex-end; align-items: center; gap: .9rem; }
+.st-keycard .kc-cancel { font: inherit; font-size: .85rem; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; }
+.st-keycard .kc-cancel:hover { color: var(--text); }
 .kc-warn { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .8rem; padding: .45rem .6rem; margin-bottom: .4rem; border-radius: 10px; border: 1px solid #f0c36d; background: #fff8e6; color: #5c4400; }
 .kc-warn span { flex: 1; min-width: 12rem; }
 .kc-warn button { font: inherit; font-size: .78rem; font-weight: 650; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); padding: .25rem .6rem; cursor: pointer; }

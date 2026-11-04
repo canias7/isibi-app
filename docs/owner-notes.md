@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Cancel on the key box (branch `park-old-way`; not deployed)
+
+On the owner's word ("it has a save button, but it would need something to cancel"). The key box has Cancel beside Save: the box closes, anything typed in it is cleared, nothing is saved or sent, and the same ask does not reopen it on this page (a new key does). Shown in a screenshot; the key-card tests pass.
+
 ## 2026-11-04 — Keys first, then the work (branch `park-old-way`; not deployed)
 
 On the owner's word (Market Lane's Stripe change built everything, 47 credits, and only then showed the key box: "it should first pull up the box for the keys, and when it gets the keys, it starts working … what if the user doesn't put the key? It worked for no reason"). When the agent asks for a key that is not set (`request_key`) and the owner can be asked, its turn ends with a question and the key box together: "To set this up I need your key(s) … Paste them in the box below, then press Keys added." with the site's real address, and two answers, "Keys added, continue" and "Build it anyway". It asks once: a key already set, or an answer already given, lets the work go on. Helpers and runs with no question door carry on as before. The agent's rules say to ask for every key a feature needs together, before writing its code. Tests: `test/keys-first.test.mjs` (4); `key-card` updated for the new turn end. Full suite 9,632, 1 failing (media-verify's browser mode). Not run with a real model.

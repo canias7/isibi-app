@@ -16711,12 +16711,18 @@ async function siteDatabase(site) {
 // the stored thread, and is re-attached after each redraw so a half-typed key
 // is not lost.
 const siteKeyCards = new Map();
+// CANCEL (owner, 2026-11-04: "it has a save button, but it would need something to
+// cancel … what if the user just regrets at the moment"): the names closed per
+// project, so the same ask does not open the box again; a new key does.
+const siteKeyCardsClosed = new Map();
 function siteKeySlug(s) { return (s && (s.slug || (s.liveUrl || '').split('/s/')[1])) || ''; }
 function siteKeyCardOffer(siteId, list, extra) {
   if (typeof KeyCard === 'undefined') return;
   const keys = KeyCard.needKeys(list);
   const s = siteById(siteId);
   if (!s || !siteKeySlug(s) || (!keys.length && !extra)) return;
+  { const closed = siteKeyCardsClosed.get(siteId); const names = keys.map((k) => k.name).concat(extra && extra.name ? [extra.name] : []);
+    if (closed && names.length && names.every((n) => closed.has(n))) return; }
   let c = siteKeyCards.get(siteId);
   if (!c) { c = { keys: [], set: new Set(), el: null, draft: null }; siteKeyCards.set(siteId, c); }
   for (const k of keys) if (!c.keys.some((x) => x.name === k.name)) c.keys.push(k);
@@ -16738,6 +16744,17 @@ function siteReqKeyCard(siteId, b) {
   const c = siteKeyCards.get(siteId);
   const fresh = list.filter((k, i) => k && typeof k.name === 'string' && list.findIndex((y) => y && y.name === k.name) === i && !(c && c.keys.some((x) => x.name === k.name)));
   if (fresh.length) siteKeyCardOffer(siteId, fresh);
+}
+/** Cancel: the box goes, with whatever was typed in it; nothing is saved or sent. */
+function siteKeyCardClose(siteId) {
+  const c = siteKeyCards.get(siteId);
+  if (!c) return;
+  const closed = siteKeyCardsClosed.get(siteId) || new Set();
+  for (const k of c.keys) closed.add(k.name);
+  siteKeyCardsClosed.set(siteId, closed);
+  try { for (const i of c.el ? c.el.querySelectorAll('input') : []) i.value = ''; } catch (e) { /* nothing typed */ }
+  if (c.el) c.el.remove();
+  siteKeyCards.delete(siteId);
 }
 // Which of the names are already set: the keys route's list, names only.
 async function siteKeyCardRead(siteId) {
@@ -16766,8 +16783,9 @@ function siteKeyCardDraw(siteId) {
     c.el.innerHTML = '<div class="kc-box"><div class="kc-head"><span class="kc-lock" aria-hidden="true"></span><b>Keys your site needs</b></div>' +
       '<p class="kc-note">Saved straight to your site’s encrypted keys. The builder never sees them.</p>' +
       '<div class="kc-rows"></div><div class="kc-err" role="alert" hidden></div>' +
-      '<div class="kc-foot"><button type="button" class="st-publish kc-save">Save</button></div></div>';
+      '<div class="kc-foot"><button type="button" class="kc-cancel">Cancel</button><button type="button" class="st-publish kc-save">Save</button></div></div>';
     c.el.querySelector('.kc-save').onclick = () => siteKeyCardSave(siteId);
+    c.el.querySelector('.kc-cancel').onclick = () => siteKeyCardClose(siteId);
   }
   const rows = c.el.querySelector('.kc-rows');
   for (const k of c.keys) {
