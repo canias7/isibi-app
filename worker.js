@@ -199,7 +199,7 @@ import { readProjectList, readProjectFiles, saveProject, overlayEntries, mirrorW
 
 import { ownPartsSite } from "./builder/site-frame.mjs";
 import { noteProgress } from "./builder/job-progress.mjs";
-import { runSiteAgent, stoppedFacts, historyText, asWriterAnswer, agentAttachments, agentAttachmentsFromBlocks } from "./builder/site-agent.mjs";
+import { runSiteAgent, stoppedFacts, historyText, HISTORY_UNREADABLE, asWriterAnswer, agentAttachments, agentAttachmentsFromBlocks } from "./builder/site-agent.mjs";
 import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { pdfText } from "./builder/pdf-text.mjs";
 import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "./builder/agent-carry.mjs";
@@ -16923,7 +16923,16 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // WHAT WAS SAID BEFORE (2026-10-28): the chat's recent messages, so "make it
   // bigger" and the answer to an earlier question mean what they meant.
   let history = "";
-  try { const c = cleanChatId(chat); if (uid && c) { const cur = await chatStoreRead(env, chatStoreKey(uid, c)); if (cur.read && cur.chat) history = historyText(cur.chat.msgs); } } catch { history = ""; }
+  // UNREADABLE IS NOT EMPTY (2026-11-04, carry-over G4): a chat that could not be
+  // read tells the agent so; only a chat that really has no messages is empty.
+  try {
+    const c = cleanChatId(chat);
+    if (uid && c) {
+      const cur = await chatStoreRead(env, chatStoreKey(uid, c));
+      if (cur.read && cur.chat) history = historyText(cur.chat.msgs, { summary: typeof cur.chat.summary === "string" ? cur.chat.summary : "" });
+      else if (!cur.read) history = HISTORY_UNREADABLE;
+    }
+  } catch { history = HISTORY_UNREADABLE; }
   // THE FILES ON THIS MESSAGE (2026-10-30): before, the agent was given none.
   const inFiles = agentAttachments(Array.isArray(images) ? images.slice(0, MAX_ATTACHMENTS) : []);
   // THE OLD STEPS' WIRING (2026-10-30, `builder/agent-steps.mjs`). The screen
@@ -24968,6 +24977,7 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   const draft = newRequest({
     labels,
     key, uid, slug, message,
+    chat: typeof rb.chat === "string" ? rb.chat : "",
     picker: typeof rb.picker === "string" ? rb.picker : "",
     effort: env && XAI_EFFORTS.includes(env.BUILD_EFFORT) ? env.BUILD_EFFORT : "",
     tz: typeof rb.tz === "string" ? rb.tz : "",

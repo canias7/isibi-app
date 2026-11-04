@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Carry-over 1 of 12: the agent hears the conversation on every path (branch `claude/cool-fermat-a06gie`; not deployed)
+
+The real fix for "delete that". Most messages are filed as a request and run later as a job; that path dropped the chat id, so the agent heard no history even after tonight's page fix. Now the request keeps the chat it came from and every job it files sends it. The history is also longer (last 30 messages, up to 1,500 characters each), never cut silently (the agent is told how many earlier messages it can't see, with the chat's summary when there is one, and to ask if the request depends on them), and a chat that can't be read is said to the agent instead of looking like "nothing was said". Tests: `test/edit-sends-chat.test.mjs` through the real request path (fails on the old code).
+
 ## 2026-11-04 — Audit 2, session 0: every builder line has an owner (branch `claude/cool-fermat-a06gie`)
 
 The builder audit started. Session 0 made the map: 290 files and 182,829 lines, every function (and every route of the server's big request handler) assigned to one of the plan's areas or named as outside the builder by your scope. A script fails if any line is left without an owner. About 171,000 lines are in the audit; the biggest areas are edits and additions (41,000 lines) and the first build (27,000). Found on the way: four builder files (1,380 lines) that nothing uses anymore. Next: session 1, the agent and requests. Plan and map: `docs/audits/2026-11-04-audit-plan.md`.

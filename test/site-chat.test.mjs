@@ -399,7 +399,8 @@ test("the chat is read from the request ONCE, on a first build, through the refu
   assert.match(w, /const chat = cleanChatId\(sb\.chat\);/, "the build stop's chat reader is gone or changed");
   // AND A SIXTH (2026-10-28, the site agent): the agent reads the conversation
   // through the refusal, on the verified owner's own stored chat; it decides no site.
-  assert.match(w, /const c = cleanChatId\(chat\); if \(uid && c\) \{ const cur = await chatStoreRead\(env, chatStoreKey\(uid, c\)\);/, "the agent's chat reader is gone or changed");
+  // (2026-11-04: written over several lines, an unreadable chat now said to the agent.)
+  assert.match(w, /const c = cleanChatId\(chat\);\s*if \(uid && c\) \{\s*const cur = await chatStoreRead\(env, chatStoreKey\(uid, c\)\);/, "the agent's chat reader is gone or changed");
   assert.equal(reads.length, 7, "the chat id is read in an unexpected number of places: " + reads.length);
   assert.match(w, /const chatId = firstBuild \? cleanChatId\(body\.chat\) : "";/,
     "the chat is no longer read only on a first build, through the refusal");

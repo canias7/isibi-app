@@ -48,6 +48,7 @@
 // additions), which needs which (`dependsOn`), what each part is and where it
 // goes (the router, every step) — never a keyword, and never the position of
 // words in the message, which only breaks ties between parts with no relation.
+import { cleanChatId } from "./site-chat.mjs";
 import { heldList, heldParts, wordsIn, wordSpans, readSpans, readContext, EDIT_LAYERS, messageItems } from "./route-shared.mjs";
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS } from "./input-budget.mjs";
 import { REQUEST_KEY_RE } from "./clarify.mjs";
@@ -308,7 +309,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
  */
 /** The reasoning efforts a request may carry (xAI's own). */
 const REQUEST_EFFORTS = ["low", "medium", "high", "xhigh"];
-export function newRequest({ key, uid, slug, message, picker = "", effort = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], attempt = "", labels = null, at = Date.now() } = {}) {
+export function newRequest({ key, uid, slug, message, chat = "", picker = "", effort = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], attempt = "", labels = null, at = Date.now() } = {}) {
   if (!isRequestKey(key) || typeof uid !== "string" || !uid || !isRequestSlug(slug)) return null;
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > MAX_INPUT_CHARS) return null;
@@ -317,6 +318,10 @@ export function newRequest({ key, uid, slug, message, picker = "", effort = "", 
   const rec = {
     v: REQUEST_V, key, uid, slug, at, updatedAt: at, rev: 1,
     message: text,
+    // THE CHAT IT CAME FROM (2026-11-04, carry-over G4): every job a part files
+    // carries it, so the agent reads the conversation so far on this path too
+    // (it was dropped here, and "delete that" reached the agent alone).
+    chat: cleanChatId(chat) || "",
     picker: typeof picker === "string" ? picker : "",
     // THE CUSTOMER'S EFFORT (2026-10-20): every part's job is filed with it.
     ...(REQUEST_EFFORTS.includes(effort) ? { effort } : {}),
@@ -2790,6 +2795,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       body: {
         message: words, site: digest, picker: rec.picker, ...(REQUEST_EFFORTS.includes(rec.effort) ? { effort: rec.effort } : {}), firstBuild: false, brief: words, qa: [],
         answering: false, attached: rec.files.length > 0 || rec.attached, slug: rec.slug, hasSite: true, idem: key, request,
+        ...(cleanChatId(rec.chat) ? { chat: rec.chat } : {}),
         ...(scope ? { scope } : {}),
       },
     };
@@ -2818,6 +2824,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       url: "/api/site/" + encodeURIComponent(rec.slug) + "/addon",
       body: {
         instruction: runs, picker: rec.picker, ...(REQUEST_EFFORTS.includes(rec.effort) ? { effort: rec.effort } : {}), idem: key, tz: rec.tz,
+        ...(cleanChatId(rec.chat) ? { chat: rec.chat } : {}),
         // THE PAGES AS THEY WERE IDENTIFIED (`labels`, round 11), on its
         // preparation and its job alike, so both make the same request.
         ...(readLabels(rec.labels) ? { labels: readLabels(rec.labels) } : {}),
@@ -2869,6 +2876,7 @@ export function jobBody(rec, n, kind, key, { files = [] } = {}) {
       // AN ADDITION'S MARKED FRAMES TO FILL (round 5): the picture step places
       // each one's purchase, with no model call.
       place: Array.isArray(d.place) && d.place.length ? d.place.map((x) => ({ id: x.id, d: x.d, k: x.k, file: x.file, files: Array.isArray(x.files) ? x.files : [x.file].filter(Boolean), located: x.located !== false })) : undefined,
+      ...(cleanChatId(rec.chat) ? { chat: rec.chat } : {}),
       idem: key,
       request,
     },

@@ -1560,10 +1560,20 @@ export function stoppedFacts(r) {
 }
 
 /** The conversation's recent messages, as the agent's first message carries them. */
-export function historyText(msgs, { max = 12, chars = 600 } = {}) {
+export function historyText(msgs, { max = 30, chars = 1500, summary = "" } = {}) {
   const list = (Array.isArray(msgs) ? msgs : []).filter((m) => m && (m.r === "u" || m.r === "a") && typeof m.t === "string" && m.t.trim());
-  return list.slice(-max).map((m) => (m.r === "u" ? "Owner: " : "You: ") + (m.t.length > chars ? m.t.slice(0, chars - 1) + "…" : m.t).replace(/\s+/g, " ").trim()).join("\n");
+  const lines = list.slice(-max).map((m) => (m.r === "u" ? "Owner: " : "You: ") + (m.t.length > chars ? m.t.slice(0, chars - 1) + "…" : m.t).replace(/\s+/g, " ").trim());
+  // NEVER CUT SILENTLY (2026-11-04, carry-over G4): when older messages are not
+  // shown the agent is told, and given the chat's kept summary when there is
+  // one, so it asks instead of guessing what an earlier message said.
+  const older = list.length - Math.min(list.length, max);
+  const head = [];
+  if (typeof summary === "string" && summary.trim()) head.push("Earlier in this chat (summary): " + summary.trim().slice(0, 4000));
+  if (older > 0) head.push("(" + older + " earlier message" + (older === 1 ? "" : "s") + " not shown" + (summary ? ", summarised above" : "") + ". If the request depends on them, ask.)");
+  return [...head, ...lines].join("\n");
 }
+/** What the agent is told when the chat could not be read: unknown, never "nothing was said". */
+export const HISTORY_UNREADABLE = "(The conversation so far could not be read just now. If the request refers to something said before, such as \"that\" or \"it\", ask what it means instead of guessing.)";
 
 /** Several rounds on one model as ONE usage object (one bill, one rounding). */
 export function sumUsage(usage, model) {
