@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Keys first, then the work (branch `park-old-way`; not deployed)
+
+On the owner's word (Market Lane's Stripe change built everything, 47 credits, and only then showed the key box: "it should first pull up the box for the keys, and when it gets the keys, it starts working … what if the user doesn't put the key? It worked for no reason"). When the agent asks for a key that is not set (`request_key`) and the owner can be asked, its turn ends with a question and the key box together: "To set this up I need your key(s) … Paste them in the box below, then press Keys added." with the site's real address, and two answers, "Keys added, continue" and "Build it anyway". It asks once: a key already set, or an answer already given, lets the work go on. Helpers and runs with no question door carry on as before. The agent's rules say to ask for every key a feature needs together, before writing its code. Tests: `test/keys-first.test.mjs` (4); `key-card` updated for the new turn end. Full suite 9,632, 1 failing (media-verify's browser mode). Not run with a real model.
+
 ## 2026-11-03 — Stop and the queue: five fixes (branch `park-old-way`; not deployed)
 
 On the owner's word ("fix those five"). (1) ✕ on a waiting message whose cancel fails brings the chip back at once (the next poll already did, slowly). (2) Stop pressed while a message is still on its way also stops its request on the server, under the message's own key, asked a few times until the request exists. (3) A message waiting its turn again after an answer or a top-up has its own ✕. (4) No time limit on the line: one request runs on a site at a time however long it runs (was one hour). (5) Send while something is still working says so ("Still working on your last message — yours stays here") and keeps the words. Also the Stop button's Stopping state kept the box's existing shape. Tests: `test/stop-queue-browser.test.mjs` (4; SQ2–SQ4 fail on the old page), `msg-queue` MQ4 updated, `site-busy-per-project` updated for (5). Full suite 9,628, 1 failing (media-verify's browser mode, as before).

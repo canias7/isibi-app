@@ -17100,7 +17100,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   }
   if (ag.ask) {
     tm("agent:ask", "ok", { options: ag.ask.options.length });
-    return { status: 200, body: { ok: false, error: "clarify", layer: "agent", cost: await charge(), unchanged: true, ask: ag.ask, msg: ag.ask.text, agent: steps, deferred: [] } };
+    // ...WITH THE KEY BOX when the question is for keys (2026-11-03: keys first, then the work).
+    return { status: 200, body: { ok: false, error: "clarify", layer: "agent", cost: await charge(), unchanged: true, ask: ag.ask, msg: ag.ask.text, agent: steps, deferred: [], ...(await askedKeys()) } };
   }
   const setKeys = Object.keys(ag.settings || {});
   let renames = Object.entries(ag.redirects || {});

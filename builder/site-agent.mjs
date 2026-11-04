@@ -290,7 +290,7 @@ export const SERVER_RULES = `
 
 SERVER CODE: THE OWNER'S RULES (these come first):
 1. SECURITY FIRST. Before a function writes or reveals anything, check who is calling: the signed-in visitor or the record they claim, looked up with site.sql, and answer 401 or 403 when they may not. Validate every input (each field's presence, type, size and allowed values) and answer 400 when it is wrong. Never put a key, token or secret in page code: only server code holds keys, through site.key. Every function is already limited per visitor per minute; a public endpoint that can be abused (a form, a sign-up, a booking) also limits itself: count recent requests from the caller's address (request.headers.get("cf-connecting-ip")) in a site table, and answer 429 past the limit.
-2. KEYS. An outside service (payments, email, text messages, AI and the rest) always runs on the owner's own key from the site's secrets: site.hasKey("NAME") first, then site.key("NAME"). When it is missing, the function answers 503 with a clear "not set up yet", and finish names exactly which key the owner must add. Never build something that fails silently. When list_keys is offered, use it to see which keys are set. When the owner still has to add a key, call request_key with its name: the chat collects the value in a secure box you never see. Never ask the owner to type or paste a key into the chat.
+2. KEYS. An outside service (payments, email, text messages, AI and the rest) always runs on the owner's own key from the site's secrets: site.hasKey("NAME") first, then site.key("NAME"). When it is missing, the function answers 503 with a clear "not set up yet", and finish names exactly which key the owner must add. Never build something that fails silently. When list_keys is offered, use it to see which keys are set. When the owner still has to add a key, call request_key with its name: the chat collects the value in a secure box you never see. Never ask the owner to type or paste a key into the chat. KEYS FIRST: once the owner has chosen the service, call request_key for EVERY key the feature needs, together, BEFORE writing any of its code; the owner is asked and your turn ends, and you start the work when they answer "Keys added, continue". If they answer "Build it anyway", build it so it works once the keys are added. A key the owner can only make after choosing an address (a webhook signing secret) is asked in the same batch: the question gives this site's real address, and you say in finish exactly where to add it.
    WHICH SERVICE. Never choose the provider yourself. When the request names only a kind of service ("email", "payments", "texts", "AI") and not which company, do not assume one (not Resend, not Stripe, not Twilio, not any): when ask_owner is offered, CALL ask_owner to ask which one they use before you write its code or request its key, with the common ones as its options (email: Resend, SendGrid, Mailgun, Postmark; payments: Stripe, PayPal, Square; texts: Twilio, Vonage). When ask_owner is not offered, write no provider's code and request no key: say in finish that the owner must say which service they use. Use the provider the owner named, or the one the site's code or set keys already use.
    ASK WITH ask_owner, NEVER IN finish. Whenever the owner must choose (which service, which of two pages, which option), and ask_owner is offered, call ask_owner with the choices as its options: a question written in finish reaches them with no answers to tap and nothing waits for their answer.
 3. WEBHOOKS. Verify the signature with site.verify before trusting anything in the message. The same event can arrive twice: store each event's id in a site table (a unique column) and do nothing for one already stored, so the work is never done twice.
@@ -1021,6 +1021,26 @@ async function runTool(use, st, deps) {
         // credits or a failure never carried. Names only; never costs the run.
         if (typeof deps.onKeyAsk === "function") { try { await deps.onKeyAsk({ ...k.key }); } catch { /* the reply still carries it */ } }
       }
+      // KEYS FIRST, THEN THE WORK (owner, 2026-11-03: "it should first pull up the
+      // box for the keys, and when it gets the keys, it starts working … what if
+      // the user doesn't put the key? It worked for no reason"). Where the owner
+      // can be asked, a key not yet set ENDS THE TURN with a question: the box
+      // shows, and they answer "Keys added, continue" or "Build it anyway".
+      // Not when the key is already set, not for a helper, and not once the
+      // owner chose to build without it.
+      if (!st.onlyWrite && typeof deps.canAsk === "function" && deps.canAsk() && !keysWaived(st)) {
+        let set = null;
+        if (typeof deps.listKeys === "function") { try { set = keyNames(await deps.listKeys()); } catch { set = null; } }
+        const missing = st.keysAsked.filter((x) => !(Array.isArray(set) && set.includes(x.name)));
+        if (missing.length) {
+          let url = "";
+          if (typeof deps.siteUrl === "function") { try { url = String((await deps.siteUrl()) || ""); } catch { url = ""; } }
+          const names = missing.map((x) => x.name).join(" and ");
+          st.ask = { text: "To set this up I need " + (missing.length === 1 ? "your key " : "your keys ") + names + ". Paste " + (missing.length === 1 ? "it" : "them") + " in the box below, then press Keys added." + (url ? " This site's address is " + url.replace(/\/$/, "") + "." : ""), options: [KEYS_ADDED, KEYS_WAIVED] };
+          st.done = true;
+          return { text: "Asked the owner for " + names + " (they see a secure box). Your turn ends here; ask for every other key this feature needs in this same batch, and write no code for it yet." };
+        }
+      }
       return { text: "The owner will be shown a secure box for " + k.key.name + " in the chat. You will not see its value. Make the code read it with site.hasKey/site.key, and carry on." };
     }
     case "change_schema": {
@@ -1295,6 +1315,11 @@ export function roundFacts(outcomes) {
  * `{ ok, stopped, pages, parts, changed, summary, usage, credits, rounds, builds }`.
  * `ok` is true only when the agent finished on a passing build.
  */
+/** The two answers to a key question (2026-11-03). */
+export const KEYS_ADDED = "Keys added, continue";
+export const KEYS_WAIVED = "Build it anyway";
+/** Whether the owner already answered the key question (added them, or chose to go on without): asked once, never again. */
+function keysWaived(st) { const t = String(st.request || ""); return t.includes("They answered: " + KEYS_WAIVED) || t.includes("They answered: " + KEYS_ADDED); }
 /** A new site has pages once its home page is written and a build has passed. */
 export const NO_PAGES_YET = "this is a new site and it has no pages yet: write the home page (index.tsx) and the other pages, build until it passes, then finish";
 function hasPages(st) { return !!(st.ws.has("index.tsx") && st.built && !st.dirty); }

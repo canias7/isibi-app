@@ -240,7 +240,8 @@ test("a sentinel saved through the keys route reaches the site's Worker and NOTH
     // The next agent run: the owner asks, the agent lists the keys, asks for one more, and finishes.
     setRounds([
       [use("list_keys", {})],
-      [use("request_key", { name: "resend api key", service: "Resend", why: "Sends the order emails" }), use("request_key", { name: "X", value: "nope" })],
+      [use("request_key", { name: "X", value: "nope" })],
+      [use("request_key", { name: "resend api key", service: "Resend", why: "Sends the order emails" })],
       [use("finish", { summary: "Checked the keys." })],
     ]);
     const before = seen.model.length;
@@ -248,7 +249,9 @@ test("a sentinel saved through the keys route reaches the site's Worker and NOTH
     assert.equal(ed.status, 200, ed.text);
     const reply = JSON.parse(ed.text);
     const runs = seen.model.slice(before);
-    assert.ok(runs.length >= 3, "the agent really ran: " + runs.length);
+    // KEYS FIRST (2026-11-03): a key not set ends the turn with the key question, so the run is two rounds.
+    assert.ok(runs.length >= 2, "the agent really ran: " + runs.length);
+    assert.equal(reply.error, "clarify", "a key not set did not end the turn with the key question");
     // The agent learnt only the NAME.
     assert.ok(runs.some((r) => r.includes("The owner has set these keys (names only): STRIPE_SECRET_KEY.")), "list_keys answered the name");
     assert.ok(runs.some((r) => r.includes("request_key takes a NAME only")), "a value handed to request_key was refused");
@@ -315,7 +318,8 @@ test("A KEY ASKED FOR, THEN A PAUSE FOR CREDITS: the pause carries needKeys, the
       [use("finish", { summary: "Done." })],
     ]);
     setBalance((n) => (n >= 1 ? 0 : 500));
-    const ed = await call("/edit", "POST", { layer: "page", page: "/", instruction: "email me new bookings", picker: "sonnet", idem: "idem" + hex(8), chat: chatKey });
+    // THE OWNER ALREADY CHOSE "Build it anyway" (2026-11-03, keys first), so the run goes on to the credit check.
+    const ed = await call("/edit", "POST", { layer: "page", page: "/", instruction: "email me new bookings\n\nWHAT THE OWNER ALREADY ANSWERED\nYou asked: keys?\nThey answered: Build it anyway", picker: "sonnet", idem: "idem" + hex(8), chat: chatKey });
     const body = JSON.parse(ed.text);
     assert.equal(ed.status, 402, ed.text);
     assert.equal(body.detail, "insufficient", "the run paused for credits");
