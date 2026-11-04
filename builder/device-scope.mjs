@@ -261,3 +261,23 @@ export function deviceWishesFact(wishes) {
   if (!list) return "";
   return "Screen-size wishes applied: " + list.map((w) => w.wish + " (" + w.devices.join(" and ") + " only)").join("; ") + ".";
 }
+
+/**
+ * THE DEVICES A MESSAGE LIMITS ITSELF TO (2026-11-04, carry-over M-44): the
+ * router set `devices` from the owner's words; the agent path never did, so a
+ * "phones only" change was never checked at the other widths. Only an explicit
+ * limit counts ("on phones only", "just on mobile", "only on desktop"); a
+ * device merely mentioned ("it looks bad on my phone") does not. `null` when
+ * the message sets no limit.
+ */
+export function devicesInWords(message) {
+  const m = String(message || "").toLowerCase();
+  const word = { phone: "(?:phones?|mobiles?|mobile view|small screens?|cell ?phones?|iphones?|androids?)", tablet: "(?:tablets?|ipads?)", desktop: "(?:desktops?|computers?|laptops?|big screens?|large screens?|pcs?)" };
+  const out = [];
+  for (const d of DEVICES) {
+    const w = word[d];
+    const only = new RegExp("\\b(only|just) (on|for|in) (the )?" + w + "\\b|\\b(on|for) (the )?" + w + " only\\b|\\b" + w + " only\\b|\\bonly (the )?" + w + "\\b");
+    if (only.test(m)) out.push(d);
+  }
+  return out.length && out.length < DEVICES.length ? out : null;
+}

@@ -154,7 +154,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // still name it because they explain that move; neither is a consumer.
 import { budgetFor, imageBrief, imagesNotOffered, notOfferedWhy, pictureOutcomes, withPictureFacts, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shotKey, ownShot, markPending, fillPending, IMAGE_ASPECT, imagePurchasesOn, IMAGE_PURCHASES_OFF } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
-import { readDevices, readLayout, compareLayouts, deviceRefusal, deviceNote, DEVICE_WISHES_FIELD, readDeviceWishes } from "./builder/device-scope.mjs";
+import { readDevices, devicesInWords, readLayout, compareLayouts, deviceRefusal, deviceNote, DEVICE_WISHES_FIELD, readDeviceWishes } from "./builder/device-scope.mjs";
 // WHAT A PUBLISH REALLY CHECKED, kept on its answer for every final reply (2026-10-14).
 import { checksOf, readChecks, DRAFT_SAID } from "./builder/check-evidence.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
@@ -204,7 +204,7 @@ import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mj
 import { pdfText } from "./builder/pdf-text.mjs";
 import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "./builder/agent-carry.mjs";
 import { fileMap, workspaceDiff, changeReport, reviewNote, unaskedLines, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
-import { agentSaidTruth, sideQuestion as agentSideQuestion, schemaRefusals as agentSchemaRefusals } from "./builder/agent-gates.mjs";
+import { agentSaidTruth, sideQuestion as agentSideQuestion, schemaRefusals as agentSchemaRefusals, namedScope as agentNamedScope } from "./builder/agent-gates.mjs";
 import { newImageRefs as agentNewImageRefs, strayImages as agentStrayImages, dropStrayPhotos as agentDropStrays, uploadKeyFor as agentUploadKey } from "./builder/site-images.mjs";
 import { writeAgentRows, undoRows, outcomeFacts, keyFacts, pickMedia } from "./builder/agent-outcome.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
@@ -16746,7 +16746,12 @@ async function applyAgentSchema(env, slug, conn, ops, job = null) {
   let read = await readSiteSchema(conn);
   if (!read.ok) read = await readSiteSchema(conn);
   if (!read.ok) return { ok: false, why: "unreadable" };
-  const writer = await backendWriter(env, slug);
+  // TRIED ON A COPY FIRST (2026-11-04, carry-over M-21): a change held for
+  // Publish is rehearsed as the add-on's is, so a refused table is dropped by
+  // name now instead of blocking Publish later.
+  // What it refused rides back on `made` (refusedRules, functionErrors) into the
+  // facts (M-68); a refusal of the whole change throws, before anything is held.
+  const writer = await backendWriter(env, slug, { rehearse: { mark: () => {} } });
   let base = read.spec;
   if (writer.on) {
     try { const view = await draftView(env, slug); if (view) base = specOverlay(read.spec, view.ops); }
@@ -16954,7 +16959,9 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // lanes were told them (`deviceNote`), and the publish checks the other sizes
   // stayed the same. What the owner answered to earlier questions (`context`)
   // goes beside the request, so an answer resumes the work it was asked for.
-  const devScope = readDevices(devices);
+  // "PHONES ONLY" IS READ FROM THE OWNER'S WORDS when nothing else set it
+  // (2026-11-04, carry-over M-44), so the other widths are checked unchanged.
+  const devScope = readDevices(devices) || readDevices(devicesInWords(words));
   const told = (Array.isArray(context) ? context : []).filter((c) => c && typeof c.q === "string" && typeof c.a === "string");
   const request = [String(words || ""),
     told.length ? "WHAT THE OWNER ALREADY ANSWERED\n" + told.map((c) => "You asked: " + c.q + "\nThey answered: " + c.a).join("\n") : "",
@@ -16973,7 +16980,10 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // they were, the one check before finishing, the write scope a part's
   // answer names, and the version before the change for the undo facts.
   const before = fileMap({ pages, parts, css });
-  const mayWrite = scopeGuard({ pages, parts, routes: scope, look });
+  // ONE PAGE NAMED, ONE PAGE CHANGED (2026-11-04, carry-over M-43): a whole
+  // message that names exactly one page and nothing site-wide is scoped to it
+  // (its components and the site's chrome, never the stylesheet), as a part is.
+  const mayWrite = scopeGuard({ pages, parts, routes: scope || agentNamedScope(request, pages), look });
   let restoreTo = "";
   try { const ptr = await readPointer(buildDeps(env), slug); restoreTo = ptr && typeof ptr.version === "string" ? ptr.version : ""; } catch { restoreTo = ""; }
   const runOnce = (ask, from) => runSiteAgent({
@@ -17430,7 +17440,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // the agent finished before the entries, rules and address were applied, so
   // whatever of those failed, and links left pointing at missing pages, are
   // added to its words from what really happened.
-  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft) });
+  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [] });
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.

@@ -43,7 +43,7 @@ import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.
 import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
-import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr } from "./agent-gates.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -721,6 +721,9 @@ export function writeGate(st, key, src) {
   if (typeof src === "string" && key.startsWith("-parts/" + SERVER_PREFIX)) {
     const names = unchosenProviders(src, String(st.request || "") + "\n" + String(st.history || ""));
     if (names.length) { st.gated = "provider"; return providerRefusal(names); }
+    // A ONE-TIME REMINDER FIRES ONCE (M-46).
+    const rep = repeatingDates(src, String(st.request || "") + "\n" + String(st.history || ""));
+    if (rep.length) return REPEAT_REFUSAL(rep);
   }
   // NO PASTED HTML OR OUTSIDE SCRIPTS (M-23): judged against the file as it is now.
   if (typeof src === "string") { const what = scriptProblem(st.ws.get(key) || "", src); if (what) return SCRIPT_REFUSAL(what); }
@@ -1366,6 +1369,17 @@ async function runTool(use, st, deps) {
       }
       // A QR ADDRESS make_qr NEVER GAVE (M-39) would be a broken picture.
       if (!st.onlyWrite) { const bad = unknownQr(st.ws.files, st.qrMap); if (bad.length) return { error: "these QR addresses were never made by make_qr: " + bad.join(", ") + ". Call make_qr for each code you need and use the address it answers." }; }
+      // THE WORDS THE OWNER ASKED FOR ARE ON THE SITE (M-67), and NO FACTS OF
+      // THE AGENT'S OWN (M-69): each held once; then the reply names them.
+      if (!st.onlyWrite && st.written.size) {
+        const miss = missingWords(st.message, st.ws.files);
+        st.missingWords = miss;
+        if (miss.length && !st.wordsHeld) { st.wordsHeld = true; return { error: MISSING_NOTE(miss) }; }
+        const after = [...st.written].filter((k) => st.ws.has(k)).map((k) => st.ws.get(k)).join("\n");
+        const facts = newFacts(st.origText, after, String(st.request || "") + "\n" + String(st.history || "") + "\n" + st.readText);
+        st.newFacts = facts;
+        if (facts.length && !st.factsHeld) { st.factsHeld = true; return { error: FACTS_NOTE(facts) }; }
+      }
       // PICTURE ADDRESSES THAT HOLD NO FILE (carry-over M-41): held twice; after
       // that the caller empties them (a fillable frame), and the reply says so.
       if (!st.onlyWrite && typeof deps.strays === "function") {
@@ -1497,6 +1511,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, spec: spec && Array.isArray(spec.tables) ? spec : null, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
+    message: String(request || "").split("\n\nWHAT THE OWNER ALREADY ANSWERED")[0], origText: [...ws.files.values()].join("\n"), readText: "",
     qrMap: new Map(), qrRun: Math.random().toString(36).slice(2, 10) || "a",
     questionOnly: !newProject && !onlyWrite && questionOnly(request),
     history: String(history || ""), orig: newProject || ws.fresh ? null : new Set(ws.keys()), origDead: deadLinks(ws.files),
@@ -1520,7 +1535,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       try {
         const left = Math.max(60000, maxMs - (now() - started));
         const r = await runSiteAgent({ send: deps.send, now: deps.now, readTable: deps.readTable, stopped: deps.stopped, alive: deps.alive, affords: deps.affords, beat: deps.beat, ...(typeof deps.mayWrite === "function" ? { mayWrite: deps.mayWrite } : {}), log: (e) => log({ ...e, helper: 1 }) }, {
-          request: "YOU ARE A HELPER. Another agent is working on this site and has handed you ONE file to write: " + t.file + ". Write that file, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first" + (t.after && t.after.length ? " (the files you waited for are written now)" : "") + ". Then finish with one line on what the file holds.\n\nYOUR BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST\n" + String(request || ""),
+          request: "YOU ARE A HELPER. Another agent is working on this site and has handed you ONE file to write: " + t.file + ". Write that file, complete, with write_file, and nothing else (you cannot build; the other agent builds after you). Read the shared files you use first" + (t.after && t.after.length ? " (the files you waited for are written now)" : "") + ". You cannot ask the owner: where your brief leaves a choice only they can make, or a fact they did not give, never guess; put a clearly marked placeholder (e.g. [Opening hours]) and name it in your finish line (carry-over M-90). Then finish with one line on what the file holds.\n\nYOUR BRIEF\n" + t.brief + "\n\nTHE OWNER'S REQUEST\n" + String(request || ""),
           pages: cur.pages(), parts: cur.parts(), css: cur.css(), map, spec, kind, ownParts, model, maxRounds: HELPER_ROUNDS, maxMs: left, onlyWrite: t.file,
         });
         for (const u of r.usage) usage.push(u);
@@ -1617,6 +1632,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     for (let i = 0; i < uses.length; i++) {
       const r = await runTool(uses[i], st, deps);
       alive("tool");
+      // WHAT THE AGENT READ counts as known facts (M-69): attachments, an imported site, tables, docs.
+      if (r && typeof r.text === "string" && ["read_attachment", "import_site", "read_table", "read_docs", "read_files"].includes(uses[i].name) && st.readText.length < 400000) st.readText += "\n" + r.text.slice(0, 100000);
       const block = { type: "tool_result", tool_use_id: ids[i], content: r.error ? r.error : r.text };
       if (r.error) block.is_error = true;
       if (r.reads) Object.defineProperty(block, "reads", { value: r.reads, enumerable: false });
@@ -1659,6 +1676,9 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     deadLinks: st.ask ? [] : (st.deadLinks || []).slice(0, 12),
     // Picture addresses that hold no file, left after the finish was held (M-41).
     strays: st.ask ? [] : (st.strays || []).slice(0, 20),
+    // Words asked for and not found, and details nobody gave, left after one hold (M-67, M-69).
+    missingWords: st.ask ? [] : (st.missingWords || []).slice(0, 8),
+    newFacts: st.ask ? [] : (st.newFacts || []).slice(0, 10),
   };
 }
 

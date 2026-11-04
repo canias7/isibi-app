@@ -143,7 +143,7 @@ export function deadLinkNote(list, max = 12) {
 
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
-export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false } = {}) {
+export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [] } = {}) {
   const own = typeof summary === "string" ? summary.trim() : "";
   if (!own) return "";
   const add = [];
@@ -151,6 +151,10 @@ export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], d
   if (dead.length) add.push("Links that point at pages your site does not have: " + dead.slice(0, 6).map((d) => d.to).join(", ") + ".");
   // M-41: a picture whose address held no file was left as an empty frame.
   if (strays.length) add.push(strays.length + (strays.length === 1 ? " picture was" : " pictures were") + " left empty: the address held no file. Send the photo and I'll put it in.");
+  // M-67: words they asked for that are not on the site.
+  if (missing.length) add.push("Not on the site yet: " + missing.map((w) => "\u201c" + w + "\u201d").join(", ") + ".");
+  // M-69: details that came from nowhere the owner gave; they check them.
+  if (facts.length) add.push("Please check these details, which you didn't give me: " + facts.join(", ") + ".");
   // M-70: the change is in the draft until they press Publish (said once, unless the agent said it).
   if (draft && !/\bpublish/i.test(own)) add.push("These changes are in your draft: press Publish to put them on your live site.");
   return (own + (add.length ? "\n\n" + add.join("\n") : "")).slice(0, 4000);
@@ -316,3 +320,98 @@ export function unknownQr(files, map) {
   }
   return [...out];
 }
+
+// ══ CARRY-OVER BATCH 4 (2026-11-04) ══════════════════════════════════════════
+
+// ── M-43: AN EDIT OF ONE PAGE STAYS ON THAT PAGE ─────────────────────────────
+const SITE_WIDE = /\b(every|all|each|other) pages?\b|\bsite[- ]?wide\b|\beverywhere\b|\b(whole|entire|full) (site|website)\b|\bheader\b|\bfooter\b|\bmenu bar\b|\bnav(igation|bar)?\b|\blogo\b|\bcolou?rs?\b|\bfonts?\b|\btheme\b|\bstyles?\b|\bbrand(ing)?\b|\bsite name\b|\bacross\b/i;
+const routeName = (k) => (k === "index.tsx" ? "/" : "/" + k.replace(/\.tsx$/, "").replace(/\/index$/, ""));
+
+/**
+ * THE ONE PAGE A MESSAGE NAMES: `["/about"]` when the owner's words name
+ * exactly one of the site's pages ("/about", "the about page", "home page")
+ * and nothing site-wide; `null` otherwise (the agent writes anywhere, as before).
+ */
+export function namedScope(message, pages) {
+  const m = " " + String(message || "").toLowerCase() + " ";
+  if (SITE_WIDE.test(m)) return null;
+  // A MOVE OR A LINK REACHES ANOTHER ADDRESS by its nature: never scoped.
+  if (/\brenam|\bmove|\bcall (it|the|this)\b|\baddress\b|\burl\b|\blinks?\b|\bredirect/.test(m)) return null;
+  const hit = new Set();
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.path !== "string" || p.path.includes("$") || p.path.includes("[")) continue;
+    const r = routeName(p.path);
+    if (r === "/") { if (/\bhome ?page\b|\bhome page\b|\blanding page\b|\bfront page\b/.test(m)) hit.add("/"); continue; }
+    const name = r.slice(1).replace(/[-_/]/g, " ");
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (m.includes(" " + r + " ") || m.includes(" " + r + "/") || m.includes(r + "?") || m.includes(r + ".") || m.includes(r + ",") || new RegExp("\\b(the |my |our )?" + esc + " page\\b").test(m) || new RegExp("\\bon (the |my )?" + esc + "\\b").test(m)) hit.add(r);
+  }
+  return hit.size === 1 ? [...hit] : null;
+}
+
+// ── M-46: A ONE-TIME REMINDER FIRES ONCE ─────────────────────────────────────
+// A schedule has no "once": "remind me on the 3rd of March" written as
+// cron:0 9 3 3 * comes round every year. Unless the owner's words ask for a
+// repeat, a schedule fixed to a day of the month must be guarded with its year
+// in the code, so it runs once.
+const REPEAT_WORDS = /\b(every|each|monthly|yearly|annually|weekly|daily|recurring|repeat(ing)?|always)\b/i;
+
+/** The fixed-date schedules in a server part that would repeat although no repeat was asked. */
+export function repeatingDates(source, words) {
+  if (REPEAT_WORDS.test(String(words || ""))) return [];
+  const out = [];
+  for (const m of String(source || "").matchAll(/["']cron:(?:TZ=\S+\s+)?([0-9*,/-]+)\s+([0-9*,/-]+)\s+([0-9*,/-]+)\s+([0-9*,/-]+)\s+([0-9*,/-]+)["']/g)) {
+    const [, , , day] = m;
+    if (/^\d{1,2}$/.test(day)) out.push(m[0].slice(1, -1));
+  }
+  if (!out.length) return [];
+  return /\b20\d\d\b/.test(String(source || "")) ? [] : out;
+}
+
+export const REPEAT_REFUSAL = (crons) => "NOT WRITTEN: " + crons.join(", ") + " comes round again every month or year, but the owner asked for it once. " +
+  "Keep the schedule and, at the top of the function, do nothing unless the current date (in the schedule's zone) is in the year it is for (write the year in the code), so it runs once; or, if they want it to repeat, ask them.";
+
+// ── M-67: WORDS THE OWNER ASKED FOR ARE ON THE SITE ──────────────────────────
+// Quoted words the owner asked to be put on the site ("make the heading say
+// 'Fresh daily'") must be found in a file after the change. Only quotes that
+// follow a word asking for them are read; a quote of what is there now is not.
+const ASKED_QUOTE = /\b(?:to|say|says|saying|read|reads|reading|with|add|adding|called|named|titled|as|text|heading|button|label|tagline|slogan)\s*:?\s*["“‘']([^"”’']{3,160})["”’']/gi;
+const flat = (s) => String(s || "").toLowerCase().replace(/&amp;/g, "&").replace(/&apos;|&#39;|’/g, "'").replace(/\{["'`]\s*["'`]\}/g, "").replace(/\s+/g, " ");
+
+/** Quoted words the owner asked for that no file holds after the change. */
+export function missingWords(message, files) {
+  const all = flat([...(files instanceof Map ? files.values() : Object.values(files || {}))].join("\n"));
+  const out = [];
+  for (const m of String(message || "").matchAll(ASKED_QUOTE)) {
+    const want = flat(m[1]).trim();
+    if (want && !all.includes(want) && !out.includes(m[1].trim())) out.push(m[1].trim());
+  }
+  return out.slice(0, 8);
+}
+
+export const MISSING_NOTE = (list) => "THE OWNER ASKED FOR THESE WORDS AND NO FILE HOLDS THEM:\n" + list.map((w) => "- “" + w + "”").join("\n") +
+  "\nPut each in, exactly as written, where they asked; or, if you cannot, say so in finish.";
+
+// ── M-69: NO FACTS OF THE AGENT'S OWN ────────────────────────────────────────
+// Phone numbers, email addresses and prices are facts only the owner can give.
+// Any that a change brings onto the site must come from the owner's words, the
+// site as it was, or what the agent read (attachments, an imported site, tables).
+const PHONE = /(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,5}\)[\s.-]?)?\d{2,5}[\s.-]\d{3,4}[\s.-]?\d{3,4}\b/g;
+const EMAIL = /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi;
+const PRICE = /[£$€]\s?\d{1,6}(?:[.,]\d{2})?\b|\b\d{1,6}(?:[.,]\d{2})?\s?(?:€|eur|usd|gbp)\b/gi;
+const digits = (s) => s.replace(/\D/g, "");
+
+/** Phone numbers, emails and prices in `after` that are in neither `before` nor `known`. */
+export function newFacts(before, after, known) {
+  const had = String(before || "") + "\n" + String(known || "");
+  const hadDigits = digits(had), hadLow = had.toLowerCase();
+  const out = new Set();
+  const text = String(after || "").replace(/className=\{?["'`][^"'`]*["'`]\}?/g, "");
+  for (const m of text.matchAll(PHONE)) { const d = digits(m[0]); if (d.length >= 7 && !hadDigits.includes(d)) out.add(m[0].trim()); }
+  for (const m of text.matchAll(EMAIL)) if (!hadLow.includes(m[0].toLowerCase()) && !/example\.(com|org)$/i.test(m[0])) out.add(m[0]);
+  for (const m of text.matchAll(PRICE)) { const n = m[0].replace(/[^\d.,]/g, ""); if (!had.includes(n) && !had.includes(n.replace(/[.,]00$/, ""))) out.add(m[0].trim()); }
+  return [...out].slice(0, 10);
+}
+
+export const FACTS_NOTE = (list) => "THESE DETAILS ARE NOT IN THE OWNER'S WORDS, THE SITE, OR ANYTHING YOU READ:\n" + list.map((f) => "- " + f).join("\n") +
+  "\nNever supply a phone number, email or price yourself. Replace each with a clearly marked placeholder (for example \"[Phone number]\") and say in finish what is missing, unless the owner gave it.";

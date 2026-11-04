@@ -161,7 +161,9 @@ test("wiring: the held schema goes through the rehearsal before it is held, and 
   const kept = body.indexOf("heldFromRehearsal(schemaSpec, heldMade(schemaSpec), r)");
   const add = body.indexOf('hold.add({ kind: "schema", spec: kept.spec })');
   assert.ok(reh > 0 && kept > reh && add > kept, "the rehearsal does not precede the hold");
-  assert.equal(W.split("{ rehearse: { mark:").length - 1, 1, "not exactly one caller asks for the rehearsal");
+  // The add-on, and since 2026-11-04 the site agent's held schema (carry-over M-21).
+  assert.equal(W.split("{ rehearse: { mark:").length - 1, 2, "not exactly the two callers ask for the rehearsal");
+  assert.match(W, /const writer = await backendWriter\(env, slug, \{ rehearse: \{ mark: \(\) => \{\} \} \}\);/);
   assert.match(W, /const aWriter = await backendWriter\(env, ownerSlug, \{ rehearse: \{ mark: \(r\) => aMark\("dryrun"/);
   const J = readFileSync(new URL("../builder/edit-job.mjs", import.meta.url), "utf8");
   assert.match(J, /"ADDON_DRY_RUN"/);

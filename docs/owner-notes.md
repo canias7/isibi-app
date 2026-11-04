@@ -14,6 +14,36 @@
 
 
 
+
+## 2026-11-04 (overnight) — Carry-over batch 4: the last high gaps
+
+1. **One page named, one page changed (M-43).** A message that names exactly one
+   page ("the about page", "/menu") and nothing site-wide (colours, fonts,
+   header, footer, every page, links, moves) may change only that page, its own
+   sections and the site's header/footer, never the stylesheet.
+2. **"Phones only" (M-44).** "On phones only", "desktop only" and the like are read
+   from your words, so the existing layout check makes sure other widths didn't
+   move. A device only mentioned ("looks bad on my phone") is not a limit.
+   (The preview does not yet switch device by itself: kept open.)
+3. **One-time reminders fire once (M-46).** A schedule for one date ("remind me on
+   the 3rd of March") must carry its year in the code; a repeat you asked for
+   ("every month") is fine.
+4. **Words you asked for are on the site (M-67).** Quoted words you asked for
+   ("make it say 'Baked since 1982'") must be in a file after the change; held
+   once, then the reply says "Not on the site yet: …".
+5. **No facts of the agent's own (M-69).** A phone number, email or price that
+   isn't in your words, your site, or something the agent read (attachments,
+   your old site, tables) holds the finish once; then the reply says "Please
+   check these details, which you didn't give me: …".
+6. **Database change tried on a copy (M-21).** The agent's held database change is
+   rehearsed on a copy first, as the add-on's is; a refused part is dropped and
+   named, never blocking Publish later.
+7. **Helpers don't guess (M-90).** A helper (which can't ask you) puts a marked
+   placeholder and names it instead of guessing. Instruction only.
+
+Tests: `agent-gates-batch4` (7; all fail on the old code). Two older tests updated
+(the rehearsal now has two callers; a move is never scoped). Not deployed.
+
 ## 2026-11-04 (overnight) — Carry-over batch 3: six more old protections
 
 1. **Database refusals told (M-68).** A rule or function the database refused is
