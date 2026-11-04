@@ -311,7 +311,7 @@ test("a stranger cannot save a key on someone else's site", async () => {
 // and the stop as on a finished reply.
 test("A KEY ASKED FOR, THEN A PAUSE FOR CREDITS: the pause carries needKeys, the ask is kept at once, and the site's requests read names it", async () => {
   await harness(async ({ slug, chatKey, call, get, seen, store, setRounds, setBalance }) => {
-    // Round 0 asks for the key; the balance is gone by the credit check at round 5.
+    // Round 0 asks for the key; the balance is gone by the next round's credit check (every round since 2026-11-04, M-6).
     setRounds([
       [use("request_key", { name: "resend api key", service: "Resend", why: "Sends the booking emails" })],
       [use("list_keys", {})], [use("list_keys", {})], [use("list_keys", {})], [use("list_keys", {})],
@@ -323,7 +323,7 @@ test("A KEY ASKED FOR, THEN A PAUSE FOR CREDITS: the pause carries needKeys, the
     const body = JSON.parse(ed.text);
     assert.equal(ed.status, 402, ed.text);
     assert.equal(body.detail, "insufficient", "the run paused for credits");
-    assert.ok(seen.model.length >= 5, "the agent really ran: " + seen.model.length);
+    assert.ok(seen.model.length >= 1, "the agent really ran: " + seen.model.length);
     assert.deepEqual(body.needKeys, [{ name: "RESEND_API_KEY", service: "Resend", why: "Sends the booking emails" }]);
     // KEPT AT ONCE, NAMES ONLY.
     const kept = JSON.parse(store.get("keys-asked/" + slug + ".json"));

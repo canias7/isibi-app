@@ -218,7 +218,11 @@ test("SAR5 the routing route answers a site's message with the agent's door: no 
     // A FIRST BUILD'S MESSAGE IS READ BY THE SITE AGENT NOW (2026-11-02,
     // agent-only: `test/agent-only.test.mjs` AO2, AO5); an answer to the
     // build's own page question still goes on to the build with no model call.
-    assert.deepEqual(await ask({ message: "the menu page", firstBuild: true, picker: "sonnet", ask: { id: "q1", chosen: true } }), { ok: true, intent: "build", cost: 0, agent: true });
+    // …ONLY WHILE THAT QUESTION IS LIVE (2026-11-04, carry-over M-88): one that
+    // is not stored (here: no slug, no bucket) is stale and never starts a build.
+    const stale = await ask({ message: "the menu page", firstBuild: true, picker: "sonnet", ask: { id: "q1", chosen: true } });
+    assert.equal(stale.error, "stale-question");
+    assert.equal(stale.cost, 0);
     assert.deepEqual(await ask({ message: "the home page", slug: "agent-route-1", hasSite: true, firstBuild: false, ask: { id: "q1", chosen: false } }),
       { ok: true, intent: "edit", layer: "page", page: "/", cost: 0, agent: true, ask: { answered: true, round: 1, putOff: [], context: [] }, instruction: "the home page" });
     assert.ok(!calls.some((u) => u.includes("/v1/messages") || u.includes("x.ai") || u.includes("use_credits")), "no model call, no charge: " + calls.join(", "));

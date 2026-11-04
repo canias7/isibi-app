@@ -204,7 +204,7 @@ import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mj
 import { pdfText } from "./builder/pdf-text.mjs";
 import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "./builder/agent-carry.mjs";
 import { fileMap, workspaceDiff, changeReport, reviewNote, unaskedLines, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
-import { agentSaidTruth, sideQuestion as agentSideQuestion } from "./builder/agent-gates.mjs";
+import { agentSaidTruth, sideQuestion as agentSideQuestion, schemaRefusals as agentSchemaRefusals } from "./builder/agent-gates.mjs";
 import { newImageRefs as agentNewImageRefs, strayImages as agentStrayImages, dropStrayPhotos as agentDropStrays, uploadKeyFor as agentUploadKey } from "./builder/site-images.mjs";
 import { writeAgentRows, undoRows, outcomeFacts, keyFacts, pickMedia } from "./builder/agent-outcome.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
@@ -16755,14 +16755,17 @@ async function applyAgentSchema(env, slug, conn, ops, job = null) {
   const merged = mergeSchemaOps(base, ops);
   if (!keepsEverything(base, merged.spec)) return { ok: false, why: "it would have lost a table or column" };
   if (!merged.added.length) return { ok: true, added: [], skipped: merged.skipped, revision: 0 };
-  await writer.calls.applySiteSchema(conn, merged.spec);
+  // WHAT THE DATABASE REFUSED IS KEPT (2026-11-04, carry-over M-68): a rule it
+  // could not make, a function that failed. Never reported as added.
+  const made = await writer.calls.applySiteSchema(conn, merged.spec);
+  const refused = agentSchemaRefusals(made);
   let revision = 0;
   if (writer.holding) {
     const sealed = await sealHeld(env, slug, writer, { job: job ? String(job.id) : null });
     if (!sealed.ok) return { ok: false, why: "draft" };
     revision = sealed.revision;
   }
-  return { ok: true, added: merged.added, skipped: merged.skipped, revision };
+  return { ok: true, added: merged.added, skipped: merged.skipped, revision, refused };
 }
 
 /**
@@ -17189,6 +17192,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     if (sr.ok) {
       if (provisioned) schemaFacts.push("The site had no database, so one was made for it.");
       if (sr.added.length) schemaFacts.push("Added to the database: " + sr.added.join(", ") + (sr.revision ? " (saved to your draft; it goes live when you publish)." : "."));
+      if (Array.isArray(sr.refused) && sr.refused.length) schemaFacts.push("The database refused: " + sr.refused.join("; ") + ".");
     }
     schemaDone = sr;
     return sr;
@@ -33551,7 +33555,21 @@ async function handleRequest(request, env, ctx) {
         // (`ask_owner`), or starts the build (`start_build`). An answer to one
         // of the build's own page questions goes on to the build, as before.
         if (!(rb.hasSite === true && rb.firstBuild !== true)) {
-          if (rb.firstBuild === true && answerClaim(rb) !== undefined) return Response.json({ ok: true, intent: "build", cost: 0, agent: true });
+          // AN ANSWER TO A FIRST BUILD'S QUESTION GOES ON TO THE BUILD ONLY WHILE
+          // THAT QUESTION IS LIVE (2026-11-04, carry-over M-88; the owner: questions
+          // expire after 24 hours): this owner's, pending, within the day. An
+          // expired, closed or unknown one never starts a paid build.
+          if (rb.firstBuild === true && answerClaim(rb) !== undefined) {
+            const claim = answerClaim(rb);
+            const bSlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
+            if (!claim || !bSlug || !env.SITES_BUCKET) return staleAnswer("other");
+            let bq = null;
+            try { bq = await loadAsk(env.SITES_BUCKET, bSlug); } catch (e) { console.error("question read:", bSlug, errorClassForLog(e)); }
+            if (!bq || !bq.record) return staleAnswer("other");
+            const live = askLive(bq.record, { id: claim.id, uid: ru.id, slug: bSlug });
+            if (!live.ok) return staleAnswer(live.why);
+            return Response.json({ ok: true, intent: "build", cost: 0, agent: true });
+          }
           return Response.json(await newProjectTurn(env, { rb, auth: request.headers.get("Authorization") || "" }));
         }
         if (rb.hasSite === true && rKeySlug) {

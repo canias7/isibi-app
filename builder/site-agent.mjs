@@ -43,7 +43,7 @@ import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.
 import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
-import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote } from "./agent-gates.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -93,7 +93,7 @@ export function tableKey(t) {
 /** What the agent is told when the site's tables could not be read (never "no tables"). */
 export const UNREADABLE_TABLES = "the site's tables could not be read just now, so nothing about them is known: do not assume there are none, and do not add, change or remove entries or tables this time. Say so in your finish summary";
 /** How often (in rounds) the caller is asked whether the credits spent so far are covered. */
-export const CREDIT_CHECK_EVERY = 5;
+export const CREDIT_CHECK_EVERY = 1; // every round (2026-11-04, carry-over M-6): a low balance is never overspent for rounds
 /** A site address as the alias store takes it. */
 const ADDRESS = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** Rows `read_table` reads at most in one call (a pasted list of ~200 is updated from one read). */
@@ -722,6 +722,8 @@ export function writeGate(st, key, src) {
     const names = unchosenProviders(src, String(st.request || "") + "\n" + String(st.history || ""));
     if (names.length) { st.gated = "provider"; return providerRefusal(names); }
   }
+  // NO PASTED HTML OR OUTSIDE SCRIPTS (M-23): judged against the file as it is now.
+  if (typeof src === "string") { const what = scriptProblem(st.ws.get(key) || "", src); if (what) return SCRIPT_REFUSAL(what); }
   if (st.onlyWrite || st.foundationFirst || !st.orig || priceApproved(st.request)) return "";
   const kind = bigKind(key, { orig: st.orig, written: st.written });
   if (kind) { st.gated = "price"; return priceRefusal(kind, key); }
@@ -1000,7 +1002,7 @@ async function runTool(use, st, deps) {
     case "build": {
       st.builds++;
       let r;
-      try { r = await untilStopped(deps, () => deps.build({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() })); }
+      try { r = await untilStopped(deps, () => deps.build({ pages: expandQr(st.ws.pages(), st.qrMap), parts: expandQr(st.ws.parts(), st.qrMap), css: st.ws.css() })); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       st.lastBuild = r && r.ok === true ? "ok" : "fail";
       if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); }
@@ -1041,7 +1043,7 @@ async function runTool(use, st, deps) {
       if (!/^\/[a-z0-9/_-]*$/i.test(route)) return { error: "a page address starts with / (\"/\", \"/about\")" };
       if (typeof deps.look !== "function") return { error: "pages cannot be looked at here" };
       let r;
-      try { r = await untilStopped(deps, () => deps.look({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }, route)); }
+      try { r = await untilStopped(deps, () => deps.look({ pages: expandQr(st.ws.pages(), st.qrMap), parts: expandQr(st.ws.parts(), st.qrMap), css: st.ws.css() }, route)); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       if (!r || r.ok !== true) return { error: "the site did not build, so there is nothing to look at:\n" + String((r && r.error) || "no reason given").slice(0, 4000) };
       const shots = (Array.isArray(r.shots) ? r.shots : []).filter((x) => x && x.route === route && typeof x.png === "string" && x.png).slice(0, MAX_SHOTS);
@@ -1250,7 +1252,10 @@ async function runTool(use, st, deps) {
       // A PRINTED CODE NEVER OPENS A 404 (carry-over M-38): the page must exist.
       if (typeof input.page === "string" && !pageExists(st.ws.files, input.page.trim())) return { error: "the site has no page at " + input.page.trim() + "; a QR code can only point at a page that exists (make the page first, or use its real address)" };
       st.qrs++;
-      return { text: "The QR code for " + r.text + " is this picture address; put it in an <img src> (with alt text saying where it leads):\n" + r.src };
+      // A SHORT ADDRESS, NOT THE PICTURE (carry-over M-39): code puts the picture in.
+      const token = qrToken(st.qrs, st.qrRun);
+      st.qrMap.set(token, r.src);
+      return { text: "The QR code for " + r.text + " is ready. Put this exact address in an <img src> (with alt text saying where it leads): " + token + "\nThe picture is put in for you when the page is built; never write a QR picture yourself." };
     }
     case "sort_table": {
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
@@ -1287,6 +1292,11 @@ async function runTool(use, st, deps) {
       if (typeof deps.address !== "function") return { error: "the site's address cannot be changed here" };
       const name = String(use.name === "rename_site" ? input.to : input.name || "").trim().toLowerCase().replace(/^https?:\/\//, "").split(".")[0];
       if (!ADDRESS.test(name)) return { error: "an address is lowercase letters, digits and -, e.g. sunset-shoes" };
+      // ONLY ON THE OWNER'S OWN WORDS (2026-11-04, carry-over M-24): a site's
+      // address moves, or an old one is let go, only when this message (or their
+      // answer to your question) names that exact address. Redirects are
+      // permanent and a freed address can be taken by anyone.
+      if (!addressNamed(st.request, name)) return { error: ADDRESS_UNNAMED(name, use.name === "rename_site") };
       const action = use.name === "rename_site" ? "rename" : "forget";
       let r;
       try { r = await deps.address({ action, name, check: true }); } catch { r = { ok: false, why: "the address could not be checked just now" }; }
@@ -1354,6 +1364,8 @@ async function runTool(use, st, deps) {
         st.deadLinks = dead;
         if (dead.length && (st.linksHeld || 0) < 2) { st.linksHeld = (st.linksHeld || 0) + 1; return { error: deadLinkNote(dead) }; }
       }
+      // A QR ADDRESS make_qr NEVER GAVE (M-39) would be a broken picture.
+      if (!st.onlyWrite) { const bad = unknownQr(st.ws.files, st.qrMap); if (bad.length) return { error: "these QR addresses were never made by make_qr: " + bad.join(", ") + ". Call make_qr for each code you need and use the address it answers." }; }
       // PICTURE ADDRESSES THAT HOLD NO FILE (carry-over M-41): held twice; after
       // that the caller empties them (a fillable frame), and the reply says so.
       if (!st.onlyWrite && typeof deps.strays === "function") {
@@ -1485,6 +1497,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, spec: spec && Array.isArray(spec.tables) ? spec : null, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
+    qrMap: new Map(), qrRun: Math.random().toString(36).slice(2, 10) || "a",
     questionOnly: !newProject && !onlyWrite && questionOnly(request),
     history: String(history || ""), orig: newProject || ws.fresh ? null : new Set(ws.keys()), origDead: deadLinks(ws.files),
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
@@ -1622,7 +1635,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   return {
     ok: st.done && (!st.needsPages || hasPages(st) || !!st.ask || !!st.split) && (onlyWrite || !!st.ask || !!st.split || !!st.startBuild ? true : !st.dirty && (st.built || !st.written.size)),
     stopped: st.done ? "" : stopped,
-    pages: ws.pages(), parts: ws.parts(),
+    pages: expandQr(ws.pages(), st.qrMap), parts: expandQr(ws.parts(), st.qrMap),
     css: ws.css(), cssChanged: ws.cssChanged(),
     changed: ws.changed(), removed: ws.removed(),
     rows: st.rows,

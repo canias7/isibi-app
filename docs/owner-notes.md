@@ -13,6 +13,33 @@
 
 
 
+
+## 2026-11-04 (overnight) — Carry-over batch 3: six more old protections
+
+1. **Database refusals told (M-68).** A rule or function the database refused is
+   kept from its answer and reaches the reply ("What did not work: The database
+   refused: …"), never reported as added.
+2. **The address only on your words (M-24).** The agent can move the site to a
+   new address, or let an old one go, only when your message (or your answer)
+   names that exact address; otherwise it must ask.
+3. **Expired first-build answers (M-88).** Answering a first build's question
+   starts the build only while that question is live (yours, still open, within
+   24 hours); an expired or closed one answers "that question has expired" and
+   charges nothing.
+4. **No pasted HTML or outside scripts (M-23).** A page may not gain raw HTML
+   (`dangerouslySetInnerHTML` other than structured data) or a script from another
+   site. What a page already had is left alone.
+5. **Balance every round (M-6).** The agent checks your balance before every
+   round instead of every 5th, so a low balance is never overspent for rounds.
+6. **QR codes never copied (M-39).** The agent gets a short address for a QR code;
+   the code puts the real picture in when the page is built and saved, so a
+   wrong character can't make a code that scans wrong.
+
+Tests: `agent-gates-batch3` (6; all fail on the old code). Older tests updated
+where they encoded the old behaviour (an unnamed address, a stored-less build
+answer, the QR picture in the tool answer, the 5-round credit check). Full suite
+9,616: only `media-verify` fails (it fails on main too). Not deployed.
+
 ## 2026-11-04 — Carry-over batch 2: seven more old protections rebuilt around the big agent
 
 1. **A side question isn't the answer (M-87).** While a question waits, a typed

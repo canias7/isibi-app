@@ -243,7 +243,8 @@ test("FX11 rename_site: checked when asked, the alias rows written only after th
   assert.equal(bad.seen.aliases.filter((a) => a.method !== "GET").length, 0, "nothing moved for a failed save");
 });
 test("FX11b forget_old_address: never the current address, never another site's", async () => {
-  const r = await drive({ ask: "Forget the old addresses.", aliases: { "old-loaf": { slug: "someone-else", current: false } }, rounds: [
+  // The owner names it (2026-11-04, M-24: an address is let go only on their words); the alias check still refuses another site's.
+  const r = await drive({ ask: "Forget old-loaf.", aliases: { "old-loaf": { slug: "someone-else", current: false } }, rounds: [
     [use("forget_old_address", { name: "old-loaf" })], [use("finish", { summary: "x" })],
   ] });
   assert.match(results(r.seen).join("\n"), /not one of this site.s old addresses/);

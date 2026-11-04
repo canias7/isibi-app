@@ -156,7 +156,9 @@ test("make_qr: a picture of the page's address; refusals", async () => {
   assert.ok(readQrInput({}).error);
   const m = scripted([[{ name: "make_qr", input: { page: "/" } }]]);
   await runSiteAgent({ ...wired(), send: m.send }, { request: "qr", pages: PAGES, parts: PARTS });
-  assert.match(resultOf(m.seen, 1)[0].content, /data:image\/svg\+xml;base64,/);
+  // A SHORT ADDRESS, THE PICTURE PUT IN BY CODE (2026-11-04, carry-over M-39).
+  assert.match(resultOf(m.seen, 1)[0].content, /\/__gf_qr\/[a-z0-9]+-1\.svg/);
+  assert.doesNotMatch(resultOf(m.seen, 1)[0].content, /base64/);
 });
 
 test("ask_owner: ends the run with the question; nothing queued is returned", async () => {

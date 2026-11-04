@@ -91,7 +91,7 @@ test("a long table read gives whole rows and says how many were left out, never 
 test("a QR code for a page the site lacks is refused; one for a real page is made", async () => {
   const r = await drive([[use("make_qr", { page: "/gallery" })], [use("make_qr", { page: "/menu" })]]);
   assert.match(r.answers[0], /no page at \/gallery/);
-  assert.match(r.answers[1], /data:image\/svg\+xml;base64,/);
+  assert.match(r.answers[1], /\/__gf_qr\/[a-z0-9]+-1\.svg/, "a short address (batch 3, M-39)");
   assert.equal(pageExists(new Map([["products/$id.tsx", ""]]), "/products/9"), true);
 });
 

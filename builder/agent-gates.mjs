@@ -241,3 +241,78 @@ export function strayNote(urls) {
   return "THESE PICTURE ADDRESSES HOLD NO FILE (they would show as broken images):\n" + urls.slice(0, 10).map((u) => "- " + u).join("\n") +
     "\nUse only addresses read_attachment or attach_media gave you, or the site already uses. Fix them, build, and finish.";
 }
+
+// ══ CARRY-OVER BATCH 3 (2026-11-04) ══════════════════════════════════════════
+
+// ── M-68: WHAT THE DATABASE REFUSED IS NEVER REPORTED AS ADDED ───────────────
+/** The refusals in `applySiteSchema`'s answer, as short plain lines (names only). */
+export function schemaRefusals(made) {
+  const out = [];
+  if (!made || typeof made !== "object") return out;
+  for (const r of Array.isArray(made.refusedRules) ? made.refusedRules : []) {
+    if (r && typeof r.table === "string") out.push("the " + String(r.feature || "rule") + " rule on " + r.table + (r.rule ? " (" + String(r.rule).slice(0, 60) + ")" : ""));
+  }
+  for (const f of Array.isArray(made.functionErrors) ? made.functionErrors : []) {
+    const name = f && typeof f === "object" ? f.name || f.fn || f.table : typeof f === "string" ? f : "";
+    out.push("the database function " + String(name || "(unnamed)").slice(0, 60));
+  }
+  return out.slice(0, 12);
+}
+
+// ── M-24: AN ADDRESS ONLY ON THE OWNER'S OWN WORDS ───────────────────────────
+/** True when the owner's words name this exact address (as a word, or as name.gofarther.app). */
+export function addressNamed(words, name) {
+  const w = String(words || "").toLowerCase();
+  const n = String(name || "").toLowerCase();
+  if (!n) return false;
+  const esc = n.replace(/[-]/g, "\\-");
+  return new RegExp("(^|[^a-z0-9-])" + esc + "($|[^a-z0-9-])").test(w);
+}
+
+export const ADDRESS_UNNAMED = (name, rename) => "NOT DONE: the owner never named the address “" + name + "”. " +
+  (rename ? "A site's address moves only to one they choose: ask with ask_owner which address they want (you may suggest two or three as options)." : "An old address is let go only when they name it: ask with ask_owner first.") +
+  " Their exact words must name it.";
+
+// ── M-23: NO THIRD-PARTY SCRIPTS OR RAW HTML IN A PAGE ───────────────────────
+// The builder never offered "paste anything into your head". A page may carry
+// structured data (`__html: JSON.stringify(...)`); it may not carry raw HTML or
+// a script from another site. Only what this write brings in is judged.
+const RAW_HTML = /dangerouslySetInnerHTML\s*=\s*\{\{\s*__html\s*:(?!\s*JSON\.stringify\()/g;
+const OUTSIDE_SCRIPT = /<script\b[^>]*\bsrc\s*=\s*\{?\s*["'`](?:https?:)?\/\//gi;
+const HEAD_SCRIPT = /\bscripts\s*:\s*\[[^\]]*\bsrc\s*:\s*["'`](?:https?:)?\/\//g;
+const INLINE_SCRIPT = /<script\b(?![^>]*type\s*=\s*["'`]application\/ld\+json)[^>]*>\s*[^<\s]/gi;
+const count = (re, s) => (String(s || "").match(re) || []).length;
+
+/** Why this write may not go in ("" when it may): raw HTML or an outside script it adds. */
+export function scriptProblem(before, after) {
+  const grew = (re) => count(re, after) > count(re, before);
+  if (grew(RAW_HTML)) return "raw HTML (dangerouslySetInnerHTML with anything but JSON.stringify)";
+  if (grew(OUTSIDE_SCRIPT) || grew(HEAD_SCRIPT)) return "a script loaded from another site";
+  if (grew(INLINE_SCRIPT)) return "a <script> written into the page";
+  return "";
+}
+
+export const SCRIPT_REFUSAL = (what) => "NOT WRITTEN: the page would carry " + what + ". The builder never puts pasted HTML or a third-party script into a site (it can read visitors' data and break the page). Build what it does as a component, or as server code with the owner's key, and say in finish if a provider's embed was asked for.";
+
+// ── M-39: A QR CODE IS NEVER COPIED BY THE MODEL ─────────────────────────────
+// make_qr hands the agent a short placeholder address; the picture itself (a
+// long base64 address, where one wrong character scans wrong) is put in by
+// code when the files leave the agent (to a build, a look, or the save).
+// Each run's placeholders carry its own id, so a helper's never collide with its caller's.
+export const qrToken = (n, run = "a") => "/__gf_qr/" + run + "-" + n + ".svg";
+const QR_TOKEN = /\/__gf_qr\/([a-z0-9]{1,12}-\d{1,3})\.svg/g;
+
+/** Files with every known placeholder replaced by its picture. */
+export function expandQr(list, map) {
+  if (!map || !map.size) return list;
+  return (Array.isArray(list) ? list : []).map((f) => (f && typeof f.source === "string" && f.source.includes("/__gf_qr/") ? { ...f, source: f.source.replace(QR_TOKEN, (t) => map.get(t) || t) } : f));
+}
+
+/** Placeholders in the files that make_qr never gave (an invented one would be a broken image). */
+export function unknownQr(files, map) {
+  const out = new Set();
+  for (const src of files instanceof Map ? files.values() : Object.values(files || {})) {
+    for (const m of String(src || "").matchAll(QR_TOKEN)) if (!map || !map.has(m[0])) out.add(m[0]);
+  }
+  return [...out];
+}
