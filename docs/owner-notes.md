@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Audit 2, session 0: every builder line has an owner (branch `claude/cool-fermat-a06gie`)
+
+The builder audit started. Session 0 made the map: 290 files and 182,829 lines, every function (and every route of the server's big request handler) assigned to one of the plan's areas or named as outside the builder by your scope. A script fails if any line is left without an owner. About 171,000 lines are in the audit; the biggest areas are edits and additions (41,000 lines) and the first build (27,000). Found on the way: four builder files (1,380 lines) that nothing uses anymore. Next: session 1, the agent and requests. Plan and map: `docs/audits/2026-11-04-audit-plan.md`.
+
 ## 2026-11-04 — The AI is no longer nudged toward Stripe (branch `claude/cool-fermat-a06gie`; not deployed)
 
 On Market Lane you asked "so can we take payments" and the agent built a Stripe checkout (47 credits) without asking which provider you use, against your rule of 2026-11-02 (any provider, on your own key). The agent's rules already said "never choose the provider yourself", but the page writer's own instructions said "payments through their own Stripe key", and several examples named Stripe. All of those are now provider-neutral; Stripe is named only where the AI is told not to assume a provider, among the choices it offers when it asks you, and in the list of docs it may read. Test: `test/payments-any-provider.test.mjs` (fails on the old wording). Prompt fingerprints re-pinned.

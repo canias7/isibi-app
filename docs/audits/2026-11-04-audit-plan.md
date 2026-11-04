@@ -94,3 +94,11 @@ Each session ends with its findings written and a short plain-English summary fo
 - **What the models really do.** Reading shows what the agent is told and what the code does with its answer; how often a real model misreads a message is only measured live. Live checks are proposed with costs, never run without the owner's word.
 - **Production's own state**: data already stored wrong, keys, the live database. Read-only queries are allowed (non-secret columns); anything that writes asks first.
 - **Third parties** (payment and mail providers, Neon, Cloudflare, xAI) behaving differently from their documentation.
+
+## Session 0 — done (2026-11-04)
+
+- **The coverage map**: `docs/audits/2026-11-04-coverage.json`, written by `scripts/audit-coverage.mjs build`; `… check` fails if any line of an in-scope file has no owner or the map is stale. 290 files, 182,829 lines, cut into units (top-level functions; `worker.js`'s 7,900-line request handler into its routes, including the owner block's short-name dispatch).
+- **In the audit**: about 171,000 lines across areas 1–13 and 15. Biggest: edits and additions 41,400; first build 26,800; look and pictures 19,000; site features 15,100; draft and publish 12,800; agent 10,700; requests 9,800; chat 9,500; containers 8,900; the site it makes 7,800; progress and replies 5,400; workspace and sync 2,400; message box 1,300; credits 450. Area 14 (the AI's instructions) lives inside the modules of areas 1, 3, 4 and 13 and is read with them.
+- **Out, by the owner's scope, each named**: generators and dev tools 1,700; owner tools 2,700; domains 2,300; phone-app builder 640; platform billing 560; accounts 440; ops probes 460; landing and menus 200.
+- **Dead code found** (`scripts/audit-reach.mjs`, following every import from the Worker, the container and the browser): `builder/page-prose.mjs`, `components-next.mjs`, `components-planned.mjs`, `kit-headings.mjs` (1,380 lines) are reached by nothing. A finding for the report; not removed in this session.
+- **A limit of the map**: units are assigned by file and name, so a unit's area is a reading guide, not proof of what it does; each session reads its units and moves any that belong elsewhere.
