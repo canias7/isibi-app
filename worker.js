@@ -251,7 +251,7 @@ import { repliesOn, buildReplyFacts, editReplyFacts, addonReplyFacts, routeReply
 import { progressOn, progressKey, readProgressRecord, openRecord, packRecord, appendMark, closeRecord, pendingMarks, writerNeeded, writerLive, markAsked, claimWriter, batchFor, commitLine, failBatch, releaseWriter, linesOf, confirmLines, unconfirmedLines, jobVerdict, progressContext, writeProgress, lateBatch, lateNeeded, commitLate, failLate, tasksNeeded, unwrittenTasks, commitTasks, failTasks, addTasks, saidOf, writeTasks, TASK_BATCH, usageLogLine, otherParts, editBuildingFacts, draftSavedFacts, takeOverRecord, buildStepFacts, buildPhotoOutcome, PROGRESS_CALL_MS, PROGRESS_TRIES, PROGRESS_RETRY_MS, PROGRESS_LINES_PER_TASK, PROGRESS_DISCOVERY_MS, PROGRESS_SEND_WAITS_MS, talkOn, startFacts, spineCheckFacts, visualReviewFacts, publishedFacts, talkBuildStepFacts, waitedFor, PROGRESS_SETTLE_S, addressFacts, actionFacts, actionContext, ACTION_KINDS, designPartFacts, designStartFacts, stillFacts, sectionStartFacts, sectionDoneFacts, writingNowFacts, compileStageFacts, salvageFacts, buildPartsOf } from "./builder/site-progress.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
-import { isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey, parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking, nextStep, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, setCreditsAuto, appendParts, joinableRequest, questionsToOffer, noteOffered, queueBlockers, releaseQueue, holdsQueue, resumeInLine, aheadInLine, approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence } from "./builder/request.mjs";
+import { isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey, parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts, requestMaking, nextStep, notePrepared, takePrep, ownsPrep, purchaseResolved, heldPurchases, heldPurchaseState, heldReasons, readRoute, routedForPrep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, readSplit, requestView, liveJobIds, stopPart, partJobId, creditsPaused, creditsDecision, resumeCredits, providerPaused, resumeProvider, setCreditsAuto, appendParts, joinableRequest, questionsToOffer, noteOffered, queueBlockers, releaseQueue, holdsQueue, resumeInLine, aheadInLine, approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt, editJobOutcome, answerless, wantsEvidence } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
@@ -24917,6 +24917,9 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       // parts when "Continue when topped up" is ticked, and only mark them
       // ready for the owner's Continue when it is not.
       base = await creditsStep(env, base);
+      // THE AI PROVIDER WAS DOWN, PAUSED (2026-11-04, the owner's "4A"): a part
+      // whose wait is over runs again by itself, from its kept work.
+      { const r = resumeProvider(base, Date.now()); if (r) { console.log("request provider:", base.slug, base.key, "retrying after the provider wait"); base = resumeInLine(r); } }
       // ONE REQUEST RUNS ON A SITE AT A TIME (2026-11-02, the owner): a queued
       // request — a new message, or one that became ready again (credits added,
       // an answer) — files nothing while another runs or is ahead of it in line.
@@ -25560,7 +25563,10 @@ export async function requestCredits(env, ctx, { slug, key, uid, auto, resume, r
     if (!rec || rec.uid !== uid) return { status: 404 };
     let next = rec;
     if (typeof auto === "boolean") { next = setCreditsAuto(rec, auto); if (!next) return { status: 409, rec }; }
-    if (resume === true) {
+    // CONTINUE ON A PROVIDER PAUSE (the owner's "4A") runs the paused parts at once.
+    if (resume === true && !creditsPaused(next).length && providerPaused(next).length) {
+      next = resumeInLine(resumeProvider(next, Date.now(), { force: true }));
+    } else if (resume === true) {
       if (!creditsPaused(next).length) return { status: 409, rec, error: "not-paused" };
       let bal = NaN;
       try { bal = Number(await readBalance(env, uid)); } catch { return { status: 503 }; }

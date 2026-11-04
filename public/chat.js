@@ -10858,10 +10858,12 @@ const SITE_PAR_STATE = {
   blocked: 'wait', ready: 'wait', queued: 'wait',
   failed: 'bad', 'not-run': 'bad', cancelled: 'bad', expired: 'bad', refused: 'bad', 'needs-rewrite': 'bad',
   credits: 'paused',
+  // THE AI PROVIDER DOWN (2026-11-04, the owner's "4A"): paused, retried by itself.
+  provider: 'aidown',
 };
-const SITE_PAR_LABEL = { done: 'done', run: 'working…', ask: 'needs you', wait: 'waiting', bad: 'didn’t work', paused: 'paused for credits' };
+const SITE_PAR_LABEL = { done: 'done', run: 'working…', ask: 'needs you', wait: 'waiting', bad: 'didn’t work', paused: 'paused for credits', aidown: 'paused: the AI is down, retrying' };
 // ONE REPLY PER MESSAGE (2026-11-01): a row's tag is progress only, never a conclusion.
-const SITE_PAR_ONE = { done: 'finished', ask: 'waiting for your answer', bad: 'stopped', paused: 'paused for credits' };
+const SITE_PAR_ONE = { done: 'finished', ask: 'waiting for your answer', bad: 'stopped', paused: 'paused for credits', aidown: 'paused: the AI is down, retrying' };
 // Which rows the customer opened or closed, by the state they were in then: a
 // row that moves on (working to done) goes back to its own default.
 const siteParOpen = new Map();
@@ -11328,13 +11330,14 @@ function siteBgEnding(it) {
   const s = it.p && typeof it.p.status === 'string' ? it.p.status : '';
   if (s === 'done' || s === 'partial') return 'finished';
   if (s === 'credits') return 'paused for credits';
+  if (s === 'provider') return 'paused: the AI is down';
   if (s === 'waiting' || s === 'approval') return 'waiting for your answer';
   if (it.state === 'run') return 'in progress';
   if (it.state === 'wait') return 'waiting';
   return Object.hasOwn(SITE_BG_ENDING, s) ? SITE_BG_ENDING[s] : 'failed';
 }
 function siteBgEndings(items) {
-  const order = ['finished', 'in progress', 'waiting for your answer', 'waiting', 'paused for credits', 'stopped', 'failed', 'not done'];
+  const order = ['finished', 'in progress', 'waiting for your answer', 'waiting', 'paused for credits', 'paused: the AI is down', 'stopped', 'failed', 'not done'];
   const n = {};
   for (const it of items) { const e = siteBgEnding(it); n[e] = (n[e] || 0) + 1; }
   const keys = order.filter((k) => n[k]);

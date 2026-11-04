@@ -19,6 +19,23 @@
 
 
 
+
+## 2026-11-04 — Provider outage pauses like the credit pause (your "4A")
+
+When the AI provider stops answering in the middle of a part, the part is now
+**paused** ("paused: the AI is down, retrying"), not lost and not charged. Its
+unsaved work is kept, and it runs again by itself every 2 minutes from where it
+stopped, or at once when Continue is pressed. After 30 tries (about an hour) it
+ends and says so. Works for one-part messages too, so no resend is needed.
+
+Also recorded your other answers: broken database links are fixed by hand (1B),
+AI-written failure messages are to be built and tried live first (3A), and a
+split message's parts each save on their own (B, how it already works).
+
+Tests: `provider-pause` (2). Full suite 9,648: only `media-verify` fails (as on main).
+**Owed: a screenshot of the new label** in the task list (a text label only; no
+layout change). Not deployed.
+
 ## 2026-11-04 (overnight) — Carry-over batch 8: provider outage mid-edit
 
 **M-74.** When the AI provider stops answering in the middle of an edit, the

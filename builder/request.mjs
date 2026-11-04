@@ -252,6 +252,9 @@ export const SPLIT_NOT = Object.freeze(["build", "no-look", "no-meta", "needs-pa
 //                  picked by `nextStep`, the request kept open; moved back to ready
 //                  (`resumeCredits`) once credits were added and the request's own
 //                  "Continue when topped up" says so, or the owner presses Continue
+//   provider       the AI provider stopped answering part-way (2026-11-04, owner):
+//                  nothing charged, its work kept as its carry; moved back to ready
+//                  (`resumeProvider`) after PROVIDER_RETRY_MS, or at once on Continue
 //   expired        its question went unanswered for a day
 //   refused        it could not be placed in an order that makes sense (the relations formed a cycle)
 export const PART_TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
@@ -717,7 +720,7 @@ export function splitParts(rec, parentN, list) {
  * becomes a request of its own), or the plan's own refusal.
  */
 /** The part states that keep a request from taking a new message: paused (credits, a purchase), waiting on the owner, or ended. */
-export const NOT_JOINABLE = Object.freeze(["credits", "waiting", "approval", "uncertain", ...PART_TERMINAL]);
+export const NOT_JOINABLE = Object.freeze(["credits", "provider", "waiting", "approval", "uncertain", ...PART_TERMINAL]);
 
 /**
  * WHETHER A NEW MESSAGE MAY JOIN THIS REQUEST (2026-11-02, the owner: "a new
@@ -1781,6 +1784,18 @@ function settle(rec, p, job, row, now) {
   // standing, is paused (`credits`), never lost: it holds no job and nothing
   // was charged; it runs again once credits are added (`resumeCredits`). A
   // request of one part keeps today's behaviour.
+  // THE AI PROVIDER DOWN PART-WAY (2026-11-04, the owner's "4A": pause like the
+  // credit pause): the part's work waits as its carry, nothing was charged, and
+  // it runs again by itself after PROVIDER_RETRY_MS, or at once on Continue.
+  // Any number of parts, one included: a resend is never needed.
+  // At most PROVIDER_MAX_RUNS tries (about an hour); then it ends, said, as any refusal.
+  if (read.act === "refusal" && read.error === "agent-stopped" && ans.body.waiting === true && !leftOf(ans.body) && !p.left && (Number(p.providerRuns) || 0) < PROVIDER_MAX_RUNS) {
+    job.end.act = "provider";
+    p.outcome = { job: job.id, kind: "provider" };
+    p.status = "provider"; p.why = "provider";
+    p.retryAt = now + PROVIDER_RETRY_MS;
+    return;
+  }
   if (read.act === "refusal" && read.error === "unbilled" && ans.body.detail === "insufficient" && !leftOf(ans.body) && !p.left && rec.parts.length > 1) {
     job.end.act = "credits";
     p.outcome = { job: job.id, kind: "credits" };
@@ -2403,6 +2418,7 @@ export function settleState(rec, now = Date.now()) {
     rec.state = ps.some((p) => p.status === "unverified") ? "review"
       : ps.some((p) => ["queued", "started", "ready", "recovering"].includes(p.status)) ? "running"
       : ps.some((p) => p.status === "credits") ? "credits"
+      : ps.some((p) => p.status === "provider") ? "provider"
       : ps.some((p) => p.status === "waiting" || p.status === "approval" || p.status === "uncertain") ? "waiting" : "blocked";
   }
   return rec;
@@ -2442,6 +2458,23 @@ export function creditsDecision(rec, balance, now = Date.now()) {
   }
   if (balance < c.base) return { act: "base", rec: { ...rec, credits: { base: balance, at: now } } };
   return c.ready === true ? { act: "base", rec: { ...rec, credits: { base: c.base, at: c.at } } } : { act: "wait" };
+}
+/** How long a part paused for a provider outage waits before it runs again by itself (the owner's "4A"). */
+export const PROVIDER_RETRY_MS = 2 * 60 * 1000;
+/** How many times a part is tried again for an outage before it ends (about an hour). */
+export const PROVIDER_MAX_RUNS = 30;
+/** The parts paused because the AI provider was down. */
+export function providerPaused(rec) {
+  return rec && Array.isArray(rec.parts) && !rec.ended && !rec.stop ? rec.parts.filter((p) => p && p.status === "provider" && !stoppedPart(rec, p.n)).map((p) => p.n) : [];
+}
+/** Parts paused for the provider back to ready: those whose wait is over, or all of them on Continue (`force`); null when none moves. */
+export function resumeProvider(record, now = Date.now(), { force = false } = {}) {
+  const due = (record && Array.isArray(record.parts) ? record.parts : []).filter((p) => p && p.status === "provider" && !stoppedPart(record, p.n) && (force || !(Number(p.retryAt) > now)));
+  if (!due.length) return null;
+  const rec = clone(record);
+  for (const p of rec.parts) if (p.status === "provider" && !stoppedPart(rec, p.n) && (force || !(Number(p.retryAt) > now))) { p.status = "ready"; p.why = null; delete p.retryAt; p.providerRuns = (Number(p.providerRuns) || 0) + 1; }
+  rec.providerResumedAt = now;
+  return settleState(rec, now);
 }
 /** Every part paused for credits back to ready, the reading dropped; null when none is paused. */
 export function resumeCredits(record, now = Date.now()) {
