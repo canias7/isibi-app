@@ -258,3 +258,39 @@ test("FX12 the new tools are offered only where wired", () => {
   assert.ok(outcomeFacts({ summary: "s" }).at(-1).startsWith("In the agent's own words"));
   void USER;
 });
+
+// LIST ENTRIES WAIT FOR PUBLISH, LIKE THE PAGES (2026-11-04, carry-over M-13).
+// On a published site under draft-first the agent wrote list entries straight
+// to the live database while its pages waited in the draft. Now they are held
+// in the draft, each naming its row by the list's own key (`pk`), and Publish
+// applies them by that key. Driven through the real draft functions; the
+// agent's own held path is checked in the server's code (a full draft-first
+// edit through the route needs a stored published version, which this
+// fixture does not build).
+import { rowsOverlay, publishPlan } from "../site-draft.mjs";
+import { readFileSync as readSrc } from "node:fs";
+test("FX5d held list changes name rows by the list's own key, in the preview and at Publish", () => {
+  const live = [{ code: "rye", name: "Rye", price: "5" }, { code: "sour", name: "Sourdough", price: "6" }];
+  const ops = [
+    { kind: "row", table: "loaves", op: "update", id: "rye", pk: "code", values: { price: "7" } },
+    { kind: "row", table: "loaves", op: "remove", id: "sour", pk: "code" },
+  ];
+  const seen = rowsOverlay("loaves", live, ops).rows;
+  assert.deepEqual(seen, [{ code: "rye", name: "Rye", price: "7" }], "the draft preview did not apply the change by its key");
+  const plan = publishPlan(ops);
+  assert.equal(plan.ok, true, JSON.stringify(plan));
+  assert.deepEqual(plan.plan.changes.map((c) => [c.op, c.id, c.pk]), [["update", "rye", "code"], ["remove", "sour", "code"]]);
+  // A numeric-id change is unchanged (control).
+  assert.deepEqual(rowsOverlay("loaves", [{ id: 1, price: "5" }], [{ kind: "row", table: "loaves", op: "update", id: 1, values: { price: "9" } }]).rows, [{ id: 1, price: "9" }]);
+});
+test("FX5e the agent holds its list changes on a held site, and Publish applies them by the key", () => {
+  const W = readSrc(new URL("../worker.js", import.meta.url), "utf8");
+  const a = W.indexOf("const holdRowsNow = async () => {");
+  assert.ok(a > 0, "the agent's held path is gone");
+  const body = W.slice(a, W.indexOf("const writeRowsNow", a));
+  assert.match(body, /if \(!w \|\| !w\.holding\) return false;/);
+  assert.match(body, /w\.hold\.add\(\{ kind: "row", table: op\.table, op: "update", id: u\.id, \.\.\.\(pk \? \{ pk \} : \{\}\)/);
+  assert.match(body, /await sealHeld\(env, slug, w, \{ job \}\)/);
+  assert.match(W.slice(W.indexOf("const writeRowsNow"), W.indexOf("const writeRowsNow") + 400), /if \(await holdRowsNow\(\)\) return;/);
+  assert.match(W, /const keyCol = c\.pk \? '"' \+ String\(c\.pk\)\.replace\(\/"\/g, ""\) \+ '"' : "id";/);
+});

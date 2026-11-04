@@ -10,6 +10,12 @@
 
 
 
+## 2026-11-04 — Critical fix 6 of 7: list changes wait for Publish, like the pages (branch `claude/cool-fermat-a06gie`; not deployed)
+
+On a published site with draft-first on, the agent's page changes waited in the draft but its list changes (products, prices, menu items) went live at once. Now they're held in the draft too (the old add-on's way: `hold` + `sealHeld`) and go live when you press Publish; the reply says "saved to your draft; it goes live when you publish". Held changes can now name a row by the list's own key (a list keyed by "code", not a number), in the draft preview and at Publish; before, Publish could only find rows by a numeric id. A site that has never been published, or has draft-first off, writes as before.
+
+Tested through the real draft functions (`agent-fixall` FX5d) and by reading the server's wiring (FX5e); both fail on the old code. Not yet driven end to end through a full draft-first edit, since that needs a fake published version the test helper doesn't build; that's for a live check after the deploy.
+
 ## 2026-11-04 — Critical fix 5 of 7: database changes and list entries wait for the pages to compile (branch `claude/cool-fermat-a06gie`; not deployed)
 
 The agent applied its new tables and columns, and wrote list entries, before the pages were compiled. When the compile then failed, the tables stayed (and entries were written, then undone), while the reply said "the site is untouched". Now, when there are pages to save, both run in the publish's "after the compile" step (the same one the old add-on used): only once the pages compile, before anything is written, and a database refusal stops the publish and is said plainly. With no pages to save, they run directly as before. Tests: `agent-fixall` FX5b now checks that no list write happens at all when the compile fails (it fails on the old code, which wrote and undid).

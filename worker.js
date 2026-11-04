@@ -13787,7 +13787,7 @@ async function runPublication(env, slug, j, etag, say = null) {
       const standsAlone = (table) => per.get(String(table).toLowerCase()) === 1 && !schemaTables.has(String(table).toLowerCase());
       if (db) {
         const tries = [
-          ...plan.changes.filter((c) => standsAlone(c.table) && c.op !== "remove" && Number.isSafeInteger(c.id) && c.id > 0 && Object.keys(c.values || {}).length).map((c) => {
+          ...plan.changes.filter((c) => standsAlone(c.table) && c.op !== "remove" && !c.pk && Number.isSafeInteger(c.id) && c.id > 0 && Object.keys(c.values || {}).length).map((c) => {
             const cols = Object.keys(c.values);
             return { sql: "UPDATE \"" + String(c.table).replace(/"/g, "") + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ? RETURNING id", params: [...cols.map((k) => c.values[k]), c.id] };
           }),
@@ -13924,10 +13924,12 @@ async function runPublication(env, slug, j, etag, say = null) {
         for (const c of plan.changes) {
           const name = String(c.table).replace(/"/g, "");
           try {
-            if (c.op === "remove") await sqlQuery(db, "DELETE FROM \"" + name + "\" WHERE id = ?", [c.id]);
+            // BY THE LIST'S OWN KEY when the held change names one (carry-over M-13).
+            const keyCol = c.pk ? '"' + String(c.pk).replace(/"/g, "") + '"' : "id";
+            if (c.op === "remove") await sqlQuery(db, "DELETE FROM \"" + name + "\" WHERE " + keyCol + " = ?", [c.id]);
             else {
               const cols = Object.keys(c.values || {});
-              if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE id = ?", [...cols.map((k) => c.values[k]), c.id]);
+              if (cols.length) await sqlQuery(db, "UPDATE \"" + name + "\" SET " + cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ") + " WHERE " + keyCol + " = ?", [...cols.map((k) => c.values[k]), c.id]);
             }
           } catch (e) {
             if (asideOk(e)) { aside("changes", e, { table: c.table, id: c.id }); continue; }
@@ -17214,9 +17216,32 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const rowConn = ag.rows.length ? await ownerRowConn(env, slug).catch(() => null) : null;
   const rowQuery = (q, p) => sqlQuery(rowConn, q, p || []);
   let rowsWritten = false;
+  // HELD, NOT WRITTEN, ON A PUBLISHED SITE UNDER DRAFT-FIRST (2026-11-04,
+  // carry-over M-13; the old add-on's `aWriter.hold` + `sealHeld`): the entries
+  // become this change's revision of the draft and the live list is unchanged
+  // until Publish, like the pages. Each names its row by the list's own key.
+  const holdRowsNow = async () => {
+    let w = null;
+    try { w = await backendWriter(env, slug); } catch { w = null; }
+    if (!w || !w.holding) return false;
+    let n = 0;
+    for (const op of ag.rows) {
+      const pk = op.pk && op.pk !== "id" ? op.pk : undefined;
+      for (const v of op.add || []) { w.hold.add({ kind: "row", table: op.table, op: "insert", values: { ...v } }); n++; }
+      for (const u of op.update || []) { w.hold.add({ kind: "row", table: op.table, op: "update", id: u.id, ...(pk ? { pk } : {}), values: { ...(u.set || {}) } }); n++; }
+      for (const id of op.remove || []) { w.hold.add({ kind: "row", table: op.table, op: "remove", id, ...(pk ? { pk } : {}) }); n++; }
+    }
+    const sealed = await sealHeld(env, slug, w, { job }).catch(() => ({ ok: false }));
+    if (!sealed.ok) { rowsOut = { done: [], failed: n, facts: ["The table entries could not be saved to your draft just now, so they were not changed."] }; return true; }
+    const per = ag.rows.map((op) => op.table + " table: " + [op.add && op.add.length ? "added " + op.add.length : "", op.update && op.update.length ? "changed " + op.update.length : "", op.remove && op.remove.length ? "removed " + op.remove.length : ""].filter(Boolean).join(", ") + " " + ((op.add || []).length + (op.update || []).length + (op.remove || []).length === 1 ? "entry" : "entries"));
+    rowsOut = { done: [], failed: 0, held: n, facts: per.map((f) => f + " (saved to your draft; it goes live when you publish).") };
+    tm("agent:rows", "held", { held: n, revision: sealed.revision });
+    return true;
+  };
   const writeRowsNow = async () => {
     if (rowsWritten || !ag.rows.length) return;
     rowsWritten = true;
+    if (await holdRowsNow()) return;
     if (!rowConn) rowsOut = { done: [], failed: ag.rows.reduce((n, op) => n + op.add.length + op.update.length + op.remove.length, 0), facts: ["The table entries could not be saved: the site's database could not be reached."] };
     else {
       const fenceOk = () => { const f = jobFence(env, job); return !(f && f.lost) && !(job && typeof job.cancelled === "function" && job.cancelled()); };

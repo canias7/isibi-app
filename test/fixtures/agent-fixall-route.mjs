@@ -129,9 +129,11 @@ export function fakeDb({ spec = null, rows = {}, failAll = false } = {}) {
 }
 
 /** One message through a route; `rounds` are the agent's answers, in order. */
-export async function drive({ mode = "sync", route = "edit", ask, rounds, cancelAfter = 0, balance = 500, failCompileFrom = 0, db = null, media = [], aliases = null, pages = null, idem = null }) {
+export async function drive({ mode = "sync", route = "edit", ask, rounds, cancelAfter = 0, balance = 500, failCompileFrom = 0, db = null, media = [], aliases = null, pages = null, idem = null, draftFirst = false }) {
   const slug = "fixall-" + mode + "-" + hex(4);
   const b = bucket(slug, pages);
+  // A PUBLISHED SITE, for draft-first (its live pointer), so changes are held.
+  if (draftFirst) b.store.set("current/" + slug + ".json", JSON.stringify({ version: "01790000000000-aaaaaa", build: "b" }));
   b.media = media.map((name) => ({ key: "uploads/" + slug + "/" + name, size: 1000 }));
   const id = hex(16), secret = hex(16);
   const url = "https://gofarther.dev/api/site/" + slug + "/" + route;
@@ -199,7 +201,7 @@ export async function drive({ mode = "sync", route = "edit", ask, rounds, cancel
   const c = installCompiler({ failWhen: () => failCompileFrom > 0 && ++compiles >= failCompileFrom });
   try {
     const worker = await loadWorker();
-    const env = { SITES_BUCKET: b, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test", ...dispatchEnv() };
+    const env = { SITES_BUCKET: b, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test", ...dispatchEnv(), ...(draftFirst ? { DRAFT_FIRST: "on" } : {}) };
     const ctx = makeCtx();
     let reply = null, status = 0;
     if (mode === "job") {

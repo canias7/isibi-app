@@ -1142,7 +1142,7 @@ export function combineHeld(liveSpec, ops, { upTo, setAside = [] } = {}) {
     // A ROW THAT CANNOT BE FOUND IS SAID, BUT THE SCHEMA IS STILL WORKED OUT
     // (2026-10-18, review): every reader of the draft's schema — the data
     // step, the add-on, the revise — needs it whatever a row op says.
-    else if (o.kind === "row" && o.op !== "insert" && !o.ref && Number(o.id) < 0) bad = STARTER_MISSING;
+    else if (o.kind === "row" && o.op !== "insert" && !o.ref && !(o.pk && o.pk !== "id") && Number(o.id) < 0) bad = STARTER_MISSING;
     else if (o.kind === "row" && typeof o.ref === "string" && o.ref.startsWith("seed:") && !seedRefs.has(o.ref)) bad = STARTER_MISSING;
   }
   return bad ? { ok: false, error: bad, spec, held } : { ok: true, spec, held };
@@ -1188,8 +1188,11 @@ export function rowsOverlay(table, rows, ops, { tableExists = true } = {}) {
     }
     const target = o.ref ? tempOf.get(o.ref) : o.id;
     if (target === undefined) continue;
-    if (o.op === "remove") out = out.filter((r) => Number(r.id) !== Number(target));
-    else if (o.op === "update") out = out.map((r) => (Number(r.id) === Number(target) ? { ...r, ...(o.values || {}) } : r));
+    // THE LIST'S OWN KEY (2026-11-04, carry-over M-13): a held change may name its
+    // row by another column (`pk`, e.g. "code"); without one it is the numeric id.
+    const hit = o.pk && o.pk !== "id" && !o.ref ? (r) => String(r[o.pk]) === String(target) : (r) => Number(r.id) === Number(target);
+    if (o.op === "remove") out = out.filter((r) => !hit(r));
+    else if (o.op === "update") out = out.map((r) => (hit(r) ? { ...r, ...(o.values || {}) } : r));
   }
   return { rows: out, tempRefs };
 }
@@ -1358,8 +1361,8 @@ export function publishPlan(ops, { refs = {} } = {}) {
         continue;
       }
       // A NEGATIVE ID IS A HELD ROW'S PLACE, NEVER A LIVE ROW (A28-3).
-      if (Number(o.id) < 0) return { ok: false, error: STARTER_MISSING };
-      plan.changes.push({ table: o.table, op: o.op, id: o.id, values: o.values || {} });
+      if (!(o.pk && o.pk !== "id") && Number(o.id) < 0) return { ok: false, error: STARTER_MISSING };
+      plan.changes.push({ table: o.table, op: o.op, id: o.id, ...(o.pk && o.pk !== "id" ? { pk: String(o.pk) } : {}), values: o.values || {} });
     }
   }
   for (const sd of plan.seeds) for (const t of Object.keys(sd.seed)) if (Array.isArray(sd.seed[t])) sd.seed[t] = sd.seed[t].filter((v) => v !== DROPPED);
