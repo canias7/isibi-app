@@ -20,6 +20,21 @@
 
 
 
+
+## 2026-11-04 — Failure messages written by the AI (your "3A")
+
+The site agent's failure messages (a save that failed, the agent stopping, the
+AI provider being down) can now be told by the reply writer in plain words for
+your request. The fixed text stays as the fact it is told from and as the
+fallback if the writer fails. **Off by default** (`AI_FAILURE_REPLIES`, falls back
+to `off` in deploy.yml and reaches container jobs) until you see it in a live
+test; turning it on means adding the secret `AI_FAILURE_REPLIES` = `on`.
+Each failure then costs one small reply call (ours, not charged to the customer).
+The provider-pause message now says it carries on by itself.
+
+Tests: `ai-failure-replies` (3). Full suite: only `media-verify` fails (as on main).
+Not deployed.
+
 ## 2026-11-04 — Provider outage pauses like the credit pause (your "4A")
 
 When the AI provider stops answering in the middle of a part, the part is now

@@ -16908,6 +16908,24 @@ function agentAddress(env, slug, uid, job) {
   return { check, apply };
 }
 
+/**
+ * A FAILURE, TOLD BY THE AI (2026-11-04, the owner's "3A", carry-over M-83):
+ * the fixed text is the fact; the reply writer tells it in plain words for this
+ * request. Off unless AI_FAILURE_REPLIES is "on"; any failure of the writer
+ * keeps the fixed text. Never throws; never charges the customer.
+ */
+async function aiFailureText(env, msg, { request = "", picker = "" } = {}) {
+  const fixed = typeof msg === "string" ? msg : "";
+  if (!fixed || !env || env.AI_FAILURE_REPLIES !== "on") return fixed;
+  try {
+    const out = await writeReply({ send: quickSend(env, "reply", replyBgBudget) }, {
+      facts: [{ id: "f1", kind: "not-done", text: fixed }], context: replyContext({ request }), model: modelsFor(picker).quick, talk: false,
+    });
+    console.log("reply: agent failure", out && out.ok ? "written" : "fell back (" + String((out && out.why) || "send") + ")");
+    return out && out.ok && typeof out.text === "string" && out.text.trim() ? out.text.trim() : fixed;
+  } catch (e) { console.error("reply: agent failure", errorClassForLog(e)); return fixed; }
+}
+
 /** The largest picture the agent may set as the logo or place by name (carry-over M-29). */
 const AGENT_LOGO_MAX_BYTES = 5 * 1000 * 1000;
 
@@ -17155,11 +17173,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   if (providerDown) {
     if (cKey) { try { const c = makeCarry(before, ag, stoppedFacts(ag)); if (c) await env.SITES_BUCKET.put(cKey, JSON.stringify(c), { httpMetadata: { contentType: "application/json" } }); } catch { /* it starts again from the site */ } }
     return { status: 200, body: { ok: false, error: "agent-stopped", waiting: true, wait: ag.wait, layer: "agent", cost: 0, agent: steps, deferred: [],
-      msg: "The AI provider is not answering right now, so I stopped. Nothing on the site was changed and nothing was charged. Send it again when it's back.", ...(await askedKeys()) } };
+      msg: await aiFailureText(env, "The AI provider is not answering right now, so I paused. Nothing on the site was changed and nothing was charged; it carries on by itself when the provider is back.", { request: words, picker }), ...(await askedKeys()) } };
   }
   if (!ag.ok) {
     return { status: 200, body: { ok: false, error: "agent-stopped", layer: "agent", cost: 0, agent: steps, deferred: [],
-      msg: (retried ? "It was tried twice. " : "") + stoppedFacts(ag) + " Nothing was charged.", ...(await askedKeys()) } };
+      msg: await aiFailureText(env, (retried ? "It was tried twice. " : "") + stoppedFacts(ag) + " Nothing was charged.", { request: words, picker }), ...(await askedKeys()) } };
   }
   // CHARGED ONLY FOR WORK THAT LANDED (fix-all). Under a job the reserve must
   // stand before the publish (the publish gate grants only a reserved job),
@@ -17172,10 +17190,11 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   const charge = async () => { if (!billed) { billed = true; took = Number(await bill(billUsage)) || 0; } return took; };
   // A PUT-BACK THAT FAILS IS LOGGED AND TOLD (2026-11-04, carry-over M-37), never swallowed.
   let putBackFailed = false;
-  const putBackNote = (b) => (putBackFailed && b && typeof b.msg === "string" ? { msg: b.msg + " Your site's settings could not be put back as they were; check them before you publish." } : {});
+  // THE FAILURE TOLD (the owner's "3A"): the AI writes it when AI_FAILURE_REPLIES is on; the fixed text otherwise.
+  const putBackNote = async (b) => (b && typeof b.msg === "string" ? { msg: await aiFailureText(env, b.msg + (putBackFailed ? " Your site's settings could not be put back as they were; check them before you publish." : ""), { request: words, picker }) } : {});
   const fail = async (status, body) => {
     if (billed && took > 0 && typeof refund === "function") { try { await refund(took); } catch { /* the job's end or the ledger settles it */ } }
-    return { status, body: { ...body, cost: 0, ...(body && body.needKeys ? {} : await askedKeys()), ...putBackNote(body) } };
+    return { status, body: { ...body, cost: 0, ...(body && body.needKeys ? {} : await askedKeys()), ...(await putBackNote(body)) } };
   };
   if (job) await charge();
   // A QUESTION FOR THE OWNER (`ask_owner`): nothing saved; the ending keeps it

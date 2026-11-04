@@ -227,6 +227,7 @@ jobs:
             SITE_CPU_MS
             SITE_SUBREQUESTS
             ADDON_DRY_RUN
+            AI_FAILURE_REPLIES
         env:
           DEPLOY_ID: ${{ github.sha }}
           # ── VIDEO AND AUDIO LIMITS (2026-10-16) ───────────────────────────
@@ -526,6 +527,12 @@ jobs:
           # A missing key or a failed branch never blocks the add-on. It
           # reaches container jobs through JOB_ENV_NAMES.
           ADDON_DRY_RUN: ${{ secrets.ADDON_DRY_RUN || 'on' }}
+          # ── FAILURE MESSAGES WRITTEN BY THE AI (2026-11-04, the owner's "3A") ──
+          #
+          # When on, the site agent's failure endings are told by the reply
+          # writer from the same facts; the fixed text stays as the fallback.
+          # OFF BY DEFAULT until the owner has seen it in a live test.
+          AI_FAILURE_REPLIES: ${{ secrets.AI_FAILURE_REPLIES || 'off' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for

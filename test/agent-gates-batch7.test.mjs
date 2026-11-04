@@ -58,7 +58,7 @@ test("M-37 a put-back that fails is logged and told, never swallowed", () => {
   assert.match(W, /catch \(e\) \{ putBackFailed = true; console\.error\("agent settings put-back failed:"/);
   assert.match(W, /catch \(e\) \{ putBackFailed = true; console\.error\("agent css put-back failed:"/);
   assert.ok(W.indexOf("let putBackFailed = false;") < W.indexOf("const fail = async (status, body) => {"), "declared before the reply helper reads it");
-  assert.match(W, /\.\.\.\(body && body\.needKeys \? \{\} : await askedKeys\(\)\), \.\.\.putBackNote\(body\) \} \};/);
+  assert.match(W, /\.\.\.\(body && body\.needKeys \? \{\} : await askedKeys\(\)\), \.\.\.\(await putBackNote\(body\)\) \} \};/);
 });
 
 test("M-80 a changed entry is told with its before and after values", () => {
