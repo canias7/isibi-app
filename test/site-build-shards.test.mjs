@@ -446,7 +446,8 @@ test("the fingerprint moves with an input and with nothing else", () => {
 test("the fingerprint reads git's own tree, with the trigger as it stood at that commit", () => {
   const head = fingerprintAt("HEAD");
   assert.match(head.hash, /^[0-9a-f]{16}$/);
-  assert.ok(head.files > 1000, `only ${head.files} files — the tree reader has stopped`);
+  assert.ok(head.files > 300, // resized 2026-11-04: the kit's 3,353 files were deleted (owner)
+    `only ${head.files} files — the tree reader has stopped`);
   const wf = execFileSync("git", ["show", "HEAD:" + WORKFLOW], { cwd: ROOT, encoding: "utf8" });
   assert.deepEqual(head, fingerprint(treeOf("HEAD"), triggerGlobs(wf)));
 });
