@@ -30,6 +30,7 @@
 // THE LIMITS ARE HARD: rounds, credits and time. Reaching one stops the loop
 // with what the workspace holds; the caller saves only a workspace whose last
 // build passed.
+import { resolveAccess } from "../site-access.mjs";
 import { pageRulesFor, SITE_PAGES_TOOL } from "./page-gen.mjs";
 import { siteSlice } from "./site-map.mjs";
 import { checkServerPart, SERVER_PREFIX } from "./server-code.mjs";
@@ -923,6 +924,7 @@ async function runTool(use, st, deps) {
       if (st.unreadable) return { error: UNREADABLE_TABLES };
       const table = (st.tables || []).find((x) => x.name === t);
       if (!table) return { error: st.tables && st.tables.length ? "no such table; the site's tables are " + st.tables.map((x) => x.name).join(", ") : "this site has no tables" };
+      if (table.visitors) return { error: VISITOR_ROWS };
       const cols = new Set(table.columns);
       // THE TABLE'S OWN KEY (fix-all): never an assumed `id` column.
       const pk = table.pk || "id";
@@ -944,6 +946,10 @@ async function runTool(use, st, deps) {
     case "read_table": {
       const t = typeof input.table === "string" ? input.table.trim() : "";
       if (!TABLE.test(t)) return { error: "not a table name" };
+      // VISITORS' ROWS ARE NEVER READ (carry-over M-16): they would go to the model provider.
+      // A table this run does not know is not read either: can't tell is not "owner's".
+      if (st.unreadable) return { error: UNREADABLE_TABLES };
+      { const known = (st.tables || []).find((x) => x.name === t); if (!known) return { error: st.tables && st.tables.length ? "no such table; the site's tables are " + st.tables.map((x) => x.name).join(", ") : "this site has no tables" }; if (known.visitors) return { error: VISITOR_ROWS }; }
       if (typeof deps.readTable !== "function") return { error: "this site's tables cannot be read here" };
       try {
         const n = Number.isInteger(input.limit) && input.limit > 0 ? Math.min(input.limit, MAX_TABLE_READ) : 20;
@@ -1372,7 +1378,12 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const ws = makeWorkspace(pages, parts, css);
   const tables = spec && Array.isArray(spec.tables)
     ? spec.tables.filter((t) => t && typeof t.name === "string" && Array.isArray(t.columns))
-      .map((t) => ({ name: t.name, pk: tableKey(t), columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean) }))
+      .map((t) => ({ name: t.name, pk: tableKey(t), columns: t.columns.map((c) => (c && typeof c.name === "string" ? c.name : typeof c === "string" ? c : "")).filter(Boolean),
+        // VISITORS WRITE TO IT (2026-11-04, carry-over C2-1/M-15/M-16): bookings,
+        // orders, messages, sign-ups — rows that belong to the site's visitors.
+        // The agent sees their name and columns (to build pages for them) but
+        // never changes or reads their rows; the owner sees them in Data.
+        visitors: resolveAccess(t).write !== "none" }))
     : [];
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
@@ -1629,6 +1640,8 @@ export function historyFromWindow(w) {
   const lines = turns.filter((t) => t && typeof t.text === "string" && t.text.trim()).map((t) => (t.role === "user" ? "Owner: " : "You: ") + t.text.trim());
   return [...(sum ? ["Earlier in this chat (summary of the older messages): " + sum] : []), ...lines].join("\n");
 }
+/** The answer when a tool is pointed at a table visitors write to. */
+export const VISITOR_ROWS = "that table holds what the site's visitors sent (bookings, orders, messages, sign-ups): its rows are theirs, so they are never read or changed here. Pages may still show or collect them through the site's own data hooks; the owner reads and edits them in Data.";
 /** What the agent is told when the chat could not be read: unknown, never "nothing was said". */
 export const HISTORY_UNREADABLE = "(The conversation so far could not be read just now. If the request refers to something said before, such as \"that\" or \"it\", ask what it means instead of guessing.)";
 

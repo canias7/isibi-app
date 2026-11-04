@@ -154,7 +154,7 @@ test("SAI9 a 200-row list is queued in one change_rows call, and read_table read
   const rows = Array.from({ length: 200 }, (_, n) => ({ name: "Item " + n, price: n }));
   let readN = 0;
   const { r, results } = await agent([[use("read_table", { table: "products", limit: 300 }, "rt"), use("change_rows", { table: "products", add: rows }, "cr")], [use("finish", { summary: "added 200" })]],
-    { spec: { tables: [{ name: "products", columns: [{ name: "id" }, { name: "name" }, { name: "price" }] }] } },
+    { spec: { tables: [{ name: "products", access: "display", columns: [{ name: "id" }, { name: "name" }, { name: "price" }] }] } },
     { readTable: async (t, n) => { readN = n; return []; } });
   assert.equal(results(1).find((b) => b.tool_use_id === "cr").is_error, undefined);
   assert.equal(r.rows.length, 1);

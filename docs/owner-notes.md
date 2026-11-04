@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Critical fixes 2 and 3 of 7: the agent never reads or changes your visitors' data (branch `claude/cool-fermat-a06gie`; not deployed)
+
+The old data step only touched the lists you manage. The agent could change or delete rows in any table, including bookings, orders, messages and sign-ups your visitors sent, and could read them, which sends them to the AI provider. Now every table carries whether visitors write to it (from its stored access, the same rule the site's database security uses; a table with none declared counts as visitors', the safe side). The agent still sees those tables' names and columns, so it can build pages for them, but `change_rows` and `read_table` refuse them, and it can't read a table it doesn't know. Your own lists (products, menu, prices) work as before; you see visitors' data in Data. Tests: `test/agent-visitor-rows.test.mjs` (fails on the old code); five older test fixtures now declare their tables as your own lists, and one that read a "bookings" table now reads a menu.
+
 ## 2026-11-04 — Critical fix 1 of 7: shell commands obey the same safety limits (branch `claude/cool-fermat-a06gie`; not deployed)
 
 The agent can run shell commands on a copy of the site. Files a command changed came back with none of the write tool's checks, so a part told "only /about" could rewrite every page, and `rm index.tsx` could delete the home page. Now a command's changes are taken only when the write tools would have taken them (the part's own pages, a helper's own file, never the home page removed, the size limit, no empty file); anything else is put back and the agent is told. Also fixed: components named with capitals or digits first ("Hero") were accepted by the agent but skipped by the container, so they vanished after any command; there is now one name rule (lowercase words with dashes), checked by a test to match the container's. Tests: `test/agent-sync-limits.test.mjs` (fails on the old code).

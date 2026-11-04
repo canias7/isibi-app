@@ -186,9 +186,10 @@ test("SA10 no tool call, or a send that throws, stops the loop without throwing"
 
 test("SA11 read_table goes through the caller's reader; tool results pair with their calls", async () => {
   const asked = [];
-  const s = scripted([answer(use("read_table", { table: "bookings" }, "a"), use("read_table", { table: "x; drop" }, "b"))]);
-  await runSiteAgent({ send: s.send, build: okBuild, readTable: async (t, n) => { asked.push([t, n]); return [{ id: 1 }]; } }, { request: "r", pages: PAGES, maxRounds: 2 });
-  assert.deepEqual(asked[0], ["bookings", 20]);
+  // (2026-11-04: an owner's list, declared; a visitors' table such as bookings is never read — test/agent-visitor-rows.test.mjs.)
+  const s = scripted([answer(use("read_table", { table: "menu" }, "a"), use("read_table", { table: "x; drop" }, "b"))]);
+  await runSiteAgent({ send: s.send, build: okBuild, readTable: async (t, n) => { asked.push([t, n]); return [{ id: 1 }]; } }, { request: "r", pages: PAGES, maxRounds: 2, spec: { tables: [{ name: "menu", access: "display", columns: [{ name: "id" }] }] } });
+  assert.deepEqual(asked[0], ["menu", 20]);
   assert.equal(asked.length, 2); // the script repeats its round; the bad name never reaches the reader
   const res = s.sent[1].messages.at(-1).content;
   assert.deepEqual(res.map((b) => b.tool_use_id), ["a", "b"]);
@@ -294,7 +295,7 @@ test("SA19 delete_file removes a page or component, never the home page or the s
 });
 
 test("SA20 change_rows queues only real columns of real tables, by id; finishing with only rows needs no build", async () => {
-  const spec = { tables: [{ name: "menu", columns: [{ name: "id" }, { name: "name" }, { name: "price" }] }] };
+  const spec = { tables: [{ name: "menu", access: "display", columns: [{ name: "id" }, { name: "name" }, { name: "price" }] }] };
   const s = scripted([
     answer(use("change_rows", { table: "menu", update: [{ id: 4, set: { price: 42 } }], add: [{ name: "Rye", price: 5 }], remove: [7] }),
       use("change_rows", { table: "menu", add: [{ colour: "x" }] }),
@@ -575,7 +576,7 @@ test("SA40 the pages the agent looked at come back, once each, and travel on the
 
 // ── 2026-10-29: the map at the door; looks batched; what each command did, as kinds ──
 test("SA41 a new site's first message carries the project map with its tables; a site with files does not", async () => {
-  const spec = { tables: [{ name: "classes", columns: [{ name: "title" }, { name: "day" }] }, { name: "enquiries", columns: ["name", "email"] }] };
+  const spec = { tables: [{ name: "classes", access: "display", columns: [{ name: "title" }, { name: "day" }] }, { name: "enquiries", columns: ["name", "email"] }] };
   const s1 = scripted([answer(use("finish", { summary: "s" }))]);
   await runSiteAgent({ send: s1.send, build: okBuild }, { request: "r", pages: [], parts: [], spec, ownParts: true });
   const first = s1.sent[0].messages[0].content[0].text;

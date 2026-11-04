@@ -22,7 +22,7 @@ export default async function (request: Request, site: any) {
   return Response.json({ ok: true, email: b.email || u.searchParams.get("email"), rows: rows.length });
 }`;
 const PARTS = [{ name: "site-footer", source: "export default function F(){return <footer/>}" }, { name: "server-signup", source: FN }];
-const SPEC = { tables: [{ name: "signups", columns: [{ name: "email", type: "text" }, { name: "name", type: "text" }] }] };
+const SPEC = { tables: [{ name: "signups", /* access: the owner's own list (2026-11-04: visitors' tables are never read or changed by the agent) */ access: "display", columns: [{ name: "email", type: "text" }, { name: "name", type: "text" }] }] };
 const use = (name, input, id) => ({ type: "tool_use", name, input, ...(id ? { id } : {}) });
 const answer = (...uses) => ({ content: uses, usage: { input_tokens: 100, output_tokens: 20 }, stop_reason: "tool_use" });
 function scripted(rounds) {

@@ -33,7 +33,7 @@ const queryOf = (db) => async (sql, params) => {
   return j.rows.map((row) => Object.fromEntries(j.fields.map((f, i) => [f.name, row[i]])));
 };
 
-const LOAVES = { tables: [{ name: "loaves", columns: [{ name: "code", type: "text", pk: true }, { name: "name", type: "text" }, { name: "price", type: "text" }] }] };
+const LOAVES = { tables: [{ name: "loaves", /* access: the owner's own list (2026-11-04: visitors' tables are never read or changed by the agent) */ access: "display", columns: [{ name: "code", type: "text", pk: true }, { name: "name", type: "text" }, { name: "price", type: "text" }] }] };
 const loavesDb = (extra = {}) => fakeDb({ spec: LOAVES, rows: { loaves: [{ code: "rye", name: "Rye", price: "5" }, { code: "sour", name: "Sourdough", price: "6" }] }, ...extra });
 const HOME_ROWS = page("/", "<h1>Harbour Loaf</h1>{useRows(\"loaves\").map((l) => <p key={l.code}>{l.name}</p>)}");
 const MENU_ROWS = page("/menu", "<h1>Menu</h1>{useRows(\"loaves\").map((l) => <p key={l.code}>{l.name} {l.price}</p>)}");
