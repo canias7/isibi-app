@@ -804,7 +804,7 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
   deadline and a 90-second lease. `docs/containers-and-jobs.md`.
 - **Data, payments and mail**: one Neon database per site, with RLS on every
   table (ask `resolveAccess(t)`, never the preset name). Payments use the
-  owner's own Stripe key and mail the owner's own key; `env.EMAIL` is ours,
+  owner's own key with any provider they choose (owner, 2026-11-02: not Stripe-only) and mail the owner's own key; `env.EMAIL` is ours,
   and the builder may not touch it. `docs/site-database.md`,
   `docs/platform.md`.
 - **Credits**: 1 credit is $0.008. `use_credits` is a gate, not a till; a
