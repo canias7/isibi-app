@@ -15,7 +15,7 @@ The owner, 2026-11-04: *"in general not only the new things."* The whole builder
 
 Three nets, each checked by a script, not by memory:
 
-1. **Every line has an owner.** Session 0 writes `docs/audits/2026-11-04-coverage.json`: every live file under `public/`, `builder/` (not `builder/lovable/template/`, the kit) and `worker.js`, cut into ranges, each range assigned to exactly one area below. A script (`scripts/audit-coverage.mjs`) fails if any line is unassigned or assigned twice. An area is done only when its ranges are marked read.
+1. **Every line has an owner.** Session 0 writes `docs/audits/2026-11-04-coverage.json`: **every file git tracks**, cut into ranges, each range assigned to exactly one area below. A script (`scripts/audit-coverage.mjs`) lists the files from `git ls-files` itself and fails if any file or line is unassigned or assigned twice. A file is left out only by name in the coverage file's `excluded` list, each with its reason (pictures, generated lists, the kit's 2,112 stock components, docs that are records), so a new file can never slip past. An area is done only when its ranges are marked read.
 2. **Every journey is walked end to end.** The customer journeys below are traced across files (browser → Worker → container → storage → back to the screen). Tonight's bugs were all crossings; line-by-line reading alone misses them.
 3. **Every cross-cutting rule is checked everywhere.** The owner's standing rules (below) are each checked across the whole codebase in one pass, not left to whichever area happens to see them.
 
@@ -44,7 +44,15 @@ Three nets, each checked by a script, not by memory:
 | 19 | Owner tools: Data panel, Inbox, SEO and head, QR codes, domains, Share | their routes in `worker.js`, their panels in `chat.js` |
 | 20 | Deploy and safety nets: workflows, the canary, image predictor, rollback | `.github/`, `scripts/`, `docs/deploy.md` |
 | 21 | The last audit's 264 findings: each one still fixed? | `docs/audits/2026-10-17-builder-audit.md` and its fix records |
-| 22 | Everything left over | whatever the coverage file shows unassigned after 1–21 |
+| 22 | The server modules at the top: `billing`, `site-db`, `site-secrets`, `site-rls`, `site-access`, domains, DNS, backup, export, teardown, versions, SSRF, Turnstile, rate limits (44 files, ~18,000 lines) | `*.mjs` at the repo root |
+| 23 | Supabase itself: SQL functions, row rules, applied and proposed migrations, edge functions (~3,350 lines) | `supabase/` |
+| 24 | What every published site runs: the kit's runtime, router, server, locale, brand (not its stock components) | `builder/lovable/template/src/*.ts(x)`, `lib/`, `hooks/`, `routes/` |
+| 25 | The container and the platform config | `Dockerfile`, `wrangler.jsonc`, `build-server.mjs`'s environment |
+| 26 | The rest of `public/`: landing, pricing, sign-in confirm, legal pages, key card, media, talk | `public/*.html`, `gf-landing.js`, `confirm.js`, `key-card.js`, `chat-talk.js`, `site-media.js` |
+| 27 | The phone-app builder and the front page | `app-builder/`, `front/` |
+| 28 | The model's instructions: prompts and the guides they read | prompts in `builder/`, `builder/*.md` (GENERATOR, LAYOUTS, …) |
+| 29 | The tests themselves: do they test the real producer, or a hand-made copy? | `test/` (sampled by area, every guard on a money, secret or Stop path read) |
+| 30 | Everything left over | whatever the coverage file shows unassigned after 1–29 |
 
 ## The journeys (end to end)
 
@@ -95,6 +103,14 @@ Three nets, each checked by a script, not by memory:
 | 8 | Areas 17–18 (add-ons, site structure and look) |
 | 9 | Areas 19–20 (owner tools, deploy and safety nets) |
 | 10 | Area 21 (the last audit re-checked) |
-| 11 | Area 22 (leftovers), the standing rules sweep, the coverage script green, the report and fix order. |
+| 11 | Areas 22–23 (server modules, Supabase) |
+| 12 | Areas 24–28 (published-site runtime, container and config, rest of public, phone-app builder, prompts) |
+| 13 | Area 29 (the tests), area 30 (leftovers), the standing rules sweep, the coverage script green, the report and fix order. |
 
 Each session ends with its findings written, its coverage ranges marked, and a short plain-English summary for the owner.
+
+## What reading cannot cover (said, not hidden)
+
+- **What the models really do.** Reading shows what the agent is told and what the code does with its answer; how often a real model misreads a message is only measured live. Live checks are proposed with costs, never run without the owner's word.
+- **Production's own state**: data already stored wrong, keys, the live database. Read-only queries are allowed (non-secret columns); anything that writes asks first.
+- **Third parties** (Stripe, Neon, Cloudflare, xAI) behaving differently from their documentation.
