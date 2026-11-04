@@ -42,7 +42,10 @@ test("DL4 the reply is the agent's own words: the step answer carries `said`, an
   const RQ = await import("../builder/request.mjs");
   const src = readFileSync(new URL("../builder/request.mjs", import.meta.url), "utf8");
   assert.match(src, /p\.agentSaid = \(typeof ans\.body\.said === "string" && ans\.body\.said\.trim\(\) \? ans\.body\.said : ans\.body\.msg\)/);
-  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /msg: facts\.join\(" "\), facts, \.\.\.\(typeof ag\.summary === "string" && ag\.summary\.trim\(\) \? \{ said: ag\.summary\.trim\(\)\.slice\(0, 4000\) \} : \{\}\),/);
+  // The agent's own words, with what really failed added (carry-over M-66, 2026-11-04).
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /const said = agentSaidTruth\(ag\.summary, \{ failed: facts\.filter/);
+  assert.match(w, /msg: facts\.join\(" "\), facts, \.\.\.\(said \? \{ said \} : \{\}\),/);
   assert.ok(RQ);
 });
 

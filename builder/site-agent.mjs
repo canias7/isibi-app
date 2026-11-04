@@ -43,6 +43,7 @@ import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.
 import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -320,6 +321,9 @@ You change an existing website for its owner, with tools. Work like an engineer:
 - When the look of a page changed, look at it once the build passes, and fix anything that looks wrong.
 - When the build passes and every change is made, call finish with what you changed, as plain facts.
 - If a change cannot be done, make the rest, and say in finish what was not done and why.
+- WHEN THE REQUEST COULD MEAN TWO DIFFERENT THINGS (which page, which item, which of two sections, "make it bigger" with several candidates), and reading the site does not settle it, ask with ask_owner BEFORE changing anything, with the readings as options. Never pick one and hope.
+- THE PRICE FIRST: a new page, new server code, or a rewrite of ${REWRITE_FILES} or more existing files needs the owner's yes to the price before you write it (the write tool refuses it until they have answered "${PRICE_YES}"). Ask with ask_owner as soon as you know the change is that big, before writing anything.
+- NEVER CHOOSE A PROVIDER (payments, email, texts, AI): when the owner has not named one, ask with ask_owner which one they use. Code that calls a provider they never named is refused.
 - EVERY MESSAGE ABOUT THE SITE COMES TO YOU, questions and chat included. When the message is only a question or conversation (a greeting, thanks, "how does my booking form work?", "can my site send texts?"), answer it in plain words in finish and change nothing: no write_file, no build. The same when they are thinking out loud or weighing ideas ("what about a gallery?", "would a booking page help?", "which colour is better?"): talk it through and change nothing; when it sounds like they want it but have not asked, offer it ("Want me to add it?") with ask_owner when it is offered. Change the site only when the message asks for a change. Read what you need first when the answer depends on the site. When they ask whether the site can do something, say what it would take: email and text messages (SMS) can be sent by a server function on the owner's own key (texts: Twilio or Vonage; email: Resend, SendGrid, Mailgun or Postmark), so never tell them it is not possible. When the message asks for something to be done, do it.
 
 SERVER CODE is a component named "-parts/server-<name>":
@@ -677,6 +681,7 @@ export function syncFromRun(st, files, deps = null) {
     const scope = outOfScope(deps, k); if (scope) return scope;
     if (typeof src === "string" && !src.trim()) return "the file would be empty";
     if (typeof src === "string" && src.length > MAX_FILE_CHARS) return "the file would be over " + MAX_FILE_CHARS + " characters";
+    if (typeof src === "string") { const g = writeGate(st, k, src); if (g) return g; }
     return "";
   };
   for (const [k, v] of now) {
@@ -701,6 +706,23 @@ export function syncFromRun(st, files, deps = null) {
   }
   if (moved.length) { st.dirty = true; for (const k of moved) st.written.add(k); }
   return moved;
+}
+
+/**
+ * THE GATES A WRITE PASSES (2026-11-04, carry-over batch 1, `agent-gates.mjs`):
+ * server code calling a provider the owner never named (M-8), and, on an edit,
+ * a new page, new server code or a rewrite without the owner's yes to the
+ * price (M-7). "" when the write may go ahead.
+ */
+export function writeGate(st, key, src) {
+  if (typeof src === "string" && key.startsWith("-parts/" + SERVER_PREFIX)) {
+    const names = unchosenProviders(src, String(st.request || "") + "\n" + String(st.history || ""));
+    if (names.length) { st.gated = "provider"; return providerRefusal(names); }
+  }
+  if (st.onlyWrite || st.foundationFirst || !st.orig || priceApproved(st.request)) return "";
+  const kind = bigKind(key, { orig: st.orig, written: st.written });
+  if (kind) { st.gated = "price"; return priceRefusal(kind, key); }
+  return "";
 }
 
 /** ONLY THE PART ASKED FOR (2026-10-30): the caller's scope check (`deps.mayWrite`, `agent-guard.mjs`), or "" when there is none. */
@@ -893,6 +915,7 @@ async function runTool(use, st, deps) {
       const src = typeof input.source === "string" ? input.source : "";
       if (!src.trim()) return { error: "the source is empty" };
       if (src.length > MAX_FILE_CHARS) return { error: "the file is over " + MAX_FILE_CHARS + " characters" };
+      { const why = writeGate(st, w.key, src); if (why) return { error: why }; }
       const name = w.key.startsWith("-parts/") ? w.key.slice(7) : "";
       st.ws.set(w.key, src);
       st.dirty = true;
@@ -1022,6 +1045,7 @@ async function runTool(use, st, deps) {
       }
       const plan = helperPlan(input.tasks, st.ws, deps);
       if (plan.error) return { error: plan.error };
+      for (const t of plan.tasks) { const why = writeGate(st, t.file, null); if (why) return { error: why }; }
       // ON A FIRST BUILD EACH HELPER IS A TASK ON THE PAGE (`agent-part`, read back by `buildPartsOf`).
       const say = (text, state) => { try { if (typeof st.progress === "function") st.progress(st.foundationFirst ? "agent-part" : "agent", [fact(state, text)]); } catch { /* never costs the run */ } };
       const done = await runHelperPlan(plan.tasks, (t) => deps.helpers(t, st.ws), {
@@ -1272,6 +1296,7 @@ async function runTool(use, st, deps) {
       if (st.onlyWrite) return { error: "a helper cannot ask the owner" };
       const r = readAskInput(input);
       if (r.error) return { error: r.error };
+      if (st.gated === "price") { const why = priceAskProblem(r.ask); if (why) return { error: why }; }
       st.ask = r.ask;
       st.done = true;
       return { text: "Asked. Your turn ends here." };
@@ -1292,6 +1317,37 @@ async function runTool(use, st, deps) {
       // NOTHING ELSE CHANGED (2026-10-30, `agent-guard.mjs`): the caller's
       // check of what this change took away that the request did not name,
       // asked ONCE; finishing again is the agent's answer.
+      // THE NETS (carry-over batch 1): a provider or a big change that reached
+      // the workspace another way (a command, a helper) is caught here too.
+      // Only the provider is checked here (the price is held at the write, the
+      // command and the helpers call); a hit becomes the owner's question, so
+      // it can never hold the finish in a loop.
+      if (!st.onlyWrite) for (const k of st.written) {
+        if (!st.ws.has(k) || !k.startsWith("-parts/" + SERVER_PREFIX)) continue;
+        const names = unchosenProviders(st.ws.get(k), st.request + "\n" + st.history);
+        if (names.length) { st.ask = { text: "Which provider should this use? The code was about to use " + names.join(" and ") + ", which you haven't named.", options: [...names.slice(0, 3), "Another one"] }; st.done = true; return { text: "Asked the owner. Your turn ends here." }; }
+      }
+      // LINKS TO PAGES THE SITE DOES NOT HAVE (M-45): held twice; after that the
+      // reply says which are left.
+      if (!st.onlyWrite) {
+        const was = new Set((st.origDead || []).map((d) => d.file + " " + d.to));
+        const dead = deadLinks(st.ws.files).filter((d) => !was.has(d.file + " " + d.to));
+        st.deadLinks = dead;
+        if (dead.length && (st.linksHeld || 0) < 2) { st.linksHeld = (st.linksHeld || 0) + 1; return { error: deadLinkNote(dead) }; }
+      }
+      // UNASKED REMOVALS (M-42): the agent was asked once (below); finishing
+      // again still taking things away the request never named is not saved on
+      // its word: the owner is asked, unless they already answered.
+      if (st.reviewed && typeof deps.unasked === "function" && !String(st.request || "").includes("They answered: " + REMOVE_YES) && !String(st.request || "").includes("They answered: " + REMOVE_NO)) {
+        let lines = [];
+        try { lines = deps.unasked({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }) || []; } catch { lines = []; }
+        if (lines.length) {
+          st.ask = { text: "This change would also take away things you didn't ask to remove:\n" + lines.map((l) => "- " + l).join("\n") + "\nShould I take them away too?", options: [REMOVE_YES, REMOVE_NO] };
+          st.done = true;
+          try { st.log({ event: "removals-asked", items: lines.length }); } catch { /* never */ }
+          return { text: "Asked the owner. Your turn ends here." };
+        }
+      }
       if (typeof deps.review === "function" && !st.reviewed) {
         st.reviewed = true;
         let note = "";
@@ -1402,6 +1458,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   const st = { ws, tables, spec: spec && Array.isArray(spec.tables) ? spec : null, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
+    history: String(history || ""), orig: newProject || ws.fresh ? null : new Set(ws.keys()), origDead: deadLinks(ws.files),
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
   const shown = headStart({ pages, parts, targets, picked, lazy: lazyFiles === true });
   const system = [{ type: "text", text: agentSystem(spec, kind, { ownParts }), cache_control: { type: "ephemeral" } }];
@@ -1557,6 +1614,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     usage, credits, rounds, builds: st.builds,
     // The provider's waiting notice when the model call parked (G1); null otherwise.
     wait: sendWait,
+    // Links to pages the site does not have, left after the finish was held (M-45).
+    deadLinks: st.ask ? [] : (st.deadLinks || []).slice(0, 12),
   };
 }
 

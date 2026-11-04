@@ -72,7 +72,7 @@ test("HLP2 a helper writes only its own page; what it could not write comes back
     if (last.role === "user" && Array.isArray(last.content)) for (const b of last.content) if (b.type === "tool_result" && /helpers are back/.test(String(b.content))) told = b.content;
     return s.send(req);
   };
-  const r = await runSiteAgent({ send, build: okBuild }, { request: "r", pages: [{ path: "index.tsx", source: "export default function H(){return <h1/>}" }], parts: [], helpers: true });
+  const r = await runSiteAgent({ send, build: okBuild }, { request: "r\nThey answered: Yes, go ahead", pages: [{ path: "index.tsx", source: "export default function H(){return <h1/>}" }], parts: [], helpers: true });
   assert.match(told, /about\.tsx: NOT written/);
   // the helper itself is told no, for the write and the removal
   assert.equal(refused.filter((t) => /only its own page, about\.tsx/.test(t)).length, 2, refused.join(" | "));

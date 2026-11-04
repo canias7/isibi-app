@@ -11,6 +11,37 @@
 
 
 
+
+## 2026-11-04 — Carry-over batch 1: six old protections rebuilt around the big agent
+
+The agent still decides; these are now checks in code (`builder/agent-gates.mjs`):
+
+1. **Price first (M-7).** On an edit, a new page, new server code, or changing 4 or
+   more existing files is refused at the write until the owner taps "Yes, go
+   ahead" on a question that states the price in credits (page about 6–22,
+   feature about 2–13, rewrite about 15–45). First builds are not asked.
+2. **Never choose a provider (M-8).** Server code that calls Stripe, PayPal,
+   Square, Twilio, Resend, OpenAI, … is refused unless the owner named that
+   provider in this message or the chat; the agent must ask which one.
+3. **Unasked removals (M-42).** The agent is told once; if it finishes again
+   still taking away things nobody asked for (words, links, sections, pages), the
+   change is not saved and the owner is asked "Should I take them away too?"
+   (Yes, take them away too / No, keep them). Words of a link they asked to
+   remove are not asked about.
+4. **Unclear requests (P6).** A rule only: when a request could mean two things,
+   the agent asks first. Code cannot detect this.
+5. **No dead links (M-45).** A new link to a page the site doesn't have holds the
+   finish twice; if still there, the reply names it. Links the site already had
+   are not this change's problem.
+6. **The reply never claims what failed (M-66).** The agent's own words stay, and
+   anything that really failed afterwards (entries refused, rules, address) is
+   added: "What did not work: …".
+
+Tests: `agent-gates-batch1` (10; 6 fail on the old code, 4 controls pass).
+Older tests that wrote new pages without a yes now carry the yes; the guardrail
+test's "redesign" now asks the owner. The image gets `agent-gates.mjs` (the
+container image will be rebuilt on the next deploy). Not deployed; no live run.
+
 ## 2026-11-04 — Critical fix 7 of 7: site server code acts as the visitor (option A)
 
 Your choice "option A, new sites only". Before, every piece of server code a site

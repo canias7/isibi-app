@@ -203,7 +203,8 @@ import { runSiteAgent, stoppedFacts, historyText, historyFromWindow, HISTORY_UNR
 import { mergeSchemaOps, keepsEverything } from "./builder/agent-server-tools.mjs";
 import { pdfText } from "./builder/pdf-text.mjs";
 import { carryKey, makeCarry, applyCarry, fromFileMap, carryRequest } from "./builder/agent-carry.mjs";
-import { fileMap, workspaceDiff, changeReport, reviewNote, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
+import { fileMap, workspaceDiff, changeReport, reviewNote, unaskedLines, reportFacts, scopeGuard, retryAfterStop, retryableSave, retryRequest as agentRetryRequest, versionName, undoFacts, undoSentence } from "./builder/agent-guard.mjs";
+import { agentSaidTruth } from "./builder/agent-gates.mjs";
 import { writeAgentRows, undoRows, outcomeFacts, keyFacts, pickMedia } from "./builder/agent-outcome.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
@@ -17022,6 +17023,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     // when the agent finishes, before they are applied.
     ...(!conn && noDb && uid && neonConfigured(env) ? { applySchema: () => true } : {}),
     review: (w) => reviewNote(changeReport(before, w, request)),
+    // UNASKED REMOVALS THE AGENT INSISTS ON ARE ASKED ABOUT (2026-11-04, M-42).
+    unasked: (w) => unaskedLines(changeReport(before, w, request)),
     ...(mayWrite ? { mayWrite } : {}),
   }, {
     request: ask, pages: from.pages, parts: from.parts, css: from.css, history, map, spec,
@@ -17403,7 +17406,12 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   if (talk) { try { job.progress.mark("applied", facts.slice(0, 6).map((text) => ({ state: "applied", text }))); } catch { /* never */ } }
   const partial = rowsOut.failed > 0 || addressFacts.some((f) => /could not/.test(f)) || ruleFacts.some((f) => /could not|refused/.test(f));
   // THE AGENT'S OWN WORDS, ALONE (owner, 2026-11-04): the reply is these; `msg` keeps the full record.
-  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(typeof ag.summary === "string" && ag.summary.trim() ? { said: ag.summary.trim().slice(0, 4000) } : {}),
+  // BUT NEVER A CLAIM THAT DID NOT HAPPEN (2026-11-04, carry-over M-66/M-45):
+  // the agent finished before the entries, rules and address were applied, so
+  // whatever of those failed, and links left pointing at missing pages, are
+  // added to its words from what really happened.
+  const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [] });
+  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
     ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),

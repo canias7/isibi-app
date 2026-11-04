@@ -131,7 +131,16 @@ test("G1b an asked removal is not sent back, and a broad request answers the che
   assert.equal(sentBack(r), false, "an asked removal is never questioned");
   assert.equal(r.seen.agent.length, 3);
   assert.equal(r.home, NOLINK);
-  const broad = await drive({ ask: "Redesign the home page completely.", rounds: [
+  // FINISHING AGAIN NO LONGER SAVES IT ON THE AGENT'S WORD (2026-11-04,
+  // carry-over M-42): the owner is asked; once they said yes, it is saved.
+  const asked = await drive({ ask: "Redesign the home page completely.", rounds: [
+    [use("write_file", { file: "index.tsx", source: page("/", "<h1>Harbour Loaf</h1>") })], [use("build", {})], [use("finish", { summary: "A new home page." })],
+    [use("finish", { summary: "A new home page; the redesign replaces the old sections." })],
+  ] });
+  assert.equal(asked.reply.error, "clarify", JSON.stringify(asked.reply).slice(0, 300));
+  assert.equal(asked.reply.error, "clarify");
+  assert.match(asked.reply.msg, /take away things you didn.t ask to remove:\n- .*See the menu/s);
+  const broad = await drive({ ask: "Redesign the home page completely.\nThey answered: Yes, take them away too", rounds: [
     [use("write_file", { file: "index.tsx", source: page("/", "<h1>Harbour Loaf</h1>") })], [use("build", {})], [use("finish", { summary: "A new home page." })],
     [use("finish", { summary: "A new home page; the redesign replaces the old sections." })],
   ] });

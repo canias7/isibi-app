@@ -157,7 +157,7 @@ test("SA9 write_file: keys checked, server code checked at once, empty refused",
   const s = scripted([
     answer(use("write_file", { file: "-parts/server-chat", source: "export default async function(){ return fetch('https://x.com') }" }), use("write_file", { file: "index.tsx", source: "  " })),
   ]);
-  await runSiteAgent({ send: s.send, build: okBuild }, { request: "r", pages: PAGES, maxRounds: 1 });
+  await runSiteAgent({ send: s.send, build: okBuild }, { request: "r\nThey answered: Yes, go ahead", pages: PAGES, maxRounds: 1 });
   const s2 = scripted([answer(use("build", {}))]);
   await runSiteAgent({ send: s2.send, build: okBuild }, { request: "r", pages: PAGES, maxRounds: 1 });
   const s3 = scripted([answer(use("finish", { summary: "" }))]);
@@ -168,7 +168,7 @@ test("SA9 write_file: keys checked, server code checked at once, empty refused",
     answer(use("write_file", { file: "-parts/server-chat", source: "export default async function(){ return fetch('https://x.com') }" }), use("write_file", { file: "index.tsx", source: "  " })),
     answer(use("finish", { summary: "" })),
   ]);
-  await runSiteAgent({ send: s4.send, build: okBuild }, { request: "r", pages: PAGES, maxRounds: 2 });
+  await runSiteAgent({ send: s4.send, build: okBuild }, { request: "r\nThey answered: Yes, go ahead", pages: PAGES, maxRounds: 2 });
   const res = s4.sent[1].messages.at(-1).content;
   assert.match(res[0].content, /will be refused at publish: .*hosts/);
   assert.equal(res[1].is_error, true);
@@ -334,7 +334,7 @@ test("SA21 each round's facts come from the tools' outcomes, for the live progre
   ]);
   const marks = [];
   const s = scripted([answer(use("write_file", { file: "about.tsx", source: "x" })), answer(use("build", {})), answer(use("finish", { summary: "s" }))]);
-  await runSiteAgent({ send: s.send, build: okBuild, progress: (st, facts) => marks.push([st, facts.map((x) => x.text)]) }, { request: "r", pages: PAGES });
+  await runSiteAgent({ send: s.send, build: okBuild, progress: (st, facts) => marks.push([st, facts.map((x) => x.text)]) }, { request: "r\nThey answered: Yes, go ahead", pages: PAGES });
   assert.deepEqual(marks, [["agent", ["Wrote the /about page."]], ["agent", ["Built the site; it compiled cleanly."]]]);
 });
 

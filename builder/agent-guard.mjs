@@ -228,3 +228,27 @@ export function undoSentence(u) {
   const rows = u.rowsRemoved ? " Removed table entries are not in a version; they would have to be added again." : "";
   return (what.length ? "To undo " + what.join(" and ") + ", the previous version (" + u.restoreTo + ") can be restored in Cloud → Versions." : "") + rows;
 }
+
+/**
+ * WHAT THE OWNER IS ASKED ABOUT (2026-11-04, carry-over M-42): when the agent
+ * finishes a second time still taking away things the request never named,
+ * the change is not saved on its word; the owner is asked, in plain lines
+ * (the page's address, never a file name). `[]` when nothing needs asking.
+ */
+export function unaskedLines(report, max = 8) {
+  if (!report || !report.review) return [];
+  const where = (f) => (f.startsWith("-parts/") ? "the " + f.slice(7).replace(/[-_]/g, " ") + " section" : "the " + (f === "index.tsx" ? "home" : f.replace(/\.tsx$/, "").replace(/\/index$/, "")) + " page");
+  const lines = [];
+  // The words of a link the request did take away went with it: not asked about.
+  const askedLinkWords = new Set(report.items.filter((i) => i.kind === "link-lost" && i.asked && i.label).map((i) => i.file + "\u0000" + i.label.trim()));
+  for (const i of report.unasked) {
+    if (i.kind === "styles" || i.kind === "file-added") continue;
+    if (i.kind === "text" && askedLinkWords.has(i.file + "\u0000" + i.text.trim())) continue;
+    if (i.kind === "text") lines.push("the words “" + i.text.slice(0, 80) + "” on " + where(i.file));
+    else if (i.kind === "link-lost") lines.push("the link “" + (i.label || i.href) + "” on " + where(i.file));
+    else if (i.kind === "link-moved") lines.push("where the link “" + (i.label || i.href) + "” on " + where(i.file) + " goes (" + i.href + " → " + i.to + ")");
+    else if (i.kind === "part-gone") lines.push("the " + i.name.replace(/[-_]/g, " ") + " section on " + where(i.file));
+    else if (i.kind === "file-removed") lines.push(where(i.file) + " itself");
+  }
+  return lines.slice(0, max);
+}

@@ -44,7 +44,7 @@ test("the agent cannot finish on a build whose data check failed, until it fixes
       return { content: script[n++] || [use("finish", { summary: "done" })], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } };
     },
     build: async () => ({ ok: true }),
-  }, { request: "add a contact form", pages: [{ path: "index.tsx", source: "export default 1" }], parts: [], spec: SPEC, model: "m", maxRounds: 10 });
+  }, { request: "add a contact form\nThey answered: Yes, go ahead", pages: [{ path: "index.tsx", source: "export default 1" }], parts: [], spec: SPEC, model: "m", maxRounds: 10 });
   assert.match(seen.join("\n"), /the pages read or write the database in ways it will refuse/);
   assert.equal(ag.ok, true, "the fixed site could not finish");
   assert.equal(ag.pages.find((p) => p.path === "contact.tsx").source, GOOD, "the agent finished with the broken form");
