@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — Stop is always in the box while work runs (branch `claude/cool-fermat-a06gie`; not deployed)
+
+On Market Lane the agent was working and the box showed Send, with no Stop anywhere. The box handed Stop to the task panel whenever the panel listed the work, but since 2026-11-02 the panel only appears for two or more tasks (and folded it is a pill with no Stop). Now the box shows Stop whenever anything runs; the panel keeps its own per-task Stops. Tests: `background-work` C and `site-busy-origin` (both fail on the old code).
+
 ## 2026-11-04 — The agent hears the conversation on an edit (branch `claude/cool-fermat-a06gie`; not deployed)
 
 On Market Lane you asked what "Loading goods…" was, then said "delete that, that's weird", and the agent started taking the whole home page off. The cause: when you message about a site that already exists, the browser never said which chat the message came from, so the agent was always given no conversation at all (first builds did send it). Now every message sends its chat, and the agent reads the last messages before deciding what "that" means. Test: `test/edit-sends-chat.test.mjs` (fails without the fix).

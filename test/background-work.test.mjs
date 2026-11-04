@@ -104,13 +104,13 @@ function load(site, { busy = false, store = null } = {}) {
 const text = (h) => h.replace(/&#39;/g, "'").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 // ── C ───────────────────────────────────────────────────────────────────────
-test("C — the box keeps Send while a request's parts run; Stop only for this project's own send with nothing in the panel, or a standalone job", () => {
+test("C — the box always has Stop while work runs (owner, 2026-11-04): a running request, a standalone job, a send in flight", () => {
   const site = siteOf();
-  assert.equal(load(site).ctx.siteComposerStops(site), false, "a running request drew Stop in the box");
-  assert.equal(load(site, { busy: true }).ctx.siteComposerStops(site), false, "a second message's routing call drew Stop over the running parts");
+  assert.equal(load(site).ctx.siteComposerStops(site), true, "a running request had Send and no Stop (Market Lane)");
+  assert.equal(load(site, { busy: true }).ctx.siteComposerStops(site), true);
   const idle = { id: "s1", msgs: [], requests: {}, jobCards: {} };
   assert.equal(load(idle, { busy: true }).ctx.siteComposerStops(idle), true, "a build in flight lost its Stop");
-  assert.equal(load(idle).ctx.siteComposerStops(idle), false);
+  assert.equal(load(idle).ctx.siteComposerStops(idle), false, "Stop with nothing running");
   const job = { id: "s1", msgs: [], requests: {}, jobCards: { x: { view: { job: "j1" } } } };
   const pj = load(job); pj.ctx.siteJobOutcome = () => "running";
   assert.equal(vm.runInContext("siteComposerStops", pj.ctx)(job), true, "a standalone job lost its Stop");

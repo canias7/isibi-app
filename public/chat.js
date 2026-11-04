@@ -16259,13 +16259,13 @@ function siteStop(site) {
 /** Whether the box shows Stop: this project's own send in flight with nothing in the panel, or a standalone job (no request) running. */
 function siteComposerStops(site) {
   if (typeof siteStopping === 'function' && siteStopping(site)) return true;
-  const w = siteRunningWork(site);
-  // A REQUEST'S STOP IS THE PANEL'S only while the panel lists it with work
-  // left (2026-10-25, stop-panel); otherwise the box keeps Stop, which stops
-  // the request (`siteStopWork`). Stop is never nowhere.
-  if (w && w.kind === 'request') return !siteBgItems(site).some((it) => it.key === w.key && (it.state === 'run' || it.state === 'wait' || it.state === 'ask'));
-  if (w && w.kind === 'job') return true;
-  return siteBusyHere(site) && !siteBgItems(site).some((it) => it.state === 'run' || it.state === 'wait' || it.state === 'ask');
+  // THE BOX ALWAYS HAS STOP WHILE WORK RUNS (owner, 2026-11-04). It used to
+  // hand Stop to the task panel whenever the panel listed the work, but the
+  // panel shows only for two or more tasks (2026-11-02) and folds to a pill
+  // with no Stop, so one message's work had Send and no Stop anywhere (Market
+  // Lane). The panel keeps its own Stop per task; the box's stops the request.
+  if (siteRunningWork(site)) return true;
+  return siteBusyHere(site);
 }
 /** A request this page stopped that has not finished stopping yet (its job still winding down). */
 function siteStopping(site) {
