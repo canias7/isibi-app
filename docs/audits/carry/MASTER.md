@@ -159,6 +159,8 @@ Already decided, so dropped: a balance that cannot be read never stops the work 
 
 ## FIXED on this branch
 
+**Status after the overnight run (2026-11-04): see `OVERNIGHT.md`.** 66 fixed (57 in code, 9 as instructions), 5 closed by the owner's "charge every token", 3 waiting on the owner, 21 left open with reasons.
+
 | Id | What | Status |
 |---|---|---|
 | G1 | Provider outage on a new project started a paid build; edits ended "agent-stopped" | FIXED: an outage never builds (the edit-resend half is kept as M-74 to verify) |
