@@ -15019,6 +15019,11 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho, found) {
       media: Array.isArray(site.pendingMedia) && site.pendingMedia.length ? site.pendingMedia.slice(0, 20) : undefined }
     : {
       slug: site.slug, instruction: t, images: imgs, picker: buildPicker, ...(typeof sendEffort === 'function' ? sendEffort() : null),
+      // THE CHAT IT WAS SENT FROM (2026-11-04): the agent reads the conversation
+      // so far from it, so "delete that" means what was just talked about.
+      // Without it every message reached the agent alone (Market Lane: "delete
+      // that" after a question about "Loading goods…" was read as the home page).
+      chat: origin,
       // A REWRITE'S OWN QUESTION, ANSWERED (2026-10-24): the server folds them in as a build's.
       qa: Array.isArray(qa) && qa.length ? qa : undefined,
       alsoAsked: EditPoll.heldWire(h.alsoAsked),

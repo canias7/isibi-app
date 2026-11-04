@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — The agent hears the conversation on an edit (branch `claude/cool-fermat-a06gie`; not deployed)
+
+On Market Lane you asked what "Loading goods…" was, then said "delete that, that's weird", and the agent started taking the whole home page off. The cause: when you message about a site that already exists, the browser never said which chat the message came from, so the agent was always given no conversation at all (first builds did send it). Now every message sends its chat, and the agent reads the last messages before deciding what "that" means. Test: `test/edit-sends-chat.test.mjs` (fails without the fix).
+
 ## 2026-11-04 — No status pill beside Share (branch `park-old-way`; not deployed)
 
 On the owner's word ("next to the share button … when it's processing or when it's not published, there's a sign there. I don't want that there"). The top bar's draft pill ("Still processing…", "Saved · not published", "Published", "Not published yet", "Publishing…") is gone; its painter finds no element and does nothing. Screenshot of the top bar taken; its three tests pass.
