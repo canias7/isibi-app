@@ -892,6 +892,10 @@ async function chatStoreRead(env, key) {
     return { chat: j, etag: o.etag || o.httpEtag || null, read: true };
   } catch { return { chat: null, etag: null, read: false }; }
 }
+/** Key names only (capitals, digits, underscores), at most 50; never a value. */
+function keyNamesOnly(l) {
+  return [...new Set((Array.isArray(l) ? l : []).filter((x) => typeof x === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(x)))].slice(0, 50);
+}
 /** A chat written by the page, read strictly: the revision it was based on, and what it holds. Null for anything else. */
 function readChatPut(b) {
   if (!b || typeof b !== "object" || Array.isArray(b)) return null;
@@ -908,6 +912,10 @@ function readChatPut(b) {
     // A PHONE APP'S PROJECT (2026-10-20), kept with its chat so every device opens it as one.
     surface: b.surface === "app" ? "app" : undefined,
     appOs: b.appOs === "android" || b.appOs === "ios" ? b.appOs : undefined,
+    // THE KEY BOX'S CANCEL (owner, 2026-11-04: "nothing should be only browser"):
+    // the key NAMES closed, so every device keeps it closed. Names only: a string
+    // shaped like STRIPE_SECRET_KEY passes, anything else (a value) is dropped.
+    keysClosed: keyNamesOnly(b.keysClosed),
     // WHAT THE OWNER ASKED FOR, kept from the moment the project is made
     // (2026-10-30): the start screen creates the chat before the build, with no
     // messages yet, and the projects list shows this line on every device.
@@ -32260,7 +32268,7 @@ async function handleRequest(request, env, ctx) {
         // THE SUMMARY IS THE SERVER'S (2026-10-20): kept across the page's writes while
         // the messages it covers are still there.
         const keptSum = cur.chat && cur.chat.summary && Number.isInteger(cur.chat.summary.upTo) && cur.chat.summary.upTo <= next.msgs.length ? cur.chat.summary : undefined;
-        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), createdAt: (cur.chat && Number(cur.chat.createdAt)) || Date.now(), brief: next.brief || (cur.chat && typeof cur.chat.brief === "string" ? cur.chat.brief : ""), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(next.surface ? { surface: next.surface } : {}), ...(next.appOs ? { appOs: next.appOs } : {}), ...(keptSum ? { summary: keptSum } : {}) };
+        const rec = { v: 1, rev: have + 1, updatedAt: Date.now(), createdAt: (cur.chat && Number(cur.chat.createdAt)) || Date.now(), brief: next.brief || (cur.chat && typeof cur.chat.brief === "string" ? cur.chat.brief : ""), name: next.name, slug: next.slug, msgs: next.msgs, clarify: next.clarify, jobCards: next.jobCards, ask: next.ask, ...(next.surface ? { surface: next.surface } : {}), ...(next.appOs ? { appOs: next.appOs } : {}), ...(next.keysClosed && next.keysClosed.length ? { keysClosed: next.keysClosed } : {}), ...(keptSum ? { summary: keptSum } : {}) };
         try {
           const put = await env.SITES_BUCKET.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" }, customMetadata: chatListMeta(rec), onlyIf: cur.etag ? { etagMatches: cur.etag } : { etagDoesNotMatch: "*" } });
           if (!put) { const now = await chatStoreRead(env, key); return Response.json({ ok: false, conflict: true, chat: now.chat }, { status: 409 }); }

@@ -2805,7 +2805,7 @@ const chatPulled = new Set();
 const chatSentSig = new Map();
 const chatTimers = new Map();
 function chatKeyOf(s) { const k = String((s && (s.chat || s.id)) || ''); return CHAT_KEY_RE.test(k) ? k : ''; }
-function chatSig(s) { const m = Array.isArray(s.msgs) ? s.msgs : []; return m.length + '|' + (m.length ? JSON.stringify(m[m.length - 1]).length : 0) + '|' + (s.name || '') + '|' + (s.slug || '') + '|' + JSON.stringify(s.clarify || null).length + '|' + JSON.stringify(s.jobCards || null).length + '|' + JSON.stringify(s.ask || null).length + '|' + (Array.isArray(s.msgs) ? s.msgs.reduce((n, x) => n + (x && x.rq ? JSON.stringify(x.rq).length : 0), 0) : 0); }
+function chatSig(s) { const m = Array.isArray(s.msgs) ? s.msgs : []; return m.length + '|' + (m.length ? JSON.stringify(m[m.length - 1]).length : 0) + '|' + (s.name || '') + '|' + (s.slug || '') + '|' + JSON.stringify(s.clarify || null).length + '|' + JSON.stringify(s.jobCards || null).length + '|' + JSON.stringify(s.ask || null).length + '|' + (Array.isArray(s.keysClosed) ? s.keysClosed.join(',') : '') + '|' + (Array.isArray(s.msgs) ? s.msgs.reduce((n, x) => n + (x && x.rq ? JSON.stringify(x.rq).length : 0), 0) : 0); }
 function chatAdopt(s, c) {
   if (!s || !c || !Array.isArray(c.msgs)) return;
   s.msgs = c.msgs.slice();
@@ -2814,6 +2814,8 @@ function chatAdopt(s, c) {
   if ('ask' in c) s.ask = c.ask && typeof c.ask === 'object' ? c.ask : null;
   if (c.surface === 'app') s.surface = 'app';
   if (c.appOs === 'android' || c.appOs === 'ios') s.appOs = c.appOs;
+  // THE KEY BOX'S CANCEL, from the server: closed on one device, closed on all.
+  if (Array.isArray(c.keysClosed)) s.keysClosed = c.keysClosed.filter((x) => typeof x === 'string');
   if (c.name && (!s.name || s.name === 'New website')) s.name = c.name;
   s.chatRev = c.rev;
 }
@@ -2879,7 +2881,7 @@ async function chatPush(key, again = 0) {
   const s = (sitesCache || []).find((x) => chatKeyOf(x) === key);
   if (!s) return;
   const sig = chatSig(s);
-  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined, appOs: s.appOs === 'android' || s.appOs === 'ios' ? s.appOs : undefined };
+  const body = { baseRev: Number(s.chatRev) || 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined, appOs: s.appOs === 'android' || s.appOs === 'ios' ? s.appOs : undefined, keysClosed: Array.isArray(s.keysClosed) && s.keysClosed.length ? s.keysClosed : undefined };
   let r = null, d = null;
   try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
   if (r && r.ok && d && Number.isInteger(d.rev)) { s.chatRev = d.rev; chatSentSig.set(key, sig); chatSaved(key); return; }
@@ -4899,7 +4901,7 @@ function sitesReconcile(rows, complete, askedAt) {
 async function projectCreate(s, brief) {
   const key = chatKeyOf(s);
   if (!key) return false;
-  const body = { baseRev: 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', brief: String(brief || '').slice(0, 300), clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined, appOs: s.appOs === 'android' || s.appOs === 'ios' ? s.appOs : undefined };
+  const body = { baseRev: 0, msgs: Array.isArray(s.msgs) ? s.msgs : [], name: s.name || '', slug: s.slug || '', brief: String(brief || '').slice(0, 300), clarify: s.clarify || null, jobCards: s.jobCards || null, ask: s.ask || null, surface: s.surface === 'app' ? 'app' : undefined, appOs: s.appOs === 'android' || s.appOs === 'ios' ? s.appOs : undefined, keysClosed: Array.isArray(s.keysClosed) && s.keysClosed.length ? s.keysClosed : undefined };
   let r = null, d = null;
   try { r = await apiFetch('/api/site/chat/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); d = await r.json().catch(() => null); } catch (e) { r = null; }
   const live = sitesLoad().find((x) => chatKeyOf(x) === key);
@@ -16740,17 +16742,18 @@ async function siteDatabase(site) {
 // the console or a message to the builder. The card lives in memory, outside
 // the stored thread, and is re-attached after each redraw so a half-typed key
 // is not lost.
-// THE KEY NAMES CANCEL CLOSED, KEPT ACROSS A RELOAD (owner, 2026-11-04: "i
-// refreshed the page and the box to put the keys appeared again even after i
-// pressed cancel"). Outside the key card on purpose: the card never touches
-// storage (key-card.test.mjs). Only strings shaped like a key's NAME pass in or
-// out (capitals, digits, underscores), so no typed value can be kept here.
+// THE KEY NAMES CANCEL CLOSED, ON THE SERVER (owner, 2026-11-04: "it should be
+// server … nothing should be only browser"): kept on the project as
+// `keysClosed` and written with its chat (`chatPush` → /api/site/chat, read
+// back by `chatAdopt`), so a refresh or another device keeps the box closed.
+// Outside the key card on purpose: the card never saves anything itself
+// (key-card.test.mjs). Only strings shaped like a key's NAME pass (capitals,
+// digits, underscores), here and again on the server, so no value is kept.
 const KeyNamesClosed = (() => {
-  const PREFIX = 'gf.keysClosed.';
-  const names = (l) => (Array.isArray(l) ? l : []).filter((n) => typeof n === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(n)).slice(0, 50);
+  const names = (l) => [...new Set((Array.isArray(l) ? l : []).filter((n) => typeof n === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(n)))].slice(0, 50);
   return {
-    read(siteId) { try { return names(JSON.parse(localStorage.getItem(PREFIX + siteId) || '[]')); } catch (e) { return []; } },
-    write(siteId, list) { try { localStorage.setItem(PREFIX + siteId, JSON.stringify(names(list))); } catch (e) { /* kept in this page */ } },
+    read(siteId) { const s = typeof siteById === 'function' ? siteById(siteId) : null; return names(s && s.keysClosed); },
+    write(siteId, list) { const s = typeof siteById === 'function' ? siteById(siteId) : null; if (!s) return; s.keysClosed = names(list); try { sitesSave(); } catch (e) { /* saved on the next change */ } },
   };
 })();
 const siteKeyCards = new Map();

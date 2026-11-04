@@ -10,9 +10,9 @@
 
 
 
-## 2026-11-04 — Cancel on the key box survives a refresh (branch `claude/cool-fermat-a06gie`; not deployed)
+## 2026-11-04 — Cancel on the key box is kept on the server (branch `claude/cool-fermat-a06gie`; not deployed)
 
-You pressed Cancel on the keys box, refreshed, and it came back. Cancel was remembered only in the open page. Now the closed key names (names only, never values) are kept in the browser under their own entry, so a refresh keeps the box closed; a key it has not asked for before still opens it. The storage sits outside the key box's own code (which is tested to never touch storage) and accepts only key-name-shaped words like STRIPE_SECRET_KEY. It is per browser: another device would show the box once. Test: `test/key-card-cancel-reload.test.mjs`.
+You pressed Cancel on the keys box, refreshed, and it came back: Cancel was remembered only in the open page. A first fix kept it in the browser; you said "it should be server … nothing should be only browser". Now the closed key NAMES (never values) are saved with the project's chat on the server (`keysClosed`, sent by the chat sync, cleaned by the server to name-shaped words like STRIPE_SECRET_KEY), so a refresh or another device keeps the box closed; a key not asked for before still opens it. Test: `test/key-card-cancel-reload.test.mjs` (Cancel on one device, the server's own check, a second device stays closed).
 
 ## 2026-11-04 — A finished message's steps really stay now (branch `claude/cool-fermat-a06gie`; not deployed)
 
