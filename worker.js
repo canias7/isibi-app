@@ -17574,7 +17574,7 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
   // added to its words from what really happened.
   const said = agentSaidTruth(ag.summary, { failed: facts.filter((f) => /could not|refused|failed|was not saved|stopped part-way/i.test(f)), dead: ag.deadLinks || [], strays: ag.strays || [], draft: !!(out && out.draft), missing: ag.missingWords || [], facts: ag.newFacts || [], stale: ag.staleLinks || [], unlinked: ag.unlinked || [], putBack: out && out.salvaged && Array.isArray(out.salvaged.kept) ? out.salvaged.kept : [], logoUnshown: ag.logoUnshown === true, values: (rowsOut.facts || []).filter((f) => /\u2192/.test(f)), oldName: ag.oldNameLeft || [], emptyLists: ag.emptyLists || [], removedRows: (rowsOut.done || []).filter((d) => d && d.kind === "remove" && d.old).length + (Number(rowsOut.heldRemoved) || 0),
     seeded: (ag.schema || []).filter((op) => op && op.create).map((op) => ({ table: op.table, n: (rowsOut.done || []).filter((d) => d && d.kind === "add" && d.table === op.table).length })).filter((x) => x.n > 0),
-    stylesChecked: !!(out && out.ok !== false && ag.cssChanged) });
+    stylesChecked: !!(out && out.ok !== false && ag.cssChanged), requirements: ag.requirements || [], hidden: ag.hiddenWords || [] });
   return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(said ? { said } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.

@@ -23,6 +23,26 @@
 
 
 
+
+## 2026-11-04 — Carry-over batch 11 (your "fix 2, 3, 4")
+
+- **What got set up, checked (2).** When the agent adds a page or a table it must
+  name what each addition is for and which pieces carry it ("visitors can book
+  a class" → /book and the bookings table). Code checks each one (the page is
+  there, the table is there, the page reads or saves the table); a missing join
+  is handed back once; then the reply says "Set up and checked: …" / "Not done
+  yet: …" / "Couldn't check from here: …".
+- **In the code but hidden (3).** Words you asked for that are in the page's code
+  but not on screen when it first loads (inside a closed tab, accordion or
+  pop-up) are told as "on the page but hidden until opened". Only from a complete
+  browser reading; no reading is never read as hidden.
+- **Stored QR codes on a page (4).** The agent is told how to show a stored code
+  (`SITE_QRS["name"]`) instead of making a new one, and a page naming a code the
+  site doesn't store is refused before it ships.
+
+Tests: `agent-gates-batch11` (4). Full suite 9,675: only `media-verify` fails (as
+on main). Not deployed.
+
 ## 2026-11-04 — Carry-over batch 10 (your "fix 2 … fix 10")
 
 - **A page that doesn't show is never saved (M-62).** If a page this change wrote

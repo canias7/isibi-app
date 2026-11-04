@@ -143,7 +143,7 @@ export function deadLinkNote(list, max = 12) {
 
 // ── M-66: THE REPLY NEVER CLAIMS WHAT FAILED ─────────────────────────────────
 /** The agent's own words, with what really failed added (carry-over M-66, M-45); "" when there are none. */
-export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [], logoUnshown = false, values = [], oldName = [], emptyLists = [], removedRows = 0, seeded = [], stylesChecked = false } = {}) {
+export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], draft = false, missing = [], facts = [], stale = [], unlinked = [], putBack = [], logoUnshown = false, values = [], oldName = [], emptyLists = [], removedRows = 0, seeded = [], stylesChecked = false, requirements = [], hidden = [] } = {}) {
   const own = typeof summary === "string" ? scrubSaid(summary) : "";
   if (!own) return "";
   const add = [];
@@ -173,6 +173,16 @@ export function agentSaidTruth(summary, { failed = [], dead = [], strays = [], d
   // M-86: the small notes the old replies gave, only when the agent's words did not.
   for (const x of seeded) if (x && x.table && x.n && !own.includes(x.table)) add.push("Added " + x.n + " starter " + (x.n === 1 ? "entry" : "entries") + " to the new " + x.table + " list.");
   if (stylesChecked && !/\bstyle/i.test(own)) add.push("Your new styles were checked on the pages.");
+  // "FIX 3": on the site, but only inside something a visitor must open.
+  if (hidden.length) add.push("On the page but hidden until opened (inside a tab, an accordion or a pop-up): " + hidden.map((w) => "\u201c" + w + "\u201d").join(", ") + ".");
+  // WHAT GOT SET UP (the owner's "fix 2"): each requirement as the check found it.
+  const req = Array.isArray(requirements) ? requirements.filter((r) => r && typeof r.need === "string") : [];
+  const up = req.filter((r) => r.state === "present").map((r) => r.need);
+  const no = req.filter((r) => r.state === "missing").map((r) => r.need + (r.gaps && r.gaps.length ? " (" + r.gaps[0] + ")" : ""));
+  const unsure = req.filter((r) => r.state !== "present" && r.state !== "missing").map((r) => r.need);
+  if (up.length) add.push("Set up and checked: " + up.join("; ") + ".");
+  if (no.length) add.push("Not done yet: " + scrubSaid(no.join("; ")) + ".");
+  if (unsure.length) add.push("Couldn't check from here: " + unsure.join("; ") + ".");
   // M-53: the logo is stored but the header does not show it.
   if (logoUnshown) add.push("Your logo is saved, but the site's header doesn't show it yet.");
   // M-70: the change is in the draft until they press Publish (said once, unless the agent said it).
@@ -558,4 +568,18 @@ export function droppedLanguages(current, next, words) {
   const named = (t) => w.includes(String(t).toLowerCase()) || w.includes(langName(t).toLowerCase().split(" (")[0]);
   const dropped = (current || []).filter((t) => !keep.has(String(t).toLowerCase()));
   return { unnamed: dropped.filter((t) => !named(t)).map((t) => langName(t) + " (" + t + ")"), missing: [] };
+}
+
+// ── IN THE CODE IS NOT ON THE SCREEN (2026-11-04, the owner's "fix 3") ──────
+/** Quoted words the owner asked to be shown (the same reading as `missingWords`). */
+export function askedWords(message) {
+  const out = [];
+  for (const m of String(message || "").matchAll(ASKED_QUOTE)) { const w = m[1].trim(); if (w && !out.includes(w)) out.push(w); }
+  return out.slice(0, 8);
+}
+/** Asked words a file holds that no page showed as it first loaded: there, but only inside something closed. */
+export function hiddenWords(message, files, seenText) {
+  const all = flat([...(files instanceof Map ? files.values() : Object.values(files || {}))].join("\n"));
+  const seen = flat(seenText);
+  return askedWords(message).filter((w) => { const f = flat(w).trim(); return f && all.includes(f) && !seen.includes(f); });
 }

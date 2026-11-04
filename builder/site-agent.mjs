@@ -44,7 +44,8 @@ import { noteProgress } from "./job-progress.mjs";
 import { readSettingsInput, readLogoInput, readLanguagesInput, readRulesInput, readRenameInput, readAskInput, readQrInput } from "./agent-steps.mjs";
 import { applySort, sortColumns, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 import { overridesFromEdits } from "./lang-override.mjs";
-import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE, rowProblems, keepsMost, staleContactLinks, unlinkedNewPages, pageNotThere, droppedLanguages } from "./agent-gates.mjs";
+import { verifyNeed } from "./requirement-verify.mjs";
+import { PRICE_YES, REWRITE_FILES, REMOVE_YES, REMOVE_NO, priceApproved, bigKind, priceRefusal, priceAskProblem, unchosenProviders, providerRefusal, deadLinks, deadLinkNote, questionOnly, QUESTION_ONLY, DUP_YES, duplicateAdds, duplicateRefusal, fitRows, pageExists, strayNote, addressNamed, ADDRESS_UNNAMED, scriptProblem, SCRIPT_REFUSAL, qrToken, expandQr, unknownQr, repeatingDates, REPEAT_REFUSAL, missingWords, MISSING_NOTE, newFacts, FACTS_NOTE, rowProblems, keepsMost, staleContactLinks, unlinkedNewPages, pageNotThere, droppedLanguages, hiddenWords } from "./agent-gates.mjs";
 
 /**
  * NO ROUND LIMIT (the owner, 2026-10-30: "no limit" on how long a task runs).
@@ -203,7 +204,7 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "site_qr_codes",
-    description: "The site's own stored QR codes (the printed ones the site serves, by name). `action`: \"list\" shows them; \"change\" points one (`name`) at a page of the site (`page`, \"/menu\") or a web address (`url`), and/or relabels it (`label`); \"remove\" takes one off (`name`). Saved when you finish. A code on a printed card keeps its name, so changing where it points updates every printed copy.",
+    description: "The site's own stored QR codes (the printed ones the site serves, by name). `action`: \"list\" shows them; \"change\" points one (`name`) at a page of the site (`page`, \"/menu\") or a web address (`url`), and/or relabels it (`label`); \"remove\" takes one off (`name`). Saved when you finish. A code on a printed card keeps its name, so changing where it points updates every printed copy. TO SHOW A STORED CODE ON A PAGE, never make a new one with make_qr: import { SITE_QRS } from \"@/site-brand\" and draw <img src={SITE_QRS[\"<name>\"].src} alt={SITE_QRS[\"<name>\"].label} /> (\"list\" gives the names).",
     input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "change", "remove"] }, name: { type: "string" }, page: { type: "string" }, url: { type: "string" }, label: { type: "string" } }, required: ["action"] },
   },
   {
@@ -228,7 +229,7 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "make_qr",
-    description: "A QR code for one of the site's pages (`page`: \"/menu\") or a web address (`url`): answers a picture address to put in an <img src> on a page.",
+    description: "A NEW QR code for one of the site's pages (`page`: \"/menu\") or a web address (`url`): answers a picture address to put in an <img src> on a page. When the site already has a stored code for it (site_qr_codes list), show that one through SITE_QRS instead, so printed copies and the page stay one code.",
     input_schema: { type: "object", properties: { page: { type: "string" }, url: { type: "string" } } },
   },
   // THE ROUTER-ERA STEPS THE AGENT HAD LOST (2026-10-30, fix-all): a list's
@@ -285,8 +286,8 @@ export const AGENT_TOOLS = Object.freeze([
   },
   {
     name: "finish",
-    description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer.",
-    input_schema: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
+    description: "You are done. If you wrote or removed any file, only after a build that passed with nothing written since. `summary`: what you changed, as plain facts for the reply to the customer. `requirements`: when you ADDED something (a page, a table, a feature), each thing the owner asked for that it must do, with the site's pieces that carry it: `uses` like \"page:/book\", \"table:bookings\", \"table:bookings.email\"; they are checked against the site and the owner is told which are set up.",
+    input_schema: { type: "object", properties: { summary: { type: "string" }, requirements: { type: "array", maxItems: 8, items: { type: "object", properties: { need: { type: "string" }, uses: { type: "array", items: { type: "string" }, maxItems: 6 } }, required: ["need", "uses"] } } }, required: ["summary"] },
   },
 ]);
 
@@ -661,6 +662,12 @@ export function checkNotes(r) {
 }
 const mustFix = (r) => !!(r && r.render && Array.isArray(r.render.findings) && r.render.findings.some((f) => f && MUST_FIX.includes(f.kind)));
 /** The pages a check found that do not show at all (an error, or nothing on screen): `["/menu", …]`. */
+/** What each page showed as it first loaded (`render.texts`): `null` when the check gave none, so "not seen" is never read as "hidden". */
+export function shownTexts(r) {
+  const t = r && r.render && Array.isArray(r.render.texts) ? r.render.texts : null;
+  if (!t || !t.length) return null;
+  return t.filter((x) => x && typeof x.text === "string").map((x) => ({ route: String(x.route || "/"), text: x.text, complete: x.complete !== false }));
+}
 export function brokenRoutes(r) {
   const out = new Set();
   for (const f of r && r.render && Array.isArray(r.render.findings) ? r.render.findings : []) if (f && (f.kind === "threw" || f.kind === "blank")) out.add(String(f.route || "/"));
@@ -1080,7 +1087,7 @@ async function runTool(use, st, deps) {
       try { r = await untilStopped(deps, () => deps.build({ pages: expandQr(st.ws.pages(), st.qrMap), parts: expandQr(st.ws.parts(), st.qrMap), css: st.ws.css() })); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       st.lastBuild = r && r.ok === true ? "ok" : "fail";
-      if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); st.broken = brokenRoutes(r); }
+      if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); st.broken = brokenRoutes(r); st.shownTexts = shownTexts(r); }
       if (r && r.ok === true && !st.unreadable && st.spec) {
         const dp = dataProblems(st.ws, st.spec, st.schema);
         st.dataProblems = dp;
@@ -1132,6 +1139,7 @@ async function runTool(use, st, deps) {
       st.mustFix = mustFix(r);
       st.mustFixKinds = mustFixKinds(r);
       st.broken = brokenRoutes(r);
+      st.shownTexts = shownTexts(r);
       st.looked.add(route);
       return { text: "Screenshots of " + route + " follow: " + shots.map((x) => x.viewport + " width").join(", ") + "." + checkNotes(r), images: shots.map((x) => ({ label: route + " at " + x.viewport + " width", png: x.png })) };
     }
@@ -1325,7 +1333,9 @@ async function runTool(use, st, deps) {
       let list = Array.isArray(st.settings.qr) ? st.settings.qr : null;
       if (!list) { try { list = (await deps.qrCodes()) || []; } catch { return { error: "the site's QR codes could not be read just now" }; } }
       const action = typeof input.action === "string" ? input.action : "";
-      if (action === "list") return { text: list.length ? list.map((c) => "- " + c.name + ": " + c.label + " \u2192 " + c.points).join("\n") : "The site has no stored QR codes." };
+      // HOW A STORED CODE IS SHOWN ON A PAGE (2026-11-04, the owner's "fix 4"):
+      // by its name through SITE_QRS, the picture the site itself serves.
+      if (action === "list") return { text: list.length ? list.map((c) => "- " + c.name + ": " + c.label + " \u2192 " + c.points).join("\n") + "\nTo show one on a page: import { SITE_QRS } from \"@/site-brand\"; <img src={SITE_QRS[\"" + list[0].name + "\"].src} alt={SITE_QRS[\"" + list[0].name + "\"].label} /> (its name in place of \"" + list[0].name + "\")." : "The site has no stored QR codes." };
       if (st.onlyWrite) return { error: "a helper writes only its own page, " + st.onlyWrite };
       const name = typeof input.name === "string" ? input.name.trim() : "";
       const at = list.findIndex((c) => c.name === name);
@@ -1539,6 +1549,17 @@ async function runTool(use, st, deps) {
         st.deadLinks = dead;
         if (dead.length && (st.linksHeld || 0) < 2) { st.linksHeld = (st.linksHeld || 0) + 1; return { error: deadLinkNote(dead) }; }
       }
+      // A STORED QR CODE THE SITE DOES NOT HAVE (the owner's "fix 4"): a page
+      // that draws SITE_QRS["x"] for a name not stored would draw nothing.
+      if (!st.onlyWrite && typeof deps.qrCodes === "function") {
+        const used = new Set();
+        for (const src of st.ws.files.values()) for (const m of String(src).matchAll(/SITE_QRS(?:\[\s*["'`]([^"'`]+)["'`]\s*\]|\.([A-Za-z_$][\w$]*))/g)) used.add(m[1] || m[2]);
+        if (used.size) {
+          let have = Array.isArray(st.settings.qr) ? st.settings.qr : null;
+          if (!have) { try { have = (await deps.qrCodes()) || []; } catch { have = null; } }
+          if (Array.isArray(have)) { const names = new Set(have.map((c) => c.name)); const bad = [...used].filter((n) => !names.has(n)); if (bad.length) return { error: "these QR codes are not stored on the site: " + bad.join(", ") + ". The stored ones are: " + ([...names].join(", ") || "none") + " (site_qr_codes list)." }; }
+        }
+      }
       // A QR ADDRESS make_qr NEVER GAVE (M-39) would be a broken picture.
       if (!st.onlyWrite) { const bad = unknownQr(st.ws.files, st.qrMap); if (bad.length) return { error: "these QR addresses were never made by make_qr: " + bad.join(", ") + ". Call make_qr for each code you need and use the address it answers." }; }
       // THE WORDS THE OWNER ASKED FOR ARE ON THE SITE (M-67), and NO FACTS OF
@@ -1546,6 +1567,15 @@ async function runTool(use, st, deps) {
       if (!st.onlyWrite && st.written.size) {
         const miss = missingWords(st.message, st.ws.files);
         st.missingWords = miss;
+        // IN THE CODE IS NOT ON THE SCREEN (2026-11-04, the owner's "fix 3",
+        // carried from the old content check): the words asked for that the
+        // files hold are looked for in what the pages showed as they first
+        // loaded; ones only inside something closed (an accordion, a tab, a
+        // dialog) are told as there but hidden. Only from a complete reading.
+        if (!miss.length && Array.isArray(st.shownTexts) && st.shownTexts.every((x) => x.complete)) {
+          const seen = st.shownTexts.map((x) => x.text).join("\n");
+          st.hiddenWords = hiddenWords(st.message, st.ws.files, seen);
+        }
         if (miss.length && !st.wordsHeld) { st.wordsHeld = true; return { error: MISSING_NOTE(miss) }; }
         const after = [...st.written].filter((k) => st.ws.has(k)).map((k) => st.ws.get(k)).join("\n");
         const facts = newFacts(st.origText, after, String(st.request || "") + "\n" + String(st.history || "") + "\n" + st.readText);
@@ -1617,6 +1647,25 @@ async function runTool(use, st, deps) {
         let note = "";
         try { note = String(deps.review({ pages: st.ws.pages(), parts: st.ws.parts(), css: st.ws.css() }) || ""); } catch { note = ""; }
         if (note) { try { st.log({ event: "review" }); } catch { /* never */ } return { error: note }; }
+      }
+      // WHAT GOT SET UP, CHECKED (2026-11-04, the owner's "fix 2", carried from
+      // the old add-on's requirement check): when this change added a page or a
+      // table, each requirement the agent names is checked against the site
+      // (`verifyNeed`: the page there, the table there, the page reading or
+      // saving it). Missing pieces are handed back once; then the owner is told
+      // which are set up and which are not.
+      if (!st.onlyWrite && !st.foundationFirst) {
+        const madeNew = [...st.written].some((k) => st.orig && !st.orig.has(k) && st.ws.has(k)) || st.schema.some((op) => op && op.create);
+        const reqs = Array.isArray(input.requirements) ? input.requirements.filter((r) => r && typeof r.need === "string" && r.need.trim() && Array.isArray(r.uses) && r.uses.length).slice(0, 8) : [];
+        if (madeNew && !reqs.length && !st.reqAsked) { st.reqAsked = true; return { error: "you added something: finish again with `requirements`, each thing the owner asked for and the pieces that carry it (e.g. { need: \"visitors can book a class\", uses: [\"page:/book\", \"table:bookings\"] }), so it can be checked" }; }
+        if (reqs.length) {
+          const pages = new Map(st.ws.keys().filter((k) => !k.startsWith("-parts/") && k.endsWith(".tsx")).map((k) => [k === "index.tsx" ? "/" : "/" + k.replace(/\.tsx$/, "").replace(/\/index$/, ""), st.ws.get(k) + "\n" + st.ws.parts().map((p) => p.source).join("\n")]));
+          const spec = { tables: (st.tables || []).map((t) => ({ name: t.name, columns: t.columns })) };
+          const checked = reqs.map((r) => { let v; try { v = verifyNeed(r.uses.map(String), { pages, spec }); } catch { v = { state: "unverifiable", gaps: [] }; } return { need: r.need.trim().slice(0, 200), state: v.state, gaps: (v.gaps || []).slice(0, 4) }; });
+          st.requirements = checked;
+          const missing = checked.filter((c) => c.state === "missing");
+          if (missing.length && !st.reqHeld) { st.reqHeld = true; return { error: "THESE REQUIREMENTS ARE NOT MET YET:\n" + missing.map((c) => "- " + c.need + ": " + c.gaps.join("; ")).join("\n") + "\nFix them (the page must read or save the table it needs), build, and finish again." }; }
+        }
       }
       st.done = true;
       st.summary = typeof input.summary === "string" ? input.summary.slice(0, 4000) : "";
@@ -1903,6 +1952,9 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     // Picture addresses that hold no file, left after the finish was held (M-41).
     strays: st.ask ? [] : (st.strays || []).slice(0, 20),
     pageBroken: (st.pageBroken || []).slice(0, 8),
+    // What the owner asked for, checked: set up, not done, or not checkable (the owner's "fix 2").
+    requirements: st.ask ? [] : (st.requirements || []).slice(0, 8),
+    hiddenWords: st.ask ? [] : (st.hiddenWords || []).slice(0, 8),
     // Words asked for and not found, and details nobody gave, left after one hold (M-67, M-69).
     missingWords: st.ask ? [] : (st.missingWords || []).slice(0, 8),
     newFacts: st.ask ? [] : (st.newFacts || []).slice(0, 10),
