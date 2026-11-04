@@ -384,7 +384,8 @@ export function agentReplyOf(rec) {
   // KEYS STILL NEEDED ARE SAID, NEVER SILENT (owner, 2026-11-03): the agent's
   // words, then one plain line naming each key the site still waits for.
   const keys = Array.isArray(p.needKeys) ? p.needKeys.filter((k) => plain(k) && typeof k.name === "string" && KEY_RE.test(k.name)) : [];
-  if (!keys.length) return said || null;
+  // ONCE (owner, 2026-11-04): when the agent's own words already name every key, no second line.
+  if (!keys.length || (said && keys.every((k) => said.includes(k.name)))) return said || null;
   const names = keys.map((k) => "`" + k.name + "`" + (typeof k.service === "string" && k.service ? " (" + k.service + ")" : ""));
   const line = "To finish this, add " + (names.length === 1 ? "your key " + names[0] : "these keys: " + names.join(", ")) + " in the key box below.";
   return said ? said + "\n\n" + line : line;

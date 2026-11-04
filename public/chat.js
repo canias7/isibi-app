@@ -8073,7 +8073,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).filter((m) => !siteParHidden(m, site)).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : ('<div class="st-msg a"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : '') + siteMsgText(m, linkify) + (m.wait && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(m.wait) : '') + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : ('<div class="st-msg a"' + (m.request && !m.t && !m.jobCard && !siteReqCardShows(m, site) ? ' hidden' : '') + '>') + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + (m.talkLive === true ? (Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, true) : '<div class="st-think"><i></i>Working on it</div>') : Array.isArray(m.prog) && m.prog.length ? progressListHTML(m.prog, false, true) : (typeof siteReqDoneLines === 'function' ? ((dl) => (dl.length ? progressListHTML(dl, false, true) : ''))(siteReqDoneLines(m, site)) : '')) + siteMsgText(m, linkify) + (m.wait && typeof EditPoll.noticeHTML === 'function' ? EditPoll.noticeHTML(m.wait) : '') + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + '' + siteAskHTML(m, site) + siteModel3dHTML(m, site) + siteSentinelHTML(m) + (m.request ? siteReqCardHTML(m, site) : '') + (m.jobCard ? siteJobCardHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusyHere(site)
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -10053,6 +10053,20 @@ function siteReqTalkFollow(origin, key, job) {
   }).catch(() => {}).finally(() => { clearInterval(tick); siteReqTalk.delete(job); });
 }
 /** What a running part has said so far: its live talk when that has as much, else the view's lines for its running job; the sentence being written last. [] when it is not running. */
+// A FINISHED ONE-PART MESSAGE KEEPS ITS STEPS (owner, 2026-11-04: the progress lines
+// "disappear" when the reply comes): once its reply is in, the steps its job said,
+// drawn as done above the reply. From the live talk this page heard, else the
+// lines the request's reading carries; none while it still works.
+function siteReqDoneLines(m, site) {
+  if (!m || !m.request || !m.t || !site || !site.requests) return [];
+  const st = site.requests[m.request];
+  const v = st && st.view;
+  if (!v || !Array.isArray(v.parts) || v.parts.length !== 1 || siteReqWorkingLine(m, site)) return [];
+  const p = v.parts[0] || {};
+  const jobs = (Array.isArray(p.jobs) ? p.jobs : []).map((j) => (typeof j === 'string' ? j : j && j.id)).filter(Boolean);
+  for (const id of jobs.slice().reverse()) { const t = siteReqTalk.get(id); if (t && t.lines.length) return t.lines.slice(); }
+  return (Array.isArray(p.progress) ? p.progress : []).filter((l) => l && typeof l.text === 'string' && l.text && (!l.job || !jobs.length || jobs.includes(l.job)));
+}
 function siteParLiveLines(p) {
   if (!p || typeof p.live !== 'string' || !p.live) return [];
   const polled = (Array.isArray(p.progress) ? p.progress : []).filter((l) => l && l.job === p.live && typeof l.text === 'string' && l.text);

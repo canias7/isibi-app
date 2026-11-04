@@ -1504,7 +1504,7 @@ function settle(rec, p, job, row, now) {
   const wk = ans ? partWork(ans.body) : null;
   // THE AGENT'S OWN FINISH WORDS (2026-11-02, reply-fix): when its step
   // finished ok and was not a split, its words are the message's reply.
-  if (ans && plain(ans.body) && ans.body.ok === true && ans.body.layer === "agent" && !Array.isArray(ans.body.split) && typeof ans.body.msg === "string" && ans.body.msg.trim()) p.agentSaid = ans.body.msg.trim().slice(0, 4000);
+  if (ans && plain(ans.body) && ans.body.ok === true && ans.body.layer === "agent" && !Array.isArray(ans.body.split) && typeof ans.body.msg === "string" && ans.body.msg.trim()) p.agentSaid = (typeof ans.body.said === "string" && ans.body.said.trim() ? ans.body.said : ans.body.msg).trim().slice(0, 4000);
   if (wk) p.work = readWork({ ...(p.work || {}), ...Object.fromEntries(Object.entries(wk).map(([k, v]) => [k, Array.isArray(v) ? [...new Set([...((p.work && Array.isArray(p.work[k])) ? p.work[k] : []), ...v])] : v])) });
   // WHAT IT WAS CHARGED, AS ITS ROW SAYS — its reserves once finalized, and
   // nothing for one refunded, exempt or never reserved — so a part's money is

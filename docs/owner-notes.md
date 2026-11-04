@@ -10,6 +10,10 @@
 
 
 
+## 2026-11-04 — The reply is the agent's own words; finished steps stay (branch `park-old-way`; not deployed)
+
+On the owner's word (Market Lane's Stripe reply: a stitched record, the keys named three times, and the progress lines gone when it finished). (1) A finished change's reply is the agent's own words (`said`, its finish summary); the full record stays in the answer's `msg` and `facts`. A keys line is added only when those words do not already name every key. (2) A finished one-part message keeps its steps, drawn as done above its reply (before: they were drawn only while the job was live, so they vanished when the reply came; shown on the old page code: none; on the new: all three). Tests: `test/done-lines.test.mjs` (4). Full suite 9,636: media-verify's browser mode fails as before; stop-queue-browser failed once under parallel load and passed 3 of 3 alone.
+
 ## 2026-11-04 — Cancel on the key box (branch `park-old-way`; not deployed)
 
 On the owner's word ("it has a save button, but it would need something to cancel"). The key box has Cancel beside Save: the box closes, anything typed in it is cleared, nothing is saved or sent, and the same ask does not reopen it on this page (a new key does). Shown in a screenshot; the key-card tests pass.

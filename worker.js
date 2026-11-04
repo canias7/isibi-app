@@ -17320,7 +17320,8 @@ async function runAgentChange(env, { slug, words, pages, parts, job = null, pick
     sorts: out ? ag.sorts || [] : [], media: out ? ag.media || [] : [], address: addressFacts, keys: keysOut, report: reportFacts(report), undo: undoSentence(undo), summary: ag.summary });
   if (talk) { try { job.progress.mark("applied", facts.slice(0, 6).map((text) => ({ state: "applied", text }))); } catch { /* never */ } }
   const partial = rowsOut.failed > 0 || addressFacts.some((f) => /could not/.test(f)) || ruleFacts.some((f) => /could not|refused/.test(f));
-  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts,
+  // THE AGENT'S OWN WORDS, ALONE (owner, 2026-11-04): the reply is these; `msg` keeps the full record.
+  return { status: 200, body: { ok: true, layer: "agent", deferred: [], msg: facts.join(" "), facts, ...(typeof ag.summary === "string" && ag.summary.trim() ? { said: ag.summary.trim().slice(0, 4000) } : {}),
     ...(partial ? { partial: true } : {}),
     // THE PAGES THE AGENT LOOKED AT (2026-10-29), so the reply says it looked.
     ...(out ? { files: out.files, render: out.render, renderNote: out.renderNote, checks: out.checks && ag.looked.length ? { ...out.checks, looked: ag.looked.slice(0, 12) } : out.checks, draft: out.draft } : {}),
