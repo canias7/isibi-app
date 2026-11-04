@@ -31,13 +31,13 @@
 // with what the workspace holds; the caller saves only a workspace whose last
 // build passed.
 import { resolveAccess } from "../site-access.mjs";
-import { pageRulesFor, SITE_PAGES_TOOL } from "./page-gen.mjs";
+import { pageRulesFor, SITE_PAGES_TOOL, lintPages } from "./page-gen.mjs";
 import { siteSlice } from "./site-map.mjs";
 import { checkServerPart, SERVER_PREFIX } from "./server-code.mjs";
 import { pageCost } from "./publish-pages.mjs";
 import { requiredFiles, partKey, overThreshold } from "./file-picker.mjs";
 import { keyAsk } from "./key-card.mjs";
-import { SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
+import { accessFields, mergeSchemaOps, SERVER_TOOLS, readDocs, errorLines, errorsLimit, keyNames, schemaChange, callRequest, callAnswer } from "./agent-server-tools.mjs";
 import { attachments as sortAttachments } from "./site-context.mjs";
 import { readImportSite, importBriefBlock, IMPORT_LOGO_ID } from "./site-import.mjs";
 import { noteProgress } from "./job-progress.mjs";
@@ -964,6 +964,15 @@ async function runTool(use, st, deps) {
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
       st.lastBuild = r && r.ok === true ? "ok" : "fail";
       if (r && r.ok === true) { st.dirty = false; st.built = true; st.mustFix = mustFix(r); st.mustFixKinds = mustFixKinds(r); }
+      if (r && r.ok === true && !st.unreadable && st.spec) {
+        const dp = dataProblems(st.ws, st.spec, st.schema);
+        st.dataProblems = dp;
+        if (dp.length && (st.dataTries || 0) < DATA_TRIES) {
+          st.dataTries = (st.dataTries || 0) + 1;
+          st.built = false; // finish waits for a build with these fixed
+          return { text: "The build compiled, but the pages read or write the database in ways it will refuse for a visitor (a form that saves nowhere, a list that shows nothing). Fix these, then build again:\n" + dp.slice(0, 12).join("\n") };
+        }
+      }
       const tests = r && Array.isArray(r.serverTests) ? r.serverTests.filter((t) => t && t.ok === false && t.kind === "code") : [];
       const notes = r && r.ok === true ? checkNotes(r) : "";
       if (r && r.ok === true && !tests.length) return { text: "The build passed." + notes };
@@ -1094,7 +1103,7 @@ async function runTool(use, st, deps) {
       if (!c.ok) return { error: c.why };
       st.schema.push(c.op);
       // What change_rows and the next change_schema see: the table as it will be.
-      if (c.op.create) st.tables.push({ name: c.op.table, pk: "id", columns: ["id", ...c.op.create.columns.map((x) => x.name)] });
+      if (c.op.create) st.tables.push({ name: c.op.table, pk: "id", columns: ["id", ...c.op.create.columns.map((x) => x.name)], visitors: resolveAccess(accessFields(c.op.create.access)).write !== "none" });
       else { const t = st.tables.find((x) => x.name === c.op.table); if (t) t.columns = [...t.columns, ...c.op.add.map((x) => x.name)]; }
       return { text: (c.op.create ? "Queued: a new table " + c.op.table + " (" + c.op.create.columns.map((x) => x.name + " " + x.type).join(", ") + ")" : "Queued: new columns on " + c.op.table + " (" + c.op.add.map((x) => x.name + " " + x.type).join(", ") + ")") + ". Added to the database when you finish, before the table entries." };
     }
@@ -1271,6 +1280,9 @@ async function runTool(use, st, deps) {
       // REFUSED ONCE; finishing again ends the run, and it ends not ok (no pages).
       if (st.needsPages && !hasPages(st) && !st.pagesRefused) { st.pagesRefused = true; return { error: NO_PAGES_YET }; }
       if (st.dirty && !st.onlyWrite) return { error: "build first: files were written since the last build that passed" };
+      // THE DATA CHECK HOLDS THE FINISH (carry-over M-18) until a build passes it,
+      // or it has been tried DATA_TRIES times (then the build lets it through).
+      if (!st.onlyWrite && !st.built && st.dataProblems && st.dataProblems.length) return { error: "fix the data problems the last build found, then build again:\n" + st.dataProblems.slice(0, 12).join("\n") };
       // A FINDING THAT MUST BE FIXED HOLDS THE FINISH ONCE: the agent is sent
       // back to fix it; if it finishes again it is let go (it may not be able to),
       // and the final reply says what the check still found.
@@ -1387,7 +1399,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     : [];
   const files = (Array.isArray(attached) ? attached : []).filter((f) => f && typeof f.id === "string");
   if (files.length && !onlyWrite) deps = { ...deps, attachment: (id) => files.find((f) => f.id === id) || null };
-  const st = { ws, tables, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
+  const st = { ws, tables, spec: spec && Array.isArray(spec.tables) ? spec : null, onlyWrite, rows: [], schema: [], dirty: false, built: false, builds: 0, written: new Set(), done: false, summary: "", lastBuild: "", looked: new Set(), log, settings: {}, rules: [], redirects: {}, qrs: 0, ask: null, split: null, startBuild: "", sorts: [], media: [], address: null, forget: [], keysAsked: [], unreadable: unreadable === true, request: String(request || ""), foundationFirst: foundationFirst === true && !onlyWrite,
     // A NEW SITE MUST END WITH PAGES (owner, 2026-11-03: Nimbus finished with none).
     needsPages: foundationFirst === true && !onlyWrite && newProject !== true,
     progress, ruleTables: spec && Array.isArray(spec.tables) ? spec.tables.filter((t) => t && typeof t.name === "string") : [] };
@@ -1640,6 +1652,23 @@ export function historyFromWindow(w) {
   const lines = turns.filter((t) => t && typeof t.text === "string" && t.text.trim()).map((t) => (t.role === "user" ? "Owner: " : "You: ") + t.text.trim());
   return [...(sum ? ["Earlier in this chat (summary of the older messages): " + sum] : []), ...lines].join("\n");
 }
+/**
+ * THE DATA CHECK ON EVERY AGENT BUILD (2026-11-04, carry-over M-18; the old
+ * lint, `lintPages`, ran only on a first build). Only its data findings: a page
+ * or component that reads or writes a table the schema does not declare or has
+ * closed, writes where its access refuses (403), reads without the sign-in the
+ * table needs (401), edits rows nobody may edit, or calls a function that is
+ * internal or undeclared — each one compiles, publishes and then fails for the
+ * visitor (a form that saves nowhere). Tables this run created count as declared.
+ */
+const DATA_FINDING = /table "|\(access "|access "|returns 40[134]|useUpdateRow|useDeleteRow|publicView|database function|as internal/;
+export function dataProblems(ws, spec, schemaOps = []) {
+  if (!spec || !Array.isArray(spec.tables)) return [];
+  const merged = mergeSchemaOps(spec, schemaOps).spec;
+  const files = [...ws.pages(), ...ws.parts().map((q) => ({ path: "-parts/" + q.name + ".tsx", source: q.source }))];
+  return lintPages(files, { ...spec, tables: merged.tables }).filter((m) => DATA_FINDING.test(m));
+}
+export const DATA_TRIES = 2;
 /** The answer when a tool is pointed at a table visitors write to. */
 export const VISITOR_ROWS = "that table holds what the site's visitors sent (bookings, orders, messages, sign-ups): its rows are theirs, so they are never read or changed here. Pages may still show or collect them through the site's own data hooks; the owner reads and edits them in Data.";
 /** What the agent is told when the chat could not be read: unknown, never "nothing was said". */

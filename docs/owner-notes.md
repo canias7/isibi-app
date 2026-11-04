@@ -10,6 +10,12 @@
 
 
 
+## 2026-11-04 — Critical fix 4 of 7: every agent build checks the forms and lists; tables the agent makes get the access it meant (branch `claude/cool-fermat-a06gie`; not deployed)
+
+- **The data check is back on edits.** The old check (`lintPages`) caught a page that writes to a list visitors can't write to, reads a list that doesn't exist or was closed, or calls a function it isn't allowed to: things that compile, publish, and then fail for the visitor (a form that saves nowhere). It only ran on a first build. Now every agent build runs its data part; the agent is told exactly what's wrong and can't finish until a build passes it (after two tries it may finish, so a false alarm can't loop forever). Tables the agent created in the same run count as real.
+- **Found on the way: the agent's access words didn't match the database's.** When the agent made a table "public" (everyone reads it) or "owner", the database didn't know those words and treated the table as "visitors send, nobody reads", so a "public" list showed nothing. Now "public" means everyone reads and only you change it, "owner" means only you (in Data), and the agent is told what each word means. (Market Lane's products came from its first build, which uses the right words, so this may not be why "Loading goods…" is stuck there.)
+- Tests: `test/agent-data-check.test.mjs`, `test/agent-schema-access.test.mjs` (both fail on the old code).
+
 ## 2026-11-04 — Critical fixes 2 and 3 of 7: the agent never reads or changes your visitors' data (branch `claude/cool-fermat-a06gie`; not deployed)
 
 The old data step only touched the lists you manage. The agent could change or delete rows in any table, including bookings, orders, messages and sign-ups your visitors sent, and could read them, which sends them to the AI provider. Now every table carries whether visitors write to it (from its stored access, the same rule the site's database security uses; a table with none declared counts as visitors', the safe side). The agent still sees those tables' names and columns, so it can build pages for them, but `change_rows` and `read_table` refuse them, and it can't read a table it doesn't know. Your own lists (products, menu, prices) work as before; you see visitors' data in Data. Tests: `test/agent-visitor-rows.test.mjs` (fails on the old code); five older test fixtures now declare their tables as your own lists, and one that read a "bookings" table now reads a menu.

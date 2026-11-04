@@ -54,7 +54,7 @@ export const SERVER_TOOLS = Object.freeze([
       properties: {
         table: { type: "string" },
         add_columns: { type: "array", items: { type: "object", properties: { name: { type: "string" }, type: { type: "string" } }, required: ["name"] } },
-        create: { type: "object", description: "A new table: { columns: [{ name, type }], access?: \"public\" | \"collect\" | \"user\" | \"owner\" }." },
+        create: { type: "object", description: "A new table: { columns: [{ name, type }], access?: \"public\" | \"collect\" | \"user\" | \"owner\" | \"admin\" }. public: everyone reads it, only the owner changes it (products, a menu, prices). collect: visitors send rows, nobody reads them on the site (bookings, enquiries, orders). user: each signed-in member reads and changes only their own rows. owner: only the owner, in Data. admin: signed-in members read it, only the owner changes it. Default owner." },
       },
       required: ["table"],
     },
@@ -252,6 +252,22 @@ export function schemaChange(input, tables) {
  * own apply. Every table and column the stored schema had is kept exactly;
  * an op that would collide is skipped and named. Answers `{ spec, added, skipped }`.
  */
+/**
+ * THE AGENT'S ACCESS WORD AS THE DATABASE READS IT (2026-11-04). The agent is
+ * offered "public" | "collect" | "user" | "owner" | "admin"; the database's one
+ * reader (`resolveAccess`, site-access.mjs) knows display/collect/user/feed/admin
+ * and read/write pairs, and turns anything else into `collect` — so a "public"
+ * products table was stored as visitors-send, nobody-reads: it showed nothing.
+ */
+export function accessFields(word) {
+  switch (word) {
+    case "public": return { access: "display" };          // everyone reads; only the owner changes it
+    case "owner": return { read: "none", write: "none" };  // the owner's own (Data); visitors neither read nor write
+    case "user": return { access: "user" };
+    case "admin": return { access: "admin" };
+    default: return { access: "collect" };                // visitors send; nobody reads
+  }
+}
 export function mergeSchemaOps(stored, ops) {
   const base = stored && typeof stored === "object" ? stored : {};
   const tables = (Array.isArray(base.tables) ? base.tables : []).map((t) => ({ ...t, columns: Array.isArray(t.columns) ? t.columns.slice() : [] }));
@@ -260,7 +276,7 @@ export function mergeSchemaOps(stored, ops) {
     const at = tables.find((t) => t && t.name === op.table);
     if (op.create) {
       if (at) { skipped.push(op.table); continue; }
-      tables.push({ name: op.table, access: op.create.access, columns: op.create.columns.map((c) => ({ name: c.name, type: c.type })) });
+      tables.push({ name: op.table, ...accessFields(op.create.access), columns: op.create.columns.map((c) => ({ name: c.name, type: c.type })) });
       added.push(op.table);
     } else if (Array.isArray(op.add)) {
       if (!at) { skipped.push(op.table); continue; }
