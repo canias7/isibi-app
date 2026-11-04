@@ -15,44 +15,31 @@ The owner, 2026-11-04: *"in general not only the new things."* The whole builder
 
 Three nets, each checked by a script, not by memory:
 
-1. **Every line has an owner.** Session 0 writes `docs/audits/2026-11-04-coverage.json`: **every file git tracks**, cut into ranges, each range assigned to exactly one area below. A script (`scripts/audit-coverage.mjs`) lists the files from `git ls-files` itself and fails if any file or line is unassigned or assigned twice. A file is left out only by name in the coverage file's `excluded` list, each with its reason (pictures, generated lists, the component kit's remaining files, docs that are records), so a new file can never slip past. An area is done only when its ranges are marked read.
+1. **Every line has an owner.** Session 0 writes `docs/audits/2026-11-04-coverage.json`: **every file of the builder** (the files the areas name, everything under `builder/` but the parked old way, the builder's parts of `worker.js` and `public/chat.js`), cut into ranges, each range assigned to exactly one area below. A script (`scripts/audit-coverage.mjs`) lists the files from `git ls-files` itself and fails if any file or line is unassigned or assigned twice. A file is left out only by name in the coverage file's `excluded` list, each with its reason (pictures, generated lists, the component kit's remaining files, docs that are records), so a new file can never slip past. An area is done only when its ranges are marked read.
 2. **Every journey is walked end to end.** The customer journeys below are traced across files (browser → Worker → container → storage → back to the screen). Tonight's bugs were all crossings; line-by-line reading alone misses them.
 3. **Every cross-cutting rule is checked everywhere.** The owner's standing rules (below) are each checked across the whole codebase in one pass, not left to whichever area happens to see them.
 
-## The areas (by code)
+## The areas: the builder only
+
+The owner, 2026-11-04: *"i want to audit the builder dude."* Only what happens from the moment a customer types a message until their site is built, changed or published, and that the site it makes works. Out of scope: the landing, pricing and legal pages, the phone-app builder, deploys and workflows, sign-in and accounts, domains, the owner tools (Data panel, Inbox, SEO, QR), and auditing the tests themselves. The last audit's findings are re-checked inside each area, not as an area of their own.
 
 | # | Area | Main code |
 |---|---|---|
-| 1 | The site agent: its loop, tools, prompt, history, rounds, cost | `builder/site-agent.mjs`, `agent-steps.mjs`, `one-reply.mjs` |
-| 2 | Requests: one message = one request, splits, parts, queue, resume, ends | `builder/request.mjs`, the request routes in `worker.js` |
-| 3 | First build: new project, conversation first, start_build, pages, keys first | `worker.js` build routes, `builder/page-gen.mjs`, `site-plan.mjs` |
-| 4 | Edits through the agent: apply, compile, render check, save to draft | `builder/site-apply.mjs`, `edit-job.mjs`, `site-render.mjs` |
-| 5 | Containers and jobs: lease, deadline, gateway, recovery sweeps | `builder/build-server.mjs`, job routes, `docs/containers-and-jobs.md` |
-| 6 | Draft, preview, Publish, versions, restore | `builder/publish-pages.mjs`, preview routes |
-| 7 | The site's database, server code, keys (Stripe, mail) | `site-db.mjs`, `site-requirements.mjs`, secrets routes |
-| 8 | Credits and billing: reserve, charge, refund, balance shown | ledger routes, `use_credits` |
-| 9 | The chat page: thread, cards, steps, replies, questions | `public/chat.js` (thread and request parts) |
-| 10 | The composer: Send/Stop, queue chips, attachments, picker, effort | `public/chat.js` (composer parts) |
-| 11 | Workspace: preview frame, Code tab, devices, history clock, Share | `public/chat.js` (workspace parts), `site-zip.js` |
-| 12 | Sync: what the server keeps, what only the browser keeps, devices, tabs | `chat.js` storage, `/api/site/chat`, account sync |
-| 13 | Sign-in, accounts, ownership on every route | `auth.js`, `worker.js` owner checks |
-| 14 | The published site: addresses, redirects, head, forms, visitor data | site serving in `worker.js` |
-| 15 | Pictures, media, uploads | `site-picture.mjs`, `site-images.mjs`, media routes |
-| 16 | Live progress talk and replies | `site-progress.mjs`, `site-reply.mjs`, narration |
-| 17 | Add-ons: kinds, requirement report, provisioning, what each adds | `builder/site-add.mjs`, `docs/addon-path.md` |
-| 18 | Site structure and look: nav and menus, pages, bands, theme, components | `site-nav.mjs`, `page-bands.mjs`, `site-theme.mjs`, `component-api.mjs`, `site-lanes.mjs` |
-| 19 | Owner tools: Data panel, Inbox, SEO and head, QR codes, domains, Share | their routes in `worker.js`, their panels in `chat.js` |
-| 20 | Deploy and safety nets: workflows, the canary, image predictor, rollback | `.github/`, `scripts/`, `docs/deploy.md` |
-| 21 | The last audit's 264 findings: each one still fixed? | `docs/audits/2026-10-17-builder-audit.md` and its fix records |
-| 22 | The server modules at the top: `billing`, `site-db`, `site-secrets`, `site-rls`, `site-access`, domains, DNS, backup, export, teardown, versions, SSRF, Turnstile, rate limits (44 files, ~18,000 lines) | `*.mjs` at the repo root |
-| 23 | Supabase itself: SQL functions, row rules, applied and proposed migrations, edge functions (~3,350 lines) | `supabase/` |
-| 24 | What every published site runs: the kit's runtime, router, server, locale, brand (not its stock components) | `builder/lovable/template/src/*.ts(x)`, `lib/`, `hooks/`, `routes/` |
-| 25 | The container and the platform config | `Dockerfile`, `wrangler.jsonc`, `build-server.mjs`'s environment |
-| 26 | The rest of `public/`: landing, pricing, sign-in confirm, legal pages, key card, media, talk | `public/*.html`, `gf-landing.js`, `confirm.js`, `key-card.js`, `chat-talk.js`, `site-media.js` |
-| 27 | The phone-app builder and the front page | `app-builder/`, `front/` |
-| 28 | The model's instructions: prompts and the guides they read | prompts in `builder/`, `builder/*.md` (GENERATOR, LAYOUTS, …) |
-| 29 | The tests themselves: do they test the real producer, or a hand-made copy? | `test/` (sampled by area, every guard on a money, secret or Stop path read) |
-| 30 | Everything left over | whatever the coverage file shows unassigned after 1–29 |
+| 1 | The AI agent: how it reads a message, what it remembers, its tools, rounds, cost | `builder/site-agent.mjs`, `agent-steps.mjs`, `agent-server-tools.mjs`, `one-reply.mjs` |
+| 2 | Requests: one message = one job, splits, the queue, resume, how a job ends | `builder/request.mjs`, the request routes in `worker.js` |
+| 3 | First build: talking first, start_build, pages, keys first | build routes in `worker.js`, `page-gen.mjs`, `site-plan.mjs` |
+| 4 | Edits and additions: apply, compile, repair, the browser check, save to draft | `site-apply.mjs`, `edit-job.mjs`, `site-render.mjs`, `compile-repair.mjs`, `site-add.mjs` |
+| 5 | Where the work runs: containers, time limits, recovery after a crash | `build-server.mjs`, job routes |
+| 6 | Draft, preview, Publish, versions, restore | `publish-pages.mjs`, `site-draft.mjs`, `site-versions.mjs`, preview routes |
+| 7 | What a site can do: its database, server code, keys, payments, mail | `site-db.mjs`, `server-code.mjs`, `site-requirements.mjs`, `site-secrets.mjs` |
+| 8 | Credits while building: reserve, charge, refund | the agent's billing, ledger routes |
+| 9 | The chat: messages, cards, progress steps, replies, questions | `public/chat.js`, `edit-poll.js`, `chat-talk.js` |
+| 10 | The message box: Send/Stop, queue, attachments, picker, effort, the key box | `public/chat.js`, `key-card.js` |
+| 11 | The workspace: preview, Code tab, devices, history, and what is kept on the server | `public/chat.js`, `/api/site/chat` |
+| 12 | Progress talk and replies: do they tell the truth | `site-progress.mjs`, `site-reply.mjs`, narration |
+| 13 | Look and pictures: menus, pages, theme, photos, uploads | `site-nav.mjs`, `site-theme.mjs`, `site-picture.mjs`, `site-images.mjs` |
+| 14 | The AI's instructions: clear, current, not contradicting each other | the prompts in `builder/` and the guides they read |
+| 15 | The site it makes: the code every built site runs | `builder/lovable/template/src` |
 
 ## The journeys (end to end)
 
@@ -66,9 +53,7 @@ Three nets, each checked by a script, not by memory:
 - J8 Publish, then restore an older version.
 - J9 A shop: products load, checkout, Stripe, the order recorded (the stuck "Loading goods…").
 - J10 Run out of credits halfway; top up; resume.
-- J11 Delete a site; reuse its name.
 - J12 Add something new ("add a booking page"): the add-on, its database, its keys.
-- J13 Owner tools: read and change a row in the Data panel, read the Inbox, set the SEO text, make a QR code.
 - J14 A visitor on the published site: forms, sign-in, booking, a paid order.
 
 ## The standing rules (checked across everything)
@@ -92,22 +77,16 @@ Three nets, each checked by a script, not by memory:
 
 | Session | What |
 |---|---|
-| 0 | The coverage file and its script; the journeys' file paths; agree the areas. |
+| 0 | The coverage map of the builder's files; agree the areas. |
 | 1 | Areas 1–2 (agent, requests) + J2, J3 |
-| 2 | Areas 3–4 (first build, edits) + J1 |
-| 3 | Areas 9–10 (chat page, composer) + J5, J6 |
-| 4 | Areas 11–12 (workspace, sync) + J7 |
-| 5 | Areas 5–6 (containers, draft and publish) + J8 |
-| 6 | Areas 7–8 (database, keys, credits) + J4, J9, J10 |
-| 7 | Areas 13–16 (accounts, published site, media, talk) + J11 |
-| 8 | Areas 17–18 (add-ons, site structure and look) |
-| 9 | Areas 19–20 (owner tools, deploy and safety nets) |
-| 10 | Area 21 (the last audit re-checked) |
-| 11 | Areas 22–23 (server modules, Supabase) |
-| 12 | Areas 24–28 (published-site runtime, container and config, rest of public, phone-app builder, prompts) |
-| 13 | Area 29 (the tests), area 30 (leftovers), the standing rules sweep, the coverage script green, the report and fix order. |
+| 2 | Areas 3–4 (first build, edits and additions) + J1, J12 |
+| 3 | Areas 9–10 (chat, message box) + J4, J5, J6 |
+| 4 | Areas 11–12 (workspace, progress and replies) + J7 |
+| 5 | Areas 5–6 (where the work runs, draft and publish) + J8 |
+| 6 | Areas 7–8 (what a site can do, credits) + J9, J10, J14 |
+| 7 | Areas 13–15 (look and pictures, instructions, the site it makes), the standing rules sweep, the report and fix order. |
 
-Each session ends with its findings written, its coverage ranges marked, and a short plain-English summary for the owner.
+Each session ends with its findings written and a short plain-English summary for the owner.
 
 ## What reading cannot cover (said, not hidden)
 
