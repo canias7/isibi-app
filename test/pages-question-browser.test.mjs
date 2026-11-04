@@ -27,6 +27,7 @@ const ASK = { text: "Do people collect their loaves, or do you deliver?", option
 const QID = "0123456789abcdef0123456789abcdef";
 
 async function openApp(answers, routeAnswer = { body: { ok: true, intent: "build", cost: 0 } }) {
+  let routeN = 0;
   const b = await chromium.launch({ executablePath: EXE });
   const ctx = await b.newContext({ viewport: { width: 1320, height: 900 } });
   const site = { id: SITE_ID, react: true, name: "New site", msgs: [], updatedAt: Date.now(), createdAt: Date.now() };
@@ -47,7 +48,9 @@ async function openApp(answers, routeAnswer = { body: { ok: true, intent: "build
     const p = url.pathname;
     if (p.startsWith("/api/")) {
       if (req.method() === "POST") { let bd = null; try { bd = JSON.parse(req.postData() || "null"); } catch { bd = null; } posts.push({ path: p, body: bd }); }
-      if (p === "/api/site/route") return json(route, routeAnswer.body, routeAnswer.status || 200);
+      // A LIST answers each routing call in turn, the last one repeating (2026-11-04:
+      // a failed answer no longer builds, so a first message needs a real one).
+      if (p === "/api/site/route") { const ra = Array.isArray(routeAnswer) ? routeAnswer[Math.min(routeN++, routeAnswer.length - 1)] : routeAnswer; return json(route, ra.body, ra.status || 200); }
       if (p === "/api/site/react-build") { const a = answers[Math.min(builds, answers.length - 1)]; builds++; return json(route, a.body, a.status || 200); }
       if (p === "/api/credits" || p === "/api/credits/balance") return json(route, { credits: 48 });
       if (p === "/api/site/list") return json(route, { ok: true, sites: [] });
@@ -115,9 +118,9 @@ test("the page writer's question opens the round; the answer names the kept ques
 });
 
 test("a kept question already answered elsewhere builds nothing: the route's sentence is said and the round ends", { skip: SKIP }, async () => {
-  const { page, browser, posts, errors } = await openApp([{ body: PAGES_Q }], {
+  const { page, browser, posts, errors } = await openApp([{ body: PAGES_Q }], [{ body: { ok: true, intent: "build", cost: 0 } }, {
     status: 409, body: { ok: false, error: "stale-question", why: "closed", cost: 0, msg: "That question was already answered or set aside, so I didn't act on your reply. Tell me what you'd like and I'll take it from there." },
-  });
+  }]);
   try {
     await send(page, BRIEF);
     await page.waitForFunction((t) => document.getElementById("stThread").innerText.includes(t), ASK.text, { timeout: 10000 });

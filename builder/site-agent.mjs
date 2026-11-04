@@ -1378,6 +1378,7 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
   let messages = [{ role: "user", content: [{ type: "text", text: newProject ? newProjectMessage({ request, history }) : firstMessage({ request, map, ws, shown, history, tables, ownParts, attached: onlyWrite ? [] : files, unread: onlyWrite ? [] : unread, unreadable: st.unreadable }), cache_control: { type: "ephemeral" } }] }];
   const spent = () => usage.reduce((n, u) => n + pageCost(u), 0) / CREDIT_USD;
   let stopped = "";
+  let sendWait = null;
   let rounds = 0;
   let lastCost = 0;
   // STOP (2026-10-30, fix-all): the owner's Stop is read at the top of every
@@ -1420,6 +1421,10 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
       j = await sendStoppable(deps, { model, max_tokens: AGENT_MAX_TOKENS, system, tools, cacheKey: "site-agent", messages });
     } catch (e) {
       if (e && e.name === "AgentStopped") { stopped = "cancelled"; break; }
+      // A PROVIDER THAT IS DOWN (owner, 2026-10-24; carried over 2026-11-04, G1):
+      // the parked call's fixed notice is kept, so the caller waits and asks
+      // again (the route's "waiting" answer) instead of acting on a failure.
+      if (e && e.parked === true && e.providerWait && e.providerWait.notice) sendWait = e.providerWait.notice;
       stopped = "send"; log({ event: "send-failed", why: String((e && e.message) || e).slice(0, 200) }); break;
     }
     alive("round");
@@ -1490,6 +1495,8 @@ export async function runSiteAgent(deps, { request, pages, parts, css = null, hi
     summary: st.summary,
     lastBuild: st.lastBuild,
     usage, credits, rounds, builds: st.builds,
+    // The provider's waiting notice when the model call parked (G1); null otherwise.
+    wait: sendWait,
   };
 }
 

@@ -482,17 +482,28 @@ test("CONTROL: a clarify round on an empty project asks, stores its round, and b
 });
 
 // ── UNCHANGED: an empty project's failure is still a build ───────────────────
-test("an empty project keeps its documented default: a failed or unreadable routing answer starts the first build", async () => {
+// REVERSED 2026-11-04 (owner: the agent inherits every protection; carry-over
+// G1). The old default, from the router era (2026-09-24), was that a failure on
+// an empty project starts the first build, because a new project could only
+// mean "build". With the agent a first message can be a greeting or a question,
+// and a failure (the provider down, a dropped request) started a paid build
+// from "hi". Now a failure on an empty project is held and said, as on a live site.
+test("an empty project never builds on a failed or unreadable routing answer: the message is held and the failure said", async () => {
   for (const route of [
     { reject: new TypeError("Failed to fetch") },
     { status: 500, body: CF_HTML, type: "text/html" },
     ok200({ ok: false, error: "x" }),
     ok200({ ok: true, intent: "build", cost: 0, failed: true }),
+    ok200({ ok: true, intent: "failed", cost: 0, failed: true }),
   ]) {
     const o = await drive({ site: EMPTY, message: "A bakery in Leeds", route });
-    assert.deepEqual(o.posts.map((p) => p.url), ["/api/site/react-build"], json(route.body || "rejected"));
-    assert.deepEqual(o.said, [], "no stop sentence on a first build");
+    assert.deepEqual(o.posts.map((p) => p.url), [], "a failure built: " + json(route.body || "rejected"));
+    assert.equal(o.said.length, 1, "the failure was not said: " + json(route.body || "rejected"));
   }
+});
+test("an empty project still builds on a real build answer (control)", async () => {
+  const o = await drive({ site: EMPTY, message: "A bakery in Leeds", route: ok200({ ok: true, intent: "build", cost: 0 }) });
+  assert.deepEqual(o.posts.map((p) => p.url), ["/api/site/react-build"]);
 });
 
 // The one change an empty project sees: the reader is shared, so a question it

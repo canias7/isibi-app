@@ -109,7 +109,9 @@ test("the composer asks before it builds: an empty project falls through to the 
   // router that swallows a build request is worse than no router, because the
   // customer cannot tell it from broken. Two fall-throughs, because the clarify
   // branch sits between them.
-  assert.match(block, /if \(!r\.ok \|\| !d\) return go\(\)/, "a bad response on an empty project no longer builds");
+  // REVERSED 2026-11-04 (carry-over G1): a failure on an empty project is held
+  // and said, never built (test/site-route-failure.test.mjs drives it).
+  assert.match(block, /if \(!r\.ok \|\| !d \|\| d\.ok !== true \|\| d\.failed === true\) return lost\(r\)/, "a bad response on an empty project builds again");
   // RE-ANCHORED 2026-10-02: the fall-through hands on what an answered
   // question put off earlier (a live site's); an empty project's has none.
   assert.match(block, /if \(d\.intent !== 'ask' \|\| !d\.answer\) return go\(d\.putOff \? \{ putOff: d\.putOff \} : undefined\)/,
@@ -120,12 +122,14 @@ test("the composer asks before it builds: an empty project falls through to the 
   const check = block.indexOf("if (!isBuild && !(r.ok && routeActionable(d, site))) {");
   // (2026-11-01) inside it, only a request the server took on is followed; every other answer still stops.
   assert.ok(block.indexOf("      return lost(r);\n    }", check) > check, "the stop inside the check is gone");
-  const sends = ["return go()", "siteEdit(", "siteAddon("].map((s) => block.indexOf(s));
+  const sends = ["return go(", "siteEdit(", "siteAddon("].map((s) => block.indexOf(s));
+  assert.ok(sends.every((at) => at > 0), "the observer is alive: every sender was found");
   assert.ok(check > 0, "the live site's check on the routing answer is gone");
   for (const at of sends) assert.ok(at > check, "something that sends work now runs before the live site's check");
   // A THROWN FETCH TAKES THE SAME TWO RULES.
-  assert.match(block, /\.catch\(\(\) => \(isBuild \? go\(\) : lost\(\)\)\)/,
-    "a network failure no longer builds an empty project, or no longer stops on a live site");
+  // REVERSED 2026-11-04 (carry-over G1): a thrown request never builds, empty project or not.
+  assert.match(block, /\.catch\(\(\) => lost\(\)\)/,
+    "a network failure builds an empty project again, or no longer stops");
   // AND THE CLARIFY BRANCH DRAWS WHAT THE ONE READER RETURNS. The check and the
   // branch both ask `routeQuestion`, and nothing in siteRoute reads the raw
   // question: a field the reader never looked at cannot reach the screen, which

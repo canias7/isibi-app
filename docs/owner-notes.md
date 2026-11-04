@@ -10,6 +10,14 @@
 
 
 
+## 2026-11-04 — Carry-over 2 of 12: an AI outage never starts a paid build (branch `claude/cool-fermat-a06gie`; not deployed)
+
+Your Oct 24 rule ("when the provider is down, wait") was built for the router; the agent's new-project path skipped it and answered "build", so "hi" during an outage started a paid first build (11–45 credits). Now:
+- the agent keeps the provider's waiting notice when its call parks, and the new-project path passes it up, so the server sends its existing "waiting" answer: the page shows the notice and asks again by itself, nothing charged;
+- a failure is never "build" anymore, and the page never starts a build on a failed answer, an error answer, a failed request or a dropped connection, on a new project too. Your message stays in the box with "nothing on your site changed, send it again".
+
+Three older tests held the opposite rule on purpose ("an empty project's documented default: a failure starts the first build", from the router era, Sept 24); they now hold the new one. One browser test's fake server had answered an error to a first message and relied on that build; it now answers the first message normally. Tests: `test/outage-never-builds.test.mjs` (fails on the old code). Found flaky on the way: `credit-pause-browser` (a layout timing check) failed once and passed on the rerun with the same code.
+
 ## 2026-11-04 — Carry-over 1 of 12: the agent hears the conversation on every path (branch `claude/cool-fermat-a06gie`; not deployed)
 
 The real fix for "delete that". Most messages are filed as a request and run later as a job; that path dropped the chat id, so the agent heard no history even after tonight's page fix. Now the request keeps the chat it came from and every job it files sends it. The history is also longer (last 30 messages, up to 1,500 characters each), never cut silently (the agent is told how many earlier messages it can't see, with the chat's summary when there is one, and to ask if the request depends on them), and a chat that can't be read is said to the agent instead of looking like "nothing was said". Tests: `test/edit-sends-chat.test.mjs` through the real request path (fails on the old code).

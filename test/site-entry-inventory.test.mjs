@@ -1257,11 +1257,13 @@ test("a new project's message is still a first build, with no page-list read", a
   assert.deepEqual(build, { method: "POST", url: "/api/site/react-build", body: { brief: "A guitar school in Leeds", images: [], picker: "grok", qa: [], chat: "origin-1", accept: "early" } });
 });
 
-test("a new project whose routing call fails still starts its first build (its documented default)", async () => {
+// REVERSED 2026-11-04 (owner: the agent inherits every protection; carry-over
+// G1): a failed routing call on a new project holds the message and builds nothing.
+test("a new project whose routing call fails builds nothing: the message is held", async () => {
   const h = workspace({ sites: [NEW_PROJECT], route: [{ reject: new TypeError("Failed to fetch") }] });
   h.send("A guitar school in Leeds");
   await settle();
-  assert.deepEqual(h.work().map((c) => c.url), ["/api/site/route", "/api/site/react-build"]);
+  assert.deepEqual(h.work().map((c) => c.url), ["/api/site/route"]);
 });
 
 const NEW_ROUND = { ...NEW_PROJECT, msgs: [{ r: "u", t: "A school in Leeds" }, Q], clarify: { brief: "A school in Leeds", qa: [], imgs: [IMG] } };

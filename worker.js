@@ -24911,9 +24911,19 @@ async function newProjectTurn(env, { rb, auth }) {
     ag = await runSiteAgent({ send: quickSend(env, "agent"), canAsk: () => true, startBuild: () => true }, {
       request: String(rb.message || "").trim(), pages: [], parts: [], history: brief + historyText(said), model, newProject: true, maxRounds: 4,
     });
-  } catch (e) { console.error("new project agent:", errorClassForLog(e)); ag = null; }
+  } catch (e) {
+    console.error("new project agent:", errorClassForLog(e));
+    // A PARKED CALL THAT THREW is a provider wait too (G1).
+    ag = e && e.parked === true && e.providerWait && e.providerWait.notice ? { ok: false, wait: e.providerWait.notice } : null;
+  }
   if (!ag || !ag.ok) {
-    return { ok: true, intent: "build", cost: 0, failed: true, failure: routeFailure("send", null, { model }), agent: true, decision: routeDecision(["agent"]) };
+    // NEVER "BUILD" ON A FAILURE (2026-11-04, carry-over G1). This answered
+    // `intent: "build"`, the old router's fallback, and the page started a paid
+    // first build from "hi" while the provider was down. Now: the provider's
+    // notice when the call parked (the route answers "waiting", the page shows
+    // it and asks again, nothing charged), and otherwise a plain failure the
+    // page holds the message for. No intent the page could act on.
+    return { ok: true, intent: "failed", cost: 0, failed: true, ...(ag && ag.wait ? { wait: ag.wait } : {}), failure: routeFailure("send", null, { model }), agent: true, decision: routeDecision(["agent"]) };
   }
   let cost = 0;
   try { cost = await collectCredits(auth, ag.credits); } catch { cost = 0; /* never fail the turn over the ledger */ }

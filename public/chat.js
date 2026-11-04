@@ -9832,7 +9832,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
       finish(typeof d.msg === 'string' && d.msg.trim() ? d.msg : 'That question was already answered, so I didn\u2019t act on your reply.');
       return;
     }
-    if (!r.ok || !d) return go();
+    // A FAILURE NEVER BUILDS (2026-11-04, carry-over G1): a request that failed,
+    // an unreadable answer or a failed turn on a new project is held and said,
+    // exactly as on a site that exists. It used to start a paid first build.
+    if (!r.ok || !d || d.ok !== true || d.failed === true) return lost(r);
     // THE REQUEST THE KEPT QUESTION WAS ASKED ABOUT, from the server
     // (2026-10-24): the brief it holds, so an answer from another device
     // builds what was asked, not the answer alone.
@@ -9994,7 +9997,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
-  }).catch(() => (isBuild ? go() : lost()));
+  }).catch(() => lost()) /* never a build on a thrown request (2026-11-04, carry-over G1) */;
 }
 // ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ─────────
 //
