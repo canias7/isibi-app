@@ -2,7 +2,7 @@
 // hands requests under /api/coder/ here. Off unless CODER_ON is "on" (free while
 // testing, owner 2026-11-05: nothing is charged).
 //
-// Where things are kept (the site bucket, under coder/<user>/):
+// Where things are kept (Coder's own bucket, under coder/<user>/):
 //   index.json                    the owner's projects: [{ id, name, at }]
 //   <project>/meta.json           { id, name, turn, saved, ask, status, at }
 //   <project>/messages.json       the conversation as Coder reads it
@@ -17,7 +17,7 @@
 //   POST /api/coder/projects/:id/stop
 //   GET  /api/coder/projects/:id/download          the project as a .zip
 import { makeZip } from "./coder-zip.mjs";
-import { PROJECT_ID } from "./coder-checks.mjs";
+import { PROJECT_ID } from "../container/coder-checks.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -47,7 +47,7 @@ export function projectIdFor(name, rand = Math.random) {
  */
 export async function handleCoder(request, env, ctx, deps) {
   if (!coderOn(env)) return json({ error: "Coder is not switched on yet." }, 404);
-  const bucket = env.SITES_BUCKET;
+  const bucket = env.CODER_BUCKET;
   if (!bucket) return json({ error: "storage is not available" }, 503);
   const user = await deps.authUser(request);
   if (!user || typeof user.id !== "string") return json({ error: "sign in first" }, 401);

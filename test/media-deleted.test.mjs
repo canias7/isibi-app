@@ -396,7 +396,7 @@ test("no credential is uploaded that nothing reads", () => {
   // absence check below then failed on the TESTS that name the credential while
   // explaining that it is gone. Prose contains the thing it forbids, for the
   // second time in one guard. Root modules and the builder's own, by depth.
-  const tracked = execSync("git ls-files worker.js ':(glob)*.mjs' ':(glob)builder/*.mjs' ':(glob)coder/*.mjs'", { cwd: ROOT, encoding: "utf8" })
+  const tracked = execSync("git ls-files worker.js ':(glob)*.mjs' ':(glob)builder/*.mjs'", { cwd: ROOT, encoding: "utf8" })
     .trim().split("\n").filter(Boolean);
   assert.ok(tracked.length > 100 && tracked.length < 400,
     `${tracked.length} modules listed — the ship set is not the whole tree and is not empty`);

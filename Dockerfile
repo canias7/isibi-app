@@ -170,8 +170,6 @@ COPY builder/addon-existing.mjs builder/addon-rehearse.mjs builder/app-gen.mjs b
 COPY builder/theme-candidates/ ./worker/builder/theme-candidates/
 # The app writer reads the app builder's own request reader (2026-10-21, phase C).
 COPY app-builder/expo-preview.mjs ./worker/app-builder/
-# CODER'S ROUTES (2026-11-05): worker.js imports them, so the job runner needs them too.
-COPY coder/coder-routes.mjs coder/coder-checks.mjs coder/coder-zip.mjs ./worker/coder/
 
 # THIS IMAGE DOES EXECUTE MODEL-WRITTEN CODE, AND THIS COMMENT USED TO DENY IT.
 #

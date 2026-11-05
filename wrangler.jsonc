@@ -209,23 +209,12 @@
       // was told "not found" for a route the new one has. App builds are rare,
       // so the gradual rollout protects nothing here.
       "rollout_step_percentage": 100
-    },
-    // CODER (2026-11-05, owner: "same style as the sites agent, but with a
-    // different container"): a general developer machine (git, Node, Python,
-    // build tools) where Coder runs commands on a project. One per project.
-    // Twenty at once, like the app builder: it is only being tested.
-    {
-      "class_name": "CoderContainer",
-      "image": "./coder/Dockerfile",
-      "max_instances": 20,
-      "instance_type": "standard-1"
     }
   ],
   "durable_objects": {
     "bindings": [
       { "class_name": "SiteBuildContainer", "name": "SITE_BUILD_CONTAINER" },
       { "class_name": "AppBuildContainer", "name": "APP_BUILD_CONTAINER" },
-      { "class_name": "CoderContainer", "name": "CODER_CONTAINER" },
       { "class_name": "TalkRoom", "name": "TALK_ROOM" }
     ]
   },
@@ -244,9 +233,7 @@
     // back out even though the class is gone.
     { "tag": "v6", "deleted_classes": ["GameBuildContainer"] },
     { "tag": "v7", "new_sqlite_classes": ["TalkRoom"] },
-    { "tag": "v8", "new_sqlite_classes": ["AppBuildContainer"] },
-    // CODER (2026-11-05): the developer agent's own container class.
-    { "tag": "v9", "new_sqlite_classes": ["CoderContainer"] }
+    { "tag": "v8", "new_sqlite_classes": ["AppBuildContainer"] }
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).

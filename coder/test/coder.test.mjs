@@ -11,12 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
 import { execFileSync } from "node:child_process";
-import { commandProblem, cleanEnv, scrub, capOutput, readTimeout } from "../coder/coder-checks.mjs";
-import { runCoder, readAsk } from "../coder/coder-agent.mjs";
-import { execIn, exportFiles, restoreFiles, createApp } from "../coder/server.mjs";
-import { handleCoder, projectIdFor } from "../coder/coder-routes.mjs";
-import { makeZip, crc32 } from "../coder/coder-zip.mjs";
-import { coderModel, coderSend } from "../coder/coder-model.mjs";
+import { commandProblem, cleanEnv, scrub, capOutput, readTimeout } from "../container/coder-checks.mjs";
+import { runCoder, readAsk } from "../container/coder-agent.mjs";
+import { execIn, exportFiles, restoreFiles, createApp } from "../container/server.mjs";
+import { handleCoder, projectIdFor } from "../src/coder-routes.mjs";
+import { makeZip, crc32 } from "../src/coder-zip.mjs";
+import { coderModel, coderSend } from "../container/coder-model.mjs";
 
 const call = (name, args, id = name + Math.random().toString(36).slice(2, 7)) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
@@ -156,10 +156,10 @@ test("CD9 the routes: off unless switched on; signed in only; create, message, f
   const { base, close } = await serve(app);
   try {
     const bucket = fakeBucket();
-    const env = { CODER_ON: "on", SITES_BUCKET: bucket };
+    const env = { CODER_ON: "on", CODER_BUCKET: bucket };
     const deps = { authUser: async (r) => (r.headers.get("Authorization") === "Bearer ok" ? { id: "user-1234567890abcdef" } : null), container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
     const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json", ...(init.headers || {}) } }), env, {}, deps);
-    assert.equal((await handleCoder(new Request("https://gofarther.dev/api/coder/projects"), { SITES_BUCKET: bucket }, {}, deps)).status, 404, "off unless CODER_ON is on");
+    assert.equal((await handleCoder(new Request("https://gofarther.dev/api/coder/projects"), { CODER_BUCKET: bucket }, {}, deps)).status, 404, "off unless CODER_ON is on");
     assert.equal((await handleCoder(new Request("https://gofarther.dev/api/coder/projects"), env, {}, deps)).status, 401);
     const created = await (await go("projects", { method: "POST", body: JSON.stringify({ name: "My Page" }) })).json();
     const id = created.project.id;
@@ -211,23 +211,40 @@ test("CD11 the model call: Grok's endpoint, the key only in the header, one retr
   await assert.rejects(coderSend({})({ messages: [] }), /no AI key/);
 });
 
-// ── KEPT APART FROM THE SITES AGENT, AND WIRED ───────────────────────────────
-test("CD12 Coder's own files; the only hooks are one import, one route and one class; its own container", () => {
-  const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(W, /import \{ handleCoder \} from "\.\/coder\/coder-routes\.mjs";/);
-  assert.match(W, /if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\) \{\s*const cu = await authUser\(request\);\s*if \(!cu\) return UNAUTHED\(\);\s*return handleCoder\(request, env, ctx, \{ authUser: async \(\) => cu, container: \(name\) => getContainer\(env\.CODER_CONTAINER, laneName\("coder-" \+ name\)\) \}\);/);
+// ── ITS OWN APP: OWN WORKER, OWN CONTAINER, OWN STORAGE, NOTHING IN THE MAIN APP ──
+import { authUser } from "../src/coder-auth.mjs";
+import { corsHeaders } from "../src/coder-cors.mjs";
+const HERE = (p) => new URL("../" + p, import.meta.url);
+const MAIN = (p) => new URL("../../" + p, import.meta.url);
+
+test("CD12 Coder is its own app: its own worker.js, config, container and bucket; the website builder has no trace of it", () => {
+  for (const f of ["worker.js", "wrangler.jsonc", "package.json", "container/Dockerfile", "container/server.mjs", "container/coder-agent.mjs", "container/coder-checks.mjs", "container/coder-model.mjs", "src/coder-routes.mjs", "src/coder-zip.mjs", "src/coder-auth.mjs", "src/coder-cors.mjs"]) assert.ok(existsSync(HERE(f)), f);
+  const W = readFileSync(HERE("worker.js"), "utf8");
   assert.match(W, /export class CoderContainer extends Container \{/);
-  for (const f of ["coder-agent.mjs", "coder-checks.mjs", "coder-model.mjs", "coder-routes.mjs", "coder-zip.mjs", "server.mjs", "Dockerfile"]) assert.ok(existsSync(new URL("../coder/" + f, import.meta.url)), f);
-  for (const f of ["coder-agent.mjs", "coder-checks.mjs", "coder-model.mjs", "coder-routes.mjs", "server.mjs"]) {
-    const src = readFileSync(new URL("../coder/" + f, import.meta.url), "utf8");
-    assert.doesNotMatch(src, /from "\.\.\/builder\//, f + " reaches into the Sites agent's code");
-  }
-  const D = readFileSync(new URL("../coder/Dockerfile", import.meta.url), "utf8");
+  assert.match(W, /container: \(name\) => getContainer\(env\.CODER_CONTAINER, name\)/);
+  const J = readFileSync(HERE("wrangler.jsonc"), "utf8");
+  assert.match(J, /"name": "gofarther-coder"/);
+  assert.match(J, /"pattern": "coder\.gofarther\.dev", "custom_domain": true/);
+  assert.match(J, /"image": "\.\/container\/Dockerfile"/);
+  assert.match(J, /"binding": "CODER_BUCKET", "bucket_name": "gofarther-coder"/);
+  assert.match(J, /"CODER_ON": "off"/);
+  const D = readFileSync(HERE("container/Dockerfile"), "utf8");
   for (const f of ["server.mjs", "coder-agent.mjs", "coder-model.mjs", "coder-checks.mjs"]) assert.match(D, new RegExp(f.replace(".", "\\.")), "the image lacks " + f);
-  const J = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
-  assert.match(J, /"class_name": "CoderContainer",\s*"image": "\.\/coder\/Dockerfile"/);
-  assert.match(J, /\{ "class_name": "CoderContainer", "name": "CODER_CONTAINER" \}/);
-  assert.match(J, /\{ "tag": "v9", "new_sqlite_classes": \["CoderContainer"\] \}/);
-  const Y = readFileSync(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
-  assert.match(Y, /CODER_ON: \$\{\{ secrets\.CODER_ON \|\| 'off' \}\}/);
+  // NOTHING OF CODER IN THE WEBSITE BUILDER'S WORKER, CONFIG, IMAGE OR DEPLOY.
+  for (const f of ["worker.js", "wrangler.jsonc", "Dockerfile", ".github/workflows/deploy.yml"]) assert.doesNotMatch(readFileSync(MAIN(f), "utf8"), /\bcoder\b|CODER_|CoderContainer/i, f + " mentions Coder");
+  // AND CODER'S CODE NEVER REACHES INTO THE BUILDER'S.
+  for (const f of ["worker.js", "src/coder-routes.mjs", "container/server.mjs", "container/coder-agent.mjs"]) assert.doesNotMatch(readFileSync(HERE(f), "utf8"), /from "\.\.\/\.\.\/|from "\.\.\/builder\//, f);
+});
+
+test("CD13 sign-in is checked against Supabase by Coder's own Worker; only the builder's page may call it from a browser", async () => {
+  const env = { SUPABASE_URL: "https://sb.example", SUPABASE_ANON_KEY: "anon" };
+  const seen = [];
+  const fetchFn = async (url, init) => { seen.push([url, init.headers]); return url && init.headers.Authorization === "Bearer good" ? new Response(JSON.stringify({ id: "u1", email: "a@b.c" })) : new Response("", { status: 401 }); };
+  assert.deepEqual(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer good" } }), env, { fetchFn }), { id: "u1", email: "a@b.c" });
+  assert.equal(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer bad" } }), env, { fetchFn }), null);
+  assert.equal(await authUser(new Request("https://x/"), env, { fetchFn }), null);
+  assert.equal(seen[0][0], "https://sb.example/auth/v1/user");
+  const ok = corsHeaders(new Request("https://coder/", { headers: { Origin: "https://gofarther.dev" } }), { APP_ORIGIN: "https://gofarther.dev" });
+  assert.equal(ok["access-control-allow-origin"], "https://gofarther.dev");
+  assert.deepEqual(corsHeaders(new Request("https://coder/", { headers: { Origin: "https://evil.example" } }), {}), {});
 });

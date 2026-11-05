@@ -26,6 +26,24 @@
 
 
 
+
+## 2026-11-05 — Coder moved out: its own app, Worker, container and storage
+
+Your words: "build your own container", "put all this in a different folder",
+"make a different workers .js … I don't want it close to the other one".
+
+- **Everything is in `coder/`**: its own `worker.js` (at **coder.gofarther.dev**),
+  its own `wrangler.jsonc` (name `gofarther-coder`), its own container image
+  (`coder/container/`), its own storage bucket (`gofarther-coder`), its own tests
+  (`coder/test/`, `npm test` from that folder), and a README.
+- **The website builder is back exactly as it was before Coder**: its `worker.js`,
+  `wrangler.jsonc`, `Dockerfile`, deploy workflow and their tests are restored.
+  A test checks none of them mentions Coder.
+- It deploys separately, by hand, only when you say so (the steps are in
+  `coder/README.md`). Still off (`CODER_ON` = off) and free.
+
+Tests: Coder 13 (all pass); the builder's suite 9,675 with only the known two failing.
+
 ## 2026-11-05 — Coder: the developer agent, built (back end only, switched off)
 
 Your words: "same style as the sites agent, but with a different container",

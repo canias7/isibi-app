@@ -228,8 +228,6 @@ jobs:
             SITE_SUBREQUESTS
             ADDON_DRY_RUN
             AI_FAILURE_REPLIES
-            CODER_ON
-            CODER_MODEL
         env:
           DEPLOY_ID: ${{ github.sha }}
           # ── VIDEO AND AUDIO LIMITS (2026-10-16) ───────────────────────────
@@ -535,12 +533,6 @@ jobs:
           # writer from the same facts; the fixed text stays as the fallback.
           # OFF BY DEFAULT until the owner has seen it in a live test.
           AI_FAILURE_REPLIES: ${{ secrets.AI_FAILURE_REPLIES || 'off' }}
-          # ── CODER (2026-11-05): the developer agent in its own container. OFF BY
-          # DEFAULT: its routes answer 404 until the owner sets CODER_ON to `on`.
-          # Free while testing (nothing is charged). CODER_MODEL picks its model
-          # (Grok's grok-4.7 when unset or `default`).
-          CODER_ON: ${{ secrets.CODER_ON || 'off' }}
-          CODER_MODEL: ${{ secrets.CODER_MODEL || 'default' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for
