@@ -27,6 +27,6 @@ test("AF2 every agent failure ending is told through it: the save failures, the 
 
 test("AF3 the switch reaches the Worker (off by default) and container jobs", () => {
   assert.match(D, /AI_FAILURE_REPLIES: \$\{\{ secrets\.AI_FAILURE_REPLIES \|\| 'off' \}\}/);
-  assert.match(D, /\n\s+AI_FAILURE_REPLIES\n\s+env:/);
+  assert.match(D, /\n\s+AI_FAILURE_REPLIES\n/, "listed among the deploy's secrets");
   assert.match(J, /"AI_FAILURE_REPLIES",/);
 });

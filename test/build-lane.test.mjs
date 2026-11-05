@@ -191,7 +191,8 @@ test("max_instances IS FAR ABOVE ANY REAL CONCURRENCY, and the classes SUM under
     // containers. 5 is what this replaced and is the number to stay away from.
     // THE APP BUILDER'S FLOOR IS 20 (2026-10-21): at standard-4, 100 was over
     // the account's memory quota. App builds are rare; twenty at once is ample.
-    const floor = c.class_name === "AppBuildContainer" ? 20 : 100;
+    // CODER'S IS 20 TOO (2026-11-05): a developer agent only being tested.
+    const floor = c.class_name === "AppBuildContainer" || c.class_name === "CoderContainer" ? 20 : 100;
     assert.ok(c.max_instances >= floor,
       `${c.class_name} declares max_instances ${c.max_instances} — builds would queue behind each other again`);
     sum += c.max_instances;

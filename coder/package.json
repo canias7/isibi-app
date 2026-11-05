@@ -1,0 +1,7 @@
+{
+  "name": "gofarther-coder",
+  "private": true,
+  "type": "module",
+  "description": "Coder: a developer agent that works through a Linux terminal, in its own container.",
+  "scripts": { "start": "node server.mjs" }
+}

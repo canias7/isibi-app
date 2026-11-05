@@ -1,4 +1,5 @@
 import { hostIsBlocked, resolvesBlocked } from "./site-ssrf.mjs";
+import { handleCoder } from "./coder/coder-routes.mjs";
 import { versionAppAsset } from "./app-asset-cache.mjs";
 // `OWN_ZONES` is imported because `cfZoneId` reads it — it was not, and that is
 // a ReferenceError on the FIRST line of that function, outside every try, so
@@ -1182,6 +1183,20 @@ export const codeMirrorApi = { projectMirror: (env, slug, o) => projectMirror(en
  * Android app, in its own image (`app-builder/`). It needs no keys: it is
  * handed the site's address, or its files, and answers the app file.
  */
+/**
+ * CODER (2026-11-05, owner: "same style as the sites agent, but with a
+ * different container"): a developer agent that works through a terminal, in
+ * its own image (`coder/`). It gets the AI key it calls Grok with and nothing
+ * else; the commands it runs never see even that (`coder/coder-checks.mjs`).
+ */
+export class CoderContainer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "10m";
+  constructor(ctx, env, options) {
+    super(ctx, env, options);
+    this.envVars = { ...(env.XAI_API_KEY ? { XAI_API_KEY: env.XAI_API_KEY } : {}), ...(env.CODER_MODEL ? { CODER_MODEL: env.CODER_MODEL } : {}) };
+  }
+}
 export class AppBuildContainer extends Container {
   defaultPort = 8080;
   // ONE MINUTE, NOT FIVE (2026-10-20): a site's app is built rarely, so keeping
@@ -31951,6 +31966,13 @@ async function handleRequest(request, env, ctx) {
       }
       await sleep(ms);
       return Response.json({ ok: true, mode: "plain", askedMs: ms, tookMs: Date.now() - t0 });
+    }
+
+    // CODER (2026-11-05): its own routes, in its own file (coder/coder-routes.mjs).
+    if (url.pathname.startsWith("/api/coder/")) {
+      const cu = await authUser(request);
+      if (!cu) return UNAUTHED();
+      return handleCoder(request, env, ctx, { authUser: async () => cu, container: (name) => getContainer(env.CODER_CONTAINER, laneName("coder-" + name)) });
     }
 
     // Current credit balance (creates the row with the signup grant on first touch).

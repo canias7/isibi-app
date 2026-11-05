@@ -65,6 +65,7 @@ on:
       - 'builder/**'
       - 'worker.js'
       - 'app-builder/expo-preview.mjs'
+      - 'coder/*.mjs'
       - '*.mjs'
       - 'Dockerfile'
       - '.dockerignore'
