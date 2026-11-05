@@ -196,6 +196,11 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
     const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
     if (c.code !== 0) return { ok: false, pushed: false, why: "could not commit: " + c.output.slice(0, 200) };
   }
+  // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
+  if (!committed) {
+    const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
+    if (own.code === 0 && own.output.trim() === "0") return { ok: true, pushed: false, changed: false };
+  }
   const url = remote + repo + ".git";
   const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token });
   if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300) };

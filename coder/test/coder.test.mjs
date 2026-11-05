@@ -717,7 +717,7 @@ test("CD31 a job that changed nothing (\"hi\") is not reported as saved, and off
     for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(got.project.status, "idle");
     assert.equal(!!got.project.pushed, false);
-    assert.ok(!got.events.some((e) => e.type === "github"), "said it saved work");
+    assert.ok(!got.events.some((e) => e.type === "github"), "said something about GitHub: " + JSON.stringify(got.events.filter((e) => e.type === "github")));
     assert.equal((await go("projects/" + id + "/pr", { method: "POST", body: "{}" })).status, 400);
   } finally { await close(); }
 });
