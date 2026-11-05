@@ -4,7 +4,7 @@
 // Code's file and web tools, 2026-11-05):
 //
 //   bash  run one command in the project's folder and read what it printed
-//   read, edit, write, grep, glob, web_fetch, web_search  (coder-tools.mjs)
+//   read, edit, write, grep, glob, web_fetch  (coder-tools.mjs); web search is Grok's own (xAI)
 //   todo  a checklist the owner sees;  pull_request  only when asked
 //
 // It finishes the way a person does: it stops running commands and answers in
@@ -35,7 +35,6 @@ export const RUN_TOOLS = {
   grep: { verb: "Searched", label: (a) => JSON.stringify(a.pattern || "") + (a.path && a.path !== "." ? " in " + a.path : "") },
   glob: { verb: "Found", label: (a) => String(a.pattern || "") },
   web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
-  web_search: { verb: "Searched the web for", label: (a) => JSON.stringify(a.query || "") },
 };
 
 export const CODER_MAX_ROUNDS = 60;
@@ -48,7 +47,6 @@ export const CODER_TOOLS = Object.freeze([
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
   fn("glob", "List the project's files whose path matches a pattern, e.g. src/**/*.js or **/*.md.", { pattern: { type: "string" }, path: { type: "string" } }, ["pattern"]),
   fn("web_fetch", "Read a public web page (documentation, an API's reference) as plain text.", { url: { type: "string" } }, ["url"]),
-  fn("web_search", "Search the web. Gives titles, addresses and snippets; read a result with web_fetch.", { query: { type: "string" } }, ["query"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   { type: "function", function: {
     name: "bash",
@@ -69,7 +67,7 @@ export const CODER_SYSTEM = `You are Coder, a software developer working for the
 The project lives in the current folder. You work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search and web_fetch (looking things up), todo (your checklist on bigger jobs), pull_request (only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (reading a page), todo (your checklist on bigger jobs), pull_request (only when asked).
 - Use read, edit, write, grep and glob for files, not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
@@ -127,6 +125,12 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
+    // GROK'S OWN WEB SEARCHES (done on xAI's side) are shown like the other steps.
+    for (const sr of Array.isArray(answer && answer.searches) ? answer.searches : []) {
+      const id = "ws" + Math.random().toString(36).slice(2, 9);
+      emit({ type: "bash", id, tool: "web_search", verb: "Searched the web for", command: scrub(JSON.stringify(sr.query || "")).slice(0, 300) });
+      emit({ type: "result", id, code: 0, output: (sr.sources || []).join("\n") || "(searched)" });
+    }
     const msg = answer && answer.message ? answer.message : null;
     if (!msg) { emit({ type: "error", text: "The AI gave no answer." }); return end("no-tool"); }
     const said = typeof msg.content === "string" ? msg.content.trim() : "";
@@ -184,7 +188,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         prRequest = { title: scrub(title), body: scrub(body) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, web_fetch, web_search, todo and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, web_fetch, todo and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

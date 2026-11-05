@@ -1,5 +1,6 @@
 // CODER'S FILE AND WEB TOOLS (owner, 2026-11-05: "you can add all of this").
-// Read, Edit, Write, Grep, Glob, WebFetch and WebSearch, like Claude Code's.
+// Read, Edit, Write, Grep, Glob and WebFetch, like Claude Code's. (Web search is
+// Grok's own, on xAI's side: no free search, owner 2026-11-05.)
 //
 // They run the same way as Coder's bash commands: as the unprivileged `dev`
 // user, in the project's folder, with a bare environment (the agent calls
@@ -164,31 +165,7 @@ export async function toolWebFetch({ url }, fetchFn = fetch) {
   return "HTTP " + r.status + " " + String(r.url || url) + "\n\n" + text.slice(0, OUT_MAX) + (text.length > OUT_MAX ? "\n[cut]" : "");
 }
 
-/** A free web search (DuckDuckGo's plain page): titles, addresses and snippets. */
-export async function toolWebSearch({ query }, fetchFn = fetch) {
-  if (typeof query !== "string" || !query.trim()) fail("give a query");
-  const r = await get("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query.trim().slice(0, 300)), fetchFn);
-  const html = await r.text();
-  const results = [];
-  // Each result: its link (class result__a), then its snippet before the next result.
-  const starts = [...html.matchAll(/<a[^>]+class="result__a"/g)].map((m) => m.index);
-  const parts = starts.map((s, k) => html.slice(s, starts[k + 1] ?? html.length));
-  for (const part of parts) {
-    if (results.length >= 8) break;
-    const a = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/.exec(part);
-    if (!a) continue;
-    let href = a[1].replace(/&amp;/g, "&");
-    const q = /[?&]uddg=([^&]+)/.exec(href);
-    if (q) href = decodeURIComponent(q[1]);
-    if (href.startsWith("//")) href = "https:" + href;
-    const sn = /class="result__snippet"[^>]*>([\s\S]*?)<\/(a|div|td)>/.exec(part);
-    results.push((results.length + 1) + ". " + htmlToText(a[2]) + "\n   " + href + (sn ? "\n   " + htmlToText(sn[1]).slice(0, 300) : ""));
-  }
-  if (r.status === 202 || /anomaly|captcha/i.test(html) && !results.length) return "the free search service is refusing searches from this machine right now; try web_fetch on a documentation page you know instead";
-  return results.length ? results.join("\n\n") : "no results (the search page may have changed or be busy)";
-}
-
-export const TOOLS = { read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, web_search: toolWebSearch };
+export const TOOLS = { read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
