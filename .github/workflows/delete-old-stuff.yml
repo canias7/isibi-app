@@ -6,13 +6,14 @@ name: delete old stuff
 # gofarther.app domain). Every item is named, from the "list old stuff" run of
 # 2026-11-05 (run 41964170732):
 #
-#   1. Workers: isibi-app (the old gofarther.dev) and gofarther-front (the sites).
+#   1. Workers: isibi-app (the old gofarther.dev) and gofarther-front (the sites);
+#      the queue site-builds is unhooked from isibi-app first, or neither goes.
 #   2. The 101 site Workers in .github/old-stuff/site-workers.txt, then their
 #      namespace gofarther-sites.
 #   3. The old containers isibi-app-appbuildcontainer and
 #      isibi-app-sitebuildcontainer (by id), the queue site-builds, and the KV
 #      stores SITE_ROUTES and SITE_API_CACHE (by id).
-#   4. The site R2 buckets: isibi-sites and every bucket named gfs-<site>
+#   4. The site R2 buckets: isibi-sites, gofarther-files and every gfs-<site>
 #      (each printed). A bucket that still holds files gets a 1-day expiry
 #      rule; press again tomorrow to delete it once empty.
 #   5. The Supabase storage buckets media and avatars (their files first).
@@ -48,13 +49,16 @@ jobs:
         with:
           sparse-checkout: .github/old-stuff
 
-      - name: "1. The old Workers"
+      - name: "1. The old Workers (the queue unhooked first, so isibi-app can go)"
         run: |
+          echo "== unhook the queue site-builds from isibi-app"
+          $W queues consumer remove site-builds isibi-app 2>&1 | tail -n 2 || true
           for w in gofarther-front isibi-app; do
-            echo "== $w"
-            $W delete --name "$w" --force 2>&1 | tail -n 3 || echo "::warning::$w was not deleted (it may already be gone)"
+            echo "== Worker $w"
+            if $W delete --name "$w" --force > /tmp/w.txt 2>&1; then echo "deleted $w"; else
+              if grep -qi "not found\|does not exist\|10007" /tmp/w.txt; then echo "$w is already gone"; else echo "::warning::$w was not deleted:"; tail -n 8 /tmp/w.txt; fi
+            fi
           done
-
       - name: "2. The 101 site Workers, then their namespace"
         run: |
           API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/dispatch/namespaces/gofarther-sites"
@@ -73,15 +77,15 @@ jobs:
             $W containers delete "$id" 2>&1 | tail -n 2 || echo "::warning::container $id not deleted"
           done
           echo "== queue site-builds"
-          $W queues delete site-builds 2>&1 | tail -n 2 || echo "::warning::queue site-builds not deleted"
+          $W queues delete site-builds > /tmp/q.txt 2>&1 && echo "deleted queue site-builds" || { echo "::warning::queue site-builds not deleted:"; tail -n 6 /tmp/q.txt; }
           for k in 5fdb805d4ead430cbb5b8824f766a76b d1f7c9b6ecce4231a3733f4a95dc7d6f; do
             echo "== KV $k"
             curl -fsS -X DELETE -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces/$k" >/dev/null && echo "deleted" || echo "::warning::KV $k not deleted"
           done
 
-      - name: "4. The site R2 buckets (isibi-sites and gfs-*)"
+      - name: "4. The site R2 buckets (isibi-sites, gofarther-files and gfs-*)"
         run: |
-          names=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets?per_page=1000" | jq -r '.result.buckets[].name' | grep -E '^(isibi-sites|gfs-[a-z0-9-]+)$' || true)
+          names=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets?per_page=1000" | jq -r '.result.buckets[].name' | grep -E '^(isibi-sites|gofarther-files|gfs-[a-z0-9-]+)$' || true)
           echo "$(echo "$names" | grep -c . ) site buckets found"
           for b in $names; do
             if $W r2 bucket delete "$b" >/tmp/r2.txt 2>&1; then echo "deleted bucket $b"
