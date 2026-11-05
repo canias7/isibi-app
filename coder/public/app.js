@@ -76,14 +76,13 @@
       }
       if (!email || !pw) throw new Error('Enter your email and password.');
       if (mode === 'in') {
-        await window.Auth.checkPassword(email, pw);
-        await window.Auth.sendCode(email, false);
+        await window.Auth.signIn(email, pw);
         codeType = 'email'; step = 2;
       } else {
         if (pw.length < 6) throw new Error('Use at least 6 characters for the password.');
         const r = await window.Auth.signUp(email, pw);
         if (r.session) { busy = false; return showApp(); }
-        codeType = 'signup'; step = 2;
+        codeType = r.type || 'signup'; step = 2;
       }
     } catch (err) {
       say((err && err.message) || 'Something went wrong.');

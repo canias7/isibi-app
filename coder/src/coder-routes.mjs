@@ -29,7 +29,7 @@
 //   GET  /api/coder/projects/:id/state?since=n   new chat lines; when the turn ends,
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
-import { pickModel } from "../container/coder-model.mjs";
+import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH } from "./coder-github.mjs";
 
@@ -40,6 +40,33 @@ const MAX_TEXT = 20000;
 export const MAX_RUNNING = 3;
 // MEMORY PER REPO (owner, 2026-11-05): what Coder learns about a repository,
 // kept between chats, read at the start of each turn.
+// THE SLASH COMMANDS (2026-11-05: on the server). The list, and what each does;
+// the page only opens what the answer says (a screen, a URL) or shows its note.
+export const COMMANDS = [
+  { name: "new", hint: "Start a new chat" },
+  { name: "repos", hint: "Your repositories" },
+  { name: "changes", hint: "Show or hide what Coder changed" },
+  { name: "pr", hint: "Open this chat's pull request" },
+  { name: "stop", hint: "Stop Coder" },
+  { name: "effort", arg: "low|medium|high", hint: "Set the effort" },
+  { name: "model", arg: CODER_MODELS.map((m) => m.id).join("|"), hint: "Set the model" },
+  { name: "remove", hint: "Remove this chat from the list" },
+  { name: "help", hint: "List the commands" },
+];
+/** Comments on the changes, checked, as the words Coder reads (2026-11-05: on the server). */
+export function commentsText(list) {
+  if (!Array.isArray(list) || !list.length) return "";
+  const lines = list.slice(0, 20).map((c) => {
+    const file = String((c && c.file) || "").slice(0, 300);
+    const line = Number.isInteger(c && c.line) && c.line > 0 ? c.line : 0;
+    const quote = String((c && c.quote) || "").replace(/\s+/g, " ").slice(0, 200);
+    const text = String((c && c.text) || "").trim().slice(0, 500);
+    return file && text ? "- " + file + (line ? " line " + line : "") + (quote ? " (`" + quote + "`)" : "") + ": " + text : "";
+  }).filter(Boolean);
+  return lines.length ? "Comments on the changes:\n" + lines.join("\n") : "";
+}
+const settingsKey = (uid) => ["coder", uid, "settings.json"].join("/");
+
 const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
 export const MEMORY_MAX = 25000;
 const MAX_EVENTS = 4000;
@@ -144,6 +171,53 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ error: "not found" }, 404);
   }
 
+  // THE MODEL LIST AND THE USER'S PICK (kept on their account).
+  if (parts[0] === "settings") {
+    const saved = await getJson(bucket, settingsKey(uid), {});
+    if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: pickModel(saved.model, saved.effort), commands: COMMANDS });
+    if (request.method !== "POST") return json({ error: "method" }, 405);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const chosen = pickModel(body.model, body.effort);
+    await putJson(bucket, settingsKey(uid), chosen);
+    return json({ ok: true, pick: chosen });
+  }
+
+  // A SLASH COMMAND: { text, project? } → { note?, open?, url?, pick? }.
+  if (parts[0] === "command" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const [cmd0, ...rest] = String(body.text || "").trim().replace(/^\//, "").split(/\s+/);
+    const cmd = (cmd0 || "").toLowerCase(), arg = rest.join(" ").trim().toLowerCase();
+    const pid = typeof body.project === "string" && PROJECT_ID.test(body.project) ? body.project : "";
+    const cmeta = pid ? await getJson(bucket, keyOf(uid, pid, "meta.json"), null) : null;
+    const stored = await getJson(bucket, settingsKey(uid), {});
+    const saved = pickModel(stored.model, stored.effort);
+    const model = CODER_MODELS.find((m) => m.id === saved.model) || CODER_MODELS[0];
+    switch (cmd) {
+      case "new": return json({ ok: true, open: "new" });
+      case "repos": return json({ ok: true, open: "repos" });
+      case "changes": return json({ ok: true, open: "changes" });
+      case "pr": return cmeta && cmeta.pr && cmeta.pr.url ? json({ ok: true, url: cmeta.pr.url }) : json({ ok: true, note: "This chat has no pull request yet." });
+      case "stop":
+        if (!cmeta || cmeta.status !== "running") return json({ ok: true, note: "Coder is not working right now." });
+        try { await deps.container(uid.slice(0, 12) + "-" + pid).fetch(new Request("http://coder/stop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: pid }) })); } catch { /* the next look says */ }
+        return json({ ok: true, note: "Stopping…" });
+      case "effort": {
+        if (!model.efforts.includes(arg)) return json({ ok: true, note: "Effort is one of: " + model.efforts.join(", ") + "." });
+        const chosen = pickModel(model.id, arg); await putJson(bucket, settingsKey(uid), chosen);
+        return json({ ok: true, pick: chosen, note: "Effort set to " + arg + "." });
+      }
+      case "model": {
+        const m = CODER_MODELS.find((x) => x.id === arg || x.name.toLowerCase() === arg);
+        if (!m) return json({ ok: true, note: "Models: " + CODER_MODELS.map((x) => x.id).join(", ") + "." });
+        const chosen = pickModel(m.id, saved.effort); await putJson(bucket, settingsKey(uid), chosen);
+        return json({ ok: true, pick: chosen, note: "Model set to " + m.name + "." });
+      }
+      case "remove": return cmeta ? json({ ok: true, open: "remove" }) : json({ ok: true, note: "Open a chat first." });
+      case "help": return json({ ok: true, note: COMMANDS.map((c) => "/" + c.name + (c.arg ? " " + c.arg : "") + " — " + c.hint).join("\n") });
+      default: return json({ ok: true, note: "Unknown command: /" + (cmd0 || "") + ". Type /help for the list." });
+    }
+  }
+
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
   const indexKey = keyOf(uid, "index.json");
 
@@ -182,7 +256,9 @@ export async function handleCoder(request, env, ctx, deps) {
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const text = String(body.text || "").trim();
+    const said = String(body.text || "").trim();
+    const notes = commentsText(body.comments);
+    const text = notes ? notes + (said ? "\n\n" + said : "") : said;
     if (!text) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
     if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
@@ -191,7 +267,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const running = (await getJson(bucket, keyOf(uid, "index.json"), [])).filter((x) => x && x.id !== id && x.status === "running").length;
     if (running >= MAX_RUNNING) return json({ error: MAX_RUNNING + " chats are already working. Wait for one to finish, or stop one." }, 429);
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-    const pick = pickModel(body.model, body.effort);
+    const saved = await getJson(bucket, settingsKey(uid), {});
+    const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     const r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });

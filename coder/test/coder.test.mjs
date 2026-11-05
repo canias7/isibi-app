@@ -370,7 +370,8 @@ test("CD15 the page: sign-in then Coder, served by Coder's own Worker with its s
   assert.match(W, /res = await servePage\(request, env\);/);
   const { servePage } = await import("../src/coder-page.mjs");
   const P = readFileSync(HERE("src/coder-page.mjs"), "utf8");
-  assert.match(P, /"connect-src 'self' https:\/\/ujrqdmmtcptvimazlhom\.supabase\.co"/);
+  assert.match(P, /"connect-src 'self'",/, "the page talks only to its own address");
+  assert.doesNotMatch(readFileSync(HERE("public/auth.js"), "utf8"), /supabase\.co|apikey/i, "the page never talks to Supabase itself");
   const served = [];
   const env = { ASSETS: { fetch: async (req) => { served.push(new URL(req.url).pathname); return new URL(req.url).pathname === "/" ? new Response("<!doctype html>", { headers: { "content-type": "text/html" } }) : new Response("nope", { status: 404 }); } } };
   const r = await servePage(new Request("https://gofarther.dev/anything"), env);
@@ -396,9 +397,9 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.equal("reasoning_effort" in sent[1], false);
   // The screen offers the same list.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /const MODELS = \[\{ id: 'grok-4\.7', name: 'Grok 4\.7', efforts: \['low', 'medium', 'high'\], effort: 'medium' \}\];/);
-  assert.match(ui, /body: JSON\.stringify\(\{ text, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model, body\.effort\);[\s\S]{0,300}?const r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory \}\);/);
+  assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
+  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,300}?const r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory \}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -495,11 +496,55 @@ test("CD20 memory is kept per repo between chats; at most 3 chats work at once",
   assert.match((await fourth.json()).error, /3 chats are already working/);
 });
 
-test("CD21 the screen: slash commands run in the page; comments on the changes go with the next message; a background command is shown as such", () => {
+test("CD21 the screen asks the server: the commands, the model list and pick, and what a command does; comments are sent as they are", () => {
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  for (const c of ["new", "repos", "changes", "pr", "stop", "effort", "model", "remove", "help"]) assert.match(ui, new RegExp("\\{ name: '" + c + "'"), "/" + c);
   assert.match(ui, /if \(text\.startsWith\('\/'\)\) \{ S\.draft = ''; return runCommand\(text\); \}/, "a slash command never reaches the AI");
-  assert.match(ui, /text = 'Comments on the changes:\\n' \+ S\.comments\.map/);
+  assert.match(ui, /const r = await call\('\/command', \{ method: 'POST'/);
+  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  assert.doesNotMatch(ui, /Comments on the changes:/, "the server writes the comments in, not the page");
+  assert.doesNotMatch(ui, /localStorage/, "the pick is kept on the account");
   assert.match(ui, /r\.background \? 'bg'/);
-  assert.match(ui, /running in the background/);
+});
+
+
+test("CD22 on the server: sign-in goes through the Worker; settings, slash commands and comments are worked out there", async () => {
+  const { handleSignin, sessionOf } = await import("../src/coder-signin.mjs");
+  const { commentsText, COMMANDS } = await import("../src/coder-routes.mjs");
+  // SIGN-IN: password checked, then a code emailed; the code gives a session.
+  const calls = [];
+  const fetchFn = async (url, init) => {
+    calls.push([url, JSON.parse(init.body || "{}")]);
+    const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s });
+    if (url.endsWith("token?grant_type=password")) return JSON.parse(init.body).password === "right" ? J({ access_token: "a" }) : J({ error_description: "Invalid login credentials" }, 400);
+    if (url.endsWith("/otp")) return J({});
+    if (url.endsWith("/verify")) return J({ access_token: "acc", refresh_token: "ref", expires_in: 3600, user: { id: "u1", email: "me@example.com", role: "x" } });
+    return J({}, 404);
+  };
+  const env = { SUPABASE_URL: "https://sb", SUPABASE_ANON_KEY: "anon" };
+  const post = (a, b) => handleSignin(new Request("https://gofarther.dev/api/auth/" + a, { method: "POST", body: JSON.stringify(b) }), env, { fetchFn });
+  assert.equal((await post("signin", { email: "me@example.com", password: "wrong" })).status, 401);
+  const ok = await post("signin", { email: "Me@example.com", password: "right" });
+  assert.deepEqual(await ok.json(), { ok: true, step: "code", type: "email" });
+  assert.deepEqual(calls.find((c) => c[0].endsWith("/otp"))[1], { email: "me@example.com", create_user: false }, "a sign-in never makes an account");
+  const v = await (await post("verify", { email: "me@example.com", code: "123456", type: "email" })).json();
+  assert.equal(v.session.access_token, "acc");
+  assert.deepEqual(v.session.user, { id: "u1", email: "me@example.com" }, "only what the page needs");
+  assert.equal((await post("verify", { email: "me@example.com", code: "abc" })).status, 400);
+  assert.equal(sessionOf({}), null);
+  // COMMENTS: checked and written in by the server.
+  assert.equal(commentsText([{ file: "src/a.js", line: 4, quote: "x  =  1", text: "use 2" }, { file: "", text: "skip" }]), "Comments on the changes:\n- src/a.js line 4 (`x = 1`): use 2");
+  assert.equal(commentsText("no"), "");
+  assert.deepEqual(COMMANDS.map((c) => c.name), ["new", "repos", "changes", "pr", "stop", "effort", "model", "remove", "help"]);
+  // SETTINGS AND COMMANDS through the routes.
+  const bucket = fakeBucket();
+  const renv = { ...GH_ENV, CODER_BUCKET: bucket };
+  const deps = { authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => null };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), renv, {}, deps);
+  const s0 = await (await go("settings")).json();
+  assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "medium" });
+  assert.equal((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/effort high" }) })).json()).note, "Effort set to high.");
+  assert.deepEqual((await (await go("settings")).json()).pick, { model: "grok-4.7", effort: "high" }, "kept on the account");
+  assert.match((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/effort max" }) })).json()).note, /Effort is one of: low, medium, high/);
+  assert.equal((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/new" }) })).json()).open, "new");
+  assert.match((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/nope" }) })).json()).note, /Unknown command: \/nope/);
 });

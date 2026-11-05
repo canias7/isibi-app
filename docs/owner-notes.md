@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05 — Browser work moved to the server
+
+On your word "remove the stuff that are browser stuff and put it server side":
+- **Sign-in** now goes through Coder's Worker (`/api/auth/signin`, `verify`, `signup`, `refresh`, `logout`). The page no longer holds Supabase's address or key, and may only talk to its own address.
+- **The model list, your model and effort pick, and the slash commands** come from the server. Your pick is kept on your account, not in the browser.
+- **What each slash command does** is worked out on the server (`/api/coder/command`). The page only opens what the answer says.
+- **Comments on the changes** are sent as they are, and the server checks them and writes them into the message.
+
+Coder's tests: 24 of 24. Not live until "merge and deploy" and **deploy coder**.
+
 ## 2026-11-05 — Six Claude Code features added to Coder (7, 14, 15, 20, 21, 25)
 
 - **Several chats at once (7):** each chat has its own container. Up to **3 chats per person** can work at the same time, and a 4th waits with "3 chats are already working". Cloudflare allows up to 6 containers in all.

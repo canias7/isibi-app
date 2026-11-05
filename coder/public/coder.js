@@ -6,17 +6,19 @@
   'use strict';
   const API = '/api/coder';
   const POLL_MS = 1500;
-  // THE MODEL PICKER (owner, 2026-11-05): each model with its effort levels.
-  // The same list as container/coder-model.mjs; the Worker refuses others.
-  const MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
-  const EFFORT_NAME = { low: 'Low effort', medium: 'Medium effort', high: 'High effort' };
-  const PICK_KEY = 'gf_coder_model_v1';
-  function savedPick() {
-    let v = {}; try { v = JSON.parse(localStorage.getItem(PICK_KEY) || '{}') || {}; } catch (e) { v = {}; }
-    const m = MODELS.find((x) => x.id === v.model) || MODELS[0];
-    return { model: m.id, effort: m.efforts.includes(v.effort) ? v.effort : m.effort };
+  // THE MODEL LIST, THE USER'S PICK AND THE SLASH COMMANDS come from the server
+  // (2026-11-05: "put it server side"); the page only shows them.
+  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
+  let COMMANDS = [];
+  async function loadSettings() {
+    const r = await call('/settings');
+    if (r.status === 200 && r.data) {
+      if (Array.isArray(r.data.models) && r.data.models.length) MODELS = r.data.models;
+      if (r.data.pick) S.pick = r.data.pick;
+      if (Array.isArray(r.data.commands)) COMMANDS = r.data.commands;
+    }
   }
-  function savePick() { try { localStorage.setItem(PICK_KEY, JSON.stringify(S.pick)); } catch (e) {} }
+  function savePick() { call('/settings', { method: 'POST', body: JSON.stringify(S.pick) }); }
 
   // ONE STATE for the whole screen, kept across redraws: chat.js redraws the
   // right-hand area often, and the screen must come back where it was.
@@ -57,6 +59,7 @@
 
   // ── LOADING: who am I on GitHub, which projects ───────────────────────────
   async function load() {
+    loadSettings().then(() => draw());
     S.phase = 'loading'; draw();
     const g = await call('/github');
     if (g.status === 404) { S.phase = 'off'; return draw(); }
@@ -127,17 +130,15 @@
     text = String(text || '').trim();
     // A SLASH COMMAND runs here, in the page (no AI).
     if (text.startsWith('/')) { S.draft = ''; return runCommand(text); }
-    // COMMENTS ON THE CHANGES go with the message.
-    if (S.comments.length) {
-      text = 'Comments on the changes:\n' + S.comments.map((c) => '- ' + c.file + (c.line ? ' line ' + c.line : '') + ' (`' + c.quote.slice(0, 120) + '`): ' + c.text).join('\n') + (text ? '\n\n' + text : '');
-    }
-    if (!text || !S.project || S.running || S.sending) return;
+    // COMMENTS ON THE CHANGES go with the message; the server writes them in.
+    const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
+    if ((!text && !comments.length) || !S.project || S.running || S.sending) return;
     S.comments = [];
     S.sending = true; S.error = ''; S.draft = '';
     const base = S.events.length;
-    S.events.push({ type: 'user', text, at: Date.now(), local: true });
+    S.events.push({ type: 'user', text: text || '(comments on the changes)', at: Date.now(), local: true });
     draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, model: S.pick.model, effort: S.pick.effort }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, model: S.pick.model, effort: S.pick.effort }) });
     S.sending = false;
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
@@ -332,18 +333,7 @@
     }).join('');
   }
 
-  // SLASH COMMANDS (owner, 2026-11-05): typed in the box, run by the page.
-  const COMMANDS = [
-    { name: 'new', hint: 'Start a new chat' },
-    { name: 'repos', hint: 'Your repositories' },
-    { name: 'changes', hint: 'Show or hide what Coder changed' },
-    { name: 'pr', hint: "Open this chat's pull request" },
-    { name: 'stop', hint: 'Stop Coder' },
-    { name: 'effort', arg: 'low|medium|high', hint: 'Set the effort' },
-    { name: 'model', arg: 'grok-4.7', hint: 'Set the model' },
-    { name: 'remove', hint: 'Remove this chat from the list' },
-    { name: 'help', hint: 'List the commands' },
-  ];
+  // SLASH COMMANDS: the list comes from the server (loadSettings), and so does the work.
   function slashMatches(draft) {
     const m = /^\/(\S*)$/.exec(draft || '');
     if (!m) return [];
@@ -351,29 +341,17 @@
   }
   function note(text) { S.events.push({ type: 'note', text, at: Date.now(), local: true }); draw(true); }
   async function runCommand(text) {
-    const [cmd, ...rest] = text.slice(1).trim().split(/\s+/);
-    const arg = rest.join(' ').toLowerCase();
-    const p = S.project;
-    switch ((cmd || '').toLowerCase()) {
-      case 'new': return showPicker('new');
-      case 'repos': return showPicker('repos');
-      case 'changes': S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); return draw();
-      case 'pr': if (p && p.pr && p.pr.url) { window.open(p.pr.url, '_blank', 'noopener'); return draw(); } return note('This chat has no pull request yet.');
-      case 'stop': if (S.running) { await stop(); return note('Stopping…'); } return note('Coder is not working right now.');
-      case 'effort': {
-        const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-        if (!m.efforts.includes(arg)) return note('Effort is one of: ' + m.efforts.join(', ') + '.');
-        S.pick.effort = arg; savePick(); return note('Effort set to ' + arg + '.');
-      }
-      case 'model': {
-        const m = MODELS.find((x) => x.id === arg || x.name.toLowerCase() === arg);
-        if (!m) return note('Models: ' + MODELS.map((x) => x.id).join(', ') + '.');
-        S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); return note('Model set to ' + m.name + '.');
-      }
-      case 'remove': if (p) return removeChat(p.id); return draw();
-      case 'help': return note(COMMANDS.map((c) => '/' + c.name + (c.arg ? ' ' + c.arg : '') + ' — ' + c.hint).join('\n'));
-      default: return note('Unknown command: /' + (cmd || '') + '. Type /help for the list.');
-    }
+    const r = await call('/command', { method: 'POST', body: JSON.stringify({ text, project: S.project ? S.project.id : '' }) });
+    const d = r.data || {};
+    if (r.status !== 200) return note(d.error || 'The command did not work.');
+    if (d.pick) S.pick = d.pick;
+    if (d.open === 'new') return showPicker('new');
+    if (d.open === 'repos') return showPicker('repos');
+    if (d.open === 'changes') { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); return draw(); }
+    if (d.open === 'remove' && S.project) return removeChat(S.project.id);
+    if (d.url) window.open(d.url, '_blank', 'noopener');
+    if (d.note) return note(d.note);
+    draw();
   }
   function slashHTML() {
     const list = slashMatches(S.draft);
@@ -501,7 +479,7 @@
       const first = !S.root;
       S.root = el;
       if (side) S.side = side;
-      if (!S.pick) S.pick = savedPick();
+      if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');
