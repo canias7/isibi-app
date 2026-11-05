@@ -1180,3 +1180,26 @@ test("CD49 pictures are read as data: addresses (the page's rules block blob: on
   const { servePage } = { servePage: null };
   assert.match(readFileSync(HERE("src/coder-page.mjs"), "utf8"), /img-src 'self' data:/);
 });
+
+test("CD50 what the setup script makes (node_modules…) is never saved to the branch; Coder's own new files still are", async () => {
+  const { remote, bare } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s = scripted([say("", [call("write", { path: "app.js", content: "x\n" })]), say("Done.", [])]);
+  const { base, close } = await serve(createApp({ root, send: async (req) => s.send(req), remote, ...r0 }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    // the write tool runs as a command; here we just let bash write the file instead
+    const s2 = scripted([say("", [call("bash", { command: "echo x > app.js" })]), say("Done.", [])]);
+    s.send = s2.send;
+    await post("/turn", { project: "shop-setp", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-setp", token: "", setup: { script: "mkdir -p node_modules/pkg && echo 1 > node_modules/pkg/i.js && echo ok > setup-ran.txt" } });
+    for (let i = 0; i < 100; i++) { const st = await (await fetch(base + "/state?project=shop-setp&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    await post("/claim", { project: "shop-setp" });
+    const p = await (await post("/push", { project: "shop-setp", repo: "ana/shop", branch: "coder/shop-setp", token: "", message: "Added app.js" })).json();
+    assert.equal(p.ok, true, p.why);
+    const files = git(bare, "ls-tree", "-r", "--name-only", "coder/shop-setp").trim().split("\n");
+    assert.ok(files.includes("app.js"), "Coder's own file is saved");
+    assert.ok(!files.some((f) => f.startsWith("node_modules/")), "node_modules was saved");
+    assert.ok(!files.includes("setup-ran.txt"), "the setup's file was saved");
+  } finally { await close(); }
+});
