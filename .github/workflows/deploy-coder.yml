@@ -1,0 +1,87 @@
+name: deploy coder
+
+# CODER'S OWN DEPLOY (2026-11-05, the owner chose "B": a button to press, not a
+# terminal). Coder is a separate Worker (`coder/`), apart from the website
+# builder: this workflow touches only `coder/`, and a push starts nothing (the
+# owner presses it).
+#
+# Secrets it reads (GitHub → Settings → Secrets → Actions):
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, XAI_API_KEY  (already there)
+#   CODER_GITHUB_CLIENT_SECRET  (new: the GitHub App's client secret)
+# CODER_TOKEN_KEY, the key that encrypts users' GitHub tokens, is derived here
+# from SITE_SECRETS_KEY (HMAC, 32 bytes), so it is the same on every deploy and
+# nobody has to make one by hand. It is masked and never printed.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-coder
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Coder's packages
+        run: npm ci --no-audit --no-fund
+      - name: Check the secrets are there
+        env:
+          A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          B: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          C: ${{ secrets.XAI_API_KEY }}
+          D: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}
+          E: ${{ secrets.SITE_SECRETS_KEY }}
+        run: |
+          missing=""
+          [ -n "$A" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$B" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          [ -n "$C" ] || missing="$missing XAI_API_KEY"
+          [ -n "$D" ] || missing="$missing CODER_GITHUB_CLIENT_SECRET"
+          [ -n "$E" ] || missing="$missing SITE_SECRETS_KEY"
+          if [ -n "$missing" ]; then echo "::error::Missing GitHub secrets:$missing"; exit 1; fi
+          echo "All secrets present."
+      - name: Run Coder's tests
+        run: node --test test/*.test.mjs
+      - name: Make the token key
+        env:
+          SITE_SECRETS_KEY: ${{ secrets.SITE_SECRETS_KEY }}
+        run: |
+          k=$(printf 'gofarther-coder-token-key-v1' | openssl dgst -sha256 -hmac "$SITE_SECRETS_KEY" -binary | base64)
+          echo "::add-mask::$k"
+          echo "CODER_TOKEN_KEY=$k" >> "$GITHUB_ENV"
+      - name: Make Coder's storage (once; fine if it exists)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          out=$(npx --yes wrangler@4.107.0 r2 bucket create gofarther-coder 2>&1) || true
+          echo "$out" | tail -n 3
+      - name: Deploy Coder
+        uses: cloudflare/wrangler-action@v3
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GITHUB_APP_CLIENT_SECRET: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.107.0"
+          workingDirectory: coder
+          secrets: |
+            XAI_API_KEY
+            GITHUB_APP_CLIENT_SECRET
+            CODER_TOKEN_KEY
+      - name: Check it answers
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if out=$(curl -fsS https://coder.gofarther.dev/health); then echo "$out"; exit 0; fi
+            sleep 20
+          done
+          echo "::warning::coder.gofarther.dev did not answer yet (a new address can take a few minutes)."

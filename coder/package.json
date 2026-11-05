@@ -1,0 +1,13 @@
+{
+  "name": "gofarther-coder-worker",
+  "private": true,
+  "type": "module",
+  "description": "Coder's own Worker: a developer agent with a terminal, apart from the website builder.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  // CODER, ITS OWN WORKER (2026-11-05, the owner: "make a different workers .js
+  // … I don't want it close to the other one"). Nothing here is shared with the
+  // website builder's Worker (isibi-app): its own name, its own address, its own
+  // container, its own storage.
+  //
+  // Deploy (by hand, from this folder, after the owner says so):
+  //   npx wrangler r2 bucket create gofarther-coder      (once)
+  //   npx wrangler secret put XAI_API_KEY                (once)
+  //   npx wrangler secret put GITHUB_APP_CLIENT_SECRET   (once)
+  //   npx wrangler secret put CODER_TOKEN_KEY            (once: 32 random bytes, base64)
+  //   npx wrangler deploy
+  "name": "gofarther-coder",
+  "main": "worker.js",
+  "compatibility_date": "2026-07-02",
+  // Its own address. The website builder keeps gofarther.dev. Its bucket keeps
+  // only chats and GitHub connections; the code itself lives in GitHub.
+  "routes": [
+    { "pattern": "coder.gofarther.dev", "custom_domain": true }
+  ],
+  "vars": {
+    // ON (2026-11-05, the owner: "turn it on"). "off" makes every /api/coder/
+    // address answer 404.
+    "CODER_ON": "on",
+    // While testing, only these Go Farther accounts may use it (free).
+    "CODER_USERS": "aniascristian@gmail.com,aniascapital@gmail.com",
+    // Grok's grok-4.7 unless set.
+    "CODER_MODEL": "default",
+    // Sign-in is the same Supabase project as the website builder; the anon key
+    // is the public one the browser already holds.
+    "SUPABASE_URL": "https://ujrqdmmtcptvimazlhom.supabase.co",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4",
+    // The page that may call this Worker from the browser.
+    "APP_ORIGIN": "https://gofarther.dev",
+    // GITHUB (2026-11-05): the code lives in each user's own GitHub. The owner
+    // registers a GitHub App (steps in README.md) and fills these two in; its
+    // secret and the token key are secrets: GITHUB_APP_CLIENT_SECRET, CODER_TOKEN_KEY.
+    "GITHUB_APP_CLIENT_ID": "Iv23li7CSEGqBSxEqQU7",
+    "GITHUB_APP_SLUG": "gofarther-coder",
+    "CODER_PUBLIC_URL": "https://coder.gofarther.dev"
+  },
+  "r2_buckets": [
+    { "binding": "CODER_BUCKET", "bucket_name": "gofarther-coder" }
+  ],
+  "containers": [
+    {
+      "class_name": "CoderContainer",
+      "image": "./container/Dockerfile",
+      "max_instances": 20,
+      "instance_type": "standard-1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "class_name": "CoderContainer", "name": "CODER_CONTAINER" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CoderContainer"] }
+  ],
+  "observability": { "enabled": true }
+}
