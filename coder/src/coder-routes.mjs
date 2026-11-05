@@ -53,6 +53,24 @@ async function getJson(bucket, key, fallback) {
 }
 const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMetadata: { contentType: "application/json" } });
 
+/** A CHAT IN THE LIST (2026-11-05, the owner: "each coder can have its own session"): each
+ *  project is one chat, with its own history, branch and pull request. */
+function listEntry(meta) {
+  return { id: meta.id, name: meta.repo, repo: meta.repo, title: meta.title || "", status: meta.status || "idle", pr: meta.pr ? meta.pr.number : null, at: meta.at };
+}
+async function saveMeta(bucket, uid, meta) {
+  await putJson(bucket, keyOf(uid, meta.id, "meta.json"), meta);
+  const indexKey = keyOf(uid, "index.json");
+  const index = await getJson(bucket, indexKey, []);
+  const rest = index.filter((x) => x && x.id !== meta.id);
+  await putJson(bucket, indexKey, [listEntry(meta), ...rest]);
+}
+/** A chat's title: the first words of its first message. */
+export function chatTitle(text) {
+  const t = String(text || "").replace(/\s+/g, " ").trim();
+  return t.length > 60 ? t.slice(0, 57).replace(/\s+\S*$/, "") + "…" : t;
+}
+
 /** A project id from a repository's name: lowercase words joined by dashes, with a short suffix. */
 export function projectIdFor(name, rand = Math.random) {
   const base = String(name || "project").split("/").pop().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "project";
@@ -137,9 +155,8 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
     const base = typeof body.base === "string" && BRANCH.test(body.base) ? body.base : String(r.data.default_branch || "main");
     const id = projectIdFor(repo);
-    const meta = { id, name: repo, repo, base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
-    await putJson(bucket, keyOf(uid, id, "meta.json"), meta);
-    await putJson(bucket, indexKey, [{ id, name: repo, repo, at: meta.at }, ...index]);
+    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
+    await saveMeta(bucket, uid, meta);
     return json({ ok: true, project: meta });
   }
 
@@ -170,8 +187,8 @@ export async function handleCoder(request, env, ctx, deps) {
       const why = await r.json().catch(() => ({}));
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + (why && why.error ? ": " + String(why.error).slice(0, 200) : "") }, r.status === 409 ? 409 : 502);
     }
-    const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now() };
-    await putJson(bucket, metaKey, next);
+    const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now() };
+    await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next });
   }
 
@@ -201,10 +218,31 @@ export async function handleCoder(request, env, ctx, deps) {
       await putJson(bucket, keyOf(uid, id, "messages.json"), Array.isArray(s.result.messages) ? s.result.messages : []);
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
       const ended = { ...meta, saved: meta.turn, pr, status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
-      await putJson(bucket, metaKey, ended);
+      await saveMeta(bucket, uid, ended);
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
     }
     return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta });
+  }
+
+  // WHAT CODER CHANGED (the "See changes" button): its branch against the main
+  // branch, as GitHub has it (what the pull request holds). No AI.
+  if (action === "changes" && request.method === "GET") {
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub again", connect: true }, 409);
+    const c = await gh(t.token, "/repos/" + meta.repo + "/compare/" + encodeURIComponent(meta.base) + "..." + encodeURIComponent(meta.branch), { fetchFn });
+    if (c.status === 404) return json({ ok: true, files: [], add: 0, del: 0 });
+    if (!c.ok || !c.data) return json({ error: "GitHub could not show the changes" }, 502);
+    const files = (Array.isArray(c.data.files) ? c.data.files : []).slice(0, 100).map((f) => ({ path: String(f.filename || ""), add: f.additions | 0, del: f.deletions | 0, patch: typeof f.patch === "string" ? f.patch.slice(0, 20000) : "" }));
+    return json({ ok: true, files, add: files.reduce((n, f) => n + f.add, 0), del: files.reduce((n, f) => n + f.del, 0) });
+  }
+
+  // DELETE A CHAT from the list (its branch and pull request stay on GitHub).
+  if (!action && request.method === "DELETE") {
+    if (meta.status === "running") return json({ error: "Coder is still working in this chat: stop it first" }, 409);
+    for (const k of ["meta.json", "messages.json", "events.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
+    const index = await getJson(bucket, indexKey, []);
+    await putJson(bucket, indexKey, index.filter((x) => x && x.id !== id));
+    return json({ ok: true });
   }
 
   if (action === "stop" && request.method === "POST") {

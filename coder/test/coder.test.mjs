@@ -400,3 +400,41 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.match(ui, /body: JSON\.stringify\(\{ text, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model, body\.effort\);\n\s+const r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort \}\);/);
 });
+
+test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const base = fakeGithub();
+  const fetchFn = async (url, init = {}) => {
+    const u = String(url);
+    if (u.startsWith("https://api.github.com/repos/ana/shop/compare/main...coder%2F")) return new Response(JSON.stringify({ files: [{ filename: "src/a.js", additions: 3, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b" }, { filename: "README.md", additions: 2, deletions: 0 }] }));
+    return base.fetchFn(url, init);
+  };
+  let turns = 0;
+  const deps = { fetchFn, authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns++; return new Response(JSON.stringify({ ok: true }), { status: 200 }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  const st = new URL((await (await go("github/start")).json()).url).searchParams.get("state");
+  await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
+  const a = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
+  const b = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
+  assert.notEqual(a.id, b.id, "two chats on one repo share an id");
+  assert.notEqual(a.branch, b.branch, "two chats on one repo share a branch");
+  assert.equal((await go("projects/" + a.id + "/message", { method: "POST", body: JSON.stringify({ text: "Fix the checkout total when there is a discount, please, and run every test afterwards" }) })).status, 200);
+  assert.equal(turns, 1);
+  const list = (await (await go("projects")).json()).projects;
+  assert.deepEqual(list.map((x) => x.id), [a.id, b.id], "the chat just used comes first");
+  assert.equal(list[0].status, "running");
+  assert.equal(list[0].title, "Fix the checkout total when there is a discount, please,…");
+  assert.equal(list[1].title, "");
+  // The title is the first message's, kept afterwards.
+  const meta = JSON.parse(bucket.m.get("coder/user-1234567890abcdef/" + a.id + "/meta.json"));
+  assert.equal(meta.title, list[0].title);
+  // SEE CHANGES: GitHub's compare of the chat's branch against the main branch.
+  const ch = await (await go("projects/" + b.id + "/changes")).json();
+  assert.deepEqual(ch, { ok: true, add: 5, del: 1, files: [{ path: "src/a.js", add: 3, del: 1, patch: "@@ -1 +1 @@\n-a\n+b" }, { path: "README.md", add: 2, del: 0, patch: "" }] });
+  // REMOVE: a running chat is refused; an idle one goes from the list.
+  assert.equal((await go("projects/" + a.id, { method: "DELETE" })).status, 409);
+  assert.equal((await go("projects/" + b.id, { method: "DELETE" })).status, 200);
+  assert.deepEqual((await (await go("projects")).json()).projects.map((x) => x.id), [a.id]);
+  assert.equal((await go("projects/" + b.id)).status, 404);
+});
