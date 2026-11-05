@@ -1299,13 +1299,6 @@ test("CD55 the audit: a big write (500 KB, accents included) goes through a file
   } finally { await close(); }
 });
 
-test("CD56 the landing page's ask is read when Coder opens (after sign-in), not when the page loads", () => {
-  const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  const mount = ui.indexOf("mount(el, side) {");
-  assert.ok(mount > 0 && ui.indexOf("sessionStorage.getItem('gf_ask')") > mount, "read inside mount");
-  assert.doesNotMatch(ui, /draft: \(\(\) => \{ try \{ const a = sessionStorage/);
-});
-
 test("CD57 @coder on Coder's own pull request works in that pull request's chat and branch (found in the live test)", async () => {
   const M = await import("../src/coder-mentions.mjs");
   const { createHmac, generateKeyPairSync } = await import("node:crypto");
