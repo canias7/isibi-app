@@ -6,7 +6,7 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-05: Download for Mac / Windows back on the front page
 
-- On your word, the sign-in page has a top bar again with the two black "Download for Mac" and "Download for Windows" buttons from the old landing page. Look only: they do nothing yet ("Coming soon"). On a phone they shrink to the two logos.
+- On your word, gofarther.dev has a landing page again like the old one: Go Farther and Sign in on top, the two black "Download for Mac" / "Download for Windows" buttons (look only, "Coming soon"), and the big ask box (Grok 4.7, Medium). Sign in, or sending from the box, opens the sign-in card. On a phone the download buttons shrink to the two logos.
 
 ## 2026-11-05: Coder's own "Remove chat?" box
 

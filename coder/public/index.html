@@ -18,12 +18,19 @@
        coder we are building"): sign in, then Coder. -->
   <main class="gf-main">
     <section class="gf-gate" id="gfGate" hidden>
-      <!-- DOWNLOAD FOR MAC / WINDOWS (owner, 2026-11-05: "leave in the landing page
-           ... I liked it"). For the look only: they do nothing yet. -->
+      <!-- THE LANDING PAGE (owner, 2026-11-05: "leave in the landing page what we
+           used to have about the download for mac and windows thing"). Like the
+           old one: top bar, the two download buttons (look only), and the ask
+           box. Sign in, or sending, opens the sign-in card. -->
       <header class="gf-top">
         <div class="gf-cardbrand"><span class="gf-logo" aria-hidden="true">GF</span><b>Go Farther</b></div>
-        <span class="dl-apps" aria-label="Desktop apps (coming soon)"><button type="button" class="dl-app" title="Coming soon" aria-disabled="true"><svg viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg><span>Download for Mac</span></button><button type="button" class="dl-app" title="Coming soon" aria-disabled="true"><svg viewBox="0 0 448 512" aria-hidden="true"><path fill="currentColor" d="M0 93.7l183.6-25.3v177.4H0V93.7zm0 324.6l183.6 25.3V268.4H0v149.9zm203.8 28L448 480V268.4H203.8v177.9zm0-380.6v180.1H448V32L203.8 65.7z"/></svg><span>Download for Windows</span></button></span>
+        <button type="button" class="gf-signin" id="gfSignin">Sign in</button>
       </header>
+      <div class="gf-dlrow"><span class="dl-apps" aria-label="Desktop apps (coming soon)"><button type="button" class="dl-app" title="Coming soon" aria-disabled="true"><svg viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg><span>Download for Mac</span></button><button type="button" class="dl-app" title="Coming soon" aria-disabled="true"><svg viewBox="0 0 448 512" aria-hidden="true"><path fill="currentColor" d="M0 93.7l183.6-25.3v177.4H0V93.7zm0 324.6l183.6 25.3V268.4H0v149.9zm203.8 28L448 480V268.4H203.8v177.9zm0-380.6v180.1H448V32L203.8 65.7z"/></svg><span>Download for Windows</span></button></span></div>
+      <form class="gf-ask" id="gfAsk">
+        <textarea id="gfAskIn" rows="2" aria-label="What should Coder do?" placeholder="Ask Coder to build, fix or explain something in your GitHub repo…"></textarea>
+        <div class="gf-ask-foot"><span class="gf-ask-chip">Model: <b>Grok 4.7</b></span><span class="gf-ask-chip">Effort: <b>Medium</b></span><button type="submit" class="gf-ask-go" aria-label="Start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+      </form>
       <form class="gf-card" id="gfForm" novalidate>
         <div class="gf-cardbrand"><span class="gf-logo" aria-hidden="true">GF</span><b>Go Farther</b><span class="gf-tag">Coder</span></div>
         <h1 id="gfTitle">Sign in</h1>

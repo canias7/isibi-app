@@ -672,9 +672,11 @@ test("CD28 the page uses no browser popups (confirm, alert, prompt): Coder draws
   }
 });
 
-test("CD29 the sign-in page shows Download for Mac and Download for Windows (look only, not wired)", () => {
+test("CD29 the landing page shows Download for Mac and Download for Windows (look only, not wired)", () => {
   const html = readFileSync(join(import.meta.dirname, "..", "public", "index.html"), "utf8");
   assert.match(html, /Download for Mac/);
   assert.match(html, /Download for Windows/);
   assert.equal((html.match(/class="dl-app"[^>]*aria-disabled="true"/g) || []).length, 2);
+  assert.match(html, /id="gfAsk"/);
+  assert.match(html, /id="gfSignin"/);
 });
