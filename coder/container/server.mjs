@@ -257,7 +257,8 @@ export async function writeMemory(file, text) {
 // ── THE REPO'S RULES AND THE MEMORY ──────────────────────────────────────────
 export const NOTES_MAX = 20000;
 export const MEMORY_MAX = 25000;
-const NOTE_FILES = ["CODER.md", "CLAUDE.md", "AGENTS.md"];
+// OWNER, 2026-11-05: "we not doing claude md we doing coder md" — Coder reads its own file only.
+const NOTE_FILES = ["CODER.md"];
 /** The repo's own instruction files, as `[{ name, text }]` (at most NOTES_MAX characters in all). */
 export async function repoNotes(dir) {
   const out = [];
@@ -312,7 +313,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         if (body.files && typeof body.files === "object" && (await readdir(dir)).length === 0) await restoreFiles(dir, body.files);
       }
     } catch (e) { return fail(500, String((e && e.message) || e).slice(0, 200)); }
-    // THE REPO'S OWN RULES (CODER.md, CLAUDE.md, AGENTS.md) and THE MEMORY FOR
+    // THE REPO'S OWN RULES (CODER.md) and THE MEMORY FOR
     // THIS REPO (kept between chats by the Worker), told to the AI each turn.
     // The memory folder sits in a root-owned place, so it cannot be swapped.
     const notes = await repoNotes(dir);
