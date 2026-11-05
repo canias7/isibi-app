@@ -28,6 +28,10 @@
 
 
 
+## 2026-11-05 — Coder's chat: style B (plain lines, like Claude Code)
+
+You picked style B out of four (A the boxes, B plain lines, C a timeline, D a dark terminal). Commands no longer sit in boxes. Each one is a single line, `● Bash(npm test)`, and tapping it shows its output underneath, indented in grey. The dot is green when the command worked, red when it failed, and grey while it runs. Coder's finished summary starts with a green ✓. Your black bubbles stay as they were. Coder's tests: 18 of 18. Not live yet.
+
 ## 2026-11-05 — Coder: the model picker (Grok 4.7 and its effort levels)
 
 Under the message box there are now two small pickers: the model (**Grok 4.7**, the only one for now) and its effort (**Low, Medium or High**, with Medium as the default). The choice is remembered in the browser. It travels with each message to Coder's Worker, which only accepts models and efforts from its own list, then on to the container. The effort goes to Grok as `reasoning_effort`.

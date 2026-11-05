@@ -186,7 +186,7 @@
         const open = !!S.open[key];
         const state = !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.code === 0 ? 'ok' : 'bad';
         const badge = state === 'run' ? '<span class="cd-spin" aria-label="running"></span>' : state === 'ok' ? '<span class="cd-ok">✓</span>' : state === 'bad' ? '<span class="cd-bad">' + (r.timedOut ? 'timed out' : 'exit ' + esc(r.code)) + '</span>' : '';
-        out.push('<div class="cd-step' + (open ? ' is-open' : '') + '">' +
+        out.push('<div class="cd-step is-' + state + (open ? ' is-open' : '') + '">' +
           '<button type="button" class="cd-step-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
             '<span class="cd-step-chev">' + (r ? ICON.chev : '') + '</span>' + ICON.term +
             '<code class="cd-step-cmd">' + esc(e.command.split('\n')[0]) + '</code>' + badge + '</button>' +

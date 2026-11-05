@@ -103,3 +103,24 @@
   .cd-bubble { max-width: 88%; }
   .cd-pr { margin-left: 0; }
 }
+
+/* STYLE B (owner, 2026-11-05: "more like B"): no boxes. Each command is one
+   line, ● Bash(…), with its output under it in grey, like Claude Code. Tap a
+   line to show or hide its output. */
+.cd-step{border:0;background:none;border-radius:0}
+.cd-step-row{padding:2px 0;gap:8px}
+.cd-step-row:hover:not(:disabled){background:none}
+.cd-step-row svg{display:none}
+.cd-step-chev{display:none}
+.cd-step-row::before{content:"●";color:#11845b;font-size:11px}
+.cd-step-cmd{font-weight:500}
+.cd-step-cmd::before{content:"Bash(";color:#6b7280;font-weight:400}
+.cd-step-cmd::after{content:")";color:#6b7280}
+.cd-out{background:none;color:#6b7280;border:0;border-left:1px solid #d9d4cb;margin:2px 0 6px 5px;padding:2px 0 2px 14px;max-height:160px}
+.cd-thread{gap:6px}
+.cd-done{border-left:0;padding-left:0}
+.cd-done::before{content:"✓";color:#11845b;font-weight:700}
+.cd-step-row:not(:disabled):hover .cd-step-cmd{text-decoration:underline;text-decoration-color:#d9d4cb}
+.cd-step-row .cd-spin{order:-1}
+.cd-step.is-bad .cd-step-row::before{color:#b42318}
+.cd-step.is-run .cd-step-row::before,.cd-step.is-gone .cd-step-row::before{color:#b5b1aa}
