@@ -16,7 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Projects live here, one folder each, owned by `dev`: the unprivileged user the
 # AI's commands run as, so they can never read the GitHub token git uses (it is
 # only in the environment of git processes this service runs as root).
-RUN useradd -m -u 1001 dev && mkdir -p /work && chown dev:dev /work
+RUN useradd -m -u 1001 dev && mkdir -p /work && chown dev:dev /work \
+ && mkdir -p /srv/coder-git /srv/coder-memory /srv/coder-bg && chmod 755 /srv/coder-git /srv/coder-memory /srv/coder-bg \
+ && git config --system --add safe.directory '*'
+# The git folders, the memory files and the background logs live under /srv,
+# which belongs to root: the AI's commands (as `dev`) may read them but cannot
+# swap them, so root's git and file reads cannot be tricked (the audit, 2026-11-05).
+# `dev`'s own git may read the root-owned history (safe.directory); our git, as
+# root, ignores that system setting (GIT_CONFIG_NOSYSTEM) and checks ownership.
 ENV CODER_RUN_UID=1001 CODER_RUN_GID=1001
 WORKDIR /app
 

@@ -305,7 +305,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
-        const p = await post("/push", { project: id, branch: meta.branch, token: t.token, message: commitTitle(s.result.summary) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, token: t.token, message: commitTitle(s.result.summary) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         if (!p.ok) pushNote = "Not sent to GitHub: " + String(p.why || "the push failed").slice(0, 200);
         else if (p.pushed || !pr) {
           if (!pr) pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(s.result.summary), body: String(s.result.summary || "").slice(0, 4000) + "\n\nMade with Coder." }, fetchFn).catch(() => null);

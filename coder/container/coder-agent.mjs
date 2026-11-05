@@ -39,6 +39,7 @@ HOW YOU WORK
 - Long-running servers go in the background (… > app.log 2>&1 &), then check them with curl. A command still running at its time limit is not stopped: it keeps running in the background, and you are told the log file to read with tail.
 - Keep command output small (head, tail, grep): every round costs the owner time.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
+- Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, Coder commits everything you changed and opens the pull request itself.
 
 TALKING TO THE OWNER
 - Say in one short line what you are about to do, then do it.
