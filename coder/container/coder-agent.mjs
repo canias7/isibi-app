@@ -1,8 +1,11 @@
 // CODER'S BRAIN (2026-11-05). The owner: "same style as the sites agent, but
 // with a different container" and "like Claude Code": a developer at a
-// terminal. Coder has ONE tool (the owner removed `ask` and `done`, 2026-11-05):
+// terminal. Its tools (the owner removed `ask` and `done`; then added Claude
+// Code's file and web tools, 2026-11-05):
 //
 //   bash  run one command in the project's folder and read what it printed
+//   read, edit, write, grep, glob, web_fetch, web_search  (coder-tools.mjs)
+//   todo  a checklist the owner sees;  pull_request  only when asked
 //
 // It finishes the way a person does: it stops running commands and answers in
 // words. That answer is the summary, and the work then goes to GitHub.
@@ -16,11 +19,37 @@
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
 import { commandProblem, capOutput, readTimeout, scrub } from "./coder-checks.mjs";
+import { fileURLToPath } from "node:url";
+
+// THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
+// file and web tools of Claude Code. They run through the same exec as bash
+// (as `dev`, in the project), via container/coder-tools.mjs.
+export const TOOLS_SCRIPT = fileURLToPath(new URL("./coder-tools.mjs", import.meta.url));
+/** The most a Write may hold in one call (it travels as one command argument). */
+export const WRITE_MAX = 90000;
+const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
+export const RUN_TOOLS = {
+  read: { verb: "Read", label: (a) => a.path + (a.offset ? " from line " + a.offset : "") },
+  write: { verb: "Wrote", label: (a) => a.path },
+  edit: { verb: "Edited", label: (a) => a.path },
+  grep: { verb: "Searched", label: (a) => JSON.stringify(a.pattern || "") + (a.path && a.path !== "." ? " in " + a.path : "") },
+  glob: { verb: "Found", label: (a) => String(a.pattern || "") },
+  web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
+  web_search: { verb: "Searched the web for", label: (a) => JSON.stringify(a.query || "") },
+};
 
 export const CODER_MAX_ROUNDS = 60;
 export const CODER_MAX_MS = 45 * 60 * 1000;
 
 export const CODER_TOOLS = Object.freeze([
+  fn("read", "Read a file in the project, with line numbers (400 lines at a time; use offset for more). Use this instead of cat.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, ["path"]),
+  fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly (read it first) and appear once, unless replace_all is true. Use this instead of sed.", { path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
+  fn("write", "Write a whole file (new, or replacing everything in it). At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
+  fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
+  fn("glob", "List the project's files whose path matches a pattern, e.g. src/**/*.js or **/*.md.", { pattern: { type: "string" }, path: { type: "string" } }, ["pattern"]),
+  fn("web_fetch", "Read a public web page (documentation, an API's reference) as plain text.", { url: { type: "string" } }, ["url"]),
+  fn("web_search", "Search the web. Gives titles, addresses and snippets; read a result with web_fetch.", { query: { type: "string" } }, ["query"]),
+  fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   { type: "function", function: {
     name: "bash",
     description: "Run ONE shell command (bash) in the project's folder and get back what it printed and its exit code. Use it for everything: ls, cat, grep, find, writing files (cat > file <<'EOF' … EOF), editing (sed, or rewrite the file), npm/pip installs, tests, git. Commands run with no secrets in their environment. A command that could run forever (a dev server) must be started in the background (… > server.log 2>&1 &) and checked with curl. `timeout_s`: how long it may take (default 120, at most 600).",
@@ -40,8 +69,9 @@ export const CODER_SYSTEM = `You are Coder, a software developer working for the
 The project lives in the current folder. You work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
 HOW YOU WORK
-- Use the bash tool for everything. One command per call; join small related commands with && or ;.
-- Write a whole new file with a heredoc: cat > path <<'EOF' … EOF. For a small change, edit only those lines (sed) or rewrite the file, keeping every other line as it was.
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search and web_fetch (looking things up), todo (your checklist on bigger jobs), pull_request (only when asked).
+- Use read, edit, write, grep and glob for files, not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
+- To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
 - Long-running servers go in the background (… > app.log 2>&1 &), then check them with curl. A command still running at its time limit is not stopped: it keeps running in the background, and you are told the log file to read with tail.
@@ -127,6 +157,26 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         const bg = !!(r && r.background);
         emit({ type: "result", id: c.id, code, output: out, ...(bg ? { background: true } : r && r.timedOut ? { timedOut: true } : {}) });
         reply(bg ? out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
+      } else if (RUN_TOOLS[c.name]) {
+        // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
+        const spec = RUN_TOOLS[c.name];
+        const args = c.args || {};
+        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(String(spec.label(args) || "")).slice(0, 300) });
+        if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
+        if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
+        const b64 = Buffer.from(JSON.stringify({ tool: c.name, args })).toString("base64");
+        let r;
+        try { r = await deps.exec({ command: "node " + TOOLS_SCRIPT + " " + b64, timeoutS: 60, tool: true }); }
+        catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
+        const out = capOutput(String((r && r.output) || ""));
+        const code = r && Number.isInteger(r.code) ? r.code : -1;
+        emit({ type: "result", id: c.id, code, output: out });
+        reply(out || "(nothing)");
+      } else if (c.name === "todo") {
+        const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);
+        emit({ type: "todo", items });
+        reply("ok: the owner sees the checklist");
       } else if (c.name === "pull_request") {
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);
@@ -134,7 +184,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         prRequest = { title: scrub(title), body: scrub(body) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, web_fetch, web_search, todo and pull_request; to finish, answer in words)");
     }
   }
 }

@@ -331,8 +331,9 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     const context = contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "");
     runCoder({
       send: sendFn,
-      exec: async ({ command, timeoutS }) => {
-        const r = await execIn(dir, command, timeoutS, { bgDir });
+      exec: async ({ command, timeoutS, tool }) => {
+        // A file or web tool is ended at its time limit, never sent to the background.
+        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool });
         if (r && r.background && r.pid) t.bg.add(r.pid);
         return r;
       },

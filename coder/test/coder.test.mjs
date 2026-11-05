@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "web_fetch", "web_search", "todo", "bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,7 +89,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash and pull_request; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, web_fetch, web_search, todo and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -766,4 +766,53 @@ test("CD33 an empty repository (no branches yet, found in the live test) gets it
   assert.equal(git(join(ghRoot, "ana/empty.git"), "show", "coder/empty-abcd:README.md"), "# empty\n");
   // Opened again on the same machine: still fine.
   assert.equal((await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot })).ok, true);
+});
+
+test("CD34 the file tools: read, write, edit, grep and glob work inside the project only", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coder-tools-"));
+  const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const tool = (name, args) => { try { return { code: 0, out: execFileSync("node", [script, Buffer.from(JSON.stringify({ tool: name, args })).toString("base64")], { cwd: dir }).toString() }; } catch (e) { return { code: e.status, out: String(e.stdout) }; } };
+  assert.match(tool("write", { path: "src/app.js", content: "const a = 1;\nconst b = 2;\n" }).out, /wrote src\/app\.js/);
+  assert.match(tool("read", { path: "src/app.js" }).out, /^\s+1\tconst a = 1;\n\s+2\tconst b = 2;/);
+  assert.match(tool("edit", { path: "src/app.js", old_string: "const b = 2;", new_string: "const b = 3;" }).out, /edited src\/app\.js/);
+  assert.equal(readFileSync(join(dir, "src/app.js"), "utf8"), "const a = 1;\nconst b = 3;\n");
+  const miss = tool("edit", { path: "src/app.js", old_string: "nope", new_string: "x" });
+  assert.equal(miss.code, 1); assert.match(miss.out, /was not found/);
+  writeFileSync(join(dir, "twice.txt"), "x\nx\n");
+  assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y" }).out, /appears 2 times/);
+  assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y", replace_all: true }).out, /2 places/);
+  assert.match(tool("grep", { pattern: "const b" }).out, /src\/app\.js:2:const b = 3;/);
+  assert.match(tool("glob", { pattern: "**/*.js" }).out, /src\/app\.js/);
+  // OUTSIDE THE PROJECT: refused, also through a link and in .git.
+  assert.match(tool("read", { path: "../../etc/passwd" }).out, /outside the project/);
+  assert.match(tool("write", { path: "/tmp/x.txt", content: "x" }).out, /outside the project/);
+  execFileSync("ln", ["-s", "/etc", join(dir, "etc-link")]);
+  assert.match(tool("read", { path: "etc-link/hostname" }).out, /leads outside the project/);
+  assert.match(tool("write", { path: ".git/config", content: "x" }).out, /\.git folder is off limits/);
+});
+
+test("CD35 the web tools: public addresses only; pages become text; the free search is read", async () => {
+  const { privateAddress, htmlToText, toolWebSearch, toolWebFetch } = await import("../container/coder-tools.mjs");
+  for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "::1", "fd00::1", "::ffff:127.0.0.1"]) assert.equal(privateAddress(a), true, a);
+  for (const a of ["1.1.1.1", "140.82.112.3", "2606:4700::1111"]) assert.equal(privateAddress(a), false, a);
+  await assert.rejects(toolWebFetch({ url: "http://127.0.0.1:8080/state" }, async () => { throw new Error("must not fetch"); }), /private network/);
+  await assert.rejects(toolWebFetch({ url: "file:///etc/passwd" }, async () => { throw new Error("no"); }), /only http and https/);
+  assert.equal(htmlToText("<p>Hi&amp;bye</p><script>x()</script><b>there</b>"), "Hi&bye\n there");
+  const page = '<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnodejs.org%2Fdocs&rut=1">Node <b>docs</b></a> <a class="result__snippet" href="x">The Node.js reference.</a>';
+  const out = await toolWebSearch({ query: "node docs" }, async (u) => { assert.match(String(u), /^https:\/\/html\.duckduckgo\.com\/html\/\?q=node%20docs/); return new Response(page, { headers: { "content-type": "text/html" } }); });
+  assert.match(out, /1\. Node docs\n   https:\/\/nodejs\.org\/docs\n   The Node\.js reference\./);
+});
+
+test("CD36 the loop runs a file tool like a command (as dev, in the project) and shows what it did", async () => {
+  const s = scripted([say("", [call("edit", { path: "a.js", old_string: "1", new_string: "2" }), call("todo", { items: [{ text: "Fix a.js", status: "done" }] })]), say("Fixed.", [])]);
+  const runs = []; const events = [];
+  const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { runs.push(x); return { code: 0, output: "edited a.js (1 place)" }; } }, { text: "fix it" });
+  assert.equal(r.status, "done");
+  assert.equal(runs.length, 1);
+  assert.match(runs[0].command, /^node \S+coder-tools\.mjs [A-Za-z0-9+/=]+$/);
+  assert.equal(runs[0].tool, true);
+  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[2], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2" } });
+  const ev = events.find((e) => e.type === "bash");
+  assert.deepEqual([ev.tool, ev.verb, ev.command], ["edit", "Edited", "a.js"]);
+  assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "done" }]);
 });
