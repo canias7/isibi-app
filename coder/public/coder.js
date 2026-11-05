@@ -103,9 +103,27 @@
     const i = S.projects.findIndex((x) => x.id === e.id);
     if (i >= 0) S.projects[i] = { ...S.projects[i], ...e, title: e.title || S.projects[i].title };
   }
+  // CODER'S OWN "ARE YOU SURE?" (not the browser's popup).
+  function askSure(title, text, yes) {
+    return new Promise((done) => {
+      const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+      const box = document.createElement('div'); box.className = 'cd-sure-box'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+      const h = document.createElement('div'); h.className = 'cd-sure-title'; h.textContent = title;
+      const p = document.createElement('div'); p.className = 'cd-sure-text'; p.textContent = text;
+      const row = document.createElement('div'); row.className = 'cd-sure-row';
+      const no = document.createElement('button'); no.type = 'button'; no.className = 'cd-sure-no'; no.textContent = 'Cancel';
+      const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'cd-sure-yes'; ok.textContent = yes;
+      row.append(no, ok); box.append(h, p, row); wrap.append(box); document.body.append(wrap);
+      const end = (v) => { document.removeEventListener('keydown', key); wrap.remove(); done(v); };
+      const key = (e) => { if (e.key === 'Escape') end(false); if (e.key === 'Enter') end(true); };
+      no.onclick = () => end(false); ok.onclick = () => end(true);
+      wrap.onclick = (e) => { if (e.target === wrap) end(false); };
+      document.addEventListener('keydown', key); ok.focus();
+    });
+  }
   async function removeChat(id) {
     const x = S.projects.find((p) => p.id === id);
-    if (!x || !window.confirm('Remove "' + (x.title || 'New chat') + '" from your chats? Its branch and pull request stay on GitHub.')) return;
+    if (!x || !(await askSure('Remove “' + (x.title || 'New chat') + '”?', 'Its branch and pull request stay on GitHub.', 'Remove'))) return;
     const r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' });
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The chat could not be removed.'; return draw(); }
     S.projects = S.projects.filter((p) => p.id !== id);

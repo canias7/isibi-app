@@ -664,3 +664,10 @@ test("CD27 the history is capped from the oldest, at a user's message; the time 
   assert.equal(r.status, "time");
   assert.deepEqual(ran, ["echo a"]);
 });
+
+test("CD28 the page uses no browser popups (confirm, alert, prompt): Coder draws its own", () => {
+  for (const f of ["coder.js", "app.js", "auth.js", "gloopy.js"]) {
+    const src = readFileSync(join(import.meta.dirname, "..", "public", f), "utf8");
+    assert.doesNotMatch(src, /\b(confirm|alert|prompt)\s*\(/, f + " uses a browser popup");
+  }
+});
