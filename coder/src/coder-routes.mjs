@@ -35,6 +35,28 @@ import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode,
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
+// IMAGES IN THE CHAT (owner, 2026-11-05, "16"): up to 4 pictures a message, each up to 1.5 MB.
+export const MAX_IMAGES = 4;
+export const MAX_IMAGE_BYTES = 1_500_000;
+/** The message's pictures, checked: `[{ type, data }]` (base64), or an error text. */
+export function checkImages(list) {
+  if (!Array.isArray(list) || !list.length) return { images: [] };
+  if (list.length > MAX_IMAGES) return { error: "at most " + MAX_IMAGES + " pictures a message" };
+  const out = [];
+  for (const x of list) {
+    const type = String((x && x.type) || "");
+    const data = String((x && x.data) || "");
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(type)) return { error: "pictures must be PNG, JPEG, WebP or GIF" };
+    if (!/^[A-Za-z0-9+/]+=*$/.test(data) || data.length * 0.75 > MAX_IMAGE_BYTES) return { error: "each picture must be under 1.5 MB" };
+    out.push({ type, data });
+  }
+  return { images: out };
+}
+/** @path mentions in a message, as a note for Coder. */
+export function fileMentions(text) {
+  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w./-]+\.[\w]+|[\w-]+\/[\w./-]+)/g)].map((m) => m[1]).filter((p) => !p.includes("..")))].slice(0, 20);
+  return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ". Read them first.)" : "";
+}
 // SEVERAL CHATS AT ONCE (owner, 2026-11-05: "no limit"): each chat has its own
 // container and a user may have any number working at once. CODER_MAX_RUNNING
 // (a setting) puts a per-person limit back when Coder opens to other users.
@@ -256,7 +278,9 @@ export async function handleCoder(request, env, ctx, deps) {
     const said = String(body.text || "").trim();
     const notes = commentsText(body.comments);
     const text = notes ? notes + (said ? "\n\n" + said : "") : said;
-    if (!text) return json({ error: "write something first" }, 400);
+    const pics = checkImages(body.images);
+    if (pics.error) return json({ error: pics.error }, 400);
+    if (!text && !pics.images.length) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
     if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
     const t = await userToken(env, bucket, uid, { fetchFn });
@@ -270,7 +294,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
+    r = await post("/turn", { project: id, text: (text || "(see the picture)") + fileMentions(text), shown: text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -395,6 +419,16 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
+  }
+
+  // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").
+  if (action === "files" && request.method === "GET") {
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    let tree = await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.branch) + "?recursive=1", { fetchFn });
+    if (!tree.ok) tree = await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.base) + "?recursive=1", { fetchFn });
+    const files = tree.ok && tree.data && Array.isArray(tree.data.tree) ? tree.data.tree.filter((x) => x.type === "blob").map((x) => String(x.path)).filter((p) => !/(^|\/)(node_modules|\.git)\//.test(p)).slice(0, 5000) : [];
+    return json({ ok: true, files });
   }
 
   if (action === "changes" && request.method === "GET") {

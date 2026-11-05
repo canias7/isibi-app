@@ -109,19 +109,26 @@ export function readCalls(msg) {
  * Answers `{ status, messages, summary, rounds, usage }`, `status` one of
  * `done`, `stopped`, `rounds`, `time`, `send`, `no-tool`. It never throws.
  */
-export async function runCoder(deps, { messages = [], text = "", model = "", effort = "", context = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   const convo = Array.isArray(messages) ? messages.slice() : [];
-  if (typeof text === "string" && text.trim()) { convo.push({ role: "user", content: text.trim() }); emit({ type: "user", text: text.trim() }); }
+  // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
+  // history keeps a note in their place (so it stays small).
+  const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
+  if (typeof text === "string" && text.trim()) {
+    convo.push({ role: "user", content: text.trim(), ...(pics.length ? { images: pics.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
+    // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it.
+    emit({ type: "user", text: (typeof shown === "string" && shown.trim() ? shown : text).trim(), ...(pics.length ? { images: pics.length } : {}) });
+  }
   const usage = [];
   const started = now();
   let rounds = 0;
   let prRequest = null;
   // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
   const jobs = new Map();
-  const end = (status, extra = {}) => ({ status, messages: convo, rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }

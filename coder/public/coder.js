@@ -157,17 +157,18 @@
     text = String(text || '').trim();
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
-    if ((!text && !comments.length) || !S.project || S.running || S.sending) return;
-    S.comments = [];
+    const pics = (S.pics || []).slice();
+    if ((!text && !comments.length && !pics.length) || !S.project || S.running || S.sending) return;
+    S.comments = []; S.pics = []; S.mention = null;
     S.sending = true; S.error = ''; S.draft = '';
     const base = S.events.length;
-    S.events.push({ type: 'user', text: text || '(comments on the changes)', at: Date.now(), local: true });
+    S.events.push({ type: 'user', text: text || (pics.length ? '(see the picture)' : '(comments on the changes)'), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}) });
     draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, model: S.pick.model, effort: S.pick.effort }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), model: S.pick.model, effort: S.pick.effort }) });
     S.sending = false;
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
-      S.draft = text;
+      S.draft = text; S.pics = pics;
       S.error = (r.data && r.data.error) || 'The message was not sent.';
       if (r.data && r.data.connect) S.phase = 'connect';
       return draw();
@@ -225,6 +226,7 @@
 
   // ── DRAWING ───────────────────────────────────────────────────────────────
   const ICON = {
+    clip: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
     gh: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>',
     term: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8"/></svg>',
     send: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
@@ -287,7 +289,7 @@
       if (e.type === 'bash') { group.push([e, i]); return; }
       if (e.type === 'result') return;
       flush();
-      if (e.type === 'user') out.push('<div class="cd-user"><div class="cd-bubble">' + esc(e.text) + '</div></div>');
+      if (e.type === 'user') out.push('<div class="cd-user">' + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble">' + esc(e.text) + '</div></div>');
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
@@ -380,12 +382,74 @@
     return '<div class="cd-chips">' + S.comments.map((c, i) => '<span class="cd-chip" title="' + esc(c.quote) + '">💬 ' + esc(c.file.split('/').pop()) + (c.line ? ':' + c.line : '') + ' — ' + esc(c.text.slice(0, 40)) + '<button type="button" data-uncomment="' + i + '" aria-label="Remove comment">×</button></span>').join('') + '</div>';
   }
 
+  // PICTURES (owner, 2026-11-05, "16"): attached or pasted, made smaller first, sent with the message.
+  function picsHTML() {
+    if (!S.pics || !S.pics.length) return '';
+    return '<div class="cd-pics">' + S.pics.map((x, i) => '<span class="cd-pic"><img src="' + x.url + '" alt=""><button type="button" data-unpic="' + i + '" aria-label="Remove picture">×</button></span>').join('') + '</div>';
+  }
+  function shrink(file) {
+    return new Promise((done) => {
+      const img = new Image();
+      const u = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(u);
+        let type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        let url = c.toDataURL(type, 0.85);
+        if (url.length > 1_900_000) { type = 'image/jpeg'; url = c.toDataURL(type, 0.7); }
+        done(url.length > 1_990_000 ? null : { type, url, data: url.split(',')[1] });
+      };
+      img.onerror = () => { URL.revokeObjectURL(u); done(null); };
+      img.src = u;
+    });
+  }
+  async function addPics(files) {
+    S.pics = S.pics || [];
+    for (const f of [...files].filter((f) => /^image\//.test(f.type))) {
+      if (S.pics.length >= 4) { note('At most 4 pictures a message.'); break; }
+      const p = await shrink(f);
+      if (p) S.pics.push(p); else note('That picture is too big.');
+    }
+    draw();
+  }
+  // @ A FILE: the repo's file names, suggested as you type.
+  async function loadFiles() {
+    if (!S.project || (S.files && S.files.id === S.project.id)) return;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/files');
+    S.files = { id: S.project.id, list: r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data.files : [] };
+  }
+  function mentionMatches() {
+    if (!S.mention || !S.files) return [];
+    const q = S.mention.q.toLowerCase();
+    return S.files.list.filter((p) => p.toLowerCase().includes(q)).sort((a, b) => (a.toLowerCase().startsWith(q) ? 0 : 1) - (b.toLowerCase().startsWith(q) ? 0 : 1) || a.length - b.length).slice(0, 8);
+  }
+  function mentionHTML() {
+    const list = mentionMatches();
+    if (!list.length) return '';
+    const sel = Math.min(S.mentionSel || 0, list.length - 1);
+    return '<div class="cd-mention" role="listbox">' + list.map((p, i) => '<button type="button" class="cd-mention-i' + (i === sel ? ' on' : '') + '" data-file="' + esc(p) + '" role="option">' + esc(p) + '</button>').join('') + '</div>';
+  }
+  function pickMention(path) {
+    const input = S.root && S.root.querySelector('#cdIn');
+    const at = S.mention ? S.mention.at : -1;
+    if (at < 0) return;
+    const v = S.draft;
+    const end = at + 1 + S.mention.q.length;
+    S.draft = v.slice(0, at) + '@' + path + ' ' + v.slice(end);
+    S.mention = null; draw();
+    const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); const pos = at + path.length + 2; i.setSelectionRange(pos, pos); }
+    void input;
+  }
+
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + commentsHTML() +
+    return '<div class="cd-composewrap">' + mentionHTML() + commentsHTML() + picsHTML() +
       '<form class="cd-compose" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<button type="button" class="cd-attach" id="cdAttach" aria-label="Attach a picture" title="Attach a picture (or paste one)">' + ICON.clip + '</button><input type="file" id="cdFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>' +
         (S.running
           ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
@@ -467,6 +531,10 @@
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
     on('#cdUndo', 'click', () => undoLast());
+    on('#cdAttach', 'click', () => { const f = root.querySelector('#cdFile'); if (f) f.click(); });
+    on('#cdFile', 'change', (e) => { addPics(e.target.files); e.target.value = ''; });
+    on('[data-unpic]', 'click', (e) => { S.pics.splice(Number(e.currentTarget.dataset.unpic), 1); draw(); });
+    on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); pickMention(e.currentTarget.dataset.file); });
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
@@ -474,8 +542,21 @@
     const input = root.querySelector('#cdIn');
     if (input) {
       grow(input);
-      input.addEventListener('input', () => { S.draft = input.value; grow(input); });
+      input.addEventListener('input', async () => {
+        S.draft = input.value; grow(input);
+        const before = input.value.slice(0, input.selectionStart);
+        const m = /(^|\s)@([\w./-]*)$/.exec(before);
+        const had = mentionMatches().length;
+        S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : null; S.mentionSel = 0;
+        if (S.mention) await loadFiles();
+        if (had || mentionMatches().length) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
+      });
+      input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type))) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
+        const list = mentionMatches();
+        if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.mentionSel = ((S.mentionSel || 0) + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; return draw(); }
+        if (list.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); return pickMention(list[Math.min(S.mentionSel || 0, list.length - 1)]); }
+        if (list.length && e.key === 'Escape') { S.mention = null; return draw(); }
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); }
       });
     }

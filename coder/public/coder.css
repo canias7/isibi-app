@@ -207,3 +207,20 @@
 .cd-ask-opt{font:inherit;font-size:14px;border:1px solid #d9d6cf;background:#faf9f5;color:#1f1e1d;border-radius:999px;padding:8px 14px;cursor:pointer}
 .cd-ask-opt:hover:not(:disabled){background:#f0eee8;border-color:#1f1e1d}
 .cd-ask-opt:disabled{opacity:.55;cursor:default}
+
+/* Pictures in the chat box and in your messages; @ file suggestions. */
+.cd-compose{position:relative}
+.cd-attach{position:absolute;left:8px;bottom:8px;border:0;background:transparent;color:#6b6a68;cursor:pointer;padding:6px;border-radius:8px}
+.cd-attach:hover{background:#f3f1ec;color:#1f1e1d}
+.cd-compose textarea{margin-bottom:30px}
+.cd-pics{display:flex;gap:8px;max-width:760px;width:calc(100% - 40px);margin:6px auto 0;flex-wrap:wrap}
+.cd-pic{position:relative;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1px solid #e0dbd2;background:#fff}
+.cd-pic img{width:100%;height:100%;object-fit:cover}
+.cd-pic button{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:13px;line-height:20px;padding:0;cursor:pointer}
+.cd-user{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.cd-thumbs{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.cd-thumbs img{max-width:180px;max-height:140px;border-radius:12px;border:1px solid #e0dbd2}
+.cd-imgnote{font-size:12px;color:#8a8884}
+.cd-mention{max-width:760px;width:calc(100% - 40px);margin:6px auto 0;background:#fff;border:1px solid #e0dbd2;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.08);overflow:hidden}
+.cd-mention-i{display:block;width:100%;text-align:left;border:0;background:#fff;padding:8px 14px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#1f1e1d;cursor:pointer}
+.cd-mention-i.on,.cd-mention-i:hover{background:#f3f1ec}

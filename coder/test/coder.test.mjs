@@ -410,7 +410,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   // The screen offers the same list.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
-  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,400}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory \}\);/);
 });
 
@@ -514,7 +514,7 @@ test("CD20 memory is kept per repo between chats; no limit on chats at once unle
 test("CD21 the screen asks the server: the commands, the model list and pick, and what a command does; comments are sent as they are", () => {
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.doesNotMatch(ui, /slash|runCommand|\/command/, "the slash commands were removed (each has a button)");
-  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   assert.doesNotMatch(ui, /Comments on the changes:/, "the server writes the comments in, not the page");
   assert.doesNotMatch(ui, /localStorage/, "the pick is kept on the account");
   assert.match(ui, /r\.background \? 'bg'/);
@@ -1033,4 +1033,36 @@ test("CD43 undo the last job: its commit is reverted and saved to the branch (no
     assert.match(ui, /Undo last job/);
     assert.match(ui, /askSure\('Undo the last job\?'/);
   } finally { await close(); }
+});
+
+test("CD44 pictures and @files: pictures are checked, sent to Grok with that message only, kept out of the saved history; @paths become a note", async () => {
+  const { checkImages, fileMentions } = await import("../src/coder-routes.mjs");
+  const png = Buffer.from("fakepng").toString("base64");
+  assert.deepEqual(checkImages([{ type: "image/png", data: png }]), { images: [{ type: "image/png", data: png }] });
+  assert.match(checkImages([{ type: "text/html", data: png }]).error, /PNG, JPEG, WebP or GIF/);
+  assert.match(checkImages(Array(5).fill({ type: "image/png", data: png })).error, /at most 4/);
+  assert.match(checkImages([{ type: "image/png", data: "A".repeat(2_100_000) }]).error, /under 1\.5 MB/);
+  assert.match(checkImages([{ type: "image/png", data: "<script>" }]).error, /under 1\.5 MB/);
+  assert.equal(fileMentions("fix @src/app.js and @README.md please, mail me@x.y"), "\n\n(The owner pointed at these files: src/app.js, README.md. Read them first.)");
+  assert.equal(fileMentions("no files here"), "");
+  assert.equal(fileMentions("@../etc/passwd"), "");
+  // To Grok: the picture goes with the message as input_image.
+  const { toResponsesInput } = await import("../container/coder-model.mjs");
+  assert.deepEqual(toResponsesInput([{ role: "user", content: "make it look like this", images: ["data:image/png;base64," + png] }]).input, [{ role: "user", content: [{ type: "input_text", text: "make it look like this" }, { type: "input_image", image_url: "data:image/png;base64," + png, detail: "auto" }] }]);
+  // The loop sends it once; the saved history keeps a note instead.
+  const seen = [];
+  const r = await runCoder({ send: async (req) => { seen.push(req); return { message: { role: "assistant", content: "I see a blue button." } }; }, exec: async () => ({ code: 0, output: "" }) }, { text: "what is this?", images: [{ type: "image/png", data: png }, { type: "text/plain", data: "x" }] });
+  assert.deepEqual(seen[0].messages.at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
+  assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached]" });
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /id="cdAttach"/);
+  assert.match(ui, /input\.addEventListener\('paste'/);
+  assert.match(ui, /\/files'\)/);
+});
+
+test("CD45 the chat shows what the owner typed; Coder also gets the notes added to it", async () => {
+  const events = []; const seen = [];
+  await runCoder({ send: async (r) => { seen.push(r); return { message: { role: "assistant", content: "ok" } }; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "fix @a.js\n\n(The owner pointed at these files: a.js. Read them first.)", shown: "fix @a.js" });
+  assert.equal(events.find((e) => e.type === "user").text, "fix @a.js");
+  assert.match(seen[0].messages.at(-1).content, /pointed at these files: a\.js/);
 });

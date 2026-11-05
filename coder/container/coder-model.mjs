@@ -43,7 +43,10 @@ export function toResponsesInput(messages) {
       }
       continue;
     }
-    if (m.role === "user") input.push({ role: "user", content: String(m.content ?? "") });
+    if (m.role === "user") {
+      const imgs = Array.isArray(m.images) ? m.images : [];
+      input.push(imgs.length ? { role: "user", content: [{ type: "input_text", text: String(m.content ?? "") }, ...imgs.map((u) => ({ type: "input_image", image_url: u, detail: "auto" }))] } : { role: "user", content: String(m.content ?? "") });
+    }
   }
   return { instructions: sys.join("\n\n"), input };
 }
