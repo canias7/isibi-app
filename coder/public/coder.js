@@ -432,20 +432,22 @@
   }
   function shrink(file) {
     return new Promise((done) => {
+      // Read as a data: address (the page's safety rules allow those; blob: ones are not).
       const img = new Image();
-      const u = URL.createObjectURL(file);
+      const fr = new FileReader();
       img.onload = () => {
         const k = Math.min(1, 1600 / Math.max(img.width, img.height));
         const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(u);
         let type = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
         let url = c.toDataURL(type, 0.85);
         if (url.length > 1_900_000) { type = 'image/jpeg'; url = c.toDataURL(type, 0.7); }
         done(url.length > 1_990_000 ? null : { type, url, data: url.split(',')[1] });
       };
-      img.onerror = () => { URL.revokeObjectURL(u); done(null); };
-      img.src = u;
+      img.onerror = () => done(null);
+      fr.onload = () => { img.src = String(fr.result || ''); };
+      fr.onerror = () => done(null);
+      fr.readAsDataURL(file);
     });
   }
   async function addPics(files) {

@@ -1172,3 +1172,11 @@ test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pu
   meta = { ...meta, autofix: true, status: "running" };
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "busy");
 });
+
+test("CD49 pictures are read as data: addresses (the page's rules block blob: ones)", () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.doesNotMatch(ui, /createObjectURL/);
+  assert.match(ui, /readAsDataURL\(file\)/);
+  const { servePage } = { servePage: null };
+  assert.match(readFileSync(HERE("src/coder-page.mjs"), "utf8"), /img-src 'self' data:/);
+});
