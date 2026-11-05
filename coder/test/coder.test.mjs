@@ -1305,3 +1305,26 @@ test("CD56 the landing page's ask is read when Coder opens (after sign-in), not 
   assert.ok(mount > 0 && ui.indexOf("sessionStorage.getItem('gf_ask')") > mount, "read inside mount");
   assert.doesNotMatch(ui, /draft: \(\(\) => \{ try \{ const a = sessionStorage/);
 });
+
+test("CD57 @coder on Coder's own pull request works in that pull request's chat and branch (found in the live test)", async () => {
+  const M = await import("../src/coder-mentions.mjs");
+  const { createHmac, generateKeyPairSync } = await import("node:crypto");
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
+  const bucket = fakeBucket();
+  await bucket.put("coder/u9/github.json", JSON.stringify({ login: "canias7" }));
+  await bucket.put("coder/u9/profile.json", JSON.stringify({ email: "me@x.y" }));
+  await bucket.put(M.branchKey("canias7/shop", "coder/shop-abcd1234"), JSON.stringify({ uid: "u9", id: "shop-abcd1234" }));
+  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket, CODER_GITHUB_WEBHOOK_SECRET: "s", CODER_GITHUB_APP_ID: "1", CODER_GITHUB_APP_PRIVATE_KEY: privateKey };
+  const fetchFn = async (url) => {
+    if (/access_tokens$/.test(url)) return new Response(JSON.stringify({ token: "ghs" }), { status: 201 });
+    if (/\/pulls\/4$/.test(url)) return new Response(JSON.stringify({ head: { ref: "coder/shop-abcd1234", repo: { id: 1 } }, base: { repo: { id: 1 } } }));
+    if (/comments$/.test(url)) return new Response(JSON.stringify({ id: 5 }), { status: 201 });
+    return new Response("{}");
+  };
+  const calls = [];
+  const coder = async (req) => { const u = new URL(req.url); calls.push([req.method, u.pathname]); if (u.pathname.endsWith("/message")) return Response.json({ ok: true }); return Response.json({ ok: true, project: { id: "shop-abcd1234" } }); };
+  const payload = { action: "created", comment: { body: "@coder add a comment", user: { login: "canias7" } }, sender: { login: "canias7", type: "User" }, repository: { full_name: "canias7/shop", id: 1 }, installation: { id: 7 }, issue: { number: 4, title: "Add sum", pull_request: {} } };
+  const raw = JSON.stringify(payload);
+  await M.handleWebhook(new Request("https://x/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": "sha256=" + createHmac("sha256", "s").update(raw).digest("hex") }, body: raw }), env, null, { fetchFn, coder });
+  assert.deepEqual(calls, [["POST", "/api/coder/projects/shop-abcd1234/message"]], "no new chat: the pull request's own");
+});
