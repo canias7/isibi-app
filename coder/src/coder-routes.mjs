@@ -31,7 +31,7 @@
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
-import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -164,7 +164,8 @@ export function chatTitle(text) {
 /** A project id from a repository's name: lowercase words joined by dashes, with a short suffix. */
 export function projectIdFor(name, rand = Math.random) {
   const base = String(name || "project").split("/").pop().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "project";
-  return (base.length < 3 ? "project-" + base : base) + "-" + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0");
+  // 8 random characters (the audit: 4 could repeat, and two chats would share a branch).
+  return (base.length < 3 ? "project-" + base : base) + "-" + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0") + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0");
 }
 
 /** The first line of the agent's summary, as a commit message and a pull request title. */
@@ -190,13 +191,17 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "github" && parts[1] === "callback") {
     const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/";
     if (!githubReady(env)) return Response.redirect(back + "?github=unavailable", 302);
-    const uid = await readState(env, url.searchParams.get("state"));
+    const cookie = String(request.headers.get("cookie") || "").split(/;\s*/).find((c) => c.startsWith(STATE_COOKIE + "="));
+    const uid = await readState(env, url.searchParams.get("state"), Date.now(), cookie ? decodeURIComponent(cookie.slice(STATE_COOKIE.length + 1)) : "");
     const code = url.searchParams.get("code");
     if (!uid || !code) return Response.redirect(back + "?github=failed", 302);
     try {
       const tok = await exchangeCode(env, code, fetchFn);
       const me = await gh(tok.access, "/user", { fetchFn });
       const login = me.ok && me.data ? String(me.data.login || "") : "";
+      // A different GitHub account than before: the old login no longer points here (the audit).
+      const before = await getJson(bucket, "coder/" + uid + "/github.json", null);
+      if (before && before.login && before.login.toLowerCase() !== login.toLowerCase() && typeof bucket.delete === "function") await bucket.delete(loginKey(before.login));
       await saveConnection(env, bucket, uid, tok, login);
       // Who this GitHub login is on Coder, for @coder in comments.
       if (login) await bucket.put(loginKey(login), JSON.stringify({ uid }), { httpMetadata: { contentType: "application/json" } });
@@ -226,8 +231,20 @@ export async function handleCoder(request, env, ctx, deps) {
       const t = await userToken(env, bucket, uid, { fetchFn });
       return json({ ok: true, connected: !!t, login: t ? t.login : "", install: installUrl(env) });
     }
-    if (what === "start" && request.method === "GET") return json({ ok: true, url: signInUrl(env, await makeState(env, uid)) });
-    if (what === "disconnect" && request.method === "POST") { await forgetConnection(bucket, uid); return json({ ok: true }); }
+    if (what === "start" && request.method === "GET") {
+      // The random value goes in a cookie for the whole gofarther.dev (the callback is on coder.gofarther.dev).
+      const nonce = newNonce();
+      const res = json({ ok: true, url: signInUrl(env, await makeState(env, uid, Date.now(), nonce)) });
+      const host = new URL(String(env.CODER_PUBLIC_URL || "https://coder.gofarther.dev")).hostname.split(".").slice(-2).join(".");
+      res.headers.append("set-cookie", STATE_COOKIE + "=" + nonce + "; Path=/api/coder/github; Domain=" + host + "; Max-Age=900; HttpOnly; Secure; SameSite=Lax");
+      return res;
+    }
+    if (what === "disconnect" && request.method === "POST") {
+      const before = await getJson(bucket, "coder/" + uid + "/github.json", null);
+      if (before && before.login && typeof bucket.delete === "function") await bucket.delete(loginKey(before.login));
+      await forgetConnection(bucket, uid);
+      return json({ ok: true });
+    }
     if (what === "repos" && request.method === "GET") {
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
@@ -268,7 +285,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
     const base = typeof body.base === "string" && BRANCH.test(body.base) ? body.base : String(r.data.default_branch || "main");
     if (!BRANCH.test(base)) return json({ error: "this repository's main branch has a name Coder cannot use" }, 400);
-    const id = projectIdFor(repo);
+    let id = projectIdFor(repo);
+    // Never on top of an existing chat or someone's branch.
+    for (let k = 0; k < 5 && ((await bucket.get(keyOf(uid, id, "meta.json"))) || (await bucket.get(branchKey(repo, "coder/" + id)))); k++) id = projectIdFor(repo);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed
@@ -308,6 +327,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
     const setup = await readEnv(env, bucket, uid, meta.repo);
+    // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
+    if (body.fromGithub === true) setup.vars = {};
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
@@ -389,6 +410,9 @@ export async function handleCoder(request, env, ctx, deps) {
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
+      // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
+      const secrets = Object.values((await readEnv(env, bucket, uid, meta.repo)).vars).map(String).filter((v) => v.length >= 4);
+      if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
