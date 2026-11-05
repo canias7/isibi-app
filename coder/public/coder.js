@@ -160,6 +160,14 @@
     const id = S.project.id;
     const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next);
     if (!S.project || S.project.id !== id) return;
+    // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
+    if (r.status !== 200) {
+      S.fails = (S.fails || 0) + 1;
+      if (S.fails === 5) { S.events = S.events.concat([{ at: Date.now(), type: 'error', text: "Coder's machine is not answering. Still trying…" }]); draw(true); }
+      if (S.running) S.poll = setTimeout(tick, Math.min(POLL_MS * Math.pow(2, S.fails), 30000));
+      return;
+    }
+    S.fails = 0;
     if (r.status === 200 && r.data) {
       // The message shown when it was sent is not drawn twice.
       const fresh = (r.data.events || []).filter((e) => {

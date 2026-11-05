@@ -39,6 +39,7 @@ HOW YOU WORK
 - Long-running servers go in the background (… > app.log 2>&1 &), then check them with curl. A command still running at its time limit is not stopped: it keeps running in the background, and you are told the log file to read with tail.
 - Keep command output small (head, tail, grep): every round costs the owner time.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
+- Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, Coder commits everything you changed and opens the pull request itself.
 
 TALKING TO THE OWNER
 - Say in one short line what you are about to do, then do it.
@@ -106,6 +107,8 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000) });
         if (why) { emit({ type: "result", id: c.id, code: -1, output: why }); reply(why); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
+        if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         let r;
         try { r = await deps.exec({ command, timeoutS: readTimeout(c.args.timeout_s) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }

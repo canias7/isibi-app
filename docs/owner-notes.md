@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05: Audit fixes, Worker side
+
+- A chat can no longer stay stuck on "working": if Coder's machine lost the job, the chat is freed at once with a note; if the machine stops answering, it is freed after 15 minutes. Stop also frees it.
+- The end of a job (push to GitHub, pull request) now happens once, even with two tabs open.
+- The chat list no longer loses chats when two change at once (each chat keeps its own record now).
+- Smaller: full account id in machine names, a check on the repo's main branch name, Delete allowed through the page's safety rules.
+- Then done too: the page checks less often after errors and says "Coder's machine is not answering. Still trying…" after 5 misses; each chat keeps at most about 400 KB of conversation (oldest dropped first); Coder checks its time limit before every command.
+
 ## 2026-11-05 — First real try failed; fixed; no container limit
 
 Your first real "hey how are you" showed "Coder could not open canias77777/gfujgvkhbkjblu". The live version allowed only **1 container in total**, and each chat needs its own, so Cloudflare almost certainly refused to start one. The error also dropped the reason.
