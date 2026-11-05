@@ -6,6 +6,7 @@ import { authUser } from "./src/coder-auth.mjs";
 import { corsHeaders } from "./src/coder-cors.mjs";
 import { servePage } from "./src/coder-page.mjs";
 import { handleSignin } from "./src/coder-signin.mjs";
+import { runMentionJobs } from "./src/coder-mentions.mjs";
 
 /**
  * CODER'S CONTAINER: a developer machine (Node, Python, git, build tools), one
@@ -34,6 +35,13 @@ export class CoderContainer extends Container {
 }
 
 export default {
+  // EVERY MINUTE: @coder jobs started from GitHub comments get their answer
+  // posted back when they end (coder-mentions.mjs).
+  async scheduled(event, env, ctx) {
+    if (env.CODER_ON !== "on") return;
+    const container = (name) => { const box = getContainer(env.CODER_CONTAINER, name); const key = env.CODER_TOKEN_KEY ? controlKeySync(env.CODER_TOKEN_KEY) : ""; return { fetch: (req) => { const r = new Request(req); if (key) r.headers.set("x-coder-key", key); return box.fetch(r); } }; };
+    ctx.waitUntil(runMentionJobs(env, { coder: (req, who) => handleCoder(req, env, ctx, { authUser: async () => who, container }) }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
+  },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const cors = corsHeaders(request, env);

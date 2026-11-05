@@ -38,12 +38,16 @@ jobs:
           B: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           C: ${{ secrets.XAI_API_KEY }}
           D: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}
+          E: ${{ secrets.CODER_GITHUB_WEBHOOK_SECRET }}
+          F: ${{ secrets.CODER_GITHUB_APP_PRIVATE_KEY }}
         run: |
           missing=""
           [ -n "$A" ] || missing="$missing CLOUDFLARE_API_TOKEN"
           [ -n "$B" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
           [ -n "$C" ] || missing="$missing XAI_API_KEY"
           [ -n "$D" ] || missing="$missing CODER_GITHUB_CLIENT_SECRET"
+          [ -n "$E" ] || missing="$missing CODER_GITHUB_WEBHOOK_SECRET"
+          [ -n "$F" ] || missing="$missing CODER_GITHUB_APP_PRIVATE_KEY"
           if [ -n "$missing" ]; then echo "::error::Missing GitHub secrets:$missing"; exit 1; fi
           echo "All secrets present."
       - name: Run Coder's tests
@@ -67,6 +71,8 @@ jobs:
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           GITHUB_APP_CLIENT_SECRET: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}
+          CODER_GITHUB_WEBHOOK_SECRET: ${{ secrets.CODER_GITHUB_WEBHOOK_SECRET }}
+          CODER_GITHUB_APP_PRIVATE_KEY: ${{ secrets.CODER_GITHUB_APP_PRIVATE_KEY }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -76,6 +82,8 @@ jobs:
             XAI_API_KEY
             GITHUB_APP_CLIENT_SECRET
             CODER_TOKEN_KEY
+            CODER_GITHUB_WEBHOOK_SECRET
+            CODER_GITHUB_APP_PRIVATE_KEY
       - name: Check it answers
         run: |
           for i in 1 2 3 4 5 6; do

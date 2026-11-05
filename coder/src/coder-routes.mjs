@@ -30,6 +30,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
+import { handleWebhook, loginKey, profileKey } from "./coder-mentions.mjs";
 import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -160,9 +161,18 @@ export async function handleCoder(request, env, ctx, deps) {
     try {
       const tok = await exchangeCode(env, code, fetchFn);
       const me = await gh(tok.access, "/user", { fetchFn });
-      await saveConnection(env, bucket, uid, tok, me.ok && me.data ? String(me.data.login || "") : "");
+      const login = me.ok && me.data ? String(me.data.login || "") : "";
+      await saveConnection(env, bucket, uid, tok, login);
+      // Who this GitHub login is on Coder, for @coder in comments.
+      if (login) await bucket.put(loginKey(login), JSON.stringify({ uid }), { httpMetadata: { contentType: "application/json" } });
     } catch { return Response.redirect(back + "?github=failed", 302); }
     return Response.redirect(back + "?github=connected", 302);
+  }
+
+  // ── @CODER IN GITHUB COMMENTS: GitHub's signed notification (coder-mentions.mjs).
+  // The job then runs as the person who connected that GitHub account. ──
+  if (parts[0] === "github" && parts[1] === "webhook" && request.method === "POST") {
+    return handleWebhook(request, env, ctx, { fetchFn, coder: (req, who) => handleCoder(req, env, ctx, { ...deps, authUser: async () => who }) });
   }
 
   const user = await deps.authUser(request);
@@ -176,6 +186,8 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!githubReady(env)) return json({ error: "GitHub is not set up for Coder yet." }, 503);
     const what = parts[1] || "";
     if (!what && request.method === "GET") {
+      // The account's email, so @coder on GitHub can check it is allowed.
+      if (user.email) await bucket.put(profileKey(uid), JSON.stringify({ email: String(user.email) }), { httpMetadata: { contentType: "application/json" } });
       const t = await userToken(env, bucket, uid, { fetchFn });
       return json({ ok: true, connected: !!t, login: t ? t.login : "", install: installUrl(env) });
     }
