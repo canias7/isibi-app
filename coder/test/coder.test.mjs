@@ -744,3 +744,22 @@ test("CD32 asked in the chat, Coder writes the pull request; our server opens it
     assert.ok(got.events.some((e) => e.type === "github" && /Pull request #1 opened/.test(e.text)));
   } finally { await close(); }
 });
+
+test("CD33 an empty repository (no branches yet, found in the live test) opens; 'hi' sends nothing; a change is pushed to Coder's branch", async () => {
+  const ghRoot = await mkdtemp(join(tmpdir(), "coder-gh-"));
+  execFileSync("mkdir", ["-p", join(ghRoot, "ana")]);
+  execFileSync("git", ["init", "-q", "--bare", join(ghRoot, "ana/empty.git")]);
+  const remote = ghRoot + "/";
+  const { gitRoot } = await roots();
+  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "empty-abcd");
+  const prep = await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot });
+  assert.equal(prep.ok, true, prep.why);
+  const none = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "hi", remote, gitRoot });
+  assert.deepEqual([none.ok, none.pushed], [true, false], none.why);
+  writeFileSync(join(dir, "README.md"), "# empty\n");
+  const p = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "Add README", remote, gitRoot });
+  assert.equal(p.ok, true, p.why);
+  assert.equal(git(join(ghRoot, "ana/empty.git"), "show", "coder/empty-abcd:README.md"), "# empty\n");
+  // Opened again on the same machine: still fine.
+  assert.equal((await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot })).ok, true);
+});

@@ -158,10 +158,17 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
     await mkdir(dir, { recursive: true });
     const c = await gitIn(dir, ["init", "-q", "-b", base], o);
     if (c.code !== 0) return { ok: false, why: "could not start the repository: " + c.output.slice(0, 200) };
-    const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token });
-    if (f.code !== 0) return { ok: false, why: "could not clone " + repo + ": " + f.output.slice(0, 300) };
-    const co = await gitIn(dir, ["checkout", "-q", "-B", base, "refs/remotes/origin/" + base], o);
-    if (co.code !== 0) return { ok: false, why: "could not open " + base + ": " + co.output.slice(0, 200) };
+    // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
+    // nothing to fetch; Coder starts from nothing on its own branch.
+    const heads = await gitIn(dir, ["ls-remote", "--heads", url], { ...o, token });
+    if (heads.code !== 0) return { ok: false, why: "could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200) };
+    const empty = !String(heads.stdout ?? heads.output).trim();
+    if (!empty) {
+      const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token });
+      if (f.code !== 0) return { ok: false, why: "could not clone " + repo + ": " + f.output.slice(0, 300) };
+      const co = await gitIn(dir, ["checkout", "-q", "-B", base, "refs/remotes/origin/" + base], o);
+      if (co.code !== 0) return { ok: false, why: "could not open " + base + ": " + co.output.slice(0, 200) };
+    }
     await gitIn(dir, ["config", "user.name", "Coder (Go Farther)"], o);
     await gitIn(dir, ["config", "user.email", "coder@gofarther.dev"], o);
     // The work tree's own `.git` points at the git folder, so `dev` can read the history.
@@ -202,6 +209,8 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
   if (!committed) {
     const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
     if (own.code === 0 && String(own.stdout ?? own.output).trim() === "0") return { ok: true, pushed: false, changed: false };
+    // An empty repository with nothing made yet: no commit at all, nothing to send.
+    if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, pushed: false, changed: false };
   }
   const url = remote + repo + ".git";
   const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token });
