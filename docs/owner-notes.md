@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05 — First real try failed; fixed; no container limit
+
+Your first real "hey how are you" showed "Coder could not open canias77777/gfujgvkhbkjblu". The live version allowed only **1 container in total**, and each chat needs its own, so Cloudflare almost certainly refused to start one. The error also dropped the reason.
+- **No limit on chats at once** (your word "no limit"). Cloudflare needs a number, so the total is set to **100 containers**, with **no per-person limit**. Each container sleeps after 10 minutes, so it only costs while working. The setting `CODER_MAX_RUNNING` puts a per-person limit back when Coder opens to others.
+- **The real reason now shows** when a chat cannot start, or when the AI call fails.
+- **The effort safety net:** if Grok refuses the effort setting, Coder asks again without it.
+
+Coder's tests: 25 of 25.
+
 ## 2026-11-05 — Browser work moved to the server
 
 On your word "remove the stuff that are browser stuff and put it server side":

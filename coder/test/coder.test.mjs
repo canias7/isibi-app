@@ -475,11 +475,12 @@ test("CD19 the repo's own rules (CODER.md, CLAUDE.md, AGENTS.md) and the repo's 
   assert.match(s.seen[0].messages[0].content, /CTX-LINE$/);
 });
 
-test("CD20 memory is kept per repo between chats; at most 3 chats work at once", async () => {
-  const { MAX_RUNNING } = await import("../src/coder-routes.mjs");
-  assert.equal(MAX_RUNNING, 3);
+test("CD20 memory is kept per repo between chats; no limit on chats at once unless CODER_MAX_RUNNING is set", async () => {
+  const { maxRunning } = await import("../src/coder-routes.mjs");
+  assert.equal(maxRunning({}), Infinity, "no limit (owner, 2026-11-05)");
+  assert.equal(maxRunning({ CODER_MAX_RUNNING: "3" }), 3);
   const bucket = fakeBucket();
-  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const env = { ...GH_ENV, CODER_BUCKET: bucket, CODER_MAX_RUNNING: "3" };
   const gf = fakeGithub();
   const sent = [];
   const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };

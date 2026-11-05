@@ -35,9 +35,10 @@ import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode,
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
-// SEVERAL CHATS AT ONCE (owner, 2026-11-05): each chat has its own container; a
-// user may have this many working at the same time.
-export const MAX_RUNNING = 3;
+// SEVERAL CHATS AT ONCE (owner, 2026-11-05: "no limit"): each chat has its own
+// container and a user may have any number working at once. CODER_MAX_RUNNING
+// (a setting) puts a per-person limit back when Coder opens to other users.
+export function maxRunning(env) { const n = Number(env && env.CODER_MAX_RUNNING); return Number.isInteger(n) && n > 0 ? n : Infinity; }
 // MEMORY PER REPO (owner, 2026-11-05): what Coder learns about a repository,
 // kept between chats, read at the start of each turn.
 // THE SLASH COMMANDS (2026-11-05: on the server). The list, and what each does;
@@ -265,7 +266,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again: the connection has ended", connect: true }, 409);
     const running = (await getJson(bucket, keyOf(uid, "index.json"), [])).filter((x) => x && x.id !== id && x.status === "running").length;
-    if (running >= MAX_RUNNING) return json({ error: MAX_RUNNING + " chats are already working. Wait for one to finish, or stop one." }, 429);
+    if (running >= maxRunning(env)) return json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429);
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
