@@ -248,3 +248,16 @@
 .cd-muted{color:#6b6a68;font-size:13px;margin:0}
 
 .cd-autofix.on{background:#e8f5ef;border-color:#a7d7c2;color:#145a43}
+
+/* STEPS, option A without colours (owner, 2026-11-05): grey icon tile, dark verb, code-type target, status on the right. */
+.cd-sic{flex:none;width:26px;height:26px;border-radius:8px;background:#f1efea;color:#57534e;display:grid;place-items:center;margin-right:4px}
+.cd .cd-cmd-row{gap:8px;color:#1f1e1d}
+.cd .cd-cmd-verb{font-weight:600;color:#1f1e1d}
+.cd .cd-cmd-text{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#44403c}
+.cd-st{margin-left:auto;flex:none;font-size:12px;color:#8a8884;display:inline-flex;align-items:center;gap:5px;padding-left:10px}
+.cd-st-ok{color:#57534e;font-size:13px}
+.cd-st-bad{color:#b3261e;font-weight:600}
+.cd-st-bg i{width:8px;height:8px;border-radius:50%;background:#a8a29e;display:inline-block}
+.cd-group-box .cd-cmd-row{padding:9px 0}
+
+.cd .cd-cmd.is-bg .cd-cmd-row, .cd .cd-cmd.is-bg .cd-cmd-verb { color: #1f1e1d; }
