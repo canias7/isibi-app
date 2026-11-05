@@ -320,6 +320,16 @@ export async function handleCoder(request, env, ctx, deps) {
           pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
         }
       }
+      // THE PULL REQUEST CODER WAS ASKED FOR in the chat (owner, 2026-11-05: "b").
+      const want = s.result.prRequest;
+      if (want && t && pushed) {
+        const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
+        if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
+        else {
+          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder." }, fetchFn).catch(() => null);
+          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? "Pull request #" + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
+        }
+      } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
