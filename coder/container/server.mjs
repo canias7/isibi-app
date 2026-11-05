@@ -18,7 +18,7 @@
 // (CODER_RUN_UID), with a bare environment. The token is never written into
 // the repository's settings.
 import http from "node:http";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createWriteStream, openSync } from "node:fs";
@@ -68,7 +68,7 @@ export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_
         p.on("close", (code) => { w.end("\n[finished, exit code " + code + "]\n"); });
         p.unref();
       } catch { /* the log could not be made: the note still says it runs */ }
-      answer({ code: -1, background: true, pid: p.pid, timedOut: true, output: out.slice(-4000) + "\n[still running in the background after " + timeoutS + "s. Its output goes on in " + log + " (read it with: tail -n 50 " + log + "; it ends with \"[finished, exit code N]\" when done)]" });
+      answer({ code: -1, background: true, pid: p.pid, log, timedOut: true, output: out.slice(-4000) + "\n[still running in the background after " + timeoutS + "s. Its output goes on in " + log + " (read it with: tail -n 50 " + log + "; it ends with \"[finished, exit code N]\" when done)]" });
     }, Math.max(1, timeoutS) * 1000);
     p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
     p.on("close", (code) => { clearTimeout(t); answer({ code: typeof code === "number" ? code : -1, output: out + (cut ? "\n[output cut at 1 MB]" : ""), timedOut }); });
@@ -289,6 +289,13 @@ const turns = new Map(); // project → { running, stop, events, result }
 function killAll(t) {
   for (const pid of t.bg || []) { try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ } }
   if (t.bg) t.bg.clear();
+  // EVERYTHING THE AI'S USER STARTED goes too, even what it put in the
+  // background itself with `&` (the audit, 2026-11-05): nothing outlives the job.
+  killUser();
+}
+/** Every process of the AI's user, at once (before root touches its files, and when a job ends). */
+function killUser() {
+  if (Number.isInteger(RUN_UID)) { try { spawnSync("pkill", ["-KILL", "-u", String(RUN_UID)], { stdio: "ignore", timeout: 5000 }); } catch { /* no pkill */ } }
 }
 
 export function createApp({ root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR } = {}) {
@@ -301,6 +308,8 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
     const t = { running: true, stop: false, events: [], result: null, bg: new Set() };
     turns.set(project, t);
+    // Nothing left from before may race root while it prepares the files (the audit).
+    killUser();
     const fail = (status, why) => { t.running = false; turns.delete(project); return [status, { error: why }]; };
     const dir = join(root, project);
     try {

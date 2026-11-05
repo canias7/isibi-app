@@ -199,3 +199,11 @@
 .cd-todo-i.is-done{color:#8a8884;text-decoration:line-through}
 .cd-todo-i.is-done .cd-todo-box{background:#1f6f5c;border-color:#1f6f5c;color:#fff}
 .cd-todo-i.is-in_progress .cd-todo-box{border-color:#1f1e1d;font-weight:700}
+
+/* Coder's question (ask_user): the options are buttons. */
+.cd-ask{border:1px solid #e5e3dd;border-radius:14px;padding:14px 16px;margin:8px 0;background:#fff}
+.cd-ask-q{font-size:15px;color:#1f1e1d;margin-bottom:10px;line-height:1.45}
+.cd-ask-opts{display:flex;flex-wrap:wrap;gap:8px}
+.cd-ask-opt{font:inherit;font-size:14px;border:1px solid #d9d6cf;background:#faf9f5;color:#1f1e1d;border-radius:999px;padding:8px 14px;cursor:pointer}
+.cd-ask-opt:hover:not(:disabled){background:#f0eee8;border-color:#1f1e1d}
+.cd-ask-opt:disabled{opacity:.55;cursor:default}

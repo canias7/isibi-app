@@ -24,11 +24,15 @@ RUN useradd -m -u 1001 dev && mkdir -p /work && chown dev:dev /work \
 # swap them, so root's git and file reads cannot be tricked (the audit, 2026-11-05).
 # `dev`'s own git may read the root-owned history (safe.directory); our git, as
 # root, ignores that system setting (GIT_CONFIG_NOSYSTEM) and checks ownership.
+# LANGUAGE SERVERS for the lsp tool (owner, 2026-11-05): TypeScript/JavaScript and Python.
+# TypeScript 5: version 7 no longer has the tsserver the language server needs.
+RUN npm install -g --no-fund --no-audit typescript@5 typescript-language-server pyright \
+ && npm cache clean --force
 ENV CODER_RUN_UID=1001 CODER_RUN_GID=1001
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.
-COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs ./
+COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]

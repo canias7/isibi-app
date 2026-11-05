@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "web_fetch", "todo", "bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "ask_user", "todo", "bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,14 +89,14 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, web_fetch, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
   assert.equal(r2.summary, "All set.", "the words, not a done call, are the summary");
   assert.ok(s2.seen[1].messages.some((m) => m.role === "tool" && /no such tool: done/.test(m.content)));
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.doesNotMatch(ui, /e\.type === 'ask'|cd-ask|cd-opt/);
+  assert.doesNotMatch(ui, /e\.type === 'ask'[^_]|cd-opt\b/, "the old ask tool's screen is gone (ask_user, added back on the owner's word, is its own)");
 });
 
 test("CD7 Stop is read before every round and before every command; an answer in words is a finished turn", async () => {
@@ -853,4 +853,66 @@ test("CD37 Grok's own web search through xAI's Responses request: the chat turne
   await runCoder({ send: async () => (n++ ? { message: { role: "assistant", content: "Node 24." } } : { message: { role: "assistant", content: "" , tool_calls: [] }, searches: o.searches }), exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "which node?" });
   const ws = events.find((e) => e.tool === "web_search");
   assert.deepEqual([ws.verb, ws.command], ["Searched the web for", "\"latest stable Node.js version\""]);
+});
+
+test("CD38 ask_user: Coder asks one multiple-choice question and the turn ends there; the page shows the options as buttons", async () => {
+  const s = scripted([say("Two ways to do this.", [call("ask_user", { question: "Plain CSS or Tailwind?", options: ["Plain CSS", "Tailwind"] }), call("bash", { command: "echo never" })])]);
+  const events = []; const ran = [];
+  const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { ran.push(x); return { code: 0, output: "" }; } }, { text: "style the page" });
+  assert.equal(r.status, "done");
+  assert.equal(ran.length, 0, "nothing after the question runs");
+  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", options: ["Plain CSS", "Tailwind"] });
+  // every call got its answer, so the next turn continues cleanly
+  const toolAnswers = r.messages.filter((m) => m.role === "tool").map((m) => m.content);
+  assert.deepEqual(toolAnswers, ["asked the owner; their answer comes as the next message", "not run: you asked the owner a question first"]);
+  const bad = scripted([say("", [call("ask_user", { question: "Which?", options: ["only one"] })]), say("Fine.", [])]);
+  assert.equal((await runCoder({ send: bad.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x" })).status, "done");
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /on\('\.cd-ask-opt', 'click', \(e\) => send\(e\.currentTarget\.dataset\.answer\)\)/);
+});
+
+test("CD39 background jobs: bash with run_in_background gives a job; monitor reads it; stop_job ends it; nothing outlives the turn", async () => {
+  const { remote } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s = scripted([
+    say("", [call("bash", { command: "for i in 1 2 3 4 5 6 7 8 9; do echo tick $i; sleep 0.3; done; sleep 30", run_in_background: true }, "b1")]),
+    say("", [call("monitor", { job: "job1", wait_s: 2 }, "m1")]),
+    say("", [call("stop_job", { job: "job1" }, "s1")]),
+    say("", [call("monitor", { job: "job1" }, "m2"), call("monitor", { job: "job9" }, "m3")]),
+    say("Done.", []),
+  ]);
+  const { base, close } = await serve(createApp({ root, send: s.send, remote, ...r0 }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    await post("/turn", { project: "shop-jobs", text: "go", messages: [] });
+    let st;
+    for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-jobs&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    const res = (id) => st.events.find((e) => e.type === "result" && e.id === id);
+    assert.equal(res("b1").job, "job1");
+    assert.match(res("m1").output, /tick 1[\s\S]*\[still running\]/);
+    assert.match(res("s1").output, /\[stopped job1\]/);
+    assert.match(res("m2").output, /\[not running\]/);
+    assert.match(res("m3").output, /no background job job9 \(jobs: job1\)/);
+    const verbs = st.events.filter((e) => e.type === "bash").map((e) => e.verb || "Ran");
+    assert.deepEqual(verbs, ["Ran", "Checked", "Stopped", "Checked", "Checked"]);
+  } finally { await close(); }
+});
+
+test("CD40 lsp: definition, references, hover and errors from real language servers (checked where they are installed)", async () => {
+  const { serverFor } = await import("../container/coder-lsp.mjs");
+  assert.equal(serverFor("a.ts").cmd, "typescript-language-server");
+  assert.equal(serverFor("a.py").cmd, "pyright-langserver");
+  assert.equal(serverFor("a.rb"), null);
+  const dockerfile = readFileSync(HERE("container/Dockerfile"), "utf8");
+  assert.match(dockerfile, /npm install -g [^\n]*typescript@5 typescript-language-server pyright/, "the servers are on Coder's machine");
+  assert.match(dockerfile, /coder-lsp\.mjs/);
+  let has = true; try { execFileSync("typescript-language-server", ["--version"]); } catch { has = false; }
+  if (!has) return;
+  const dir = await mkdtemp(join(tmpdir(), "coder-lsp-"));
+  writeFileSync(join(dir, "m.ts"), "export function add(a: number, b: number) { return a + b; }\nconst x: string = add(1, 2);\n");
+  const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const run = (args) => execFileSync("node", [script, Buffer.from(JSON.stringify({ tool: "lsp", args })).toString("base64")], { cwd: dir }).toString();
+  assert.match(run({ action: "diagnostics", path: "m.ts" }), /m\.ts:2:7 error: Type 'number' is not assignable to type 'string'/);
+  assert.match(run({ action: "references", path: "m.ts", line: 1, column: 17 }), /m\.ts:1:17\nm\.ts:2:19/);
 });

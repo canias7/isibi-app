@@ -113,7 +113,7 @@ export async function toolGlob({ pattern, path = "." }) {
   const r = await run("rg", ["--files", "--hidden", "--glob", "!.git", "--glob", pattern, rel || "."]);
   if (r.code === 1 || !r.out.trim()) return "no files match " + pattern;
   if (r.code !== 0) fail(r.out.trim().slice(0, 500));
-  const files = r.out.trim().split("\n").sort();
+  const files = r.out.trim().split("\n").filter((f) => !/(^|\/)\.git(\/|$)/.test(f)).sort();
   return files.slice(0, 300).join("\n") + (files.length > 300 ? "\n[" + (files.length - 300) + " more]" : "");
 }
 
@@ -165,7 +165,13 @@ export async function toolWebFetch({ url }, fetchFn = fetch) {
   return "HTTP " + r.status + " " + String(r.url || url) + "\n\n" + text.slice(0, OUT_MAX) + (text.length > OUT_MAX ? "\n[cut]" : "");
 }
 
-export const TOOLS = { read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch };
+export async function toolLsp({ action, path, line, column }) {
+  const { abs, rel } = await inside(path, { mustExist: true });
+  const { runLsp } = await import("./coder-lsp.mjs");
+  return runLsp({ action, path: rel, abs, line, column }, ROOT);
+}
+
+export const TOOLS = { lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
