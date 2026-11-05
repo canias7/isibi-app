@@ -107,6 +107,8 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000) });
         if (why) { emit({ type: "result", id: c.id, code: -1, output: why }); reply(why); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
+        if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         let r;
         try { r = await deps.exec({ command, timeoutS: readTimeout(c.args.timeout_s) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }

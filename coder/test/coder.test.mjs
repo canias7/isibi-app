@@ -647,3 +647,20 @@ test("CD26 the audit's Worker fixes: the chat list is read from each chat, and a
     assert.equal((await (await post("/claim", { project: "shop-clai" })).json()).ok, false, "claimed twice");
   } finally { await close(); }
 });
+
+test("CD27 the history is capped from the oldest, at a user's message; the time limit is checked before each command", async () => {
+  const { capHistory } = await import("../src/coder-routes.mjs");
+  const big = "x".repeat(300);
+  const msgs = [];
+  for (let i = 0; i < 10; i++) msgs.push({ role: "user", content: "q" + i }, { role: "assistant", content: big });
+  const c = capHistory(msgs, 1500);
+  assert.ok(JSON.stringify(c).length <= 1500 && c.length > 0);
+  assert.equal(c[0].role, "user");
+  assert.equal(c.at(-1), msgs.at(-1));
+  let t = 0;
+  const ran = [];
+  const r = await runCoder({ now: () => t, send: async () => ({ message: { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }),
+    exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
+  assert.equal(r.status, "time");
+  assert.deepEqual(ran, ["echo a"]);
+});

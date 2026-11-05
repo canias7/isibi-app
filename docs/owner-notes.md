@@ -10,7 +10,7 @@ log (81,000 lines) is in git history.
 - The end of a job (push to GitHub, pull request) now happens once, even with two tabs open.
 - The chat list no longer loses chats when two change at once (each chat keeps its own record now).
 - Smaller: full account id in machine names, a check on the repo's main branch name, Delete allowed through the page's safety rules.
-- Still to do: page polling slow-down after errors, a size cap on chat history, a time check before each command.
+- Then done too: the page checks less often after errors and says "Coder's machine is not answering. Still trying…" after 5 misses; each chat keeps at most about 400 KB of conversation (oldest dropped first); Coder checks its time limit before every command.
 
 ## 2026-11-05 — First real try failed; fixed; no container limit
 

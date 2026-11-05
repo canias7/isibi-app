@@ -114,6 +114,17 @@ export async function listChats(bucket, uid) {
 }
 /** How long a chat may say "working" with no machine answering before it is freed. */
 export const STALE_MS = 15 * 60 * 1000;
+/** How much conversation Coder keeps (the audit): the oldest is dropped first, starting again at a message from the user. */
+export const HISTORY_MAX = 400 * 1024;
+export function capHistory(messages, max = HISTORY_MAX) {
+  if (!Array.isArray(messages)) return [];
+  let out = messages;
+  while (out.length && JSON.stringify(out).length > max) {
+    const next = out.findIndex((m, i) => i > 0 && m && m.role === "user");
+    out = next > 0 ? out.slice(next) : [];
+  }
+  return out;
+}
 /** A chat's title: the first words of its first message. */
 export function chatTitle(text) {
   const t = String(text || "").replace(/\s+/g, " ").trim();
@@ -344,7 +355,7 @@ export async function handleCoder(request, env, ctx, deps) {
         }
       }
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
-      await putJson(bucket, keyOf(uid, id, "messages.json"), Array.isArray(s.result.messages) ? s.result.messages : []);
+      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
       const ended = { ...meta, saved: meta.turn, pr, status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
