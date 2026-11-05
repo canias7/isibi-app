@@ -131,6 +131,35 @@
     if (r.status !== 200) { S.events = S.events.slice(0, base); S.error = (r.data && r.data.error) || 'The review did not start.'; return draw(); }
     S.project = r.data.project; S.running = true; syncEntry(); S.next = 0; startPoll(); draw(true);
   }
+  // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): setup script + variables, kept on the server.
+  async function loadEnv() {
+    if (!S.project) return;
+    S.env = null; S.envEdit = {}; S.envDraft = null; S.envMsg = '';
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env');
+    S.env = r.status === 200 && r.data ? r.data : { script: '', vars: [] };
+    draw();
+  }
+  async function saveEnv(script) {
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify({ script, vars: S.envEdit || {} }) });
+    if (r.status === 200 && r.data) { S.env = r.data; S.envEdit = {}; S.envDraft = null; S.envMsg = 'Saved. It is used from the next message.'; }
+    else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
+    draw();
+  }
+  function envHTML() {
+    if (!S.env) return '<div class="cd-envp"><p class="cd-muted">Loading…</p></div>';
+    const edit = S.envEdit || {};
+    const names = [...new Set([...(S.env.vars || []), ...Object.keys(edit)])].filter((n) => edit[n] !== null).sort();
+    const script = S.envDraft && typeof S.envDraft.script === 'string' ? S.envDraft.script : S.env.script || '';
+    return '<div class="cd-envp">' +
+      '<h3>Environment for ' + esc(S.env.repo || S.project.repo) + '</h3>' +
+      '<label class="cd-envl">Setup script <small>runs once when Coder\'s machine opens this repo (and again when you change it), e.g. <code>npm install</code></small></label>' +
+      '<textarea id="envScript" rows="4" spellcheck="false" placeholder="npm ci&#10;pip install -r requirements.txt">' + esc(script) + '</textarea>' +
+      '<label class="cd-envl">Variables <small>available to Coder\'s commands, e.g. an API key for tests. Values are hidden after saving.</small></label>' +
+      '<div class="cd-envvars">' + (names.length ? names.map((n) => '<div class="cd-envrow"><code>' + esc(n) + '</code><span>' + (n in edit ? 'new value' : '•••••• set') + '</span><button type="button" data-envdel="' + esc(n) + '" aria-label="Remove ' + esc(n) + '">×</button></div>').join('') : '<p class="cd-muted">No variables yet.</p>') + '</div>' +
+      '<div class="cd-envadd"><input id="envName" placeholder="NAME" autocomplete="off" spellcheck="false"><input id="envVal" type="password" placeholder="value" autocomplete="new-password"><button type="button" class="cd-hbtn" id="envAdd">Add</button></div>' +
+      '<div class="cd-envfoot"><button type="button" class="cd-btn" id="envSave">Save</button><span class="cd-muted">' + esc(S.envMsg || '') + '</span></div>' +
+    '</div>';
+  }
   async function undoLast() {
     const p = S.project;
     if (!p || S.undoing || !p.commits || !p.commits.length) return;
@@ -331,9 +360,10 @@
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' : '') +
       (p && Array.isArray(p.commits) && p.commits.length && !S.running ? '<button type="button" class="cd-hbtn" id="cdUndo"' + (S.undoing ? ' disabled' : '') + ' title="Undo: ' + esc(p.commits[p.commits.length - 1].title || '') + '">' + (S.undoing ? 'Undoing…' : 'Undo last job') + '</button>' : '') +
       (p && !S.running ? '<span class="cd-revwrap"><button type="button" class="cd-hbtn" id="cdReview" aria-haspopup="menu">Review ▾</button>' + (S.reviewMenu ? '<span class="cd-revmenu" role="menu"><button type="button" data-review="code" role="menuitem"><b>Review changes</b><small>Bugs, edge cases, missing tests</small></button><button type="button" data-review="security" role="menuitem"><b>Security review</b><small>Injection, secrets, auth, XSS…</small></button></span>' : '') + '</span>' : '') +
+      (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
-    (S.showChanges ? changesHTML() : '');
+    (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '');
   }
 
   // THE SIDEBAR: New chat, Repositories, and Recents (the chats).
@@ -544,6 +574,10 @@
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
     on('#cdUndo', 'click', () => undoLast());
+    on('#cdEnv', 'click', () => { S.showEnv = !S.showEnv; S.showChanges = false; if (S.showEnv) loadEnv(); draw(); });
+    on('#envAdd', 'click', () => { const n = root.querySelector('#envName'), v = root.querySelector('#envVal'); S.envEdit = S.envEdit || {}; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; if (n && n.value.trim()) { S.envEdit[n.value.trim()] = v ? v.value : ''; } draw(); });
+    on('[data-envdel]', 'click', (e) => { S.envEdit = S.envEdit || {}; S.envEdit[e.currentTarget.dataset.envdel] = null; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; draw(); });
+    on('#envSave', 'click', () => saveEnv((root.querySelector('#envScript') || {}).value || ''));
     on('#cdReview', 'click', (e) => { e.stopPropagation(); S.reviewMenu = !S.reviewMenu; draw(); });
     on('[data-review]', 'click', (e) => { S.reviewMenu = false; sendReview(e.currentTarget.dataset.review); });
     on('#cdAttach', 'click', () => { const f = root.querySelector('#cdFile'); if (f) f.click(); });

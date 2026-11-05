@@ -232,3 +232,17 @@
 .cd-revmenu button:hover{background:#f3f1ec}
 .cd-revmenu b{font-size:14px;color:#1f1e1d;font-weight:600}
 .cd-revmenu small{font-size:12px;color:#6b6a68}
+
+/* The repo's environment panel */
+.cd-envp{max-width:760px;width:calc(100% - 40px);margin:12px auto;background:#fff;border:1px solid #e0dbd2;border-radius:14px;padding:16px 18px;box-sizing:border-box}
+.cd-envp h3{margin:0 0 10px;font-size:15px;color:#1f1e1d}
+.cd-envl{display:block;font-size:13px;font-weight:600;color:#1f1e1d;margin:12px 0 6px}
+.cd-envl small{display:block;font-weight:400;color:#6b6a68;margin-top:2px}
+.cd-envp textarea{width:100%;box-sizing:border-box;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid #e0dbd2;border-radius:10px;padding:8px 10px;resize:vertical}
+.cd-envrow{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f0eee8;font-size:13px}
+.cd-envrow code{font-weight:600}.cd-envrow span{color:#6b6a68;flex:1}
+.cd-envrow button{border:0;background:transparent;color:#b3261e;font-size:16px;cursor:pointer}
+.cd-envadd{display:flex;gap:8px;margin-top:8px}
+.cd-envadd input{flex:1;min-width:0;border:1px solid #e0dbd2;border-radius:10px;padding:7px 10px;font:13px ui-monospace,SFMono-Regular,Menlo,monospace}
+.cd-envfoot{display:flex;align-items:center;gap:12px;margin-top:14px}
+.cd-muted{color:#6b6a68;font-size:13px;margin:0}

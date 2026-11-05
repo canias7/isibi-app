@@ -31,7 +31,7 @@
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { handleWebhook, loginKey, profileKey } from "./coder-mentions.mjs";
-import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH } from "./coder-github.mjs";
+import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -57,6 +57,14 @@ export const REVIEWS = {
   code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
   security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
 };
+// THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
+// owner's own variables, per repository, sealed like the GitHub token.
+export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
+export async function readEnv(env, bucket, uid, repo) {
+  const o = await bucket.get(envKey(uid, repo));
+  if (!o) return { script: "", vars: {} };
+  try { const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box); return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {} }; } catch { return { script: "", vars: {} }; }
+}
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
   const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w./-]+\.[\w]+|[\w-]+\/[\w./-]+)/g)].map((m) => m[1]).filter((p) => !p.includes("..")))].slice(0, 20);
@@ -296,11 +304,12 @@ export async function handleCoder(request, env, ctx, deps) {
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
+    const setup = await readEnv(env, bucket, uid, meta.repo);
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
+    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -425,6 +434,25 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
+  }
+
+  // THE REPO'S ENVIRONMENT: the script, and the variables' NAMES only (values are write-only).
+  if (action === "env" && request.method === "GET") {
+    const e = await readEnv(env, bucket, uid, meta.repo);
+    return json({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars) });
+  }
+  if (action === "env" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const cur = await readEnv(env, bucket, uid, meta.repo);
+    const script = typeof body.script === "string" ? body.script.slice(0, 20000) : cur.script;
+    const vars = { ...cur.vars };
+    for (const [k, v] of Object.entries(body.vars && typeof body.vars === "object" ? body.vars : {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k)) return json({ error: "variable names are letters, digits and _ (" + String(k).slice(0, 40) + ")" }, 400);
+      if (v === null) delete vars[k]; else if (typeof v === "string") vars[k] = v.slice(0, 4000);
+    }
+    if (Object.keys(vars).length > 50) return json({ error: "at most 50 variables" }, 400);
+    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script, vars }) }), { httpMetadata: { contentType: "application/json" } });
+    return json({ ok: true, repo: meta.repo, script, vars: Object.keys(vars) });
   }
 
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").

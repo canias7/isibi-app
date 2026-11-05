@@ -411,7 +411,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,400}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory \}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,600}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup \}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1087,4 +1087,51 @@ test("CD46 Review and Security review: the request is written on the server; Cod
   assert.equal((await r.json()).project.title, "Security review");
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /data-review="code"/); assert.match(ui, /data-review="security"/);
+});
+
+test("CD47 the repo's environment: setup script runs once per machine (again if changed); the owner's variables reach commands; values are sealed and never shown back", async () => {
+  const { safeVars } = await import("../container/server.mjs");
+  assert.deepEqual(safeVars({ API_KEY: "k", PATH: "/evil", LD_PRELOAD: "x", NODE_OPTIONS: "--require x", "bad name": "y", CODER_CONTROL_KEY: "z" }), { API_KEY: "k" });
+  // THE SERVER: names only come back; the stored file has no plain value.
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const sent = [];
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-env", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  const st = new URL((await (await go("github/start")).json()).url).searchParams.get("state");
+  await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  const saved = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } }) })).json();
+  assert.deepEqual([saved.script, saved.vars], ["echo set up > ready.txt", ["API_KEY"]]);
+  assert.doesNotMatch(bucket.m.get("coder/user-env/env/ana__shop.json"), /sk-secret-123/, "sealed");
+  assert.deepEqual((await (await go("projects/" + id + "/env")).json()).vars, ["API_KEY"], "names only");
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ vars: { "bad-name": "x" } }) })).status, 400);
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.deepEqual(sent[0].setup, { script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
+  // THE MACHINE: the script runs once, the variable reaches commands.
+  const { remote } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const turns = [say("", [call("bash", { command: "cat ready.txt; echo key=$API_KEY; echo path=$PATH" })]), say("Done.", [])];
+  let n = 0;
+  const { base, close } = await serve(createApp({ root, send: async () => turns[Math.min(n++, turns.length - 1)], remote, ...r0 }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    const run = async (setup) => {
+      n = 0;
+      await post("/turn", { project: "shop-envv", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-envv", token: "", setup });
+      let s; for (let i = 0; i < 100; i++) { s = await (await fetch(base + "/state?project=shop-envv&since=0")).json(); if (s.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+      await post("/claim", { project: "shop-envv" });
+      return s;
+    };
+    const s1 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123", PATH: "/evil" } });
+    assert.equal(s1.events.filter((e) => e.verb === "Ran setup").length, 1, "setup ran");
+    const out = s1.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
+    assert.match(out, /set up\nkey=sk-secret-123\npath=\/usr\/local\/sbin/);
+    const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
+    assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
+    const s3 = await run({ script: "echo changed > ready.txt", vars: {} });
+    assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 1, "again when it changed");
+  } finally { await close(); }
 });
