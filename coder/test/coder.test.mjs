@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "web_fetch", "web_search", "todo", "bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "web_fetch", "todo", "bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,7 +89,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, web_fetch, web_search, todo and pull_request; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, web_fetch, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -302,12 +302,12 @@ test("CD11 the model call: Grok's endpoint, the key only in the header, one retr
   assert.equal(coderModel({ CODER_MODEL: "grok-5" }), "grok-5");
   assert.equal(coderModel({ CODER_MODEL: "default" }), "grok-4.7", "the deploy's word for not set");
   const seen = [];
-  const fetchFn = async (url, init) => { seen.push({ url, init }); return seen.length === 1 ? new Response("", { status: 429 }) : new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "hi" } }], usage: { prompt_tokens: 3, completion_tokens: 2 } })); };
+  const fetchFn = async (url, init) => { seen.push({ url, init }); return seen.length === 1 ? new Response("", { status: 429 }) : new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }], usage: { input_tokens: 3, output_tokens: 2 } })); };
   const send = coderSend({ XAI_API_KEY: "xai-k" }, { fetchFn, wait: async () => {} });
   const r = await send({ messages: [{ role: "user", content: "x" }], tools: [] });
   assert.equal(r.message.content, "hi");
   assert.equal(seen.length, 2);
-  assert.equal(seen[0].url, "https://api.x.ai/v1/chat/completions");
+  assert.equal(seen[0].url, "https://api.x.ai/v1/responses");
   assert.equal(seen[0].init.headers.authorization, "Bearer xai-k");
   assert.doesNotMatch(seen[0].init.body, /xai-k/);
   await assert.rejects(coderSend({})({ messages: [] }), /no AI key/);
@@ -394,7 +394,7 @@ test("CD15 the page: sign-in then Coder, served by Coder's own Worker with its s
   assert.match(r.headers.get("content-security-policy"), /script-src 'self'(;|$)/);
 });
 
-test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as reasoning_effort; anything else falls back to the defaults", async () => {
+test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as reasoning.effort; anything else falls back to the defaults", async () => {
   const { pickModel, CODER_MODELS, coderSend } = await import("../container/coder-model.mjs");
   assert.deepEqual(CODER_MODELS.map((m) => [m.id, m.efforts]), [["grok-4.7", ["low", "medium", "high"]]]);
   assert.deepEqual(pickModel("grok-4.7", "high"), { model: "grok-4.7", effort: "high" });
@@ -402,11 +402,11 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.deepEqual(pickModel("gpt-9", "low"), { model: "grok-4.7", effort: "low" }, "a model not on the list");
   assert.deepEqual(pickModel(undefined, undefined), { model: "grok-4.7", effort: "medium" });
   const sent = [];
-  const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "hi" } }] })); } });
+  const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }] })); } });
   await send({ model: "grok-4.7", effort: "high", messages: [], tools: [] });
   await send({ model: "grok-4.7", messages: [], tools: [] });
-  assert.equal(sent[0].reasoning_effort, "high");
-  assert.equal("reasoning_effort" in sent[1], false);
+  assert.deepEqual(sent[0].reasoning, { effort: "high" });
+  assert.equal("reasoning" in sent[1], false);
   // The screen offers the same list.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
@@ -566,12 +566,12 @@ test("CD23 the effort safety net: a model that refuses the effort setting is ask
   const sent = [];
   const send = coderSend({ XAI_API_KEY: "k" }, { wait: async () => {}, fetchFn: async (u, init) => {
     const b = JSON.parse(init.body); sent.push(b);
-    if (b.reasoning_effort) return new Response(JSON.stringify({ error: "Model grok-4.7 does not support parameter reasoning_effort" }), { status: 400 });
-    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "hi" } }] }));
+    if (b.reasoning) return new Response(JSON.stringify({ error: "Model grok-4.7 does not support parameter reasoning.effort" }), { status: 400 });
+    return new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }] }));
   } });
   const r = await send({ model: "grok-4.7", effort: "high", messages: [], tools: [] });
   assert.equal(r.message.content, "hi");
-  assert.deepEqual(sent.map((b) => "reasoning_effort" in b), [true, false]);
+  assert.deepEqual(sent.map((b) => "reasoning" in b), [true, false]);
   const bad = coderSend({ XAI_API_KEY: "k" }, { wait: async () => {}, fetchFn: async () => new Response(JSON.stringify({ error: "Model not found: grok-9" }), { status: 404 }) });
   await assert.rejects(bad({ model: "grok-9", messages: [], tools: [] }), /AI call failed: 404 .*Model not found/);
 });
@@ -795,16 +795,14 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
   assert.match(tool("write", { path: ".git/config", content: "x" }).out, /\.git folder is off limits/);
 });
 
-test("CD35 the web tools: public addresses only; pages become text; the free search is read", async () => {
-  const { privateAddress, htmlToText, toolWebSearch, toolWebFetch } = await import("../container/coder-tools.mjs");
+test("CD35 web fetch: public addresses only; pages become text; there is no free search", async () => {
+  const { privateAddress, htmlToText, toolWebFetch, TOOLS } = await import("../container/coder-tools.mjs");
   for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "::1", "fd00::1", "::ffff:127.0.0.1"]) assert.equal(privateAddress(a), true, a);
   for (const a of ["1.1.1.1", "140.82.112.3", "2606:4700::1111"]) assert.equal(privateAddress(a), false, a);
   await assert.rejects(toolWebFetch({ url: "http://127.0.0.1:8080/state" }, async () => { throw new Error("must not fetch"); }), /private network/);
   await assert.rejects(toolWebFetch({ url: "file:///etc/passwd" }, async () => { throw new Error("no"); }), /only http and https/);
   assert.equal(htmlToText("<p>Hi&amp;bye</p><script>x()</script><b>there</b>"), "Hi&bye\n there");
-  const page = '<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnodejs.org%2Fdocs&rut=1">Node <b>docs</b></a> <a class="result__snippet" href="x">The Node.js reference.</a>';
-  const out = await toolWebSearch({ query: "node docs" }, async (u) => { assert.match(String(u), /^https:\/\/html\.duckduckgo\.com\/html\/\?q=node%20docs/); return new Response(page, { headers: { "content-type": "text/html" } }); });
-  assert.match(out, /1\. Node docs\n   https:\/\/nodejs\.org\/docs\n   The Node\.js reference\./);
+  assert.equal("web_search" in TOOLS, false, "no free search (owner): web search is Grok's own");
 });
 
 test("CD36 the loop runs a file tool like a command (as dev, in the project) and shows what it did", async () => {
@@ -819,4 +817,40 @@ test("CD36 the loop runs a file tool like a command (as dev, in the project) and
   const ev = events.find((e) => e.type === "bash");
   assert.deepEqual([ev.tool, ev.verb, ev.command], ["edit", "Edited", "a.js"]);
   assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "done" }]);
+});
+
+test("CD37 Grok's own web search through xAI's Responses request: the chat turned into Responses and back; searches shown", async () => {
+  const { toResponsesInput, toResponsesTools, fromResponsesOutput, coderSend } = await import("../container/coder-model.mjs");
+  const msgs = [
+    { role: "system", content: "SYS" },
+    { role: "user", content: "fix it" },
+    { role: "assistant", content: "Looking.", tool_calls: [{ id: "c1", type: "function", function: { name: "read", arguments: "{\"path\":\"a.js\"}" } }] },
+    { role: "tool", tool_call_id: "c1", content: "1\tx" },
+  ];
+  assert.deepEqual(toResponsesInput(msgs), { instructions: "SYS", input: [
+    { role: "user", content: "fix it" },
+    { role: "assistant", content: "Looking." },
+    { type: "function_call", call_id: "c1", name: "read", arguments: "{\"path\":\"a.js\"}" },
+    { type: "function_call_output", call_id: "c1", output: "1\tx" },
+  ] });
+  const tools = toResponsesTools([{ type: "function", function: { name: "read", description: "d", parameters: { type: "object" } } }]);
+  assert.deepEqual(tools, [{ type: "web_search" }, { type: "function", name: "read", description: "d", parameters: { type: "object" } }]);
+  // The answer from the real test call (2026-11-05), shortened.
+  const answer = { output: [
+    { type: "reasoning", status: "completed" },
+    { type: "web_search_call", status: "completed", action: { type: "search", query: "latest stable Node.js version", sources: [{ type: "url", url: "https://nodejs.org/en/blog" }] } },
+    { type: "function_call", call_id: "call_9", name: "read", arguments: "{\"path\":\"package.json\"}", status: "completed" },
+  ], usage: { input_tokens: 2314, output_tokens: 116, cost_in_usd_ticks: 78280000, server_side_tool_usage_details: { web_search_calls: 1 } } };
+  const o = fromResponsesOutput(answer);
+  assert.deepEqual(o.message, { role: "assistant", content: "", tool_calls: [{ id: "call_9", type: "function", function: { name: "read", arguments: "{\"path\":\"package.json\"}" } }] });
+  assert.deepEqual(o.searches, [{ query: "latest stable Node.js version", sources: ["https://nodejs.org/en/blog"] }]);
+  const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify(answer)) });
+  const r = await send({ model: "grok-4.7", messages: msgs, tools: [] });
+  assert.deepEqual(r.usage, { in: 2314, out: 116, searches: 1, cost_ticks: 78280000 });
+  // The loop shows the search like a step.
+  const events = [];
+  let n = 0;
+  await runCoder({ send: async () => (n++ ? { message: { role: "assistant", content: "Node 24." } } : { message: { role: "assistant", content: "" , tool_calls: [] }, searches: o.searches }), exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "which node?" });
+  const ws = events.find((e) => e.tool === "web_search");
+  assert.deepEqual([ws.verb, ws.command], ["Searched the web for", "\"latest stable Node.js version\""]);
 });
