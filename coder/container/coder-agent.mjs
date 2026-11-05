@@ -84,7 +84,7 @@ export function readAsk(args) {
  * Answers `{ status, messages, summary, ask, rounds, usage }`, `status` one of
  * `done`, `ask`, `stopped`, `rounds`, `time`, `send`, `no-tool`. It never throws.
  */
-export async function runCoder(deps, { messages = [], text = "", model = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", model = "", effort = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -101,7 +101,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", max
     if (now() - started > maxMs) { emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
     rounds++;
     let answer;
-    try { answer = await deps.send({ model, messages: [{ role: "system", content: CODER_SYSTEM }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached." }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
     const msg = answer && answer.message ? answer.message : null;

@@ -1,0 +1,39 @@
+name: list old stuff
+
+# READ ONLY (2026-11-05). Lists what is left of the old website builder, so the
+# owner sees the exact list before anything is deleted. It deletes nothing.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Cloudflare Workers
+        run: |
+          curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" | jq -r '.result[] | "worker  " + .id'
+      - name: Customer site Workers (namespace gofarther-sites)
+        run: |
+          curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/dispatch/namespaces/gofarther-sites/scripts" | jq -r '.result[]? | "site-worker  " + .id' || echo "(none, or no namespace)"
+      - name: R2 buckets, KV stores, queues, containers
+        run: |
+          W="npx --yes wrangler@4.107.0"
+          $W r2 bucket list 2>/dev/null | grep -E '^name:' | sed 's/^/r2  /' || true
+          curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[] | "kv  " + .id + "  " + .title'
+          curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues" | jq -r '.result[]? | "queue  " + .queue_name' || true
+          $W containers list 2>/dev/null | head -n 40 || true
+      - name: Neon projects
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: |
+          if [ -z "$NEON_API_KEY" ]; then echo "(no NEON_API_KEY secret)"; exit 0; fi
+          curl -fsS -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects?limit=400" | jq -r '.projects[] | "neon  " + .id + "  " + .name + "  " + .created_at'
+      - name: GitHub branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/branches?per_page=100" --jq '.[].name' | sed 's/^/branch  /'

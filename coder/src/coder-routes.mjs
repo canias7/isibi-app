@@ -28,6 +28,7 @@
 //   GET  /api/coder/projects/:id/state?since=n   new chat lines; when the turn ends,
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
+import { pickModel } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH } from "./coder-github.mjs";
 
@@ -79,7 +80,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── THE GITHUB SIGN-IN'S RETURN: a plain visit from GitHub, with no sign-in
   // header; the signed state says whose it is. ──
   if (parts[0] === "github" && parts[1] === "callback") {
-    const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/home/coder";
+    const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/";
     if (!githubReady(env)) return Response.redirect(back + "?github=unavailable", 302);
     const uid = await readState(env, url.searchParams.get("state"));
     const code = url.searchParams.get("code");
@@ -163,7 +164,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again: the connection has ended", connect: true }, 409);
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-    const r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token });
+    const pick = pickModel(body.model, body.effort);
+    const r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort });
     if (!r.ok) {
       const why = await r.json().catch(() => ({}));
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + (why && why.error ? ": " + String(why.error).slice(0, 200) : "") }, r.status === 409 ? 409 : 502);

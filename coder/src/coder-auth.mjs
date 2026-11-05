@@ -1,4 +1,4 @@
-// WHO IS ASKING (2026-11-05): the same Supabase sign-in as the website builder,
+// WHO IS ASKING (2026-11-05): Go Farther's Supabase sign-in,
 // checked by Coder's own Worker. `{ id }` for a signed-in user, `null` otherwise.
 export async function authUser(request, env, { fetchFn = fetch } = {}) {
   const header = request.headers.get("Authorization") || "";

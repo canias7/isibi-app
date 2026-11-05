@@ -1,0 +1,43 @@
+name: retire old app
+
+# THE OLD WEBSITE BUILDER, SWITCHED OFF (2026-11-05, the owner: "delete
+# everything except the new coder we are building"). Removes the builder's two
+# Workers from Cloudflare: `isibi-app` (gofarther.dev, the builder) and
+# `gofarther-front` (every customer site on gofarther.app). After this,
+# gofarther.dev is free for Coder (press "deploy coder" next) and every site on
+# gofarther.app stops answering.
+#
+# It deletes only the Workers. Stored data stays: site files in R2, the Neon
+# databases, Supabase (accounts and the ledger).
+#
+# Runs only when pressed, and only when the box says DELETE.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DELETE to switch off the old app and every customer site"
+        required: true
+        default: ""
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'DELETE' }}
+    steps:
+      - name: Delete the old Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          for w in gofarther-front isibi-app; do
+            echo "== $w"
+            out=$(npx --yes wrangler@4.107.0 delete --name "$w" --force 2>&1) && echo "$out" | tail -n 3 || { echo "$out" | tail -n 5; echo "::warning::$w was not deleted (it may already be gone)"; }
+          done
+  refused:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm != 'DELETE' }}
+    steps:
+      - run: |
+          echo "::error::Nothing was deleted: the box did not say DELETE."
+          exit 1

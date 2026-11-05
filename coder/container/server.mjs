@@ -22,7 +22,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile, stat } from "node:fs/promises";
 import { join, dirname, relative, resolve } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
-import { coderSend, coderModel } from "./coder-model.mjs";
+import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT } from "./coder-checks.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
@@ -166,7 +166,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       exec: ({ command, timeoutS }) => execIn(dir, command, timeoutS),
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), model: coderModel(env) })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
       .then((r) => { t.result = r; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => { t.running = false; });
     return [200, { ok: true }];

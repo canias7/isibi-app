@@ -235,7 +235,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     const forged = await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + st.replace(/.$/, "x")), env, {}, deps);
     assert.match(forged.headers.get("location"), /github=failed/);
     const cb = await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
-    assert.equal(cb.headers.get("location"), "https://gofarther.dev/home/coder?github=connected");
+    assert.equal(cb.headers.get("location"), "https://gofarther.dev/?github=connected");
     const stored = bucket.m.get("coder/user-1234567890abcdef/github.json");
     assert.doesNotMatch(stored, /ghu_user|ghr_r/, "the GitHub token is stored in the clear");
     assert.deepEqual(await (await go("github")).json(), { ok: true, connected: true, login: "ana", install: "https://github.com/apps/gofarther-coder/installations/new" });
@@ -304,6 +304,7 @@ test("CD11 the model call: Grok's endpoint, the key only in the header, one retr
 
 // ── ITS OWN APP: OWN WORKER, OWN CONTAINER, OWN STORAGE, NOTHING IN THE MAIN APP ──
 import { authUser } from "../src/coder-auth.mjs";
+import { readdirSync } from "node:fs";
 import { corsHeaders } from "../src/coder-cors.mjs";
 const HERE = (p) => new URL("../" + p, import.meta.url);
 const MAIN = (p) => new URL("../../" + p, import.meta.url);
@@ -322,8 +323,16 @@ test("CD12 Coder is its own app: its own worker.js, config, container and bucket
   assert.match(J, /"CODER_USERS": "[^"]+@[^"]+"/, "while testing, only listed accounts");
   const D = readFileSync(HERE("container/Dockerfile"), "utf8");
   for (const f of ["server.mjs", "coder-agent.mjs", "coder-model.mjs", "coder-checks.mjs"]) assert.match(D, new RegExp(f.replace(".", "\\.")), "the image lacks " + f);
-  // NOTHING OF CODER IN THE WEBSITE BUILDER'S WORKER, CONFIG, IMAGE OR DEPLOY.
-  for (const f of ["worker.js", "wrangler.jsonc", "Dockerfile", ".github/workflows/deploy.yml"]) assert.doesNotMatch(readFileSync(MAIN(f), "utf8"), /\bcoder\b|CODER_|CoderContainer/i, f + " mentions Coder");
+  // THE OLD WEBSITE BUILDER IS GONE (2026-11-05, the owner: "delete everything
+  // except the new coder"): the repository holds Coder, its two buttons and the
+  // owner's records, nothing else.
+  for (const f of ["worker.js", "wrangler.jsonc", "Dockerfile", "builder", "public", "front", ".github/workflows/deploy.yml"]) assert.ok(!existsSync(MAIN(f)), f + " is back");
+  const top = readdirSync(MAIN("")).filter((f) => f !== ".git" && f !== "node_modules").sort();
+  assert.deepEqual(top, [".github", ".gitignore", "CLAUDE.md", "coder", "docs"]);
+  // gofarther.dev is Coder's now.
+  assert.match(J, /"pattern": "gofarther\.dev", "custom_domain": true/);
+  assert.match(J, /"pattern": "www\.gofarther\.dev", "custom_domain": true/);
+  assert.match(J, /"assets": \{ "directory": "\.\/public", "binding": "ASSETS", "run_worker_first": true \}/);
   // AND CODER'S CODE NEVER REACHES INTO THE BUILDER'S.
   for (const f of ["worker.js", "src/coder-routes.mjs", "container/server.mjs", "container/coder-agent.mjs"]) assert.doesNotMatch(readFileSync(HERE(f), "utf8"), /from "\.\.\/\.\.\/|from "\.\.\/builder\//, f);
 });
@@ -351,4 +360,44 @@ test("CD14: only the accounts in CODER_USERS may use Coder", async () => {
   const deps = (email) => ({ authUser: async () => ({ id: "u1", email }), container: () => null });
   assert.equal((await handleCoder(new Request("https://c/api/coder/projects"), env, {}, deps("z@x.y"))).status, 403);
   assert.notEqual((await handleCoder(new Request("https://c/api/coder/projects"), env, {}, deps("a@x.y"))).status, 403);
+});
+
+test("CD15 the page: sign-in then Coder, served by Coder's own Worker with its safety headers; calls stay on the same address", async () => {
+  for (const f of ["index.html", "app.js", "app.css", "auth.js", "coder.js", "coder.css", "gloopy.js", "gloopy.css"]) assert.ok(existsSync(HERE("public/" + f)), f);
+  const html = readFileSync(HERE("public/index.html"), "utf8");
+  for (const f of ["/auth.js", "/coder.js", "/app.js", "/app.css", "/coder.css"]) assert.ok(html.includes('"' + f + '"'), "index.html loads " + f);
+  assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /const API = '\/api\/coder';/, "the screen calls its own address");
+  const W = readFileSync(HERE("worker.js"), "utf8");
+  assert.match(W, /res = await servePage\(request, env\);/);
+  const { servePage } = await import("../src/coder-page.mjs");
+  const P = readFileSync(HERE("src/coder-page.mjs"), "utf8");
+  assert.match(P, /"connect-src 'self' https:\/\/ujrqdmmtcptvimazlhom\.supabase\.co"/);
+  const served = [];
+  const env = { ASSETS: { fetch: async (req) => { served.push(new URL(req.url).pathname); return new URL(req.url).pathname === "/" ? new Response("<!doctype html>", { headers: { "content-type": "text/html" } }) : new Response("nope", { status: 404 }); } } };
+  const r = await servePage(new Request("https://gofarther.dev/anything"), env);
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), "<!doctype html>");
+  assert.deepEqual(served, ["/anything", "/"], "an unknown path gets the page");
+  assert.match(r.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.match(r.headers.get("content-security-policy"), /script-src 'self'(;|$)/);
+});
+
+test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as reasoning_effort; anything else falls back to the defaults", async () => {
+  const { pickModel, CODER_MODELS, coderSend } = await import("../container/coder-model.mjs");
+  assert.deepEqual(CODER_MODELS.map((m) => [m.id, m.efforts]), [["grok-4.7", ["low", "medium", "high"]]]);
+  assert.deepEqual(pickModel("grok-4.7", "high"), { model: "grok-4.7", effort: "high" });
+  assert.deepEqual(pickModel("grok-4.7", "max"), { model: "grok-4.7", effort: "medium" }, "an effort it does not take");
+  assert.deepEqual(pickModel("gpt-9", "low"), { model: "grok-4.7", effort: "low" }, "a model not on the list");
+  assert.deepEqual(pickModel(undefined, undefined), { model: "grok-4.7", effort: "medium" });
+  const sent = [];
+  const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "hi" } }] })); } });
+  await send({ model: "grok-4.7", effort: "high", messages: [], tools: [] });
+  await send({ model: "grok-4.7", messages: [], tools: [] });
+  assert.equal(sent[0].reasoning_effort, "high");
+  assert.equal("reasoning_effort" in sent[1], false);
+  // The screen offers the same list.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /const MODELS = \[\{ id: 'grok-4\.7', name: 'Grok 4\.7', efforts: \['low', 'medium', 'high'\], effort: 'medium' \}\];/);
+  assert.match(ui, /body: JSON\.stringify\(\{ text, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model, body\.effort\);\n\s+const r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort \}\);/);
 });
