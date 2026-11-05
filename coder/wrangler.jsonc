@@ -16,7 +16,11 @@
   // Its own address. The website builder keeps gofarther.dev. Its bucket keeps
   // only chats and GitHub connections; the code itself lives in GitHub.
   "routes": [
-    { "pattern": "coder.gofarther.dev", "custom_domain": true }
+    { "pattern": "coder.gofarther.dev", "custom_domain": true },
+    // The front door (front/wrangler.jsonc) has a `*/*` route on gofarther.dev's
+    // zone that caught this address (deploy coder run 1: 404 from gofarther-front).
+    // This route is more specific, so it wins.
+    { "pattern": "coder.gofarther.dev/*", "zone_name": "gofarther.dev" }
   ],
   "vars": {
     // ON (2026-11-05, the owner: "turn it on"). "off" makes every /api/coder/
