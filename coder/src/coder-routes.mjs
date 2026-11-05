@@ -37,6 +37,8 @@ const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
 // IMAGES IN THE CHAT (owner, 2026-11-05, "16"): up to 4 pictures a message, each up to 1.5 MB.
 export const MAX_IMAGES = 4;
+/** After this long away from a chat, Coder starts its answer with a one-line recap (owner, 2026-11-05). */
+export const AWAY_MS = 2 * 60 * 60 * 1000;
 export const MAX_IMAGE_BYTES = 1_500_000;
 /** The message's pictures, checked: `[{ type, data }]` (base64), or an error text. */
 export function checkImages(list) {
@@ -333,7 +335,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.autofix === true ? "Auto-fix: " + text.split("\n").filter(Boolean)[1]?.slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup });
+    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }

@@ -424,7 +424,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,600}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup \}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,600}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, away: [^}]*\}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1320,4 +1320,25 @@ test("CD57 @coder on Coder's own pull request works in that pull request's chat 
   const raw = JSON.stringify(payload);
   await M.handleWebhook(new Request("https://x/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": "sha256=" + createHmac("sha256", "s").update(raw).digest("hex") }, body: raw }), env, null, { fetchFn, coder });
   assert.deepEqual(calls, [["POST", "/api/coder/projects/shop-abcd1234/message"]], "no new chat: the pull request's own");
+});
+
+test("CD58 an auto-fix shows its real reason in the chat (not the safety label)", async () => {
+  const sent = [];
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-af", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ autofix: true, fromGithub: true, text: "AUTO-FIX for pull request #5 on coder/x.\n\nThe text between <<<GITHUB and GITHUB>>> comes from GitHub...\n<<<GITHUB\nThe check \"test\" failed (failure)\nmore\nGITHUB>>>" }) });
+  assert.equal(sent[0].shown, 'Auto-fix: The check "test" failed (failure)');
+});
+
+test("CD59 how Coder talks: answer first, evidence, styles on request (remembered when asked), comments only where needed, PR descriptions with checks and risks, a recap after a break", async () => {
+  const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
+  for (const re of [/Lead with the answer or the result in the first sentence/, /Show evidence, not just claims: "npm test: 12 passing"/, /Default \(owner, 2026-11-05: explanatory\): after the result, explain in plain words what you changed and WHY/, /"explain more…" → go deeper/, /"teach me…" → walk them through it/, /"keep it short" \/ "less explaining" → the result in one or two lines, no explanation/, /If they say "always" or "from now on", also save it in your memory file/, /Code comments: add them only where the code is not obvious/, /how you checked it \(the commands and their results\), and any risks/, /one-line recap of where this chat stands/]) assert.match(CODER_SYSTEM, re);
+  const { AWAY_MS } = await import("../src/coder-routes.mjs");
+  assert.equal(AWAY_MS, 2 * 60 * 60 * 1000);
+  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /THE OWNER IS COMING BACK AFTER A BREAK of about/);
 });
