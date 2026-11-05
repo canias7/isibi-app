@@ -26,6 +26,14 @@ export const CODER_TOOLS = Object.freeze([
     description: "Run ONE shell command (bash) in the project's folder and get back what it printed and its exit code. Use it for everything: ls, cat, grep, find, writing files (cat > file <<'EOF' … EOF), editing (sed, or rewrite the file), npm/pip installs, tests, git. Commands run with no secrets in their environment. A command that could run forever (a dev server) must be started in the background (… > server.log 2>&1 &) and checked with curl. `timeout_s`: how long it may take (default 120, at most 600).",
     parameters: { type: "object", properties: { command: { type: "string" }, timeout_s: { type: "integer" } }, required: ["command"] },
   } },
+  // OWNER, 2026-11-05 ("b"): the owner asks for a pull request in the chat,
+  // and Coder makes it. Coder only writes the title and description; our
+  // server pushes and opens it after the turn (Coder never holds the GitHub key).
+  { type: "function", function: {
+    name: "pull_request",
+    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work.",
+    parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["title", "body"] },
+  } },
 ]);
 
 export const CODER_SYSTEM = `You are Coder, a software developer working for the owner in your own Linux machine.
@@ -39,7 +47,8 @@ HOW YOU WORK
 - Long-running servers go in the background (… > app.log 2>&1 &), then check them with curl. A command still running at its time limit is not stopped: it keeps running in the background, and you are told the log file to read with tail.
 - Keep command output small (head, tail, grep): every round costs the owner time.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
-- Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, Coder commits everything you changed and opens the pull request itself.
+- Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
+- Pull requests: only when the owner asks for one, call the pull_request tool with a title and a description (look at git diff first). Never open one on your own.
 
 TALKING TO THE OWNER
 - Say in one short line what you are about to do, then do it.
@@ -76,7 +85,8 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
   const usage = [];
   const started = now();
   let rounds = 0;
-  const end = (status, extra = {}) => ({ status, messages: convo, rounds, usage, summary: "", ...extra });
+  let prRequest = null;
+  const end = (status, extra = {}) => ({ status, messages: convo, rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -117,7 +127,14 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         const bg = !!(r && r.background);
         emit({ type: "result", id: c.id, code, output: out, ...(bg ? { background: true } : r && r.timedOut ? { timedOut: true } : {}) });
         reply(bg ? out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the only tool is bash; to finish, answer in words)");
+      } else if (c.name === "pull_request") {
+        const title = String(c.args.title || "").trim().slice(0, 200);
+        const body = String(c.args.body || "").trim().slice(0, 8000);
+        if (!title) { reply("error: the pull request needs a title"); continue; }
+        prRequest = { title: scrub(title), body: scrub(body) };
+        emit({ type: "pr", text: prRequest.title });
+        reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash and pull_request; to finish, answer in words)");
     }
   }
 }

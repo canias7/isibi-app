@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["bash"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,7 +89,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the only tool is bash; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -715,5 +715,32 @@ test("CD31 a job that changed nothing (\"hi\") is not reported as saved, and off
     assert.equal(!!got.project.pushed, false);
     assert.ok(!got.events.some((e) => e.type === "github"), "said something about GitHub: " + JSON.stringify(got.events.filter((e) => e.type === "github")));
     assert.equal((await go("projects/" + id + "/pr", { method: "POST", body: "{}" })).status, 400);
+  } finally { await close(); }
+});
+
+test("CD32 asked in the chat, Coder writes the pull request; our server opens it after the push", async () => {
+  // THE AGENT: the tool records the title and description; nothing is opened by Coder itself.
+  const s = scripted([say("", [call("pull_request", { title: "Add a README", body: "Setup steps.\n\nTest: read it." })]), say("Your pull request is on its way.", [])]);
+  const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a pull request" });
+  assert.deepEqual(r.prRequest, { title: "Add a README", body: "Setup steps.\n\nTest: read it." });
+  // THE WHOLE WAY: a change, then "make a PR" → the server opens it with Coder's words.
+  const { remote } = await fakeRemote();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s2 = scripted([say("", [call("bash", { command: "echo hi > a.txt" }), call("pull_request", { title: "Add a.txt", body: "Adds a.txt." })]), say("Done, pull request coming.", [])]);
+  const { base, close } = await serve(createApp({ root, send: s2.send, remote, ...(await roots()) }));
+  try {
+    const bucket = fakeBucket();
+    const env = { ...GH_ENV, CODER_BUCKET: bucket };
+    const ghFake = fakeGithub();
+    const deps = { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "user-pr", email: "me@x.y" }), container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+    const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+    const st = new URL((await (await go("github/start")).json()).url).searchParams.get("state");
+    await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
+    const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+    await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "add a.txt and make a PR" }) });
+    let got;
+    for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
+    assert.deepEqual(got.project.pr, { url: "https://github.com/ana/shop/pull/1", number: 1 });
+    assert.ok(got.events.some((e) => e.type === "github" && /Pull request #1 opened/.test(e.text)));
   } finally { await close(); }
 });

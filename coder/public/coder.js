@@ -296,8 +296,7 @@
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       (p ? '<b class="cd-title-bar">' + esc(title) + '</b><span class="cd-repo-bar">' + ICON.gh + esc(p.repo) + '</span>' : '') +
       (p ? '<span class="cd-branch">' + ICON.branch + esc(p.branch) + '</span>' : '') +
-      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' :
-        p && p.pushed && !S.running ? '<button type="button" class="cd-hbtn cd-mkpr" id="cdMakePr"' + (S.makingPr ? ' disabled' : '') + '>' + (S.makingPr ? 'Creating…' : 'Create pull request') + '</button>' : '') +
+      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '');
@@ -357,16 +356,6 @@
   }
 
   function note(text) { S.events.push({ type: 'note', text, at: Date.now(), local: true }); draw(true); }
-  // CREATE PULL REQUEST: only when the user presses it (owner, 2026-11-05).
-  async function makePr() {
-    if (!S.project || S.makingPr) return;
-    if (S.project.pr && S.project.pr.url) return window.open(S.project.pr.url, '_blank', 'noopener');
-    S.makingPr = true; draw();
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/pr', { method: 'POST', body: '{}' });
-    S.makingPr = false;
-    if (r.status === 200 && r.data && r.data.project) { S.project = r.data.project; syncEntry(); return draw(); }
-    note((r.data && r.data.error) || 'The pull request could not be created.');
-  }
   function commentsHTML() {
     if (!S.comments.length) return '';
     return '<div class="cd-chips">' + S.comments.map((c, i) => '<span class="cd-chip" title="' + esc(c.quote) + '">💬 ' + esc(c.file.split('/').pop()) + (c.line ? ':' + c.line : '') + ' — ' + esc(c.text.slice(0, 40)) + '<button type="button" data-uncomment="' + i + '" aria-label="Remove comment">×</button></span>').join('') + '</div>';
@@ -398,7 +387,7 @@
     if (S.phase === 'connect') return centerHTML(
       '<div class="cd-mark">' + ICON.gh.replace('width="16" height="16"', 'width="40" height="40"') + '</div>' +
       '<b class="cd-title">Connect your GitHub</b>' +
-      '<p class="cd-sub">Coder works on your code in your own GitHub. You choose which repositories it can use, and it saves its work to its own branch. You open a pull request when you are ready.</p>' +
+      '<p class="cd-sub">Coder works on your code in your own GitHub. You choose which repositories it can use, and it saves its work to its own branch. Ask it for a pull request when you are ready.</p>' +
       '<button type="button" class="cd-btn" id="cdConnect">' + ICON.gh + ' Connect GitHub</button>' +
       (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     if (S.phase === 'pick') {
@@ -416,7 +405,7 @@
     const empty = !S.events.length && !S.running;
     return headHTML() +
       '<div class="cd-log" id="cdLog">' +
-        (empty ? '<div class="cd-empty"><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. You open a pull request when you’re ready.</p>' +
+        (empty ? '<div class="cd-empty"><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
           '<div class="cd-starts">' + ['Explain how this project is laid out', 'Run the tests and fix what fails', 'Add a README with setup steps'].map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>' : '') +
         '<div class="cd-thread">' + stepsHTML() + '</div>' +
       '</div>' +
@@ -457,7 +446,6 @@
     on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
-    on('#cdMakePr', 'click', () => makePr());
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
