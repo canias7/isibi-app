@@ -36,6 +36,12 @@ const MAX_TEXT = 20000;
 const MAX_EVENTS = 4000;
 
 export function coderOn(env) { return !!env && env.CODER_ON === "on"; }
+/** Whether this signed-in user may use Coder: their email is in CODER_USERS (comma-separated). */
+export function coderAllowed(env, user) {
+  const email = user && typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
+  if (!email) return false;
+  return String((env && env.CODER_USERS) || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean).includes(email);
+}
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const keyOf = (uid, ...rest) => ["coder", uid, ...rest].join("/");
@@ -88,6 +94,9 @@ export async function handleCoder(request, env, ctx, deps) {
 
   const user = await deps.authUser(request);
   if (!user || typeof user.id !== "string") return json({ error: "sign in first" }, 401);
+  // WHILE TESTING (2026-11-05, the owner: "turn it on", free while testing):
+  // only the emails in CODER_USERS may use it. Empty list = nobody.
+  if (!coderAllowed(env, user)) return json({ error: "Coder is not open to this account yet." }, 403);
   const uid = user.id;
 
   if (parts[0] === "github") {

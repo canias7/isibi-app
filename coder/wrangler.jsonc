@@ -19,8 +19,11 @@
     { "pattern": "coder.gofarther.dev", "custom_domain": true }
   ],
   "vars": {
-    // OFF until the owner switches it on: every /api/coder/ address answers 404.
-    "CODER_ON": "off",
+    // ON (2026-11-05, the owner: "turn it on"). "off" makes every /api/coder/
+    // address answer 404.
+    "CODER_ON": "on",
+    // While testing, only these Go Farther accounts may use it (free).
+    "CODER_USERS": "aniascristian@gmail.com,aniascapital@gmail.com",
     // Grok's grok-4.7 unless set.
     "CODER_MODEL": "default",
     // Sign-in is the same Supabase project as the website builder; the anon key

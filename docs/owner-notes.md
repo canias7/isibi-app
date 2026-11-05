@@ -28,6 +28,14 @@
 
 
 
+## 2026-11-05 — Coder: GitHub App registered, a deploy button, switched on (your accounts only)
+
+You registered the GitHub App **gofarther-coder** (Client ID `Iv23li7CSEGqBSxEqQU7`) with three permissions: code, pull requests, metadata. You chose **B**: a button instead of a terminal. That is the new workflow **deploy coder**. It runs only when you press it, and it touches only `coder/`, never the website builder.
+
+On your word "turn it on", `CODER_ON` is now `"on"`. While we test, only `aniascristian@gmail.com` and `aniascapital@gmail.com` can use Coder (`CODER_USERS`). Any other account gets "not open to this account yet". The key that encrypts users' GitHub tokens is made by the deploy from an existing secret, so nobody has to make one by hand.
+
+Before the first press, add one GitHub secret: `CODER_GITHUB_CLIENT_SECRET`. Make it on GitHub under the app's Credentials, then Client secrets. Coder's tests: 16 of 16.
+
 ## 2026-11-05 — Coder works through each user's own GitHub
 
 Your words: "instead of the files just being R2 … users can have their own

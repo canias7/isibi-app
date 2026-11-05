@@ -194,7 +194,7 @@ function fakeBucket() {
   return { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, typeof v === "string" ? v : String(v)); }, async delete(k) { m.delete(k); } };
 }
 const KEY = Buffer.alloc(32, 7).toString("base64");
-const GH_ENV = { CODER_ON: "on", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: KEY, CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev" };
+const GH_ENV = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: KEY, CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev" };
 
 function fakeGithub({ canPush = true } = {}) {
   const calls = [];
@@ -222,7 +222,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     const bucket = fakeBucket();
     const env = { ...GH_ENV, CODER_BUCKET: bucket };
     const ghFake = fakeGithub();
-    const deps = { fetchFn: ghFake.fetchFn, authUser: async (r) => (r.headers.get("Authorization") === "Bearer ok" ? { id: "user-1234567890abcdef" } : null), container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+    const deps = { fetchFn: ghFake.fetchFn, authUser: async (r) => (r.headers.get("Authorization") === "Bearer ok" ? { id: "user-1234567890abcdef", email: "me@x.y" } : null), container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
     const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json", ...(init.headers || {}) } }), env, {}, deps);
     assert.equal((await handleCoder(new Request("https://c/api/coder/projects"), { CODER_BUCKET: bucket }, {}, deps)).status, 404, "off unless CODER_ON is on");
     assert.equal((await handleCoder(new Request("https://c/api/coder/projects"), env, {}, deps)).status, 401);
@@ -268,7 +268,7 @@ test("CD10b a repository Coder cannot write to is refused; GitHub's pieces: sign
   const env = { ...GH_ENV, CODER_BUCKET: bucket };
   const ghFake = fakeGithub({ canPush: false });
   await saveConnection(env, bucket, "u1", { access: "ghu_x", refresh: "ghr_x", expires: Date.now() + 3600e3, refreshExpires: Date.now() + 1e9 }, "ana");
-  const r = await handleCoder(new Request("https://c/api/coder/projects", { method: "POST", headers: { Authorization: "Bearer ok" }, body: JSON.stringify({ repo: "ana/shop" }) }), env, {}, { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "u1" }), container: () => null });
+  const r = await handleCoder(new Request("https://c/api/coder/projects", { method: "POST", headers: { Authorization: "Bearer ok" }, body: JSON.stringify({ repo: "ana/shop" }) }), env, {}, { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => null });
   assert.equal(r.status, 403);
   const T = 1762300000000;
   const state = await makeState(env, "u1", T);
@@ -318,7 +318,8 @@ test("CD12 Coder is its own app: its own worker.js, config, container and bucket
   assert.match(J, /"pattern": "coder\.gofarther\.dev", "custom_domain": true/);
   assert.match(J, /"image": "\.\/container\/Dockerfile"/);
   assert.match(J, /"binding": "CODER_BUCKET", "bucket_name": "gofarther-coder"/);
-  assert.match(J, /"CODER_ON": "off"/);
+  assert.match(J, /"CODER_ON": "(on|off)"/);
+  assert.match(J, /"CODER_USERS": "[^"]+@[^"]+"/, "while testing, only listed accounts");
   const D = readFileSync(HERE("container/Dockerfile"), "utf8");
   for (const f of ["server.mjs", "coder-agent.mjs", "coder-model.mjs", "coder-checks.mjs"]) assert.match(D, new RegExp(f.replace(".", "\\.")), "the image lacks " + f);
   // NOTHING OF CODER IN THE WEBSITE BUILDER'S WORKER, CONFIG, IMAGE OR DEPLOY.
@@ -338,4 +339,16 @@ test("CD13 sign-in is checked against Supabase by Coder's own Worker; only the b
   const ok = corsHeaders(new Request("https://coder/", { headers: { Origin: "https://gofarther.dev" } }), { APP_ORIGIN: "https://gofarther.dev" });
   assert.equal(ok["access-control-allow-origin"], "https://gofarther.dev");
   assert.deepEqual(corsHeaders(new Request("https://coder/", { headers: { Origin: "https://evil.example" } }), {}), {});
+});
+
+test("CD14: only the accounts in CODER_USERS may use Coder", async () => {
+  const { handleCoder, coderAllowed } = await import("../src/coder-routes.mjs");
+  assert.equal(coderAllowed({ CODER_USERS: "A@x.y, b@x.y" }, { email: "a@X.y" }), true);
+  assert.equal(coderAllowed({ CODER_USERS: "a@x.y" }, { email: "c@x.y" }), false);
+  assert.equal(coderAllowed({ CODER_USERS: "" }, { email: "a@x.y" }), false, "empty list = nobody");
+  assert.equal(coderAllowed({ CODER_USERS: "a@x.y" }, { email: "" }), false);
+  const env = { CODER_ON: "on", CODER_USERS: "a@x.y", CODER_BUCKET: { get: async () => null, put: async () => {} } };
+  const deps = (email) => ({ authUser: async () => ({ id: "u1", email }), container: () => null });
+  assert.equal((await handleCoder(new Request("https://c/api/coder/projects"), env, {}, deps("z@x.y"))).status, 403);
+  assert.notEqual((await handleCoder(new Request("https://c/api/coder/projects"), env, {}, deps("a@x.y"))).status, 403);
 });
