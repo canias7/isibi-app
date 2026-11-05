@@ -36,7 +36,7 @@ HOW YOU WORK
 - Write a whole new file with a heredoc: cat > path <<'EOF' … EOF. For a small change, edit only those lines (sed) or rewrite the file, keeping every other line as it was.
 - Read a file before you change it. Never guess what a file holds.
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
-- Long-running servers go in the background (… > app.log 2>&1 &), then check them with curl.
+- Long-running servers go in the background (… > app.log 2>&1 &), then check them with curl. A command still running at its time limit is not stopped: it keeps running in the background, and you are told the log file to read with tail.
 - Keep command output small (head, tail, grep): every round costs the owner time.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
 
@@ -66,7 +66,7 @@ export function readCalls(msg) {
  * Answers `{ status, messages, summary, rounds, usage }`, `status` one of
  * `done`, `stopped`, `rounds`, `time`, `send`, `no-tool`. It never throws.
  */
-export async function runCoder(deps, { messages = [], text = "", model = "", effort = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", model = "", effort = "", context = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -83,7 +83,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
     if (now() - started > maxMs) { emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
     rounds++;
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached." }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
     const msg = answer && answer.message ? answer.message : null;
@@ -111,8 +111,9 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const out = capOutput(String((r && r.output) || ""));
         const code = r && Number.isInteger(r.code) ? r.code : -1;
-        emit({ type: "result", id: c.id, code, output: out, ...(r && r.timedOut ? { timedOut: true } : {}) });
-        reply((r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
+        const bg = !!(r && r.background);
+        emit({ type: "result", id: c.id, code, output: out, ...(bg ? { background: true } : r && r.timedOut ? { timedOut: true } : {}) });
+        reply(bg ? out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the only tool is bash; to finish, answer in words)");
     }
   }

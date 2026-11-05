@@ -19,7 +19,8 @@
 // the repository's settings.
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, readdir, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, stat, chown } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
@@ -33,16 +34,40 @@ const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".c
 export const EXPORT_FILE_MAX = 2 * 1024 * 1024;
 export const EXPORT_TOTAL_MAX = 25 * 1024 * 1024;
 
-/** One command in `dir`, with a bare environment and a time limit; its whole process group is stopped at the limit. */
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID } = {}) {
+// LONG COMMANDS GO TO THE BACKGROUND (owner, 2026-11-05: Claude Code's
+// "background tasks"): a command still running at its time limit is not
+// stopped; it keeps running, its further output goes to a log file, and the AI
+// is told where, so it can read it with tail later.
+export const BG_DIR = "/tmp/coder-bg";
+let bgCount = 0;
+
+/** One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped). */
+export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false;
     const p = spawn("bash", ["-lc", command], { cwd: dir, env: cleanEnv(dir), detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : {}) });
     const take = (b) => { if (out.length < RAW_OUTPUT_MAX) out += b.toString("utf8"); else cut = true; };
     p.stdout.on("data", take); p.stderr.on("data", take);
-    const t = setTimeout(() => { timedOut = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* already gone */ } }, Math.max(1, timeoutS) * 1000);
-    p.on("error", (e) => { clearTimeout(t); done({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
-    p.on("close", (code) => { clearTimeout(t); done({ code: typeof code === "number" ? code : -1, output: out + (cut ? "\n[output cut at 1 MB]" : ""), timedOut }); });
+    let answered = false;
+    const answer = (r) => { if (!answered) { answered = true; done(r); } };
+    const t = setTimeout(async () => {
+      timedOut = true;
+      if (kill) { try { process.kill(-p.pid, "SIGKILL"); } catch { /* already gone */ } return; }
+      // Into the background: the rest of its output goes to a log the AI can read.
+      const log = join(bgDir, "bg-" + (++bgCount) + ".log");
+      try {
+        await mkdir(bgDir, { recursive: true });
+        const w = createWriteStream(log, { mode: 0o644 });
+        w.write(out);
+        p.stdout.removeAllListeners("data"); p.stderr.removeAllListeners("data");
+        p.stdout.pipe(w, { end: false }); p.stderr.pipe(w, { end: false });
+        p.on("close", (code) => { w.end("\n[finished, exit code " + code + "]\n"); });
+        p.unref();
+      } catch { /* the log could not be made: the note still says it runs */ }
+      answer({ code: -1, background: true, timedOut: true, output: out.slice(-4000) + "\n[still running in the background after " + timeoutS + "s. Its output goes on in " + log + " (read it with: tail -n 50 " + log + "; it ends with \"[finished, exit code N]\" when done)]" });
+    }, Math.max(1, timeoutS) * 1000);
+    p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
+    p.on("close", (code) => { clearTimeout(t); answer({ code: typeof code === "number" ? code : -1, output: out + (cut ? "\n[output cut at 1 MB]" : ""), timedOut }); });
   });
 }
 
@@ -140,6 +165,33 @@ export async function pushRepo({ dir, branch, token, message }) {
   return { ok: true, pushed: !/Everything up-to-date/.test(p.output), sha };
 }
 
+// ── THE REPO'S RULES AND THE MEMORY ──────────────────────────────────────────
+export const NOTES_MAX = 20000;
+export const MEMORY_MAX = 25000;
+const NOTE_FILES = ["CODER.md", "CLAUDE.md", "AGENTS.md"];
+/** The repo's own instruction files, as `[{ name, text }]` (at most NOTES_MAX characters in all). */
+export async function repoNotes(dir) {
+  const out = [];
+  let left = NOTES_MAX;
+  for (const name of NOTE_FILES) {
+    if (left <= 0) break;
+    let text = "";
+    try { text = await readFile(join(dir, name), "utf8"); } catch { continue; }
+    text = text.slice(0, left);
+    left -= text.length;
+    out.push({ name, text });
+  }
+  return out;
+}
+/** What the AI is told about the repo's rules and its memory, beside its own instructions. */
+export function contextText(notes, memFile, memory) {
+  const parts = [];
+  for (const n of notes) parts.push("THE REPO'S OWN INSTRUCTIONS (" + n.name + "). Follow them:\n" + n.text);
+  parts.push("YOUR MEMORY FOR THIS REPO, kept between chats, in " + memFile + (memory.trim() ? ":\n" + memory : " (empty so far).") +
+    "\nWhen you learn something lasting about this repo or the owner's preferences (how to run the tests, a convention, a correction they gave you), add one short line to that file with bash. Keep it under 200 lines; never put secrets in it.");
+  return parts.join("\n\n");
+}
+
 // ── THE TURNS ────────────────────────────────────────────────────────────────
 const turns = new Map(); // project → { running, stop, events, result }
 
@@ -159,6 +211,15 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       await mkdir(dir, { recursive: true });
       if (body.files && typeof body.files === "object" && (await readdir(dir)).length === 0) await restoreFiles(dir, body.files);
     }
+    // THE REPO'S OWN RULES (CODER.md, CLAUDE.md, AGENTS.md) and THE MEMORY FOR
+    // THIS REPO (kept between chats by the Worker), told to the AI each turn.
+    const notes = await repoNotes(dir);
+    const memDir = join(root, ".memory", project);
+    const memFile = join(memDir, "MEMORY.md");
+    await mkdir(memDir, { recursive: true });
+    await writeFile(memFile, typeof body.memory === "string" ? body.memory.slice(0, MEMORY_MAX) : "");
+    if (Number.isInteger(RUN_UID)) { try { await chown(memDir, RUN_UID, RUN_GID ?? RUN_UID); await chown(memFile, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
+    const context = contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "");
     const t = { running: true, stop: false, events: [], result: null };
     turns.set(project, t);
     runCoder({
@@ -166,8 +227,8 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       exec: ({ command, timeoutS }) => execIn(dir, command, timeoutS),
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
-      .then((r) => { t.result = r; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), context, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      .then(async (r) => { let memory = null; try { memory = (await readFile(memFile, "utf8")).slice(0, MEMORY_MAX); } catch { /* none */ } t.result = { ...r, memory }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => { t.running = false; });
     return [200, { ok: true }];
   }

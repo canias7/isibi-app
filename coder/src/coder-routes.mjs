@@ -15,6 +15,7 @@
 //   <project>/meta.json     { id, name, repo, base, branch, turn, saved, status, pr, at }
 //   <project>/messages.json the conversation as Coder reads it
 //   <project>/events.json   what the chat shows
+//   memory/<repo>.md        what Coder learned about that repository (its memory)
 //
 //   GET  /api/coder/github                       connected? and where to connect
 //   GET  /api/coder/github/start                 { url }: the GitHub sign-in to open
@@ -34,6 +35,13 @@ import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode,
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
+// SEVERAL CHATS AT ONCE (owner, 2026-11-05): each chat has its own container; a
+// user may have this many working at the same time.
+export const MAX_RUNNING = 3;
+// MEMORY PER REPO (owner, 2026-11-05): what Coder learns about a repository,
+// kept between chats, read at the start of each turn.
+const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
+export const MEMORY_MAX = 25000;
 const MAX_EVENTS = 4000;
 
 export function coderOn(env) { return !!env && env.CODER_ON === "on"; }
@@ -180,9 +188,13 @@ export async function handleCoder(request, env, ctx, deps) {
     if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again: the connection has ended", connect: true }, 409);
+    const running = (await getJson(bucket, keyOf(uid, "index.json"), [])).filter((x) => x && x.id !== id && x.status === "running").length;
+    if (running >= MAX_RUNNING) return json({ error: MAX_RUNNING + " chats are already working. Wait for one to finish, or stop one." }, 429);
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const pick = pickModel(body.model, body.effort);
-    const r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort });
+    const mo = await bucket.get(memoryKey(uid, meta.repo));
+    const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
+    const r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
     if (!r.ok) {
       const why = await r.json().catch(() => ({}));
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + (why && why.error ? ": " + String(why.error).slice(0, 200) : "") }, r.status === 409 ? 409 : 502);
@@ -216,6 +228,7 @@ export async function handleCoder(request, env, ctx, deps) {
       }
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       await putJson(bucket, keyOf(uid, id, "messages.json"), Array.isArray(s.result.messages) ? s.result.messages : []);
+      if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
       const ended = { ...meta, saved: meta.turn, pr, status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await saveMeta(bucket, uid, ended);

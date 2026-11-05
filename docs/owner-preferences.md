@@ -28,4 +28,5 @@ deleted (the old file is in git history).
 - The chat looks like the Claude app: light grey bubbles, "Ran …" lines, several commands grouped in one box, plain answers, model and effort under the box.
 - Model picker: Grok 4.7 with its effort levels (Low, Medium, High).
 - Coder's tools: `bash` only (the owner removed `ask` and `done`). It finishes by answering in words.
+- Coder has, from Claude Code: several chats at once (3 per person), the repo's own rules (CODER.md, CLAUDE.md, AGENTS.md), memory per repo, comments on the changes, background commands, slash commands.
 - The left tabs: Coder and the Gloopy agent (the yellow figure; coming soon).
