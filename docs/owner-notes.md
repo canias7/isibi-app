@@ -4,6 +4,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05 — Chats: each one its own session, in a Claude-app sidebar
+
+From the four layouts, you picked B in the Claude-app style ("yes like this").
+- **Left side:** a rail with the agents (Coder, Gloopy), then Coder's column with **New chat**, **Repositories**, **Recents** (your chats), and your account at the bottom. The gear opens Sign out.
+- **Each chat is its own session**, with its own history, branch and pull request. Two chats on the same repo are two pull requests. A chat's title is its first message.
+- **Recents:** an orange dot means Coder is working there, and **#12** means it has a pull request. Hover a chat and tap × to remove it from the list (its branch and pull request stay on GitHub).
+- **New chat** asks which repo. **See changes** now works for real: it reads what the pull request holds from GitHub, with no AI.
+- **On a phone**, ☰ slides the sidebar in.
+- The old top bar is gone, and the chat's own bar shows its title, repo, branch, pull request and See changes.
+- Coder still has **one container**, so only one chat runs at a time.
+
+Coder's tests: 19 of 19. Not live until "merge and deploy" and **deploy coder**.
+
 ## 2026-11-05 — Coder's chat: the Claude-app look (approved)
 
 From your screenshot of the Claude app, you approved this look ("ok good"):

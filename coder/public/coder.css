@@ -147,3 +147,18 @@
 .cd-dl-add { background: #e9f7ef; color: #0f5132; }
 .cd-dl-del { background: #fdecea; color: #842029; }
 .cd-dl-hunk { color: #8a857d; }
+
+/* THE CHAT'S BAR (title, repository, branch, pull request, See changes). */
+.gf-app .cd-head { justify-content: flex-start; padding: 12px 24px; }
+.cd-title-bar { font-size: 14.5px; font-weight: 600; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-repo-bar { display: inline-flex; align-items: center; gap: 5px; color: #6b7280; font-size: 13px; }
+.cd-head .cd-pr { margin-left: auto; }
+.cd-menu { display: none; border: 1px solid #e0dbd2; background: #fff; border-radius: 9px; width: 34px; height: 32px; font-size: 16px; cursor: pointer; color: #0d1b2a; }
+.cd-head-min { display: none; border-bottom: 0; }
+@media (max-width: 760px) {
+  .cd-menu { display: inline-block; }
+  .cd-head-min { display: flex; }
+  .gf-app .cd-head { padding: 10px 14px; }
+  .cd-head .cd-pr { margin-left: 0; }
+  .cd-title-bar { max-width: 60vw; }
+}

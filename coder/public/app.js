@@ -7,7 +7,7 @@
   let codeType = 'email';
   let busy = false;
 
-  // WHICH TAB: the address says (/gloopy), Coder otherwise.
+  // WHICH AGENT: the address says (/gloopy), Coder otherwise.
   const agentNow = () => (/^\/gloopy\/?$/.test(location.pathname) ? 'gloopy' : 'coder');
   let coderMounted = false;
   function pick(agent, push) {
@@ -15,22 +15,37 @@
     document.querySelectorAll('.gf-tab').forEach((t) => t.classList.toggle('on', t.dataset.agent === agent));
     $('gfApp').hidden = agent !== 'coder';
     $('gfSoon').hidden = agent !== 'gloopy';
-    if (agent === 'coder' && !coderMounted) { coderMounted = true; window.CoderView.mount($('gfApp')); }
+    $('gfAgentName').textContent = agent === 'gloopy' ? 'Gloopy agent' : 'Coder';
+    if (agent === 'coder') {
+      if (!coderMounted) { coderMounted = true; window.CoderView.mount($('gfApp'), { tools: $('gfColTools'), recents: $('gfRecents') }); }
+      else window.CoderView.drawSide();
+    } else {
+      $('gfColTools').innerHTML = '';
+      $('gfRecents').innerHTML = '<p class="gf-none">No chats yet.</p>';
+    }
+    sideOpen(false);
   }
+  // On a phone the left side slides in (the ☰ button in Coder's bar opens it).
+  function sideOpen(on) { document.body.classList.toggle('gf-side-open', !!on); }
   function showApp() {
     $('gfGate').hidden = true;
     $('gfShell').hidden = false;
-    $('gfUser').hidden = false;
-    $('gfEmail').textContent = window.Auth.email();
-    $('gfTabGloopy').innerHTML = window.gloopyHTML(44);
+    const mail = window.Auth.email();
+    $('gfEmail').textContent = mail.split('@')[0] || mail;
+    $('gfMenuMail').textContent = mail;
+    $('gfMeAv').textContent = (mail[0] || '?').toUpperCase();
+    $('gfTabGloopy').innerHTML = window.gloopyHTML(34);
     $('gfSoonFig').innerHTML = window.gloopyHTML(150);
     document.querySelectorAll('.gf-tab').forEach((t) => t.addEventListener('click', () => pick(t.dataset.agent, true)));
+    $('gfGear').addEventListener('click', (e) => { e.stopPropagation(); $('gfMenu').hidden = !$('gfMenu').hidden; });
+    document.addEventListener('click', () => { $('gfMenu').hidden = true; });
+    $('gfScrim').addEventListener('click', () => sideOpen(false));
+    addEventListener('gf:side', (e) => sideOpen(e.detail !== false));
     addEventListener('popstate', () => pick(agentNow(), false));
     pick(agentNow(), false);
   }
   function showGate() {
     $('gfShell').hidden = true;
-    $('gfUser').hidden = true;
     $('gfGate').hidden = false;
     draw();
   }

@@ -63,11 +63,11 @@
     const p = await call('/projects');
     S.projects = (p.data && p.data.projects) || [];
     if (S.projects.length) return openProject(S.projects[0].id);
-    return showPicker();
+    return showPicker('new');
   }
 
-  async function showPicker() {
-    S.phase = 'pick'; S.repos = null; draw();
+  async function showPicker(mode) {
+    stopPoll(); S.pickMode = mode || 'new'; S.phase = 'pick'; S.repos = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/github/repos');
     if (r.data && r.data.connect) { S.phase = 'connect'; return draw(); }
     S.repos = (r.data && r.data.repos) || [];
@@ -84,13 +84,31 @@
   async function addProject(repo) {
     const r = await call('/projects', { method: 'POST', body: JSON.stringify({ repo }) });
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'That repository could not be added.'; return draw(); }
-    S.projects = [{ id: r.data.project.id, name: r.data.project.name, repo: r.data.project.repo, at: r.data.project.at }, ...S.projects];
+    S.projects = [entryOf(r.data.project), ...S.projects];
     openProject(r.data.project.id);
+  }
+
+  // THE CHAT LIST (each chat its own session): what the sidebar shows.
+  const entryOf = (m) => ({ id: m.id, repo: m.repo, title: m.title || '', status: m.status || 'idle', pr: m.pr ? (m.pr.number || m.pr) : null, at: m.at });
+  function syncEntry() {
+    if (!S.project) return;
+    const e = entryOf(S.project);
+    const i = S.projects.findIndex((x) => x.id === e.id);
+    if (i >= 0) S.projects[i] = { ...S.projects[i], ...e, title: e.title || S.projects[i].title };
+  }
+  async function removeChat(id) {
+    const x = S.projects.find((p) => p.id === id);
+    if (!x || !window.confirm('Remove "' + (x.title || 'New chat') + '" from your chats? Its branch and pull request stay on GitHub.')) return;
+    const r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The chat could not be removed.'; return draw(); }
+    S.projects = S.projects.filter((p) => p.id !== id);
+    if (S.project && S.project.id === id) { stopPoll(); S.project = null; return S.projects.length ? openProject(S.projects[0].id) : showPicker('new'); }
+    draw();
   }
 
   async function openProject(id) {
     stopPoll();
-    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; draw();
+    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
     S.project = r.data.project; S.events = r.data.events || [];
@@ -117,7 +135,7 @@
       if (r.data && r.data.connect) S.phase = 'connect';
       return draw();
     }
-    S.project = r.data.project; S.running = true;
+    S.project = r.data.project; S.running = true; syncEntry();
     S.next = 0;
     startPoll(); draw(true);
   }
@@ -142,6 +160,7 @@
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
       S.running = !!r.data.running;
+      syncEntry();
       draw(fresh.length > 0);
     }
     if (S.running) S.poll = setTimeout(tick, POLL_MS);
@@ -154,15 +173,6 @@
     S.changes = r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data : { files: [], add: 0, del: 0 };
     draw();
   }
-  async function newChat() {
-    if (!S.project || S.running) return;
-    if (!window.confirm('Start a new chat on ' + S.project.repo + '? The current chat is cleared; the code and the pull request stay.')) return;
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/new', { method: 'POST' });
-    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'A new chat could not be started.'; return draw(); }
-    S.events = []; S.next = 0; S.showChanges = false; S.error = '';
-    draw(true);
-  }
-
   async function stop() {
     if (!S.project) return;
     await call('/projects/' + encodeURIComponent(S.project.id) + '/stop', { method: 'POST' });
@@ -241,18 +251,45 @@
     return out.join('');
   }
 
+  // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
+  // See changes. ☰ opens the chats on a phone.
   function headHTML() {
     const p = S.project;
-    const opts = S.projects.map((x) => '<option value="' + esc(x.id) + '"' + (p && p.id === x.id ? ' selected' : '') + '>' + esc(x.repo) + '</option>').join('');
+    const title = p ? (p.title || 'New chat') : '';
     return '<div class="cd-head">' +
-      '<label class="cd-proj">' + ICON.gh + '<select id="cdProject" aria-label="Project">' + opts + '<option value="+">+ Another repository…</option></select></label>' +
+      '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
+      (p ? '<b class="cd-title-bar">' + esc(title) + '</b><span class="cd-repo-bar">' + ICON.gh + esc(p.repo) + '</span>' : '') +
       (p ? '<span class="cd-branch">' + ICON.branch + esc(p.branch) + '</span>' : '') +
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' : '') +
-      // THE TWO BUTTONS (owner, 2026-11-05: buttons, not slash commands).
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
-      (p ? '<button type="button" class="cd-hbtn" id="cdNew">New chat</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '');
+  }
+
+  // THE SIDEBAR: New chat, Repositories, and Recents (the chats).
+  const SIDE_ICON = {
+    plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  };
+  function drawSide() {
+    const sd = S.side;
+    if (!sd || !sd.tools || !sd.tools.isConnected) return;
+    const ready = S.github && S.github.connected;
+    sd.tools.innerHTML =
+      '<button type="button" class="gf-nav" id="cdSideNew"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.plus + 'New chat</button>' +
+      '<button type="button" class="gf-nav" id="cdSideRepos"' + (ready ? '' : ' disabled') + '>' + ICON.gh.replace('width="16" height="16"', 'width="18" height="18"') + 'Repositories</button>';
+    const cur = S.project && S.phase === 'chat' ? S.project.id : '';
+    sd.recents.innerHTML = S.projects.length ? S.projects.map((x) =>
+      '<div class="gf-item' + (x.id === cur ? ' on' : '') + '" data-chat="' + esc(x.id) + '" role="button" tabindex="0" title="' + esc((x.title || 'New chat') + ' · ' + x.repo) + '">' +
+        '<span class="gf-item-t">' + esc(x.title || 'New chat · ' + x.repo.split('/').pop()) + '</span>' +
+        (x.status === 'running' ? '<i class="gf-dot" title="Coder is working"></i>' : x.pr ? '<em class="gf-prn">#' + esc(x.pr) + '</em>' : '') +
+        '<button type="button" class="gf-x" data-remove="' + esc(x.id) + '" aria-label="Remove this chat">×</button>' +
+      '</div>').join('') : '<p class="gf-none">' + (ready ? 'No chats yet. Start one with New chat.' : 'Connect GitHub to start.') + '</p>';
+    const on = (el, sel, ev, fn) => el.querySelectorAll(sel).forEach((n) => n.addEventListener(ev, fn));
+    on(sd.tools, '#cdSideNew', 'click', () => showPicker('new'));
+    on(sd.tools, '#cdSideRepos', 'click', () => showPicker('repos'));
+    on(sd.recents, '.gf-item', 'click', (e) => { if (e.target.closest('.gf-x')) return; openProject(e.currentTarget.dataset.chat); });
+    on(sd.recents, '.gf-item', 'keydown', (e) => { if (e.key === 'Enter') openProject(e.currentTarget.dataset.chat); });
+    on(sd.recents, '.gf-x', 'click', (e) => { e.stopPropagation(); removeChat(e.currentTarget.dataset.remove); });
   }
 
   // WHAT CODER CHANGED, file by file (from its branch against the main branch).
@@ -301,11 +338,10 @@
       const list = S.repos === null ? '<span class="cd-spin cd-spin-lg"></span>'
         : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.private ? '<em>private</em>' : '') + '</button>').join('') + '</div>'
         : '<p class="cd-sub">Coder can’t see any repositories yet.</p>';
-      return centerHTML('<b class="cd-title">Pick a repository</b>' +
+      return centerHTML('<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
         list +
         (install ? '<a class="cd-btn-2" href="' + esc(install) + '" target="_blank" rel="noopener">Add repositories on GitHub</a>' : '') +
-        (S.projects.length ? '<button type="button" class="cd-link" id="cdBack">Back to my projects</button>' : '') +
         (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     }
     // chat
@@ -326,7 +362,8 @@
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
-    root.innerHTML = '<div class="cd">' + bodyHTML() + '</div>';
+    root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
+    drawSide();
     wire(root);
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
@@ -339,15 +376,13 @@
     const on = (sel, ev, fn) => root.querySelectorAll(sel).forEach((el) => el.addEventListener(ev, fn));
     on('#cdRetry', 'click', load);
     on('#cdConnect', 'click', connect);
-    on('#cdBack', 'click', () => S.projects[0] && openProject(S.projects[0].id));
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
-    on('#cdProject', 'change', (e) => { const v = e.target.value; if (v === '+') showPicker(); else openProject(v); });
+    on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
-    on('#cdNew', 'click', newChat);
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
     const form = root.querySelector('#cdForm');
@@ -362,9 +397,10 @@
 
   // ── THE HOOK chat.js CALLS ────────────────────────────────────────────────
   window.CoderView = {
-    mount(el) {
+    mount(el, side) {
       const first = !S.root;
       S.root = el;
+      if (side) S.side = side;
       if (!S.pick) S.pick = savedPick();
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
@@ -376,6 +412,7 @@
       if (first) return load();
       draw();
     },
+    drawSide,
     // For tests and screenshots only.
     _state: S,
   };

@@ -33,29 +33,57 @@ body { display: flex; flex-direction: column; background: #faf9f7; color: #0d1b2
 
 @media (max-width: 520px) { .gf-email { display: none; } .gf-top { padding: 10px 14px; } }
 
-/* THE CONVERSATIONS ON THE LEFT: Coder and the Gloopy agent. */
+/* THE LEFT SIDE, LIKE THE CLAUDE APP: the agent rail, then the open agent's
+   column (New chat, Repositories, Recents, the account at the bottom). */
+.gf-cardbrand { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+.gf-cardbrand b { font-size: 16px; }
 .gf-shell { flex: 1; min-height: 0; display: flex; }
-.gf-side { width: 260px; flex: none; border-right: 1px solid #ece8e1; background: #f5f3ef; padding: 12px 10px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
-.gf-tab { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: transparent; border-radius: 14px; padding: 10px 12px; cursor: pointer; text-align: left; font: inherit; color: #0d1b2a; }
+.gf-sidewrap { display: flex; flex: none; background: #f5f3ef; border-right: 1px solid #ece8e1; }
+.gf-rail { width: 64px; border-right: 1px solid #e6e2db; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0; }
+.gf-tab { width: 46px; height: 46px; border: 0; background: none; border-radius: 12px; display: grid; place-items: center; cursor: pointer; padding: 0; }
 .gf-tab:hover { background: #ece9e3; }
-.gf-tab.on { background: #0d1b2a; color: #fff; }
-.gf-tab.on .gf-tab-text span { color: rgba(255,255,255,.7); }
-.gf-tab-text { display: flex; flex-direction: column; min-width: 0; }
-.gf-tab-text b { font-size: 15px; }
-.gf-tab-text span { font-size: 13px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gf-av { width: 44px; height: 44px; flex: none; border-radius: 50%; display: grid; place-items: center; }
-.gf-av-coder { background: #0f766e; font-size: 19px; }
+.gf-tab.on { background: #e1ddd5; }
+.gf-av { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; }
+.gf-av-coder { background: #0f766e; font-size: 16px; }
 .gf-av-gloopy { border-radius: 0; overflow: visible; }
+.gf-col { width: 252px; display: flex; flex-direction: column; padding: 12px 8px 10px; min-height: 0; }
+.gf-colbrand { display: flex; align-items: center; gap: 9px; padding: 4px 10px 14px; }
+.gf-colbrand b { font-size: 16px; }
+.gf-nav { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: none; padding: 9px 10px; border-radius: 10px; font: 15px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; text-align: left; }
+.gf-nav:hover:not(:disabled) { background: #ece9e3; }
+.gf-nav:disabled { color: #b5b1aa; cursor: default; }
+.gf-nav svg { flex: none; }
+.gf-rec { font: 500 13px Inter, system-ui, sans-serif; color: #8a857d; padding: 18px 10px 6px; }
+.gf-recents { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.gf-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 10px; font: 15px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
+.gf-item:hover { background: #ece9e3; }
+.gf-item.on { background: #e4e0d9; }
+.gf-item-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gf-dot { width: 7px; height: 7px; border-radius: 50%; background: #e8912d; flex: none; }
+.gf-prn { font: 600 11px Inter, system-ui, sans-serif; color: #0f766e; flex: none; }
+.gf-x { display: none; border: 0; background: none; color: #8a857d; font-size: 17px; line-height: 1; padding: 0 2px; cursor: pointer; flex: none; }
+.gf-item:hover .gf-x { display: block; }
+.gf-item:hover .gf-dot, .gf-item:hover .gf-prn { display: none; }
+.gf-none { color: #8a857d; font-size: 13px; padding: 4px 10px; margin: 0; }
+.gf-me { position: relative; display: flex; align-items: center; gap: 10px; border-top: 1px solid #e3ded6; padding: 12px 10px 2px; margin-top: 8px; }
+.gf-meav { width: 28px; height: 28px; border-radius: 50%; background: #e4e0d9; display: grid; place-items: center; font: 600 12px Inter, system-ui, sans-serif; flex: none; }
+.gf-mename { flex: 1; min-width: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gf-gear { border: 0; background: none; color: #6b7280; cursor: pointer; padding: 4px; border-radius: 8px; display: grid; }
+.gf-gear:hover { background: #ece9e3; }
+.gf-menu { position: absolute; left: 6px; right: 6px; bottom: 46px; background: #fff; border: 1px solid #e3ded6; border-radius: 12px; box-shadow: 0 10px 30px rgba(13,27,42,.12); padding: 6px; display: flex; flex-direction: column; z-index: 20; }
+.gf-menu-mail { font-size: 12.5px; color: #8a857d; padding: 6px 10px 8px; overflow: hidden; text-overflow: ellipsis; }
+.gf-menu button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 8px; font: 14px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
+.gf-menu button:hover { background: #f3f1ed; }
 .gf-shell > .gf-app { flex: 1; min-width: 0; }
 .gf-soon { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; }
 .gf-soon b { font-size: 22px; margin-top: 6px; }
 .gf-soon p { margin: 0; color: #6b7280; }
+.gf-scrim { display: none; }
 
+/* A phone: the left side slides in over the chat (☰). */
 @media (max-width: 760px) {
-  .gf-shell { flex-direction: column; }
-  .gf-side { width: auto; flex-direction: row; border-right: 0; border-bottom: 1px solid #ece8e1; padding: 8px; overflow-x: auto; }
-  .gf-tab { width: auto; flex: 1; padding: 6px 10px; gap: 8px; }
-  .gf-av { width: 32px; height: 32px; }
-  .gf-av-coder { font-size: 15px; }
-  .gf-tab-text span { display: none; }
+  .gf-sidewrap { position: fixed; top: 0; bottom: 0; left: 0; z-index: 40; transform: translateX(-100%); transition: transform .2s ease; box-shadow: 0 0 40px rgba(13,27,42,.18); }
+  body.gf-side-open .gf-sidewrap { transform: none; }
+  body.gf-side-open .gf-scrim { display: block; position: fixed; inset: 0; background: rgba(13,27,42,.25); z-index: 30; }
+  .gf-col { width: min(252px, calc(100vw - 110px)); }
 }
