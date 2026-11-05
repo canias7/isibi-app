@@ -171,33 +171,56 @@
     ).join('').replace(/<p><\/p>/g, '');
   }
 
+  // ONE COMMAND as a quiet line, "Ran <command> ▸", like the Claude app
+  // (owner, 2026-11-05: "look at the frontend of this"). Tap it for the output.
+  function cmdHTML(e, r, state, key) {
+    const open = !!S.open[key];
+    const verb = state === 'run' ? 'Running' : 'Ran';
+    const tail = state === 'run' ? '<span class="cd-spin" aria-label="running"></span>'
+      : state === 'bad' ? '<span class="cd-bad">' + (r.timedOut ? 'timed out' : 'exit ' + esc(r.code)) + '</span>' : '';
+    return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
+      '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
+        '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
+        (r ? '<span class="cd-caret">' + (open ? '▾' : '▸') + '</span>' : '') + tail +
+      '</button>' +
+      (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
+    '</div>';
+  }
+
   function stepsHTML() {
     const out = [];
     const results = {};
     for (const e of S.events) if (e.type === 'result' && e.id) results[e.id] = e;
     let lastUser = -1;
     S.events.forEach((e, i) => { if (e.type === 'user') lastUser = i; });
-    S.events.forEach((e, i) => {
-      if (e.type === 'user') out.push('<div class="cd-user"><div class="cd-bubble">' + esc(e.text) + '</div></div>');
-      else if (e.type === 'text') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
-      else if (e.type === 'bash') {
-        const r = results[e.id];
-        const key = String(e.id || i);
-        const open = !!S.open[key];
-        const state = !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.code === 0 ? 'ok' : 'bad';
-        const badge = state === 'run' ? '<span class="cd-spin" aria-label="running"></span>' : state === 'ok' ? '<span class="cd-ok">✓</span>' : state === 'bad' ? '<span class="cd-bad">' + (r.timedOut ? 'timed out' : 'exit ' + esc(r.code)) + '</span>' : '';
-        out.push('<div class="cd-step is-' + state + (open ? ' is-open' : '') + '">' +
-          '<button type="button" class="cd-step-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
-            '<span class="cd-step-chev">' + (r ? ICON.chev : '') + '</span>' + ICON.term +
-            '<code class="cd-step-cmd">' + esc(e.command.split('\n')[0]) + '</code>' + badge + '</button>' +
-          (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
+    const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.code === 0 ? 'ok' : 'bad'; };
+    // Commands in a row (with nothing said between them) are one group.
+    let group = [];
+    const flush = () => {
+      if (!group.length) return;
+      if (group.length === 1) { const [e, i] = group[0]; out.push(cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))); }
+      else {
+        const gk = 'g' + String(group[0][0].id || group[0][1]);
+        const shut = !!S.open[gk];
+        const bad = group.some(([e, i]) => stateOf(e, i) === 'bad');
+        out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
+          '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">Ran ' + group.length + ' commands <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (bad ? '<span class="cd-bad">a command failed</span>' : '') + '</button>' +
+          (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +
         '</div>');
       }
-      else if (e.type === 'done') out.push('<div class="cd-done"><span class="cd-done-dot"></span><div>' + prose(e.text) + '</div></div>');
+      group = [];
+    };
+    S.events.forEach((e, i) => {
+      if (e.type === 'bash') { group.push([e, i]); return; }
+      if (e.type === 'result') return;
+      flush();
+      if (e.type === 'user') out.push('<div class="cd-user"><div class="cd-bubble">' + esc(e.text) + '</div></div>');
+      else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
     });
+    flush();
     if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
     return out.join('');
   }
@@ -215,18 +238,18 @@
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<form class="cd-compose" id="cdForm">' +
-      '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something') + '">' + esc(S.draft) + '</textarea>' +
-      '<div class="cd-bar">' +
-        '<div class="cd-picks">' +
-          '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
-          '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + EFFORT_NAME[e] + '</option>').join('') + '</select></label>' +
-        '</div>' +
+    return '<div class="cd-composewrap">' +
+      '<form class="cd-compose" id="cdForm">' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something') + '">' + esc(S.draft) + '</textarea>' +
         (S.running
           ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
+      '</form>' +
+      '<div class="cd-picks">' +
+        '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
+        '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + e[0].toUpperCase() + e.slice(1) + '</option>').join('') + '</select></label>' +
       '</div>' +
-    '</form>';
+    '</div>';
   }
 
   function centerHTML(inner) { return '<div class="cd-center">' + inner + '</div>'; }
@@ -287,7 +310,8 @@
     on('#cdBack', 'click', () => S.projects[0] && openProject(S.projects[0].id));
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
     on('#cdProject', 'change', (e) => { const v = e.target.value; if (v === '+') showPicker(); else openProject(v); });
-    on('.cd-step-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
