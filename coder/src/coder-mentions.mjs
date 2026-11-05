@@ -163,8 +163,23 @@ export async function startMention(env, deps, m) {
   const threadKey = THREAD_PREFIX + m.repo.replace("/", "__") + "__" + m.number + "__" + acct.uid + ".json";
   let thread = await getJson(bucket, threadKey);
   if (thread) { const look = await run("projects/" + thread.id); if (look.status !== 200) thread = null; }
+  // ON A PULL REQUEST (live test, 2026-11-05): work on THAT pull request's
+  // branch. Coder's own pull request → its own chat; anyone else's → a new chat
+  // that starts from the pull request's branch (never a fork's).
+  let headRef = m.headRef || "";
+  if (m.isPr && botToken) {
+    const pr = await ghApi(botToken, "/repos/" + m.repo + "/pulls/" + Number(m.number), { fetchFn });
+    const h = pr.ok && pr.data && pr.data.head;
+    if (h && h.repo && pr.data.base && pr.data.base.repo && h.repo.id === pr.data.base.repo.id) {
+      headRef = String(h.ref || "");
+      if (/^coder\//.test(headRef)) {
+        const owned = await getJson(bucket, branchKey(m.repo, headRef));
+        if (owned && owned.uid === acct.uid && (!thread || thread.id !== owned.id)) { thread = { id: owned.id }; await putJson(bucket, threadKey, thread); }
+      }
+    }
+  }
   if (!thread) {
-    const made = await run("projects", { method: "POST", body: JSON.stringify({ repo: m.repo, ...(m.headRef ? { base: m.headRef } : {}) }) });
+    const made = await run("projects", { method: "POST", body: JSON.stringify({ repo: m.repo, ...(headRef ? { base: headRef } : {}) }) });
     if (made.status !== 200 || !made.data.project) { await say("@" + m.login + " Coder could not open " + m.repo + ": " + String((made.data && made.data.error) || made.status).slice(0, 200)); return { ok: false, why: "open" }; }
     thread = { id: made.data.project.id };
     await putJson(bucket, threadKey, thread);
