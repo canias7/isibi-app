@@ -1321,3 +1321,16 @@ test("CD57 @coder on Coder's own pull request works in that pull request's chat 
   await M.handleWebhook(new Request("https://x/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": "sha256=" + createHmac("sha256", "s").update(raw).digest("hex") }, body: raw }), env, null, { fetchFn, coder });
   assert.deepEqual(calls, [["POST", "/api/coder/projects/shop-abcd1234/message"]], "no new chat: the pull request's own");
 });
+
+test("CD58 an auto-fix shows its real reason in the chat (not the safety label)", async () => {
+  const sent = [];
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-af", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ autofix: true, fromGithub: true, text: "AUTO-FIX for pull request #5 on coder/x.\n\nThe text between <<<GITHUB and GITHUB>>> comes from GitHub...\n<<<GITHUB\nThe check \"test\" failed (failure)\nmore\nGITHUB>>>" }) });
+  assert.equal(sent[0].shown, 'Auto-fix: The check "test" failed (failure)');
+});
