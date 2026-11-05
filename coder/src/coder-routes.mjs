@@ -11,7 +11,6 @@
 //
 // Kept in Coder's bucket, under coder/<user>/:
 //   github.json             the GitHub connection (sealed)
-//   index.json              the user's projects: [{ id, name, repo, at }]
 //   <project>/meta.json     { id, name, repo, base, branch, turn, saved, status, pr, at }
 //   <project>/messages.json the conversation as Coder reads it
 //   <project>/events.json   what the chat shows
@@ -94,13 +93,27 @@ const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMet
 function listEntry(meta) {
   return { id: meta.id, name: meta.repo, repo: meta.repo, title: meta.title || "", status: meta.status || "idle", pr: meta.pr ? meta.pr.number : null, at: meta.at };
 }
+// THE AUDIT (2026-11-05): one shared index.json lost updates when two chats
+// changed at once. Now each chat keeps only its own meta.json, and the list is
+// read from them, so nothing is overwritten.
 async function saveMeta(bucket, uid, meta) {
   await putJson(bucket, keyOf(uid, meta.id, "meta.json"), meta);
-  const indexKey = keyOf(uid, "index.json");
-  const index = await getJson(bucket, indexKey, []);
-  const rest = index.filter((x) => x && x.id !== meta.id);
-  await putJson(bucket, indexKey, [listEntry(meta), ...rest]);
 }
+/** The user's chats, newest first, read from each chat's own meta.json. */
+export async function listChats(bucket, uid) {
+  const prefix = keyOf(uid) + "/";
+  const keys = [];
+  let cursor;
+  do {
+    const page = await bucket.list({ prefix, cursor });
+    for (const o of page.objects || []) if (/^[^/]+\/meta\.json$/.test(o.key.slice(prefix.length))) keys.push(o.key);
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  const metas = await Promise.all(keys.map((k) => getJson(bucket, k, null)));
+  return metas.filter((m) => m && m.id).map(listEntry).sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+/** How long a chat may say "working" with no machine answering before it is freed. */
+export const STALE_MS = 15 * 60 * 1000;
 /** A chat's title: the first words of its first message. */
 export function chatTitle(text) {
   const t = String(text || "").replace(/\s+/g, " ").trim();
@@ -200,7 +213,7 @@ export async function handleCoder(request, env, ctx, deps) {
       case "pr": return cmeta && cmeta.pr && cmeta.pr.url ? json({ ok: true, url: cmeta.pr.url }) : json({ ok: true, note: "This chat has no pull request yet." });
       case "stop":
         if (!cmeta || cmeta.status !== "running") return json({ ok: true, note: "Coder is not working right now." });
-        try { await deps.container(uid.slice(0, 12) + "-" + pid).fetch(new Request("http://coder/stop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: pid }) })); } catch { /* the next look says */ }
+        try { await deps.container(uid + "-" + pid).fetch(new Request("http://coder/stop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: pid }) })); } catch { /* the next look says */ }
         return json({ ok: true, note: "Stopping…" });
       case "effort": {
         if (!model.efforts.includes(arg)) return json({ ok: true, note: "Effort is one of: " + model.efforts.join(", ") + "." });
@@ -220,10 +233,8 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
-  const indexKey = keyOf(uid, "index.json");
-
   if (parts.length === 1) {
-    const index = await getJson(bucket, indexKey, []);
+    const index = await listChats(bucket, uid);
     if (request.method === "GET") return json({ ok: true, projects: index });
     if (request.method !== "POST") return json({ error: "method" }, 405);
     if (!githubReady(env)) return json({ error: "GitHub is not set up for Coder yet." }, 503);
@@ -237,6 +248,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const r = await gh(t.token, "/repos/" + repo, { fetchFn });
     if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
     const base = typeof body.base === "string" && BRANCH.test(body.base) ? body.base : String(r.data.default_branch || "main");
+    if (!BRANCH.test(base)) return json({ error: "this repository's main branch has a name Coder cannot use" }, 400);
     const id = projectIdFor(repo);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
     await saveMeta(bucket, uid, meta);
@@ -248,7 +260,7 @@ export async function handleCoder(request, env, ctx, deps) {
   const metaKey = keyOf(uid, id, "meta.json");
   const meta = await getJson(bucket, metaKey, null);
   if (!meta) return json({ error: "no such project" }, 404);
-  const box = () => deps.container(uid.slice(0, 12) + "-" + id);
+  const box = () => deps.container(uid + "-" + id);
   const call = (path, init) => box().fetch(new Request("http://coder" + path, init));
   const post = (path, body) => call(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const action = parts[2] || "";
@@ -265,7 +277,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again: the connection has ended", connect: true }, 409);
-    const running = (await getJson(bucket, keyOf(uid, "index.json"), [])).filter((x) => x && x.id !== id && x.status === "running").length;
+    const running = (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length;
     if (running >= maxRunning(env)) return json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429);
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const saved = await getJson(bucket, settingsKey(uid), {});
@@ -294,10 +306,29 @@ export async function handleCoder(request, env, ctx, deps) {
     const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
     let s = null;
     try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }
-    if (!s) return json({ ok: false, error: "Coder's machine could not be reached", project: meta }, 502);
+    // A CHAT NEVER STAYS "WORKING" FOR GOOD (the audit): a machine that lost the
+    // turn (restarted, slept) frees it at once; one that never answers frees it
+    // after STALE_MS.
+    const free = async (why) => {
+      const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      const ev = { at: Date.now(), type: "error", text: why };
+      await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
+      const idle = { ...meta, status: "idle", saved: meta.turn, at: Date.now() };
+      await saveMeta(bucket, uid, idle);
+      return json({ ok: true, events: [ev], next: since, running: false, project: idle });
+    };
+    if (!s) {
+      if (meta.status === "running" && Date.now() - (meta.at || 0) > STALE_MS) return free("Coder's machine stopped answering, so this job was ended. Send your message again.");
+      return json({ ok: false, error: "Coder's machine could not be reached", project: meta }, 502);
+    }
+    if (meta.status === "running" && !s.running && !s.result) return free("Coder's machine restarted and this job was lost. Send your message again.");
     // THE TURN ENDED: the chat is kept, and the work goes to GitHub (a commit on
     // Coder's branch, pushed, and a pull request), once per turn.
     if (s.result && meta.status === "running" && meta.saved < meta.turn) {
+      // THE TURN'S END IS DONE ONCE (the audit): the machine hands it to the
+      // first asker only, so two tabs never push or save it twice.
+      const claim = await post("/claim", { project: id }).then((r) => r.json()).catch(() => ({ ok: false }));
+      if (!claim.ok) return json({ ok: true, events: s.events || [], next: s.next || since, running: true, project: meta });
       const all = await call("/state?project=" + id + "&since=0", { method: "GET" }).then((r) => r.json()).catch(() => ({ events: [] }));
       const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
       const fresh = Array.isArray(all.events) ? all.events.slice() : [];
@@ -339,13 +370,18 @@ export async function handleCoder(request, env, ctx, deps) {
   if (!action && request.method === "DELETE") {
     if (meta.status === "running") return json({ error: "Coder is still working in this chat: stop it first" }, 409);
     for (const k of ["meta.json", "messages.json", "events.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
-    const index = await getJson(bucket, indexKey, []);
-    await putJson(bucket, indexKey, index.filter((x) => x && x.id !== id));
     return json({ ok: true });
   }
 
   if (action === "stop" && request.method === "POST") {
-    try { await post("/stop", { project: id }); } catch { /* the next look says */ }
+    let st = null;
+    try { st = await post("/stop", { project: id }).then((r) => r.json()); } catch { st = null; }
+    // Nothing is running on the machine (or it is gone): the chat is freed now.
+    if (meta.status === "running" && (!st || st.running === false)) {
+      const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      await putJson(bucket, keyOf(uid, id, "events.json"), [...old, { at: Date.now(), type: "stopped" }].slice(-MAX_EVENTS));
+      await saveMeta(bucket, uid, { ...meta, status: "idle", saved: meta.turn, at: Date.now() });
+    }
     return json({ ok: true });
   }
 

@@ -195,7 +195,8 @@ test("CD9 the container: a turn on the repository runs in the background, its ev
 // ── THE WORKER ROUTES: a fake bucket, a fake GitHub API, the real container service ──
 function fakeBucket() {
   const m = new Map();
-  return { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, typeof v === "string" ? v : String(v)); }, async delete(k) { m.delete(k); } };
+  return { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, typeof v === "string" ? v : String(v)); }, async delete(k) { m.delete(k); },
+    async list({ prefix = "" } = {}) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; } };
 }
 const KEY = Buffer.alloc(32, 7).toString("base64");
 const GH_ENV = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: KEY, CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev" };
@@ -360,7 +361,7 @@ test("CD14: only the accounts in CODER_USERS may use Coder", async () => {
   assert.equal(coderAllowed({ CODER_USERS: "a@x.y" }, { email: "c@x.y" }), false);
   assert.equal(coderAllowed({ CODER_USERS: "" }, { email: "a@x.y" }), false, "empty list = nobody");
   assert.equal(coderAllowed({ CODER_USERS: "a@x.y" }, { email: "" }), false);
-  const env = { CODER_ON: "on", CODER_USERS: "a@x.y", CODER_BUCKET: { get: async () => null, put: async () => {} } };
+  const env = { CODER_ON: "on", CODER_USERS: "a@x.y", CODER_BUCKET: { get: async () => null, put: async () => {}, list: async () => ({ objects: [], truncated: false }) } };
   const deps = (email) => ({ authUser: async () => ({ id: "u1", email }), container: () => null });
   assert.equal((await handleCoder(new Request("https://c/api/coder/projects"), env, {}, deps("z@x.y"))).status, 403);
   assert.notEqual((await handleCoder(new Request("https://c/api/coder/projects"), env, {}, deps("a@x.y"))).status, 403);
@@ -620,5 +621,29 @@ test("CD25 background commands end with the turn, and their logs go", async () =
     let alive = true; try { process.kill(pid, 0); } catch { alive = false; }
     assert.equal(alive, false, "the background command outlived the turn");
     assert.equal(existsSync(join(r.bgRoot, "shop-bgbg")), false, "its logs stayed");
+  } finally { await close(); }
+});
+
+test("CD26 the audit's Worker fixes: the chat list is read from each chat, and a turn's end is handed out once", async () => {
+  const { listChats } = await import("../src/coder-routes.mjs");
+  const m = new Map();
+  const bucket = { async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; },
+    async list({ prefix }) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; } };
+  m.set("coder/u1/a/meta.json", JSON.stringify({ id: "a", name: "A", at: 1, status: "idle" }));
+  m.set("coder/u1/b/meta.json", JSON.stringify({ id: "b", name: "B", at: 2, status: "running" }));
+  m.set("coder/u1/b/events.json", "[]");
+  m.set("coder/u2/c/meta.json", JSON.stringify({ id: "c", at: 3 }));
+  assert.deepEqual((await listChats(bucket, "u1")).map((x) => x.id), ["b", "a"]);
+  const { remote } = await fakeRemote();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s = scripted([say("Hi.", [])]);
+  const { base, close } = await serve(createApp({ root, send: s.send, remote, ...(await roots()) }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    assert.equal((await (await post("/claim", { project: "shop-clai" })).json()).ok, false, "nothing to claim yet");
+    await post("/turn", { project: "shop-clai", text: "hi", messages: [] });
+    for (let i = 0; i < 100; i++) { if ((await (await fetch(base + "/state?project=shop-clai&since=0")).json()).result) break; await new Promise((ok) => setTimeout(ok, 30)); }
+    assert.equal((await (await post("/claim", { project: "shop-clai" })).json()).ok, true);
+    assert.equal((await (await post("/claim", { project: "shop-clai" })).json()).ok, false, "claimed twice");
   } finally { await close(); }
 });

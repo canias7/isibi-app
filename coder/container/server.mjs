@@ -335,6 +335,12 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
         return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}) });
       }
+      // THE TURN'S END, HANDED OUT ONCE (one process per project: no race).
+      if (url.pathname === "/claim" && req.method === "POST") {
+        if (!t || !t.result || t.claimed) return send(200, { ok: false });
+        t.claimed = true;
+        return send(200, { ok: true });
+      }
       if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); } return send(200, { ok: true, running: !!(t && t.running) }); }
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
