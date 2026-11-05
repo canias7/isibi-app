@@ -246,3 +246,5 @@
 .cd-envadd input{flex:1;min-width:0;border:1px solid #e0dbd2;border-radius:10px;padding:7px 10px;font:13px ui-monospace,SFMono-Regular,Menlo,monospace}
 .cd-envfoot{display:flex;align-items:center;gap:12px;margin-top:14px}
 .cd-muted{color:#6b6a68;font-size:13px;margin:0}
+
+.cd-autofix.on{background:#e8f5ef;border-color:#a7d7c2;color:#145a43}

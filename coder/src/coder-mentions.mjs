@@ -70,6 +70,7 @@ async function ghApi(token, path, { method = "GET", body, fetchFn = fetch } = {}
 // ── WHO IS ASKING ────────────────────────────────────────────────────────────
 const getJson = async (bucket, key) => { const o = await bucket.get(key); if (!o) return null; try { return JSON.parse(await o.text()); } catch { return null; } };
 const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMetadata: { contentType: "application/json" } });
+export const branchKey = (repo, branch) => "coder/github-branches/" + String(repo).replace("/", "__") + "__" + String(branch).replace(/\//g, "__") + ".json";
 export const loginKey = (login) => "coder/logins/" + String(login).toLowerCase() + ".json";
 export const profileKey = (uid) => "coder/" + uid + "/profile.json";
 /** The Coder account that connected this GitHub login: `{ uid, email }`, or null. */
@@ -123,6 +124,14 @@ export async function handleWebhook(request, env, ctx, deps) {
   const event = request.headers.get("x-github-event") || "";
   if (event === "ping") return new Response("pong");
   let p; try { p = JSON.parse(body); } catch { return new Response("bad body", { status: 400 }); }
+  // AUTO-FIX (owner, 2026-11-05, "4"): a failed check or a review on a pull
+  // request from one of Coder's branches starts a fix in that branch's chat.
+  const fix = readAutofix(event, p);
+  if (fix) {
+    const work = startAutofix(env, deps, fix).catch((e) => console.log("coder autofix failed: " + String((e && e.message) || e).slice(0, 200)));
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work); else await work;
+    return new Response("ok", { status: 202 });
+  }
   const m = readMention(event, p);
   if (!m) return new Response("ignored", { status: 202 });
   const work = startMention(env, deps, m).catch((e) => console.log("coder mention failed: " + String((e && e.message) || e).slice(0, 200)));
@@ -165,6 +174,74 @@ export async function startMention(env, deps, m) {
   }
   await putJson(bucket, JOB_PREFIX + acct.uid + "__" + thread.id + ".json", { uid: acct.uid, email: acct.email, id: thread.id, repo: m.repo, number: m.number, login: m.login, installation: m.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
   return { ok: true, id: thread.id };
+}
+
+// ── AUTO-FIX PULL REQUESTS (owner, 2026-11-05, "4") ─────────────────────────
+// Like Claude Code's auto-fix: when a check fails, or someone allowed leaves a
+// review, on a pull request whose branch is one of Coder's, Coder fixes it in
+// that branch's chat. At most AUTOFIX_MAX tries in a row without a person
+// writing in the chat, so it can never loop forever on a red check.
+export const AUTOFIX_MAX = 3;
+/** `{ kind, repo, branch, number, installation, login?, text }`, or null. */
+export function readAutofix(event, p) {
+  if (!p || !p.repository || !p.installation) return null;
+  const repo = String(p.repository.full_name);
+  if (event === "check_run" && p.action === "completed" && p.check_run && ["failure", "timed_out"].includes(p.check_run.conclusion)) {
+    const pr = (p.check_run.pull_requests || [])[0];
+    const branch = pr && pr.head && pr.head.ref || (p.check_run.check_suite && p.check_run.check_suite.head_branch);
+    if (!branch || !/^coder\//.test(branch)) return null;
+    const o = p.check_run.output || {};
+    return { kind: "check", repo, branch, number: pr ? pr.number : null, installation: p.installation.id, checkId: p.check_run.id, appSlug: p.check_run.app && p.check_run.app.slug,
+      text: "The check \"" + String(p.check_run.name || "").slice(0, 120) + "\" failed (" + p.check_run.conclusion + ")" + (o.title ? ": " + String(o.title).slice(0, 200) : "") + (o.summary ? "\n" + String(o.summary).slice(0, 2000) : "") + (o.text ? "\n" + String(o.text).slice(0, 3000) : "") };
+  }
+  if (event === "pull_request_review" && p.action === "submitted" && p.review && p.pull_request && /^coder\//.test(p.pull_request.head && p.pull_request.head.ref || "")) {
+    if (p.sender && p.sender.type === "Bot") return null;
+    if (p.review.state === "approved" || !String(p.review.body || "").trim() && p.review.state !== "changes_requested") return null;
+    if (MENTION.test(String(p.review.body || ""))) return null; // an @coder mention is handled as one
+    return { kind: "review", repo, branch: p.pull_request.head.ref, number: p.pull_request.number, installation: p.installation.id, login: String(p.sender && p.sender.login || ""),
+      text: "@" + (p.sender && p.sender.login) + " reviewed your pull request (" + p.review.state.replace("_", " ") + "):\n" + String(p.review.body || "(no text; see their line comments)").slice(0, 4000) };
+  }
+  if (event === "pull_request_review_comment" && p.action === "created" && p.comment && p.pull_request && /^coder\//.test(p.pull_request.head && p.pull_request.head.ref || "")) {
+    if (p.sender && p.sender.type === "Bot") return null;
+    if (MENTION.test(String(p.comment.body || ""))) return null;
+    return { kind: "review", repo, branch: p.pull_request.head.ref, number: p.pull_request.number, installation: p.installation.id, login: String(p.sender && p.sender.login || ""),
+      text: "@" + (p.sender && p.sender.login) + " commented on " + String(p.comment.path || "") + (p.comment.line ? " line " + p.comment.line : "") + ":\n" + String(p.comment.body || "").slice(0, 3000) + (p.comment.diff_hunk ? "\n\nThe lines:\n" + String(p.comment.diff_hunk).slice(0, 1500) : "") };
+  }
+  return null;
+}
+
+export async function startAutofix(env, deps, f) {
+  const bucket = env.CODER_BUCKET;
+  const fetchFn = deps.fetchFn || fetch;
+  const owner = await getJson(bucket, branchKey(f.repo, f.branch));
+  if (!owner) return { ok: false, why: "not a Coder branch" };
+  const prof = await getJson(bucket, profileKey(owner.uid));
+  const gh = await getJson(bucket, "coder/" + owner.uid + "/github.json");
+  if (!prof || !allowed(env, prof.email)) return { ok: false, why: "not allowed" };
+  // A review counts only from the owner's own GitHub account (others cannot spend their Grok).
+  if (f.kind === "review" && String(f.login).toLowerCase() !== String(gh && gh.login || "").toLowerCase()) return { ok: false, why: "reviewer is not the owner" };
+  const user = { id: owner.uid, email: prof.email };
+  const run = (path, init = {}) => deps.coder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), user).then((r) => r.json().catch(() => ({})).then((j) => ({ status: r.status, data: j })));
+  const look = await run("projects/" + owner.id);
+  if (look.status !== 200 || !look.data.project) return { ok: false, why: "chat gone" };
+  const meta = look.data.project;
+  if (meta.autofix === false) return { ok: false, why: "auto-fix off" };
+  if (meta.status === "running") return { ok: false, why: "busy" };
+  if ((meta.autofixTries || 0) >= AUTOFIX_MAX) return { ok: false, why: "too many tries" };
+  const botToken = await installationToken(env, f.installation, fetchFn);
+  // THE FAILED RUN'S LOG (GitHub Actions): its last lines tell Coder what broke.
+  let log = "";
+  if (f.kind === "check" && botToken && f.checkId && (!f.appSlug || f.appSlug === "github-actions")) {
+    const r = await fetchFn("https://api.github.com/repos/" + f.repo + "/actions/jobs/" + Number(f.checkId) + "/logs", { headers: { authorization: "Bearer " + botToken, accept: "application/vnd.github+json", "user-agent": "gofarther-coder" } }).catch(() => null);
+    if (r && r.ok) log = (await r.text().catch(() => "")).replace(/^\S+Z /gm, "").slice(-6000);
+  }
+  const text = "AUTO-FIX for pull request" + (f.number ? " #" + f.number : "") + " on " + f.branch + ".\n\n" + f.text + (log ? "\n\nThe end of the failed run's log:\n" + log : "") +
+    "\n\nFix this on the branch with small, focused changes, and check them (run the same tests or build locally if you can). If the cause is not in your changes, or it is unclear what the reviewer wants, change nothing and explain instead.";
+  const ack = f.number && botToken ? await ghApi(botToken, "/repos/" + f.repo + "/issues/" + f.number + "/comments", { method: "POST", body: { body: (f.kind === "check" ? "A check failed. " : "Thanks for the review. ") + "Coder is working on a fix (try " + ((meta.autofixTries || 0) + 1) + " of " + AUTOFIX_MAX + ") and will update this comment.\n\n— Coder (gofarther.dev)" }, fetchFn }) : null;
+  const sent = await run("projects/" + owner.id + "/message", { method: "POST", body: JSON.stringify({ text: text.slice(0, 18000), autofix: true }) });
+  if (sent.status !== 200) return { ok: false, why: "could not start" };
+  if (f.number) await putJson(bucket, JOB_PREFIX + owner.uid + "__" + owner.id + ".json", { uid: owner.uid, email: prof.email, id: owner.id, repo: f.repo, number: f.number, login: (gh && gh.login) || "", installation: f.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
+  return { ok: true, id: owner.id };
 }
 
 // ── EVERY MINUTE: finished jobs get their answer on GitHub ───────────────────

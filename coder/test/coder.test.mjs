@@ -269,7 +269,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.deepEqual([made.ok, made.number, made.project.pr], [true, 1, { url: "https://github.com/ana/shop/pull/1", number: 1 }]);
     assert.ok(ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"));
     // THE CODE IS NEVER STORED WITH US: only the chat, the connection and the project's meta.
-    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile)\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$/, k);
+    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile)\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
     assert.doesNotMatch([...bucket.m.values()].join(""), /<h1>Hi<\/h1>\\n"\s*}/);
   } finally { await close(); }
 });
@@ -1134,4 +1134,41 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     const s3 = await run({ script: "echo changed > ready.txt", vars: {} });
     assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 1, "again when it changed");
   } finally { await close(); }
+});
+
+test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pull request starts a fix in that chat; others, bots and loops are refused", async () => {
+  const M = await import("../src/coder-mentions.mjs");
+  const base = { repository: { full_name: "canias7/shop" }, installation: { id: 77 } };
+  const check = (conclusion, ref = "coder/shop-ab12") => ({ ...base, action: "completed", check_run: { id: 555, name: "test", conclusion, app: { slug: "github-actions" }, output: { title: "2 tests failed", summary: "cart.test.js" }, pull_requests: [{ number: 9, head: { ref } }] } });
+  assert.equal(M.readAutofix("check_run", check("success")), null);
+  assert.equal(M.readAutofix("check_run", check("failure", "feature/x")), null, "only Coder's branches");
+  const f = M.readAutofix("check_run", check("failure"));
+  assert.deepEqual([f.kind, f.branch, f.number, f.checkId], ["check", "coder/shop-ab12", 9, 555]);
+  assert.match(f.text, /The check "test" failed \(failure\): 2 tests failed\ncart\.test\.js/);
+  const review = (login, state = "changes_requested", body = "Please rename cartTotal", type = "User") => ({ ...base, action: "submitted", sender: { login, type }, review: { state, body }, pull_request: { number: 9, head: { ref: "coder/shop-ab12" } } });
+  assert.equal(M.readAutofix("pull_request_review", review("canias7", "approved")), null);
+  assert.equal(M.readAutofix("pull_request_review", review("bot", "changes_requested", "x", "Bot")), null);
+  assert.equal(M.readAutofix("pull_request_review", review("canias7", "commented", "@coder do it")), null, "a mention is handled as one");
+  assert.equal(M.readAutofix("pull_request_review", review("canias7")).kind, "review");
+  // THE WHOLE WAY
+  const bucket = fakeBucket();
+  await bucket.put(M.branchKey("canias7/shop", "coder/shop-ab12"), JSON.stringify({ uid: "u1", id: "shop-ab12" }));
+  await bucket.put("coder/u1/profile.json", JSON.stringify({ email: "me@x.y" }));
+  await bucket.put("coder/u1/github.json", JSON.stringify({ login: "canias7" }));
+  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket };
+  let meta = { id: "shop-ab12", status: "idle", autofixTries: 0 };
+  const sent = [];
+  const coder = async (req) => { const u = new URL(req.url); if (req.method === "POST") { sent.push(await req.json()); meta = { ...meta, autofixTries: meta.autofixTries + 1 }; return Response.json({ ok: true }); } return Response.json({ ok: true, project: meta }); };
+  const fetchFn = async () => new Response("{}", { status: 404 });
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).ok, true);
+  assert.match(sent[0].text, /^AUTO-FIX for pull request #9 on coder\/shop-ab12\.\n\nThe check "test" failed/);
+  assert.equal(sent[0].autofix, true);
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("pull_request_review", review("stranger")))).why, "reviewer is not the owner");
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("pull_request_review", review("Canias7")))).ok, true, "the owner's review");
+  meta.autofixTries = M.AUTOFIX_MAX;
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "too many tries", "never loops forever");
+  meta = { ...meta, autofixTries: 0, autofix: false };
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "auto-fix off");
+  meta = { ...meta, autofix: true, status: "running" };
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "busy");
 });

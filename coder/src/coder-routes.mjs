@@ -30,7 +30,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
-import { handleWebhook, loginKey, profileKey } from "./coder-mentions.mjs";
+import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -271,6 +271,9 @@ export async function handleCoder(request, env, ctx, deps) {
     const id = projectIdFor(repo);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
     await saveMeta(bucket, uid, meta);
+    // Whose this branch is, so GitHub's news about its pull request (failed
+    // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
+    await bucket.put(branchKey(repo, meta.branch), JSON.stringify({ uid, id }), { httpMetadata: { contentType: "application/json" } });
     return json({ ok: true, project: meta });
   }
 
@@ -309,7 +312,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup });
+    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.autofix === true ? "Auto-fix: " + text.split("\n").filter(Boolean)[1]?.slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -320,7 +323,8 @@ export async function handleCoder(request, env, ctx, deps) {
       let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + " (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
     }
-    const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now() };
+    // Auto-fix tries in a row; a message from the owner starts the count again.
+    const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0 };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next });
   }
@@ -434,6 +438,14 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
+  }
+
+  // AUTO-FIX ON/OFF for this chat's pull request (on unless turned off).
+  if (action === "autofix" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const next = { ...meta, autofix: body.on !== false, autofixTries: 0 };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
   }
 
   // THE REPO'S ENVIRONMENT: the script, and the variables' NAMES only (values are write-only).

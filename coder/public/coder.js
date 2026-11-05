@@ -357,7 +357,7 @@
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       (p ? '<b class="cd-title-bar">' + esc(title) + '</b><span class="cd-repo-bar">' + ICON.gh + esc(p.repo) + '</span>' : '') +
       (p ? '<span class="cd-branch">' + ICON.branch + esc(p.branch) + '</span>' : '') +
-      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' : '') +
+      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === false ? '' : ' on') + '" id="cdAutofix" title="When a check fails or you review the pull request, Coder fixes it (up to 3 tries in a row)">Auto-fix: ' + (p.autofix === false ? 'Off' : 'On') + '</button>' : '') +
       (p && Array.isArray(p.commits) && p.commits.length && !S.running ? '<button type="button" class="cd-hbtn" id="cdUndo"' + (S.undoing ? ' disabled' : '') + ' title="Undo: ' + esc(p.commits[p.commits.length - 1].title || '') + '">' + (S.undoing ? 'Undoing…' : 'Undo last job') + '</button>' : '') +
       (p && !S.running ? '<span class="cd-revwrap"><button type="button" class="cd-hbtn" id="cdReview" aria-haspopup="menu">Review ▾</button>' + (S.reviewMenu ? '<span class="cd-revmenu" role="menu"><button type="button" data-review="code" role="menuitem"><b>Review changes</b><small>Bugs, edge cases, missing tests</small></button><button type="button" data-review="security" role="menuitem"><b>Security review</b><small>Injection, secrets, auth, XSS…</small></button></span>' : '') + '</span>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
@@ -574,6 +574,7 @@
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
     on('#cdUndo', 'click', () => undoLast());
+    on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
     on('#cdEnv', 'click', () => { S.showEnv = !S.showEnv; S.showChanges = false; if (S.showEnv) loadEnv(); draw(); });
     on('#envAdd', 'click', () => { const n = root.querySelector('#envName'), v = root.querySelector('#envVal'); S.envEdit = S.envEdit || {}; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; if (n && n.value.trim()) { S.envEdit[n.value.trim()] = v ? v.value : ''; } draw(); });
     on('[data-envdel]', 'click', (e) => { S.envEdit = S.envEdit || {}; S.envEdit[e.currentTarget.dataset.envdel] = null; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; draw(); });
