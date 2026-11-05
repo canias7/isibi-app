@@ -1203,3 +1203,18 @@ test("CD50 what the setup script makes (node_modules…) is never saved to the b
     assert.ok(!files.includes("setup-ran.txt"), "the setup's file was saved");
   } finally { await close(); }
 });
+
+test("CD51 auto-fix finds chats made before branches were recorded", async () => {
+  const M = await import("../src/coder-mentions.mjs");
+  const bucket = fakeBucket();
+  await bucket.put("coder/u2/shop-old1/meta.json", JSON.stringify({ id: "shop-old1", repo: "canias7/shop", branch: "coder/shop-old1" }));
+  await bucket.put("coder/u2/profile.json", JSON.stringify({ email: "me@x.y" }));
+  await bucket.put("coder/u2/github.json", JSON.stringify({ login: "canias7" }));
+  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket };
+  const sent = [];
+  const coder = async (req) => { if (req.method === "POST") { sent.push(new URL(req.url).pathname); return Response.json({ ok: true }); } return Response.json({ ok: true, project: { id: "shop-old1", status: "idle" } }); };
+  const r = await M.startAutofix(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) }, { kind: "review", repo: "canias7/shop", branch: "coder/shop-old1", number: 3, installation: 1, login: "canias7", text: "rename it" });
+  assert.equal(r.ok, true, r.why);
+  assert.deepEqual(sent, ["/api/coder/projects/shop-old1/message"]);
+  assert.ok(bucket.m.has(M.branchKey("canias7/shop", "coder/shop-old1")), "remembered for next time");
+});
