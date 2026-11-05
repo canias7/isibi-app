@@ -399,7 +399,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,300}?const r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory \}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,400}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory \}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -547,4 +547,20 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   assert.match((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/effort max" }) })).json()).note, /Effort is one of: low, medium, high/);
   assert.equal((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/new" }) })).json()).open, "new");
   assert.match((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/nope" }) })).json()).note, /Unknown command: \/nope/);
+});
+
+
+test("CD23 the effort safety net: a model that refuses the effort setting is asked again without it; other refusals say why", async () => {
+  const { coderSend } = await import("../container/coder-model.mjs");
+  const sent = [];
+  const send = coderSend({ XAI_API_KEY: "k" }, { wait: async () => {}, fetchFn: async (u, init) => {
+    const b = JSON.parse(init.body); sent.push(b);
+    if (b.reasoning_effort) return new Response(JSON.stringify({ error: "Model grok-4.7 does not support parameter reasoning_effort" }), { status: 400 });
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "hi" } }] }));
+  } });
+  const r = await send({ model: "grok-4.7", effort: "high", messages: [], tools: [] });
+  assert.equal(r.message.content, "hi");
+  assert.deepEqual(sent.map((b) => "reasoning_effort" in b), [true, false]);
+  const bad = coderSend({ XAI_API_KEY: "k" }, { wait: async () => {}, fetchFn: async () => new Response(JSON.stringify({ error: "Model not found: grok-9" }), { status: 404 }) });
+  await assert.rejects(bad({ model: "grok-9", messages: [], tools: [] }), /AI call failed: 404 .*Model not found/);
 });

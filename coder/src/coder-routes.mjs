@@ -271,10 +271,18 @@ export async function handleCoder(request, env, ctx, deps) {
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
-    const r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
+    let r;
+    try {
+    r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
+    } catch (e) {
+      return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
+    }
     if (!r.ok) {
-      const why = await r.json().catch(() => ({}));
-      return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + (why && why.error ? ": " + String(why.error).slice(0, 200) : "") }, r.status === 409 ? 409 : 502);
+      // THE REAL REASON, whatever shape it came in (the container's JSON, or the
+      // platform's own text when the container could not start).
+      const raw = await r.text().catch(() => "");
+      let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
+      return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + " (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
     }
     const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now() };
     await saveMeta(bucket, uid, next);

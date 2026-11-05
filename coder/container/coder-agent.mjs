@@ -84,7 +84,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
     rounds++;
     let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
-    catch (e) { emit({ type: "error", text: "The AI could not be reached." }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
+    catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
     const msg = answer && answer.message ? answer.message : null;
     if (!msg) { emit({ type: "error", text: "The AI gave no answer." }); return end("no-tool"); }
