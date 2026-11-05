@@ -33,7 +33,7 @@
     next: 0,
     running: false,
     sending: false,
-    draft: '',
+    draft: (() => { try { const a = sessionStorage.getItem('gf_ask') || ''; sessionStorage.removeItem('gf_ask'); return a.slice(0, 4000); } catch (e) { return ''; } })(), // the landing page's ask, kept
     open: {},         // which command outputs are opened
     root: null,
     poll: 0,

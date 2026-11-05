@@ -360,7 +360,7 @@ export async function handleCoder(request, env, ctx, deps) {
       else {
         const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, token: t.token, message: commitTitle(s.result.summary) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         if (!p.ok) pushNote = "Not sent to GitHub: " + String(p.why || "the push failed").slice(0, 200);
-        else if (p.pushed) {
+        else if (p.pushed && p.changed !== false) {
           pushed = true;
           if (pr) pr = await prStillOpen(t.token, meta.repo, pr, fetchFn);
           pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");

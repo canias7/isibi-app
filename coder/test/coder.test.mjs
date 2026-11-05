@@ -697,3 +697,27 @@ test("CD30 a merged or closed pull request is forgotten, so a new one can be mad
   assert.equal(await prStillOpen("t", "a/b", pr, reply(404, {})), null);
   assert.equal(await prStillOpen("t", "a/b", null, reply(200, {})), null);
 });
+
+test("CD31 a job that changed nothing (\"hi\") is not reported as saved, and offers no pull request", async () => {
+  const { remote } = await fakeRemote();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s = scripted([say("Hi! What should we work on?", [])]);
+  const { base, close } = await serve(createApp({ root, send: s.send, remote, ...(await roots()) }));
+  try {
+    const bucket = fakeBucket();
+    const env = { ...GH_ENV, CODER_BUCKET: bucket };
+    const ghFake = fakeGithub();
+    const deps = { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "user-hi", email: "me@x.y" }), container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+    const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+    const st = new URL((await (await go("github/start")).json()).url).searchParams.get("state");
+    await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
+    const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+    await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "hi" }) });
+    let got;
+    for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
+    assert.equal(got.project.status, "idle");
+    assert.equal(!!got.project.pushed, false);
+    assert.ok(!got.events.some((e) => e.type === "github"), "said it saved work");
+    assert.equal((await go("projects/" + id + "/pr", { method: "POST", body: "{}" })).status, 400);
+  } finally { await close(); }
+});
