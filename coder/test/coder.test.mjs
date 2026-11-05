@@ -1342,3 +1342,20 @@ test("CD59 how Coder talks: answer first, evidence, styles on request (remembere
   assert.equal(AWAY_MS, 2 * 60 * 60 * 1000);
   assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /THE OWNER IS COMING BACK AFTER A BREAK of about/);
 });
+
+test("CD60 a saved style (memory lines starting Style:) is given to Coder as its own section, like Claude Code's output style", async () => {
+  const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
+  assert.match(CODER_SYSTEM, /ONE line starting with "Style: "/);
+  assert.match(CODER_SYSTEM, /THE OWNER'S STYLE, when it is given to you below, overrides the default/);
+  const { remote } = await fakeRemote();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const seen = [];
+  const { base, close } = await serve(createApp({ root, send: async (r) => { seen.push(r); return { message: { role: "assistant", content: "ok" } }; }, remote, ...(await roots()) }));
+  try {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-style", text: "hi", messages: [], memory: "- tests: npm test\nStyle: keep answers short\nThe owner's favourite colour is teal." }) });
+    for (let i = 0; i < 60 && !seen.length; i++) await new Promise((ok) => setTimeout(ok, 50));
+    const sys = seen[0].messages[0].content;
+    assert.match(sys, /THE OWNER'S STYLE \(saved earlier; follow it in every answer unless they ask otherwise now\):\n- keep answers short/);
+    assert.ok(sys.indexOf("THE OWNER'S STYLE (saved") < sys.indexOf("YOUR MEMORY FOR THIS REPO"), "given before the memory");
+  } finally { await close(); }
+});
