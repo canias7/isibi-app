@@ -13,8 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ripgrep jq unzip zip less procps \
   && rm -rf /var/lib/apt/lists/*
 
-# Projects live here, one folder each.
-RUN mkdir -p /work
+# Projects live here, one folder each, owned by `dev`: the unprivileged user the
+# AI's commands run as, so they can never read the GitHub token git uses (it is
+# only in the environment of git processes this service runs as root).
+RUN useradd -m -u 1001 dev && mkdir -p /work && chown dev:dev /work
+ENV CODER_RUN_UID=1001 CODER_RUN_GID=1001
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.

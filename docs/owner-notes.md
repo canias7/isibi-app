@@ -27,6 +27,36 @@
 
 
 
+
+## 2026-11-05 — Coder works through each user's own GitHub
+
+Your words: "instead of the files just being R2 … users can have their own
+GitHub account and the code goes through their GitHub account".
+
+- **Connect GitHub:** a user signs in on GitHub's own page and picks which of
+  their repositories Coder may use (a GitHub App you register; steps in
+  `coder/README.md`). Their GitHub token is stored **encrypted**, renewed when it
+  expires, and can be disconnected.
+- **A project is one of their repositories.** Coder clones it into its container,
+  works on its own branch `coder/<project>`, and after each piece of work commits,
+  **pushes the branch and opens a pull request** into their main branch. It never
+  pushes to main. The chat shows "Pushed to … · pull request …".
+- **No code is stored with us any more** (the zip download is gone: the code is in
+  their GitHub). Coder's bucket keeps only the chat, the project list and the
+  encrypted connection.
+- **The AI never sees the GitHub token:** git runs in Coder's own service with the
+  token only in its own environment; the AI's commands run as a separate,
+  unprivileged user that cannot read it (tested). The token is never written into
+  the repository.
+- Only repositories the user can write to are accepted (GitHub itself is asked).
+
+**What you need to do before it works:** register the GitHub App (about 10
+minutes, steps in `coder/README.md`), fill in its Client ID and short name, and
+save its secret and a token key as secrets. Still off (`CODER_ON`) and free.
+
+Tests: Coder 15, all pass, with a local git repository standing in for GitHub and
+a fake GitHub API. The builder's suite: only the known video test fails.
+
 ## 2026-11-05 — Coder moved out: its own app, Worker, container and storage
 
 Your words: "build your own container", "put all this in a different folder",
