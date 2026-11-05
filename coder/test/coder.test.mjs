@@ -996,3 +996,41 @@ test("CD42 @coder in GitHub comments: only signed notifications, only connected+
   assert.match(readFileSync(HERE("wrangler.jsonc"), "utf8"), /"crons": \["\* \* \* \* \*"\]/);
   assert.match(readFileSync(MAIN(".github/workflows/deploy-coder.yml"), "utf8"), /CODER_GITHUB_WEBHOOK_SECRET\n\s+CODER_GITHUB_APP_PRIVATE_KEY/);
 });
+
+test("CD43 undo the last job: its commit is reverted and saved to the branch (no force push); Coder is told; nothing left to undo after", async () => {
+  const { remote, bare } = await fakeRemote();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s = scripted([say("", [call("bash", { command: "echo '<h1>Hi</h1>' > index.html" })]), say("Made index.html.", [])]);
+  const { base, close } = await serve(createApp({ root, send: s.send, remote, ...(await roots()) }));
+  try {
+    const bucket = fakeBucket();
+    const env = { ...GH_ENV, CODER_BUCKET: bucket };
+    const ghFake = fakeGithub();
+    const deps = { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "user-undo", email: "me@x.y" }), container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+    const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+    const st = new URL((await (await go("github/start")).json()).url).searchParams.get("state");
+    await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
+    const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+    assert.equal((await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).status, 400, "nothing to undo yet");
+    await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "make a page" }) });
+    let got;
+    for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
+    assert.equal(got.project.commits.length, 1);
+    assert.equal(got.project.commits[0].title, "Made index.html.");
+    assert.equal(git(bare, "show", "coder/" + id + ":index.html"), "<h1>Hi</h1>\n");
+    const before = git(bare, "rev-parse", "coder/" + id).trim();
+    const u = await (await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).json();
+    assert.equal(u.ok, true, u.error);
+    assert.throws(() => git(bare, "show", "coder/" + id + ":index.html"), "the file is gone again");
+    assert.equal(git(bare, "rev-parse", "coder/" + id + "~1").trim(), before, "a new commit on top (no force push)");
+    assert.match(git(bare, "log", "-1", "--format=%s", "coder/" + id), /^Revert "Made index\.html\."/);
+    assert.deepEqual(u.project.commits, []);
+    assert.match(u.events[0].text, /^Undid the last job \(Made index\.html\.\)/);
+    const msgs = JSON.parse(bucket.m.get("coder/user-undo/" + id + "/messages.json"));
+    assert.match(msgs.at(-2).content, /the owner pressed Undo/);
+    assert.equal((await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).status, 400, "nothing more to undo");
+    const ui = readFileSync(HERE("public/coder.js"), "utf8");
+    assert.match(ui, /Undo last job/);
+    assert.match(ui, /askSure\('Undo the last job\?'/);
+  } finally { await close(); }
+});

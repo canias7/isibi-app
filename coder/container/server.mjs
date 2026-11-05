@@ -364,6 +364,25 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         return send(200, { ok: true });
       }
       if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); } return send(200, { ok: true, running: !!(t && t.running) }); }
+      // UNDO A JOB (owner, 2026-11-05, "add 2"): its commit is reverted (a new
+      // commit that puts the files back) and saved to the branch. Never a force push.
+      if (url.pathname === "/undo" && req.method === "POST") {
+        if (t && t.running) return send(409, { error: "busy" });
+        if (t) killAll(t); else killUser();
+        const sha = String(body.sha || "");
+        if (!/^[0-9a-f]{7,40}$/.test(sha)) return send(400, { error: "bad commit" });
+        const dir = join(root, project);
+        const o = { gitDir: gitDirFor(dir, gitRoot), remote };
+        const prep = await prepareRepo({ dir, repo: String(body.repo || ""), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), remote, gitRoot });
+        if (!prep.ok) return send(502, { ok: false, why: prep.why });
+        const has = await gitIn(dir, ["cat-file", "-e", sha + "^{commit}"], o);
+        if (has.code !== 0) return send(409, { ok: false, why: "that job's commit is not on this branch any more" });
+        const rv = await gitIn(dir, ["revert", "--no-edit", sha], o);
+        if (rv.code !== 0) { await gitIn(dir, ["revert", "--abort"], o); return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
+        const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: "", remote, gitRoot });
+        if (!p.ok) return send(502, { ok: false, why: p.why });
+        return send(200, { ok: true, sha: p.sha });
+      }
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
         if (t) killAll(t);

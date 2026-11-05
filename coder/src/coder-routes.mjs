@@ -321,6 +321,8 @@ export async function handleCoder(request, env, ctx, deps) {
       // "Create pull request". A merged or closed one is forgotten, so the
       // button comes back for the next one.
       let pr = meta.pr || null, pushNote = "", pushed = !!meta.pushed;
+      // Each job that changed files is one commit: kept so it can be undone.
+      let commits = Array.isArray(meta.commits) ? meta.commits : [];
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
@@ -328,6 +330,7 @@ export async function handleCoder(request, env, ctx, deps) {
         if (!p.ok) pushNote = "Not sent to GitHub: " + String(p.why || "the push failed").slice(0, 200);
         else if (p.pushed && p.changed !== false) {
           pushed = true;
+          if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now() }].slice(-50);
           if (pr) pr = await prStillOpen(t.token, meta.repo, pr, fetchFn);
           pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
         }
@@ -346,7 +349,7 @@ export async function handleCoder(request, env, ctx, deps) {
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
-      const ended = { ...meta, saved: meta.turn, pr, pushed, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
+      const ended = { ...meta, saved: meta.turn, pr, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await saveMeta(bucket, uid, ended);
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
     }
@@ -368,6 +371,30 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, pr, at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, url: pr.url, number: pr.number, project: next });
+  }
+
+  // UNDO THE LAST JOB (owner, 2026-11-05): revert its commit, save it, and tell Coder.
+  if (action === "undo" && request.method === "POST") {
+    if (meta.status === "running") return json({ error: "Coder is still working. Stop it first, or wait." }, 409);
+    const commits = Array.isArray(meta.commits) ? meta.commits : [];
+    const last = commits[commits.length - 1];
+    if (!last) return json({ error: "There is no job to undo." }, 400);
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "Connect GitHub again first." }, 401);
+    let r;
+    try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: last.sha }).then((x) => x.json()); }
+    catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
+    if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
+    const note = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + ".";
+    const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    const ev = { at: Date.now(), type: "github", text: note };
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
+    // Coder is told, so its next message knows the change is gone.
+    const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs, { role: "user", content: "(Note from Coder's app: the owner pressed Undo. Your last job's commit \"" + last.title + "\" was reverted; those changes are no longer in the files.)" }, { role: "assistant", content: "Understood: that change was undone." }]));
+    const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next, events: [ev] });
   }
 
   if (action === "changes" && request.method === "GET") {
