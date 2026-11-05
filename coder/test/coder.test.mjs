@@ -381,3 +381,23 @@ test("CD15 the page: sign-in then Coder, served by Coder's own Worker with its s
   assert.match(r.headers.get("content-security-policy"), /frame-ancestors 'none'/);
   assert.match(r.headers.get("content-security-policy"), /script-src 'self'(;|$)/);
 });
+
+test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as reasoning_effort; anything else falls back to the defaults", async () => {
+  const { pickModel, CODER_MODELS, coderSend } = await import("../container/coder-model.mjs");
+  assert.deepEqual(CODER_MODELS.map((m) => [m.id, m.efforts]), [["grok-4.7", ["low", "medium", "high"]]]);
+  assert.deepEqual(pickModel("grok-4.7", "high"), { model: "grok-4.7", effort: "high" });
+  assert.deepEqual(pickModel("grok-4.7", "max"), { model: "grok-4.7", effort: "medium" }, "an effort it does not take");
+  assert.deepEqual(pickModel("gpt-9", "low"), { model: "grok-4.7", effort: "low" }, "a model not on the list");
+  assert.deepEqual(pickModel(undefined, undefined), { model: "grok-4.7", effort: "medium" });
+  const sent = [];
+  const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "hi" } }] })); } });
+  await send({ model: "grok-4.7", effort: "high", messages: [], tools: [] });
+  await send({ model: "grok-4.7", messages: [], tools: [] });
+  assert.equal(sent[0].reasoning_effort, "high");
+  assert.equal("reasoning_effort" in sent[1], false);
+  // The screen offers the same list.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /const MODELS = \[\{ id: 'grok-4\.7', name: 'Grok 4\.7', efforts: \['low', 'medium', 'high'\], effort: 'medium' \}\];/);
+  assert.match(ui, /body: JSON\.stringify\(\{ text, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model, body\.effort\);\n\s+const r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort \}\);/);
+});

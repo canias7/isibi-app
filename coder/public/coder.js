@@ -6,6 +6,17 @@
   'use strict';
   const API = '/api/coder';
   const POLL_MS = 1500;
+  // THE MODEL PICKER (owner, 2026-11-05): each model with its effort levels.
+  // The same list as container/coder-model.mjs; the Worker refuses others.
+  const MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
+  const EFFORT_NAME = { low: 'Low effort', medium: 'Medium effort', high: 'High effort' };
+  const PICK_KEY = 'gf_coder_model_v1';
+  function savedPick() {
+    let v = {}; try { v = JSON.parse(localStorage.getItem(PICK_KEY) || '{}') || {}; } catch (e) { v = {}; }
+    const m = MODELS.find((x) => x.id === v.model) || MODELS[0];
+    return { model: m.id, effort: m.efforts.includes(v.effort) ? v.effort : m.effort };
+  }
+  function savePick() { try { localStorage.setItem(PICK_KEY, JSON.stringify(S.pick)); } catch (e) {} }
 
   // ONE STATE for the whole screen, kept across redraws: chat.js redraws the
   // right-hand area often, and the screen must come back where it was.
@@ -24,6 +35,7 @@
     open: {},         // which command outputs are opened
     root: null,
     poll: 0,
+    pick: null,
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -96,7 +108,7 @@
     const base = S.events.length;
     S.events.push({ type: 'user', text, at: Date.now(), local: true });
     draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, model: S.pick.model, effort: S.pick.effort }) });
     S.sending = false;
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
@@ -207,11 +219,18 @@
 
   function composerHTML() {
     const busy = S.running || S.sending;
+    const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<form class="cd-compose" id="cdForm">' +
       '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something') + '">' + esc(S.draft) + '</textarea>' +
-      (S.running
-        ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
-        : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
+      '<div class="cd-bar">' +
+        '<div class="cd-picks">' +
+          '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
+          '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + EFFORT_NAME[e] + '</option>').join('') + '</select></label>' +
+        '</div>' +
+        (S.running
+          ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
+          : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
+      '</div>' +
     '</form>';
   }
 
@@ -276,6 +295,8 @@
     on('.cd-step-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     on('.cd-opt, .cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
+    on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
+    on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
     const form = root.querySelector('#cdForm');
     const input = root.querySelector('#cdIn');
     if (input) {
@@ -291,6 +312,7 @@
     mount(el) {
       const first = !S.root;
       S.root = el;
+      if (!S.pick) S.pick = savedPick();
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');

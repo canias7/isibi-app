@@ -6,6 +6,18 @@ export const CODER_ENDPOINT = "https://api.x.ai/v1/chat/completions";
 export const CODER_DEFAULT_MODEL = "grok-4.7";
 export const CODER_CALL_MS = 4 * 60 * 1000;
 
+// THE MODEL PICKER (owner, 2026-11-05: "put the model picker, put grok 4.7
+// attached to its effort levels"). Each model with the effort levels it takes;
+// the screen shows this list and the Worker refuses anything not on it.
+export const CODER_MODELS = [
+  { id: "grok-4.7", name: "Grok 4.7", efforts: ["low", "medium", "high"], effort: "medium" },
+];
+/** A model and effort from the list: `{ model, effort }`, the defaults for anything else. */
+export function pickModel(model, effort) {
+  const m = CODER_MODELS.find((x) => x.id === model) || CODER_MODELS[0];
+  return { model: m.id, effort: m.efforts.includes(effort) ? effort : m.effort };
+}
+
 /** The model to use: CODER_MODEL when it looks like a model id, else the default. */
 export function coderModel(env) {
   const m = env && typeof env.CODER_MODEL === "string" ? env.CODER_MODEL.trim() : "";
@@ -22,7 +34,7 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
   const key = env && typeof env.XAI_API_KEY === "string" ? env.XAI_API_KEY : "";
   return async (req) => {
     if (!key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
-    const body = JSON.stringify({ model: req.model || coderModel(env), messages: req.messages, tools: req.tools, tool_choice: req.tool_choice || "auto" });
+    const body = JSON.stringify({ model: req.model || coderModel(env), messages: req.messages, tools: req.tools, tool_choice: req.tool_choice || "auto", ...(req.effort ? { reasoning_effort: req.effort } : {}) });
     for (let attempt = 0; attempt < 2; attempt++) {
       const r = await fetchFn(CODER_ENDPOINT, {
         method: "POST", body,

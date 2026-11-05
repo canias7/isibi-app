@@ -28,6 +28,12 @@
 
 
 
+## 2026-11-05 — Coder: the model picker (Grok 4.7 and its effort levels)
+
+Under the message box there are now two small pickers: the model (**Grok 4.7**, the only one for now) and its effort (**Low, Medium or High**, with Medium as the default). The choice is remembered in the browser. It travels with each message to Coder's Worker, which only accepts models and efforts from its own list, then on to the container. The effort goes to Grok as `reasoning_effort`.
+
+Not checked against the live Grok API: we haven't made a real call yet, because that needs your approval. If Grok 4.7 turns out not to accept one of the three levels, the first real try will show it. Coder's tests: 18 of 18. Not live yet.
+
 ## 2026-11-05 — The conversation tabs on the left: Coder and the Gloopy agent
 
 On your word, the left side now has two tabs: **Coder**, the teal laptop, which opens first, and the **Gloopy agent**, with the yellow figure brought back from the old app. Gloopy still bobs, follows the pointer and waves on a click. The Gloopy agent's screen says "Coming soon" for now, and its address is gofarther.dev/gloopy. On a phone the two tabs sit side by side at the top.
