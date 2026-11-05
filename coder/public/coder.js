@@ -147,6 +147,22 @@
     if (S.running) S.poll = setTimeout(tick, POLL_MS);
   }
 
+  async function loadChanges() {
+    if (!S.project) return;
+    S.changes = null;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/changes');
+    S.changes = r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data : { files: [], add: 0, del: 0 };
+    draw();
+  }
+  async function newChat() {
+    if (!S.project || S.running) return;
+    if (!window.confirm('Start a new chat on ' + S.project.repo + '? The current chat is cleared; the code and the pull request stay.')) return;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/new', { method: 'POST' });
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'A new chat could not be started.'; return draw(); }
+    S.events = []; S.next = 0; S.showChanges = false; S.error = '';
+    draw(true);
+  }
+
   async function stop() {
     if (!S.project) return;
     await call('/projects/' + encodeURIComponent(S.project.id) + '/stop', { method: 'POST' });
@@ -232,6 +248,22 @@
       '<label class="cd-proj">' + ICON.gh + '<select id="cdProject" aria-label="Project">' + opts + '<option value="+">+ Another repository…</option></select></label>' +
       (p ? '<span class="cd-branch">' + ICON.branch + esc(p.branch) + '</span>' : '') +
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' : '') +
+      // THE TWO BUTTONS (owner, 2026-11-05: buttons, not slash commands).
+      (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
+      (p ? '<button type="button" class="cd-hbtn" id="cdNew">New chat</button>' : '') +
+    '</div>' +
+    (S.showChanges ? changesHTML() : '');
+  }
+
+  // WHAT CODER CHANGED, file by file (from its branch against the main branch).
+  function changesHTML() {
+    const c = S.changes;
+    if (!c) return '<div class="cd-changes"><span class="cd-spin"></span></div>';
+    if (!c.files.length) return '<div class="cd-changes"><p class="cd-changes-none">No changes yet.</p></div>';
+    return '<div class="cd-changes">' +
+      '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span></div>' +
+      c.files.map((f) => '<details class="cd-file"><summary><code>' + esc(f.path) + '</code><span class="cd-add">+' + f.add + '</span><span class="cd-del">−' + f.del + '</span></summary>' +
+        '<pre class="cd-diff">' + esc(f.patch || '').split('\n').map((l) => '<span class="' + (l[0] === '+' ? 'cd-dl-add' : l[0] === '-' ? 'cd-dl-del' : l.startsWith('@@') ? 'cd-dl-hunk' : '') + '">' + l + '</span>').join('') + '</pre></details>').join('') +
     '</div>';
   }
 
@@ -314,6 +346,8 @@
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
+    on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
+    on('#cdNew', 'click', newChat);
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
     const form = root.querySelector('#cdForm');
