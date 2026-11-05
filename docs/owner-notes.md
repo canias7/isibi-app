@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05: Download for Mac / Windows back on the front page
+
+- On your word, the sign-in page has a top bar again with the two black "Download for Mac" and "Download for Windows" buttons from the old landing page. Look only: they do nothing yet ("Coming soon"). On a phone they shrink to the two logos.
+
 ## 2026-11-05: Coder's own "Remove chat?" box
 
 - Removing a chat showed the browser's own grey popup. Now Coder shows its own white box with Cancel and a red Remove button. A test checks the page uses no browser popups anywhere.

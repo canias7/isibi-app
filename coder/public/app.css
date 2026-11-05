@@ -87,3 +87,13 @@ body { display: flex; flex-direction: column; background: #faf9f7; color: #0d1b2
   body.gf-side-open .gf-scrim { display: block; position: fixed; inset: 0; background: rgba(13,27,42,.25); z-index: 30; }
   .gf-col { width: min(252px, calc(100vw - 110px)); }
 }
+
+/* The top bar on the sign-in page, with the desktop app downloads (look only). */
+.gf-gate { position: relative; padding-top: 84px; }
+.gf-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; }
+.gf-top .gf-cardbrand { margin: 0; }
+.dl-apps { display: flex; gap: 8px; align-items: center; }
+.dl-app { display: inline-flex; align-items: center; gap: 8px; background: #0d0d0f; color: #fff; border: 1px solid #0d0d0f; border-radius: 999px; padding: 8px 14px 8px 12px; font: inherit; font-size: 14px; font-weight: 500; line-height: 1; cursor: default; box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 6px 16px -8px rgba(0,0,0,.45); transition: background .15s, transform .15s; }
+.dl-app:hover { background: #26262b; transform: translateY(-1px); }
+.dl-app svg { width: 15px; height: 15px; flex: none; }
+@media (max-width: 600px) { .dl-app span { display: none; } .dl-app { padding: 8px 10px; } .gf-top { padding: 14px 16px; } }
