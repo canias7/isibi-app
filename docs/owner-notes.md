@@ -28,6 +28,12 @@
 
 
 
+## 2026-11-05 — The conversation tabs on the left: Coder and the Gloopy agent
+
+On your word, the left side now has two tabs: **Coder**, the teal laptop, which opens first, and the **Gloopy agent**, with the yellow figure brought back from the old app. Gloopy still bobs, follows the pointer and waves on a click. The Gloopy agent's screen says "Coming soon" for now, and its address is gofarther.dev/gloopy. On a phone the two tabs sit side by side at the top.
+
+New files: `coder/public/gloopy.js` and `gloopy.css`. The page now allows inline styles, which the figure's drawing needs. Coder's tests: 17 of 17. Not live yet.
+
 ## 2026-11-05 — Everything deleted except Coder; gofarther.dev becomes Coder
 
 On your word "delete everything except the new coder we are building", I deleted the website builder from the repository: the builder, the old app, the site serving on gofarther.app, the tests, the scripts and the old docs. That was 2,941 files. What's left is `coder/`, the two buttons, your two record files (this log and owner-preferences) and a new short CLAUDE.md. Everything deleted is still in git history.

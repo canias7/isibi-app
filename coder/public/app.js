@@ -7,15 +7,29 @@
   let codeType = 'email';
   let busy = false;
 
+  // WHICH TAB: the address says (/gloopy), Coder otherwise.
+  const agentNow = () => (/^\/gloopy\/?$/.test(location.pathname) ? 'gloopy' : 'coder');
+  let coderMounted = false;
+  function pick(agent, push) {
+    if (push && agentNow() !== agent) { try { history.pushState({}, '', agent === 'gloopy' ? '/gloopy' : '/'); } catch (e) {} }
+    document.querySelectorAll('.gf-tab').forEach((t) => t.classList.toggle('on', t.dataset.agent === agent));
+    $('gfApp').hidden = agent !== 'coder';
+    $('gfSoon').hidden = agent !== 'gloopy';
+    if (agent === 'coder' && !coderMounted) { coderMounted = true; window.CoderView.mount($('gfApp')); }
+  }
   function showApp() {
     $('gfGate').hidden = true;
-    $('gfApp').hidden = false;
+    $('gfShell').hidden = false;
     $('gfUser').hidden = false;
     $('gfEmail').textContent = window.Auth.email();
-    window.CoderView.mount($('gfApp'));
+    $('gfTabGloopy').innerHTML = window.gloopyHTML(44);
+    $('gfSoonFig').innerHTML = window.gloopyHTML(150);
+    document.querySelectorAll('.gf-tab').forEach((t) => t.addEventListener('click', () => pick(t.dataset.agent, true)));
+    addEventListener('popstate', () => pick(agentNow(), false));
+    pick(agentNow(), false);
   }
   function showGate() {
-    $('gfApp').hidden = true;
+    $('gfShell').hidden = true;
     $('gfUser').hidden = true;
     $('gfGate').hidden = false;
     draw();

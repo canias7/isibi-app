@@ -363,7 +363,7 @@ test("CD14: only the accounts in CODER_USERS may use Coder", async () => {
 });
 
 test("CD15 the page: sign-in then Coder, served by Coder's own Worker with its safety headers; calls stay on the same address", async () => {
-  for (const f of ["index.html", "app.js", "app.css", "auth.js", "coder.js", "coder.css"]) assert.ok(existsSync(HERE("public/" + f)), f);
+  for (const f of ["index.html", "app.js", "app.css", "auth.js", "coder.js", "coder.css", "gloopy.js", "gloopy.css"]) assert.ok(existsSync(HERE("public/" + f)), f);
   const html = readFileSync(HERE("public/index.html"), "utf8");
   for (const f of ["/auth.js", "/coder.js", "/app.js", "/app.css", "/coder.css"]) assert.ok(html.includes('"' + f + '"'), "index.html loads " + f);
   assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /const API = '\/api\/coder';/, "the screen calls its own address");
