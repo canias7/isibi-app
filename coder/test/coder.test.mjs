@@ -13,7 +13,7 @@ import http from "node:http";
 import { execFileSync } from "node:child_process";
 import { commandProblem, cleanEnv, scrub, capOutput, readTimeout } from "../container/coder-checks.mjs";
 import { runCoder } from "../container/coder-agent.mjs";
-import { execIn, exportFiles, restoreFiles, createApp, prepareRepo, pushRepo, gitIn } from "../container/server.mjs";
+import { execIn, createApp, prepareRepo, pushRepo, gitIn } from "../container/server.mjs";
 import { handleCoder, projectIdFor, commitTitle } from "../src/coder-routes.mjs";
 import { makeState, readState, seal, unseal, saveConnection, userToken, signInUrl } from "../src/coder-github.mjs";
 import { coderModel, coderSend } from "../container/coder-model.mjs";
@@ -324,7 +324,7 @@ test("CD12 Coder is its own app: its own worker.js, config, container and bucket
   for (const f of ["worker.js", "wrangler.jsonc", "package.json", "container/Dockerfile", "container/server.mjs", "container/coder-agent.mjs", "container/coder-checks.mjs", "container/coder-model.mjs", "src/coder-routes.mjs", "src/coder-github.mjs", "src/coder-auth.mjs", "src/coder-cors.mjs"]) assert.ok(existsSync(HERE(f)), f);
   const W = readFileSync(HERE("worker.js"), "utf8");
   assert.match(W, /export class CoderContainer extends Container \{/);
-  assert.match(W, /container: \(name\) => getContainer\(env\.CODER_CONTAINER, name\)/);
+  assert.match(W, /container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\)/);
   const J = readFileSync(HERE("wrangler.jsonc"), "utf8");
   assert.match(J, /"name": "gofarther-coder"/);
   assert.match(J, /"pattern": "coder\.gofarther\.dev", "custom_domain": true/);

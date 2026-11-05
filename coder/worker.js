@@ -12,12 +12,24 @@ import { handleSignin } from "./src/coder-signin.mjs";
  * per project. It gets the AI key it calls Grok with and nothing else; the
  * commands it runs never see even that (`container/coder-checks.mjs`).
  */
+/** The key that locks Coder's machine's control panel, made from CODER_TOKEN_KEY (never the key itself). */
+export function controlKeySync(tokenKey) {
+  // A plain, fixed mixing (no secret leaves): FNV-1a over a label and the key, 4 rounds, hex.
+  let out = "";
+  for (let round = 0; round < 4; round++) {
+    let h = 0x811c9dc5 ^ round;
+    for (const ch of "coder-control:" + round + ":" + tokenKey) { h ^= ch.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+    out += h.toString(16).padStart(8, "0");
+  }
+  return out;
+}
+
 export class CoderContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "10m";
   constructor(ctx, env, options) {
     super(ctx, env, options);
-    this.envVars = { ...(env.XAI_API_KEY ? { XAI_API_KEY: env.XAI_API_KEY } : {}), ...(env.CODER_MODEL ? { CODER_MODEL: env.CODER_MODEL } : {}) };
+    this.envVars = { ...(env.XAI_API_KEY ? { XAI_API_KEY: env.XAI_API_KEY } : {}), ...(env.CODER_MODEL ? { CODER_MODEL: env.CODER_MODEL } : {}), ...(env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) };
   }
 }
 
@@ -32,7 +44,8 @@ export default {
     } else if (url.pathname.startsWith("/api/coder/")) {
       res = await handleCoder(request, env, ctx, {
         authUser: (r) => authUser(r, env),
-        container: (name) => getContainer(env.CODER_CONTAINER, name),
+        // Every call to Coder's machine carries the control key (the audit, 2026-11-05).
+        container: (name) => { const box = getContainer(env.CODER_CONTAINER, name); const key = env.CODER_TOKEN_KEY ? controlKeySync(env.CODER_TOKEN_KEY) : ""; return { fetch: (req) => { const r = new Request(req); if (key) r.headers.set("x-coder-key", key); return box.fetch(r); } }; },
       });
     } else if (url.pathname === "/health") {
       res = Response.json({ ok: true, service: "coder", on: env.CODER_ON === "on" });
