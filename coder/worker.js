@@ -1,8 +1,5 @@
-// CODER'S OWN WORKER (2026-11-05, the owner: "make a different workers .js,
-// dude … I don't want it close to the other one"). It shares nothing with the
-// website builder's Worker: its own address (coder.gofarther.dev), its own
-// container, its own storage. The builder's page calls it from the browser
-// with the owner's sign-in token.
+// CODER'S WORKER: gofarther.dev (the page and /api/coder/*), its own
+// container and its own storage.
 import { Container, getContainer } from "@cloudflare/containers";
 import { handleCoder } from "./src/coder-routes.mjs";
 import { authUser } from "./src/coder-auth.mjs";

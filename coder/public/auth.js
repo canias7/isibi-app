@@ -4,7 +4,7 @@
 const SUPABASE_URL = 'https://ujrqdmmtcptvimazlhom.supabase.co';
 const SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4';
-const SESSION_KEY = 'zephyr_session_v1';
+const SESSION_KEY = 'gf_session_v1';
 
 const Auth = (() => {
   let session = null; // { access_token, refresh_token, expires_at (ms), user }
@@ -106,7 +106,7 @@ const Auth = (() => {
         // out everywhere). navigator.locks serializes across tabs; where it's
         // unavailable the per-tab guard alone still holds within a tab.
         if (navigator.locks && navigator.locks.request) {
-          return await navigator.locks.request('zephyr-token-refresh', doRefresh);
+          return await navigator.locks.request('gf-token-refresh', doRefresh);
         }
         return await doRefresh();
       } finally { refreshing = null; }
