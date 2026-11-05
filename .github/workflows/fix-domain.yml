@@ -1,0 +1,47 @@
+name: fix gofarther.dev
+
+# 2026-11-05: after the old app was deleted, gofarther.dev and www.gofarther.dev
+# had no DNS record, though Coder's deploy listed them as its custom domains
+# (coder.gofarther.dev worked). This shows what Cloudflare holds for the three
+# addresses, attaches gofarther.dev and www.gofarther.dev to the
+# gofarther-coder Worker again (which creates their DNS records), and shows the
+# result. It touches only those two addresses.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      T: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      A: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Before
+        run: |
+          API=https://api.cloudflare.com/client/v4
+          ZONE=$(curl -fsS -H "Authorization: Bearer $T" "$API/zones?name=gofarther.dev" | jq -r '.result[0].id')
+          echo "zone: $ZONE"; echo "ZONE=$ZONE" >> "$GITHUB_ENV"
+          echo "== Worker custom domains on gofarther.dev"
+          curl -fsS -H "Authorization: Bearer $T" "$API/accounts/$A/workers/domains?zone_id=$ZONE" | jq -r '.result[] | .hostname + "  ->  " + .service'
+          echo "== DNS records for the three addresses"
+          for h in gofarther.dev www.gofarther.dev coder.gofarther.dev; do
+            curl -fsS -H "Authorization: Bearer $T" "$API/zones/$ZONE/dns_records?name=$h" | jq -r '.result[] | .type + "  " + .name + "  " + .content + "  proxied=" + (.proxied|tostring)'
+          done
+      - name: Attach gofarther.dev and www to Coder again
+        run: |
+          API=https://api.cloudflare.com/client/v4
+          for h in gofarther.dev www.gofarther.dev; do
+            echo "== $h"
+            curl -sS -X PUT -H "Authorization: Bearer $T" -H "content-type: application/json" "$API/accounts/$A/workers/domains" \
+              -d "{\"hostname\":\"$h\",\"service\":\"gofarther-coder\",\"environment\":\"production\",\"zone_id\":\"$ZONE\",\"override_existing_dns_record\":true}" \
+              | jq -c '{success, errors: [.errors[]?.message], hostname: .result.hostname, service: .result.service}'
+          done
+      - name: After
+        run: |
+          API=https://api.cloudflare.com/client/v4
+          sleep 20
+          for h in gofarther.dev www.gofarther.dev; do
+            curl -fsS -H "Authorization: Bearer $T" "$API/zones/$ZONE/dns_records?name=$h" | jq -r '.result[] | .type + "  " + .name + "  " + .content + "  proxied=" + (.proxied|tostring)'
+            echo "$h -> $(curl -sS -m 15 https://$h/health || echo 'no answer yet')"
+          done
