@@ -424,7 +424,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,600}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup \}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,600}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, away: [^}]*\}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1333,4 +1333,12 @@ test("CD58 an auto-fix shows its real reason in the chat (not the safety label)"
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ autofix: true, fromGithub: true, text: "AUTO-FIX for pull request #5 on coder/x.\n\nThe text between <<<GITHUB and GITHUB>>> comes from GitHub...\n<<<GITHUB\nThe check \"test\" failed (failure)\nmore\nGITHUB>>>" }) });
   assert.equal(sent[0].shown, 'Auto-fix: The check "test" failed (failure)');
+});
+
+test("CD59 how Coder talks: answer first, evidence, styles on request (remembered when asked), comments only where needed, PR descriptions with checks and risks, a recap after a break", async () => {
+  const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
+  for (const re of [/Lead with the answer or the result in the first sentence/, /Show evidence, not just claims: "npm test: 12 passing"/, /"explain…" → explain step by step/, /"teach me…" → walk them through it/, /"just do it" \/ "keep it short" → the result in one or two lines/, /If they say "always" or "from now on", also save it in your memory file/, /Code comments: add them only where the code is not obvious/, /how you checked it \(the commands and their results\), and any risks/, /one-line recap of where this chat stands/]) assert.match(CODER_SYSTEM, re);
+  const { AWAY_MS } = await import("../src/coder-routes.mjs");
+  assert.equal(AWAY_MS, 2 * 60 * 60 * 1000);
+  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /THE OWNER IS COMING BACK AFTER A BREAK of about/);
 });

@@ -358,7 +358,8 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         await ignoreNew(dir, gitRoot, remote);
       }
     }
-    const context = contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(extraEnv).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(extraEnv).join(", ") : "");
+    const awayH = Number(body.away) > 0 ? Math.round(Number(body.away) / 3600000) : 0;
+    const context = (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(extraEnv).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(extraEnv).join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {
