@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05 — Coder's chat: the Claude-app look (approved)
+
+From your screenshot of the Claude app, you approved this look ("ok good"):
+- your messages in a light grey bubble;
+- each command as a quiet "Ran … ▸" line, and several in a row grouped as "Ran 3 commands ▾" in one box;
+- a failed command marked "exit 1";
+- Coder's answer as plain text;
+- the model and effort ("Grok 4.7 · Medium") under the message box.
+
+On the branch, not live yet. It goes out with the next "merge and deploy" and **deploy coder**, together with the removal of `ask` and `done`.
+
 ## 2026-11-05 — Coder's `done` tool removed too
 
 On your word "delete the done", Coder has **one tool: `bash`**. It finishes the way a person would: it stops running commands and writes its answer in plain words. That answer gets the green ✓ in the chat and becomes the pull request's description, and the work goes to GitHub as before. Coder's tests: 18 of 18. Not live until "deploy coder" is pressed again.
