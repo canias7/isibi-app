@@ -22,7 +22,8 @@ repository on 2026-11-05. The full old tree is in git history (the commit before
 | `coder/container/` | Coder's own container: the agent loop (Grok, tools `bash`/`ask`/`done`), safety checks, git |
 | `coder/test/` | `npm test` from `coder/` |
 | `.github/workflows/deploy-coder.yml` | The deploy button (pressed by the owner) |
-| `.github/workflows/retire-old-app.yml` | Deletes the old builder's Workers (`isibi-app`, `gofarther-front`); runs only when the box says DELETE |
+| `.github/workflows/list-old-stuff.yml` | Lists what is left of the old app (read-only) |
+| `.github/workflows/delete-old-stuff.yml` | Deletes the old app's named Workers, sites, storage and branches (lists in `.github/old-stuff/`); runs only when the box says DELETE |
 
 How Coder works and how GitHub is set up: `coder/README.md`.
 
