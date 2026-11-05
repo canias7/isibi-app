@@ -131,12 +131,14 @@ export function gitIn(dir, args, { token = "", timeoutS = 180, gitDir = gitDirFo
     GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_COUNT: token ? "1" : "0", ...(token ? { GIT_CONFIG_KEY_0: headerKey, GIT_CONFIG_VALUE_0: header } : {}) };
   const safe = ["--git-dir=" + gitDir, "--work-tree=" + dir, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.sshCommand=false", "-c", "protocol.ext.allow=never"];
   return new Promise((done) => {
-    let out = "";
+    let out = "", stdout = "";
     const p = spawn("git", [...safe, ...args], { cwd: dir, env, stdio: ["ignore", "pipe", "pipe"] });
-    p.stdout.on("data", (b) => { out += b; }); p.stderr.on("data", (b) => { out += b; });
+    p.stdout.on("data", (b) => { out += b; stdout += b; }); p.stderr.on("data", (b) => { out += b; });
     const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, timeoutS * 1000);
     p.on("error", (e) => { clearTimeout(t); done({ code: -1, output: e.message }); });
-    p.on("close", (code) => { clearTimeout(t); done({ code: typeof code === "number" ? code : -1, output: (token ? out.split(token).join("[hidden]").split(header).join("[hidden]") : out).slice(0, 4000) }); });
+    p.on("close", (code) => { clearTimeout(t); const hide = (s) => (token ? s.split(token).join("[hidden]").split(header).join("[hidden]") : s);
+      // `stdout`: git's answer alone, without its warnings (used to read state).
+      done({ code: typeof code === "number" ? code : -1, output: hide(out).slice(0, 4000), stdout: hide(stdout).slice(0, 4000) }); });
   });
 }
 
@@ -167,8 +169,8 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
   }
   const remoteHas = await gitIn(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token });
   if (remoteHas.code !== 0) return { ok: false, why: "could not reach " + repo + " on GitHub: " + remoteHas.output.slice(0, 200) };
-  const cur = (await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], o)).output.trim();
-  if (remoteHas.output.trim()) {
+  const cur = (await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], o)).stdout.trim();
+  if (remoteHas.stdout.trim()) {
     const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token });
     if (f.code !== 0) return { ok: false, why: "could not fetch the branch " + branch + ": " + f.output.slice(0, 200) };
     if (cur !== branch) {
@@ -191,7 +193,7 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
   const o = { gitDir: gitDirFor(dir, gitRoot), remote };
   await gitIn(dir, ["add", "-A"], o);
   const st = await gitIn(dir, ["status", "--porcelain"], o);
-  const committed = !!st.output.trim();
+  const committed = !!String(st.stdout ?? st.output).trim();
   if (committed) {
     const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
     if (c.code !== 0) return { ok: false, pushed: false, why: "could not commit: " + c.output.slice(0, 200) };
@@ -199,12 +201,12 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
   // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
   if (!committed) {
     const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
-    if (own.code === 0 && own.output.trim() === "0") return { ok: true, pushed: false, changed: false };
+    if (own.code === 0 && String(own.stdout ?? own.output).trim() === "0") return { ok: true, pushed: false, changed: false };
   }
   const url = remote + repo + ".git";
   const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token });
   if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300) };
-  const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).output.trim();
+  const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
   // `changed`: this job changed files (a new commit), so there is new work to show.
   return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha };
 }
