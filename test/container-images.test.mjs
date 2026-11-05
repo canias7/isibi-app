@@ -312,7 +312,7 @@ test("an image already in the registry is REUSED: no build, the config reference
   // Learn the ids from a first run against an empty registry, then answer them.
   const first = harness({ files: TWO_CONTAINERS });
   const out1 = await main(first.deps);
-  // THREE: the fixture's added container and the two real ones (the site and, since 2026-10-20, the app builder).
+  // FOUR: the fixture's added container and the three real ones (the site, the app builder since 2026-10-20, Coder since 2026-11-05).
   assert.equal(out1.images.length, 4);
   assert.equal(first.calls.builds.length, 4, "an empty registry builds them all");
   // The registry is asked by the short name and the tag — the two halves of
@@ -322,7 +322,7 @@ test("an image already in the registry is REUSED: no build, the config reference
   const { deps, calls } = harness({ answer: (name, tag) => (known.has(`${name}:${tag}`) ? THERE : ABSENT), files: TWO_CONTAINERS });
   const out = await main(deps);
   assert.equal(calls.builds.length, 0, "an image already there was built again");
-  assert.deepEqual(out.images.map((i) => i.action), ["reused", "reused", "reused"]);
+  assert.deepEqual(out.images.map((i) => i.action), ["reused", "reused", "reused", "reused"]);
   assert.deepEqual(out.images.map((i) => i.status), [200, 200, 200], "the registry's answer does not ride the result");
   assert.equal(calls.asked.length, 4, "each image is asked for once");
   assert.ok(calls.logs.some((l) => /IMAGE SiteBuildContainer: reused isibi-app-sitebuildcontainer:[0-9a-f]{16}  \(registry answered 200;/.test(l)), "the log does not say what the registry answered");
@@ -370,7 +370,7 @@ test("a registry that CANNOT be asked builds — never skips — and the log say
   const out = await main(deps);
   assert.deepEqual(out.images.map((i) => i.action), ["built", "built", "built", "built"], "an unanswered registry was read as an image being there");
   assert.equal(calls.builds.length, 4);
-  assert.deepEqual(out.images.map((i) => i.status), [401, "registry credentials: 403", "registry credentials: 403"]);
+  assert.deepEqual(out.images.map((i) => i.status), [401, "registry credentials: 403", "registry credentials: 403", "registry credentials: 403"]);
   const said = calls.logs.filter((l) => /registry could not be asked for isibi-app-(?:(other|site|app)buildcontainer|codercontainer):[0-9a-f]{16} \((401|registry credentials: 403)\) — building/.test(l));
   assert.equal(said.length, 4, "the unanswered asks were not all said out loud, with their reasons");
   // RE-ANCHORED 2026-09-10 (the image-id stamp). This counted writes — `=== 1`
@@ -384,7 +384,7 @@ test("a registry that CANNOT be asked builds — never skips — and the log say
 test("a failed build is tried once more; a second failure fails the deploy and writes nothing", async () => {
   const once = harness({ buildOk: (n) => n !== 1, files: TWO_CONTAINERS });
   const out = await main(once.deps);
-  assert.equal(once.calls.builds.length, 4, "the first image's failed build was not retried exactly once");
+  assert.equal(once.calls.builds.length, 5, "the first image's failed build was not retried exactly once");
   assert.equal(out.images.length, 4);
   const never = harness({ buildOk: () => false, files: TWO_CONTAINERS });
   await assert.rejects(() => main(never.deps), /could not build and push/);
