@@ -190,3 +190,12 @@
 .cd-sure-row button{font:inherit;font-size:14px;border-radius:10px;padding:8px 14px;cursor:pointer;border:1px solid #e5e3dd;background:#fff;color:#1f1e1d}
 .cd-sure-row .cd-sure-yes{background:#b3261e;border-color:#b3261e;color:#fff}
 .cd-sure-row button:hover{filter:brightness(.96)}
+
+/* Coder's checklist (the todo tool), only the latest one is shown. */
+.cd-todo{border:1px solid #e5e3dd;border-radius:12px;padding:10px 14px;margin:8px 0;background:#fff;font-size:14px}
+.cd-todo b{display:block;font-size:12px;color:#6b6a68;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.cd-todo-i{display:flex;gap:8px;align-items:flex-start;padding:3px 0;color:#1f1e1d}
+.cd-todo-box{flex:none;width:16px;height:16px;border:1.5px solid #c9c6bf;border-radius:4px;display:grid;place-items:center;font-size:11px;line-height:1;margin-top:2px}
+.cd-todo-i.is-done{color:#8a8884;text-decoration:line-through}
+.cd-todo-i.is-done .cd-todo-box{background:#1f6f5c;border-color:#1f6f5c;color:#fff}
+.cd-todo-i.is-in_progress .cd-todo-box{border-color:#1f1e1d;font-weight:700}

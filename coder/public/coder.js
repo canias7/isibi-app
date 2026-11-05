@@ -235,9 +235,10 @@
   // (owner, 2026-11-05: "look at the frontend of this"). Tap it for the output.
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
-    const verb = state === 'run' ? 'Running' : 'Ran';
+    // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
+    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-spin" aria-label="running"></span>'
-      : state === 'bad' ? '<span class="cd-bad">' + (r.timedOut ? 'timed out' : 'exit ' + esc(r.code)) + '</span>'
+      : state === 'bad' ? '<span class="cd-bad">' + (r.timedOut ? 'timed out' : e.tool ? 'failed' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-bgchip">running in the background</span>' : '';
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
@@ -265,7 +266,7 @@
         const shut = !!S.open[gk];
         const bad = group.some(([e, i]) => stateOf(e, i) === 'bad');
         out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
-          '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">Ran ' + group.length + ' commands <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (bad ? '<span class="cd-bad">a command failed</span>' : '') + '</button>' +
+          '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + (group.every(([g]) => !g.tool) ? 'Ran ' + group.length + ' commands' : group.length + ' steps') + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (bad ? '<span class="cd-bad">a command failed</span>' : '') + '</button>' +
           (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +
         '</div>');
       }
@@ -279,6 +280,7 @@
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
+      else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
       else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
     });
