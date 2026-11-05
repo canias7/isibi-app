@@ -34,6 +34,7 @@ export const RUN_TOOLS = {
   edit: { verb: "Edited", label: (a) => a.path },
   grep: { verb: "Searched", label: (a) => JSON.stringify(a.pattern || "") + (a.path && a.path !== "." ? " in " + a.path : "") },
   glob: { verb: "Found", label: (a) => String(a.pattern || "") },
+  lsp: { verb: "Looked up", label: (a) => String(a.action || "") + " " + String(a.path || "") + (a.line ? ":" + a.line + (a.column ? ":" + a.column : "") : "") },
   web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
 };
 
@@ -46,12 +47,16 @@ export const CODER_TOOLS = Object.freeze([
   fn("write", "Write a whole file (new, or replacing everything in it). At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
   fn("glob", "List the project's files whose path matches a pattern, e.g. src/**/*.js or **/*.md.", { pattern: { type: "string" }, path: { type: "string" } }, ["pattern"]),
+  fn("lsp", "Ask a real language server (JavaScript/TypeScript, Python) about the code: definition (where a name is defined), references (everywhere it is used), hover (its type and docs), diagnostics (the file's errors and warnings). line and column count from 1, as read shows them; point them at the name.", { action: { type: "string", enum: ["definition", "references", "hover", "diagnostics"] }, path: { type: "string" }, line: { type: "integer" }, column: { type: "integer" } }, ["action", "path"]),
   fn("web_fetch", "Read a public web page (documentation, an API's reference) as plain text.", { url: { type: "string" } }, ["url"]),
+  fn("monitor", "Read what a background job (from bash with run_in_background) has printed: the newest lines, and whether it is still running. wait_s (0-60) waits first, to let it get going.", { job: { type: "string" }, wait_s: { type: "integer" }, lines: { type: "integer" } }, ["job"]),
+  fn("stop_job", "Stop a background job by its id. Every job is also stopped when your turn ends.", { job: { type: "string" } }, ["job"]),
+  fn("ask_user", "Ask the owner ONE multiple-choice question when you truly cannot choose for them (e.g. which of two designs, whether to delete something). Give 2 to 4 short options. Your turn ends there; their pick comes back as the next message. Do not use it for things you can decide yourself.", { question: { type: "string" }, options: { type: "array", items: { type: "string" } } }, ["question", "options"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   { type: "function", function: {
     name: "bash",
-    description: "Run ONE shell command (bash) in the project's folder and get back what it printed and its exit code. Use it for everything: ls, cat, grep, find, writing files (cat > file <<'EOF' … EOF), editing (sed, or rewrite the file), npm/pip installs, tests, git. Commands run with no secrets in their environment. A command that could run forever (a dev server) must be started in the background (… > server.log 2>&1 &) and checked with curl. `timeout_s`: how long it may take (default 120, at most 600).",
-    parameters: { type: "object", properties: { command: { type: "string" }, timeout_s: { type: "integer" } }, required: ["command"] },
+    description: "Run ONE shell command (bash) in the project's folder and get back what it printed and its exit code: installs, tests, builds, scripts, git status/log/diff. Commands run with no secrets in their environment. A command that runs on (a dev server, a watcher) goes in the background with run_in_background: true (not with &): you get a job id to read with monitor and end with stop_job. `timeout_s`: how long it may take (default 120, at most 600).",
+    parameters: { type: "object", properties: { command: { type: "string" }, timeout_s: { type: "integer" }, run_in_background: { type: "boolean" } }, required: ["command"] },
   } },
   // OWNER, 2026-11-05 ("b"): the owner asks for a pull request in the chat,
   // and Coder makes it. Coder only writes the title and description; our
@@ -72,7 +77,7 @@ HOW YOU WORK
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
-- Long-running servers go in the background (… > app.log 2>&1 &), then check them with curl. A command still running at its time limit is not stopped: it keeps running in the background, and you are told the log file to read with tail.
+- Long-running servers and watchers: bash with run_in_background: true, then monitor to read their output (and curl to check a server), stop_job when done. Never use & yourself. A command still running at its time limit keeps running in the background. Everything in the background is stopped when your turn ends.
 - Keep command output small (head, tail, grep): every round costs the owner time.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
@@ -80,7 +85,7 @@ HOW YOU WORK
 
 TALKING TO THE OWNER
 - Say in one short line what you are about to do, then do it.
-- When a choice is open, make the sensible one yourself and say which at the end. Only when you truly cannot go on without the owner, say plainly what you need.
+- When a choice is open, make the sensible one yourself and say which at the end. Only when you truly cannot go on without the owner, use ask_user with 2 to 4 options.
 - To finish, stop calling bash and answer in plain words: what you made or changed, and how to use it. That answer ends your turn. Never claim something you did not run.
 - If something cannot be done, say so plainly, with why.`;
 
@@ -114,6 +119,8 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
   const started = now();
   let rounds = 0;
   let prRequest = null;
+  // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
+  const jobs = new Map();
   const end = (status, extra = {}) => ({ status, messages: convo, rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...extra });
 
   while (true) {
@@ -154,13 +161,41 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         let r;
-        try { r = await deps.exec({ command, timeoutS: readTimeout(c.args.timeout_s) }); }
+        const inBg = c.args.run_in_background === true;
+        try { r = await deps.exec({ command, timeoutS: inBg ? 1 : readTimeout(c.args.timeout_s) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const out = capOutput(String((r && r.output) || ""));
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         const bg = !!(r && r.background);
-        emit({ type: "result", id: c.id, code, output: out, ...(bg ? { background: true } : r && r.timedOut ? { timedOut: true } : {}) });
-        reply(bg ? out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
+        let job = "";
+        if (bg && r.pid && r.log) { job = "job" + (jobs.size + 1); jobs.set(job, { pid: r.pid, log: r.log, command }); }
+        emit({ type: "result", id: c.id, code, output: out, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}) });
+        reply(bg ? (job ? "[running in the background as " + job + ": read it with monitor, end it with stop_job]\n" : "") + out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
+      } else if (c.name === "monitor" || c.name === "stop_job") {
+        // A BACKGROUND JOB: read its log, or stop it (as `dev`, like any command).
+        const j = jobs.get(String(c.args.job || ""));
+        emit({ type: "bash", id: c.id, tool: c.name, verb: c.name === "monitor" ? "Checked" : "Stopped", command: String(c.args.job || "") + (j ? " (" + scrub(j.command.split("\n")[0]).slice(0, 80) + ")" : "") });
+        if (!j) { const m = "error: no background job " + String(c.args.job || "").slice(0, 20) + " (jobs: " + ([...jobs.keys()].join(", ") || "none") + ")"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
+        const wait = Math.min(60, Math.max(0, Number(c.args.wait_s) || 0));
+        const lines = Math.min(200, Math.max(5, Number(c.args.lines) || 40));
+        const cmd = c.name === "monitor"
+          ? (wait ? "sleep " + wait + "; " : "") + "tail -n " + lines + " " + j.log + "; if kill -0 " + j.pid + " 2>/dev/null; then echo '[still running]'; else echo '[not running]'; fi"
+          : "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + String(c.args.job) + "]'";
+        let r;
+        try { r = await deps.exec({ command: cmd, timeoutS: wait + 15, tool: true }); }
+        catch (e) { r = { code: -1, output: String((e && e.message) || e).slice(0, 200) }; }
+        const out = capOutput(String((r && r.output) || ""));
+        emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: out });
+        reply(out || "(nothing yet)");
+      } else if (c.name === "ask_user") {
+        // A QUESTION FOR THE OWNER: the turn ends here; their pick is the next message.
+        const question = scrub(String(c.args.question || "")).trim().slice(0, 500);
+        const options = (Array.isArray(c.args.options) ? c.args.options : []).map((o) => scrub(String(o)).trim().slice(0, 120)).filter(Boolean).slice(0, 4);
+        if (!question || options.length < 2) { reply("error: give a question and 2 to 4 options"); continue; }
+        reply("asked the owner; their answer comes as the next message");
+        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner a question first" });
+        emit({ type: "question", text: question, options });
+        return end("done", { summary: question });
       } else if (RUN_TOOLS[c.name]) {
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
         const spec = RUN_TOOLS[c.name];
@@ -171,7 +206,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args })).toString("base64");
         let r;
-        try { r = await deps.exec({ command: "node " + TOOLS_SCRIPT + " " + b64, timeoutS: 60, tool: true }); }
+        try { r = await deps.exec({ command: "node " + TOOLS_SCRIPT + " " + b64, timeoutS: c.name === "lsp" ? 90 : 60, tool: true }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const out = capOutput(String((r && r.output) || ""));
         const code = r && Number.isInteger(r.code) ? r.code : -1;
@@ -188,7 +223,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         prRequest = { title: scrub(title), body: scrub(body) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, web_fetch, todo and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, todo and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

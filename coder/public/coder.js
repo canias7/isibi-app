@@ -143,7 +143,6 @@
   // ── A MESSAGE, THEN FOLLOWING THE WORK ────────────────────────────────────
   async function send(text) {
     text = String(text || '').trim();
-    // A SLASH COMMAND runs here, in the page (no AI).
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
     if ((!text && !comments.length) || !S.project || S.running || S.sending) return;
@@ -280,6 +279,11 @@
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
+      else if (e.type === 'question') {
+        // CODER'S QUESTION (the ask_user tool): the options are buttons, live only on the last one.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        out.push('<div class="cd-ask"><div class="cd-ask-q">' + esc(e.text) + '</div><div class="cd-ask-opts">' + (e.options || []).map((o) => '<button type="button" class="cd-ask-opt" data-answer="' + esc(o) + '"' + (live ? '' : ' disabled') + '>' + esc(o) + '</button>').join('') + '</div></div>');
+      }
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
       else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
@@ -438,6 +442,7 @@
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-ask-opt', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
