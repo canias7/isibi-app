@@ -1062,7 +1062,7 @@ test("CD44 pictures and @files: pictures are checked, sent to Grok with that mes
   const seen = [];
   const r = await runCoder({ send: async (req) => { seen.push(req); return { message: { role: "assistant", content: "I see a blue button." } }; }, exec: async () => ({ code: 0, output: "" }) }, { text: "what is this?", images: [{ type: "image/png", data: png }, { type: "text/plain", data: "x" }] });
   assert.deepEqual(seen[0].messages.at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
-  assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached; you saw it above]" });
+  assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached]" });
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /id="cdAttach"/);
   assert.match(ui, /input\.addEventListener\('paste'/);
@@ -1263,14 +1263,13 @@ test("CD53 GitHub-started jobs get no owner variables; variable values never sta
   void got;
 });
 
-test("CD54 the audit: pictures go to Grok once (not every round); web fetch blocks disguised local addresses at connect time", async () => {
+test("CD54 pictures stay for the whole job (live test: Grok must still see it at the end); web fetch blocks disguised local addresses at connect time", async () => {
   const png = Buffer.from("fakepng").toString("base64");
   const seen = [];
   const steps = [say("", [call("bash", { command: "echo a" })]), say("", [call("bash", { command: "echo b" })]), say("Done.", [])];
   await runCoder({ send: async (r) => { seen.push(JSON.parse(JSON.stringify(r.messages))); return steps[seen.length - 1]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "look", images: [{ type: "image/png", data: png }] });
   assert.equal(seen.length, 3);
-  assert.ok(seen[0].at(-1).images, "sent the first time");
-  assert.ok(seen.slice(1).every((msgs) => !msgs.some((m) => m.images)), "not sent again");
+  assert.ok(seen.every((msgs) => msgs.some((m) => m.images)), "the picture stays for every step of the job (Grok may describe it at the end)");
   const { privateAddress, safeLookup } = await import("../container/coder-tools.mjs");
   for (const a of ["::ffff:7f00:1", "64:ff9b::7f00:1", "2002:7f00:1::", "fec0::1", "169.254.169.254"]) assert.equal(privateAddress(a), true, a);
   for (const a of ["1.1.1.1", "140.82.112.3", "2606:4700::1111"]) assert.equal(privateAddress(a), false, a);
