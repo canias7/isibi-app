@@ -191,7 +191,8 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
   const o = { gitDir: gitDirFor(dir, gitRoot), remote };
   await gitIn(dir, ["add", "-A"], o);
   const st = await gitIn(dir, ["status", "--porcelain"], o);
-  if (st.output.trim()) {
+  const committed = !!st.output.trim();
+  if (committed) {
     const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
     if (c.code !== 0) return { ok: false, pushed: false, why: "could not commit: " + c.output.slice(0, 200) };
   }
@@ -199,7 +200,8 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
   const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token });
   if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300) };
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).output.trim();
-  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), sha };
+  // `changed`: this job changed files (a new commit), so there is new work to show.
+  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha };
 }
 
 // ── THE MEMORY FILE, READ AND WRITTEN SAFELY ─────────────────────────────────
