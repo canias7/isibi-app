@@ -164,7 +164,8 @@ export function chatTitle(text) {
 /** A project id from a repository's name: lowercase words joined by dashes, with a short suffix. */
 export function projectIdFor(name, rand = Math.random) {
   const base = String(name || "project").split("/").pop().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "project";
-  return (base.length < 3 ? "project-" + base : base) + "-" + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0");
+  // 8 random characters (the audit: 4 could repeat, and two chats would share a branch).
+  return (base.length < 3 ? "project-" + base : base) + "-" + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0") + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0");
 }
 
 /** The first line of the agent's summary, as a commit message and a pull request title. */
@@ -284,7 +285,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
     const base = typeof body.base === "string" && BRANCH.test(body.base) ? body.base : String(r.data.default_branch || "main");
     if (!BRANCH.test(base)) return json({ error: "this repository's main branch has a name Coder cannot use" }, 400);
-    const id = projectIdFor(repo);
+    let id = projectIdFor(repo);
+    // Never on top of an existing chat or someone's branch.
+    for (let k = 0; k < 5 && ((await bucket.get(keyOf(uid, id, "meta.json"))) || (await bucket.get(branchKey(repo, "coder/" + id)))); k++) id = projectIdFor(repo);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed

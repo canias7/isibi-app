@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 // (as `dev`, in the project), via container/coder-tools.mjs.
 export const TOOLS_SCRIPT = fileURLToPath(new URL("./coder-tools.mjs", import.meta.url));
 /** The most a Write may hold in one call (it travels as one command argument). */
-export const WRITE_MAX = 90000;
+export const WRITE_MAX = 1_000_000;
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 export const RUN_TOOLS = {
   read: { verb: "Read", label: (a) => a.path + (a.offset ? " from line " + a.offset : "") },
@@ -73,7 +73,7 @@ The project lives in the current folder. You work like a developer at a terminal
 
 HOW YOU WORK
 - Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (reading a page), todo (your checklist on bigger jobs), pull_request (only when asked).
-- Use read, edit, write, grep and glob for files, not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
+- Use read, edit, write, grep and glob for files (write takes up to about 1 MB at once), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
@@ -139,6 +139,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
+    // PICTURES GO TO GROK ONCE (the audit: they were re-sent every round, up to
+    // 60 times): after the first answer, a note stays in their place.
+    for (let k = 0; k < convo.length; k++) if (convo[k] && convo[k].images) convo[k] = { role: convo[k].role, content: convo[k].content + "\n[" + convo[k].images.length + " picture" + (convo[k].images.length > 1 ? "s" : "") + " attached; you saw " + (convo[k].images.length > 1 ? "them" : "it") + " above]" };
     // GROK'S OWN WEB SEARCHES (done on xAI's side) are shown like the other steps.
     for (const sr of Array.isArray(answer && answer.searches) ? answer.searches : []) {
       const id = "ws" + Math.random().toString(36).slice(2, 9);
@@ -213,7 +216,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args })).toString("base64");
         let r;
-        try { r = await deps.exec({ command: "node " + TOOLS_SCRIPT + " " + b64, timeoutS: c.name === "lsp" ? 90 : 60, tool: true }); }
+        // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
+        try { r = await deps.exec({ command: "node " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const out = capOutput(String((r && r.output) || ""));
         const code = r && Number.isInteger(r.code) ? r.code : -1;

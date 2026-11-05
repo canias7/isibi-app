@@ -19,7 +19,7 @@
 // the repository's settings.
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createWriteStream, openSync } from "node:fs";
@@ -361,7 +361,14 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     const context = contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(extraEnv).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(extraEnv).join(", ") : "");
     runCoder({
       send: sendFn,
-      exec: async ({ command, timeoutS, tool }) => {
+      exec: async ({ command, timeoutS, tool, payload }) => {
+        // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
+        if (typeof payload === "string" && command.includes("@REQUEST")) {
+          const f = join(bgDir, "req-" + randomUUID() + ".json");
+          const fh = await open(f, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+          try { await fh.writeFile(payload); } finally { await fh.close(); }
+          command = command.replace("@REQUEST", "@" + f);
+        }
         // A file or web tool is ended at its time limit, never sent to the background.
         const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, extraEnv });
         if (r && r.background && r.pid) t.bg.add(r.pid);

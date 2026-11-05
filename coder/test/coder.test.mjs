@@ -262,7 +262,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.equal((await go("projects", { method: "POST", body: JSON.stringify({ repo: "not a repo" }) })).status, 400);
     const created = await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json();
     const id = created.project.id;
-    assert.match(id, /^shop-[a-z0-9]{4}$/);
+    assert.match(id, /^shop-[a-z0-9]{8}$/);
     assert.equal(created.project.branch, "coder/" + id);
     // A TURN, then the push and the pull request.
     assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "make a page" }) })).status, 200);
@@ -1062,7 +1062,7 @@ test("CD44 pictures and @files: pictures are checked, sent to Grok with that mes
   const seen = [];
   const r = await runCoder({ send: async (req) => { seen.push(req); return { message: { role: "assistant", content: "I see a blue button." } }; }, exec: async () => ({ code: 0, output: "" }) }, { text: "what is this?", images: [{ type: "image/png", data: png }, { type: "text/plain", data: "x" }] });
   assert.deepEqual(seen[0].messages.at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
-  assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached]" });
+  assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached; you saw it above]" });
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /id="cdAttach"/);
   assert.match(ui, /input\.addEventListener\('paste'/);
@@ -1261,4 +1261,40 @@ test("CD53 GitHub-started jobs get no owner variables; variable values never sta
   assert.ok(saved.length);
   assert.doesNotMatch(JSON.stringify(saved), /secret-pass/, "the value stayed in the chat");
   void got;
+});
+
+test("CD54 the audit: pictures go to Grok once (not every round); web fetch blocks disguised local addresses at connect time", async () => {
+  const png = Buffer.from("fakepng").toString("base64");
+  const seen = [];
+  const steps = [say("", [call("bash", { command: "echo a" })]), say("", [call("bash", { command: "echo b" })]), say("Done.", [])];
+  await runCoder({ send: async (r) => { seen.push(JSON.parse(JSON.stringify(r.messages))); return steps[seen.length - 1]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "look", images: [{ type: "image/png", data: png }] });
+  assert.equal(seen.length, 3);
+  assert.ok(seen[0].at(-1).images, "sent the first time");
+  assert.ok(seen.slice(1).every((msgs) => !msgs.some((m) => m.images)), "not sent again");
+  const { privateAddress, safeLookup } = await import("../container/coder-tools.mjs");
+  for (const a of ["::ffff:7f00:1", "64:ff9b::7f00:1", "2002:7f00:1::", "fec0::1", "169.254.169.254"]) assert.equal(privateAddress(a), true, a);
+  for (const a of ["1.1.1.1", "140.82.112.3", "2606:4700::1111"]) assert.equal(privateAddress(a), false, a);
+  const err = await new Promise((ok) => safeLookup("localhost", {}, (e) => ok(e)));
+  assert.match(String(err && err.message), /private network/, "a name that points at this machine is refused when connecting");
+});
+
+test("CD55 the audit: a big write (500 KB, accents included) goes through a file, not the command line; binary and huge files are refused by read/edit", async () => {
+  const { remote } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const big = ("é😀 line of text " + "x".repeat(40) + "\n").repeat(8000);
+  const s = scripted([say("", [call("write", { path: "big.txt", content: big }, "w1"), call("read", { path: "logo.bin" }, "r1")]), say("Done.", [])]);
+  const { base, close } = await serve(createApp({ root, send: s.send, remote, ...r0 }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    execFileSync("mkdir", ["-p", join(root, "shop-bigw")]);
+    writeFileSync(join(root, "shop-bigw", "logo.bin"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 13]));
+    await post("/turn", { project: "shop-bigw", text: "go", messages: [] });
+    let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-bigw&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    const res = (id) => st.events.find((e) => e.type === "result" && e.id === id);
+    assert.equal(res("w1").code, 0, res("w1").output);
+    assert.equal(readFileSync(join(root, "shop-bigw", "big.txt"), "utf8"), big, "written whole");
+    assert.equal(existsSync(join(r0.bgRoot, "shop-bigw")), false, "the request file (and its folder) is gone at the end");
+    assert.match(res("r1").output, /logo\.bin is a binary file/);
+  } finally { await close(); }
 });

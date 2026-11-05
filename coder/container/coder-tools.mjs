@@ -7,11 +7,14 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
-import { readFile, writeFile, mkdir, realpath, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, realpath, stat, unlink, open as openFile } from "node:fs/promises";
 import { resolve, dirname, relative, isAbsolute, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { lookup as lookupCb } from "node:dns";
+import http from "node:http";
+import https from "node:https";
+import { isIP, BlockList } from "node:net";
 
 export const READ_LINES = 400;
 export const OUT_MAX = 30000;
@@ -47,9 +50,19 @@ async function inside(p, { mustExist = false } = {}) {
   return { abs, rel };
 }
 
+// THE AUDIT (2026-11-05): huge files would fill the memory, and binary ones come out as garbage (and editing corrupts them).
+export const READ_MAX_BYTES = 20 * 1024 * 1024;
+export const EDIT_MAX_BYTES = 5 * 1024 * 1024;
+async function plainText(abs, rel, max) {
+  const st = await stat(abs);
+  if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
+  if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; use bash (head, tail, sed -n) for parts of it");
+  const fh = await openFile(abs, "r");
+  try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0)) fail(rel + " is a binary file (not text); use bash to work with it"); } finally { await fh.close(); }
+}
 export async function toolRead({ path, offset = 1, limit = READ_LINES }) {
   const { abs, rel } = await inside(path, { mustExist: true });
-  if ((await stat(abs)).isDirectory()) fail(rel + " is a folder; use glob to list it");
+  await plainText(abs, rel, READ_MAX_BYTES);
   const text = await readFile(abs, "utf8");
   const lines = text.split("\n");
   const from = Math.max(1, Number(offset) || 1);
@@ -73,6 +86,7 @@ export async function toolEdit({ path, old_string, new_string, replace_all = fal
   if (typeof old_string !== "string" || !old_string) fail("give old_string: the exact text to replace");
   if (typeof new_string !== "string") fail("give new_string");
   if (old_string === new_string) fail("old_string and new_string are the same");
+  await plainText(abs, rel, EDIT_MAX_BYTES);
   const text = await readFile(abs, "utf8");
   const count = text.split(old_string).length - 1;
   if (count === 0) fail("old_string was not found in " + rel + ". Read the file and copy the text exactly, spaces included.");
@@ -128,14 +142,46 @@ export async function publicUrl(u) {
   for (const a of addrs) if (privateAddress(a)) fail("that address is on a private network");
   return url;
 }
+// THE AUDIT (2026-11-05): every private, local and special range, in all its
+// written forms (IPv4-mapped IPv6 like ::ffff:7f00:1, NAT64, 6to4, site-local…).
+const BLOCK4 = new BlockList(), BLOCK6 = new BlockList();
+for (const [a, n] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24], ["224.0.0.0", 3]]) BLOCK4.addSubnet(a, n, "ipv4");
+for (const [a, n] of [["::", 128], ["::1", 128], ["::", 96], ["::ffff:0:0", 96], ["64:ff9b::", 96], ["64:ff9b:1::", 48], ["100::", 64], ["2001::", 32], ["2001:db8::", 32], ["2002::", 16], ["fc00::", 7], ["fe80::", 10], ["fec0::", 10], ["ff00::", 8]]) BLOCK6.addSubnet(a, n, "ipv6");
 export function privateAddress(a) {
-  const s = String(a).toLowerCase();
-  if (s === "::1" || s === "::" || s.startsWith("fe80:") || s.startsWith("fc") || s.startsWith("fd")) return true;
-  const v4 = s.startsWith("::ffff:") ? s.slice(7) : s;
-  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(v4);
-  if (!m) return false;
-  const [x, y] = [Number(m[1]), Number(m[2])];
-  return x === 10 || x === 127 || x === 0 || (x === 169 && y === 254) || (x === 172 && y >= 16 && y <= 31) || (x === 192 && y === 168) || (x === 100 && y >= 64 && y <= 127) || x >= 224;
+  const s = String(a).toLowerCase().replace(/^\[|\]$/g, "");
+  const v = isIP(s);
+  if (!v) return true; // not an address we understand: refuse
+  if (v === 4) return BLOCK4.check(s, "ipv4");
+  // An IPv4 address written inside IPv6 (::ffff:a.b.c.d or ::ffff:7f00:1) is checked as IPv4 too.
+  const m = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(s);
+  if (m) { const v4 = m[1] || [parseInt(m[2], 16) >> 8, parseInt(m[2], 16) & 255, parseInt(m[3], 16) >> 8, parseInt(m[3], 16) & 255].join("."); if (BLOCK4.check(v4, "ipv4")) return true; }
+  return BLOCK6.check(s, "ipv6");
+}
+/** A DNS lookup that refuses private addresses AT CONNECT TIME (no swap between checking and fetching). */
+export function safeLookup(hostname, opts, cb) {
+  lookupCb(hostname, { ...(typeof opts === "object" ? opts : {}), all: true }, (err, list) => {
+    if (err) return cb(err);
+    const ok = (list || []).filter((x) => !privateAddress(x.address));
+    if (!ok.length || ok.length !== list.length) return cb(Object.assign(new Error("that address is on a private network"), { code: "EPRIVATE" }));
+    if (opts && opts.all) return cb(null, ok);
+    cb(null, ok[0].address, ok[0].family);
+  });
+}
+/** fetch-like GET through http/https with safeLookup: `{ status, url, headers: { get }, text() }`. */
+export function pinnedFetch(u, { headers = {} } = {}) {
+  const url = new URL(String(u));
+  const mod = url.protocol === "https:" ? https : http;
+  return new Promise((done, no) => {
+    const req = mod.request(url, { method: "GET", headers, lookup: safeLookup, timeout: 20000 }, (res) => {
+      const chunks = []; let size = 0;
+      res.on("data", (c) => { size += c.length; if (size <= 2_000_000) chunks.push(c); else res.destroy(); });
+      res.on("end", () => done({ status: res.statusCode, url: url.href, headers: { get: (k) => { const v = res.headers[String(k).toLowerCase()]; return Array.isArray(v) ? v[0] : v ?? null; } }, text: async () => Buffer.concat(chunks).toString("utf8") }));
+      res.on("error", no);
+    });
+    req.on("timeout", () => req.destroy(new Error("the page took too long")));
+    req.on("error", (e) => no(e.code === "EPRIVATE" ? new ToolError("that address is on a private network") : e));
+    req.end();
+  });
 }
 
 export function htmlToText(html) {
@@ -157,7 +203,7 @@ async function get(url, fetchFn) {
   fail("too many redirects");
 }
 
-export async function toolWebFetch({ url }, fetchFn = fetch) {
+export async function toolWebFetch({ url }, fetchFn = pinnedFetch) {
   const r = await get(url, fetchFn);
   const type = r.headers.get("content-type") || "";
   const raw = (await r.text()).slice(0, 2_000_000);
@@ -177,7 +223,11 @@ export const TOOLS = { lsp: toolLsp, read: toolRead, write: toolWrite, edit: too
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
   (async () => {
     let req;
-    try { req = JSON.parse(Buffer.from(String(process.argv[2] || ""), "base64").toString("utf8")); } catch { req = null; }
+    const arg = String(process.argv[2] || "");
+    try {
+      if (arg.startsWith("@")) { const f = arg.slice(1); req = JSON.parse(await readFile(f, "utf8")); await unlink(f).catch(() => {}); }
+      else req = JSON.parse(Buffer.from(arg, "base64").toString("utf8"));
+    } catch { req = null; }
     const fn = req && TOOLS[req.tool];
     if (!fn) { process.stdout.write("error: unknown tool"); process.exit(2); }
     try { process.stdout.write(String(await fn(req.args || {}))); process.exit(0); }

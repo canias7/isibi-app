@@ -178,7 +178,8 @@ export async function startMention(env, deps, m) {
     if (ack && ack.ok && botToken) await ghApi(botToken, "/repos/" + m.repo + "/issues/comments/" + ack.data.id, { method: "PATCH", body: { body: "@" + m.login + " " + why }, fetchFn });
     return { ok: false, why };
   }
-  await putJson(bucket, JOB_PREFIX + acct.uid + "__" + thread.id + ".json", { uid: acct.uid, email: acct.email, id: thread.id, repo: m.repo, number: m.number, login: m.login, installation: m.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
+  // One record per comment (the audit: a second @coder overwrote the first one's).
+  await putJson(bucket, JOB_PREFIX + acct.uid + "__" + thread.id + "__" + (ack && ack.ok ? ack.data.id : Date.now()) + ".json", { uid: acct.uid, email: acct.email, id: thread.id, repo: m.repo, number: m.number, login: m.login, installation: m.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
   return { ok: true, id: thread.id };
 }
 
@@ -267,7 +268,7 @@ export async function startAutofix(env, deps, f) {
   const ack = f.number && botToken ? await ghApi(botToken, "/repos/" + f.repo + "/issues/" + f.number + "/comments", { method: "POST", body: { body: (f.kind === "check" ? "A check failed. " : "Thanks for the review. ") + "Coder is working on a fix (try " + ((meta.autofixTries || 0) + 1) + " of " + AUTOFIX_MAX + ") and will update this comment.\n\n— Coder (gofarther.dev)" }, fetchFn }) : null;
   const sent = await run("projects/" + owner.id + "/message", { method: "POST", body: JSON.stringify({ text: text.slice(0, 18000), autofix: true, fromGithub: true }) });
   if (sent.status !== 200) return { ok: false, why: "could not start" };
-  if (f.number) await putJson(bucket, JOB_PREFIX + owner.uid + "__" + owner.id + ".json", { uid: owner.uid, email: prof.email, id: owner.id, repo: f.repo, number: f.number, login: (gh && gh.login) || "", installation: f.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
+  if (f.number) await putJson(bucket, JOB_PREFIX + owner.uid + "__" + owner.id + "__" + (ack && ack.ok ? ack.data.id : Date.now()) + ".json", { uid: owner.uid, email: prof.email, id: owner.id, repo: f.repo, number: f.number, login: (gh && gh.login) || "", installation: f.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
   return { ok: true, id: owner.id };
 }
 
