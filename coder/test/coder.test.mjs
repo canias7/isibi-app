@@ -1066,3 +1066,25 @@ test("CD45 the chat shows what the owner typed; Coder also gets the notes added 
   assert.equal(events.find((e) => e.type === "user").text, "fix @a.js");
   assert.match(seen[0].messages.at(-1).content, /pointed at these files: a\.js/);
 });
+
+test("CD46 Review and Security review: the request is written on the server; Coder only reads and reports; the chat shows the short label", async () => {
+  const { REVIEWS } = await import("../src/coder-routes.mjs");
+  assert.deepEqual(Object.keys(REVIEWS), ["code", "security"]);
+  for (const k of ["code", "security"]) { assert.match(REVIEWS[k].text, /Do NOT change any files/); assert.match(REVIEWS[k].text, /git diff BASE_BRANCH\.\.\.HEAD/); }
+  const sent = [];
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-rev", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  const st = new URL((await (await go("github/start")).json()).url).searchParams.get("state");
+  await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  const r = await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ review: "security" }) });
+  assert.equal(r.status, 200);
+  assert.match(sent[0].text, /^Do a security review of the changes on this chat's branch compared with main \(git diff main\.\.\.HEAD\)/);
+  assert.equal(sent[0].shown, "Security review");
+  assert.equal((await r.json()).project.title, "Security review");
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /data-review="code"/); assert.match(ui, /data-review="security"/);
+});

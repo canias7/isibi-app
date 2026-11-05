@@ -224,3 +224,11 @@
 .cd-mention{max-width:760px;width:calc(100% - 40px);margin:6px auto 0;background:#fff;border:1px solid #e0dbd2;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.08);overflow:hidden}
 .cd-mention-i{display:block;width:100%;text-align:left;border:0;background:#fff;padding:8px 14px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#1f1e1d;cursor:pointer}
 .cd-mention-i.on,.cd-mention-i:hover{background:#f3f1ec}
+
+/* Review menu */
+.cd-revwrap{position:relative;display:inline-block}
+.cd-revmenu{position:absolute;top:calc(100% + 6px);right:0;z-index:20;background:#fff;border:1px solid #e0dbd2;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:6px;min-width:240px;display:flex;flex-direction:column}
+.cd-revmenu button{border:0;background:#fff;text-align:left;padding:8px 10px;border-radius:8px;cursor:pointer;font:inherit;display:flex;flex-direction:column;gap:2px}
+.cd-revmenu button:hover{background:#f3f1ec}
+.cd-revmenu b{font-size:14px;color:#1f1e1d;font-weight:600}
+.cd-revmenu small{font-size:12px;color:#6b6a68}

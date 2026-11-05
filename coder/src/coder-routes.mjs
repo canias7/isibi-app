@@ -52,6 +52,11 @@ export function checkImages(list) {
   }
   return { images: out };
 }
+// REVIEW (owner, 2026-11-05, "5"): Coder reviews its branch, written on the server.
+export const REVIEWS = {
+  code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
+  security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
+};
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
   const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w./-]+\.[\w]+|[\w-]+\/[\w./-]+)/g)].map((m) => m[1]).filter((p) => !p.includes("..")))].slice(0, 20);
@@ -275,7 +280,8 @@ export async function handleCoder(request, env, ctx, deps) {
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const said = String(body.text || "").trim();
+    const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
+    const said = review ? review.label : String(body.text || "").trim();
     const notes = commentsText(body.comments);
     const text = notes ? notes + (said ? "\n\n" + said : "") : said;
     const pics = checkImages(body.images);
@@ -294,7 +300,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { project: id, text: (text || "(see the picture)") + fileMentions(text), shown: text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
+    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }

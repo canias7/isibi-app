@@ -119,6 +119,18 @@
     });
   }
   // UNDO THE LAST JOB (owner, 2026-11-05): Coder's own "are you sure?", then the server reverts it.
+  // REVIEW (owner, 2026-11-05): the server writes the review request; Coder only reads and reports.
+  async function sendReview(kind) {
+    if (!S.project || S.running || S.sending) return;
+    S.sending = true; S.error = '';
+    const base = S.events.length;
+    const label = kind === 'security' ? 'Security review' : 'Review';
+    S.events.push({ type: 'user', text: label, at: Date.now(), local: true }); draw(true);
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ review: kind, model: S.pick.model, effort: S.pick.effort }) });
+    S.sending = false;
+    if (r.status !== 200) { S.events = S.events.slice(0, base); S.error = (r.data && r.data.error) || 'The review did not start.'; return draw(); }
+    S.project = r.data.project; S.running = true; syncEntry(); S.next = 0; startPoll(); draw(true);
+  }
   async function undoLast() {
     const p = S.project;
     if (!p || S.undoing || !p.commits || !p.commits.length) return;
@@ -318,6 +330,7 @@
       (p ? '<span class="cd-branch">' + ICON.branch + esc(p.branch) + '</span>' : '') +
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' : '') +
       (p && Array.isArray(p.commits) && p.commits.length && !S.running ? '<button type="button" class="cd-hbtn" id="cdUndo"' + (S.undoing ? ' disabled' : '') + ' title="Undo: ' + esc(p.commits[p.commits.length - 1].title || '') + '">' + (S.undoing ? 'Undoing…' : 'Undo last job') + '</button>' : '') +
+      (p && !S.running ? '<span class="cd-revwrap"><button type="button" class="cd-hbtn" id="cdReview" aria-haspopup="menu">Review ▾</button>' + (S.reviewMenu ? '<span class="cd-revmenu" role="menu"><button type="button" data-review="code" role="menuitem"><b>Review changes</b><small>Bugs, edge cases, missing tests</small></button><button type="button" data-review="security" role="menuitem"><b>Security review</b><small>Injection, secrets, auth, XSS…</small></button></span>' : '') + '</span>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '');
@@ -531,6 +544,8 @@
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
     on('#cdUndo', 'click', () => undoLast());
+    on('#cdReview', 'click', (e) => { e.stopPropagation(); S.reviewMenu = !S.reviewMenu; draw(); });
+    on('[data-review]', 'click', (e) => { S.reviewMenu = false; sendReview(e.currentTarget.dataset.review); });
     on('#cdAttach', 'click', () => { const f = root.querySelector('#cdFile'); if (f) f.click(); });
     on('#cdFile', 'change', (e) => { addPics(e.target.files); e.target.value = ''; });
     on('[data-unpic]', 'click', (e) => { S.pics.splice(Number(e.currentTarget.dataset.unpic), 1); draw(); });
@@ -570,6 +585,7 @@
       S.root = el;
       if (side) S.side = side;
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
+      if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu) { S.reviewMenu = false; draw(); } }); }
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');
