@@ -218,7 +218,7 @@ function fakeGithub({ canPush = true } = {}) {
   return { calls, fetchFn };
 }
 
-test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, then the branch is pushed and the pull request opened; the code is never stored with us", async () => {
+test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, then the branch is pushed, and the pull request opens only on the button; the code is never stored with us", async () => {
   const { remote, bare } = await fakeRemote();
   const root = await mkdtemp(join(tmpdir(), "coder-root-"));
   const s = scripted([say("Making it.", [call("bash", { command: "echo '<h1>Hi</h1>' > index.html" })]), say("Made index.html. It says Hi.", [])]);
@@ -257,10 +257,16 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     let got;
     for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(got.project.status, "idle");
-    assert.deepEqual(got.project.pr, { url: "https://github.com/ana/shop/pull/1", number: 1 });
+    // PUSHED, BUT NO PULL REQUEST until the user presses the button (owner, 2026-11-05).
+    assert.equal(got.project.pr, null);
+    assert.equal(got.project.pushed, true);
     assert.equal(git(bare, "show", "coder/" + id + ":index.html"), "<h1>Hi</h1>\n");
     assert.equal(git(bare, "log", "-1", "--format=%s", "coder/" + id).trim(), "Made index.html.");
-    assert.ok(got.events.some((e) => e.type === "github" && /pull request https:\/\/github\.com\/ana\/shop\/pull\/1/.test(e.text)));
+    assert.ok(got.events.some((e) => e.type === "github" && /Saved to the branch coder\//.test(e.text)));
+    assert.ok(!ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"), "a pull request opened on its own");
+    // "Create pull request" opens it.
+    const made = await (await go("projects/" + id + "/pr", { method: "POST", body: "{}" })).json();
+    assert.deepEqual([made.ok, made.number, made.project.pr], [true, 1, { url: "https://github.com/ana/shop/pull/1", number: 1 }]);
     assert.ok(ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"));
     // THE CODE IS NEVER STORED WITH US: only the chat, the connection and the project's meta.
     for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events)\.json$|\/memory\/[A-Za-z0-9._-]+\.md$/, k);
@@ -670,4 +676,24 @@ test("CD28 the page uses no browser popups (confirm, alert, prompt): Coder draws
     const src = readFileSync(join(import.meta.dirname, "..", "public", f), "utf8");
     assert.doesNotMatch(src, /\b(confirm|alert|prompt)\s*\(/, f + " uses a browser popup");
   }
+});
+
+test("CD29 the landing page shows Download for Mac and Download for Windows (look only, not wired)", () => {
+  const html = readFileSync(join(import.meta.dirname, "..", "public", "index.html"), "utf8");
+  assert.match(html, /Download for Mac/);
+  assert.match(html, /Download for Windows/);
+  assert.equal((html.match(/class="dl-app"[^>]*aria-disabled="true"/g) || []).length, 2);
+  assert.match(html, /id="gfAsk"/);
+  assert.match(html, /id="gfSignin"/);
+});
+
+test("CD30 a merged or closed pull request is forgotten, so a new one can be made", async () => {
+  const { prStillOpen } = await import("../src/coder-routes.mjs");
+  const reply = (status, data) => async () => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+  const pr = { url: "u", number: 3 };
+  assert.deepEqual(await prStillOpen("t", "a/b", pr, reply(200, { state: "open", merged: false })), pr);
+  assert.equal(await prStillOpen("t", "a/b", pr, reply(200, { state: "closed", merged: true })), null);
+  assert.equal(await prStillOpen("t", "a/b", pr, reply(200, { state: "closed", merged: false })), null);
+  assert.equal(await prStillOpen("t", "a/b", pr, reply(404, {})), null);
+  assert.equal(await prStillOpen("t", "a/b", null, reply(200, {})), null);
 });

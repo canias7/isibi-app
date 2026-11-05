@@ -87,3 +87,33 @@ body { display: flex; flex-direction: column; background: #faf9f7; color: #0d1b2
   body.gf-side-open .gf-scrim { display: block; position: fixed; inset: 0; background: rgba(13,27,42,.25); z-index: 30; }
   .gf-col { width: min(252px, calc(100vw - 110px)); }
 }
+
+/* THE LANDING PAGE: top bar, the download buttons (look only), the ask box.
+   The sign-in card shows only once asked for (.gf-gate.signing). */
+.gf-gate { position: relative; padding-top: 84px; }
+.gf-gate:not(.signing) .gf-card { display: none; }
+.gf-gate.signing .gf-ask { display: none; }
+.gf-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: 20px 44px; }
+.gf-top .gf-cardbrand { margin: 0; }
+.gf-signin { font: inherit; font-size: 15px; background: #fff; border: 1px solid #e5e3dd; border-radius: 999px; padding: 9px 15px; cursor: pointer; color: #0d1b2a; }
+.gf-signin:hover { background: #f3f1ec; }
+.gf-dlrow { position: absolute; top: 90px; right: 44px; }
+.dl-apps { display: flex; flex-direction: column; gap: 8px; }
+.dl-app { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 220px; background: #0d0d0f; color: #fff; border: 1px solid #0d0d0f; border-radius: 999px; padding: 10px 16px; font: inherit; font-size: 14px; font-weight: 500; line-height: 1; cursor: default; box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 6px 16px -8px rgba(0,0,0,.45); transition: background .15s, transform .15s; }
+.dl-app:hover { background: #26262b; transform: translateY(-1px); }
+.dl-app svg { width: 15px; height: 15px; flex: none; }
+.gf-ask { width: 100%; max-width: 720px; background: #fff; border: 1px solid #e5e3dd; border-radius: 22px; box-shadow: 0 24px 60px -24px rgba(0,0,0,.25); padding: 18px 18px 12px 22px; }
+.gf-ask textarea { width: 100%; border: 0; outline: 0; resize: none; font: inherit; font-size: 16px; line-height: 1.5; color: #1f1e1d; background: transparent; }
+.gf-ask-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.gf-ask-chip { font-size: 13px; color: #55606d; border: 1px solid #e5e3dd; border-radius: 999px; padding: 6px 11px; }
+.gf-ask-chip b { color: #1f1e1d; }
+.gf-ask-go { margin-left: auto; width: 44px; height: 44px; border-radius: 50%; border: 0; background: #0d0d0f; color: #fff; display: grid; place-items: center; cursor: pointer; box-shadow: 0 6px 16px -6px rgba(0,0,0,.5); }
+.gf-ask-go svg { width: 20px; height: 20px; }
+@media (max-width: 700px) {
+  .gf-top { padding: 14px 16px; }
+  .gf-dlrow { position: static; margin-bottom: 20px; }
+  .dl-apps { flex-direction: row; justify-content: center; }
+  .dl-app { min-width: 0; padding: 10px 14px; }
+  .dl-app span { display: none; }
+  .gf-gate:not(.signing) { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+}

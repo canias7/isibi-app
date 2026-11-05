@@ -49,6 +49,11 @@
     $('gfGate').hidden = false;
     draw();
   }
+  // THE LANDING PAGE: "Sign in", or sending from the ask box, opens the card.
+  function openSignin() { $('gfGate').classList.add('signing'); draw(); setTimeout(() => $('gfMail').focus(), 0); }
+  $('gfSignin').addEventListener('click', openSignin);
+  $('gfAsk').addEventListener('submit', (e) => { e.preventDefault(); mode = 'up'; openSignin(); });
+  $('gfAskIn').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); mode = 'up'; openSignin(); } });
   function draw() {
     $('gfTitle').textContent = step === 2 ? 'Check your email' : mode === 'in' ? 'Sign in' : 'Create your account';
     $('gfSub').textContent = step === 2 ? 'We sent a code to ' + $('gfMail').value.trim() + '.' : 'Coder works on your code in your own GitHub.';

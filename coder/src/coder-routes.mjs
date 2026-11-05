@@ -46,7 +46,7 @@ export const COMMANDS = [
   { name: "new", hint: "Start a new chat" },
   { name: "repos", hint: "Your repositories" },
   { name: "changes", hint: "Show or hide what Coder changed" },
-  { name: "pr", hint: "Open this chat's pull request" },
+  { name: "pr", hint: "Create (or open) this chat's pull request" },
   { name: "stop", hint: "Stop Coder" },
   { name: "effort", arg: "low|medium|high", hint: "Set the effort" },
   { name: "model", arg: CODER_MODELS.map((m) => m.id).join("|"), hint: "Set the model" },
@@ -100,6 +100,13 @@ async function saveMeta(bucket, uid, meta) {
   await putJson(bucket, keyOf(uid, meta.id, "meta.json"), meta);
 }
 /** The user's chats, newest first, read from each chat's own meta.json. */
+/** The chat's pull request if it is still open on GitHub; null when merged, closed or gone. */
+export async function prStillOpen(token, repo, pr, fetchFn = fetch) {
+  if (!pr || !pr.number) return null;
+  const r = await gh(token, "/repos/" + repo + "/pulls/" + Number(pr.number), { fetchFn }).catch(() => null);
+  if (!r || !r.ok) return r && r.status === 404 ? null : pr;
+  return r.data && r.data.state === "open" && !r.data.merged ? pr : null;
+}
 export async function listChats(bucket, uid) {
   const prefix = keyOf(uid) + "/";
   const keys = [];
@@ -221,7 +228,7 @@ export async function handleCoder(request, env, ctx, deps) {
       case "new": return json({ ok: true, open: "new" });
       case "repos": return json({ ok: true, open: "repos" });
       case "changes": return json({ ok: true, open: "changes" });
-      case "pr": return cmeta && cmeta.pr && cmeta.pr.url ? json({ ok: true, url: cmeta.pr.url }) : json({ ok: true, note: "This chat has no pull request yet." });
+      case "pr": return json({ ok: true, open: "pr" });
       case "stop":
         if (!cmeta || cmeta.status !== "running") return json({ ok: true, note: "Coder is not working right now." });
         try { await deps.container(uid + "-" + pid).fetch(new Request("http://coder/stop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: pid }) })); } catch { /* the next look says */ }
@@ -343,22 +350,27 @@ export async function handleCoder(request, env, ctx, deps) {
       const all = await call("/state?project=" + id + "&since=0", { method: "GET" }).then((r) => r.json()).catch(() => ({ events: [] }));
       const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
       const fresh = Array.isArray(all.events) ? all.events.slice() : [];
-      let pr = meta.pr || null, pushNote = "";
+      // OWNER, 2026-11-05 (option A): the work is PUSHED to Coder's branch after
+      // each job, but a pull request opens only when the user presses
+      // "Create pull request". A merged or closed one is forgotten, so the
+      // button comes back for the next one.
+      let pr = meta.pr || null, pushNote = "", pushed = !!meta.pushed;
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
         const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, token: t.token, message: commitTitle(s.result.summary) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         if (!p.ok) pushNote = "Not sent to GitHub: " + String(p.why || "the push failed").slice(0, 200);
-        else if (p.pushed || !pr) {
-          if (!pr) pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(s.result.summary), body: String(s.result.summary || "").slice(0, 4000) + "\n\nMade with Coder." }, fetchFn).catch(() => null);
-          pushNote = p.pushed ? "Pushed to " + meta.branch + (pr ? " · pull request " + pr.url : "") : "";
+        else if (p.pushed) {
+          pushed = true;
+          if (pr) pr = await prStillOpen(t.token, meta.repo, pr, fetchFn);
+          pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
         }
       }
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
-      const ended = { ...meta, saved: meta.turn, pr, status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
+      const ended = { ...meta, saved: meta.turn, pr, pushed, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await saveMeta(bucket, uid, ended);
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
     }
@@ -367,6 +379,21 @@ export async function handleCoder(request, env, ctx, deps) {
 
   // WHAT CODER CHANGED (the "See changes" button): its branch against the main
   // branch, as GitHub has it (what the pull request holds). No AI.
+  // CREATE PULL REQUEST (the user's button): the open one when there is one,
+  // else a fresh one from Coder's branch.
+  if (action === "pr" && request.method === "POST") {
+    if (meta.status === "running") return json({ error: "Coder is still working. Try again when it is done." }, 409);
+    if (!meta.pushed) return json({ error: "Coder has not saved any changes to GitHub yet." }, 400);
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "Connect GitHub again first." }, 401);
+    let pr = meta.pr ? await prStillOpen(t.token, meta.repo, meta.pr, fetchFn) : null;
+    if (!pr) pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(meta.summary || meta.title || "changes"), body: String(meta.summary || "").slice(0, 4000) + "\n\nMade with Coder." }, fetchFn).catch(() => null);
+    if (!pr) return json({ error: "GitHub would not open the pull request. There may be nothing new on the branch compared with " + meta.base + "." }, 502);
+    const next = { ...meta, pr, at: Date.now() };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, url: pr.url, number: pr.number, project: next });
+  }
+
   if (action === "changes" && request.method === "GET") {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again", connect: true }, 409);
