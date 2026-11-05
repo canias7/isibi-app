@@ -118,6 +118,18 @@
       document.addEventListener('keydown', key); ok.focus();
     });
   }
+  // UNDO THE LAST JOB (owner, 2026-11-05): Coder's own "are you sure?", then the server reverts it.
+  async function undoLast() {
+    const p = S.project;
+    if (!p || S.undoing || !p.commits || !p.commits.length) return;
+    const last = p.commits[p.commits.length - 1];
+    if (!(await askSure('Undo the last job?', '“' + (last.title || 'Coder’s changes') + '” will be reversed on the branch ' + p.branch + '. Nothing else changes.', 'Undo'))) return;
+    S.undoing = true; draw();
+    const r = await call('/projects/' + encodeURIComponent(p.id) + '/undo', { method: 'POST', body: '{}' });
+    S.undoing = false;
+    if (r.status === 200 && r.data && r.data.project) { S.project = r.data.project; S.events = S.events.concat(r.data.events || []); S.changes = null; syncEntry(); return draw(true); }
+    note((r.data && r.data.error) || 'It could not be undone.');
+  }
   async function removeChat(id) {
     const x = S.projects.find((p) => p.id === id);
     if (!x || !(await askSure('Remove “' + (x.title || 'New chat') + '”?', 'Its branch and pull request stay on GitHub.', 'Remove'))) return;
@@ -303,6 +315,7 @@
       (p ? '<b class="cd-title-bar">' + esc(title) + '</b><span class="cd-repo-bar">' + ICON.gh + esc(p.repo) + '</span>' : '') +
       (p ? '<span class="cd-branch">' + ICON.branch + esc(p.branch) + '</span>' : '') +
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a>' : '') +
+      (p && Array.isArray(p.commits) && p.commits.length && !S.running ? '<button type="button" class="cd-hbtn" id="cdUndo"' + (S.undoing ? ' disabled' : '') + ' title="Undo: ' + esc(p.commits[p.commits.length - 1].title || '') + '">' + (S.undoing ? 'Undoing…' : 'Undo last job') + '</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '');
@@ -453,6 +466,7 @@
     on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
+    on('#cdUndo', 'click', () => undoLast());
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });

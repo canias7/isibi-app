@@ -31,9 +31,6 @@ const RAW_OUTPUT_MAX = 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
 const RUN_UID = process.env.CODER_RUN_UID ? Number(process.env.CODER_RUN_UID) : undefined;
 const RUN_GID = process.env.CODER_RUN_GID ? Number(process.env.CODER_RUN_GID) : undefined;
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".cache", "coverage", "__pycache__", ".venv", "venv"]);
-export const EXPORT_FILE_MAX = 2 * 1024 * 1024;
-export const EXPORT_TOTAL_MAX = 25 * 1024 * 1024;
 
 // LONG COMMANDS GO TO THE BACKGROUND (owner, 2026-11-05: Claude Code's
 // "background tasks"): a command still running at its time limit is not
@@ -75,40 +72,6 @@ export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_
   });
 }
 
-/** The project's files as `{ path: base64 }`, leaving out dependencies and build output; `truncated` when a limit was met. */
-export async function exportFiles(dir) {
-  const files = {};
-  let total = 0, truncated = false;
-  async function walk(d) {
-    let list = [];
-    try { list = await readdir(d, { withFileTypes: true }); } catch { return; }
-    for (const e of list) {
-      const p = join(d, e.name);
-      if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) await walk(p); continue; }
-      if (!e.isFile()) continue;
-      let s; try { s = await stat(p); } catch { continue; }
-      if (s.size > EXPORT_FILE_MAX || total + s.size > EXPORT_TOTAL_MAX) { truncated = true; continue; }
-      total += s.size;
-      files[relative(dir, p)] = (await readFile(p)).toString("base64");
-    }
-  }
-  await walk(dir);
-  return { files, truncated, bytes: total };
-}
-
-/** Write `{ path: base64 }` into `dir`; a path that would leave `dir` is skipped. */
-export async function restoreFiles(dir, files) {
-  let n = 0;
-  for (const [rel, b64] of Object.entries(files || {})) {
-    const target = resolve(dir, rel);
-    if (!target.startsWith(resolve(dir) + "/") || typeof b64 !== "string") continue;
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, Buffer.from(b64, "base64"));
-    n++;
-  }
-  return n;
-}
-
 // ── GIT, WITH THE USER'S TOKEN, BY OUR CODE ONLY ─────────────────────────────
 // THE AUDIT (2026-11-05): the AI's commands run as `dev` and own the work tree.
 // If they also owned `.git`, they could point `origin` elsewhere (and get the
@@ -117,6 +80,8 @@ export async function restoreFiles(dir, files) {
 // `dev` may read it (git log, diff, status work) but not change it. Our git
 // always names that folder and the work tree itself, runs no hooks and no
 // fsmonitor, and fetches and pushes to the GitHub URL by name, never `origin`.
+// (The old exportFiles/restoreFiles and /export were removed: unused, and the
+// audit found /export could be tricked into reading root's files.)
 export const DEFAULT_REMOTE = "https://github.com/";
 export const GIT_ROOT = "/srv/coder-git";
 export const MEM_ROOT = "/srv/coder-memory";
@@ -240,7 +205,7 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
 export async function readMemory(file) {
   let fh;
   try {
-    fh = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    fh = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const st = await fh.stat();
     if (!st.isFile()) return null;
     const buf = Buffer.alloc(Math.min(st.size, MEMORY_MAX));
@@ -266,7 +231,17 @@ export async function repoNotes(dir) {
   for (const name of NOTE_FILES) {
     if (left <= 0) break;
     let text = "";
-    try { text = await readFile(join(dir, name), "utf8"); } catch { continue; }
+    // THE AUDIT (2026-11-05): read by root, so never through a link (a repo can
+    // commit CODER.md as a link to a secret file) and only a plain file.
+    let fh;
+    try {
+      fh = await open(join(dir, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const st = await fh.stat();
+      if (!st.isFile()) continue;
+      const buf = Buffer.alloc(Math.min(st.size, left * 4));
+      await fh.read(buf, 0, buf.length, 0);
+      text = buf.toString("utf8");
+    } catch { continue; } finally { if (fh) await fh.close().catch(() => {}); }
     text = text.slice(0, left);
     left -= text.length;
     out.push({ name, text });
@@ -319,7 +294,6 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         if (!prep.ok) return fail(502, prep.why);
       } else {
         await mkdir(dir, { recursive: true });
-        if (body.files && typeof body.files === "object" && (await readdir(dir)).length === 0) await restoreFiles(dir, body.files);
       }
     } catch (e) { return fail(500, String((e && e.message) || e).slice(0, 200)); }
     // THE REPO'S OWN RULES (CODER.md) and THE MEMORY FOR
@@ -369,6 +343,11 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         body = s ? JSON.parse(s) : {};
       }
       if (url.pathname === "/health") return send(200, { ok: true });
+      // THE CONTROL PANEL IS LOCKED (the audit, 2026-11-05): only the Worker,
+      // which sends the key it gave this machine, may start, claim, push or stop.
+      // The AI's commands (as `dev`) cannot read root's environment, so cannot send it.
+      const want = env && env.CODER_CONTROL_KEY;
+      if (want && req.headers["x-coder-key"] !== want) return send(403, { error: "not allowed" });
       if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body); return send(st, o); }
       const project = String(body.project || url.searchParams.get("project") || "");
       if (!PROJECT_ID.test(project)) return send(400, { error: "bad project" });
@@ -385,12 +364,30 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         return send(200, { ok: true });
       }
       if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); } return send(200, { ok: true, running: !!(t && t.running) }); }
+      // UNDO A JOB (owner, 2026-11-05, "add 2"): its commit is reverted (a new
+      // commit that puts the files back) and saved to the branch. Never a force push.
+      if (url.pathname === "/undo" && req.method === "POST") {
+        if (t && t.running) return send(409, { error: "busy" });
+        if (t) killAll(t); else killUser();
+        const sha = String(body.sha || "");
+        if (!/^[0-9a-f]{7,40}$/.test(sha)) return send(400, { error: "bad commit" });
+        const dir = join(root, project);
+        const o = { gitDir: gitDirFor(dir, gitRoot), remote };
+        const prep = await prepareRepo({ dir, repo: String(body.repo || ""), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), remote, gitRoot });
+        if (!prep.ok) return send(502, { ok: false, why: prep.why });
+        const has = await gitIn(dir, ["cat-file", "-e", sha + "^{commit}"], o);
+        if (has.code !== 0) return send(409, { ok: false, why: "that job's commit is not on this branch any more" });
+        const rv = await gitIn(dir, ["revert", "--no-edit", sha], o);
+        if (rv.code !== 0) { await gitIn(dir, ["revert", "--abort"], o); return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
+        const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: "", remote, gitRoot });
+        if (!p.ok) return send(502, { ok: false, why: p.why });
+        return send(200, { ok: true, sha: p.sha });
+      }
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
         if (t) killAll(t);
         return send(200, await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: String(body.message || ""), remote, gitRoot }));
       }
-      if (url.pathname === "/export" && req.method === "POST") return send(200, await exportFiles(join(root, project)));
       return send(404, { error: "not found" });
     } catch (e) { return send(500, { error: String((e && e.message) || e).slice(0, 200) }); }
   };

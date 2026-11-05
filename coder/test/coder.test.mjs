@@ -13,7 +13,7 @@ import http from "node:http";
 import { execFileSync } from "node:child_process";
 import { commandProblem, cleanEnv, scrub, capOutput, readTimeout } from "../container/coder-checks.mjs";
 import { runCoder } from "../container/coder-agent.mjs";
-import { execIn, exportFiles, restoreFiles, createApp, prepareRepo, pushRepo, gitIn } from "../container/server.mjs";
+import { execIn, createApp, prepareRepo, pushRepo, gitIn } from "../container/server.mjs";
 import { handleCoder, projectIdFor, commitTitle } from "../src/coder-routes.mjs";
 import { makeState, readState, seal, unseal, saveConnection, userToken, signInUrl } from "../src/coder-github.mjs";
 import { coderModel, coderSend } from "../container/coder-model.mjs";
@@ -269,7 +269,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.deepEqual([made.ok, made.number, made.project.pr], [true, 1, { url: "https://github.com/ana/shop/pull/1", number: 1 }]);
     assert.ok(ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"));
     // THE CODE IS NEVER STORED WITH US: only the chat, the connection and the project's meta.
-    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events)\.json$|\/memory\/[A-Za-z0-9._-]+\.md$/, k);
+    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile)\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$/, k);
     assert.doesNotMatch([...bucket.m.values()].join(""), /<h1>Hi<\/h1>\\n"\s*}/);
   } finally { await close(); }
 });
@@ -324,7 +324,7 @@ test("CD12 Coder is its own app: its own worker.js, config, container and bucket
   for (const f of ["worker.js", "wrangler.jsonc", "package.json", "container/Dockerfile", "container/server.mjs", "container/coder-agent.mjs", "container/coder-checks.mjs", "container/coder-model.mjs", "src/coder-routes.mjs", "src/coder-github.mjs", "src/coder-auth.mjs", "src/coder-cors.mjs"]) assert.ok(existsSync(HERE(f)), f);
   const W = readFileSync(HERE("worker.js"), "utf8");
   assert.match(W, /export class CoderContainer extends Container \{/);
-  assert.match(W, /container: \(name\) => getContainer\(env\.CODER_CONTAINER, name\)/);
+  assert.match(W, /container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\)/);
   const J = readFileSync(HERE("wrangler.jsonc"), "utf8");
   assert.match(J, /"name": "gofarther-coder"/);
   assert.match(J, /"pattern": "coder\.gofarther\.dev", "custom_domain": true/);
@@ -915,4 +915,122 @@ test("CD40 lsp: definition, references, hover and errors from real language serv
   const run = (args) => execFileSync("node", [script, Buffer.from(JSON.stringify({ tool: "lsp", args })).toString("base64")], { cwd: dir }).toString();
   assert.match(run({ action: "diagnostics", path: "m.ts" }), /m\.ts:2:7 error: Type 'number' is not assignable to type 'string'/);
   assert.match(run({ action: "references", path: "m.ts", line: 1, column: 17 }), /m\.ts:1:17\nm\.ts:2:19/);
+});
+
+test("CD42 @coder in GitHub comments: only signed notifications, only connected+allowed accounts; Coder answers as the app and posts the result when the job ends", async () => {
+  const M = await import("../src/coder-mentions.mjs");
+  const { createHmac, generateKeyPairSync, createVerify } = await import("node:crypto");
+  const secret = "whsec-test";
+  const sign = (b) => "sha256=" + createHmac("sha256", secret).update(b).digest("hex");
+  assert.equal(await M.verifySignature(secret, "{}", sign("{}")), true);
+  assert.equal(await M.verifySignature(secret, "{}", sign("{ }")), false);
+  assert.equal(await M.verifySignature("", "{}", sign("{}")), false);
+  // WHAT COUNTS AS A MENTION
+  const issue = (body, extra = {}) => ({ action: "created", comment: { body, user: { login: "canias7" } }, sender: { login: "canias7", type: "User" }, repository: { full_name: "canias7/shop" }, installation: { id: 77 }, issue: { number: 5, title: "Dark mode", body: "Please add it." }, ...extra });
+  assert.equal(M.readMention("issue_comment", issue("looks good")), null);
+  assert.equal(M.readMention("issue_comment", issue("mail me@coder.dev")), null, "an email is not a mention");
+  assert.equal(M.readMention("issue_comment", issue("@coder do it", { sender: { login: "x[bot]", type: "Bot" } })), null, "bots never wake Coder");
+  const m = M.readMention("issue_comment", issue("@coder add a dark mode toggle"));
+  assert.deepEqual([m.repo, m.number, m.isPr, m.login, m.installation], ["canias7/shop", 5, false, "canias7", 77]);
+  assert.match(m.extra, /^Issue #5 "Dark mode":\nPlease add it\./);
+  // THE APP'S SIGNATURE: a GitHub-style PKCS#1 key works with WebCrypto.
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs1", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
+  const env0 = { CODER_GITHUB_APP_ID: "5620754", CODER_GITHUB_APP_PRIVATE_KEY: privateKey };
+  const jwt = await M.appJwt(env0, 1_800_000_000_000);
+  const [h, b, s] = jwt.split(".");
+  assert.deepEqual(JSON.parse(Buffer.from(b, "base64url").toString()), { iat: 1_800_000_000 - 60, exp: 1_800_000_000 + 480, iss: "5620754" });
+  assert.equal(createVerify("RSA-SHA256").update(h + "." + b).verify(publicKey, Buffer.from(s, "base64url")), true, "signed with the app's key");
+  // THE WHOLE WAY: comment → "On it" (as the app) → a job → the answer replaces "On it".
+  const bucket = fakeBucket();
+  await bucket.put("coder/u-owner/github.json", JSON.stringify({ login: "Canias7" }));
+  await bucket.put("coder/u-owner/profile.json", JSON.stringify({ email: "me@x.y" }));
+  const env = { ...env0, CODER_USERS: "me@x.y", CODER_GITHUB_WEBHOOK_SECRET: secret, CODER_BUCKET: bucket };
+  const gh = [];
+  const fetchFn = async (url, init = {}) => {
+    gh.push([init.method || "GET", String(url), init.body ? JSON.parse(init.body) : null, init.headers && init.headers.authorization]);
+    if (/\/app\/installations\/77\/access_tokens$/.test(url)) return new Response(JSON.stringify({ token: "ghs_app" }), { status: 201 });
+    if (/\/issues\/5\/comments$/.test(url)) return new Response(JSON.stringify({ id: 900 }), { status: 201 });
+    return new Response(JSON.stringify({}), { status: 200 });
+  };
+  let state = { running: true };
+  const coderCalls = [];
+  const coder = async (req, who) => {
+    const u = new URL(req.url); const body = req.method === "POST" ? await req.json() : null;
+    coderCalls.push([req.method, u.pathname, who.id, body]);
+    if (u.pathname === "/api/coder/projects" && req.method === "POST") return Response.json({ ok: true, project: { id: "shop-ab12" } });
+    if (u.pathname.endsWith("/message")) return Response.json({ ok: true });
+    if (u.pathname.endsWith("/state")) return Response.json(state);
+    if (u.pathname === "/api/coder/projects/shop-ab12") return Response.json({ ok: true, project: { id: "shop-ab12", branch: "coder/shop-ab12", base: "main", pr: null }, events: [{ type: "user", text: "x" }, { type: "done", text: "Added the dark mode toggle." }, { type: "github", text: "Saved to the branch coder/shop-ab12" }] });
+    return Response.json({}, { status: 404 });
+  };
+  const hook = (payload, s = sign) => { const raw = JSON.stringify(payload); return M.handleWebhook(new Request("https://gofarther.dev/api/coder/github/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": s(raw) }, body: raw }), env, null, { fetchFn, coder }); };
+  assert.equal((await hook(issue("@coder x"), () => "sha256=00")).status, 401, "unsigned is refused");
+  // a stranger: refused politely, no job
+  const stranger = issue("@coder spend money", { sender: { login: "someone", type: "User" }, comment: { body: "@coder spend money", user: { login: "someone" } } });
+  assert.equal((await hook(stranger)).status, 202);
+  assert.equal(coderCalls.length, 0, "a stranger started nothing");
+  assert.match(gh.find(([m, u]) => m === "POST" && /issues\/5\/comments/.test(u))[2].body, /only works for accounts that connected GitHub/);
+  gh.length = 0;
+  // the owner: a chat, "On it" as the app, the job
+  assert.equal((await hook(issue("@coder add a dark mode toggle"))).status, 202);
+  assert.deepEqual(coderCalls.map(([m, p, w]) => [m, p, w]), [["POST", "/api/coder/projects", "u-owner"], ["POST", "/api/coder/projects/shop-ab12/message", "u-owner"]]);
+  assert.match(coderCalls[1][3].text, /From GitHub, canias7\/shop, Issue #5 "Dark mode"[\s\S]*@canias7 asks: add a dark mode toggle/);
+  const onIt = gh.find(([m, u]) => m === "POST" && /issues\/5\/comments/.test(u));
+  assert.match(onIt[2].body, /^On it, @canias7/); assert.equal(onIt[3], "Bearer ghs_app", "posted as the app");
+  assert.ok(bucket.m.has("coder/logins/canias7.json"), "the login is remembered");
+  // the minute check: still running → nothing; done → "On it" becomes the answer
+  assert.deepEqual(await M.runMentionJobs(env, { fetchFn, coder }), { finished: 0 });
+  state = { running: false, project: { status: "idle" } };
+  gh.length = 0;
+  assert.deepEqual(await M.runMentionJobs(env, { fetchFn, coder }), { finished: 1 });
+  const edit = gh.find(([m, u]) => m === "PATCH" && /issues\/comments\/900$/.test(u));
+  assert.match(edit[2].body, /^@canias7 Done\.\n\nAdded the dark mode toggle\.\n\nBranch: https:\/\/github\.com\/canias7\/shop\/tree\/coder\/shop-ab12/);
+  assert.equal([...bucket.m.keys()].filter((k) => k.startsWith("coder/github-jobs/")).length, 0, "the job is done");
+  // the next @coder in the same issue continues the same chat
+  coderCalls.length = 0;
+  await hook(issue("@coder now make a pull request"));
+  assert.deepEqual(coderCalls.map(([m, p]) => [m, p]), [["GET", "/api/coder/projects/shop-ab12"], ["POST", "/api/coder/projects/shop-ab12/message"]]);
+  // the deploy passes the secrets; the cron runs it
+  const W = readFileSync(HERE("worker.js"), "utf8");
+  assert.match(W, /async scheduled\(event, env, ctx\)/);
+  assert.match(readFileSync(HERE("wrangler.jsonc"), "utf8"), /"crons": \["\* \* \* \* \*"\]/);
+  assert.match(readFileSync(MAIN(".github/workflows/deploy-coder.yml"), "utf8"), /CODER_GITHUB_WEBHOOK_SECRET\n\s+CODER_GITHUB_APP_PRIVATE_KEY/);
+});
+
+test("CD43 undo the last job: its commit is reverted and saved to the branch (no force push); Coder is told; nothing left to undo after", async () => {
+  const { remote, bare } = await fakeRemote();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s = scripted([say("", [call("bash", { command: "echo '<h1>Hi</h1>' > index.html" })]), say("Made index.html.", [])]);
+  const { base, close } = await serve(createApp({ root, send: s.send, remote, ...(await roots()) }));
+  try {
+    const bucket = fakeBucket();
+    const env = { ...GH_ENV, CODER_BUCKET: bucket };
+    const ghFake = fakeGithub();
+    const deps = { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "user-undo", email: "me@x.y" }), container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+    const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+    const st = new URL((await (await go("github/start")).json()).url).searchParams.get("state");
+    await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(st)), env, {}, deps);
+    const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+    assert.equal((await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).status, 400, "nothing to undo yet");
+    await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "make a page" }) });
+    let got;
+    for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
+    assert.equal(got.project.commits.length, 1);
+    assert.equal(got.project.commits[0].title, "Made index.html.");
+    assert.equal(git(bare, "show", "coder/" + id + ":index.html"), "<h1>Hi</h1>\n");
+    const before = git(bare, "rev-parse", "coder/" + id).trim();
+    const u = await (await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).json();
+    assert.equal(u.ok, true, u.error);
+    assert.throws(() => git(bare, "show", "coder/" + id + ":index.html"), "the file is gone again");
+    assert.equal(git(bare, "rev-parse", "coder/" + id + "~1").trim(), before, "a new commit on top (no force push)");
+    assert.match(git(bare, "log", "-1", "--format=%s", "coder/" + id), /^Revert "Made index\.html\."/);
+    assert.deepEqual(u.project.commits, []);
+    assert.match(u.events[0].text, /^Undid the last job \(Made index\.html\.\)/);
+    const msgs = JSON.parse(bucket.m.get("coder/user-undo/" + id + "/messages.json"));
+    assert.match(msgs.at(-2).content, /the owner pressed Undo/);
+    assert.equal((await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).status, 400, "nothing more to undo");
+    const ui = readFileSync(HERE("public/coder.js"), "utf8");
+    assert.match(ui, /Undo last job/);
+    assert.match(ui, /askSure\('Undo the last job\?'/);
+  } finally { await close(); }
 });

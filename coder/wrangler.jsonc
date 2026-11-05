@@ -29,8 +29,13 @@
     // secret and the token key are secrets: GITHUB_APP_CLIENT_SECRET, CODER_TOKEN_KEY.
     "GITHUB_APP_CLIENT_ID": "Iv23li7CSEGqBSxEqQU7",
     "GITHUB_APP_SLUG": "gofarther-coder",
-    "CODER_PUBLIC_URL": "https://coder.gofarther.dev"
+    "CODER_PUBLIC_URL": "https://coder.gofarther.dev",
+    // @CODER IN GITHUB COMMENTS (2026-11-05): the app's id, so Coder comments
+    // as gofarther-coder[bot]. Secrets: CODER_GITHUB_APP_PRIVATE_KEY, CODER_GITHUB_WEBHOOK_SECRET.
+    "CODER_GITHUB_APP_ID": "5620754"
   },
+  // Every minute: @coder jobs that ended get their answer posted on GitHub.
+  "triggers": { "crons": ["* * * * *"] },
   // The page (public/): sign-in, then Coder.
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   "r2_buckets": [
