@@ -19,6 +19,7 @@
 // the repository's settings.
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createWriteStream, openSync } from "node:fs";
@@ -41,10 +42,10 @@ export const BODY_MAX = 8 * 1024 * 1024;
 let bgCount = 0;
 
 /** One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped). */
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR } = {}) {
+export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false;
-    const p = spawn("bash", ["-c", command], { cwd: dir, env: cleanEnv(dir), detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : {}) });
+    const p = spawn("bash", ["-c", command], { cwd: dir, env: { ...(extraEnv || {}), ...cleanEnv(dir) }, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : {}) });
     const take = (b) => { if (out.length < RAW_OUTPUT_MAX) out += b.toString("utf8"); else cut = true; };
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
@@ -261,6 +262,17 @@ export function contextText(notes, memFile, memory) {
 const turns = new Map(); // project → { running, stop, events, result }
 
 /** Stop every background command a turn left running (its whole process group). */
+/** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
+export function safeVars(vars) {
+  const out = {};
+  if (!vars || typeof vars !== "object") return out;
+  for (const [k, v] of Object.entries(vars).slice(0, 50)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || /^(PATH|HOME|SHELL|USER|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|CODER_)/i.test(k)) continue;
+    out[k] = String(v ?? "").slice(0, 4000);
+  }
+  return out;
+}
+
 function killAll(t) {
   for (const pid of t.bg || []) { try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ } }
   if (t.bg) t.bg.clear();
@@ -311,18 +323,35 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       await mkdir(bgDir, { recursive: true });
       if (Number.isInteger(RUN_UID)) { for (const f of [memDir, memFile]) { try { await chown(f, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } } }
     } catch (e) { return fail(500, "could not prepare the memory: " + String((e && e.message) || e).slice(0, 160)); }
-    const context = contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "");
+    // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): the owner's own variables
+    // for every command, and a setup script run (as `dev`) when this machine first
+    // opens the repo, or when the script changed.
+    const extraEnv = safeVars(body.setup && body.setup.vars);
+    const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
+    if (script) {
+      const mark = join(gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
+      const sha = createHash("sha256").update(script).digest("hex");
+      const done = await readFile(mark, "utf8").catch(() => "");
+      if (done.trim() !== sha) {
+        const id = "setup-" + Date.now();
+        t.events.push({ at: Date.now(), type: "bash", id, tool: "setup", verb: "Ran setup", command: script.split("\n")[0].slice(0, 200) });
+        const r = await execIn(dir, script, 600, { bgDir, kill: true, extraEnv });
+        t.events.push({ at: Date.now(), type: "result", id, code: r.code, output: String(r.output || "").slice(-8000), ...(r.timedOut ? { timedOut: true } : {}) });
+        if (r.code === 0) await writeFile(mark, sha).catch(() => {});
+      }
+    }
+    const context = contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(extraEnv).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(extraEnv).join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool }) => {
         // A file or web tool is ended at its time limit, never sent to the background.
-        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool });
+        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, extraEnv });
         if (r && r.background && r.pid) t.bg.add(r.pid);
         return r;
       },
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), context, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
       .then(async (r) => { t.result = { ...r, memory: await readMemory(memFile) }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => {
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.

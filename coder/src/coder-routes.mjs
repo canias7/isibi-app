@@ -30,11 +30,46 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
-import { handleWebhook, loginKey, profileKey } from "./coder-mentions.mjs";
-import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH } from "./coder-github.mjs";
+import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
+import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
+// IMAGES IN THE CHAT (owner, 2026-11-05, "16"): up to 4 pictures a message, each up to 1.5 MB.
+export const MAX_IMAGES = 4;
+export const MAX_IMAGE_BYTES = 1_500_000;
+/** The message's pictures, checked: `[{ type, data }]` (base64), or an error text. */
+export function checkImages(list) {
+  if (!Array.isArray(list) || !list.length) return { images: [] };
+  if (list.length > MAX_IMAGES) return { error: "at most " + MAX_IMAGES + " pictures a message" };
+  const out = [];
+  for (const x of list) {
+    const type = String((x && x.type) || "");
+    const data = String((x && x.data) || "");
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(type)) return { error: "pictures must be PNG, JPEG, WebP or GIF" };
+    if (!/^[A-Za-z0-9+/]+=*$/.test(data) || data.length * 0.75 > MAX_IMAGE_BYTES) return { error: "each picture must be under 1.5 MB" };
+    out.push({ type, data });
+  }
+  return { images: out };
+}
+// REVIEW (owner, 2026-11-05, "5"): Coder reviews its branch, written on the server.
+export const REVIEWS = {
+  code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
+  security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
+};
+// THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
+// owner's own variables, per repository, sealed like the GitHub token.
+export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
+export async function readEnv(env, bucket, uid, repo) {
+  const o = await bucket.get(envKey(uid, repo));
+  if (!o) return { script: "", vars: {} };
+  try { const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box); return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {} }; } catch { return { script: "", vars: {} }; }
+}
+/** @path mentions in a message, as a note for Coder. */
+export function fileMentions(text) {
+  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w./-]+\.[\w]+|[\w-]+\/[\w./-]+)/g)].map((m) => m[1]).filter((p) => !p.includes("..")))].slice(0, 20);
+  return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ". Read them first.)" : "";
+}
 // SEVERAL CHATS AT ONCE (owner, 2026-11-05: "no limit"): each chat has its own
 // container and a user may have any number working at once. CODER_MAX_RUNNING
 // (a setting) puts a per-person limit back when Coder opens to other users.
@@ -236,6 +271,9 @@ export async function handleCoder(request, env, ctx, deps) {
     const id = projectIdFor(repo);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
     await saveMeta(bucket, uid, meta);
+    // Whose this branch is, so GitHub's news about its pull request (failed
+    // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
+    await bucket.put(branchKey(repo, meta.branch), JSON.stringify({ uid, id }), { httpMetadata: { contentType: "application/json" } });
     return json({ ok: true, project: meta });
   }
 
@@ -253,10 +291,13 @@ export async function handleCoder(request, env, ctx, deps) {
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const said = String(body.text || "").trim();
+    const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
+    const said = review ? review.label : String(body.text || "").trim();
     const notes = commentsText(body.comments);
     const text = notes ? notes + (said ? "\n\n" + said : "") : said;
-    if (!text) return json({ error: "write something first" }, 400);
+    const pics = checkImages(body.images);
+    if (pics.error) return json({ error: pics.error }, 400);
+    if (!text && !pics.images.length) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
     if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
     const t = await userToken(env, bucket, uid, { fetchFn });
@@ -266,11 +307,12 @@ export async function handleCoder(request, env, ctx, deps) {
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
+    const setup = await readEnv(env, bucket, uid, meta.repo);
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { project: id, text, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory });
+    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.autofix === true ? "Auto-fix: " + text.split("\n").filter(Boolean)[1]?.slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -281,7 +323,8 @@ export async function handleCoder(request, env, ctx, deps) {
       let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + " (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
     }
-    const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now() };
+    // Auto-fix tries in a row; a message from the owner starts the count again.
+    const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0 };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next });
   }
@@ -395,6 +438,43 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
+  }
+
+  // AUTO-FIX ON/OFF for this chat's pull request (on unless turned off).
+  if (action === "autofix" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const next = { ...meta, autofix: body.on !== false, autofixTries: 0 };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
+  }
+
+  // THE REPO'S ENVIRONMENT: the script, and the variables' NAMES only (values are write-only).
+  if (action === "env" && request.method === "GET") {
+    const e = await readEnv(env, bucket, uid, meta.repo);
+    return json({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars) });
+  }
+  if (action === "env" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const cur = await readEnv(env, bucket, uid, meta.repo);
+    const script = typeof body.script === "string" ? body.script.slice(0, 20000) : cur.script;
+    const vars = { ...cur.vars };
+    for (const [k, v] of Object.entries(body.vars && typeof body.vars === "object" ? body.vars : {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k)) return json({ error: "variable names are letters, digits and _ (" + String(k).slice(0, 40) + ")" }, 400);
+      if (v === null) delete vars[k]; else if (typeof v === "string") vars[k] = v.slice(0, 4000);
+    }
+    if (Object.keys(vars).length > 50) return json({ error: "at most 50 variables" }, 400);
+    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script, vars }) }), { httpMetadata: { contentType: "application/json" } });
+    return json({ ok: true, repo: meta.repo, script, vars: Object.keys(vars) });
+  }
+
+  // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").
+  if (action === "files" && request.method === "GET") {
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    let tree = await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.branch) + "?recursive=1", { fetchFn });
+    if (!tree.ok) tree = await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.base) + "?recursive=1", { fetchFn });
+    const files = tree.ok && tree.data && Array.isArray(tree.data.tree) ? tree.data.tree.filter((x) => x.type === "blob").map((x) => String(x.path)).filter((p) => !/(^|\/)(node_modules|\.git)\//.test(p)).slice(0, 5000) : [];
+    return json({ ok: true, files });
   }
 
   if (action === "changes" && request.method === "GET") {

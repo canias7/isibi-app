@@ -207,3 +207,44 @@
 .cd-ask-opt{font:inherit;font-size:14px;border:1px solid #d9d6cf;background:#faf9f5;color:#1f1e1d;border-radius:999px;padding:8px 14px;cursor:pointer}
 .cd-ask-opt:hover:not(:disabled){background:#f0eee8;border-color:#1f1e1d}
 .cd-ask-opt:disabled{opacity:.55;cursor:default}
+
+/* Pictures in the chat box and in your messages; @ file suggestions. */
+.cd-compose{position:relative}
+.cd-attach{position:absolute;left:8px;bottom:8px;border:0;background:transparent;color:#6b6a68;cursor:pointer;padding:6px;border-radius:8px}
+.cd-attach:hover{background:#f3f1ec;color:#1f1e1d}
+.cd-compose textarea{margin-bottom:30px}
+.cd-pics{display:flex;gap:8px;max-width:760px;width:calc(100% - 40px);margin:6px auto 0;flex-wrap:wrap}
+.cd-pic{position:relative;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1px solid #e0dbd2;background:#fff}
+.cd-pic img{width:100%;height:100%;object-fit:cover}
+.cd-pic button{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:13px;line-height:20px;padding:0;cursor:pointer}
+.cd-user{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.cd-thumbs{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.cd-thumbs img{max-width:180px;max-height:140px;border-radius:12px;border:1px solid #e0dbd2}
+.cd-imgnote{font-size:12px;color:#8a8884}
+.cd-mention{max-width:760px;width:calc(100% - 40px);margin:6px auto 0;background:#fff;border:1px solid #e0dbd2;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.08);overflow:hidden}
+.cd-mention-i{display:block;width:100%;text-align:left;border:0;background:#fff;padding:8px 14px;font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#1f1e1d;cursor:pointer}
+.cd-mention-i.on,.cd-mention-i:hover{background:#f3f1ec}
+
+/* Review menu */
+.cd-revwrap{position:relative;display:inline-block}
+.cd-revmenu{position:absolute;top:calc(100% + 6px);right:0;z-index:20;background:#fff;border:1px solid #e0dbd2;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:6px;min-width:240px;display:flex;flex-direction:column}
+.cd-revmenu button{border:0;background:#fff;text-align:left;padding:8px 10px;border-radius:8px;cursor:pointer;font:inherit;display:flex;flex-direction:column;gap:2px}
+.cd-revmenu button:hover{background:#f3f1ec}
+.cd-revmenu b{font-size:14px;color:#1f1e1d;font-weight:600}
+.cd-revmenu small{font-size:12px;color:#6b6a68}
+
+/* The repo's environment panel */
+.cd-envp{max-width:760px;width:calc(100% - 40px);margin:12px auto;background:#fff;border:1px solid #e0dbd2;border-radius:14px;padding:16px 18px;box-sizing:border-box}
+.cd-envp h3{margin:0 0 10px;font-size:15px;color:#1f1e1d}
+.cd-envl{display:block;font-size:13px;font-weight:600;color:#1f1e1d;margin:12px 0 6px}
+.cd-envl small{display:block;font-weight:400;color:#6b6a68;margin-top:2px}
+.cd-envp textarea{width:100%;box-sizing:border-box;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid #e0dbd2;border-radius:10px;padding:8px 10px;resize:vertical}
+.cd-envrow{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f0eee8;font-size:13px}
+.cd-envrow code{font-weight:600}.cd-envrow span{color:#6b6a68;flex:1}
+.cd-envrow button{border:0;background:transparent;color:#b3261e;font-size:16px;cursor:pointer}
+.cd-envadd{display:flex;gap:8px;margin-top:8px}
+.cd-envadd input{flex:1;min-width:0;border:1px solid #e0dbd2;border-radius:10px;padding:7px 10px;font:13px ui-monospace,SFMono-Regular,Menlo,monospace}
+.cd-envfoot{display:flex;align-items:center;gap:12px;margin-top:14px}
+.cd-muted{color:#6b6a68;font-size:13px;margin:0}
+
+.cd-autofix.on{background:#e8f5ef;border-color:#a7d7c2;color:#145a43}
