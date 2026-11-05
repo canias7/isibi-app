@@ -213,7 +213,22 @@ export function readAutofix(event, p) {
 export async function startAutofix(env, deps, f) {
   const bucket = env.CODER_BUCKET;
   const fetchFn = deps.fetchFn || fetch;
-  const owner = await getJson(bucket, branchKey(f.repo, f.branch));
+  let owner = await getJson(bucket, branchKey(f.repo, f.branch));
+  if (!owner) {
+    // Chats made before branches were recorded: find coder/<uid>/<id>/meta.json for this branch.
+    const id = String(f.branch).replace(/^coder\//, "");
+    let cursor;
+    do {
+      const page = await bucket.list({ prefix: "coder/", cursor });
+      for (const o of page.objects || []) {
+        const m = /^coder\/([^/]+)\/([^/]+)\/meta\.json$/.exec(o.key);
+        if (!m || m[2] !== id) continue;
+        const meta = await getJson(bucket, o.key);
+        if (meta && meta.repo === f.repo && meta.branch === f.branch) { owner = { uid: m[1], id }; await putJson(bucket, branchKey(f.repo, f.branch), owner); break; }
+      }
+      cursor = !owner && page.truncated ? page.cursor : undefined;
+    } while (cursor);
+  }
   if (!owner) return { ok: false, why: "not a Coder branch" };
   const prof = await getJson(bucket, profileKey(owner.uid));
   const gh = await getJson(bucket, "coder/" + owner.uid + "/github.json");

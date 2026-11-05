@@ -1180,3 +1180,41 @@ test("CD49 pictures are read as data: addresses (the page's rules block blob: on
   const { servePage } = { servePage: null };
   assert.match(readFileSync(HERE("src/coder-page.mjs"), "utf8"), /img-src 'self' data:/);
 });
+
+test("CD50 what the setup script makes (node_modules…) is never saved to the branch; Coder's own new files still are", async () => {
+  const { remote, bare } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const s = scripted([say("", [call("write", { path: "app.js", content: "x\n" })]), say("Done.", [])]);
+  const { base, close } = await serve(createApp({ root, send: async (req) => s.send(req), remote, ...r0 }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    // the write tool runs as a command; here we just let bash write the file instead
+    const s2 = scripted([say("", [call("bash", { command: "echo x > app.js" })]), say("Done.", [])]);
+    s.send = s2.send;
+    await post("/turn", { project: "shop-setp", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-setp", token: "", setup: { script: "mkdir -p node_modules/pkg && echo 1 > node_modules/pkg/i.js && echo ok > setup-ran.txt" } });
+    for (let i = 0; i < 100; i++) { const st = await (await fetch(base + "/state?project=shop-setp&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    await post("/claim", { project: "shop-setp" });
+    const p = await (await post("/push", { project: "shop-setp", repo: "ana/shop", branch: "coder/shop-setp", token: "", message: "Added app.js" })).json();
+    assert.equal(p.ok, true, p.why);
+    const files = git(bare, "ls-tree", "-r", "--name-only", "coder/shop-setp").trim().split("\n");
+    assert.ok(files.includes("app.js"), "Coder's own file is saved");
+    assert.ok(!files.some((f) => f.startsWith("node_modules/")), "node_modules was saved");
+    assert.ok(!files.includes("setup-ran.txt"), "the setup's file was saved");
+  } finally { await close(); }
+});
+
+test("CD51 auto-fix finds chats made before branches were recorded", async () => {
+  const M = await import("../src/coder-mentions.mjs");
+  const bucket = fakeBucket();
+  await bucket.put("coder/u2/shop-old1/meta.json", JSON.stringify({ id: "shop-old1", repo: "canias7/shop", branch: "coder/shop-old1" }));
+  await bucket.put("coder/u2/profile.json", JSON.stringify({ email: "me@x.y" }));
+  await bucket.put("coder/u2/github.json", JSON.stringify({ login: "canias7" }));
+  const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket };
+  const sent = [];
+  const coder = async (req) => { if (req.method === "POST") { sent.push(new URL(req.url).pathname); return Response.json({ ok: true }); } return Response.json({ ok: true, project: { id: "shop-old1", status: "idle" } }); };
+  const r = await M.startAutofix(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) }, { kind: "review", repo: "canias7/shop", branch: "coder/shop-old1", number: 3, installation: 1, login: "canias7", text: "rename it" });
+  assert.equal(r.ok, true, r.why);
+  assert.deepEqual(sent, ["/api/coder/projects/shop-old1/message"]);
+  assert.ok(bucket.m.has(M.branchKey("canias7/shop", "coder/shop-old1")), "remembered for next time");
+});

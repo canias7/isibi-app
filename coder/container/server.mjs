@@ -262,6 +262,20 @@ export function contextText(notes, memFile, memory) {
 const turns = new Map(); // project → { running, stop, events, result }
 
 /** Stop every background command a turn left running (its whole process group). */
+/** Files that are new right now (not tracked, not ignored) go in the git folder's info/exclude. */
+export async function ignoreNew(dir, gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE) {
+  const o = { gitDir: gitDirFor(dir, gitRoot), remote };
+  const st = await gitIn(dir, ["status", "--porcelain", "--untracked-files=normal"], o);
+  const fresh = String(st.stdout ?? st.output).split("\n").filter((l) => l.startsWith("?? ")).map((l) => l.slice(3).replace(/^"|"$/g, "")).filter(Boolean);
+  if (!fresh.length) return [];
+  const file = join(gitDirFor(dir, gitRoot), "info", "exclude");
+  await mkdir(dirname(file), { recursive: true });
+  const old = await readFile(file, "utf8").catch(() => "");
+  const add = fresh.map((f) => "/" + f).filter((f) => !old.split("\n").includes(f));
+  if (add.length) await writeFile(file, old + (old && !old.endsWith("\n") ? "\n" : "") + "# made by the setup script (Coder)\n" + add.join("\n") + "\n");
+  return fresh;
+}
+
 /** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
 export function safeVars(vars) {
   const out = {};
@@ -338,6 +352,10 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         const r = await execIn(dir, script, 600, { bgDir, kill: true, extraEnv });
         t.events.push({ at: Date.now(), type: "result", id, code: r.code, output: String(r.output || "").slice(-8000), ...(r.timedOut ? { timedOut: true } : {}) });
         if (r.code === 0) await writeFile(mark, sha).catch(() => {});
+        // WHAT SETUP MADE IS NEVER SAVED TO THE BRANCH (live test, 2026-11-05: an
+        // `npm ci` would have committed node_modules): new files from the setup go
+        // in the git folder's own ignore list (root's folder, not the repo).
+        await ignoreNew(dir, gitRoot, remote);
       }
     }
     const context = contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(extraEnv).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(extraEnv).join(", ") : "");
