@@ -31,7 +31,7 @@
     next: 0,
     running: false,
     sending: false,
-    draft: (() => { try { const a = sessionStorage.getItem('gf_ask') || ''; sessionStorage.removeItem('gf_ask'); return a.slice(0, 4000); } catch (e) { return ''; } })(), // the landing page's ask, kept
+    draft: '',
     open: {},         // which command outputs are opened
     root: null,
     poll: 0,
@@ -633,6 +633,9 @@
   // ── THE HOOK chat.js CALLS ────────────────────────────────────────────────
   window.CoderView = {
     mount(el, side) {
+      // THE LANDING PAGE'S ASK (live test, 2026-11-05): read when Coder opens after
+      // sign-in, not when the page first loads (it was typed after that).
+      try { const a = sessionStorage.getItem('gf_ask') || ''; if (a && !S.draft) S.draft = a.slice(0, 4000); sessionStorage.removeItem('gf_ask'); } catch (e) { /* private mode */ }
       const first = !S.root;
       S.root = el;
       if (side) S.side = side;
