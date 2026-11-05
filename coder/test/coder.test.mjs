@@ -511,8 +511,7 @@ test("CD20 memory is kept per repo between chats; no limit on chats at once unle
 
 test("CD21 the screen asks the server: the commands, the model list and pick, and what a command does; comments are sent as they are", () => {
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /if \(text\.startsWith\('\/'\)\) \{ S\.draft = ''; return runCommand\(text\); \}/, "a slash command never reaches the AI");
-  assert.match(ui, /const r = await call\('\/command', \{ method: 'POST'/);
+  assert.doesNotMatch(ui, /slash|runCommand|\/command/, "the slash commands were removed (each has a button)");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   assert.doesNotMatch(ui, /Comments on the changes:/, "the server writes the comments in, not the page");
   assert.doesNotMatch(ui, /localStorage/, "the pick is kept on the account");
@@ -522,7 +521,7 @@ test("CD21 the screen asks the server: the commands, the model list and pick, an
 
 test("CD22 on the server: sign-in goes through the Worker; settings, slash commands and comments are worked out there", async () => {
   const { handleSignin, sessionOf } = await import("../src/coder-signin.mjs");
-  const { commentsText, COMMANDS } = await import("../src/coder-routes.mjs");
+  const { commentsText } = await import("../src/coder-routes.mjs");
   // SIGN-IN: password checked, then a code emailed; the code gives a session.
   const calls = [];
   const fetchFn = async (url, init) => {
@@ -547,7 +546,6 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   // COMMENTS: checked and written in by the server.
   assert.equal(commentsText([{ file: "src/a.js", line: 4, quote: "x  =  1", text: "use 2" }, { file: "", text: "skip" }]), "Comments on the changes:\n- src/a.js line 4 (`x = 1`): use 2");
   assert.equal(commentsText("no"), "");
-  assert.deepEqual(COMMANDS.map((c) => c.name), ["new", "repos", "changes", "pr", "stop", "effort", "model", "remove", "help"]);
   // SETTINGS AND COMMANDS through the routes.
   const bucket = fakeBucket();
   const renv = { ...GH_ENV, CODER_BUCKET: bucket };
@@ -555,11 +553,9 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), renv, {}, deps);
   const s0 = await (await go("settings")).json();
   assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "medium" });
-  assert.equal((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/effort high" }) })).json()).note, "Effort set to high.");
+  assert.equal((await go("settings", { method: "POST", body: JSON.stringify({ model: "grok-4.7", effort: "high" }) })).status, 200);
   assert.deepEqual((await (await go("settings")).json()).pick, { model: "grok-4.7", effort: "high" }, "kept on the account");
-  assert.match((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/effort max" }) })).json()).note, /Effort is one of: low, medium, high/);
-  assert.equal((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/new" }) })).json()).open, "new");
-  assert.match((await (await go("command", { method: "POST", body: JSON.stringify({ text: "/nope" }) })).json()).note, /Unknown command: \/nope/);
+  assert.equal((await go("command", { method: "POST", body: JSON.stringify({ text: "/new" }) })).status, 404, "no slash commands");
 });
 
 

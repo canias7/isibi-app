@@ -6,16 +6,14 @@
   'use strict';
   const API = '/api/coder';
   const POLL_MS = 1500;
-  // THE MODEL LIST, THE USER'S PICK AND THE SLASH COMMANDS come from the server
+  // THE MODEL LIST AND THE USER'S PICK come from the server
   // (2026-11-05: "put it server side"); the page only shows them.
   let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
-  let COMMANDS = [];
   async function loadSettings() {
     const r = await call('/settings');
     if (r.status === 200 && r.data) {
       if (Array.isArray(r.data.models) && r.data.models.length) MODELS = r.data.models;
       if (r.data.pick) S.pick = r.data.pick;
-      if (Array.isArray(r.data.commands)) COMMANDS = r.data.commands;
     }
   }
   function savePick() { call('/settings', { method: 'POST', body: JSON.stringify(S.pick) }); }
@@ -41,7 +39,6 @@
     openFiles: {},  // which files are open in See changes
     comments: [],   // [{ file, line, quote, text }] from See changes
     commenting: null, // { file, line, quote } while writing one
-    slashSel: 0,
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -147,7 +144,6 @@
   async function send(text) {
     text = String(text || '').trim();
     // A SLASH COMMAND runs here, in the page (no AI).
-    if (text.startsWith('/')) { S.draft = ''; return runCommand(text); }
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
     if ((!text && !comments.length) || !S.project || S.running || S.sending) return;
@@ -360,12 +356,6 @@
     }).join('');
   }
 
-  // SLASH COMMANDS: the list comes from the server (loadSettings), and so does the work.
-  function slashMatches(draft) {
-    const m = /^\/(\S*)$/.exec(draft || '');
-    if (!m) return [];
-    return COMMANDS.filter((c) => c.name.startsWith(m[1].toLowerCase()));
-  }
   function note(text) { S.events.push({ type: 'note', text, at: Date.now(), local: true }); draw(true); }
   // CREATE PULL REQUEST: only when the user presses it (owner, 2026-11-05).
   async function makePr() {
@@ -377,26 +367,6 @@
     if (r.status === 200 && r.data && r.data.project) { S.project = r.data.project; syncEntry(); return draw(); }
     note((r.data && r.data.error) || 'The pull request could not be created.');
   }
-  async function runCommand(text) {
-    const r = await call('/command', { method: 'POST', body: JSON.stringify({ text, project: S.project ? S.project.id : '' }) });
-    const d = r.data || {};
-    if (r.status !== 200) return note(d.error || 'The command did not work.');
-    if (d.pick) S.pick = d.pick;
-    if (d.open === 'new') return showPicker('new');
-    if (d.open === 'repos') return showPicker('repos');
-    if (d.open === 'changes') { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); return draw(); }
-    if (d.open === 'remove' && S.project) return removeChat(S.project.id);
-    if (d.open === 'pr') return S.project ? makePr() : note('Open a chat first.');
-    if (d.url) window.open(d.url, '_blank', 'noopener');
-    if (d.note) return note(d.note);
-    draw();
-  }
-  function slashHTML() {
-    const list = slashMatches(S.draft);
-    if (!list.length) return '';
-    const sel = Math.min(S.slashSel, list.length - 1);
-    return '<div class="cd-slash" role="listbox">' + list.map((c, i) => '<button type="button" class="cd-slash-item' + (i === sel ? ' on' : '') + '" data-cmd="' + c.name + '" role="option"><b>/' + c.name + '</b>' + (c.arg ? ' <span class="cd-slash-arg">' + c.arg + '</span>' : '') + '<span class="cd-slash-hint">' + esc(c.hint) + '</span></button>').join('') + '</div>';
-  }
   function commentsHTML() {
     if (!S.comments.length) return '';
     return '<div class="cd-chips">' + S.comments.map((c, i) => '<span class="cd-chip" title="' + esc(c.quote) + '">💬 ' + esc(c.file.split('/').pop()) + (c.line ? ':' + c.line : '') + ' — ' + esc(c.text.slice(0, 40)) + '<button type="button" data-uncomment="' + i + '" aria-label="Remove comment">×</button></span>').join('') + '</div>';
@@ -405,9 +375,9 @@
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + slashHTML() + commentsHTML() +
+    return '<div class="cd-composewrap">' + commentsHTML() +
       '<form class="cd-compose" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something · / for commands') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something') + '">' + esc(S.draft) + '</textarea>' +
         (S.running
           ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
@@ -480,7 +450,6 @@
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
-    on('.cd-slash-item', 'click', (e) => { const c = COMMANDS.find((x) => x.name === e.currentTarget.dataset.cmd); if (c && c.arg) { S.draft = '/' + c.name + ' '; draw(); } else send('/' + e.currentTarget.dataset.cmd); });
     on('.cd-file', 'toggle', (e) => { S.openFiles[e.currentTarget.dataset.path] = e.currentTarget.open; });
     on('.cd-dl', 'click', (e) => { const d = e.currentTarget.dataset; S.commenting = { file: d.file, line: Number(d.line) || 0, idx: Number(d.idx), quote: e.currentTarget.textContent.replace(/^[+ -]/, '').trim() }; draw(); const i = root.querySelector('#cdCommentIn'); if (i) i.focus(); });
     const addComment = () => { const i = root.querySelector('#cdCommentIn'); const v = i && i.value.trim(); if (v && S.commenting) S.comments.push({ ...S.commenting, text: v }); S.commenting = null; draw(); };
@@ -496,16 +465,8 @@
     const input = root.querySelector('#cdIn');
     if (input) {
       grow(input);
-      input.addEventListener('input', () => { const was = slashMatches(S.draft).length; S.draft = input.value; S.slashSel = 0; grow(input); if (was || slashMatches(S.draft).length) draw(); });
+      input.addEventListener('input', () => { S.draft = input.value; grow(input); });
       input.addEventListener('keydown', (e) => {
-        const list = slashMatches(S.draft);
-        if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.slashSel = (S.slashSel + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; return draw(); }
-        if (list.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
-          const c = list[Math.min(S.slashSel, list.length - 1)];
-          if (c.arg) { e.preventDefault(); S.draft = '/' + c.name + ' '; return draw(); }
-          e.preventDefault(); return send('/' + c.name);
-        }
-        if (e.key === 'Escape' && list.length) { S.draft = ''; return draw(); }
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); }
       });
     }
