@@ -1,9 +1,11 @@
 // CODER'S BRAIN (2026-11-05). The owner: "same style as the sites agent, but
 // with a different container" and "like Claude Code": a developer at a
-// terminal. Coder has two tools (the owner removed `ask`, 2026-11-05):
+// terminal. Coder has ONE tool (the owner removed `ask` and `done`, 2026-11-05):
 //
 //   bash  run one command in the project's folder and read what it printed
-//   done  finish, with a short summary for the owner
+//
+// It finishes the way a person does: it stops running commands and answers in
+// words. That answer is the summary, and the work then goes to GitHub.
 //
 // Everything else (reading, writing, editing, installing, testing, running) is
 // done with ordinary Linux commands. Nothing here touches a file or the
@@ -24,11 +26,6 @@ export const CODER_TOOLS = Object.freeze([
     description: "Run ONE shell command (bash) in the project's folder and get back what it printed and its exit code. Use it for everything: ls, cat, grep, find, writing files (cat > file <<'EOF' … EOF), editing (sed, or rewrite the file), npm/pip installs, tests, git. Commands run with no secrets in their environment. A command that could run forever (a dev server) must be started in the background (… > server.log 2>&1 &) and checked with curl. `timeout_s`: how long it may take (default 120, at most 600).",
     parameters: { type: "object", properties: { command: { type: "string" }, timeout_s: { type: "integer" } }, required: ["command"] },
   } },
-  { type: "function", function: {
-    name: "done",
-    description: "You are finished. `summary`: what you did and what the owner can do now, in a few plain sentences. Only after you checked your work (ran it, or its tests).",
-    parameters: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
-  } },
 ]);
 
 export const CODER_SYSTEM = `You are Coder, a software developer working for the owner in your own Linux machine.
@@ -45,9 +42,9 @@ HOW YOU WORK
 
 TALKING TO THE OWNER
 - Say in one short line what you are about to do, then do it.
-- When a choice is open, make the sensible one yourself and say which in done. Only when you truly cannot go on without the owner, say plainly what you need in done.
-- When the work is done and checked, call done with a short, plain summary: what you made or changed, and how to use it. Never claim something you did not run.
-- If something cannot be done, say so plainly in done, with why.`;
+- When a choice is open, make the sensible one yourself and say which at the end. Only when you truly cannot go on without the owner, say plainly what you need.
+- To finish, stop calling bash and answer in plain words: what you made or changed, and how to use it. That answer ends your turn. Never claim something you did not run.
+- If something cannot be done, say so plainly, with why.`;
 
 /** The model's tool calls, read safely: `[{ id, name, args }]`; args `null` when they are not JSON. */
 export function readCalls(msg) {
@@ -94,9 +91,10 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
     const said = typeof msg.content === "string" ? msg.content.trim() : "";
     const calls = readCalls(msg);
     convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
+    // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
+    // (or the answer to a question, or a greeting).
+    if (!calls.length) { emit({ type: "done", text: scrub(said) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
     if (said) emit({ type: "text", text: scrub(said) });
-    // AN ANSWER IN WORDS WITH NO COMMAND is the owner's answer (a question about the code, a greeting).
-    if (!calls.length) return end("done", { summary: scrub(said) });
 
     for (let i = 0; i < calls.length; i++) {
       const c = calls[i];
@@ -115,13 +113,7 @@ export async function runCoder(deps, { messages = [], text = "", model = "", eff
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         emit({ type: "result", id: c.id, code, output: out, ...(r && r.timedOut ? { timedOut: true } : {}) });
         reply((r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
-      } else if (c.name === "done") {
-        const summary = scrub(typeof c.args.summary === "string" ? c.args.summary.trim() : "").slice(0, 4000);
-        reply("Finished.");
-        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: the turn finished" });
-        emit({ type: "done", text: summary });
-        return end("done", { summary });
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (use bash or done)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the only tool is bash; to finish, answer in words)");
     }
   }
 }

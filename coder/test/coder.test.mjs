@@ -1,6 +1,6 @@
 // CODER (2026-11-05): the developer agent in its own files and container. Tested
 // with a scripted AI (no model is called) and real bash commands in a temporary
-// folder: the safety checks, the loop (bash / done / stop), the container
+// folder: the safety checks, the loop (bash, an answer in words, stop), the container
 // service end to end, the Worker routes over a fake bucket and container, the
 // zip, and the wiring.
 import test from "node:test";
@@ -60,7 +60,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   const s = scripted([
     say("I'll write a small script.", [call("bash", { command: "cat > hello.js <<'EOF'\nconsole.log('hello from coder')\nEOF" })]),
     say("", [call("bash", { command: "node hello.js" })]),
-    say("", [call("done", { summary: "Wrote hello.js; it prints a greeting." })]),
+    say("Wrote hello.js; it prints a greeting.", []),
   ]);
   const events = [];
   const r = await runCoder({ send: s.send, exec: ({ command, timeoutS }) => execIn(dir, command, timeoutS), emit: (e) => events.push(e) }, { text: "make a hello script" });
@@ -71,25 +71,30 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["bash", "done"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["bash"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
 
 test("CD5 a refused command never runs, and the AI is told why", async () => {
   let ran = 0;
-  const s = scripted([say("", [call("bash", { command: "rm -rf /" })]), say("", [call("done", { summary: "ok" })])]);
+  const s = scripted([say("", [call("bash", { command: "rm -rf /" })]), say("ok", [])]);
   await runCoder({ send: s.send, exec: async () => { ran++; return { code: 0, output: "" }; } }, { text: "x" });
   assert.equal(ran, 0);
   assert.match(JSON.stringify(s.seen[1].messages), /refused: it would delete the whole machine/);
 });
 
-test("CD6 there is no ask tool (the owner removed it): a call to it is refused and the work goes on", async () => {
-  const s = scripted([say("", [call("ask", { question: "React or plain HTML?", options: ["React", "Plain HTML"] })]), say("", [call("done", { summary: "Made it in plain HTML." })])]);
+test("CD6 there is no ask or done tool (the owner removed them): a call to either is refused, and an answer in words finishes", async () => {
+  const s = scripted([say("", [call("ask", { question: "React or plain HTML?", options: ["React", "Plain HTML"] })]), say("Made it in plain HTML.", [])]);
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(use bash or done\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the only tool is bash; to finish, answer in words\)/.test(m.content)));
+  const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
+  const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
+  assert.equal(r2.status, "done");
+  assert.equal(r2.summary, "All set.", "the words, not a done call, are the summary");
+  assert.ok(s2.seen[1].messages.some((m) => m.role === "tool" && /no such tool: done/.test(m.content)));
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.doesNotMatch(ui, /e\.type === 'ask'|cd-ask|cd-opt/);
 });
@@ -165,7 +170,7 @@ test("CD8b the AI's commands run as a separate, unprivileged user: what only the
 test("CD9 the container: a turn on the repository runs in the background, its events read by `since`, then /push sends it", async () => {
   const { remote, bare } = await fakeRemote();
   const root = await mkdtemp(join(tmpdir(), "coder-root-"));
-  const s = scripted([say("", [call("bash", { command: "echo 'export const x = 1' > a.js && cat README.md" })]), say("", [call("done", { summary: "Added a.js." })])]);
+  const s = scripted([say("", [call("bash", { command: "echo 'export const x = 1' > a.js && cat README.md" })]), say("Added a.js.", [])]);
   const { base, close } = await serve(createApp({ root, send: s.send, remote }));
   try {
     const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
@@ -210,7 +215,7 @@ function fakeGithub({ canPush = true } = {}) {
 test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, then the branch is pushed and the pull request opened; the code is never stored with us", async () => {
   const { remote, bare } = await fakeRemote();
   const root = await mkdtemp(join(tmpdir(), "coder-root-"));
-  const s = scripted([say("Making it.", [call("bash", { command: "echo '<h1>Hi</h1>' > index.html" })]), say("", [call("done", { summary: "Made index.html. It says Hi." })])]);
+  const s = scripted([say("Making it.", [call("bash", { command: "echo '<h1>Hi</h1>' > index.html" })]), say("Made index.html. It says Hi.", [])]);
   const { base, close } = await serve(createApp({ root, send: s.send, remote }));
   try {
     const bucket = fakeBucket();

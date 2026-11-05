@@ -27,5 +27,5 @@ deleted (the old file is in git history).
 - Free while testing; only the owner's accounts (`CODER_USERS`).
 - The chat: black bubbles for the person; commands as plain lines (style B).
 - Model picker: Grok 4.7 with its effort levels (Low, Medium, High).
-- Coder's tools: `bash` and `done` only (the owner removed `ask`).
+- Coder's tools: `bash` only (the owner removed `ask` and `done`). It finishes by answering in words.
 - The left tabs: Coder and the Gloopy agent (the yellow figure; coming soon).
