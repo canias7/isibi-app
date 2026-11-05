@@ -28,14 +28,29 @@ jobs:
           for h in gofarther.dev www.gofarther.dev coder.gofarther.dev; do
             curl -fsS -H "Authorization: Bearer $T" "$API/zones/$ZONE/dns_records?name=$h" | jq -r '.result[] | .type + "  " + .name + "  " + .content + "  proxied=" + (.proxied|tostring)'
           done
-      - name: Attach gofarther.dev and www to Coder again
+      - name: Detach and attach gofarther.dev and www again (so their records are made)
         run: |
           API=https://api.cloudflare.com/client/v4
           for h in gofarther.dev www.gofarther.dev; do
             echo "== $h"
+            id=$(curl -fsS -H "Authorization: Bearer $T" "$API/accounts/$A/workers/domains?zone_id=$ZONE&hostname=$h" | jq -r '.result[] | select(.hostname=="'"$h"'") | .id' | head -n 1)
+            [ -n "$id" ] && curl -sS -X DELETE -H "Authorization: Bearer $T" "$API/accounts/$A/workers/domains/$id" | jq -c '{detached: .success}'
+            sleep 5
             curl -sS -X PUT -H "Authorization: Bearer $T" -H "content-type: application/json" "$API/accounts/$A/workers/domains" \
               -d "{\"hostname\":\"$h\",\"service\":\"gofarther-coder\",\"environment\":\"production\",\"zone_id\":\"$ZONE\",\"override_existing_dns_record\":true}" \
-              | jq -c '{success, errors: [.errors[]?.message], hostname: .result.hostname, service: .result.service}'
+              | jq -c '{attached: .success, errors: [.errors[]?.message]}'
+          done
+      - name: If a record is still missing, make it (AAAA 100::, proxied, like coder.gofarther.dev)
+        run: |
+          API=https://api.cloudflare.com/client/v4
+          sleep 15
+          for h in gofarther.dev www.gofarther.dev; do
+            n=$(curl -fsS -H "Authorization: Bearer $T" "$API/zones/$ZONE/dns_records?name=$h" | jq '[.result[] | select(.type=="A" or .type=="AAAA" or .type=="CNAME")] | length')
+            if [ "$n" = "0" ]; then
+              echo "== $h has no address record: making one"
+              curl -sS -X POST -H "Authorization: Bearer $T" -H "content-type: application/json" "$API/zones/$ZONE/dns_records" \
+                -d "{\"type\":\"AAAA\",\"name\":\"$h\",\"content\":\"100::\",\"proxied\":true,\"comment\":\"gofarther-coder\"}" | jq -c '{made: .success, errors: [.errors[]?.message]}'
+            else echo "== $h has its record"; fi
           done
       - name: After
         run: |
