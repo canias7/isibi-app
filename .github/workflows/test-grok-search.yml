@@ -1,0 +1,19 @@
+# ONE TEST CALL to Grok's own web search (owner, 2026-11-05). Pressed by the
+# owner. Makes a single paid Grok call and prints the answer, which tools Grok
+# used, and the usage (search count) - never the key.
+name: test grok search
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node .github/scripts/grok-search-test.mjs
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
