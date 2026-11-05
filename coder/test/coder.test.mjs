@@ -781,8 +781,12 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
   writeFileSync(join(dir, "twice.txt"), "x\nx\n");
   assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y" }).out, /appears 2 times/);
   assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y", replace_all: true }).out, /2 places/);
-  assert.match(tool("grep", { pattern: "const b" }).out, /src\/app\.js:2:const b = 3;/);
-  assert.match(tool("glob", { pattern: "**/*.js" }).out, /src\/app\.js/);
+  // grep and glob use ripgrep, which Coder's machine has (the Dockerfile); checked when this machine has it too.
+  let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }
+  if (hasRg) {
+    assert.match(tool("grep", { pattern: "const b" }).out, /src\/app\.js:2:const b = 3;/);
+    assert.match(tool("glob", { pattern: "**/*.js" }).out, /src\/app\.js/);
+  }
   // OUTSIDE THE PROJECT: refused, also through a link and in .git.
   assert.match(tool("read", { path: "../../etc/passwd" }).out, /outside the project/);
   assert.match(tool("write", { path: "/tmp/x.txt", content: "x" }).out, /outside the project/);
