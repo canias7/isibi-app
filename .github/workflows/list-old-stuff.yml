@@ -31,7 +31,16 @@ jobs:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         run: |
           if [ -z "$NEON_API_KEY" ]; then echo "(no NEON_API_KEY secret)"; exit 0; fi
-          curl -fsS -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects?limit=100" | jq -r '.projects[] | "neon  " + .id + "  " + .name + "  " + .created_at'
+          H="Authorization: Bearer $NEON_API_KEY"
+          # Neon asks which organisation; list each one's projects (and the personal ones).
+          orgs=$(curl -sS -H "$H" "https://console.neon.tech/api/v2/users/me/organizations" | jq -r '.organizations[]?.id' || true)
+          echo "organisations: ${orgs:-none}"
+          for o in "" $orgs; do
+            q=""; [ -n "$o" ] && q="&org_id=$o"
+            out=$(curl -sS -H "$H" "https://console.neon.tech/api/v2/projects?limit=100$q")
+            echo "$out" | jq -r '.projects[]? | "neon  " + .id + "  " + .name + "  " + .created_at' 2>/dev/null || true
+            echo "$out" | jq -r 'select(.message) | "  (" + .message + ")"' 2>/dev/null || true
+          done
       - name: GitHub branches
         env:
           GH_TOKEN: ${{ github.token }}
