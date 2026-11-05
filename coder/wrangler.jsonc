@@ -40,7 +40,7 @@
     {
       "class_name": "CoderContainer",
       "image": "./container/Dockerfile",
-      "max_instances": 1,
+      "max_instances": 100,
       "instance_type": "standard-1"
     }
   ],

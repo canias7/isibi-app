@@ -4,6 +4,47 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05 — First real try failed; fixed; no container limit
+
+Your first real "hey how are you" showed "Coder could not open canias77777/gfujgvkhbkjblu". The live version allowed only **1 container in total**, and each chat needs its own, so Cloudflare almost certainly refused to start one. The error also dropped the reason.
+- **No limit on chats at once** (your word "no limit"). Cloudflare needs a number, so the total is set to **100 containers**, with **no per-person limit**. Each container sleeps after 10 minutes, so it only costs while working. The setting `CODER_MAX_RUNNING` puts a per-person limit back when Coder opens to others.
+- **The real reason now shows** when a chat cannot start, or when the AI call fails.
+- **The effort safety net:** if Grok refuses the effort setting, Coder asks again without it.
+
+Coder's tests: 25 of 25.
+
+## 2026-11-05 — Browser work moved to the server
+
+On your word "remove the stuff that are browser stuff and put it server side":
+- **Sign-in** now goes through Coder's Worker (`/api/auth/signin`, `verify`, `signup`, `refresh`, `logout`). The page no longer holds Supabase's address or key, and may only talk to its own address.
+- **The model list, your model and effort pick, and the slash commands** come from the server. Your pick is kept on your account, not in the browser.
+- **What each slash command does** is worked out on the server (`/api/coder/command`). The page only opens what the answer says.
+- **Comments on the changes** are sent as they are, and the server checks them and writes them into the message.
+
+Coder's tests: 24 of 24. Not live until "merge and deploy" and **deploy coder**.
+
+## 2026-11-05 — Six Claude Code features added to Coder (7, 14, 15, 20, 21, 25)
+
+- **Several chats at once (7):** each chat has its own container. Up to **3 chats per person** can work at the same time, and a 4th waits with "3 chats are already working". Cloudflare allows up to 6 containers in all.
+- **The repo's own rules (14):** if the repo has a `CODER.md`, `CLAUDE.md` or `AGENTS.md`, Coder reads it at the start of every turn and follows it (up to 20,000 characters).
+- **Memory between chats (15):** each repo gets a memory file. Coder adds a line when it learns something lasting (how to run the tests, your preferences), and every chat on that repo starts with it. It's kept in Coder's storage (`memory/<repo>.md`), not in your repo, up to 25,000 characters.
+- **Comment on the changes (20):** in **See changes**, tap a line, write a comment and press Add. It waits as a chip above the box and goes to Coder with your next message, naming the file and line.
+- **Long commands in the background (21):** a command still running at its time limit is no longer killed. It keeps running, its output goes to a log, and Coder is told where to read it. The chat shows "running in the background".
+- **Slash commands (25):** type `/` for a menu: /new, /repos, /changes, /pr, /stop, /effort, /model, /remove, /help. They run in the page and never use the AI.
+
+Coder's tests: 23 of 23. Not live until "merge and deploy" and **deploy coder**.
+
+## 2026-11-05 — delete old stuff, second press (run 2): Neon and the old app gone
+
+- **Deleted:**
+  - the old app Worker **isibi-app** (the queue was unhooked from it first);
+  - the queue **site-builds**;
+  - the **gofarther-sites** folder;
+  - Supabase **media**;
+  - **all 48 Neon databases**, each named in the log.
+- **Already gone from the first press:** gofarther-front, the 101 site Workers, the KV stores, avatars and the branches. The warnings about these are only "not found".
+- **Still emptying:** **113 storage buckets** (isibi-sites, gofarther-files and the gfs-… ones) still had files. Their 1-day expiry rules from the first press still stand. One more press after 04:00 UTC on Nov 6 deletes them.
+
 ## 2026-11-05 — Supabase cleaned: only sign-in left
 
 On your "go", I deleted all 32 old tables and every old database function in Supabase. Afterwards: **0 tables, 0 functions left; 14 accounts kept**, untouched. Sign-in still works the same, because it lives in Supabase's own sign-in area, which nothing referenced.

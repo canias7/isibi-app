@@ -34,7 +34,8 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
   const key = env && typeof env.XAI_API_KEY === "string" ? env.XAI_API_KEY : "";
   return async (req) => {
     if (!key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
-    const body = JSON.stringify({ model: req.model || coderModel(env), messages: req.messages, tools: req.tools, tool_choice: req.tool_choice || "auto", ...(req.effort ? { reasoning_effort: req.effort } : {}) });
+    let withEffort = !!req.effort;
+    let body = JSON.stringify({ model: req.model || coderModel(env), messages: req.messages, tools: req.tools, tool_choice: req.tool_choice || "auto", ...(req.effort ? { reasoning_effort: req.effort } : {}) });
     for (let attempt = 0; attempt < 2; attempt++) {
       const r = await fetchFn(CODER_ENDPOINT, {
         method: "POST", body,
@@ -42,7 +43,14 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
         signal: AbortSignal.timeout(CODER_CALL_MS),
       });
       if ((r.status === 429 || r.status >= 500) && attempt === 0) { await wait(3000); continue; }
-      if (!r.ok) throw Object.assign(new Error("AI call failed: " + r.status), { status: r.status });
+      // THE EFFORT SAFETY NET: a model that refuses the effort setting is asked
+      // again without it (once), rather than failing every message.
+      if (r.status === 400 && withEffort && attempt === 0) {
+        const t = await r.text().catch(() => "");
+        if (/reasoning|effort/i.test(t)) { withEffort = false; body = JSON.stringify(JSON.parse(body), (k, v) => (k === "reasoning_effort" ? undefined : v)); continue; }
+        throw Object.assign(new Error("AI call failed: 400 " + t.replace(/\s+/g, " ").slice(0, 160)), { status: 400 });
+      }
+      if (!r.ok) { const t = await r.text().catch(() => ""); throw Object.assign(new Error("AI call failed: " + r.status + (t ? " " + t.replace(/\s+/g, " ").slice(0, 160) : "")), { status: r.status }); }
       const j = await r.json();
       const message = j && Array.isArray(j.choices) && j.choices[0] && j.choices[0].message;
       if (!message) throw new Error("the AI answered with no message");

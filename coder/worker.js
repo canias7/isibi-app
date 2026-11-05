@@ -5,6 +5,7 @@ import { handleCoder } from "./src/coder-routes.mjs";
 import { authUser } from "./src/coder-auth.mjs";
 import { corsHeaders } from "./src/coder-cors.mjs";
 import { servePage } from "./src/coder-page.mjs";
+import { handleSignin } from "./src/coder-signin.mjs";
 
 /**
  * CODER'S CONTAINER: a developer machine (Node, Python, git, build tools), one
@@ -26,7 +27,9 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     let res;
-    if (url.pathname.startsWith("/api/coder/")) {
+    if (url.pathname.startsWith("/api/auth/")) {
+      res = await handleSignin(request, env);
+    } else if (url.pathname.startsWith("/api/coder/")) {
       res = await handleCoder(request, env, ctx, {
         authUser: (r) => authUser(r, env),
         container: (name) => getContainer(env.CODER_CONTAINER, name),

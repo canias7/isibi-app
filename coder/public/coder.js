@@ -6,17 +6,19 @@
   'use strict';
   const API = '/api/coder';
   const POLL_MS = 1500;
-  // THE MODEL PICKER (owner, 2026-11-05): each model with its effort levels.
-  // The same list as container/coder-model.mjs; the Worker refuses others.
-  const MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
-  const EFFORT_NAME = { low: 'Low effort', medium: 'Medium effort', high: 'High effort' };
-  const PICK_KEY = 'gf_coder_model_v1';
-  function savedPick() {
-    let v = {}; try { v = JSON.parse(localStorage.getItem(PICK_KEY) || '{}') || {}; } catch (e) { v = {}; }
-    const m = MODELS.find((x) => x.id === v.model) || MODELS[0];
-    return { model: m.id, effort: m.efforts.includes(v.effort) ? v.effort : m.effort };
+  // THE MODEL LIST, THE USER'S PICK AND THE SLASH COMMANDS come from the server
+  // (2026-11-05: "put it server side"); the page only shows them.
+  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
+  let COMMANDS = [];
+  async function loadSettings() {
+    const r = await call('/settings');
+    if (r.status === 200 && r.data) {
+      if (Array.isArray(r.data.models) && r.data.models.length) MODELS = r.data.models;
+      if (r.data.pick) S.pick = r.data.pick;
+      if (Array.isArray(r.data.commands)) COMMANDS = r.data.commands;
+    }
   }
-  function savePick() { try { localStorage.setItem(PICK_KEY, JSON.stringify(S.pick)); } catch (e) {} }
+  function savePick() { call('/settings', { method: 'POST', body: JSON.stringify(S.pick) }); }
 
   // ONE STATE for the whole screen, kept across redraws: chat.js redraws the
   // right-hand area often, and the screen must come back where it was.
@@ -36,6 +38,10 @@
     root: null,
     poll: 0,
     pick: null,
+    openFiles: {},  // which files are open in See changes
+    comments: [],   // [{ file, line, quote, text }] from See changes
+    commenting: null, // { file, line, quote } while writing one
+    slashSel: 0,
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -53,6 +59,7 @@
 
   // ── LOADING: who am I on GitHub, which projects ───────────────────────────
   async function load() {
+    loadSettings().then(() => draw());
     S.phase = 'loading'; draw();
     const g = await call('/github');
     if (g.status === 404) { S.phase = 'off'; return draw(); }
@@ -121,12 +128,17 @@
   // ── A MESSAGE, THEN FOLLOWING THE WORK ────────────────────────────────────
   async function send(text) {
     text = String(text || '').trim();
-    if (!text || !S.project || S.running || S.sending) return;
+    // A SLASH COMMAND runs here, in the page (no AI).
+    if (text.startsWith('/')) { S.draft = ''; return runCommand(text); }
+    // COMMENTS ON THE CHANGES go with the message; the server writes them in.
+    const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
+    if ((!text && !comments.length) || !S.project || S.running || S.sending) return;
+    S.comments = [];
     S.sending = true; S.error = ''; S.draft = '';
     const base = S.events.length;
-    S.events.push({ type: 'user', text, at: Date.now(), local: true });
+    S.events.push({ type: 'user', text: text || '(comments on the changes)', at: Date.now(), local: true });
     draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, model: S.pick.model, effort: S.pick.effort }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, model: S.pick.model, effort: S.pick.effort }) });
     S.sending = false;
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
@@ -203,7 +215,8 @@
     const open = !!S.open[key];
     const verb = state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-spin" aria-label="running"></span>'
-      : state === 'bad' ? '<span class="cd-bad">' + (r.timedOut ? 'timed out' : 'exit ' + esc(r.code)) + '</span>' : '';
+      : state === 'bad' ? '<span class="cd-bad">' + (r.timedOut ? 'timed out' : 'exit ' + esc(r.code)) + '</span>'
+      : state === 'bg' ? '<span class="cd-bgchip">running in the background</span>' : '';
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
         '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
@@ -219,7 +232,7 @@
     for (const e of S.events) if (e.type === 'result' && e.id) results[e.id] = e;
     let lastUser = -1;
     S.events.forEach((e, i) => { if (e.type === 'user') lastUser = i; });
-    const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.code === 0 ? 'ok' : 'bad'; };
+    const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.background ? 'bg' : r.code === 0 ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
     const flush = () => {
@@ -245,6 +258,7 @@
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
+      else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
     });
     flush();
     if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
@@ -299,17 +313,63 @@
     if (!c.files.length) return '<div class="cd-changes"><p class="cd-changes-none">No changes yet.</p></div>';
     return '<div class="cd-changes">' +
       '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span></div>' +
-      c.files.map((f) => '<details class="cd-file"><summary><code>' + esc(f.path) + '</code><span class="cd-add">+' + f.add + '</span><span class="cd-del">−' + f.del + '</span></summary>' +
-        '<pre class="cd-diff">' + esc(f.patch || '').split('\n').map((l) => '<span class="' + (l[0] === '+' ? 'cd-dl-add' : l[0] === '-' ? 'cd-dl-del' : l.startsWith('@@') ? 'cd-dl-hunk' : '') + '">' + l + '</span>').join('') + '</pre></details>').join('') +
+      c.files.map((f) => '<details class="cd-file" data-path="' + esc(f.path) + '"' + (S.openFiles[f.path] ? ' open' : '') + '><summary><code>' + esc(f.path) + '</code><span class="cd-add">+' + f.add + '</span><span class="cd-del">−' + f.del + '</span></summary>' +
+        '<pre class="cd-diff">' + diffLines(f) + '</pre></details>').join('') +
     '</div>';
+  }
+
+  // A DIFF'S LINES, each one tappable to comment on it (owner, 2026-11-05).
+  function diffLines(f) {
+    let n = 0;
+    return String(f.patch || '').split('\n').map((l, i) => {
+      const h = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(l);
+      if (h) { n = Number(h[1]); return '<span class="cd-dl-hunk">' + esc(l) + '</span>'; }
+      const line = l[0] === '-' ? 0 : n++;
+      const cls = l[0] === '+' ? 'cd-dl-add' : l[0] === '-' ? 'cd-dl-del' : '';
+      const c = S.commenting;
+      const open = c && c.file === f.path && c.idx === i;
+      return '<span class="cd-dl ' + cls + '" data-file="' + esc(f.path) + '" data-line="' + line + '" data-idx="' + i + '" title="Comment on this line">' + esc(l) + '</span>' +
+        (open ? '<span class="cd-cbox"><input id="cdCommentIn" placeholder="Your comment for Coder…" maxlength="500"><button type="button" id="cdCommentAdd">Add</button><button type="button" id="cdCommentX">Cancel</button></span>' : '');
+    }).join('');
+  }
+
+  // SLASH COMMANDS: the list comes from the server (loadSettings), and so does the work.
+  function slashMatches(draft) {
+    const m = /^\/(\S*)$/.exec(draft || '');
+    if (!m) return [];
+    return COMMANDS.filter((c) => c.name.startsWith(m[1].toLowerCase()));
+  }
+  function note(text) { S.events.push({ type: 'note', text, at: Date.now(), local: true }); draw(true); }
+  async function runCommand(text) {
+    const r = await call('/command', { method: 'POST', body: JSON.stringify({ text, project: S.project ? S.project.id : '' }) });
+    const d = r.data || {};
+    if (r.status !== 200) return note(d.error || 'The command did not work.');
+    if (d.pick) S.pick = d.pick;
+    if (d.open === 'new') return showPicker('new');
+    if (d.open === 'repos') return showPicker('repos');
+    if (d.open === 'changes') { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); return draw(); }
+    if (d.open === 'remove' && S.project) return removeChat(S.project.id);
+    if (d.url) window.open(d.url, '_blank', 'noopener');
+    if (d.note) return note(d.note);
+    draw();
+  }
+  function slashHTML() {
+    const list = slashMatches(S.draft);
+    if (!list.length) return '';
+    const sel = Math.min(S.slashSel, list.length - 1);
+    return '<div class="cd-slash" role="listbox">' + list.map((c, i) => '<button type="button" class="cd-slash-item' + (i === sel ? ' on' : '') + '" data-cmd="' + c.name + '" role="option"><b>/' + c.name + '</b>' + (c.arg ? ' <span class="cd-slash-arg">' + c.arg + '</span>' : '') + '<span class="cd-slash-hint">' + esc(c.hint) + '</span></button>').join('') + '</div>';
+  }
+  function commentsHTML() {
+    if (!S.comments.length) return '';
+    return '<div class="cd-chips">' + S.comments.map((c, i) => '<span class="cd-chip" title="' + esc(c.quote) + '">💬 ' + esc(c.file.split('/').pop()) + (c.line ? ':' + c.line : '') + ' — ' + esc(c.text.slice(0, 40)) + '<button type="button" data-uncomment="' + i + '" aria-label="Remove comment">×</button></span>').join('') + '</div>';
   }
 
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' +
+    return '<div class="cd-composewrap">' + slashHTML() + commentsHTML() +
       '<form class="cd-compose" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something · / for commands') + '">' + esc(S.draft) + '</textarea>' +
         (S.running
           ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
@@ -382,6 +442,14 @@
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
+    on('.cd-slash-item', 'click', (e) => { const c = COMMANDS.find((x) => x.name === e.currentTarget.dataset.cmd); if (c && c.arg) { S.draft = '/' + c.name + ' '; draw(); } else send('/' + e.currentTarget.dataset.cmd); });
+    on('.cd-file', 'toggle', (e) => { S.openFiles[e.currentTarget.dataset.path] = e.currentTarget.open; });
+    on('.cd-dl', 'click', (e) => { const d = e.currentTarget.dataset; S.commenting = { file: d.file, line: Number(d.line) || 0, idx: Number(d.idx), quote: e.currentTarget.textContent.replace(/^[+ -]/, '').trim() }; draw(); const i = root.querySelector('#cdCommentIn'); if (i) i.focus(); });
+    const addComment = () => { const i = root.querySelector('#cdCommentIn'); const v = i && i.value.trim(); if (v && S.commenting) S.comments.push({ ...S.commenting, text: v }); S.commenting = null; draw(); };
+    on('#cdCommentAdd', 'click', addComment);
+    on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
+    on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
+    on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
@@ -389,8 +457,18 @@
     const input = root.querySelector('#cdIn');
     if (input) {
       grow(input);
-      input.addEventListener('input', () => { S.draft = input.value; grow(input); });
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); } });
+      input.addEventListener('input', () => { const was = slashMatches(S.draft).length; S.draft = input.value; S.slashSel = 0; grow(input); if (was || slashMatches(S.draft).length) draw(); });
+      input.addEventListener('keydown', (e) => {
+        const list = slashMatches(S.draft);
+        if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.slashSel = (S.slashSel + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; return draw(); }
+        if (list.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+          const c = list[Math.min(S.slashSel, list.length - 1)];
+          if (c.arg) { e.preventDefault(); S.draft = '/' + c.name + ' '; return draw(); }
+          e.preventDefault(); return send('/' + c.name);
+        }
+        if (e.key === 'Escape' && list.length) { S.draft = ''; return draw(); }
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); }
+      });
     }
     if (form) form.addEventListener('submit', (e) => { e.preventDefault(); send(input && input.value); });
   }
@@ -401,7 +479,7 @@
       const first = !S.root;
       S.root = el;
       if (side) S.side = side;
-      if (!S.pick) S.pick = savedPick();
+      if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');
