@@ -1218,3 +1218,12 @@ test("CD51 auto-fix finds chats made before branches were recorded", async () =>
   assert.deepEqual(sent, ["/api/coder/projects/shop-old1/message"]);
   assert.ok(bucket.m.has(M.branchKey("canias7/shop", "coder/shop-old1")), "remembered for next time");
 });
+
+test("CD52 steps look like option A without colours: a grey icon per tool, dark verb, status on the right", () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  for (const k of ["bash", "read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "setup", "stop_job", "monitor_job"]) assert.match(ui, new RegExp("\\b" + k + ": '"), k + " has an icon");
+  assert.match(ui, /stepIcon\(e\) \+ '<span class="cd-cmd-verb">'/);
+  assert.match(ui, /cd-st-ok" aria-label="done">✓/);
+  assert.match(css, /\.cd-sic\{[^}]*background:#f1efea;color:#57534e/, "grey icons, no colours");
+});
