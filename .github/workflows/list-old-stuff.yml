@@ -22,7 +22,7 @@ jobs:
       - name: R2 buckets, KV stores, queues, containers
         run: |
           W="npx --yes wrangler@4.107.0"
-          $W r2 bucket list 2>/dev/null | grep -E '^name:' | sed 's/^/r2  /' || true
+          curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets?per_page=1000" | jq -r '.result.buckets[] | "r2  " + .name'
           curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/storage/kv/namespaces?per_page=100" | jq -r '.result[] | "kv  " + .id + "  " + .title'
           curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues" | jq -r '.result[]? | "queue  " + .queue_name' || true
           $W containers list 2>/dev/null | head -n 40 || true
@@ -31,7 +31,7 @@ jobs:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         run: |
           if [ -z "$NEON_API_KEY" ]; then echo "(no NEON_API_KEY secret)"; exit 0; fi
-          curl -fsS -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects?limit=400" | jq -r '.projects[] | "neon  " + .id + "  " + .name + "  " + .created_at'
+          curl -fsS -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects?limit=100" | jq -r '.projects[] | "neon  " + .id + "  " + .name + "  " + .created_at'
       - name: GitHub branches
         env:
           GH_TOKEN: ${{ github.token }}
