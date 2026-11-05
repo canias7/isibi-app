@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05: Noted for later: buttons → tools the model calls
+
+- Your word: features like Review, Security review (and similar front-end buttons such as Undo) should become TOOLS that Coder calls itself when you ask in the chat ("review my changes"), not front-end buttons. Parked for later.
+
 ## 2026-11-05: Live test of the edge cases (recorded)
 
 - Gloopy tab shows "Coming soon." Security review ran and found nothing serious, with reasons.
