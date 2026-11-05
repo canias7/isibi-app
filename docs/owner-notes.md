@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05 — delete old stuff, second press (run 2): Neon and the old app gone
+
+- **Deleted:**
+  - the old app Worker **isibi-app** (the queue was unhooked from it first);
+  - the queue **site-builds**;
+  - the **gofarther-sites** folder;
+  - Supabase **media**;
+  - **all 48 Neon databases**, each named in the log.
+- **Already gone from the first press:** gofarther-front, the 101 site Workers, the KV stores, avatars and the branches. The warnings about these are only "not found".
+- **Still emptying:** **113 storage buckets** (isibi-sites, gofarther-files and the gfs-… ones) still had files. Their 1-day expiry rules from the first press still stand. One more press after 04:00 UTC on Nov 6 deletes them.
+
 ## 2026-11-05 — Supabase cleaned: only sign-in left
 
 On your "go", I deleted all 32 old tables and every old database function in Supabase. Afterwards: **0 tables, 0 functions left; 14 accounts kept**, untouched. Sign-in still works the same, because it lives in Supabase's own sign-in area, which nothing referenced.
