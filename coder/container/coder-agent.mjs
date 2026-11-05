@@ -150,9 +150,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
-    // PICTURES GO TO GROK ONCE (the audit: they were re-sent every round, up to
-    // 60 times): after the first answer, a note stays in their place.
-    for (let k = 0; k < convo.length; k++) if (convo[k] && convo[k].images) convo[k] = { role: convo[k].role, content: convo[k].content + "\n[" + convo[k].images.length + " picture" + (convo[k].images.length > 1 ? "s" : "") + " attached; you saw " + (convo[k].images.length > 1 ? "them" : "it") + " above]" };
+    // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
+    // in the first round made Grok invent a picture when it answered after a few
+    // steps). They leave only the SAVED history (see end()).
     // GROK'S OWN WEB SEARCHES (done on xAI's side) are shown like the other steps.
     for (const sr of Array.isArray(answer && answer.searches) ? answer.searches : []) {
       const id = "ws" + Math.random().toString(36).slice(2, 9);

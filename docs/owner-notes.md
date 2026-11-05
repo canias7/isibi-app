@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-05: Fix: pictures stay for the whole job
+
+- Full retest found it: since the audit change "pictures go to Grok once", a job that read files first and described the picture at the end had lost it, and Grok invented one ("a teal square with a robot"). Pictures now stay for every step of the job (like Claude), and leave only the saved history afterwards. Costs a little more per job with a picture; correctness first.
+
 ## 2026-11-05: Saved styles followed strictly (like Claude Code's output style)
 
 - Live test: "always keep it short" was saved in memory but a new chat only half-followed it. In Claude Code a chosen output style is its own setting with its own instructions, not a memory note. So now Coder saves a style as one memory line starting "Style:", and those lines are given to it as their own "THE OWNER'S STYLE" section right after its main instructions, overriding the default. "Forget it" deletes the line.
