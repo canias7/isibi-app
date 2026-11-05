@@ -25,6 +25,46 @@
 
 
 
+
+## 2026-11-05 — Coder: the developer agent, built (back end only, switched off)
+
+Your words: "same style as the sites agent, but with a different container",
+"any code project", "Linux terminal", "its own projects", "stored with us +
+download", "run and show it", "free while testing", "don't worry about the front
+end right now. Just build it."
+
+**Everything is in its own folder, `coder/`**, apart from the Sites agent:
+- `coder-agent.mjs`: Coder's brain. Three tools only: **bash** (run one command
+  in the project's folder), **ask** (one question with buttons), **done**
+  (finish with a summary). Everything else is ordinary Linux commands.
+- `coder-checks.mjs`: refuses dangerous commands (wiping the machine, fork
+  bombs, formatting disks, reading secrets, sudo…); every command runs with a
+  bare environment, so the AI key is never in reach; key-shaped text is hidden;
+  long output is cut and says so.
+- `coder-model.mjs`: the AI call (Grok grok-4.7 by default; CODER_MODEL changes it).
+- `server.mjs` + `Dockerfile`: **its own container** (`CoderContainer`) with Node,
+  Python, git and build tools. It runs the turns and keeps each project in /work.
+- `coder-routes.mjs` + `coder-zip.mjs`: the server side: projects list, new
+  project, send a message (or an answer), follow it live, Stop, **download a zip**.
+  Projects are kept in our storage under coder/<you>/.
+
+**The only shared hooks:** one import and one route line in `worker.js`, the
+container class, the container entry in `wrangler.jsonc` (and its migration v9),
+the CODER_ON / CODER_MODEL switches in `deploy.yml`, and the site image now
+carries Coder's three route files (so the site container image will rebuild on
+the next deploy).
+
+**It is OFF:** its addresses answer "not switched on yet" until you add the
+secret `CODER_ON` = `on`. Free: nothing is charged. No AI was called; it was
+tested with a scripted AI and real bash commands.
+
+Not done yet: the screen (you said later), and showing a running app live
+(it can start one inside its machine; showing it in the browser is a front-end
+piece).
+
+Tests: `coder` (12). About 10 older deploy and container checks updated to know
+about the third container. Full suite 9,687: only the known two fail.
+
 ## 2026-11-05 — The Accounting agent is now "Coder"
 
 Your word: "the accounting agent, but we are gonna name it coder". The second agent

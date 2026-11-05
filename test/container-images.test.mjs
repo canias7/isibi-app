@@ -323,7 +323,7 @@ test("an image already in the registry is REUSED: no build, the config reference
   const out = await main(deps);
   assert.equal(calls.builds.length, 0, "an image already there was built again");
   assert.deepEqual(out.images.map((i) => i.action), ["reused", "reused", "reused", "reused"]);
-  assert.deepEqual(out.images.map((i) => i.status), [200, 200, 200], "the registry's answer does not ride the result");
+  assert.deepEqual(out.images.map((i) => i.status), [200, 200, 200, 200], "the registry's answer does not ride the result");
   assert.equal(calls.asked.length, 4, "each image is asked for once");
   assert.ok(calls.logs.some((l) => /IMAGE SiteBuildContainer: reused isibi-app-sitebuildcontainer:[0-9a-f]{16}  \(registry answered 200;/.test(l)), "the log does not say what the registry answered");
   assert.equal(calls.writes.length, 1);
