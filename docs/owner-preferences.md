@@ -25,6 +25,7 @@ deleted (the old file is in git history).
 - Code goes through each user's own GitHub, through a GitHub App (chosen: "A").
 - A Linux terminal; any code project; its own projects; run and show it.
 - Free while testing; only the owner's accounts (`CODER_USERS`).
-- The chat: black bubbles for the person; commands as plain lines (style B).
+- The chat looks like the Claude app: light grey bubbles, "Ran …" lines, several commands grouped in one box, plain answers, model and effort under the box.
 - Model picker: Grok 4.7 with its effort levels (Low, Medium, High).
+- Coder's tools: `bash` only (the owner removed `ask` and `done`). It finishes by answering in words.
 - The left tabs: Coder and the Gloopy agent (the yellow figure; coming soon).

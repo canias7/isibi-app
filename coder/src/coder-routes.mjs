@@ -12,7 +12,7 @@
 // Kept in Coder's bucket, under coder/<user>/:
 //   github.json             the GitHub connection (sealed)
 //   index.json              the user's projects: [{ id, name, repo, at }]
-//   <project>/meta.json     { id, name, repo, base, branch, turn, saved, ask, status, pr, at }
+//   <project>/meta.json     { id, name, repo, base, branch, turn, saved, status, pr, at }
 //   <project>/messages.json the conversation as Coder reads it
 //   <project>/events.json   what the chat shows
 //
@@ -137,7 +137,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
     const base = typeof body.base === "string" && BRANCH.test(body.base) ? body.base : String(r.data.default_branch || "main");
     const id = projectIdFor(repo);
-    const meta = { id, name: repo, repo, base, branch: "coder/" + id, turn: 0, saved: 0, ask: null, status: "idle", pr: null, at: Date.now() };
+    const meta = { id, name: repo, repo, base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
     await putJson(bucket, keyOf(uid, id, "meta.json"), meta);
     await putJson(bucket, indexKey, [{ id, name: repo, repo, at: meta.at }, ...index]);
     return json({ ok: true, project: meta });
@@ -170,7 +170,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const why = await r.json().catch(() => ({}));
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + (why && why.error ? ": " + String(why.error).slice(0, 200) : "") }, r.status === 409 ? 409 : 502);
     }
-    const next = { ...meta, turn: meta.turn + 1, status: "running", ask: null, at: Date.now() };
+    const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now() };
     await putJson(bucket, metaKey, next);
     return json({ ok: true, project: next });
   }
@@ -200,7 +200,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       await putJson(bucket, keyOf(uid, id, "messages.json"), Array.isArray(s.result.messages) ? s.result.messages : []);
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
-      const ended = { ...meta, saved: meta.turn, pr, status: s.result.status === "ask" ? "waiting" : s.result.status === "done" ? "idle" : s.result.status, ask: s.result.ask || null, at: Date.now() };
+      const ended = { ...meta, saved: meta.turn, pr, status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await putJson(bucket, metaKey, ended);
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
     }

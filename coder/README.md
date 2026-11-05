@@ -13,7 +13,7 @@ code in **each user's own GitHub**.
 | `src/coder-auth.mjs` | Go Farther sign-in (Supabase) |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
 | `src/coder-cors.mjs` | Only gofarther.dev may call it from another address |
-| `container/` | The container image: the agent loop, the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
+| `container/` | The container image: the agent loop (one tool: `bash`), the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
 | `test/` | `npm test` from this folder |
 
 ## How it works
@@ -22,8 +22,8 @@ code in **each user's own GitHub**.
    sign-in, and they choose which repositories Coder may use.
 2. They pick a repository. That is a Coder project.
 3. Each message: Coder's container clones the repository (once), works on its
-   own branch `coder/<project>`, runs commands (`bash`), asks with buttons (`ask`)
-   and finishes (`done`).
+   own branch `coder/<project>`, runs commands (`bash`, its only tool)
+   and finishes by answering in words.
 4. When a piece of work ends, Coder commits, pushes the branch and opens a
    **pull request** into the main branch. The user merges it on GitHub. Coder
    never pushes to the main branch.

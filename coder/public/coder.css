@@ -19,7 +19,7 @@
 .cd-bubble { background: #0d1b2a; color: #fff; border-radius: 16px 16px 4px 16px; padding: 9px 14px; max-width: 78%; white-space: pre-wrap; word-wrap: break-word; }
 .cd-ai p { margin: 0 0 8px; }
 .cd-ai p:last-child { margin-bottom: 0; }
-.cd-ai code, .cd-done code, .cd-ask code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
+.cd-ai code, .cd-done code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
 .cd-ai a, .cd-done a, .cd-gh a { color: #0f766e; }
 .cd-pre { background: #0f1720; color: #e6edf3; border-radius: 10px; padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; margin: 6px 0; }
 
@@ -35,13 +35,8 @@
 .cd-bad { color: #b42318; background: #fdecea; border-radius: 999px; padding: 1px 8px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .cd-out { margin: 0; border-top: 1px solid #ebe7e0; background: #0f1720; color: #d1d9e0; padding: 10px 14px; max-height: 320px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 
-/* A question with buttons. */
-.cd-ask { border: 1px solid #e6e2db; background: #fff; border-radius: 12px; padding: 12px 14px; }
-.cd-ask-q p { margin: 0 0 10px; font-weight: 500; }
-.cd-ask-opts { display: flex; flex-wrap: wrap; gap: 8px; }
-.cd-opt, .cd-start { border: 1px solid #d9d4cb; background: #fff; border-radius: 999px; padding: 6px 13px; font: 13px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
-.cd-opt:hover:not(:disabled), .cd-start:hover { border-color: #0d1b2a; }
-.cd-opt:disabled { opacity: .45; cursor: default; }
+.cd-start { border: 1px solid #d9d4cb; background: #fff; border-radius: 999px; padding: 6px 13px; font: 13px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
+.cd-start:hover { border-color: #0d1b2a; }
 
 /* The end of a piece of work, and what went to GitHub. */
 .cd-done { display: flex; gap: 10px; align-items: flex-start; border-left: 3px solid #11845b; padding: 4px 0 4px 12px; }
@@ -104,23 +99,33 @@
   .cd-pr { margin-left: 0; }
 }
 
-/* STYLE B (owner, 2026-11-05: "more like B"): no boxes. Each command is one
-   line, ● Bash(…), with its output under it in grey, like Claude Code. Tap a
-   line to show or hide its output. */
-.cd-step{border:0;background:none;border-radius:0}
-.cd-step-row{padding:2px 0;gap:8px}
-.cd-step-row:hover:not(:disabled){background:none}
-.cd-step-row svg{display:none}
-.cd-step-chev{display:none}
-.cd-step-row::before{content:"●";color:#11845b;font-size:11px}
-.cd-step-cmd{font-weight:500}
-.cd-step-cmd::before{content:"Bash(";color:#6b7280;font-weight:400}
-.cd-step-cmd::after{content:")";color:#6b7280}
-.cd-out{background:none;color:#6b7280;border:0;border-left:1px solid #d9d4cb;margin:2px 0 6px 5px;padding:2px 0 2px 14px;max-height:160px}
-.cd-thread{gap:6px}
-.cd-done{border-left:0;padding-left:0}
-.cd-done::before{content:"✓";color:#11845b;font-weight:700}
-.cd-step-row:not(:disabled):hover .cd-step-cmd{text-decoration:underline;text-decoration-color:#d9d4cb}
-.cd-step-row .cd-spin{order:-1}
-.cd-step.is-bad .cd-step-row::before{color:#b42318}
-.cd-step.is-run .cd-step-row::before,.cd-step.is-gone .cd-step-row::before{color:#b5b1aa}
+/* THE CLAUDE-APP LOOK (owner, 2026-11-05: "look at the frontend of this"):
+   light grey bubbles, commands as quiet "Ran …" lines, several in a row in one
+   box, the answer as plain text, the model and effort under the box. */
+.cd-bubble { background: #efece7; color: #0d1b2a; border-radius: 18px; padding: 10px 16px; }
+.cd-thread { gap: 12px; }
+.cd-ai { line-height: 1.6; }
+.cd-cmd-row { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 4px 0; font: 14px Inter, system-ui, sans-serif; color: #8a857d; cursor: pointer; text-align: left; min-width: 0; }
+.cd-cmd-row:disabled { cursor: default; }
+.cd-cmd-row:hover:not(:disabled) { color: #4b5563; }
+.cd-cmd-verb { flex: none; }
+.cd-cmd-text { font: 14px Inter, system-ui, sans-serif; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cd-caret { flex: none; font-size: 10px; }
+.cd-cmd .cd-out { margin: 4px 0 8px; border: 1px solid #ebe7e0; border-radius: 10px; background: #fff; color: #4b5563; max-height: 260px; }
+.cd-group-head { display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0; font: 14px Inter, system-ui, sans-serif; color: #8a857d; cursor: pointer; }
+.cd-group-head:hover { color: #4b5563; }
+.cd-group-box { border: 1px solid #e6e2db; border-radius: 12px; background: #fff; margin-top: 6px; }
+.cd-group-box .cd-cmd { padding: 0 16px; }
+.cd-group-box .cd-cmd + .cd-cmd { border-top: 1px solid #efece7; }
+.cd-group-box .cd-cmd-row { padding: 12px 0; }
+.cd-bad { margin-left: 6px; color: #b42318; background: #fdecea; border-radius: 999px; padding: 1px 8px; font-size: 11.5px; font-weight: 600; flex: none; }
+/* The box: rounded, the model and effort under it on the right. */
+.cd-composewrap { max-width: 760px; width: calc(100% - 40px); margin: 6px auto 14px; }
+.cd-compose { flex-direction: row; align-items: center; width: 100%; margin: 0; border-radius: 22px; padding: 10px 10px 10px 18px; }
+.cd-compose textarea { padding: 4px 0; }
+.cd-send { border-radius: 50%; }
+.cd-picks { display: flex; justify-content: flex-end; gap: 2px; margin: 6px 4px 0 0; }
+.cd-pick select { background-color: transparent; color: #6b7280; font-size: 12.5px; }
+@media (max-width: 640px) { .cd-composewrap { width: calc(100% - 28px); margin-bottom: 10px; } }
+.cd-compose textarea { flex: 1; min-width: 0; }
+.cd .cd-cmd-text { font-family: Inter, -apple-system, system-ui, sans-serif; }
