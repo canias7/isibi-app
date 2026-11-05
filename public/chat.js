@@ -4016,7 +4016,7 @@ function renderSites() {
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
   siteBuildsCheck();
-  // A PLACEHOLDER AGENT'S ADDRESS (/home/accounting ...) draws its coming-soon screen.
+  // A PLACEHOLDER AGENT'S ADDRESS (/home/coder ...) draws its coming-soon screen.
   const soon = !open && agentFromPath();
   if (soon) { renderAgentSoon(view, soon); return; }
   if (open) { chatOpenCheck(open); resumeOpenSite(open); siteHeldRepliesCheck(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
@@ -4160,12 +4160,13 @@ function siteProjectsStripHTML(site) {
 // are mock-up text, not data) and open a "coming soon" screen.
 // THE AGENTS' ICONS, owner-approved avatars (2026-11-02), never a reply's words:
 // the four placeholders', then the six the Create-an-agent form offers.
-const AGENT_ICONS = { accounting: '\u{1F4CA}', email: '\u2709\uFE0F', marketing: '\u{1F4E3}', support: '\u{1F4AC}', pick: ['\u{1F916}', '\u{1F9FE}', '\u{1F4C5}', '\u2B50', '\u{1F4E6}', '\u{1F9D1}\u200D\u{1F373}'] };
+const AGENT_ICONS = { coder: '\u{1F4BB}', email: '\u2709\uFE0F', marketing: '\u{1F4E3}', support: '\u{1F4AC}', pick: ['\u{1F916}', '\u{1F9FE}', '\u{1F4C5}', '\u2B50', '\u{1F4E6}', '\u{1F9D1}\u200D\u{1F373}'] };
 const AGENTS = [
   { id: 'sites', slug: 'projects', name: 'Sites agent' },
   // PLACEHOLDERS: edit freely; nothing reads these but the bar and the coming-soon screen.
-  { id: 'accounting', slug: 'accounting', name: 'Accounting agent', color: '#0f766e', emoji: AGENT_ICONS.accounting, time: 'Yesterday', preview: 'Your October books are ready to check', placeholder: true,
-    blurb: 'keep your books, track what comes in and goes out, and get your numbers ready.' },
+  // THE CODER (owner, 2026-11-05: "the accounting agent, but we are gonna name it coder").
+  { id: 'coder', slug: 'coder', name: 'Coder', color: '#0f766e', emoji: AGENT_ICONS.coder, time: 'Today', preview: 'Ready to work on your code', placeholder: true,
+    blurb: 'work on your code with you, like a developer at a terminal.' },
   { id: 'email', slug: 'email', name: 'Email agent', color: '#7c3aed', emoji: AGENT_ICONS.email, time: 'Mon', preview: '3 replies drafted for you', placeholder: true,
     blurb: 'sort your inbox, draft replies in your voice, and flag what needs you.' },
   { id: 'marketing', slug: 'marketing', name: 'Marketing agent', color: '#c2410c', emoji: AGENT_ICONS.marketing, time: 'Sun', preview: 'Instagram post scheduled for Friday', placeholder: true,

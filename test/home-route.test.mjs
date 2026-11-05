@@ -107,9 +107,9 @@ test("HR2 signed in on / → /home/projects, the app shell shown and the landing
       await B.ctx.close();
     }
     // 2026-11-02: a placeholder agent's own address stays (its coming-soon screen).
-    const C = await open(browser, "/home/accounting", true);
+    const C = await open(browser, "/home/coder", true);
     await until(() => C.page.evaluate(() => !!document.getElementById("stSoon")), 15000, "the coming-soon screen");
-    assert.equal(await pathOf(C.page), "/home/accounting");
+    assert.equal(await pathOf(C.page), "/home/coder");
     await C.ctx.close();
   } finally { await browser.close(); }
 });

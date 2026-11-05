@@ -23,7 +23,7 @@ const SKIP = !HAVE && "no browser here (playwright-core and Chromium are not ins
 const ORIGIN = "https://gofarther.test";
 
 const mk = (i, slug, name) => ({ id: "site_17270000000" + i + "_wl", chat: "site_17270000000" + i + "_wl", slug, react: true, name, url: "https://" + slug + ".gofarther.app/", pages: [{ path: "/", name: "Home" }], msgs: [{ r: "u", t: "Make " + name }, { r: "a", t: "Draft of " + name + "." }], updatedAt: Date.now() - i * 3600e3, createdAt: Date.now() - i * 3600e3 });
-const AGENT_NAMES = ["Sites agent", "Accounting agent", "Email agent", "Marketing agent", "Support agent"];
+const AGENT_NAMES = ["Sites agent", "Coder", "Email agent", "Marketing agent", "Support agent"];
 const SITES = [mk(1, "wl-bakery", "Harbour Loaf"), mk(2, "wl-florist", "Willow Florist"), mk(3, "wl-guitar", "Fretwork Guitar"), mk(4, "wl-cafe", "Oak and Ash"), mk(5, "wl-barber", "Sharp Barber")];
 
 async function openApp({ width = 1440, height = 860, ls = {}, sites = SITES, start = "/projects/" + SITES[0].id } = {}) {
@@ -248,7 +248,7 @@ test("WL 8 — /home/projects: five rows in order, Sites agent selected, each wi
     assert.ok(r.parts, "a row lacks its avatar, time or preview");
     assert.deepEqual(r.avW, [44, 44, 44, 44, 44]);
     assert.equal(r.ellipsis, "ellipsis");
-    assert.equal(r.preview, "Your October books are ready to check");
+    assert.equal(r.preview, "Ready to work on your code");
     assert.equal(r.barBg, "rgb(244, 243, 240)"); assert.equal(r.barW, 320);
     assert.ok(r.plus, "the round + is missing"); assert.ok(r.search, "the Search box is missing");
     assert.equal(r.logo.trim(), "Go Farther");
@@ -300,11 +300,11 @@ test("WL 9 — Gloopy, full body with no circle and no background, in the Sites 
   } finally { await app.close(); }
 });
 
-test("WL 10 — Accounting goes to /home/accounting: its header, the coming-soon screen and no projects strip; Sites agent restores the workspace", { skip: SKIP, timeout: 60000 }, async () => {
+test("WL 10 — Coder goes to /home/coder: its header, the coming-soon screen and no projects strip; Sites agent restores the workspace", { skip: SKIP, timeout: 60000 }, async () => {
   const app = await openApp();
   try {
-    await app.page.click('#stConv .st-conv-item[data-agent="accounting"]');
-    await app.page.waitForFunction(() => location.pathname === "/home/accounting", null, { timeout: 5000 });
+    await app.page.click('#stConv .st-conv-item[data-agent="coder"]');
+    await app.page.waitForFunction(() => location.pathname === "/home/coder", null, { timeout: 5000 });
     const r = await app.page.evaluate(() => ({
       on: [...document.querySelectorAll("#stConv .st-conv-item.on")].map((x) => x.dataset.agent),
       head: (document.querySelector("#stAgentHead") || {}).textContent || "",
@@ -313,12 +313,12 @@ test("WL 10 — Accounting goes to /home/accounting: its header, the coming-soon
       input: document.querySelector("#stSoon input") ? { dis: document.querySelector("#stSoon input").disabled, ph: document.querySelector("#stSoon input").placeholder } : null,
       strip: !!document.querySelector("#stProjects"), bar: !!document.querySelector(".st-topbar"),
     }));
-    assert.deepEqual(r.on, ["accounting"]);
-    assert.match(r.head, /Accounting agent/);
-    assert.match(r.soon, /Coming soon\. This agent will keep your books, track what comes in and goes out, and get your numbers ready\./);
+    assert.deepEqual(r.on, ["coder"]);
+    assert.match(r.head, /Coder/);
+    assert.match(r.soon, /Coming soon\. This agent will work on your code with you, like a developer at a terminal\./);
     assert.match(r.soon, /Notify me when it.s ready/);
     assert.equal(r.bigAv, 84);
-    assert.deepEqual(r.input, { dis: true, ph: "Message Accounting agent — available soon" });
+    assert.deepEqual(r.input, { dis: true, ph: "Message Coder — available soon" });
     assert.equal(r.strip, false, "the projects strip shows on a placeholder agent");
     assert.equal(r.bar, false);
     await app.page.click('#stConv .st-conv-item[data-agent="sites"]');
@@ -329,7 +329,7 @@ test("WL 10 — Accounting goes to /home/accounting: its header, the coming-soon
     // Back returns to the placeholder.
     await app.page.goBack();
     await app.page.waitForSelector("#stSoon", { timeout: 5000 });
-    assert.equal(await app.page.evaluate(() => location.pathname), "/home/accounting");
+    assert.equal(await app.page.evaluate(() => location.pathname), "/home/coder");
     assert.deepEqual(app.errors, []);
   } finally { await app.close(); }
 });
@@ -342,7 +342,7 @@ test("WL 11 — collapsed, the bar shows the five avatars only", { skip: SKIP, t
       list: getComputedStyle(document.querySelector("#stConv .st-conv-list")).display,
       search: getComputedStyle(document.querySelector("#stConv .st-conv-search")).display,
     }));
-    assert.deepEqual(r.avatars, ["sites", "accounting", "email", "marketing", "support"]);
+    assert.deepEqual(r.avatars, ["sites", "coder", "email", "marketing", "support"]);
     assert.equal(r.list, "none"); assert.equal(r.search, "none");
   } finally { await app.close(); }
 });

@@ -60,7 +60,7 @@ test("ONE home rule, two files: the browser's HOME_PATH and the Worker's are ide
   assert.equal(homeIn(chat, "public/chat.js"), homeIn(worker, "worker.js"));
   const re = new RegExp(homeIn(worker, "worker.js").slice(1, -1));
   // `/home/projects[/<id>]` and the agent slot `/home/<agent>` (2026-11-01).
-  for (const p of ["/home", "/home/", "/home/projects", "/home/projects/", "/home/projects/site_1_abcde", "/home/accounting"]) assert.ok(re.test(p), p);
+  for (const p of ["/home", "/home/", "/home/projects", "/home/projects/", "/home/projects/site_1_abcde", "/home/coder"]) assert.ok(re.test(p), p);
   for (const p of ["/", "/homes", "/home/X", "/home/projects/a/b", "/home/projects/x.js", "/home/../etc", "/projects"]) assert.ok(!re.test(p), p);
 });
 
@@ -134,7 +134,7 @@ test("DRIVEN: the path has THREE answers, and the third is why it is not a boole
   assert.equal(loadRouter("/home").api.projectFromPath(), null);
   assert.equal(loadRouter("/home/projects").api.projectFromPath(), null);
   assert.equal(loadRouter("/home/projects/site_1_abcde").api.projectFromPath(), "site_1_abcde");
-  assert.equal(loadRouter("/home/accounting").api.projectFromPath(), null);
+  assert.equal(loadRouter("/home/coder").api.projectFromPath(), null);
   // A project.
   assert.equal(loadRouter("/projects/site_1784380035480_w53jb").api.projectFromPath(),
     "site_1784380035480_w53jb");

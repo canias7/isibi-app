@@ -24,6 +24,14 @@
 
 
 
+
+## 2026-11-05 — The Accounting agent is now "Coder"
+
+Your word: "the accounting agent, but we are gonna name it coder". The second agent
+in the left list is now **Coder** (laptop icon, address /home/coder, "Ready to work
+on your code"). It is still a placeholder that opens the coming-soon screen; what
+it does is next. Tests updated for the new name. Not deployed.
+
 ## 2026-11-04 — Carry-over batch 11 (your "fix 2, 3, 4")
 
 - **What got set up, checked (2).** When the agent adds a page or a table it must
