@@ -18,10 +18,12 @@ name: delete old stuff
 #      rule; press again tomorrow to delete it once empty.
 #   5. The Supabase storage buckets media and avatars (their files first).
 #   6. The 152 branches in .github/old-stuff/branches.txt.
+#   7. The 48 Neon projects in .github/old-stuff/neon-projects.txt (by id;
+#      every one is an old site's database, named isibi-...).
 #
 # Kept: gofarther-coder and its container and bucket, the four other Workers,
 # the queue agent-runs, the gofarther.app domain, main and
-# claude/cool-fermat-a06gie. Neon is a separate step.
+# claude/cool-fermat-a06gie.
 #
 # None of it can be undone. Runs only when pressed and the box says DELETE.
 
@@ -116,6 +118,21 @@ jobs:
             if gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$b" >/dev/null 2>&1; then echo "deleted branch $b"; n=$((n+1)); else echo "::warning::branch $b not deleted (may already be gone)"; fi
           done < .github/old-stuff/branches.txt
           echo "$n branches deleted"
+
+      - name: "7. The 48 Neon projects in .github/old-stuff/neon-projects.txt"
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: |
+          if [ -z "$NEON_API_KEY" ]; then echo "::warning::no NEON_API_KEY secret: Neon skipped"; exit 0; fi
+          n=0
+          while read -r id name; do
+            [ -z "$id" ] && continue
+            code=$(curl -sS -o /tmp/n.txt -w '%{http_code}' -X DELETE -H "Authorization: Bearer $NEON_API_KEY" "https://console.neon.tech/api/v2/projects/$id")
+            if [ "$code" = "200" ]; then echo "deleted Neon $id ($name)"; n=$((n+1));
+            elif [ "$code" = "404" ]; then echo "Neon $id ($name) is already gone";
+            else echo "::warning::Neon $id ($name) not deleted: $code $(head -c 200 /tmp/n.txt)"; fi
+          done < .github/old-stuff/neon-projects.txt
+          echo "$n Neon projects deleted"
 
   refused:
     runs-on: ubuntu-latest
