@@ -745,7 +745,7 @@ test("CD32 asked in the chat, Coder writes the pull request; our server opens it
   } finally { await close(); }
 });
 
-test("CD33 an empty repository (no branches yet, found in the live test) opens; 'hi' sends nothing; a change is pushed to Coder's branch", async () => {
+test("CD33 an empty repository (no branches yet, found in the live test) gets its main branch and opens; 'hi' sends nothing; a change is pushed to Coder's branch", async () => {
   const ghRoot = await mkdtemp(join(tmpdir(), "coder-gh-"));
   execFileSync("mkdir", ["-p", join(ghRoot, "ana")]);
   execFileSync("git", ["init", "-q", "--bare", join(ghRoot, "ana/empty.git")]);
@@ -754,6 +754,8 @@ test("CD33 an empty repository (no branches yet, found in the live test) opens; 
   const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "empty-abcd");
   const prep = await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot });
   assert.equal(prep.ok, true, prep.why);
+  // Its main branch is made first (an empty "Start" commit), so a pull request has a base.
+  assert.equal(git(join(ghRoot, "ana/empty.git"), "log", "-1", "--format=%s", "main").trim(), "Start");
   const none = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "hi", remote, gitRoot });
   assert.deepEqual([none.ok, none.pushed], [true, false], none.why);
   writeFileSync(join(dir, "README.md"), "# empty\n");

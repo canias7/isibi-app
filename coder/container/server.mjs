@@ -163,6 +163,9 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
     const heads = await gitIn(dir, ["ls-remote", "--heads", url], { ...o, token });
     if (heads.code !== 0) return { ok: false, why: "could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200) };
     const empty = !String(heads.stdout ?? heads.output).trim();
+    if (!empty && !String(heads.stdout ?? heads.output).includes("refs/heads/" + base + "\n") && !String(heads.stdout ?? heads.output).endsWith("refs/heads/" + base)) {
+      return { ok: false, why: repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + "." };
+    }
     if (!empty) {
       const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token });
       if (f.code !== 0) return { ok: false, why: "could not clone " + repo + ": " + f.output.slice(0, 300) };
@@ -171,6 +174,17 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
     }
     await gitIn(dir, ["config", "user.name", "Coder (Go Farther)"], o);
     await gitIn(dir, ["config", "user.email", "coder@gofarther.dev"], o);
+    // AN EMPTY REPOSITORY gets its main branch first (owner, 2026-11-05: "create
+    // main automatically"): one empty starting commit on `base`, so Coder's
+    // branch has something to make a pull request into. The only time Coder
+    // writes to main, and only when the repository has nothing at all.
+    if (empty) {
+      const c = await gitIn(dir, ["commit", "-q", "--allow-empty", "--no-verify", "-m", "Start"], o);
+      if (c.code !== 0) return { ok: false, why: "could not start the empty repository: " + c.output.slice(0, 200) };
+      const pb = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + base], { ...o, token });
+      if (pb.code !== 0) return { ok: false, why: "could not create " + base + " in the empty repository: " + pb.output.slice(0, 200) };
+      await gitIn(dir, ["update-ref", "refs/remotes/origin/" + base, "HEAD"], o);
+    }
     // The work tree's own `.git` points at the git folder, so `dev` can read the history.
     await writeFile(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
