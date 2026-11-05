@@ -193,11 +193,6 @@
           (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
         '</div>');
       }
-      else if (e.type === 'ask') {
-        const live = S.project && S.project.status === 'waiting' && S.project.ask && i === S.events.map((x) => x.type).lastIndexOf('ask');
-        out.push('<div class="cd-ask"><div class="cd-ask-q">' + prose(e.question) + '</div><div class="cd-ask-opts">' +
-          (e.options || []).map((o) => '<button type="button" class="cd-opt" data-answer="' + esc(o) + '"' + (live ? '' : ' disabled') + '>' + esc(o) + '</button>').join('') + '</div></div>');
-      }
       else if (e.type === 'done') out.push('<div class="cd-done"><span class="cd-done-dot"></span><div>' + prose(e.text) + '</div></div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
@@ -293,7 +288,7 @@
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
     on('#cdProject', 'change', (e) => { const v = e.target.value; if (v === '+') showPicker(); else openProject(v); });
     on('.cd-step-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
-    on('.cd-opt, .cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
+    on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });

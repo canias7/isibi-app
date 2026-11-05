@@ -1,6 +1,6 @@
 // CODER (2026-11-05): the developer agent in its own files and container. Tested
 // with a scripted AI (no model is called) and real bash commands in a temporary
-// folder: the safety checks, the loop (bash / ask / done / stop), the container
+// folder: the safety checks, the loop (bash / done / stop), the container
 // service end to end, the Worker routes over a fake bucket and container, the
 // zip, and the wiring.
 import test from "node:test";
@@ -12,7 +12,7 @@ import { join } from "node:path";
 import http from "node:http";
 import { execFileSync } from "node:child_process";
 import { commandProblem, cleanEnv, scrub, capOutput, readTimeout } from "../container/coder-checks.mjs";
-import { runCoder, readAsk } from "../container/coder-agent.mjs";
+import { runCoder } from "../container/coder-agent.mjs";
 import { execIn, exportFiles, restoreFiles, createApp, prepareRepo, pushRepo, gitIn } from "../container/server.mjs";
 import { handleCoder, projectIdFor, commitTitle } from "../src/coder-routes.mjs";
 import { makeState, readState, seal, unseal, saveConnection, userToken, signInUrl } from "../src/coder-github.mjs";
@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["bash", "ask", "done"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["bash", "done"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -84,20 +84,14 @@ test("CD5 a refused command never runs, and the AI is told why", async () => {
   assert.match(JSON.stringify(s.seen[1].messages), /refused: it would delete the whole machine/);
 });
 
-test("CD6 ask ends the turn with the question; the answer resumes from the same conversation", async () => {
-  const s = scripted([say("", [call("ask", { question: "React or plain HTML?", options: ["React", "Plain HTML"] }), call("bash", { command: "ls" })])]);
-  let ran = 0;
-  const r = await runCoder({ send: s.send, exec: async () => { ran++; return { code: 0, output: "" }; } }, { text: "make a page" });
-  assert.equal(r.status, "ask");
-  assert.deepEqual(r.ask, { question: "React or plain HTML?", options: ["React", "Plain HTML"] });
-  assert.equal(ran, 0, "a call after the question ran");
-  const s2 = scripted([say("", [call("done", { summary: "Made it in React." })])]);
-  const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { messages: r.messages, text: "React" });
-  assert.equal(r2.status, "done");
-  const sent = s2.seen[0].messages;
-  assert.equal(sent.at(-1).content, "React");
-  assert.ok(sent.some((m) => m.role === "tool" && /Asked the owner/.test(m.content)));
-  assert.deepEqual(readAsk({ question: "q", options: ["a"] }), { error: "ask needs 2 to 4 answers" });
+test("CD6 there is no ask tool (the owner removed it): a call to it is refused and the work goes on", async () => {
+  const s = scripted([say("", [call("ask", { question: "React or plain HTML?", options: ["React", "Plain HTML"] })]), say("", [call("done", { summary: "Made it in plain HTML." })])]);
+  const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
+  assert.equal(r.status, "done");
+  assert.equal("ask" in r, false);
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(use bash or done\)/.test(m.content)));
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.doesNotMatch(ui, /e\.type === 'ask'|cd-ask|cd-opt/);
 });
 
 test("CD7 Stop is read before every round and before every command; an answer in words is a finished turn", async () => {

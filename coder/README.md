@@ -22,7 +22,7 @@ code in **each user's own GitHub**.
    sign-in, and they choose which repositories Coder may use.
 2. They pick a repository. That is a Coder project.
 3. Each message: Coder's container clones the repository (once), works on its
-   own branch `coder/<project>`, runs commands (`bash`), asks with buttons (`ask`)
+   own branch `coder/<project>`, runs commands (`bash`)
    and finishes (`done`).
 4. When a piece of work ends, Coder commits, pushes the branch and opens a
    **pull request** into the main branch. The user merges it on GitHub. Coder

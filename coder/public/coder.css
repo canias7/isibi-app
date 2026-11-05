@@ -19,7 +19,7 @@
 .cd-bubble { background: #0d1b2a; color: #fff; border-radius: 16px 16px 4px 16px; padding: 9px 14px; max-width: 78%; white-space: pre-wrap; word-wrap: break-word; }
 .cd-ai p { margin: 0 0 8px; }
 .cd-ai p:last-child { margin-bottom: 0; }
-.cd-ai code, .cd-done code, .cd-ask code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
+.cd-ai code, .cd-done code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
 .cd-ai a, .cd-done a, .cd-gh a { color: #0f766e; }
 .cd-pre { background: #0f1720; color: #e6edf3; border-radius: 10px; padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; margin: 6px 0; }
 
@@ -35,13 +35,8 @@
 .cd-bad { color: #b42318; background: #fdecea; border-radius: 999px; padding: 1px 8px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .cd-out { margin: 0; border-top: 1px solid #ebe7e0; background: #0f1720; color: #d1d9e0; padding: 10px 14px; max-height: 320px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 
-/* A question with buttons. */
-.cd-ask { border: 1px solid #e6e2db; background: #fff; border-radius: 12px; padding: 12px 14px; }
-.cd-ask-q p { margin: 0 0 10px; font-weight: 500; }
-.cd-ask-opts { display: flex; flex-wrap: wrap; gap: 8px; }
-.cd-opt, .cd-start { border: 1px solid #d9d4cb; background: #fff; border-radius: 999px; padding: 6px 13px; font: 13px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
-.cd-opt:hover:not(:disabled), .cd-start:hover { border-color: #0d1b2a; }
-.cd-opt:disabled { opacity: .45; cursor: default; }
+.cd-start { border: 1px solid #d9d4cb; background: #fff; border-radius: 999px; padding: 6px 13px; font: 13px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
+.cd-start:hover { border-color: #0d1b2a; }
 
 /* The end of a piece of work, and what went to GitHub. */
 .cd-done { display: flex; gap: 10px; align-items: flex-start; border-left: 3px solid #11845b; padding: 4px 0 4px 12px; }
