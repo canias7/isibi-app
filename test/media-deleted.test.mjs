@@ -213,7 +213,7 @@ test("DRIVEN: the CSP grants no wasm permission, and the demo frame's relaxation
   // media client, 404'd by the Worker and deleted in stage 4 — from re-admitting
   // every host it mentioned. The clone is gone; the explicit list stays, because
   // it is what makes "served" mean served rather than "on disk".
-  const served = ["public/index.html", "public/chat.js", "public/auth.js", "public/confirm.js", "public/site-list.js"]
+  const served = ["public/index.html", "public/chat.js", "public/auth.js", "public/confirm.js", "public/site-list.js", "public/coder.js"]
     .filter((p) => fs.existsSync(ROOT + p)).map((p) => read(p)).join("\n");
   assert.ok(served.length > 100000, `the served client read as ${served.length} characters — this scan is reading nothing`);
   // READ OFF THE RAW SOURCE WITH WHOLE-LINE COMMENTS BLANKED, not off

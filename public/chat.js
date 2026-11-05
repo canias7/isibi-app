@@ -4457,10 +4457,13 @@ function agentCustomHTML(a) {
 function renderAgentSoon(view, a) {
   view.classList.add('st-home-open');
   const editing = a.custom && agentEditing === a.custom.id;
-  const body = a.plus ? agentFormHTML(null) : editing ? agentFormHTML(a.custom) : a.custom ? agentCustomHTML(a) : agentSoonHTML(a);
+  // CODER HAS ITS OWN SCREEN, in its own file (public/coder.js).
+  const coder = a.id === 'coder' && window.CoderView;
+  const body = coder ? '<div class="st-coder" id="stCoder"></div>' : a.plus ? agentFormHTML(null) : editing ? agentFormHTML(a.custom) : a.custom ? agentCustomHTML(a) : agentSoonHTML(a);
   view.innerHTML = '<div class="st-homews">' + siteConvBarHTML() +
     '<div class="st-agentmain">' + agentHeadHTML() + body + '</div></div>';
   wireWorkspaceBars(view, null);
+  if (coder) { window.CoderView.mount(view.querySelector('#stCoder')); return; }
   if (a.plus || editing) wireAgentForm(view, editing ? a.custom : null);
   const ed = view.querySelector('#stAgentEdit');
   if (ed) ed.onclick = () => { agentEditing = a.custom.id; openProject(null, 'none'); };

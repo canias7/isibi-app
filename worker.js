@@ -1962,7 +1962,8 @@ const CSP = [
   // from the app — the panel only DISPLAYS the picture — so the tighter answer
   // costs nothing here and is the one to keep.
   "img-src 'self' data: blob: https://*.supabase.co https://*." + SITE_ZONE,
-  "connect-src 'self' data: blob: https://*.supabase.co",
+  // Coder's screen (public/coder.js) talks to Coder's own Worker.
+  "connect-src 'self' data: blob: https://*.supabase.co https://coder.gofarther.dev",
 ].join("; ");
 
 // Strip the provider from any string bound for the client (standing owner

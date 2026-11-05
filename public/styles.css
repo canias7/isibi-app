@@ -5362,6 +5362,7 @@ svg.st-gloopy{cursor:pointer}
 .st-wscol > .st-agenthead { margin: 0; }
 .st-wscol, .st-agentmain { position: relative; }
 .st-agentmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.st-coder { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .st-agentbody { flex: 1 1 auto; min-height: 0; display: flex; gap: .7rem; }
 .st-soon { flex: 1; display: flex; flex-direction: column; background: #faf9f7; font-family: Inter, -apple-system, system-ui, sans-serif; color: #0d1b2a; }
 .st-soon-mid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }

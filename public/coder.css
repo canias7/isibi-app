@@ -1,0 +1,100 @@
+/* CODER'S SCREEN (2026-11-05): its own file, apart from styles.css. A chat,
+   like a code editor's agent panel: the person's messages as bubbles, the AI's
+   words as plain text, every command a quiet row that opens to its output. */
+.cd { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #faf9f7; color: #0d1b2a; font: 14px/1.55 Inter, -apple-system, system-ui, sans-serif; }
+.cd code, .cd pre { font-family: "Geist Mono", ui-monospace, Menlo, monospace; }
+
+/* The bar on top: the repository, its branch, the pull request. */
+.cd-head { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 96px; padding: 10px 20px; border-bottom: 1px solid #ece8e1; flex-wrap: wrap; }
+.cd-proj { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #e6e2db; background: #fff; border-radius: 9px; padding: 5px 10px; }
+.cd-proj select { border: 0; background: transparent; font: 600 13px Inter, system-ui, sans-serif; color: #0d1b2a; outline: none; max-width: 260px; cursor: pointer; }
+.cd-branch { display: inline-flex; align-items: center; gap: 5px; color: #6b7280; font: 12px "Geist Mono", ui-monospace, Menlo, monospace; }
+.cd-pr { font-size: 12.5px; font-weight: 600; color: #0f766e; text-decoration: none; border: 1px solid #b7e0d9; background: #effaf7; border-radius: 999px; padding: 4px 11px; }
+.cd-pr:hover { background: #e0f5f0; }
+
+/* The conversation. */
+.cd-log { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 20px 8px; }
+.cd-thread { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.cd-user { display: flex; justify-content: flex-end; margin-top: 8px; }
+.cd-bubble { background: #0d1b2a; color: #fff; border-radius: 16px 16px 4px 16px; padding: 9px 14px; max-width: 78%; white-space: pre-wrap; word-wrap: break-word; }
+.cd-ai p { margin: 0 0 8px; }
+.cd-ai p:last-child { margin-bottom: 0; }
+.cd-ai code, .cd-done code, .cd-ask code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
+.cd-ai a, .cd-done a, .cd-gh a { color: #0f766e; }
+.cd-pre { background: #0f1720; color: #e6edf3; border-radius: 10px; padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; margin: 6px 0; }
+
+/* A command: one row, its output under it when opened. */
+.cd-step { border: 1px solid #ebe7e0; background: #fff; border-radius: 10px; overflow: hidden; }
+.cd-step-row { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 7px 11px; cursor: pointer; color: #6b7280; text-align: left; font: inherit; }
+.cd-step-row:disabled { cursor: default; }
+.cd-step-row:hover:not(:disabled) { background: #faf8f5; }
+.cd-step-chev { width: 12px; display: inline-grid; place-items: center; transition: transform .15s; }
+.cd-step.is-open .cd-step-chev { transform: rotate(90deg); }
+.cd-step-cmd { flex: 1; min-width: 0; color: #0d1b2a; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cd-ok { color: #11845b; font-weight: 700; font-size: 13px; }
+.cd-bad { color: #b42318; background: #fdecea; border-radius: 999px; padding: 1px 8px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.cd-out { margin: 0; border-top: 1px solid #ebe7e0; background: #0f1720; color: #d1d9e0; padding: 10px 14px; max-height: 320px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+
+/* A question with buttons. */
+.cd-ask { border: 1px solid #e6e2db; background: #fff; border-radius: 12px; padding: 12px 14px; }
+.cd-ask-q p { margin: 0 0 10px; font-weight: 500; }
+.cd-ask-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.cd-opt, .cd-start { border: 1px solid #d9d4cb; background: #fff; border-radius: 999px; padding: 6px 13px; font: 13px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
+.cd-opt:hover:not(:disabled), .cd-start:hover { border-color: #0d1b2a; }
+.cd-opt:disabled { opacity: .45; cursor: default; }
+
+/* The end of a piece of work, and what went to GitHub. */
+.cd-done { display: flex; gap: 10px; align-items: flex-start; border-left: 3px solid #11845b; padding: 4px 0 4px 12px; }
+.cd-done p { margin: 0 0 6px; }
+.cd-done-dot { display: none; }
+.cd-gh { display: flex; gap: 8px; align-items: center; color: #374151; font-size: 13px; background: #f3f1ed; border-radius: 10px; padding: 8px 12px; word-break: break-all; }
+.cd-err, .cd-errbar { color: #b42318; background: #fdecea; border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+.cd-errbar { max-width: 760px; margin: 0 auto 6px; width: calc(100% - 40px); box-sizing: border-box; }
+.cd-note { color: #9ca3af; font-size: 12.5px; text-align: center; }
+
+/* Working. */
+.cd-thinking { display: flex; gap: 4px; padding: 6px 2px; }
+.cd-thinking span { width: 6px; height: 6px; border-radius: 50%; background: #b5b1aa; animation: cd-blink 1.2s infinite ease-in-out; }
+.cd-thinking span:nth-child(2) { animation-delay: .15s; }
+.cd-thinking span:nth-child(3) { animation-delay: .3s; }
+@keyframes cd-blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+.cd-spin { width: 12px; height: 12px; border: 2px solid #ddd8cf; border-top-color: #0d1b2a; border-radius: 50%; animation: cd-turn .8s linear infinite; flex: none; }
+.cd-spin-lg { width: 22px; height: 22px; }
+@keyframes cd-turn { to { transform: rotate(360deg); } }
+
+/* The box to write in. */
+.cd-compose { display: flex; align-items: flex-end; gap: 8px; max-width: 760px; width: calc(100% - 40px); margin: 6px auto 18px; box-sizing: border-box; background: #fff; border: 1px solid #e0dbd2; border-radius: 16px; padding: 8px 8px 8px 14px; box-shadow: 0 1px 2px rgba(13,27,42,.04), 0 4px 16px rgba(13,27,42,.04); }
+.cd-compose:focus-within { border-color: #0d1b2a; }
+.cd-compose textarea { flex: 1; border: 0; outline: none; resize: none; background: transparent; font: 14px/1.5 Inter, system-ui, sans-serif; color: #0d1b2a; padding: 5px 0; max-height: 200px; }
+.cd-compose textarea::placeholder { color: #a8a39b; }
+.cd-send { width: 32px; height: 32px; border-radius: 10px; border: 0; background: #0d1b2a; color: #fff; display: grid; place-items: center; cursor: pointer; flex: none; }
+.cd-send:disabled { opacity: .4; cursor: default; }
+.cd-stop { background: #fff; color: #0d1b2a; border: 1px solid #d9d4cb; }
+
+/* Empty chat, sign-in and picking a repository. */
+.cd-empty { max-width: 560px; margin: 8vh auto 20px; text-align: center; }
+.cd-empty b { font-size: 19px; }
+.cd-empty p { color: #6b7280; margin: 8px 0 18px; }
+.cd-starts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.cd-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; overflow-y: auto; }
+.cd-mark { color: #0d1b2a; }
+.cd-title { font-size: 21px; }
+.cd-sub { color: #6b7280; max-width: 440px; margin: 0; }
+.cd-btn { display: inline-flex; align-items: center; gap: 8px; border: 0; background: #0d1b2a; color: #fff; border-radius: 999px; padding: 10px 20px; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer; margin-top: 6px; }
+.cd-btn-2 { border: 1px solid #d9d4cb; background: #fff; color: #0d1b2a; border-radius: 999px; padding: 7px 16px; font: 13px Inter, system-ui, sans-serif; text-decoration: none; cursor: pointer; }
+.cd-link { border: 0; background: none; color: #6b7280; text-decoration: underline; cursor: pointer; font: 13px Inter, system-ui, sans-serif; }
+.cd-errline { color: #b42318; margin: 0; font-size: 13px; }
+.cd-repos { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 420px; max-height: 46vh; overflow-y: auto; margin: 6px 0; }
+.cd-repo { display: flex; align-items: center; gap: 9px; border: 1px solid #e6e2db; background: #fff; border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; font: 14px Inter, system-ui, sans-serif; color: #0d1b2a; }
+.cd-repo:hover { border-color: #0d1b2a; }
+.cd-repo span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-repo em { font-style: normal; font-size: 11px; color: #6b7280; border: 1px solid #e6e2db; border-radius: 999px; padding: 1px 7px; }
+
+@media (max-width: 760px) { .cd-head { margin-top: 0; } }
+@media (max-width: 640px) {
+  .cd-head { padding: 8px 14px; }
+  .cd-log { padding: 16px 14px 6px; }
+  .cd-compose { width: calc(100% - 28px); margin-bottom: 12px; }
+  .cd-bubble { max-width: 88%; }
+  .cd-pr { margin-left: 0; }
+}

@@ -300,40 +300,35 @@ test("WL 9 — Gloopy, full body with no circle and no background, in the Sites 
   } finally { await app.close(); }
 });
 
-test("WL 10 — Coder goes to /home/coder: its header, the coming-soon screen and no projects strip; Sites agent restores the workspace", { skip: SKIP, timeout: 60000 }, async () => {
+test("WL 10 — Coder goes to /home/coder: its header, its own screen (public/coder.js) and no projects strip; Sites agent restores the workspace", { skip: SKIP, timeout: 60000 }, async () => {
   const app = await openApp();
   try {
     await app.page.click('#stConv .st-conv-item[data-agent="coder"]');
     await app.page.waitForFunction(() => location.pathname === "/home/coder", null, { timeout: 5000 });
+    await app.page.waitForSelector("#stCoder .cd", { timeout: 5000 });
     const r = await app.page.evaluate(() => ({
       on: [...document.querySelectorAll("#stConv .st-conv-item.on")].map((x) => x.dataset.agent),
       head: (document.querySelector("#stAgentHead") || {}).textContent || "",
-      soon: (document.querySelector("#stSoon") || {}).textContent || "",
-      bigAv: document.querySelector("#stSoon .st-av") ? Math.round(document.querySelector("#stSoon .st-av").getBoundingClientRect().width) : 0,
-      input: document.querySelector("#stSoon input") ? { dis: document.querySelector("#stSoon input").disabled, ph: document.querySelector("#stSoon input").placeholder } : null,
+      soon: !!document.querySelector("#stSoon"),
       strip: !!document.querySelector("#stProjects"), bar: !!document.querySelector(".st-topbar"),
     }));
     assert.deepEqual(r.on, ["coder"]);
     assert.match(r.head, /Coder/);
-    assert.match(r.soon, /Coming soon\. This agent will work on your code with you, like a developer at a terminal\./);
-    assert.match(r.soon, /Notify me when it.s ready/);
-    assert.equal(r.bigAv, 84);
-    assert.deepEqual(r.input, { dis: true, ph: "Message Coder — available soon" });
-    assert.equal(r.strip, false, "the projects strip shows on a placeholder agent");
+    assert.equal(r.soon, false, "Coder is no longer a coming-soon screen");
+    assert.equal(r.strip, false, "the projects strip shows on Coder");
     assert.equal(r.bar, false);
     await app.page.click('#stConv .st-conv-item[data-agent="sites"]');
     await app.page.waitForFunction((id) => location.pathname === "/home/projects/" + id, SITES[0].id, { timeout: 5000 });
     await app.page.waitForSelector(".st-topbar", { timeout: 5000 });
-    const b = await app.page.evaluate(() => ({ name: document.querySelector(".st-ws-name").textContent, strip: !!document.querySelector("#stProjects"), soon: !!document.querySelector("#stSoon"), head: document.querySelector("#stAgentHead").textContent.trim() }));
-    assert.equal(b.name, "Harbour Loaf"); assert.equal(b.strip, true); assert.equal(b.soon, false); assert.equal(b.head, "Sites agent");
-    // Back returns to the placeholder.
+    const b = await app.page.evaluate(() => ({ name: document.querySelector(".st-ws-name").textContent, strip: !!document.querySelector("#stProjects"), coder: !!document.querySelector("#stCoder"), head: document.querySelector("#stAgentHead").textContent.trim() }));
+    assert.equal(b.name, "Harbour Loaf"); assert.equal(b.strip, true); assert.equal(b.coder, false); assert.equal(b.head, "Sites agent");
+    // Back returns to Coder.
     await app.page.goBack();
-    await app.page.waitForSelector("#stSoon", { timeout: 5000 });
+    await app.page.waitForSelector("#stCoder .cd", { timeout: 5000 });
     assert.equal(await app.page.evaluate(() => location.pathname), "/home/coder");
     assert.deepEqual(app.errors, []);
   } finally { await app.close(); }
 });
-
 test("WL 11 — collapsed, the bar shows the five avatars only", { skip: SKIP, timeout: 60000 }, async () => {
   const app = await openApp({ ls: { gf_conv_bar_v1: "closed" } });
   try {

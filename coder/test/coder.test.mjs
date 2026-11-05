@@ -323,7 +323,12 @@ test("CD12 Coder is its own app: its own worker.js, config, container and bucket
   const D = readFileSync(HERE("container/Dockerfile"), "utf8");
   for (const f of ["server.mjs", "coder-agent.mjs", "coder-model.mjs", "coder-checks.mjs"]) assert.match(D, new RegExp(f.replace(".", "\\.")), "the image lacks " + f);
   // NOTHING OF CODER IN THE WEBSITE BUILDER'S WORKER, CONFIG, IMAGE OR DEPLOY.
-  for (const f of ["worker.js", "wrangler.jsonc", "Dockerfile", ".github/workflows/deploy.yml"]) assert.doesNotMatch(readFileSync(MAIN(f), "utf8"), /\bcoder\b|CODER_|CoderContainer/i, f + " mentions Coder");
+  // worker.js may name Coder's address once, in the page's connect-src (the screen calls it); nothing else.
+  for (const f of ["worker.js", "wrangler.jsonc", "Dockerfile", ".github/workflows/deploy.yml"]) {
+    let t = readFileSync(MAIN(f), "utf8");
+    if (f === "worker.js") { assert.equal((t.match(/https:\/\/coder\.gofarther\.dev/g) || []).length, 1); t = t.replace("https://coder.gofarther.dev", "").replace("// Coder's screen (public/coder.js) talks to Coder's own Worker.", ""); }
+    assert.doesNotMatch(t, /\bcoder\b|CODER_|CoderContainer/i, f + " mentions Coder");
+  }
   // AND CODER'S CODE NEVER REACHES INTO THE BUILDER'S.
   for (const f of ["worker.js", "src/coder-routes.mjs", "container/server.mjs", "container/coder-agent.mjs"]) assert.doesNotMatch(readFileSync(HERE(f), "utf8"), /from "\.\.\/\.\.\/|from "\.\.\/builder\//, f);
 });

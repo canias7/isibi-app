@@ -28,6 +28,16 @@
 
 
 
+## 2026-11-05 — Coder's chat screen (built, not live yet)
+
+Coder now has its own screen in the app at /home/coder. It works like a code editor's chat: your messages appear as dark bubbles and Coder's words as plain text. Each command Coder runs is one small row (a tick when it passed, a red "exit 1" when it failed) that opens to show its output. A question shows up as buttons, a green bar marks the finished work, and a link points to the pull request.
+
+The first time, the screen shows "Connect GitHub". Next it shows "Pick a repository". After that it opens straight into the chat. At the top are the repository picker, Coder's branch and the pull request button.
+
+The screen lives in its own files, `public/coder.js` and `public/coder.css`. `chat.js` only hands Coder its space. The app's security list now allows `https://coder.gofarther.dev` (one line in `worker.js`). Four older tests expected Coder's coming-soon screen and were updated. Coder's tests pass 16 of 16. The full suite had 5 failures before those 4 test updates: I re-ran the 4 updated files and they pass 34 of 34, and the browser video failure is outside Coder.
+
+Not live: the screen still has to go to `main` (merge and deploy).
+
 ## 2026-11-05 — Coder: GitHub App registered, a deploy button, switched on (your accounts only)
 
 You registered the GitHub App **gofarther-coder** (Client ID `Iv23li7CSEGqBSxEqQU7`) with three permissions: code, pull requests, metadata. You chose **B**: a button instead of a terminal. That is the new workflow **deploy coder**. It runs only when you press it, and it touches only `coder/`, never the website builder.

@@ -28,7 +28,7 @@ const envFor = (id, ASSETS = assetsStub(PUBLIC)) => ({ ASSETS, ...(id === undefi
 
 // Every local script src and stylesheet href in a page, in document order.
 const localRefs = (html) => [...html.matchAll(/<(?:script\b[^>]*?\ssrc|link\b[^>]*?\shref)="(\/(?!\/)[^"]+\.(?:js|css)(?:\?[^"]*)?)"/g)].map((m) => m[1]);
-const ORDER = ["/auth.js", "/edit-poll.js", "/key-card.js", "/chat-talk.js", "/site-media.js", "/site-list.js", "/site-zip.js", "/vendor/qrcode.js", "/chat.js", "/gf-landing.js"];
+const ORDER = ["/auth.js", "/edit-poll.js", "/key-card.js", "/chat-talk.js", "/site-media.js", "/site-list.js", "/site-zip.js", "/vendor/qrcode.js", "/coder.js", "/chat.js", "/gf-landing.js"];
 
 // ── 1. CACHING ──────────────────────────────────────────────────────────────
 
