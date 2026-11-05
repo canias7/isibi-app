@@ -16,6 +16,11 @@
   // Its own address. The website builder keeps gofarther.dev. Its bucket keeps
   // only chats and GitHub connections; the code itself lives in GitHub.
   "routes": [
+    // gofarther.dev IS CODER NOW (2026-11-05, the owner: "delete everything
+    // except the new coder"). The old builder Worker held these two; it must be
+    // removed first (the "retire old app" button), or this deploy is refused.
+    { "pattern": "gofarther.dev", "custom_domain": true },
+    { "pattern": "www.gofarther.dev", "custom_domain": true },
     { "pattern": "coder.gofarther.dev", "custom_domain": true },
     // The front door (front/wrangler.jsonc) has a `*/*` route on gofarther.dev's
     // zone that caught this address (deploy coder run 1: 404 from gofarther-front).
@@ -43,6 +48,8 @@
     "GITHUB_APP_SLUG": "gofarther-coder",
     "CODER_PUBLIC_URL": "https://coder.gofarther.dev"
   },
+  // The page (public/): sign-in, then Coder.
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   "r2_buckets": [
     { "binding": "CODER_BUCKET", "bucket_name": "gofarther-coder" }
   ],

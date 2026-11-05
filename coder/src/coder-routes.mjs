@@ -79,7 +79,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── THE GITHUB SIGN-IN'S RETURN: a plain visit from GitHub, with no sign-in
   // header; the signed state says whose it is. ──
   if (parts[0] === "github" && parts[1] === "callback") {
-    const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/home/coder";
+    const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/";
     if (!githubReady(env)) return Response.redirect(back + "?github=unavailable", 302);
     const uid = await readState(env, url.searchParams.get("state"));
     const code = url.searchParams.get("code");

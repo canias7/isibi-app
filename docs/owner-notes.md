@@ -28,6 +28,18 @@
 
 
 
+## 2026-11-05 — Everything deleted except Coder; gofarther.dev becomes Coder
+
+On your word "delete everything except the new coder we are building", I deleted the website builder from the repository: the builder, the old app, the site serving on gofarther.app, the tests, the scripts and the old docs. That was 2,941 files. What's left is `coder/`, the two buttons, your two record files (this log and owner-preferences) and a new short CLAUDE.md. Everything deleted is still in git history.
+
+gofarther.dev is now a small new app served by Coder's own Worker. It shows a sign-in screen (password, then an emailed code, the same Supabase accounts as before) and then Coder's chat. The app lives in `coder/public/`.
+
+Not live yet. To go live: (1) you say "merge and deploy"; (2) you press **retire old app** and type DELETE. That removes the old builder's Workers, so gofarther.dev comes free, and every customer site on gofarther.app stops answering. (3) You press **deploy coder**.
+
+Stored data is not touched: R2 site files, the Neon databases, and Supabase (accounts and the credit ledger). Deleting any of it is a separate step, and only on your word.
+
+Coder's tests: 17 of 17.
+
 ## 2026-11-05 — Coder's chat screen (built, not live yet)
 
 Coder now has its own screen in the app at /home/coder. It works like a code editor's chat: your messages appear as dark bubbles and Coder's words as plain text. Each command Coder runs is one small row (a tick when it passed, a red "exit 1" when it failed) that opens to show its output. A question shows up as buttons, a green bar marks the finished work, and a link points to the pull request.

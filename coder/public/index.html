@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Go Farther · Coder</title>
+  <meta name="description" content="Coder works on your code in your own GitHub, like a developer at a terminal." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="/app.css" />
+  <link rel="stylesheet" href="/coder.css" />
+</head>
+<body>
+  <!-- THE WHOLE APP (2026-11-05, the owner: "delete everything except the new
+       coder we are building"): sign in, then Coder. -->
+  <header class="gf-top">
+    <a class="gf-brand" href="/"><span class="gf-logo" aria-hidden="true">GF</span><b>Go Farther</b><span class="gf-tag">Coder</span></a>
+    <div class="gf-user" id="gfUser" hidden>
+      <span class="gf-email" id="gfEmail"></span>
+      <button type="button" class="gf-out" id="gfOut">Sign out</button>
+    </div>
+  </header>
+
+  <main class="gf-main">
+    <section class="gf-gate" id="gfGate" hidden>
+      <form class="gf-card" id="gfForm" novalidate>
+        <h1 id="gfTitle">Sign in</h1>
+        <p class="gf-sub" id="gfSub">Coder works on your code in your own GitHub.</p>
+        <div id="gfStep1">
+          <label>Email<input type="email" id="gfMail" autocomplete="email" required /></label>
+          <label>Password<input type="password" id="gfPw" autocomplete="current-password" minlength="6" required /></label>
+        </div>
+        <div id="gfStep2" hidden>
+          <label>The code we emailed you<input type="text" id="gfCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" /></label>
+        </div>
+        <p class="gf-msg" id="gfMsg" role="alert"></p>
+        <button type="submit" class="gf-go" id="gfGo">Continue</button>
+        <button type="button" class="gf-switch" id="gfSwitch">New here? Create an account</button>
+      </form>
+    </section>
+    <section class="gf-app" id="gfApp" hidden></section>
+  </main>
+
+  <script src="/auth.js" defer></script>
+  <script src="/coder.js" defer></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>
