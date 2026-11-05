@@ -37,17 +37,27 @@ async function hmac(env, text) {
   const k = await crypto.subtle.importKey("raw", await keyBytes(env), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return b64url(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text)));
 }
-export async function makeState(env, uid, now = Date.now()) {
-  const body = uid + "." + now;
+// THE AUDIT (2026-11-05): the state also carries a random value that is set as
+// a cookie in the browser that started the sign-in, and the callback needs both,
+// so a sign-in link made by someone else cannot attach your GitHub to their account.
+export const STATE_COOKIE = "gf_ghs";
+export function newNonce() { return b64url(crypto.getRandomValues(new Uint8Array(18))); }
+export async function makeState(env, uid, now = Date.now(), nonce = "") {
+  const body = uid + "." + now + (nonce ? "." + nonce : "");
   return body + "." + (await hmac(env, "gh-state:" + body));
 }
-/** The user id a state was made for, or null when it is forged, malformed or older than 15 minutes. */
-export async function readState(env, state, now = Date.now()) {
-  const m = /^([A-Za-z0-9-]{1,64})\.(\d{10,16})\.([A-Za-z0-9_-]{20,})$/.exec(String(state || ""));
+/**
+ * The user id a state was made for, or null when it is forged, malformed, older
+ * than 15 minutes, or (when it carries one) its random value is not the browser's cookie.
+ */
+export async function readState(env, state, now = Date.now(), cookieNonce = undefined) {
+  const m = /^([A-Za-z0-9-]{1,64})\.(\d{10,16})(?:\.([A-Za-z0-9_-]{16,40}))?\.([A-Za-z0-9_-]{20,})$/.exec(String(state || ""));
   if (!m) return null;
   if (!(now - Number(m[2]) >= 0 && now - Number(m[2]) < STATE_MAX_AGE_MS)) return null;
-  const want = await hmac(env, "gh-state:" + m[1] + "." + m[2]);
-  return want === m[3] ? m[1] : null;
+  const want = await hmac(env, "gh-state:" + m[1] + "." + m[2] + (m[3] ? "." + m[3] : ""));
+  if (want !== m[4]) return null;
+  if (cookieNonce !== undefined && (!m[3] || m[3] !== cookieNonce)) return null;
+  return m[1];
 }
 
 /** Where the user signs in with GitHub. */

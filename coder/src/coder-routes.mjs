@@ -31,7 +31,7 @@
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
-import { githubReady, makeState, readState, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -190,13 +190,17 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "github" && parts[1] === "callback") {
     const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/";
     if (!githubReady(env)) return Response.redirect(back + "?github=unavailable", 302);
-    const uid = await readState(env, url.searchParams.get("state"));
+    const cookie = String(request.headers.get("cookie") || "").split(/;\s*/).find((c) => c.startsWith(STATE_COOKIE + "="));
+    const uid = await readState(env, url.searchParams.get("state"), Date.now(), cookie ? decodeURIComponent(cookie.slice(STATE_COOKIE.length + 1)) : "");
     const code = url.searchParams.get("code");
     if (!uid || !code) return Response.redirect(back + "?github=failed", 302);
     try {
       const tok = await exchangeCode(env, code, fetchFn);
       const me = await gh(tok.access, "/user", { fetchFn });
       const login = me.ok && me.data ? String(me.data.login || "") : "";
+      // A different GitHub account than before: the old login no longer points here (the audit).
+      const before = await getJson(bucket, "coder/" + uid + "/github.json", null);
+      if (before && before.login && before.login.toLowerCase() !== login.toLowerCase() && typeof bucket.delete === "function") await bucket.delete(loginKey(before.login));
       await saveConnection(env, bucket, uid, tok, login);
       // Who this GitHub login is on Coder, for @coder in comments.
       if (login) await bucket.put(loginKey(login), JSON.stringify({ uid }), { httpMetadata: { contentType: "application/json" } });
@@ -226,8 +230,20 @@ export async function handleCoder(request, env, ctx, deps) {
       const t = await userToken(env, bucket, uid, { fetchFn });
       return json({ ok: true, connected: !!t, login: t ? t.login : "", install: installUrl(env) });
     }
-    if (what === "start" && request.method === "GET") return json({ ok: true, url: signInUrl(env, await makeState(env, uid)) });
-    if (what === "disconnect" && request.method === "POST") { await forgetConnection(bucket, uid); return json({ ok: true }); }
+    if (what === "start" && request.method === "GET") {
+      // The random value goes in a cookie for the whole gofarther.dev (the callback is on coder.gofarther.dev).
+      const nonce = newNonce();
+      const res = json({ ok: true, url: signInUrl(env, await makeState(env, uid, Date.now(), nonce)) });
+      const host = new URL(String(env.CODER_PUBLIC_URL || "https://coder.gofarther.dev")).hostname.split(".").slice(-2).join(".");
+      res.headers.append("set-cookie", STATE_COOKIE + "=" + nonce + "; Path=/api/coder/github; Domain=" + host + "; Max-Age=900; HttpOnly; Secure; SameSite=Lax");
+      return res;
+    }
+    if (what === "disconnect" && request.method === "POST") {
+      const before = await getJson(bucket, "coder/" + uid + "/github.json", null);
+      if (before && before.login && typeof bucket.delete === "function") await bucket.delete(loginKey(before.login));
+      await forgetConnection(bucket, uid);
+      return json({ ok: true });
+    }
     if (what === "repos" && request.method === "GET") {
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
@@ -308,6 +324,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
     const setup = await readEnv(env, bucket, uid, meta.repo);
+    // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
+    if (body.fromGithub === true) setup.vars = {};
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
@@ -389,6 +407,9 @@ export async function handleCoder(request, env, ctx, deps) {
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
+      // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
+      const secrets = Object.values((await readEnv(env, bucket, uid, meta.repo)).vars).map(String).filter((v) => v.length >= 4);
+      if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
