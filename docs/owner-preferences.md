@@ -1518,3 +1518,5 @@ When a model's answer fails a check, retry once with the reason, on the **same m
 - **Failure messages (M-83): build the AI-written ones now** ("3 A"), tried in a live test before they are switched on.
 - **Provider outage mid-edit (M-74): pause like the credit pause** ("4A"): the work waits and Continue carries on from where it stopped.
 - **One message, several saves (M-65): B, each part saves on its own** ("B"): a split message's parts each save their own draft version as they finish, so the first change shows sooner and each can be undone alone. This is how the split parts already work; it is kept.
+
+- **Coder and GitHub (2026-11-05): A, a GitHub App.** Each user picks exactly which repositories Coder may touch; permissions are short-lived and renewed. Work goes to Coder's own branch and a pull request, never straight to main.
