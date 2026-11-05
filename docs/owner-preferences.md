@@ -6,7 +6,7 @@ deleted (the old file is in git history).
 ## Approval
 - **Spending:** no paid run or AI call without the owner's approval. Propose the
   exact request and a cost estimate first.
-- **Presses:** the owner presses every workflow run. Hand over the exact inputs.
+- **Presses:** Claude may run workflows itself when the owner asks (2026-11-05). Deletion runs still need the owner's word each time.
 - **Git:** merge to `main` and deploy only when the owner says so. No pull
   request unless asked.
 - **Deleting:** nothing permanent (Workers, storage, databases, branches) without

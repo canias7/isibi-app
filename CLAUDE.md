@@ -21,7 +21,7 @@ repository on 2026-11-05. The full old tree is in git history (the commit before
 | `coder/src/` | Routes, GitHub (App sign-in, encrypted tokens, pull requests), Supabase sign-in, the page's headers |
 | `coder/container/` | Coder's own container: the agent loop (Grok, one tool, `bash`; it finishes by answering in words), safety checks, git |
 | `coder/test/` | `npm test` from `coder/` |
-| `.github/workflows/deploy-coder.yml` | The deploy button (pressed by the owner) |
+| `.github/workflows/deploy-coder.yml` | The deploy button (Claude may press it when the owner says deploy) |
 | `.github/workflows/list-old-stuff.yml` | Lists what is left of the old app (read-only) |
 | `.github/workflows/delete-old-stuff.yml` | Deletes the old app's named Workers, sites, storage and branches (lists in `.github/old-stuff/`); runs only when the box says DELETE |
 
@@ -31,7 +31,7 @@ How Coder works and how GitHub is set up: `coder/README.md`.
 
 - **Spending:** no paid run or model call without the owner's approval. Coder
   is free while testing, and only the accounts in `CODER_USERS` may use it.
-- **Presses:** the owner presses every workflow run.
+- **Presses:** Claude may run workflows itself when the owner asks (owner, 2026-11-05: "delete that rule, u can do it"). The deletion workflows still need the owner's word for each run.
 - **Git:** work on the designated branch. Merge to `main` only when the owner
   says so. No pull request unless asked.
 - **Live data:** stored data from the old app (R2 site files, Neon databases,
