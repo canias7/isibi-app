@@ -28,6 +28,7 @@ import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
+import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
@@ -371,8 +372,9 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // each key to HTTPS requests for its host; the commands only learn the proxy.
     // THE NETWORK LIST (owner, 2026-11-06, "4"): with "limited" on, a firewall
     // leaves the proxy as the only way out, and the proxy checks the list.
-    const secretList = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && okHost(s.host) && typeof s.value === "string" && s.value).slice(0, 20);
-    const net = body.setup && body.setup.network && typeof body.setup.network === "object" ? { limited: body.setup.network.limited === true, hosts: Array.isArray(body.setup.network.hosts) ? body.setup.network.hosts : [] } : { limited: false, hosts: [] };
+    const secretList = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && ((Array.isArray(s.hosts) && s.hosts.some(okPattern)) || okHost(s.host))).slice(0, 20);
+    const nn = normNetwork(body.setup && body.setup.network);
+    const net = { ...nn, limited: nn.mode !== "full" };
     let secretHosts = [], proxyEnv = {}, px = null, netNote = "";
     if (secretList.length || net.limited) {
       try {
@@ -382,7 +384,9 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         Object.assign(extraEnv, proxyEnv);
         if (net.limited) {
           fwOn = firewall(true, RUN_UID);
-          netNote = "\n\nNETWORK: this repo is LIMITED to package sites" + (net.hosts.length ? " and " + net.hosts.join(", ") : "") + (secretHosts.length ? " (plus hosts with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\": if the work needs that site, ask the owner with propose_env (kind allow_host)." + (fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+          netNote = (net.mode === "none"
+            ? "\n\nNETWORK: NONE. The owner turned internet access off for this repo: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
+            : "\n\nNETWORK: this repo is LIMITED to package sites" + (net.hosts.length ? " and " + net.hosts.join(", ") : "") + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"): if the work needs that site, ask the owner with propose_env (kind allow_host).") + (fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
     }

@@ -123,37 +123,94 @@
   // REVIEW (owner, 2026-11-05): the server writes the review request; Coder only reads and reports.
 
   // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): setup script + variables, kept on the server.
+  // THE REPO'S ENVIRONMENT (owner, 2026-11-06: "make similar" to Claude Code's
+  // "Edit cloud environment"): four rows, each with its own page.
   async function loadEnv() {
     if (!S.project) return;
-    S.env = null; S.envEdit = {}; S.envDraft = null; S.envMsg = '';
+    S.env = null; S.envMsg = ''; S.envPage = 'main'; S.envForm = null;
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env');
-    S.env = r.status === 200 && r.data ? r.data : { script: '', vars: [] };
+    S.env = r.status === 200 && r.data ? r.data : { script: '', vars: [], varsText: '', secrets: [], network: { mode: 'full', hosts: [] } };
     draw();
   }
-  async function saveEnv(script) {
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify({ script, vars: S.envEdit || {} }) });
-    if (r.status === 200 && r.data) { S.env = r.data; S.envEdit = {}; S.envDraft = null; S.envMsg = 'Saved. It is used from the next message.'; }
+  async function envPost(body, done) {
+    S.envBusy = true; S.envMsg = ''; draw();
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify(body) });
+    S.envBusy = false;
+    if (r.status === 200 && r.data) { S.env = r.data; S.envPage = done || 'main'; S.envForm = null; }
     else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
     draw();
   }
+  const NET = { none: ['None', 'Coder\'s commands can\'t reach the internet.'], limited: ['Limited', 'Package sites (npm, PyPI, GitHub…) and the sites you allow below.'], full: ['Full', 'Coder\'s commands can reach any public site.'] };
+  const SECRET_TYPES = { bearer: ['Bearer token', [{ name: 'Authorization', prefix: 'Bearer', value: '' }]], key: ['API key header', [{ name: 'X-Api-Key', prefix: '', value: '' }]], basic: ['Basic (key as user name)', [{ name: 'Authorization', prefix: 'Basic', value: '' }]] };
   function envHTML() {
-    if (!S.env) return '<div class="cd-envp"><p class="cd-muted">Loading…</p></div>';
-    const edit = S.envEdit || {};
-    const names = [...new Set([...(S.env.vars || []), ...Object.keys(edit)])].filter((n) => edit[n] !== null).sort();
-    const script = S.envDraft && typeof S.envDraft.script === 'string' ? S.envDraft.script : S.env.script || '';
-    return '<div class="cd-envp">' +
-      '<h3>Environment for ' + esc(S.env.repo || S.project.repo) + '</h3>' +
-      '<label class="cd-envl">Setup script <small>runs once when Coder\'s machine opens this repo (and again when you change it), e.g. <code>npm install</code></small></label>' +
-      '<textarea id="envScript" rows="4" spellcheck="false" placeholder="npm ci&#10;pip install -r requirements.txt">' + esc(script) + '</textarea>' +
-      '<label class="cd-envl">Variables <small>available to Coder\'s commands, e.g. an API key for tests. Values are hidden after saving.</small></label>' +
-      '<div class="cd-envvars">' + (names.length ? names.map((n) => '<div class="cd-envrow"><code>' + esc(n) + '</code><span>' + (n in edit ? 'new value' : '•••••• set') + '</span><button type="button" data-envdel="' + esc(n) + '" aria-label="Remove ' + esc(n) + '">×</button></div>').join('') : '<p class="cd-muted">No variables yet.</p>') + '</div>' +
-      '<div class="cd-envadd"><input id="envName" placeholder="NAME" autocomplete="off" spellcheck="false"><input id="envVal" type="password" placeholder="value" autocomplete="new-password"><button type="button" class="cd-hbtn" id="envAdd">Add</button></div>' +
-      '<label class="cd-envl">Network access <small>which websites Coder\'s commands may reach</small></label>' +
-      '<label class="cd-envnet"><input type="checkbox" id="envLimited"' + (S.env.network && S.env.network.limited ? ' checked' : '') + '> Limited: package sites (npm, PyPI, GitHub…) and the sites below. Coder asks before adding one.</label>' +
-      (S.env.network && S.env.network.hosts && S.env.network.hosts.length ? '<div class="cd-envvars">' + S.env.network.hosts.map((h) => '<div class="cd-envrow"><code>' + esc(h) + '</code><span>allowed</span><button type="button" data-hostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') + '</div>' : '') +
-      ((S.env.secrets || []).length ? '<label class="cd-envl">Secrets <small>keys Coder asked for; added to requests for their host, never shown to Coder</small></label><div class="cd-envvars">' + S.env.secrets.map((x) => '<div class="cd-envrow"><code>' + esc(x.host) + '</code><span>' + esc(x.name || '•••••• saved') + '</span><button type="button" data-secdel="' + esc(x.host) + '" aria-label="Remove the secret for ' + esc(x.host) + '">×</button></div>').join('') + '</div>' : '') +
-      '<div class="cd-envfoot"><button type="button" class="cd-btn" id="envSave">Save</button><span class="cd-muted">' + esc(S.envMsg || '') + '</span></div>' +
-    '</div>';
+    const page = S.envPage || 'main', e = S.env, f = S.envForm;
+    const head = (title, back) => '<div class="cd-em-head">' + (back ? '<button type="button" class="cd-em-x" data-envgo="' + back + '" aria-label="Back">‹</button>' : '') + '<b>' + esc(title) + '</b><button type="button" class="cd-em-x" id="envClose" aria-label="Close">×</button></div>';
+    const foot = (yes, extra) => '<div class="cd-em-foot">' + (S.envMsg ? '<span class="cd-em-err">' + esc(S.envMsg) + '</span>' : '') + (extra || '') + '<button type="button" class="cd-em-cancel" data-envgo="' + (page === 'add' ? 'secrets' : 'main') + '">Cancel</button>' + (yes ? '<button type="button" class="cd-em-yes" id="envYes"' + (S.envBusy ? ' disabled' : '') + '>' + yes + '</button>' : '') + '</div>';
+    let body = '';
+    if (!e) body = head('Environment') + '<p class="cd-muted">Loading…</p>';
+    else if (page === 'main') {
+      const n = e.network || { mode: 'full', hosts: [] };
+      const rows = [
+        ['network', 'Network access', NET[n.mode][0] + (n.mode === 'limited' && n.hosts.length ? ' · ' + n.hosts.length + ' site' + (n.hosts.length > 1 ? 's' : '') : '')],
+        ['secrets', 'Network secrets', (e.secrets || []).length ? e.secrets.length + ' secret' + (e.secrets.length > 1 ? 's' : '') : 'None'],
+        ['script', 'Setup script', e.script && e.script.trim() ? e.script.trim().split('\n')[0].slice(0, 60) : 'Not set'],
+        ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') : 'None for this repo'],
+      ];
+      body = head('Environment for ' + (e.repo || S.project.repo)) + '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>';
+    } else if (page === 'network') {
+      body = head('Network access', 'main') + '<div class="cd-em-opts">' + Object.keys(NET).map((k) => '<button type="button" class="cd-em-opt' + (f.mode === k ? ' on' : '') + '" data-netmode="' + k + '"><b>' + NET[k][0] + '</b><small>' + NET[k][1] + '</small>' + (f.mode === k ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') + '</div>' +
+        (f.mode === 'limited' ? '<label class="cd-em-l">Allowed sites</label><div class="cd-em-list">' + (f.hosts.length ? f.hosts.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-nethostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">No sites yet. Coder asks before adding one.</p>') + '</div>' +
+          '<div class="cd-em-addrow"><input id="envHostIn" placeholder="api.example.com or *.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cd-em-cancel" id="envHostAdd">Add</button></div>' : '') +
+        foot('Save changes');
+    } else if (page === 'secrets') {
+      body = head('Network secrets', 'main') + '<div class="cd-em-list">' + ((e.secrets || []).length ? e.secrets.map((x) => '<div class="cd-em-li"><span><b>' + esc(x.name || x.hosts.join(', ')) + '</b><small>' + esc(x.hosts.join(', ') + (x.paths && x.paths.length ? ' · ' + x.paths.join(', ') : '') + ' · ' + x.headers.map((h) => h.name).join(', ')) + '</small></span><button type="button" data-secid="' + esc(x.id) + '" data-secname="' + esc(x.name || x.hosts.join(', ')) + '" aria-label="Remove">×</button></div>').join('') : '<p class="cd-muted">No secrets yet.</p>') + '</div>' +
+        '<button type="button" class="cd-em-cancel cd-em-plus" data-envgo="add">+ Add secret</button>' +
+        '<p class="cd-em-help">Requests to the sites you add go through a proxy that adds the secret, so Coder never sees it. Coder can also ask you for one with a card in the chat.</p>' + foot('');
+    } else if (page === 'add') {
+      const hosts = f.hosts.split(/[\s,]+/).filter(Boolean);
+      const h0 = f.headers[0] || { name: 'Authorization', prefix: 'Bearer' };
+      body = head('Add secret', 'secrets') +
+        '<p class="cd-em-help">Use a key with only the access Coder needs: it can be used for any request to these sites.</p>' +
+        '<label class="cd-em-l" for="secName">Name (optional)</label><input id="secName" class="cd-em-in" value="' + esc(f.name) + '" placeholder="Stripe test key" autocomplete="off">' +
+        '<label class="cd-em-l" for="secType">Secret type</label><select id="secType" class="cd-em-in">' + Object.keys(SECRET_TYPES).map((k) => '<option value="' + k + '"' + (f.type === k ? ' selected' : '') + '>' + SECRET_TYPES[k][0] + '</option>').join('') + '</select>' +
+        '<label class="cd-em-l" for="secHosts">Allowed websites</label><input id="secHosts" class="cd-em-in" value="' + esc(f.hosts) + '" placeholder="api.example.com" autocomplete="off" spellcheck="false">' +
+        '<p class="cd-em-help">Coder\'s proxy only sends this key to these sites. Use * at the start for every subdomain (*.example.com). Separate several with commas.</p>' +
+        '<label class="cd-em-l" for="secPaths">Path prefixes (optional)</label><input id="secPaths" class="cd-em-in" value="' + esc(f.paths) + '" placeholder="/api/v1/" autocomplete="off" spellcheck="false">' +
+        '<p class="cd-em-help">Only add the key to requests under these paths. Leave empty for the whole site.</p>' +
+        '<label class="cd-em-l">Headers</label><p class="cd-em-help">Use the header name from the API\'s docs, like Authorization or X-Api-Key, and leave Prefix empty if the API takes the key alone.</p>' +
+        '<div class="cd-em-hdrs"><span>Header name</span><span>Prefix</span><span>Value</span><span></span>' + f.headers.map((h, i) => '<input data-hdr="' + i + '" data-k="name" value="' + esc(h.name) + '" autocomplete="off" spellcheck="false"><select data-hdr="' + i + '" data-k="prefix">' + ['', 'Bearer', 'Token', 'Key', 'Basic'].map((x) => '<option value="' + x + '"' + (h.prefix === x ? ' selected' : '') + '>' + (x || '(none)') + '</option>').join('') + '</select><input data-hdr="' + i + '" data-k="value" type="password" value="' + esc(h.value) + '" autocomplete="new-password" spellcheck="false" placeholder="••••••••"><button type="button" data-hdrdel="' + i + '" aria-label="Remove header"' + (f.headers.length < 2 ? ' disabled' : '') + '>×</button>').join('') + '</div>' +
+        '<button type="button" class="cd-em-cancel cd-em-plus" id="secHdrAdd">+ Add header</button>' +
+        '<details class="cd-em-curl"><summary>See resolved curl example</summary><pre>curl https://' + esc((hosts[0] || 'api.example.com').replace(/^\*\./, 'api.')) + ((f.paths.split(/[\s,]+/).filter(Boolean)[0]) || '/') + '\n  # Coder\'s proxy adds:\n' + f.headers.map((h) => '  -H "' + esc(h.name || 'Header') + ': ' + esc(h.prefix ? h.prefix + ' ' : '') + '••••••••"').join('\n') + '</pre></details>' +
+        foot('Add');
+    } else if (page === 'script') {
+      body = head('Setup script', 'main') + '<div class="cd-em-code"><div class="cd-em-codebar"><span class="cd-em-tag">Bash</span><label class="cd-em-file">⬆ Choose file<input type="file" id="envFile" hidden></label><button type="button" id="envCopy" aria-label="Copy">⧉</button></div>' +
+        '<textarea id="envScriptIn" spellcheck="false" placeholder="#!/bin/bash&#10;npm install">' + esc(f.text) + '</textarea><div class="cd-em-codefoot">Files up to 64 KB</div></div>' +
+        '<p class="cd-em-help">Runs on Coder\'s machine before Coder starts, once per machine and again when you change it. It can\'t read your variables or secrets.</p>' + foot('Save changes');
+    } else if (page === 'vars') {
+      body = head('Environment variables', 'main') + '<textarea id="envVarsIn" class="cd-em-vars" spellcheck="false" placeholder="NODE_ENV=production&#10;GIT_AUTHOR_NAME=Your Name&#10;&#10;# Multiline values - wrap in quotes&#10;CONFIG=&quot;key1=val1&#10;key2=val2&quot;">' + esc(f.text) + '</textarea>' +
+        '<p class="cd-em-help">One KEY=value per line, in .env format. Coder and its commands can see these values, so don\'t add secrets here: use Network secrets.</p>' + foot('Save changes');
+    }
+    return '<div class="cd-em" id="envWrap"><div class="cd-em-box" role="dialog" aria-modal="true" aria-label="Environment">' + body + '</div></div>';
+  }
+  function envGo(page) {
+    const e = S.env || {}; S.envMsg = ''; S.envPage = page;
+    S.envForm = page === 'network' ? { mode: (e.network && e.network.mode) || 'full', hosts: [...((e.network && e.network.hosts) || [])] }
+      : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[1].map((h) => ({ ...h })) }
+      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : null;
+    draw();
+  }
+  async function envYes() {
+    const page = S.envPage, f = S.envForm;
+    if (page === 'network') return envPost({ network: { mode: f.mode, hosts: f.hosts } });
+    if (page === 'script') return envPost({ script: f.text });
+    if (page === 'vars') return envPost({ varsText: f.text });
+    if (page === 'add') {
+      S.envBusy = true; S.envMsg = ''; draw();
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret', { method: 'POST', body: JSON.stringify({ name: f.name, hosts: f.hosts.split(/[\s,]+/).filter(Boolean), paths: f.paths.split(/[\s,]+/).filter(Boolean), headers: f.headers }) });
+      S.envBusy = false;
+      if (r.status === 200) { S.env.secrets = r.data.secrets; S.envPage = 'secrets'; S.envForm = null; } else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
+      draw();
+    }
   }
 
   async function removeChat(id) {
@@ -616,13 +673,6 @@
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     on('.cd-ask-opt', 'click', (e) => send(e.currentTarget.dataset.answer));
-    on('[data-secdel]', 'click', async (e) => {
-      const host = e.currentTarget.dataset.secdel;
-      if (!S.project || !(await askSure('Remove the secret for ' + host + '?', 'Coder\'s commands will no longer get a key for ' + host + '.', 'Remove'))) return;
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret?host=' + encodeURIComponent(host), { method: 'DELETE' });
-      if (r.status === 200 && S.env) { S.env.secrets = r.data.secrets; S.envMsg = 'Removed.'; } else S.envMsg = (r.data && r.data.error) || 'It could not be removed.';
-      draw();
-    });
     on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : 'I declined the new setup script.'); });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];
@@ -633,17 +683,6 @@
       if (r.status !== 200) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
       S.envChangeMsg = ''; if (S.env) S.env = r.data;
       send(x.kind === 'allow_host' ? 'I allowed ' + x.host + '.' : 'I approved the new setup script.');
-    });
-    on('#envLimited', 'change', async (e) => {
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify({ network: { limited: e.currentTarget.checked } }) });
-      if (r.status === 200) { S.env = r.data; S.envMsg = e.currentTarget.checked ? 'Limited: package sites and the list below. Used from the next message.' : 'Open: any public site. Used from the next message.'; } else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
-      draw();
-    });
-    on('[data-hostdel]', 'click', async (e) => {
-      const host = e.currentTarget.dataset.hostdel;
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify({ network: { remove: [host] } }) });
-      if (r.status === 200) { S.env = r.data; S.envMsg = 'Removed.'; } else S.envMsg = (r.data && r.data.error) || 'It could not be removed.';
-      draw();
     });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
@@ -668,10 +707,39 @@
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
-    on('#cdEnv', 'click', () => { S.showEnv = !S.showEnv; S.showChanges = false; if (S.showEnv) loadEnv(); draw(); });
-    on('#envAdd', 'click', () => { const n = root.querySelector('#envName'), v = root.querySelector('#envVal'); S.envEdit = S.envEdit || {}; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; if (n && n.value.trim()) { S.envEdit[n.value.trim()] = v ? v.value : ''; } draw(); });
-    on('[data-envdel]', 'click', (e) => { S.envEdit = S.envEdit || {}; S.envEdit[e.currentTarget.dataset.envdel] = null; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; draw(); });
-    on('#envSave', 'click', () => saveEnv((root.querySelector('#envScript') || {}).value || ''));
+    on('#cdEnv', 'click', () => { S.showEnv = true; S.showChanges = false; loadEnv(); draw(); });
+    // THE ENVIRONMENT WINDOW: typing only updates the form (no redraw), buttons move between pages.
+    on('#envClose', 'click', () => { S.showEnv = false; draw(); });
+    on('#envWrap', 'click', (e) => { if (e.target.id === 'envWrap') { S.showEnv = false; draw(); } });
+    on('[data-envgo]', 'click', (e) => envGo(e.currentTarget.dataset.envgo));
+    on('#envYes', 'click', () => envYes());
+    on('[data-netmode]', 'click', (e) => { S.envForm.mode = e.currentTarget.dataset.netmode; draw(); });
+    on('#envHostAdd', 'click', () => { const i = root.querySelector('#envHostIn'); const v = (i.value || '').trim().toLowerCase(); if (v && !S.envForm.hosts.includes(v)) S.envForm.hosts.push(v); draw(); });
+    on('#envHostIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); root.querySelector('#envHostAdd').click(); } });
+    on('[data-nethostdel]', 'click', (e) => { S.envForm.hosts = S.envForm.hosts.filter((h) => h !== e.currentTarget.dataset.nethostdel); draw(); });
+    on('[data-secid]', 'click', async (e) => {
+      const { secid, secname } = e.currentTarget.dataset;
+      if (!(await askSure('Remove “' + secname + '”?', 'Coder\'s commands will no longer get this key.', 'Remove'))) return;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret?id=' + encodeURIComponent(secid), { method: 'DELETE' });
+      if (r.status === 200) S.env.secrets = r.data.secrets; else S.envMsg = (r.data && r.data.error) || 'It could not be removed.';
+      draw();
+    });
+    on('#secName', 'input', (e) => { S.envForm.name = e.currentTarget.value; });
+    on('#secHosts', 'input', (e) => { S.envForm.hosts = e.currentTarget.value; });
+    on('#secPaths', 'input', (e) => { S.envForm.paths = e.currentTarget.value; });
+    on('#secType', 'change', (e) => { S.envForm.type = e.currentTarget.value; const keep = S.envForm.headers.map((h) => h.value); S.envForm.headers = SECRET_TYPES[S.envForm.type][1].map((h, i) => ({ ...h, value: keep[i] || '' })); draw(); });
+    on('[data-hdr]', 'input', (e) => { const d = e.currentTarget.dataset; S.envForm.headers[Number(d.hdr)][d.k] = e.currentTarget.value; });
+    on('[data-hdr]', 'change', (e) => { const d = e.currentTarget.dataset; S.envForm.headers[Number(d.hdr)][d.k] = e.currentTarget.value; if (d.k !== 'value') draw(); });
+    on('[data-hdrdel]', 'click', (e) => { S.envForm.headers.splice(Number(e.currentTarget.dataset.hdrdel), 1); draw(); });
+    on('#secHdrAdd', 'click', () => { if (S.envForm.headers.length < 5) S.envForm.headers.push({ name: '', prefix: '', value: '' }); draw(); });
+    on('#envScriptIn', 'input', (e) => { S.envForm.text = e.currentTarget.value; });
+    on('#envVarsIn', 'input', (e) => { S.envForm.text = e.currentTarget.value; });
+    on('#envCopy', 'click', () => { try { navigator.clipboard.writeText(S.envForm.text || ''); } catch { /* not allowed */ } });
+    on('#envFile', 'change', (e) => {
+      const file = e.currentTarget.files && e.currentTarget.files[0]; if (!file) return;
+      if (file.size > 65536) { S.envMsg = 'That file is over 64 KB.'; return draw(); }
+      const rd = new FileReader(); rd.onload = () => { S.envForm.text = String(rd.result || ''); draw(); }; rd.readAsText(file);
+    });
     on('#cdAttach', 'click', () => { const f = root.querySelector('#cdFile'); if (f) f.click(); });
     on('#cdFile', 'change', (e) => { addPics(e.target.files); e.target.value = ''; });
     on('[data-unpic]', 'click', (e) => { S.pics.splice(Number(e.currentTarget.dataset.unpic), 1); draw(); });
