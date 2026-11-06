@@ -277,3 +277,9 @@
 .cd-group-box .cd-cmd-row{padding:9px 0}
 
 .cd .cd-cmd.is-bg .cd-cmd-row, .cd .cd-cmd.is-bg .cd-cmd-verb { color: #1f1e1d; }
+
+/* ENVIRONMENT CHANGE CARD and the network switch (owner, 2026-11-06). */
+.cd-envchange-pre{text-align:left;background:#fff;border:1px solid #e5e3dd;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.5;max-height:240px;overflow:auto;white-space:pre-wrap;margin:0 0 4px}
+.cd-envnet{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;color:#1f1e1d;margin:2px 0 8px;line-height:1.4}
+.cd-envnet input{margin-top:3px}
+.cd-secret-icon svg{width:26px;height:26px}

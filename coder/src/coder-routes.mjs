@@ -67,8 +67,9 @@ export const secretList = (secrets) => (secrets || []).map((s) => ({ host: s.hos
 export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
 export async function readEnv(env, bucket, uid, repo) {
   const o = await bucket.get(envKey(uid, repo));
-  if (!o) return { script: "", vars: {}, secrets: [] };
-  try { const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box); return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: Array.isArray(v.secrets) ? v.secrets : [] }; } catch { return { script: "", vars: {}, secrets: [] }; }
+  const none = { script: "", vars: {}, secrets: [], network: { limited: false, hosts: [] } };
+  if (!o) return none;
+  try { const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box); return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: Array.isArray(v.secrets) ? v.secrets : [], network: { limited: !!(v.network && v.network.limited), hosts: v.network && Array.isArray(v.network.hosts) ? v.network.hosts.filter(okHost) : [] } }; } catch { return none; }
 }
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
@@ -490,7 +491,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // THE REPO'S ENVIRONMENT: the script, and the variables' NAMES only (values are write-only).
   if (action === "env" && request.method === "GET") {
     const e = await readEnv(env, bucket, uid, meta.repo);
-    return json({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars), secrets: secretList(e.secrets) });
+    return json({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars), secrets: secretList(e.secrets), network: e.network });
   }
   if (action === "env" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -502,8 +503,17 @@ export async function handleCoder(request, env, ctx, deps) {
       if (v === null) delete vars[k]; else if (typeof v === "string") vars[k] = v.slice(0, 4000);
     }
     if (Object.keys(vars).length > 50) return json({ error: "at most 50 variables" }, 400);
-    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script, vars, secrets: cur.secrets }) }), { httpMetadata: { contentType: "application/json" } });
-    return json({ ok: true, repo: meta.repo, script, vars: Object.keys(vars), secrets: secretList(cur.secrets) });
+    // THE NETWORK LIST (owner, 2026-11-06, "4"): { limited?, add?: [host], remove?: [host] }.
+    const network = { limited: cur.network.limited, hosts: [...cur.network.hosts] };
+    const nb = body.network && typeof body.network === "object" ? body.network : null;
+    if (nb) {
+      if (typeof nb.limited === "boolean") network.limited = nb.limited;
+      for (const h of Array.isArray(nb.add) ? nb.add : []) { const ok = okHost(h); if (!ok) return json({ error: "not a host name like api.example.com: " + String(h).slice(0, 60) }, 400); if (!network.hosts.includes(ok)) network.hosts.push(ok); }
+      for (const h of Array.isArray(nb.remove) ? nb.remove : []) network.hosts = network.hosts.filter((x) => x !== String(h).toLowerCase());
+      if (network.hosts.length > 100) return json({ error: "at most 100 allowed sites" }, 400);
+    }
+    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script, vars, secrets: cur.secrets, network }) }), { httpMetadata: { contentType: "application/json" } });
+    return json({ ok: true, repo: meta.repo, script, vars: Object.keys(vars), secrets: secretList(cur.secrets), network });
   }
   // A NETWORK SECRET (owner, 2026-11-06, like Claude Code's): saved from the
   // card Coder pops up, sealed with the repo's environment; DELETE ?host= removes it.
@@ -523,7 +533,7 @@ export async function handleCoder(request, env, ctx, deps) {
       list = [...list, { host, value, header, prefix, name: String(body.name || "").slice(0, 60), at: Date.now() }];
       if (list.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
     }
-    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script: cur.script, vars: cur.vars, secrets: list }) }), { httpMetadata: { contentType: "application/json" } });
+    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script: cur.script, vars: cur.vars, secrets: list, network: cur.network }) }), { httpMetadata: { contentType: "application/json" } });
     return json({ ok: true, secrets: secretList(list) });
   }
 

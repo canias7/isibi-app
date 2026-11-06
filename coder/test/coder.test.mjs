@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "ask_user", "todo", "bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "ask_user", "todo", "bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,7 +89,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -1116,7 +1116,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
   assert.deepEqual((await (await go("projects/" + id + "/env")).json()).vars, ["API_KEY"], "names only");
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ vars: { "bad-name": "x" } }) })).status, 400);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].setup, { script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
+  assert.deepEqual(sent[0].setup, { script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" }, network: { limited: false, hosts: [] } });
   // THE MACHINE: the script runs once, the variable reaches commands.
   const { remote } = await fakeRemote();
   const r0 = await roots();
@@ -1255,7 +1255,7 @@ test("CD53 GitHub-started jobs get no owner variables; variable values never sta
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
   await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "npm ci", vars: { DB_URL: "postgres://secret-pass@db" } }) });
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "from github", fromGithub: true }) });
-  assert.deepEqual(sent[0].setup, { script: "npm ci", vars: {} });
+  assert.deepEqual(sent[0].setup, { script: "npm ci", vars: {}, network: { limited: false, hosts: [] } });
   state = { running: false, result: { status: "done", messages: [], summary: "x" }, events: [{ type: "done", text: "the url is postgres://secret-pass@db" }], next: 1 };
   const got = await (await go("projects/" + id + "/state?since=0")).json();
   const saved = JSON.parse(bucket.m.get("coder/user-sec/" + id + "/events.json"));
@@ -1503,4 +1503,94 @@ test("CD66 audit (2026-11-06): no key requests in GitHub jobs; no away recap the
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(server, /if \(owner\) await fh\.chown\(owner\.uid, owner\.gid\)/);
   assert.doesNotMatch(server, /for \(const f of \[memDir, memFile\]\)/, "never chown the memory file by name");
+});
+
+// A small machine for the environment tests below: one project, scripted Grok.
+async function envMachine(turns) {
+  const { remote } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  let n = 0; const seen = [];
+  const { base, close } = await serve(createApp({ root, send: async (q) => { seen.push(q); return turns[Math.min(n++, turns.length - 1)]; }, remote, ...r0, proxyDir: await mkdtemp(join(tmpdir(), "coder-pxm-")) }));
+  const run = async (extra) => {
+    n = 0; seen.length = 0;
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-envx", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-envx", token: "", ...extra }) });
+    let s; for (let i = 0; i < 200; i++) { s = await (await fetch(base + "/state?project=shop-envx&since=0")).json(); if (s.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    await fetch(base + "/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-envx" }) });
+    return s;
+  };
+  return { run, seen, close };
+}
+
+test("CD67 (owner '1', like Claude Code) the setup script cannot read the owner's variables; a failed setup is told to Coder, which proposes a fix", async () => {
+  const m = await envMachine([say("Done.", [])]);
+  try {
+    const s = await m.run({ setup: { script: "echo key=[$API_KEY] > seen.txt; cat seen.txt", vars: { API_KEY: "sk-secret-999" } } });
+    const out = s.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
+    assert.match(out, /key=\[\]/, "no variable in the setup script");
+    const bad = await m.run({ setup: { script: "echo starting; npm-nope ci" } });
+    assert.ok(bad.events.some((e) => e.type === "result" && e.code !== 0), "the failure shows");
+    assert.match(JSON.stringify(m.seen[0].messages), /THE SETUP SCRIPT FAILED this time \(exit code 127\)[\s\S]*propose_env \(kind setup_script\)/);
+  } finally { await m.close(); }
+});
+
+test("CD68 (owner '2' '3' '5') propose_env: a setup script or a host, shown on a card; the turn ends; bad input refused; never from GitHub", async () => {
+  const turns = [say("", [call("propose_env", { kind: "allow_host", host: "https://x", reason: "r" })]), say("", [call("propose_env", { kind: "setup_script", script: "npm ci\n", reason: "The tests need the packages." }), call("bash", { command: "echo never" })])];
+  let n = 0; const seen = []; const events = [];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { text: "set it up" });
+  assert.equal(r.status, "done");
+  const { at, ...card } = events.find((e) => e.type === "envchange");
+  assert.deepEqual(card, { type: "envchange", kind: "setup_script", script: "npm ci", reason: "The tests need the packages." });
+  assert.match(JSON.stringify(seen[1].messages), /one exact public host name/);
+  assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false);
+  const ev2 = []; let k = 0;
+  const t2 = [say("", [call("propose_env", { kind: "allow_host", host: "api.example.com", reason: "r" })]), say("ok", [])];
+  await runCoder({ send: async () => t2[k++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "x", github: true });
+  assert.equal(ev2.some((e) => e.type === "envchange"), false, "not from GitHub");
+  const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
+  assert.match(CODER_SYSTEM, /changed only with propose_env[\s\S]*npm ci[\s\S]*THE SETUP SCRIPT FAILED[\s\S]*Blocked by this repo's network list/);
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /e\.type === 'envchange'/);
+  assert.match(ui, /network: \{ add: \[x\.host\] \}/);
+});
+
+test("CD69 (owner '4') the network list: saved per repo, sent to the machine; the proxy blocks other sites when limited and lets listed, package and keyed sites through", async () => {
+  const { hostAllowed, PACKAGE_HOSTS } = await import("../container/coder-secrets.mjs");
+  assert.equal(hostAllowed("evil.com", { limited: false, hosts: [] }), true);
+  assert.equal(hostAllowed("evil.com", { limited: true, hosts: [] }), false);
+  assert.equal(hostAllowed("registry.npmjs.org", { limited: true, hosts: [] }), true);
+  assert.ok(PACKAGE_HOSTS.includes("pypi.org"));
+  assert.equal(hostAllowed("api.x.com", { limited: true, hosts: ["api.x.com"] }), true);
+  assert.equal(hostAllowed("api.stripe.com", { limited: true, hosts: [] }, ["api.stripe.com"]), true);
+  // THE ROUTE
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub(); const sent = [];
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-net", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { add: ["*.x.com"] } }) })).status, 400);
+  let e = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { limited: true, add: ["API.X.com", "api.y.com"] } }) })).json();
+  assert.deepEqual(e.network, { limited: true, hosts: ["api.x.com", "api.y.com"] });
+  e = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { remove: ["api.y.com"] } }) })).json();
+  assert.deepEqual(e.network, { limited: true, hosts: ["api.x.com"] });
+  await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo hi" }) });
+  assert.deepEqual((await (await go("projects/" + id + "/env")).json()).network, { limited: true, hosts: ["api.x.com"] }, "kept when the script is saved");
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.deepEqual(sent[0].setup.network, { limited: true, hosts: ["api.x.com"] });
+  // THE PROXY
+  const { startProxy, firewall } = await import("../container/coder-proxy.mjs");
+  assert.equal(firewall(true, undefined), false, "no firewall without the AI's user (tests)");
+  const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px3-")) });
+  try {
+    px.setNetwork({ limited: true, hosts: ["api.x.com"] });
+    const net = await import("node:net");
+    const raw = (text) => new Promise((ok) => { const s = net.connect(px.port, "127.0.0.1", () => s.write(text)); let b = ""; s.on("data", (x) => { b += x; }); s.on("close", () => ok(b)); s.on("error", () => ok(b)); setTimeout(() => { s.destroy(); ok(b); }, 3000); });
+    assert.match(await raw("CONNECT evil.example:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403[\s\S]*Blocked by this repo's network list: evil\.example/);
+    assert.match(await raw("GET http://evil.example/ HTTP/1.1\r\nHost: evil.example\r\n\r\n"), /403[\s\S]*Blocked/);
+    assert.doesNotMatch(await raw("CONNECT api.x.com:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403/, "a listed site is not blocked");
+    px.setNetwork({ limited: false, hosts: [] });
+    assert.doesNotMatch(await raw("CONNECT evil.example:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403/, "open again");
+  } finally { await px.close(); }
 });

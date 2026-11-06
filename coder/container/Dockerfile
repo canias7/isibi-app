@@ -9,7 +9,7 @@ FROM node:22-bookworm
 # What a developer usually reaches for: git, a compiler toolchain, Python, and
 # the everyday command-line tools Coder uses to look around.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git build-essential python3 python3-pip python3-venv curl ca-certificates openssl \
+    git build-essential python3 python3-pip python3-venv curl ca-certificates openssl iptables \
     ripgrep jq unzip zip less procps \
   && rm -rf /var/lib/apt/lists/*
 
