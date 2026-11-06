@@ -1419,6 +1419,8 @@ test("CD63 request_secret: Coder asks for a key for one host; the turn ends with
   assert.match(JSON.stringify(seen[1].messages), /exact public host name/);
   assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false, "nothing after the request runs");
   assert.match(JSON.stringify(r.messages), /not run: you asked the owner for a key first/);
+  const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
+  assert.match(CODER_SYSTEM, /call request_secret for that exact host RIGHT AWAY[\s\S]*Do not tell the owner to export a variable/, "Grok asks with the card, not with instructions (live test)");
 });
 
 test("CD64 the secret route: sealed, never shown back, sent only to the machine's proxy, not for GitHub jobs, hidden in the chat", async () => {
