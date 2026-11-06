@@ -419,7 +419,15 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); } catch { /* not started */ } }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
-    let setupFailed = null;
+    let setupFailed = null, setupRan = false;
+    // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
+    // browser test, 2026-11-06: the owner fixed the setup script between two
+    // messages, yet Coder kept saying the broken line was still there). The
+    // last setup this chat's machine saw is kept, and a change is told to Coder
+    // in the message itself, so it stays in the chat's history.
+    const lastFile = join(gitRoot, project + ".setup-last");
+    let lastEnv = null; try { lastEnv = JSON.parse(await readFile(lastFile, "utf8")); } catch { lastEnv = null; }
+    const netNow = { mode: net.mode, hosts: net.hosts, defaults: net.defaults };
     if (script) {
       const mark = join(gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
       // LIKE CLAUDE CODE'S CACHE (its docs, read 2026-11-06): run again when the
@@ -428,6 +436,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       const [doneSha, doneAt] = (await readFile(mark, "utf8").catch(() => "")).trim().split(" ");
       if (doneSha !== sha || !(Number(doneAt) > Date.now() - SETUP_CACHE_MS)) {
         const id = "setup-" + Date.now();
+        setupRan = true;
         t.events.push({ at: Date.now(), type: "bash", id, tool: "setup", verb: "Ran setup", command: script.split("\n")[0].slice(0, 200) });
         // THE SETUP SCRIPT CANNOT READ THE OWNER'S VARIABLES OR KEYS (owner,
         // 2026-11-06, "1", like Claude Code): no variables, and no keys added
@@ -460,6 +469,18 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         await ignoreNew(dir, gitRoot, remote);
       }
     }
+    let envNote = "";
+    if (lastEnv && typeof lastEnv === "object") {
+      const scriptChanged = String(lastEnv.script || "") !== script;
+      const netChanged = JSON.stringify(lastEnv.net || null) !== JSON.stringify(netNow);
+      if (scriptChanged || netChanged) {
+        const what = [scriptChanged ? (script ? "the setup script" : "the setup script (it was removed)") : "", netChanged ? "the network setting (now " + net.mode + ")" : ""].filter(Boolean).join(" and ");
+        envNote = "(Note from Coder's app, not the owner: since the last message, the owner changed " + what + " in Environment." +
+          (script ? " The setup script now is:\n" + script.slice(0, 2000) + "\n" + (setupRan ? (setupFailed ? "It ran again before this message and FAILED (see THE SETUP SCRIPT FAILED)." : "It ran again before this message and worked (exit code 0).") : "") : "") +
+          " Go by this, not by what the chat said before.)\n\n";
+      }
+    }
+    await writeFile(lastFile, JSON.stringify({ script, net: netNow })).catch(() => {});
     const awayH = Number(body.away) > 0 ? Math.round(Number(body.away) / 3600000) : 0;
     // THE OWNER'S STYLE (like Claude Code's output style: its own instructions,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
@@ -483,7 +504,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       },
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
       .then(async (r) => { t.result = { ...r, memory: await readMemory(memFile) }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => {
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.

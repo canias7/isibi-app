@@ -155,6 +155,20 @@
 .cd-head .cd-pr { margin-left: auto; }
 .cd-menu { display: none; border: 1px solid #e0dbd2; background: #fff; border-radius: 9px; width: 34px; height: 32px; font-size: 16px; cursor: pointer; color: #0d1b2a; }
 .cd-head-min { display: none; border-bottom: 0; }
+/* ONE LINE ON A COMPUTER (owner, 2026-11-06): a long branch or title is
+   shortened with "…" (the whole name shows on hover) instead of pushing the
+   buttons onto a second line. The branch gives way first, then the title; the
+   repository stays whole unless the window is narrow. */
+.cd-ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+@media (min-width: 761px) {
+  .gf-app .cd-head { flex-wrap: nowrap; }
+  .gf-app .cd-head > * { flex: none; }
+  .gf-app .cd-head > .cd-branch { flex: 0 3 auto; min-width: 7ch; }
+  .gf-app .cd-head > .cd-title-bar { flex: 0 2 auto; min-width: 8ch; }
+}
+@media (min-width: 761px) and (max-width: 1099px) {
+  .gf-app .cd-head > .cd-repo-bar { flex: 0 1 auto; min-width: 8ch; }
+}
 @media (max-width: 760px) {
   .cd-menu { display: inline-block; }
   .cd-head-min { display: flex; }
