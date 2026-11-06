@@ -215,10 +215,15 @@ export async function readMemory(file) {
     return buf.toString("utf8");
   } catch { return null; } finally { if (fh) await fh.close().catch(() => {}); }
 }
-export async function writeMemory(file, text) {
+export async function writeMemory(file, text, owner = null) {
   await unlink(file).catch(() => {});
   const fh = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-  try { await fh.writeFile(String(text || "").slice(0, MEMORY_MAX)); } finally { await fh.close(); }
+  try {
+    await fh.writeFile(String(text || "").slice(0, MEMORY_MAX));
+    // Handed to the AI's user through the open file, never by name (the audit,
+    // 2026-11-06: a name can be swapped for a link to a root file in between).
+    if (owner) await fh.chown(owner.uid, owner.gid).catch(() => {});
+  } finally { await fh.close(); }
 }
 
 // ── THE REPO'S RULES AND THE MEMORY ──────────────────────────────────────────
@@ -336,10 +341,13 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     try {
       await mkdir(memRoot, { recursive: true, mode: 0o755 });
       await mkdir(memDir, { recursive: true });
-      await writeMemory(memFile, typeof body.memory === "string" ? body.memory : "");
+      // Nothing of the AI's user is left running from an earlier job (the audit, 2026-11-06).
+      killUser();
+      await writeMemory(memFile, typeof body.memory === "string" ? body.memory : "", Number.isInteger(RUN_UID) ? { uid: RUN_UID, gid: RUN_GID ?? RUN_UID } : null);
       await rm(bgDir, { recursive: true, force: true });
       await mkdir(bgDir, { recursive: true });
-      if (Number.isInteger(RUN_UID)) { for (const f of [memDir, memFile]) { try { await chown(f, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } } }
+      // The folder is root's own new folder inside root's /srv/coder-memory: the AI cannot swap it.
+      if (Number.isInteger(RUN_UID)) { try { await chown(memDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
     } catch (e) { return fail(500, "could not prepare the memory: " + String((e && e.message) || e).slice(0, 160)); }
     // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): the owner's own variables
     // for every command, and a setup script run (as `dev`) when this machine first
@@ -393,7 +401,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       },
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
       .then(async (r) => { t.result = { ...r, memory: await readMemory(memFile) }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => {
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.

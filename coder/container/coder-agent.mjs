@@ -123,7 +123,7 @@ export function readCalls(msg) {
  * Answers `{ status, messages, summary, rounds, usage }`, `status` one of
  * `done`, `stopped`, `rounds`, `time`, `send`, `no-tool`. It never throws.
  */
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -213,11 +213,12 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reply(out || "(nothing yet)");
       } else if (c.name === "request_secret") {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code): a secure card for the owner; the turn ends here.
+        if (github) { reply("error: keys cannot be asked for in a job started from GitHub (it is public and gets no saved keys); say in your answer that the owner can give one in Coder's chat"); continue; }
         const host = okHost(c.args.host);
         const header = String(c.args.header || "Authorization").trim();
         const prefix = c.args.prefix === undefined ? "Bearer" : String(c.args.prefix);
         if (!host) { reply("error: give an exact public host name like api.stripe.com (no https://, path, IP address or wildcard)"); continue; }
-        if (!HEADER_RE.test(header) || !PREFIXES.includes(prefix)) { reply("error: header is one word (letters, digits, -); prefix is Bearer, Token, Key, Basic or empty"); continue; }
+        if (!HEADER_RE.test(header) || !PREFIXES.includes(prefix)) { reply("error: header is Authorization or a name ending in Key/Token/Auth/Secret (e.g. X-Api-Key); prefix is Bearer, Token, Key, Basic or empty"); continue; }
         reply("asked the owner for a key for " + host + "; the next message says whether it was saved");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a key first" });
         emit({ type: "secret", host, reason: scrub(String(c.args.reason || "")).trim().slice(0, 300), name: scrub(String(c.args.name || "")).trim().slice(0, 60), header, prefix });

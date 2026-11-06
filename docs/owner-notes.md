@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Audit #3 fixes (secrets and the latest changes)
+
+- The key middleman can no longer be crashed by a bad request (bad port, broken request, odd characters); before, one bad request from Grok's commands could stop every chat on that machine.
+- Keys only go in real key headers (Authorization, or names ending in Key/Token/Auth/Secret), never in ones a website copies back like Origin or Host. The card now shows how the key is sent. If a website copies the key into its answer's headers anyway, that header is dropped before Grok's command sees it.
+- Keys must be plain characters (no spaces, no accents); "Basic" keys get the trailing colon Stripe-style APIs expect.
+- The memory file is handed to Grok's user through the already-open file, so a swapped-in link can no longer trick root into giving away a protected file. Leftover commands from an earlier job are stopped when a new job starts.
+- Jobs from GitHub can't ask for keys, and never get the "welcome back" recap (it would be posted publicly).
+- @coder on a pull request from a fork no longer tries to use the fork's branch.
+
 ## 2026-11-06: Fix: Coder pops up the key card instead of explaining
 
 - Live test: asked to check a Stripe balance with no key saved, Grok told the owner to export a variable instead of opening the card. Its instructions now say to call request_secret right away and never to give set-up steps for keys.

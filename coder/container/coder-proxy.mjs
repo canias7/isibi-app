@@ -65,10 +65,16 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const headers = { ...req.headers, host };
     for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     if (s) { for (const k of Object.keys(headers)) if (k.toLowerCase() === s.header.toLowerCase()) delete headers[k]; headers[s.header] = s.value; }
-    const up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: req.url, headers, ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
-      res.writeHead(r.statusCode || 502, r.headers);
+    let up;
+    try {
+    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: req.url, headers, ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
+      // A website that copies the key into its answer's headers does not hand it back (the audit, 2026-11-06).
+      const back = { ...r.headers };
+      if (s) for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (one.includes(s.value) || (s.raw && one.includes(s.raw))) delete back[k]; }
+      res.writeHead(r.statusCode || 502, back);
       r.pipe(res);
     });
+    } catch (e) { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy could not send that request (" + String(e.code || "bad request") + ")"); }
     up.on("error", (e) => { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); res.end("Coder's proxy could not reach " + host + ": " + String(e.code || e.message)); });
     req.pipe(up);
   });
@@ -78,7 +84,9 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     let u; try { u = new URL(req.url); } catch { res.writeHead(400); return res.end("bad request"); }
     if (u.protocol !== "http:") { res.writeHead(400); return res.end("bad request"); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
-    const up = http.request({ host: u.hostname, port: u.port || 80, method: req.method, path: u.pathname + u.search, headers }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); });
+    let up;
+    try { up = http.request({ host: u.hostname, port: u.port || 80, method: req.method, path: u.pathname + u.search, headers }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
+    catch { res.writeHead(400); return res.end("bad request"); }
     up.on("error", () => { if (!res.headersSent) res.writeHead(502); res.end(); });
     req.pipe(up);
   });
@@ -86,6 +94,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const m = /^\[?([^\]]+?)\]?:(\d+)$/.exec(String(req.url || ""));
     if (!m) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     const host = m[1].toLowerCase(), port = Number(m[2]);
+    // A bad port must never take the service down (the audit, 2026-11-06).
+    if (!Number.isInteger(port) || port < 1 || port > 65535) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     sock.on("error", () => {});
     if (port === 443 && secrets.has(host)) {
       let ctx; try { ctx = contextFor(host); } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
@@ -98,9 +108,13 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
       return;
     }
     // ANY OTHER HOST: a plain tunnel; nothing is read or added.
-    const out = net.connect(port, host, () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
+    let out;
+    try { out = net.connect(port, host, () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
+    } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
     out.on("error", () => { try { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); } catch { /* gone */ } });
   });
+  // Nothing a command sends may crash the service (the audit, 2026-11-06).
+  for (const s of [server, inner]) { s.on("clientError", (_e, so) => { try { so.destroy(); } catch { /* gone */ } }); s.on("error", () => {}); }
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
   const port = server.address().port;
   return {
@@ -111,7 +125,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
       for (const s of Array.isArray(list) ? list : []) {
         const host = okHost(s && s.host); const header = String((s && s.header) || "Authorization");
         if (!host || !HEADER_RE.test(header) || typeof s.value !== "string" || !s.value) continue;
-        next.set(host, { header, value: s.value });
+        if (!/^[\x20-\x7e]+$/.test(s.value)) continue;
+        next.set(host, { header, value: s.value, raw: typeof s.raw === "string" && s.raw.length >= 8 ? s.raw : "" });
       }
       secrets = next;
     },

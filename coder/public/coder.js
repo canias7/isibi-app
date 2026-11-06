@@ -361,6 +361,7 @@
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         out.push('<div class="cd-secret"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Coder needs a secret for ' + esc(e.host) + '</b>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+          '<p class="cd-secret-how">Sent as <code>' + esc(e.header || 'Authorization') + ': ' + esc(e.prefix == null ? 'Bearer ' : (e.prefix ? e.prefix + ' ' : '')) + '&lt;your key&gt;</code></p>' +
           '<p class="cd-secret-p">This secret is saved for ' + esc(S.project ? S.project.repo : 'this repo') + '. Coder\'s commands in that repo can use it and reach ' + esc(e.host) + '. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>' +
           (live ? '<label class="cd-secret-l" for="cdSecretIn">' + esc(e.name || 'Token') + '</label><input id="cdSecretIn" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">' +
             (S.secretMsg ? '<p class="cd-secret-err">' + esc(S.secretMsg) + '</p>' : '') +
