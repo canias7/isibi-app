@@ -166,7 +166,8 @@ export async function startMention(env, deps, m) {
   // ON A PULL REQUEST (live test, 2026-11-05): work on THAT pull request's
   // branch. Coder's own pull request → its own chat; anyone else's → a new chat
   // that starts from the pull request's branch (never a fork's).
-  let headRef = m.headRef || "";
+  // A pull request's branch is used only once GitHub confirms it is in this repo (never a fork's; the audit, 2026-11-06).
+  let headRef = m.isPr ? "" : m.headRef || "";
   if (m.isPr && botToken) {
     const pr = await ghApi(botToken, "/repos/" + m.repo + "/pulls/" + Number(m.number), { fetchFn });
     const h = pr.ok && pr.data && pr.data.head;

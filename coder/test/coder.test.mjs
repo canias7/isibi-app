@@ -424,7 +424,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,1200}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, away: [^}]*\}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,1200}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1444,10 +1444,63 @@ test("CD64 the secret route: sealed, never shown back, sent only to the machine'
   assert.deepEqual(e.secrets.map((x) => x.host), ["api.stripe.com"]);
   assert.equal(JSON.stringify(e).includes("sk_test_ABCDEF"), false);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].secrets, [{ host: "api.stripe.com", header: "Authorization", value: "Bearer sk_test_ABCDEF" }]);
+  assert.deepEqual(sent[0].secrets, [{ host: "api.stripe.com", header: "Authorization", value: "Bearer sk_test_ABCDEF", raw: "sk_test_ABCDEF" }]);
   assert.equal(JSON.stringify(sent[0].setup).includes("sk_test"), false, "never in the setup (the AI's text)");
   assert.equal(JSON.stringify(sent[0].text).includes("sk_test"), false);
+  // This job's key values are kept (sealed) to hide them in its chat even if the key is removed meanwhile.
+  const hide = [...bucket.m.keys()].find((k) => k.endsWith("/hide.json"));
+  assert.ok(hide, "kept for the end of the job");
+  assert.doesNotMatch(bucket.m.get(hide), /sk_test_ABCDEF/, "sealed");
+  const { unseal } = await import("../src/coder-github.mjs");
+  assert.ok((await unseal(env, JSON.parse(bucket.m.get(hide)).box)).includes("sk_test_ABCDEF"));
   // Removed.
   const del = await (await go("projects/" + id + "/secret?host=api.stripe.com", { method: "DELETE" })).json();
   assert.deepEqual(del.secrets, []);
+});
+
+test("CD65 audit (2026-11-06): the proxy survives bad requests; keys go only in key headers, plain characters only; Basic adds the colon; a key copied into an answer's headers is dropped", async () => {
+  const { startProxy, okHost } = await import("../container/coder-proxy.mjs");
+  const { HEADER_RE, KEY_RE, headerValue } = await import("../container/coder-secrets.mjs");
+  for (const ok of ["Authorization", "X-Api-Key", "xi-api-key", "X-Auth-Token", "Api-Key"]) assert.ok(HEADER_RE.test(ok), ok);
+  for (const bad of ["Origin", "Host", "Referer", "User-Agent", "Cookie", "Content-Length", "Transfer-Encoding", "Connection"]) assert.equal(HEADER_RE.test(bad), false, bad);
+  assert.ok(KEY_RE.test("sk_test_abc"));
+  for (const bad of ["sk test", "sk—test", "sk\ttest", "é", ""]) assert.equal(KEY_RE.test(bad), false, JSON.stringify(bad));
+  assert.equal(headerValue({ value: "sk_test_1", prefix: "Basic" }), "Basic " + Buffer.from("sk_test_1:").toString("base64"));
+  assert.doesNotThrow(() => headerValue({ value: "sk—é", prefix: "Basic" }), "never throws");
+  // A STAND-IN WEBSITE that copies the auth header back into its answer's headers.
+  const d = await mkdtemp(join(tmpdir(), "coder-up2-"));
+  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(d, "k"), "-out", join(d, "c"), "-days", "2", "-subj", "/CN=api.example.com", "-addext", "subjectAltName=DNS:api.example.com"], { stdio: "ignore" });
+  const https = await import("node:https");
+  const up = https.createServer({ key: readFileSync(join(d, "k")), cert: readFileSync(join(d, "c")) }, (q, r) => { r.setHeader("x-echo", String(q.headers.authorization)); r.end("ok"); });
+  await new Promise((ok) => up.listen(0, "127.0.0.1", ok));
+  const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px2-")), upstream: { host: "127.0.0.1", port: up.address().port, ca: readFileSync(join(d, "c")) } });
+  try {
+    px.setSecrets([{ host: "api.example.com", header: "Authorization", value: "Bearer sk_test_ECHOED", raw: "sk_test_ECHOED" }]);
+    // A bad port, a broken request: answered, and the proxy still works after.
+    const net = await import("node:net");
+    const raw = (text) => new Promise((ok) => { const s = net.connect(px.port, "127.0.0.1", () => s.write(text)); let b = ""; s.on("data", (x) => { b += x; }); s.on("close", () => ok(b)); s.on("error", () => ok(b)); setTimeout(() => { s.destroy(); ok(b); }, 3000); });
+    assert.match(await raw("CONNECT example.com:99999 HTTP/1.1\r\nHost: x\r\n\r\n"), /400/);
+    assert.match(await raw("CONNECT example.com:0 HTTP/1.1\r\nHost: x\r\n\r\n"), /400/);
+    await raw("GARBAGE\r\n\r\n");
+    const { execFile } = await import("node:child_process");
+    const env = { PATH: process.env.PATH, ...px.env() };
+    const out = await new Promise((ok) => execFile("curl", ["-sS", "-D", "-", "--max-time", "20", "https://api.example.com/"], { env }, (err, so) => ok(err ? "failed" : String(so))));
+    assert.match(out, /ok$/, "still serving");
+    assert.doesNotMatch(out, /ECHOED/, "the copied key is not handed back");
+  } finally { await px.close(); up.close(); }
+});
+
+test("CD66 audit (2026-11-06): no key requests in GitHub jobs; no away recap there; a fork's branch is never used; the memory file is handed over through the open file", async () => {
+  const turns = [say("", [call("request_secret", { host: "api.stripe.com", reason: "x" })]), say("Done.", [])];
+  let n = 0; const seen = []; const events = [];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "from github", github: true });
+  assert.equal(events.some((e) => e.type === "secret"), false);
+  assert.match(JSON.stringify(seen[1].messages), /keys cannot be asked for in a job started from GitHub/);
+  const routes = readFileSync(HERE("src/coder-routes.mjs"), "utf8");
+  assert.match(routes, /github: body\.fromGithub === true, away: body\.fromGithub !== true &&/);
+  const mentions = readFileSync(HERE("src/coder-mentions.mjs"), "utf8");
+  assert.match(mentions, /let headRef = m\.isPr \? "" : m\.headRef \|\| "";/);
+  const server = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(server, /if \(owner\) await fh\.chown\(owner\.uid, owner\.gid\)/);
+  assert.doesNotMatch(server, /for \(const f of \[memDir, memFile\]\)/, "never chown the memory file by name");
 });
