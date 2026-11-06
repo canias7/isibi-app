@@ -62,6 +62,21 @@ export function connectTarget(target) {
   return host && port >= 1 && port <= 65535 ? { host, port } : null;
 }
 
+// A PLAIN PATH, for a secret's path prefixes (the audit, 2026-11-06): websites
+// resolve "." and ".." parts, so "/v1/../admin" starts with "/v1/" but is
+// "/admin" to them, and a key the owner kept to "/v1/" worked on every path of
+// the site. Such a part counts however it is written: "%2e", next to an encoded
+// or back slash ("..%2f", "..\"), encoded twice, with dots or spaces some
+// servers trim, or ended by ";", "#" or an encoded "?" (Tomcat reads "..;x" as
+// ".."). Only the part before "?" counts: a query may hold "../", and websites
+// never resolve it.
+/** True when the path (before "?") has no "." or ".." part, however it is written. */
+export function plainPath(target) {
+  let p = String(target || "").split("?")[0];
+  for (let i = 0; i < 3; i++) { const d = p.replace(/%([0-9a-f]{2})/gi, (_, x) => String.fromCharCode(parseInt(x, 16))); if (d === p) break; p = d; }
+  return !p.split(/[/\\;?#]/).some((part) => part.includes(".") && /^[.\s\0]+$/.test(part));
+}
+
 /**
  * THE FIREWALL (Linux, root): the AI's user may only reach this machine itself
  * (its own dev servers, this proxy) and DNS; everything else must go through the
@@ -136,7 +151,11 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
       const pem = generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs8", format: "pem" } }).privateKey;
       fresh(key, pem);
       fresh(ext, "subjectAltName=DNS:" + host + "\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nauthorityKeyIdentifier=keyid\nsubjectKeyIdentifier=hash\n");
-      fresh(csr, openssl(["req", "-new", "-key", key, "-subj", "/CN=" + host]));
+      // A NAME OVER 64 CHARACTERS (the audit, 2026-11-06): openssl refuses it as
+      // the common name, so such a site got a bare 502 (S3 bucket names under
+      // "*.amazonaws.com" are often that long). Clients check the subjectAltName
+      // above, so a long name's certificate has no common name.
+      fresh(csr, openssl(["req", "-new", "-key", key, "-subj", host.length <= 64 ? "/CN=" + host : "/O=Coder secrets proxy"]));
       const cert = openssl(["x509", "-req", "-in", csr, "-CA", caFile, "-CAkey", caKey, "-CAcreateserial", "-days", "365", "-extfile", ext]);
       fresh(crt, cert);
       ctx = tls.createSecureContext({ key: pem, cert });
@@ -157,10 +176,17 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // THE TLS SIDE: requests for a secret's site, with its key added the way its type says.
   const inner = http.createServer(async (req, res) => {
     const host = req.socket.coderHost;
+    // ONLY A PATH, NEVER A FULL ADDRESS (the audit, 2026-11-06): inside this
+    // site's tunnel, "GET http://other.example/ HTTP/1.1" was sent on to this
+    // site with its key, and many front ends (nginx, Go's servers; RFC 9112,
+    // 3.2.2) hand such a request, key and all, to "other.example".
+    const target = String(req.url || "");
+    if (!target.startsWith("/")) { res.writeHead(400, { "content-type": "text/plain" }); return res.end("Coder's proxy: only a path (starting with /) may be sent to " + host + ", not a full address"); }
     const rule = ruleFor(host);
-    const pathOk = rule && (!rule.paths.length || rule.paths.some((p) => String(req.url || "").startsWith(p)));
-    // A path outside the secret's prefixes gets no key, and when the site is
-    // reachable only because of that secret, it is not reachable at all.
+    const pathOk = rule && (!rule.paths.length || (plainPath(target) && rule.paths.some((p) => target.startsWith(p))));
+    // A path outside the secret's prefixes, or one with a "." or ".." part
+    // (plainPath), gets no key, and when the site is reachable only because of
+    // that secret, it is not reachable at all.
     if (!pathOk && !hostAllowed(host, network, [])) { res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host + " (outside the secret's paths)")); }
     const s = pathOk ? rule : null;
     const headers = { ...req.headers, host };
@@ -176,14 +202,14 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
           for await (const c of req) { size += c.length; if (size > 10 * 1024 * 1024) throw new Error("the request body is over 10 MB"); chunks.push(c); }
           body = Buffer.concat(chunks);
           if (s.kind === "body" && (body.length || !["GET", "HEAD", "OPTIONS", "DELETE"].includes(String(req.method).toUpperCase()))) { const nb = withBodyParam(headers["content-type"], body, s.config.param, s.config.value); if (nb) { body = nb; if (!headers["content-type"]) headers["content-type"] = "application/x-www-form-urlencoded"; } }
-          if (s.kind === "aws") for (const [k, v] of Object.entries(sigv4({ method: req.method, host, path: req.url, headers, body }, s.config))) set(k, v);
+          if (s.kind === "aws") for (const [k, v] of Object.entries(sigv4({ method: req.method, host, path: target, headers, body }, s.config))) set(k, v);
           delete headers["transfer-encoding"]; headers["content-length"] = String(body.length);
         }
       } catch (e) { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy could not add the secret for " + host + ": " + String((e && e.message) || e).slice(0, 200)); }
     }
     let up;
     try {
-    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: req.url, headers, ...(network.mode !== "full" && !upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
+    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: target, headers, ...(network.mode !== "full" && !upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
       // A website that copies the key into its answer's headers does not hand it back (the audit, 2026-11-06).
       const back = { ...r.headers };
       if (s) { const keys = [...s.headers.map((h) => h.value), ...s.raws, s.live].filter((x) => x && x.length >= 8); for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (keys.some((x) => one.includes(x))) delete back[k]; } }
