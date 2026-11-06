@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The chat's top bar stays on one line
+
+- Your "Ok" to the fix: on a computer, a long chat title or branch no longer pushes "See changes" onto a second line.
+- They are shortened with "…" instead, and the whole name shows when you point at it. The branch gives way first, then the title.
+- The repository name stays whole unless the window is narrow (under 1100 pixels).
+- Phones keep their layout.
+- Preview checked at 1280 and 1024 pixels wide. Live after "merge and deploy".
+- Your word for live tests from now on: done in the browser, the way you'd use it (Environment window, chat box, cards), and recorded.
+
 ## 2026-11-06: Setup script changes deployed and checked live
 
 - Merged and deployed (your word). Checked in a new chat on the test repo:

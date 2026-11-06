@@ -1988,3 +1988,20 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
   assert.doesNotMatch(docker, /rm -rf \/var\/lib\/apt\/lists/);
   assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /System packages: put each install on its own line, like <code>apt-get install -y jq<\/code>\. Coder installs those as admin/);
 });
+
+test("CD82 (owner 2026-11-06) the chat's top bar stays on one line on a computer: a long branch or title is shortened with … and shown whole on hover", () => {
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  const wide = css.match(/@media \(min-width: 761px\) \{([^}]*\}[^}]*\}[^}]*\}[^}]*\})/);
+  assert.ok(wide, "a rule for computer widths");
+  assert.match(wide[1], /\.gf-app \.cd-head \{ flex-wrap: nowrap; \}/);
+  assert.match(wide[1], /\.gf-app \.cd-head > \* \{ flex: none; \}/, "the buttons never shrink");
+  assert.match(wide[1], /\.cd-branch \{ flex: 0 3 auto;[^}]*\}[\s\S]*\.cd-title-bar \{ flex: 0 2 auto;/, "the branch gives way first, then the title");
+  assert.match(css, /@media \(min-width: 761px\) and \(max-width: 1099px\) \{\s*\.gf-app \.cd-head > \.cd-repo-bar \{ flex: 0 1 auto;/, "the repository only on narrow windows");
+  assert.match(css, /\.cd-ell \{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; \}/);
+  const js = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(js, /<b class="cd-title-bar" title="' \+ esc\(title\) \+ '">/);
+  assert.match(js, /<span class="cd-repo-bar" title="' \+ esc\(p\.repo\) \+ '">' \+ ICON\.gh \+ '<span class="cd-ell">' \+ esc\(p\.repo\)/);
+  assert.match(js, /<span class="cd-branch" title="' \+ esc\(p\.branch\) \+ '">' \+ ICON\.branch \+ '<span class="cd-ell">' \+ esc\(p\.branch\)/);
+  // Phones keep their own layout (the owner: don't worry about the phone layout).
+  assert.match(css, /@media \(max-width: 760px\) \{\s*\.cd-menu \{ display: inline-block; \}/);
+});
