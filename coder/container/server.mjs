@@ -495,5 +495,8 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
 }
 
 if (import.meta.url === "file://" + process.argv[1]) {
+  // A NETWORK ERROR NEVER ENDS EVERY JOB (live test, 2026-11-06): a socket error
+  // nobody caught (in the key/network proxy) used to stop the whole machine.
+  process.on("uncaughtException", (e) => { if (e && /^E(CONNRESET|PIPE|CONNREFUSED|TIMEDOUT|HOSTUNREACH|NETUNREACH)$|^ERR_STREAM/.test(String(e.code || ""))) console.error("coder: network error, kept running:", e.code); else { console.error(e); process.exit(1); } });
   http.createServer(createApp()).listen(8080, () => console.log("coder: listening on 8080"));
 }

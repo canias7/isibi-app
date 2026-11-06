@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Fix: Limited network crashed Coder's machine
+
+- Live test: with Limited on, the first blocked request ("example.com") crashed the whole machine ("Coder's machine restarted"). A connection reset on a blocked site had no error handler. Fixed, plus a safety net so a network error can never stop every job again.
+- Coder's tool output no longer shows Node's "experimental" proxy warning.
+- Live so far: effort picker ✓ (Low/Medium/High/Extra high, High selected); setup script saw no variable ✓ (var=[]); failed setup → Coder named the command and exit 127 and proposed a fixed script on the card ✓; Approve saved it ✓.
+
 ## 2026-11-06: Effort levels match xAI's docs
 
 - xAI's reasoning guide (docs.x.ai/docs/guides/reasoning) lists Grok 4.7's efforts as low, medium, high (its default) and xhigh. The picker now offers Low, Medium, High and Extra high, and starts on High like xAI (it was Medium, and Extra high was missing). The landing page chip says High.
