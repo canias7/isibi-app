@@ -1864,7 +1864,7 @@ test("CD80 live test (2026-11-06): the setup script runs without root, so Coder 
   const t2 = [say("Hi. What do you want to work on?", []), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "nonexistent-tool-xyz is not installed (exit 127)" })])];
   const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "hi", setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
   assert.equal(s2.length, 2);
-  assert.match(JSON.stringify(s2[1].messages), /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found[\s\S]*propose the whole fixed script with propose_env/);
+  assert.match(JSON.stringify(s2[1].messages), /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found[\s\S]*Call propose_env now \(kind setup_script\) with the whole fixed script, and put in its reason, in one line, which command failed and why/);
   assert.ok(ev2.some((e) => e.type === "text" && /What do you want/.test(e.text)), "its first words are still shown");
   assert.ok(ev2.some((e) => e.type === "envchange")); assert.equal(r2.status, "done");
   // Once only; never in GitHub jobs (no cards there); a timeout is named as one.

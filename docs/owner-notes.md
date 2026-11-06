@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Deployed, and the fixes checked live
+
+- Merged and deployed (your word). The Setup script page shows its new line, and links no longer swallow bold text.
+- Checked live in a new chat:
+  - Coder named the main branch and the chat's branch correctly ("The main branch is coder/testingforclaude-c51d, and this chat is on coder/testingforclaude-58qkcgew").
+  - A broken setup script is now raised: "nonexistent-tool-xyz --install failed because that command is not installed (exit 127)". But Coder didn't put a fix on the card by itself.
+- So the reminder now asks Coder to put the fixed script on the card straight away, with the failed command as the card's reason. This is on the branch and goes live after the next "merge and deploy".
+
 ## 2026-11-06: Full live test of Coder, and three fixes it found
 
 - Your word: "lets just test all we added". Tested live on gofarther.dev (test account, canias7/testingforclaude, real Grok and GitHub). All passed:

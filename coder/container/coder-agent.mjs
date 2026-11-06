@@ -193,7 +193,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       setupNudged = true;
       if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
       const why = setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code;
-      convo.push({ role: "user", content: "(Note from Coder's app, not the owner: the repo's setup script FAILED before this job (" + why + "). Its last output:\n" + String(setupFailed.output || "(none)").slice(-1500) + "\nBefore you finish: say in one line which command failed and why, then propose the whole fixed script with propose_env (kind setup_script). It runs as your own user without root, so no sudo or apt-get.)" });
+      convo.push({ role: "user", content: "(Note from Coder's app, not the owner: the repo's setup script FAILED before this job (" + why + "). Its last output:\n" + String(setupFailed.output || "(none)").slice(-1500) + "\nCall propose_env now (kind setup_script) with the whole fixed script, and put in its reason, in one line, which command failed and why. For a tool that is not there, install it into the project or drop that line; the script runs as your own user without root, so no sudo or apt-get.)" });
       continue;
     }
     const missing = [...installs].filter((x) => !String(setupScript).includes(x));
