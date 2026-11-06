@@ -89,3 +89,43 @@ export function capOutput(text, max = MAX_OUTPUT_CHARS) {
 
 /** A project id: lowercase letters, digits and dashes. */
 export const PROJECT_ID = /^[a-z0-9][a-z0-9-]{2,40}$/;
+
+// SYSTEM PACKAGES IN THE SETUP SCRIPT (owner, 2026-11-06: "do the 3 of them";
+// like Claude Code, where the setup script runs as root and `apt install`
+// works). Coder's setup script runs as `dev`, so that a script can never reach
+// the GitHub token or the owner's keys, which live on the same machine as root.
+// Instead, its plain package lines are taken out and done by Coder's service
+// itself, as root: only checked package names reach apt, never a shell line
+// from the script. Everything else in the script still runs as `dev`.
+/** A Debian package name (optionally with =version). */
+export const APT_NAME_RE = /^[a-z0-9][a-z0-9+.-]{1,99}(?:=[A-Za-z0-9.+~:-]{1,60})?$/;
+const APT_FLAG_RE = /^(?:-y|--yes|--assume-yes|-q|-qq|--quiet|--no-install-recommends)$/;
+/** One `apt-get update` / `apt-get install -y …` (with sudo or env settings in front), or null. */
+function aptPart(part) {
+  const w = part.trim().split(/\s+/).filter(Boolean);
+  while (w.length && (w[0] === "sudo" || w[0] === "-E" || /^[A-Z_][A-Z0-9_]*=[\w.:/-]*$/.test(w[0]))) w.shift();
+  if (w[0] !== "apt-get" && w[0] !== "apt") return null;
+  const rest = w.slice(1);
+  if (!rest.every((x) => !x.startsWith("-") || APT_FLAG_RE.test(x))) return null;
+  const words = rest.filter((x) => !x.startsWith("-"));
+  if (words[0] === "update" && words.length === 1) return [];
+  if (words[0] === "install" && words.length > 1 && words.slice(1).every((x) => APT_NAME_RE.test(x))) return words.slice(1);
+  return null;
+}
+/** The setup script split in two: the packages its plain apt lines install (done as root by Coder's service) and the rest (run as `dev`). */
+export function splitSetup(script) {
+  const packages = [], rest = [];
+  const lines = String(script == null ? "" : script).replace(/\r/g, "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    // A command over several lines (ending in \) is read as one; anything that
+    // is not a package line is kept exactly as written.
+    const group = [lines[i]];
+    while (/\\$/.test(group[group.length - 1]) && i + 1 < lines.length) group.push(lines[++i]);
+    const t = group.map((l) => l.replace(/\\$/, "")).join(" ").replace(/\s+#.*$/, "").trim();
+    const parts = t ? t.split(/\s*(?:&&|;)\s*/).filter(Boolean) : [];
+    const got = parts.map(aptPart);
+    if (parts.length && got.every((x) => x !== null)) { for (const g of got) packages.push(...g); continue; }
+    rest.push(...group);
+  }
+  return { packages: [...new Set(packages)].slice(0, 50), script: rest.join("\n").trim() };
+}

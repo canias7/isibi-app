@@ -1537,7 +1537,8 @@ test("CD67 (owner '1', like Claude Code) the setup script cannot read the owner'
 test("CD68 (owner '2' '3' '5') propose_env: a setup script or a host, shown on a card; the turn ends; bad input refused; never from GitHub", async () => {
   const turns = [say("", [call("propose_env", { kind: "allow_host", host: "https://x", reason: "r" })]), say("", [call("propose_env", { kind: "setup_script", script: "npm ci\n", reason: "The tests need the packages." }), call("bash", { command: "echo never" })])];
   let n = 0; const seen = []; const events = [];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { text: "set it up" });
+  const ranNpm = [{ role: "assistant", content: "", tool_calls: [{ id: "n1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm ci" }) } }] }, { role: "tool", tool_call_id: "n1", content: "exit code 0\nadded 1 package" }];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { messages: ranNpm, text: "set it up" });
   assert.equal(r.status, "done");
   const { at, ...card } = events.find((e) => e.type === "envchange");
   assert.deepEqual(card, { type: "envchange", kind: "setup_script", script: "npm ci", reason: "The tests need the packages." });
@@ -1695,7 +1696,8 @@ test("CD74 live test (2026-11-06): installed packages and caches are never commi
   assert.equal(a.message.content, "I'll look it up.\n\n- Keep it short");
   // the words said before a card are the summary (the commit title)
   let n = 0; const t = [say("Added check.js; it prints true then false.", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "r" })])];
-  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }) }, { text: "x" });
+  const ranInstall = [{ role: "assistant", content: "", tool_calls: [{ id: "i1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm install" }) } }] }, { role: "tool", tool_call_id: "i1", content: "exit code 0\nadded 1 package" }];
+  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }) }, { messages: ranInstall, text: "x" });
   assert.equal(r.summary, "Added check.js; it prints true then false.");
 });
 
@@ -1845,43 +1847,51 @@ test("CD79 (owner 2026-11-06: the phone apps) the page clears the status bar and
   for (const no of ["/canias7/testingforclaude/pull/7", "/", "/settings/profile"]) assert.ok(!re.test(no), no);
 });
 
-test("CD80 live test (2026-11-06): the setup script runs without root, so Coder never proposes sudo or apt-get; a failed setup is always raised before Coder finishes; Coder is told the repo's main branch", async () => {
+test("CD80 live test (2026-11-06): Coder knows which setup lines get admin; a failed setup is raised like Claude Code; Coder is told the repo's main branch", async () => {
   const { NEEDS_ROOT_RE, CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
   const { gitNote } = await import("../container/server.mjs");
-  for (const bad of ["sudo apt-get update && sudo apt-get install -y jq", "apt-get install -y jq", "echo ok\napt install jq", "apk add jq", "dnf install -y jq", "(sudo make install)"]) assert.ok(NEEDS_ROOT_RE.test(bad), bad);
+  for (const bad of ["sudo systemctl restart x", "apt-get install -y jq", "echo ok\napt install jq", "apk add jq", "dnf install -y jq", "(sudo make install)"]) assert.ok(NEEDS_ROOT_RE.test(bad), bad);
   for (const ok of ["echo \"setup ok\" > setup-ran.txt", "npm ci", "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt", "echo adapter capture apt-ish", "pip install -e ."]) assert.ok(!NEEDS_ROOT_RE.test(ok), ok);
-  // Told up front (the tool and the instructions), and refused with the way out if it tries anyway.
-  assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "propose_env")), /as your own user without root: no sudo, apt-get/);
-  assert.match(CODER_SYSTEM, /THE SETUP SCRIPT FAILED[^\n]*never put sudo or apt-get in it/);
+  // Told up front: which lines get admin, Claude Code's tried-lines rule, and its way of handling a failed setup.
+  const tool = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "propose_env"));
+  assert.match(tool, /plain lines like `apt-get install -y jq` \(Coder's app installs those as admin\)/);
+  assert.match(tool, /only add lines you ran yourself in this chat and saw work/);
+  assert.match(CODER_SYSTEM, /when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);
+  assert.match(CODER_SYSTEM, /carry on with whatever does not depend on it, and never stand in for the missing part with made-up results/);
+  // Another admin command is refused with the way that works; the plain package line then goes on the card.
   let n = 0; const seen = []; const events = [];
-  const turns = [say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo apt-get update && sudo apt-get install -y jq", reason: "jq" })]), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "jq is already there" })])];
-  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "add jq to the setup script" });
-  assert.match(JSON.stringify(seen[1].messages), /runs as your own user, without root: sudo and system package managers[\s\S]*Install into the project instead/);
+  const turns = [say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo systemctl restart postgresql", reason: "pg" })]), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo apt-get update && sudo apt-get install -y jq", reason: "jq for every chat" })])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "add jq to the setup script", setupScript: "echo \"setup ok\" > setup-ran.txt" });
+  assert.match(JSON.stringify(seen[1].messages), /only plain lines like `apt-get install -y jq`[\s\S]*Coder's app runs those as admin[\s\S]*other sudo or admin commands/);
   const cards = events.filter((e) => e.type === "envchange");
-  assert.equal(cards.length, 1); assert.equal(cards[0].script, "echo \"setup ok\" > setup-ran.txt");
-  // A failed setup: Coder answered "Hi" as if nothing happened (live). Now it is reminded once, with the output.
+  assert.equal(cards.length, 1); assert.match(cards[0].script, /sudo apt-get install -y jq/);
+  // A failed setup: Coder answered "Hi" as if nothing happened (live). Now it is reminded once, the way Claude Code is told, with the output; no card is forced.
   let k = 0; const s2 = []; const ev2 = [];
-  const t2 = [say("Hi. What do you want to work on?", []), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "nonexistent-tool-xyz is not installed (exit 127)" })])];
-  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "hi", setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
+  const failing = "echo \"setup ok\" > setup-ran.txt\nnonexistent-tool-xyz --install";
+  const t2 = [say("Hi. What do you want to work on?", []), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "nonexistent-tool-xyz is not installed (exit 127): its line is dropped" })])];
+  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "hi", setupScript: failing, setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
   assert.equal(s2.length, 2);
-  assert.match(JSON.stringify(s2[1].messages), /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found[\s\S]*propose the whole fixed script with propose_env/);
+  const note = JSON.stringify(s2[1].messages);
+  assert.match(note, /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found/);
+  assert.match(note, /tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script[\s\S]*If you have a fix you ran yourself and saw work, propose[\s\S]*if not, don't propose one/);
+  assert.doesNotMatch(note, /Call propose_env now/);
   assert.ok(ev2.some((e) => e.type === "text" && /What do you want/.test(e.text)), "its first words are still shown");
-  assert.ok(ev2.some((e) => e.type === "envchange")); assert.equal(r2.status, "done");
-  // Once only; never in GitHub jobs (no cards there); a timeout is named as one.
-  for (const [opts, sends] of [[{ setupFailed: { code: 1, output: "x" } }, 2], [{ setupFailed: { code: 1, output: "x" }, github: true }, 1], [{}, 1]]) {
+  assert.ok(ev2.some((e) => e.type === "envchange"), "dropping the broken line adds nothing new: no need to run it first"); assert.equal(r2.status, "done");
+  // Once only; not when Coder already said it; never in GitHub jobs (no cards there); a timeout is named as one.
+  for (const [opts, first, sends] of [[{ setupFailed: { code: 1, output: "x" } }, "Done.", 2], [{ setupFailed: { code: 1, output: "x" } }, "The setup script failed (exit 1) on npm ci; fix it in Environment → Setup script. Done otherwise.", 1], [{ setupFailed: { code: 1, output: "x" }, github: true }, "Done.", 1], [{}, "Done.", 1]]) {
     let j = 0; const s3 = [];
-    const t3 = [say("Done.", []), say("Still done.", []), say("x", [])];
+    const t3 = [say(first, []), say("Still done.", []), say("x", [])];
     await runCoder({ send: async (q) => { s3.push(q); return t3[j++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...opts });
-    assert.equal(s3.length, sends, JSON.stringify(opts));
+    assert.equal(s3.length, sends, first + " " + JSON.stringify(opts));
   }
   let j = 0; const s4 = [];
   await runCoder({ send: async (q) => { s4.push(q); return [say("ok", []), say("ok", [])][j++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x", setupFailed: { code: -1, timedOut: true, output: "" } });
   assert.match(JSON.stringify(s4[1].messages), /it ran past the 5-minute limit/);
   // The main branch: named with its origin/ ref and this chat's branch; nothing for odd names or chats without a repo.
-  const note = gitNote({ repo: "ana/shop", base: "trunk", branch: "coder/shop-abcd1234" });
-  assert.match(note, /the repo's main branch is trunk \(fetched as origin\/trunk\); you work on this chat's branch coder\/shop-abcd1234\. This chat's changes so far: git diff origin\/trunk\.\.\.HEAD/);
+  const g = gitNote({ repo: "ana/shop", base: "trunk", branch: "coder/shop-abcd1234" });
+  assert.match(g, /the repo's main branch is trunk \(fetched as origin\/trunk\); you work on this chat's branch coder\/shop-abcd1234\. This chat's changes so far: git diff origin\/trunk\.\.\.HEAD/);
   for (const b of [{ base: "trunk" }, { repo: "ana/shop", base: "-x" }, { repo: "ana/shop", base: "a..b" }, { repo: "ana/shop", base: "a b" }, null]) assert.equal(gitNote(b), "", JSON.stringify(b));
-  // On a real turn, the context carries it (and the setup script's note says it ran without root).
+  // On a real turn, the context carries it.
   const { remote } = await fakeRemote();
   const root = await mkdtemp(join(tmpdir(), "coder-root-"));
   const sent = [];
@@ -1892,7 +1902,89 @@ test("CD80 live test (2026-11-06): the setup script runs without root, so Coder 
     for (let i = 0; i < 100 && !sent.length; i++) await new Promise((ok) => setTimeout(ok, 50));
     assert.match(sent[0].messages[0].content, /GIT: the repo's main branch is main \(fetched as origin\/main\); you work on this chat's branch coder\/shop-base/);
   } finally { await close(); }
-  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /already run on this machine as your own user, without root/);
-  // The Environment window says so too, where the script is written.
-  assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /It runs as Coder\\'s own user, without root: sudo and apt-get don\\'t work/);
+});
+
+test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt lines are installed as admin by Coder's app, the rest runs as Coder's user; only lines Coder ran and saw work are proposed", async () => {
+  const { splitSetup, APT_NAME_RE } = await import("../container/coder-checks.mjs");
+  const { aptCommand } = await import("../container/server.mjs");
+  const { triedCommands, newSetupLines } = await import("../container/coder-agent.mjs");
+  // 1. Which lines are package lines: only plain apt update/install lines, with or without sudo; the rest is kept exactly as written.
+  assert.deepEqual(splitSetup("sudo apt-get update && sudo apt-get install -y jq"), { packages: ["jq"], script: "" });
+  assert.deepEqual(splitSetup("echo ok > a.txt\napt install -y postgresql-client redis-tools\nnpm ci"), { packages: ["postgresql-client", "redis-tools"], script: "echo ok > a.txt\nnpm ci" });
+  assert.deepEqual(splitSetup("DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libpq-dev # for pg"), { packages: ["libpq-dev"], script: "" });
+  assert.deepEqual(splitSetup("apt-get install -y \\\n  jq \\\n  zip\necho done"), { packages: ["jq", "zip"], script: "echo done" });
+  assert.deepEqual(splitSetup("cat <<'X' > f\na \\\nb\nX").script, "cat <<'X' > f\na \\\nb\nX");
+  for (const kept of ["apt-get install -y ./x.deb", "if ! command -v jq; then apt-get install -y jq; fi", "sudo systemctl start x", "apt-get upgrade -y", "apt-get install -y jq; rm -rf /", "apt-get -o Dpkg::Options::=x install -y jq", "apt-get install -y $(cat list)"]) assert.deepEqual(splitSetup(kept), { packages: [], script: kept }, kept);
+  for (const name of ["jq", "postgresql-client", "libstdc++6", "python3.11", "nodejs=18.19.0+dfsg-6"]) assert.ok(APT_NAME_RE.test(name), name);
+  for (const name of ["-x", "./a.deb", "a;b", "$(x)", "A", "j"]) assert.ok(!APT_NAME_RE.test(name), name);
+  // The command run as root: checked names only, through the proxy (and its certificate) when the network is limited.
+  assert.equal(aptCommand(["jq", "zip"]), "apt-get update -qq && apt-get install -y -q --no-install-recommends jq zip");
+  assert.equal(aptCommand(["jq", "$(id)"], "http://127.0.0.1:8123", "/srv/coder-proxy/bundle.pem"), "apt-get update -qq -o Acquire::http::Proxy=http://127.0.0.1:8123 -o Acquire::https::Proxy=http://127.0.0.1:8123 -o Acquire::https::CaInfo=/srv/coder-proxy/bundle.pem && apt-get install -y -q --no-install-recommends -o Acquire::http::Proxy=http://127.0.0.1:8123 -o Acquire::https::Proxy=http://127.0.0.1:8123 -o Acquire::https::CaInfo=/srv/coder-proxy/bundle.pem jq");
+  assert.doesNotMatch(aptCommand(["jq"], "http://x; rm -rf /"), /rm/);
+  // On a machine: the packages first, as root (this service's user), then the rest of the script as `dev`; the output says which was which.
+  const { remote } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const aptCalls = []; let aptResult = { code: 0, output: "Setting up jq (1.6-2.1) ..." };
+  const seen = [];
+  const { base, close } = await serve(createApp({ root, send: async (q) => { seen.push(q); return { message: { role: "assistant", content: "Done." } }; }, remote, ...r0, proxyDir: await mkdtemp(join(tmpdir(), "coder-pxa-")), apt: async (dir, command, timeoutS, o) => { aptCalls.push({ dir, command, timeoutS, o }); return aptResult; } }));
+  const run = async (project, setup) => {
+    seen.length = 0;
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/" + project, token: "", setup }) });
+    let s; for (let i = 0; i < 200; i++) { s = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (s.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    await fetch(base + "/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project }) });
+    return s;
+  };
+  try {
+    const s = await run("shop-apt1", { script: "sudo apt-get update && sudo apt-get install -y jq\necho user-part-ran > after-apt.txt", network: { mode: "full" } });
+    assert.equal(aptCalls.length, 1);
+    assert.equal(aptCalls[0].command, "apt-get update -qq && apt-get install -y -q --no-install-recommends jq", "Full network: straight out");
+    assert.equal(aptCalls[0].dir, "/", "run from /, not the folder Coder's commands can write to");
+    const out = s.events.find((e) => e.type === "result" && /as admin, by Coder's app/.test(e.output || ""));
+    assert.ok(out && out.code === 0, "one setup step, its output says the packages were done as admin");
+    assert.match(out.output, /^\$ apt-get install jq \(as admin, by Coder's app\)\nSetting up jq/);
+    assert.ok(existsSync(join(root, "shop-apt1", "after-apt.txt")), "then the rest of the script ran");
+    assert.match(seen[0].messages[0].content, /its plain apt-get install lines by Coder's app as admin, every other line as your own user/);
+    // On a limited network (Trusted, the default) apt goes through the proxy, so the repo's network list applies to it too.
+    aptCalls.length = 0;
+    await run("shop-apt4", { script: "apt-get install -y jq" });
+    assert.match(aptCalls[0].command, /^apt-get update -qq -o Acquire::http::Proxy=http:\/\/127\.0\.0\.1:\d+ -o Acquire::https::Proxy=http:\/\/127\.0\.0\.1:\d+ -o Acquire::https::CaInfo=\S+ && apt-get install -y -q --no-install-recommends -o .* jq$/);
+    // A package that fails to install: the rest does not run, and Coder is told like Claude Code.
+    aptResult = { code: 100, output: "E: Unable to locate package nosuchpkg" };
+    const bad = await run("shop-apt2", { script: "apt-get install -y nosuchpkg\necho never > never.txt" });
+    assert.ok(bad.events.some((e) => e.type === "result" && e.code === 100));
+    assert.ok(!existsSync(join(root, "shop-apt2", "never.txt")));
+    assert.match(seen[0].messages[0].content, /THE SETUP SCRIPT FAILED this time \(exit code 100\)[\s\S]*Unable to locate package nosuchpkg[\s\S]*Like Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);
+    // A script with no package lines never calls apt.
+    aptCalls.length = 0;
+    await run("shop-apt3", { script: "echo plain > plain.txt" });
+    assert.equal(aptCalls.length, 0);
+  } finally { await close(); }
+  // 3. Only lines Coder ran in this chat and saw work (exit code 0); a package must exist.
+  const convo = [
+    { role: "assistant", content: "", tool_calls: [{ id: "a1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "cd app && npm ci" }) } }, { id: "a2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "pip install -r requirements.txt" }) } }] },
+    { role: "tool", tool_call_id: "a1", content: "exit code 0\nadded 3 packages" },
+    { role: "tool", tool_call_id: "a2", content: "exit code 1\nerror" },
+  ];
+  assert.deepEqual(triedCommands(convo), ["cd app && npm ci"]);
+  assert.deepEqual(newSetupLines("echo ok\n# note\n\nnpm ci\ncd app", "echo ok"), ["npm ci", "cd app"]);
+  const propose = async (script, { tried = [], current = "", output = "" } = {}) => {
+    let n = 0; const seen2 = []; const ev = [];
+    const ran = tried.map((c, i) => [{ role: "assistant", content: "", tool_calls: [{ id: "t" + i, type: "function", function: { name: "bash", arguments: JSON.stringify({ command: c }) } }] }, { role: "tool", tool_call_id: "t" + i, content: "exit code 0\nok" }]).flat();
+    const turns = [say("", [call("propose_env", { kind: "setup_script", script, reason: "r" })]), say("I could not.", [])];
+    await runCoder({ send: async (q) => { seen2.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output }), emit: (e) => ev.push(e) }, { messages: ran, text: "x", setupScript: current });
+    return { card: ev.some((e) => e.type === "envchange"), said: JSON.stringify(seen2[1] ? seen2[1].messages : []) };
+  };
+  let r = await propose("echo ok\nnpm ci", { current: "echo ok" });
+  assert.equal(r.card, false); assert.match(r.said, /only add setup lines you ran yourself in this chat and saw work \(exit code 0\)\. Not run yet: `npm ci`/);
+  r = await propose("echo ok\nnpm ci", { current: "echo ok", tried: ["cd app && npm ci && npm test"] });
+  assert.equal(r.card, true, "run in an earlier command of this chat (it worked): fine");
+  r = await propose("echo ok\napt-get install -y jq nosuchpkg", { current: "echo ok", output: "missing:nosuchpkg\n" });
+  assert.equal(r.card, false); assert.match(r.said, /no such system package: nosuchpkg/);
+  r = await propose("echo ok\napt-get install -y jq", { current: "echo ok" });
+  assert.equal(r.card, true, "a package line needs no run (Coder cannot install it itself), only the name check");
+  // The image keeps the package lists for that check; the Environment window says which lines get admin.
+  const docker = readFileSync(HERE("container/Dockerfile"), "utf8");
+  assert.doesNotMatch(docker, /rm -rf \/var\/lib\/apt\/lists/);
+  assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /System packages: put each install on its own line, like <code>apt-get install -y jq<\/code>\. Coder installs those as admin/);
 });

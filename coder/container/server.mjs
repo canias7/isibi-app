@@ -26,7 +26,7 @@ import { createWriteStream, openSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
@@ -280,6 +280,16 @@ export function contextText(notes, memFile, memory) {
   return parts.join("\n\n");
 }
 
+/** SYSTEM PACKAGES FROM THE SETUP SCRIPT (owner, 2026-11-06, "1": like Claude
+ *  Code, `apt install` works). Only checked package names go in; through the
+ *  proxy when the network is limited, so the repo's network list applies. */
+export function aptCommand(packages, proxy = "", ca = "") {
+  const names = (Array.isArray(packages) ? packages : []).filter((x) => APT_NAME_RE.test(x));
+  const safe = (v) => typeof v === "string" && /^[\w./:-]{1,300}$/.test(v);
+  const o = safe(proxy) && proxy ? " -o Acquire::http::Proxy=" + proxy + " -o Acquire::https::Proxy=" + proxy + (safe(ca) && ca ? " -o Acquire::https::CaInfo=" + ca : "") : "";
+  return "apt-get update -qq" + o + " && apt-get install -y -q --no-install-recommends" + o + " " + names.join(" ");
+}
+
 /** THE REPO'S MAIN BRANCH AND THIS CHAT'S BRANCH (live test, 2026-11-06: Coder
  *  guessed `main` and `git diff main...HEAD` failed in a repo whose main branch
  *  has another name). Like the git status Claude Code is given at the start. */
@@ -330,7 +340,9 @@ function killUser() {
   if (Number.isInteger(RUN_UID)) { try { spawnSync("pkill", ["-KILL", "-u", String(RUN_UID)], { stdio: "ignore", timeout: 5000 }); } catch { /* no pkill */ } }
 }
 
-export function createApp({ root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {} } = {}) {
+export function createApp({ root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
+  // The setup script's packages are installed as root (this service's own user), never as `dev`.
+  const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
   // THE SECRETS PROXY (owner, 2026-11-06): started the first time a job has secrets.
   let proxyP = null;
@@ -421,7 +433,23 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         // 2026-11-06, "1", like Claude Code): no variables, and no keys added
         // by the proxy while it runs; only the network list applies.
         if (px && secretList.length) px.setSecrets([]);
-        const r = await execIn(dir, script, SETUP_MAX_S, { bgDir, kill: true, extraEnv: net.limited ? proxyEnv : {} });
+        // SYSTEM PACKAGES FIRST (owner, 2026-11-06, "1", like Claude Code where
+        // the script runs as root): its plain apt lines are done here, as root,
+        // with only the checked package names; the rest runs as `dev`, so the
+        // script never gets near the GitHub token or the owner's keys.
+        const { packages, script: userPart } = splitSetup(script);
+        const t0 = Date.now();
+        let r = { code: 0, output: "" };
+        if (packages.length) {
+          // From "/", not the project folder that `dev` can write to.
+          const a = await aptRun("/", aptCommand(packages, net.limited ? proxyEnv.HTTP_PROXY || "" : "", net.limited ? proxyEnv.SSL_CERT_FILE || "" : ""), SETUP_MAX_S, { bgDir });
+          r = { code: a.code, timedOut: !!a.timedOut, output: "$ apt-get install " + packages.join(" ") + " (as admin, by Coder's app)\n" + String(a.output || "") };
+        }
+        if (r.code === 0 && !r.timedOut && userPart) {
+          const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, extraEnv: net.limited ? proxyEnv : {} });
+          r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
+        }
         if (px && secretList.length) px.setSecrets(secretList);
         t.events.push({ at: Date.now(), type: "result", id, code: r.code, output: String(r.output || "").slice(-8000), ...(r.timedOut ? { timedOut: true } : {}) });
         if (r.code === 0 && !r.timedOut) await writeFile(mark, sha + " " + Date.now()).catch(() => {});
@@ -437,7 +465,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + gitNote(body) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine as your own user, without root; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nSay which command failed and why in one line, then propose a fixed script with propose_env (kind setup_script) before other work that needs it." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + gitNote(body) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {
