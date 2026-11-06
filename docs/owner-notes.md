@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Deployed: audit items 3 and 4, and Coder like Claude Code
+
+- Your word: "Merge and deploy". Merged into main (3d57f2b4) and deployed (run 42306004077), with the admin-only safety tests passing on GitHub too.
+- Checked from outside, with no sign-in and no Grok: the page is up and has the new parts (Create PR buttons, Rewind, the branch and repository menus); the page sends the sign-in proof; Coder's API refuses anyone not signed in; the key adder refuses anything without a job's pass; model.gofarther.dev doesn't answer.
+- **Everyone signs in once more, you too** (password, then the emailed code). Reload any Coder window already open (desktop app: View, then Reload; phone: close the app and open it again). Coder's machines pick up the new image for new chats within about 10 minutes.
+- No recorded browser test this time: it would need a sign-in, which emails a code, and tests never send sign-in emails.
+
 ## 2026-11-06: Audit items 1, 2 and 4 done; Coder closer to Claude Code
 
 - Your word: "Do 1,2,3,4", then "Finish all this" (about the differences from Claude Code's docs).
