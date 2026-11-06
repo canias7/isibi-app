@@ -1,0 +1,69 @@
+{
+  "name": "go-farther-desktop",
+  "productName": "Go Farther",
+  "version": "0.1.0",
+  "description": "Go Farther (Coder) for Mac and Windows",
+  "author": "Go Farther",
+  "homepage": "https://gofarther.dev",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.10.2",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "dev.gofarther.desktop",
+    "productName": "Go Farther",
+    "copyright": "Go Farther",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "links.js",
+      "offline.html",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "artifactName": "GoFarther-mac.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "dmg": {
+      "title": "Go Farther"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "GoFarther-windows.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Go Farther"
+    }
+  }
+}

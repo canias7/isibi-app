@@ -2,6 +2,11 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
+  // INSIDE AN APP (owner, 2026-11-06: the desktop and phone apps): the desktop
+  // app says so in its browser name, an installed phone app opens full-screen.
+  // There, the "Download for Mac / Windows" buttons are hidden.
+  const inApp = /GoFartherDesktop\/|GoFartherApp\//.test(navigator.userAgent) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  if (inApp) document.documentElement.classList.add('gf-inapp');
   let mode = 'in';      // in | up
   let step = 1;         // 1: email + password, 2: the emailed code
   let codeType = 'email';

@@ -21,6 +21,8 @@ repository on 2026-11-05. The full old tree is in git history (the commit before
 | `coder/src/` | Routes, GitHub (App sign-in, encrypted tokens, pull requests), Supabase sign-in, the page's headers |
 | `coder/container/` | Coder's own container: the agent loop (Grok, one tool, `bash`; it finishes by answering in words), safety checks, git |
 | `coder/test/` | `npm test` from `coder/` |
+| `coder/desktop/` | The desktop app for Mac and Windows (Electron): gofarther.dev in its own window; `npm test` from `coder/desktop/` |
+| `.github/workflows/build-desktop.yml` | The desktop build button: Mac `.dmg` and Windows `.exe`; tick "publish" for a public release |
 | `.github/workflows/deploy-coder.yml` | The deploy button (Claude may press it when the owner says deploy) |
 | `.github/workflows/list-old-stuff.yml` | Lists what is left of the old app (read-only) |
 | `.github/workflows/delete-old-stuff.yml` | Deletes the old app's named Workers, sites, storage and branches (lists in `.github/old-stuff/`); runs only when the box says DELETE |
