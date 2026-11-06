@@ -39,7 +39,10 @@ async function inside(p, { mustExist = false } = {}) {
     if (!st && mustExist) fail("no such file: " + abs);
     return { abs, rel: abs };
   }
-  const rel = relative(ROOT, abs);
+  // THE CHAT'S OTHER REPOSITORIES (2026-11-06, like Claude Code's several repos
+  // in one session): their folders, next to this one, count as inside too.
+  const home = [ROOT, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))].find((r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); }) || ROOT;
+  const rel = relative(home, abs);
   if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
   // The deepest part that exists must really be inside (no link out of the project).
@@ -47,7 +50,7 @@ async function inside(p, { mustExist = false } = {}) {
   for (;;) {
     try {
       const real = await realpath(probe);
-      const rootReal = await realpath(ROOT);
+      const rootReal = await realpath(home);
       const r2 = relative(rootReal, real);
       if (r2.startsWith("..") || isAbsolute(r2)) fail("that path leads outside the project");
       break;

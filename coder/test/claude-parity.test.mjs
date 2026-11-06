@@ -368,3 +368,60 @@ test("CD110 the machine's proxy hands a keyed request to the Worker with this jo
     assert.equal(got.length, 1);
   } finally { await px.close(); eg.close(); }
 });
+
+test("CD111 several repositories in one chat, like Claude Code: up to 3 more, added before the first message; each in its own folder, reachable by the tools, saved to the chat's branch, with its own pull request", async () => {
+  const { handleCoder, extraFor } = await import("../src/coder-routes.mjs");
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const { extraRepos, extrasNote } = await import("../container/server.mjs");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const uid = "user-1234567890abcdef", id = "shop-m1";
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev", CODER_BUCKET: bucket };
+  await saveConnection(env, bucket, uid, { access: "ghu_user" }, "ana");
+  await bucket.put("coder/" + uid + "/" + id + "/meta.json", JSON.stringify({ id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 0, status: "idle" }));
+  const fetchFn = async (url) => { const u = String(url); const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s }); if (u === "https://api.github.com/repos/ana/api") return J({ default_branch: "develop", permissions: { push: true } }); if (u === "https://api.github.com/repos/ana/ro") return J({ default_branch: "main", permissions: { push: false } }); if (/\/repos\/ana\/(w[123])$/.test(u)) return J({ default_branch: "main", permissions: { push: true } }); return J({}, 404); };
+  const deps = { fetchFn, authUser: async () => ({ id: uid, email: "me@x.y" }), container: () => ({ fetch: async () => Response.json({}) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  const add = (repo) => go("projects/" + id + "/repos", { method: "POST", body: JSON.stringify({ repo }) });
+  const one = await (await add("ana/api")).json();
+  assert.deepEqual(one.project.repos, [{ repo: "ana/api", base: "develop" }], "with its own main branch");
+  assert.equal((await add("ana/api")).status, 400, "not twice");
+  assert.equal((await add("ana/shop")).status, 400, "not the chat's own repository");
+  assert.equal((await add("ana/ro")).status, 403, "only one Coder may write to");
+  await add("ana/w1"); await add("ana/w2");
+  assert.equal((await add("ana/w3")).status, 400, "at most 3 more");
+  const less = await (await go("projects/" + id + "/repos?repo=ana%2Fw2", { method: "DELETE" })).json();
+  assert.deepEqual(less.project.repos.map((r) => r.repo), ["ana/api", "ana/w1"]);
+  assert.deepEqual(extraFor(less.project), [{ repo: "ana/api", base: "develop", branch: "coder/" + id }, { repo: "ana/w1", base: "main", branch: "coder/" + id }], "each on the chat's branch");
+  const key = "coder/" + uid + "/" + id + "/meta.json";
+  await bucket.put(key, JSON.stringify({ ...JSON.parse(bucket.m.get(key)), turn: 1 }));
+  assert.equal((await add("ana/w2")).status, 409, "fixed after the first message");
+  // The machine: only plain names, at most 3; Coder is told where each one is.
+  assert.deepEqual(extraRepos({ extra: [{ repo: "ana/api", base: "develop", branch: "coder/x" }, { repo: "../etc", branch: "coder/x" }, { repo: "a/b", branch: "coder/../x" }, { repo: "a/c", branch: "coder/x" }, { repo: "a/d", branch: "coder/x" }, { repo: "a/e", branch: "coder/x" }] }).map((x) => x.repo), ["ana/api", "a/c", "a/d"]);
+  assert.match(extrasNote([{ repo: "ana/api", base: "develop", dir: "/work/shop-m1-x1" }]), /THIS CHAT'S OTHER REPOSITORIES[\s\S]*- ana\/api in \/work\/shop-m1-x1 \(from develop\)[\s\S]*pull_request with its repo/);
+  // The file tools reach the other folders, and nothing else.
+  const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os"); const { join } = await import("node:path"); const { execFileSync } = await import("node:child_process");
+  const top = await mkdtemp(join(tmpdir(), "coder-multi-")); const main = join(top, "shop-m1"), other = join(top, "shop-m1-x1"), outside = join(top, "secret");
+  for (const d of [main, other, outside]) await mkdir(d);
+  await writeFile(join(other, "api.txt"), "hello from api\n"); await writeFile(join(outside, "s.txt"), "no\n");
+  const tool = (args, extraRoots) => { try { return execFileSync("node", ["--no-warnings", new URL("../container/coder-tools.mjs", import.meta.url).pathname, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: main, env: { PATH: process.env.PATH, ...(extraRoots ? { CODER_EXTRA_ROOTS: extraRoots } : {}) } }).toString(); } catch (e) { return String(e.stdout || "") + String(e.stderr || ""); } };
+  assert.match(tool({ path: join(other, "api.txt") }, other), /hello from api/);
+  assert.match(tool({ path: join(other, "api.txt") }, ""), /outside the project/, "only when it is one of this chat's");
+  assert.match(tool({ path: join(outside, "s.txt") }, other), /outside the project/);
+  // A pull request for one of them.
+  const call = (name, args) => ({ id: name + "1", type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const steps = [say("", [call("pull_request", { title: "API change", body: "B", repo: "ana/api" })]), say("Done.")]; let i = 0;
+  const r = await runCoder({ send: async () => steps[Math.min(i++, 1)], exec: async () => ({ code: 0, output: "" }) }, { text: "open a PR in ana/api" });
+  assert.equal(r.prRequest, undefined, "not one for the chat's own repository");
+  assert.deepEqual(r.prExtra, [{ title: "API change", body: "B", repo: "ana/api" }]);
+  // Wiring: the job start and the save carry them; the page adds and removes them before the first message.
+  const { readFileSync } = await import("node:fs");
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /post\("\/turn", \{ secrets, egress, extra: extraFor\(meta\),/);
+  assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, token: t\.token, message: commitTitle\(s\.result\.summary\), extra: extraFor\(meta\) \}\)/);
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /on\('#cdAddRepo', 'change', \(e\) => \{ const v = e\.currentTarget\.value; if \(v\) changeRepos\(v, true\); \}\);/);
+  assert.match(page, /data-unrepo="' \+ esc\(x\.repo\)/);
+});

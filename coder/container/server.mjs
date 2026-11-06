@@ -815,6 +815,19 @@ export function lastJobOf(body) {
 /** THE REPO'S MAIN BRANCH AND THIS CHAT'S BRANCH (live test, 2026-11-06: Coder
  *  guessed `main` and `git diff main...HEAD` failed in a repo whose main branch
  *  has another name). Like the git status Claude Code is given at the start. */
+/** The chat's other repositories from the Worker: [{ repo, base, branch }], at most 3, plain names only. */
+export function extraRepos(body) {
+  const ok = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/, br = /^[A-Za-z0-9._/-]{1,100}$/;
+  return (Array.isArray(body && body.extra) ? body.extra : []).filter((x) => x && ok.test(String(x.repo)) && br.test(String(x.base || "main")) && br.test(String(x.branch || "")) && !String(x.branch).includes("..")).slice(0, 3)
+    .map((x) => ({ repo: String(x.repo), base: String(x.base || "main"), branch: String(x.branch) }));
+}
+/** What Coder is told about them. */
+export function extrasNote(extras) {
+  if (!extras.length) return "";
+  return "\n\nTHIS CHAT'S OTHER REPOSITORIES (the owner added them; like this one, each is on the chat's branch and saved to it in its own repository when your turn ends):\n" +
+    extras.map((x) => "- " + x.repo + " in " + x.dir + " (from " + x.base + ")").join("\n") +
+    "\nWork in them with the same tools: give the file tools paths in those folders, and cd there in bash. A pull request for one of them: pull_request with its repo.";
+}
 export function gitNote(body) {
   const ok = (b) => typeof b === "string" && /^[\w./-]{1,200}$/.test(b) && !b.startsWith("-") && !b.includes("..");
   if (!body || !body.repo || !ok(body.base)) return "";
@@ -931,6 +944,20 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         if (pd.why) return fail(500, pd.why);
       }
     } catch (e) { return fail(500, String((e && e.message) || e).slice(0, 200)); }
+    // THE CHAT'S OTHER REPOSITORIES (2026-11-06, like Claude Code's several repos in
+    // one session; owner: "Finish all this"): each in its own folder next to this
+    // one, prepared exactly like the first (root's own git folder, the AI's user
+    // owns only the work tree), each on the chat's branch. One that cannot be
+    // opened is said in the chat; the job goes on with the others.
+    const extras = [];
+    for (const [i, x] of extraRepos(body).entries()) {
+      const xdir = join(root, project + "-x" + (i + 1));
+      try {
+        const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, token: String(body.token || ""), remote, gitRoot, root });
+        if (p.ok) extras.push({ ...x, dir: xdir });
+        else t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String(p.why).slice(0, 200) });
+      } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String((e && e.message) || e).slice(0, 160) }); }
+    }
     // THE REPO'S OWN RULES (CODER.md) and THE MEMORY FOR
     // THIS REPO (kept between chats by the Worker), told to the AI each turn.
     // The memory folder sits in a root-owned place, so it cannot be swapped.
@@ -953,7 +980,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // for every command, and a setup script run (as `dev`) when this machine first
     // opens the repo, or when the script changed.
     const ownerVars = safeVars(body.setup && body.setup.vars);
-    const extraEnv = { ...ownerVars };
+    const extraEnv = { ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // NETWORK SECRETS (owner, 2026-11-06, like Claude Code's): the proxy adds
     // each key to HTTPS requests for its host; the commands only learn the proxy.
@@ -1049,7 +1076,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {
@@ -1157,7 +1184,16 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
         if (t) killAll(t); else killUser();
-        return send(200, await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: String(body.message || ""), remote, gitRoot, root }));
+        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: String(body.message || ""), remote, gitRoot, root });
+        // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
+        const extra = [];
+        for (const [i, x] of extraRepos(body).entries()) {
+          const xdir = join(root, project + "-x" + (i + 1));
+          if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
+          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, token: String(body.token || ""), message: String(body.message || ""), remote, gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+          extra.push({ repo: x.repo, ...r });
+        }
+        return send(200, extra.length ? { ...main, extra } : main);
       }
       return send(404, { error: "not found" });
     } catch (e) { return send(500, { error: String((e && e.message) || e).slice(0, 200) }); }

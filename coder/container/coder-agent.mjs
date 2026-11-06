@@ -82,8 +82,8 @@ export const CODER_TOOLS = Object.freeze([
   // server pushes and opens it after the turn (Coder never holds the GitHub key).
   { type: "function", function: {
     name: "pull_request",
-    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR).",
-    parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" } }, required: ["title", "body"] },
+    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository.",
+    parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
   } },
 ]);
 
@@ -198,7 +198,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const usage = [];
   const started = now();
   let rounds = 0;
-  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null;
+  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [];
   // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
   // reminded once, before it finishes, to offer them for the setup script.
   const installs = new Set(); let nudged = false;
@@ -210,7 +210,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
   // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
   const jobs = new Map();
-  const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -417,8 +417,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);
         if (!title) { reply("error: the pull request needs a title"); continue; }
-        prRequest = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}) };
-        emit({ type: "pr", text: prRequest.title });
+        const one = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}) };
+        // One of the chat's other repositories (2026-11-06): its own pull request.
+        const repo = typeof c.args.repo === "string" && /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(c.args.repo.trim()) ? c.args.repo.trim() : "";
+        if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
+        emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words)");
     }
