@@ -1844,3 +1844,55 @@ test("CD79 (owner 2026-11-06: the phone apps) the page clears the status bar and
   for (const ok of ["/login/oauth/authorize", "/login", "/session", "/sessions/two-factor/app", "/apps/gofarther-coder/installations/new", "/settings/installations/1"]) assert.ok(re.test(ok), ok);
   for (const no of ["/canias7/testingforclaude/pull/7", "/", "/settings/profile"]) assert.ok(!re.test(no), no);
 });
+
+test("CD80 live test (2026-11-06): the setup script runs without root, so Coder never proposes sudo or apt-get; a failed setup is always raised before Coder finishes; Coder is told the repo's main branch", async () => {
+  const { NEEDS_ROOT_RE, CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  const { gitNote } = await import("../container/server.mjs");
+  for (const bad of ["sudo apt-get update && sudo apt-get install -y jq", "apt-get install -y jq", "echo ok\napt install jq", "apk add jq", "dnf install -y jq", "(sudo make install)"]) assert.ok(NEEDS_ROOT_RE.test(bad), bad);
+  for (const ok of ["echo \"setup ok\" > setup-ran.txt", "npm ci", "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt", "echo adapter capture apt-ish", "pip install -e ."]) assert.ok(!NEEDS_ROOT_RE.test(ok), ok);
+  // Told up front (the tool and the instructions), and refused with the way out if it tries anyway.
+  assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "propose_env")), /as your own user without root: no sudo, apt-get/);
+  assert.match(CODER_SYSTEM, /THE SETUP SCRIPT FAILED[^\n]*never put sudo or apt-get in it/);
+  let n = 0; const seen = []; const events = [];
+  const turns = [say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo apt-get update && sudo apt-get install -y jq", reason: "jq" })]), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "jq is already there" })])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "add jq to the setup script" });
+  assert.match(JSON.stringify(seen[1].messages), /runs as your own user, without root: sudo and system package managers[\s\S]*Install into the project instead/);
+  const cards = events.filter((e) => e.type === "envchange");
+  assert.equal(cards.length, 1); assert.equal(cards[0].script, "echo \"setup ok\" > setup-ran.txt");
+  // A failed setup: Coder answered "Hi" as if nothing happened (live). Now it is reminded once, with the output.
+  let k = 0; const s2 = []; const ev2 = [];
+  const t2 = [say("Hi. What do you want to work on?", []), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "nonexistent-tool-xyz is not installed (exit 127)" })])];
+  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "hi", setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
+  assert.equal(s2.length, 2);
+  assert.match(JSON.stringify(s2[1].messages), /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found[\s\S]*propose the whole fixed script with propose_env/);
+  assert.ok(ev2.some((e) => e.type === "text" && /What do you want/.test(e.text)), "its first words are still shown");
+  assert.ok(ev2.some((e) => e.type === "envchange")); assert.equal(r2.status, "done");
+  // Once only; never in GitHub jobs (no cards there); a timeout is named as one.
+  for (const [opts, sends] of [[{ setupFailed: { code: 1, output: "x" } }, 2], [{ setupFailed: { code: 1, output: "x" }, github: true }, 1], [{}, 1]]) {
+    let j = 0; const s3 = [];
+    const t3 = [say("Done.", []), say("Still done.", []), say("x", [])];
+    await runCoder({ send: async (q) => { s3.push(q); return t3[j++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...opts });
+    assert.equal(s3.length, sends, JSON.stringify(opts));
+  }
+  let j = 0; const s4 = [];
+  await runCoder({ send: async (q) => { s4.push(q); return [say("ok", []), say("ok", [])][j++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x", setupFailed: { code: -1, timedOut: true, output: "" } });
+  assert.match(JSON.stringify(s4[1].messages), /it ran past the 5-minute limit/);
+  // The main branch: named with its origin/ ref and this chat's branch; nothing for odd names or chats without a repo.
+  const note = gitNote({ repo: "ana/shop", base: "trunk", branch: "coder/shop-abcd1234" });
+  assert.match(note, /the repo's main branch is trunk \(fetched as origin\/trunk\); you work on this chat's branch coder\/shop-abcd1234\. This chat's changes so far: git diff origin\/trunk\.\.\.HEAD/);
+  for (const b of [{ base: "trunk" }, { repo: "ana/shop", base: "-x" }, { repo: "ana/shop", base: "a..b" }, { repo: "ana/shop", base: "a b" }, null]) assert.equal(gitNote(b), "", JSON.stringify(b));
+  // On a real turn, the context carries it (and the setup script's note says it ran without root).
+  const { remote } = await fakeRemote();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const sent = [];
+  const { base, close } = await serve(createApp({ root, send: async (r) => { sent.push(r); return { message: { role: "assistant", content: "ok" } }; }, remote, ...(await roots()) }));
+  try {
+    const r = await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-base", text: "what changed?", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-base", token: "" }) });
+    assert.equal(r.status, 200);
+    for (let i = 0; i < 100 && !sent.length; i++) await new Promise((ok) => setTimeout(ok, 50));
+    assert.match(sent[0].messages[0].content, /GIT: the repo's main branch is main \(fetched as origin\/main\); you work on this chat's branch coder\/shop-base/);
+  } finally { await close(); }
+  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /already run on this machine as your own user, without root/);
+  // The Environment window says so too, where the script is written.
+  assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /It runs as Coder\\'s own user, without root: sudo and apt-get don\\'t work/);
+});

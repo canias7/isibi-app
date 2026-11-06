@@ -4,6 +4,26 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Full live test of Coder, and three fixes it found
+
+- Your word: "lets just test all we added". Tested live on gofarther.dev (test account, canias7/testingforclaude, real Grok and GitHub). All passed:
+  - a new chat answers;
+  - every tool in one job (search, read, write, edit, commands, code check, web fetch, background job with check and stop, the checklist);
+  - question buttons; a picture ("BLUE 42"); @README.md;
+  - memory in a new chat ("teal"); an "always" style in a new chat, then forgotten; a CODER.md rule;
+  - Low and Extra high effort;
+  - review and security review (as Coder's own tools); undo;
+  - pull request #8; @coder on GitHub (Coder's bot answered on the pull request); auto-fix from a review comment (it deleted the file and updated #8);
+  - the Environment window (4 rows, 4 network levels, 7 secret types, script, variables);
+  - None and Trusted networks with the "Allow Coder to reach example.com?" card (Approve, then 200);
+  - the key card (the key arrived; it never showed on the page); a Basic key added in the window, reachable even on None, only under its path;
+  - Stop; two chats working at once; See changes; Remove chat; the front page and sign-in card.
+- Found and fixed (on the branch, live after "merge and deploy"):
+  - 1. Coder proposed `sudo apt-get install jq` for the setup script. The setup script runs as Coder's own user, without root, so that can never work, and every new chat's setup then failed. Coder is now told this; a proposal with sudo or apt-get is refused with the way that works (install into the project: npm ci, a Python virtualenv); and the Setup script page says it in one line.
+  - 2. After a failed setup, Coder answered "Hi. What do you want to work on?" as if nothing had happened, although its instructions said to raise it. Now it is always reminded once, before it finishes, to name the failed command and propose a fix on the card (like the install reminder).
+  - 3. Coder guessed the main branch was called `main`, and a command failed in a repo where it isn't. It is now told the repo's main branch and this chat's branch, like Claude Code.
+- Noticed, not changed: variable values show as [hidden] in the chat (on purpose, from the audit). The test repo's main branch is still named `coder/testingforclaude-c51d`, left over from before the empty-repo fix.
+
 ## 2026-11-06: The iPhone app is in TestFlight
 
 - The owner created the app in App Store Connect (GOFARTHER, dev.gofarther.app); Apple's API refuses to make apps ("The resource 'apps' does not allow 'CREATE'"), so that one step stays on the website.

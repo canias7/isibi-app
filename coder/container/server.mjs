@@ -280,6 +280,15 @@ export function contextText(notes, memFile, memory) {
   return parts.join("\n\n");
 }
 
+/** THE REPO'S MAIN BRANCH AND THIS CHAT'S BRANCH (live test, 2026-11-06: Coder
+ *  guessed `main` and `git diff main...HEAD` failed in a repo whose main branch
+ *  has another name). Like the git status Claude Code is given at the start. */
+export function gitNote(body) {
+  const ok = (b) => typeof b === "string" && /^[\w./-]{1,200}$/.test(b) && !b.startsWith("-") && !b.includes("..");
+  if (!body || !body.repo || !ok(body.base)) return "";
+  return "\n\nGIT: the repo's main branch is " + body.base + " (fetched as origin/" + body.base + ")" + (ok(body.branch) ? "; you work on this chat's branch " + body.branch : "") + ". This chat's changes so far: git diff origin/" + body.base + "...HEAD";
+}
+
 // ── THE TURNS ────────────────────────────────────────────────────────────────
 const turns = new Map(); // project → { running, stop, events, result }
 
@@ -428,7 +437,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nSay which command failed and why in one line, then propose a fixed script with propose_env (kind setup_script) before other work that needs it." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + gitNote(body) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine as your own user, without root; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nSay which command failed and why in one line, then propose a fixed script with propose_env (kind setup_script) before other work that needs it." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {
@@ -446,7 +455,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       },
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
       .then(async (r) => { t.result = { ...r, memory: await readMemory(memFile) }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => {
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.
