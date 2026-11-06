@@ -52,6 +52,12 @@ jobs:
           echo "All secrets present."
       - name: Run Coder's tests
         run: node --test test/*.test.mjs
+      # THE ROOT-ONLY TESTS RUN TOO (the audit, 2026-11-06): handing the files
+      # to the AI's user and stopping its processes can only be tested as root, so
+      # the step above skips them. GitHub's machines allow sudo. These tests never
+      # stop the processes of user 1001 (this machine's own runner user).
+      - name: Run Coder's root-only safety tests (as root)
+        run: sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs
       - name: Make the token key
         env:
           SEED: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}

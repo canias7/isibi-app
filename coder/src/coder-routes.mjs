@@ -195,6 +195,21 @@ export function commitTitle(summary) {
 }
 
 /**
+ * WHAT A SAVE LEFT OUT, SAID IN THE CHAT (the audit, 2026-11-06). Coder's
+ * machine never runs git inside a folder that holds its own repository (the
+ * audit), so such a folder is not saved; the owner is told which, instead of
+ * reading "Saved to the branch" alone. `left`: `[{ path, kind }]` from the machine.
+ */
+export function leftOutNote(left) {
+  const list = (Array.isArray(left) ? left : []).filter((x) => x && typeof x.path === "string" && x.path);
+  if (!list.length) return "";
+  const what = { repo: "a folder with its own git repository", link: "a submodule's folder that is a link", submodule: "a submodule whose commit could not be read" };
+  const named = list.slice(0, 8).map((x) => x.path.replace(/[\u0000-\u001f`]/g, "").slice(0, 120) + " (" + (what[x.kind] || what.repo) + ")");
+  return "Not saved: " + named.join(", ") + (list.length > 8 ? " and " + (list.length - 8) + " more" : "") + ". Coder's app never runs git inside these" +
+    (list.some((x) => x.kind === "repo" || !what[x.kind]) ? "; to save a folder's files, remove its .git." : ".");
+}
+
+/**
  * Handle one /api/coder/ request. `deps`: `authUser(request) → { id } | { signin } | { down } | null`
  * (only `id` is signed in; coder-auth.mjs),
  * `container(name) → { fetch(Request) }`, optional `fetchFn` (GitHub calls).
@@ -483,6 +498,9 @@ export async function handleCoder(request, env, ctx, deps) {
           if (pr) pr = await prStillOpen(t.token, meta.repo, pr, fetchFn);
           pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
         }
+        // What the save left out, even when nothing else changed (the audit, 2026-11-06).
+        const lo = leftOutNote(p.left);
+        if (lo) pushNote = (pushNote ? pushNote + " · " : "") + lo;
       }
       // UNDO, ASKED FOR IN THE CHAT (owner, 2026-11-06: Coder calls it itself):
       // the last job's commit is reverted and pushed, like the old Undo button.
@@ -495,6 +513,8 @@ export async function handleCoder(request, env, ctx, deps) {
           const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: last.sha }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
           if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "") + "."; }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
+          const lo = leftOutNote(u.left);
+          if (lo && !pushNote.includes(lo)) pushNote += " · " + lo;
         }
       }
       // THE PULL REQUEST CODER WAS ASKED FOR in the chat (owner, 2026-11-05: "b").
@@ -566,7 +586,8 @@ export async function handleCoder(request, env, ctx, deps) {
     try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: last.sha }).then((x) => x.json()); }
     catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
     if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
-    const note = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + ".";
+    const lo = leftOutNote(r.left);
+    const note = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + "." + (lo ? " · " + lo : "");
     const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "github", text: note };
     await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));

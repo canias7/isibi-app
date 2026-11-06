@@ -60,6 +60,24 @@ the token only in its own environment. Every command the AI runs is started as
 the unprivileged `dev` user, with no secrets in its environment. The token is
 never written into the repository's settings.
 
+**Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
+projects folder (`/work`) belongs to root: the service makes each project's
+folder and hands only that folder to `dev`, and refuses to work in a project
+folder that is a link. Git never runs inside a repository the AI made in the
+project (or a submodule folder it made into one), and such a folder is never
+saved. Files are handed to `dev` one by one, never through a link, and a file
+with another name elsewhere (a hard link) keeps its owner.
+
+Before root touches a project's files, every process of `dev` is stopped by the
+kernel (a kill sent as `dev` to all its processes at once); if that fails, root
+does nothing with the files. The hand-over holds each folder open while it works
+in it, so a folder swapped for a link is never followed. A save says in the chat
+what it left out ("Not saved: …"), and a submodule the AI moved to another
+commit is still saved (its commit is read by the service, never by git inside
+its folder). Root reads CODER.md and the memory file only when they are plain
+files with one name. The deploy runs the root-only tests
+(`test/root-safety.test.mjs`) under sudo.
+
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 
