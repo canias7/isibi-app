@@ -41,6 +41,9 @@ const RUN_GID = process.env.CODER_RUN_GID ? Number(process.env.CODER_RUN_GID) : 
 // is told where, so it can read it with tail later.
 export const BG_DIR = "/srv/coder-bg";
 export const BODY_MAX = 8 * 1024 * 1024;
+// THE SETUP SCRIPT (like Claude Code's): about five minutes at most; its result is kept about seven days.
+export const SETUP_MAX_S = 300;
+export const SETUP_CACHE_MS = 7 * 24 * 3600 * 1000;
 let bgCount = 0;
 
 /** One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped). */
@@ -380,13 +383,15 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       try {
         px = await proxyFor();
         px.setNetwork(net); px.setSecrets(secretList); secretHosts = secretList.length ? px.hosts() : [];
+        // web_fetch follows the list too: Claude Code's docs name only GitHub,
+        // connectors, sites with a saved secret and its own API as skipping it.
         proxyEnv = { ...px.env(), ...(net.limited ? { CODER_NET_LIMITED: "1" } : {}) };
         Object.assign(extraEnv, proxyEnv);
         if (net.limited) {
           fwOn = firewall(true, RUN_UID);
           netNote = (net.mode === "none"
             ? "\n\nNETWORK: NONE. The owner turned internet access off for this repo: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
-            : "\n\nNETWORK: this repo is LIMITED to package sites" + (net.hosts.length ? " and " + net.hosts.join(", ") : "") + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"): if the work needs that site, ask the owner with propose_env (kind allow_host).") + (fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            : "\n\nNETWORK: this repo is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
     }
@@ -396,19 +401,21 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     let setupFailed = null;
     if (script) {
       const mark = join(gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
-      const sha = createHash("sha256").update(script).digest("hex");
-      const done = await readFile(mark, "utf8").catch(() => "");
-      if (done.trim() !== sha) {
+      // LIKE CLAUDE CODE'S CACHE (its docs, read 2026-11-06): run again when the
+      // script or the network setting changes, or after about seven days.
+      const sha = createHash("sha256").update(script + "\n" + JSON.stringify({ mode: net.mode, hosts: net.hosts, defaults: net.defaults })).digest("hex");
+      const [doneSha, doneAt] = (await readFile(mark, "utf8").catch(() => "")).trim().split(" ");
+      if (doneSha !== sha || !(Number(doneAt) > Date.now() - SETUP_CACHE_MS)) {
         const id = "setup-" + Date.now();
         t.events.push({ at: Date.now(), type: "bash", id, tool: "setup", verb: "Ran setup", command: script.split("\n")[0].slice(0, 200) });
         // THE SETUP SCRIPT CANNOT READ THE OWNER'S VARIABLES OR KEYS (owner,
         // 2026-11-06, "1", like Claude Code): no variables, and no keys added
         // by the proxy while it runs; only the network list applies.
         if (px && secretList.length) px.setSecrets([]);
-        const r = await execIn(dir, script, 600, { bgDir, kill: true, extraEnv: net.limited ? proxyEnv : {} });
+        const r = await execIn(dir, script, SETUP_MAX_S, { bgDir, kill: true, extraEnv: net.limited ? proxyEnv : {} });
         if (px && secretList.length) px.setSecrets(secretList);
         t.events.push({ at: Date.now(), type: "result", id, code: r.code, output: String(r.output || "").slice(-8000), ...(r.timedOut ? { timedOut: true } : {}) });
-        if (r.code === 0) await writeFile(mark, sha).catch(() => {});
+        if (r.code === 0 && !r.timedOut) await writeFile(mark, sha + " " + Date.now()).catch(() => {});
         else setupFailed = { code: r.code, timedOut: !!r.timedOut, output: String(r.output || "").slice(-1500) };
         // WHAT SETUP MADE IS NEVER SAVED TO THE BRANCH (live test, 2026-11-05: an
         // `npm ci` would have committed node_modules): new files from the setup go
@@ -421,7 +428,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran out of time" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nSay which command failed and why in one line, then propose a fixed script with propose_env (kind setup_script) before other work that needs it." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nSay which command failed and why in one line, then propose a fixed script with propose_env (kind setup_script) before other work that needs it." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {
