@@ -70,6 +70,10 @@ export function okPattern(p) {
 }
 export function hostMatches(host, pattern) {
   const h = String(host || "").toLowerCase();
+  // ONLY A REAL HOST NAME MATCHES (the audit, 2026-11-06): "../../x.example.com"
+  // also ends with ".example.com", so it counted as a subdomain of "*.example.com"
+  // and the proxy gave it the key and built file names from it.
+  if (!HOST_RE.test(h)) return false;
   if (pattern.startsWith("*.")) { const base = pattern.slice(2); return h === base || h.endsWith("." + base); }
   return h === pattern;
 }
