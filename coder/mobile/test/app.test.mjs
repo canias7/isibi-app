@@ -70,3 +70,24 @@ test("M4 the Apple check: a real ES256 token Apple can verify; registers the app
   // A wrong key: a plain message naming the secrets to check
   await assert.rejects(appleCheck({ kid: "K", iss: "I", key, bundleId: "x.y", appName: "n", fetchFn: async () => new Response(JSON.stringify({ errors: [{ title: "Authentication credentials are missing or invalid." }] }), { status: 401 }), log: () => {} }), /check APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and APPLE_API_KEY_P8/);
 });
+
+test("M5 (live run, 2026-11-06) the Apple check runs before the code is there, names a missing secret, drops a stray new line, and says plainly when a value looks wrong", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, readFileSync: rf } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const wf = readFileSync(new URL("../../../.github/workflows/build-mobile.yml", import.meta.url), "utf8");
+  const block = wf.split("      - name: Check the Apple secrets are there\n")[1].split("      - uses: actions/checkout@v4")[0];
+  assert.match(block, /working-directory: \$\{\{ runner\.temp \}\}/, "not in coder/mobile (not checked out yet)");
+  const script = block.split("        run: |\n")[1].split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
+  const run = (env) => { const dir = mkdtempSync(join(tmpdir(), "apple-")); const ge = join(dir, "env"); try { const out = execFileSync("bash", ["-e", "-c", script], { env: { PATH: process.env.PATH, GITHUB_ENV: ge, ...env }, cwd: dir }).toString(); return { code: 0, out, env: rf(ge, "utf8") }; } catch (e) { return { code: e.status, out: String(e.stdout) }; } };
+  const good = { A: "ABCDE12345\n", B: "LTWQLJ0000", C: "70ce51ce-0000-4f97-a56d-000000000000", D: "-----BEGIN PRIVATE KEY-----\nAAA\n-----END PRIVATE KEY-----" };
+  const ok = run(good);
+  assert.equal(ok.code, 0, ok.out);
+  assert.match(ok.env, /^TEAM=ABCDE12345\nKID=LTWQLJ0000\nISS=70ce51ce-0000-4f97-a56d-000000000000\n$/, "the stray new line is dropped");
+  assert.match(ok.out, /::add-mask::ABCDE12345/);
+  const miss = run({ ...good, B: "" });
+  assert.notEqual(miss.code, 0); assert.match(miss.out, /::error::Missing GitHub secrets: APPLE_API_KEY_ID/);
+  const bad = run({ ...good, A: "my team", D: "not a key" });
+  assert.notEqual(bad.code, 0); assert.match(bad.out, /APPLE_TEAM_ID \(10 letters and numbers[\s\S]*APPLE_API_KEY_P8 \(the whole \.p8 file/);
+});

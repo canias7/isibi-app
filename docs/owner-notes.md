@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: First TestFlight press: one secret missing, and a fix
+
+- The first press stopped at the secrets check: APPLE_API_KEY_ID isn't in GitHub's secrets yet (the other three are). Nothing reached Apple.
+- My bug, fixed: the check (and the key clean-up) ran in a folder that doesn't exist before the code is checked out. The check now also drops a space or new line pasted with a value (the Team ID had one), and names any value that doesn't look right (Team ID and Key ID: 10 letters and numbers; Issuer ID: the long ID with dashes; the key: the whole .p8 file).
+
 ## 2026-11-06: The Apple key goes in GitHub's secrets, not the chat
 
 - The owner offered to give the Apple API key in the chat. Not in the chat (it would be stored in the conversation; the rule is Claude never sees secret values): the owner puts it in GitHub's secrets, and GitHub's Mac machine uses it.
