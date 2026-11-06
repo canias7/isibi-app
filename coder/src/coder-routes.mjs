@@ -195,7 +195,8 @@ export function commitTitle(summary) {
 }
 
 /**
- * Handle one /api/coder/ request. `deps`: `authUser(request) → { id } | null`,
+ * Handle one /api/coder/ request. `deps`: `authUser(request) → { id } | { signin } | { down } | null`
+ * (only `id` is signed in; coder-auth.mjs),
  * `container(name) → { fetch(Request) }`, optional `fetchFn` (GitHub calls).
  */
 export async function handleCoder(request, env, ctx, deps) {
@@ -236,6 +237,12 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   const user = await deps.authUser(request);
+  // THE EMAILED CODE, REALLY REQUIRED (the audit, 2026-11-06): a genuine Supabase
+  // session without the Worker's proof of both sign-in steps is told to sign in
+  // again, and `signin` lets the page tell this from other refusals. When
+  // Supabase cannot be asked, nobody is signed out for it.
+  if (user && user.signin === true && typeof user.id !== "string") return json({ error: "Sign in again.", signin: true }, 401);
+  if (user && user.down === true && typeof user.id !== "string") return json({ error: "Sign-in could not be checked. Try again in a minute." }, 503);
   if (!user || typeof user.id !== "string") return json({ error: "sign in first" }, 401);
   // WHILE TESTING (2026-11-05, the owner: "turn it on", free while testing):
   // only the emails in CODER_USERS may use it. Empty list = nobody.

@@ -4,6 +4,27 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The emailed code is really required now (audit item 3)
+
+- Your word: "Do 1,2,3,4". This is 3.
+- **Both steps, every time.** Signing in is still your password, then the code we email you. What changed is that Coder's server now checks that both steps really happened on gofarther.dev before it lets anyone use Coder.
+  - The password step gives the page a ticket that lasts 15 minutes. The code is only accepted with that ticket, for the same email. If it runs out, the card goes back to the password step and says "Start again".
+  - The code step gives the session plus the server's own proof. The page sends the proof with every Coder call. Without it, Coder answers "Sign in again."
+  - A new account also needs the emailed code.
+  - The password check no longer leaves a spare session behind. Only that one is ended, never your other devices.
+- **Three reviewers checked it. I fixed everything they found:**
+  - **Someone with only your inbox could still get in.** They could ask Supabase for a code, use it to set a new password there, and then do both steps with that password. Now Coder remembers your password the first time you sign in (a scrambled copy that can't be turned back into the password), and refuses any other one.
+  - **If you ever change your password outside Coder** (Supabase's dashboard or a reset email), Coder will say "That email and password do not match." To fix it, delete one file in Cloudflare: R2, bucket `gofarther-coder`, `coder/<your user id>/signin-pin.json`. The next sign-in then remembers the new password.
+  - **Wrong codes are limited:** 5 tries per email every 15 minutes. After that, the card says how many minutes to wait. A right code resets the count. A new password step doesn't.
+  - **A short hiccup no longer signs you out.** If the sign-in service is busy or down when your session needs renewing, you stay signed in and Coder says to try again in a minute.
+  - **What you were typing is kept.** When Coder sends you back to sign in, the text in the chat box (or a message that was on its way) comes back in the box after you sign in.
+  - **Old Coder tabs reload by themselves.** A tab left open from before this change now moves to the new page as soon as you open a new one. Before this fix, it would have signed you out about once an hour.
+- **No more stuck page.** When a session ends (you signed out on another device, for example), the page now goes back to the sign-in card, which says "Sign in again." It does this once, never in a loop. If the sign-in service can't be reached, you stay signed in and Coder says to try again in a minute.
+- **After this goes live, everyone signs in once more, you too.** Sessions from before have no proof. That's expected. Also reload any Coder window that was already open (desktop app: View, then Reload; phone: close the app and open it again).
+- No new design: "Sign in again." and the new messages appear in the sign-in card's usual message line.
+- Tests: CD86 to CD89 (new file `coder/test/auth-proof.test.mjs`). CD13 and CD22 changed only where the ticket and proof are now needed. CD22 now also gives the account's id and the bucket, which the password step needs.
+- On a branch, not deployed. Live after "merge and deploy".
+
 ## 2026-11-06: Full platform audit
 
 - Your word: "do full platform audit, imma go to bed".

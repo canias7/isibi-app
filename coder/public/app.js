@@ -108,12 +108,14 @@
         await window.Auth.signIn(email, pw);
         codeType = 'email'; step = 2;
       } else {
+        // A new account also needs the emailed code (the audit, 2026-11-06).
         if (pw.length < 6) throw new Error('Use at least 6 characters for the password.');
         const r = await window.Auth.signUp(email, pw);
-        if (r.session) { busy = false; return showApp(); }
         codeType = r.type || 'signup'; step = 2;
       }
     } catch (err) {
+      // THE PASSWORD STEP'S TICKET RAN OUT (15 minutes): back to that step (the audit, 2026-11-06).
+      if (err && err.restart) { step = 1; $('gfCode').value = ''; }
       say((err && err.message) || 'Something went wrong.');
     }
     busy = false; draw();
@@ -124,6 +126,11 @@
     $('gfForm').addEventListener('submit', submit);
     $('gfSwitch').addEventListener('click', () => { mode = mode === 'in' ? 'up' : 'in'; say(''); draw(); });
     $('gfOut').addEventListener('click', async () => { await window.Auth.signOut(); location.href = '/'; });
-    if (window.Auth.isSignedIn()) showApp(); else showGate();
+    if (window.Auth.isSignedIn()) showApp();
+    else {
+      showGate();
+      // THE SESSION ENDED (the audit, 2026-11-06): straight to the sign-in card.
+      if (window.Auth.justEnded()) { mode = 'in'; step = 1; openSignin(); say('Sign in again.'); }
+    }
   });
 })();

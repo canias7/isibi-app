@@ -33,6 +33,7 @@
     running: false,
     sending: false,
     draft: (() => { try { const a = sessionStorage.getItem('gf_ask') || ''; sessionStorage.removeItem('gf_ask'); return a.slice(0, 4000); } catch (e) { return ''; } })(), // the landing page's ask, kept
+    unsent: '',       // a message on its way, kept if the session ends meanwhile
     open: {},         // which command outputs are opened
     root: null,
     poll: 0,
@@ -44,14 +45,35 @@
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  async function call(path, init) {
+  // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
+  // A call refused because the session is over (signed out here or on another
+  // device, or a session without the proof) ends the session on this page and
+  // goes back to sign-in. A token refused as old gets one fresh token and one
+  // more try, never more; other refusals (like "Connect GitHub again") stay as they are.
+  async function call(path, init, again) {
+    // Going back to sign-in reloads the page, so what is in the chat box (or a
+    // message that was just being sent) is kept for after sign-in, where the box
+    // picks it up again (the audit, 2026-11-06, after review).
+    const end = () => { try { const t = S.draft || S.unsent || ''; if (t) sessionStorage.setItem('gf_ask', t.slice(0, 4000)); } catch (e) {} window.Auth.end(); };
     const token = window.Auth && typeof window.Auth.accessToken === 'function' ? await window.Auth.accessToken() : null;
-    if (!token) return { status: 401, data: { error: 'sign in first' } };
+    if (!token) { if (window.Auth && window.Auth.end) end(); return { status: 401, data: { error: 'sign in first' } }; }
     let r;
     try {
-      r = await fetch(API + path, { ...(init || {}), headers: { Authorization: 'Bearer ' + token, ...(init && init.body ? { 'content-type': 'application/json' } : {}) } });
+      r = await fetch(API + path, { ...(init || {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(init && init.body ? { 'content-type': 'application/json' } : {}) } });
     } catch (e) { return { status: 0, data: { error: 'Coder could not be reached. Check your connection.' } }; }
     const data = await r.json().catch(() => ({}));
+    if (r.status === 401 && (data.signin === true || data.error === 'sign in first')) {
+      if (data.signin !== true && !again) {
+        const fresh = await window.Auth.refresh(token);
+        if (fresh && fresh.access_token !== token) return call(path, init, true);
+        // THE RENEWAL ONLY FAILED FOR NOW (no network, Supabase busy or down): the
+        // session is kept and this call says so. Only a session the Worker said has
+        // ended (auth.js has then forgotten it) goes back to sign-in (the audit,
+        // 2026-11-06, after review).
+        if (window.Auth.isSignedIn()) return { status: 0, data: { error: 'Sign-in could not be checked. Try again in a minute.' } };
+      }
+      end();
+    }
     return { status: r.status, data };
   }
 
@@ -350,12 +372,12 @@
     const pics = (S.pics || []).slice();
     if ((!text && !comments.length && !pics.length) || !S.project || S.running || S.sending) return;
     S.comments = []; S.pics = []; S.mention = null;
-    S.sending = true; S.error = ''; S.draft = '';
+    S.sending = true; S.error = ''; S.draft = ''; S.unsent = text;
     const base = S.events.length;
     S.events.push({ type: 'user', text: text || (pics.length ? '(see the picture)' : '(comments on the changes)'), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}) });
     draw(true);
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), model: S.pick.model, effort: S.pick.effort }) });
-    S.sending = false;
+    S.sending = false; S.unsent = '';
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
       S.draft = text; S.pics = pics;

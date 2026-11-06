@@ -3,11 +3,24 @@
 // itself; now it calls /api/auth/* here, and only the Worker talks to Supabase.
 // The page keeps only its own session (the tokens Supabase hands back).
 //
-//   POST /api/auth/signin   { email, password }      password checked, then a code emailed
-//   POST /api/auth/verify   { email, code, type }    the emailed code → a session
-//   POST /api/auth/signup   { email, password }      a session, or "check your email"
-//   POST /api/auth/refresh  { refresh_token }        a fresh session
-//   POST /api/auth/logout   (Bearer token)           the session ended
+//   POST /api/auth/signin   { email, password }               password checked, then a code emailed; a ticket
+//   POST /api/auth/verify   { email, code, type, ticket }     the emailed code → a session and its proof
+//   POST /api/auth/signup   { email, password }               "check your email", with a ticket
+//   POST /api/auth/refresh  { refresh_token, proof }          a fresh session (and the proof, if it was valid)
+//   POST /api/auth/logout   (Bearer token)                    the session ended
+//
+// BOTH STEPS, EVERY TIME (the audit, 2026-11-06): the code is only taken with
+// the ticket from the password step, and only a session made by these two
+// steps gets the Worker's proof, without which Coder's routes answer "Sign in
+// again." (coder-auth.mjs). The password step's own Supabase session is ended
+// at once: it was only a way to check the password.
+//
+// AFTER REVIEW (the audit, 2026-11-06): the password step also wants the
+// password the Worker remembers for the account (one set at Supabase with the
+// inbox alone is refused), and the code step allows 5 code checks per email per
+// 15 minutes, counted before Supabase is asked. Both are kept in CODER_BUCKET,
+// so without the bucket nobody can sign in (fail closed).
+import { makeTicket, readTicket, proofFor, proofOk, proofReady, sessionIdOf, rememberedPassword, takeCodeTry, clearCodeCount } from "./coder-auth.mjs";
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/;
@@ -45,42 +58,92 @@ export async function handleSignin(request, env, { fetchFn = fetch } = {}) {
   };
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = typeof body.password === "string" ? body.password : "";
+  // A SESSION SUPABASE MADE ON THE WAY IS ENDED AT ONCE (the audit, 2026-11-06):
+  // only that one session ("scope=local", with its own token), never the default
+  // "global", which would sign the user out on every device. A token without a
+  // session id is left alone, in case Supabase took that as every session. Best
+  // effort: the code step does not depend on it.
+  const endThisSession = async (d) => {
+    const t = d && typeof d.access_token === "string" ? d.access_token : "";
+    if (t && sessionIdOf(t)) await gotrue("logout?scope=local", {}, t).catch(() => null);
+  };
   try {
     if (action === "signin") {
       if (!EMAIL.test(email) || !password) return json({ error: "Enter your email and password." }, 400);
+      // No proof key or bucket, no sign-in (fail closed), before Supabase is asked anything.
+      if (!(await proofReady(env)) || !env.CODER_BUCKET) return json({ error: "sign-in is not set up" }, 503);
       const p = await gotrue("token?grant_type=password", { email, password });
       if (!p.ok) return json({ error: why(p.d, "That email and password do not match.") }, 401);
+      await endThisSession(p.d);
+      // THE PASSWORD THE WORKER REMEMBERS (the audit, 2026-11-06, after review):
+      // Supabase taking it is not enough, since anyone with the inbox can set a
+      // new one there. A different one gets no code and no ticket.
+      const uid = p.d && p.d.user && typeof p.d.user.id === "string" ? p.d.user.id : "";
+      if (!uid) return json({ error: "Sign-in did not finish. Try again." }, 502);
+      if (!(await rememberedPassword(env, uid, password))) return json({ error: "That email and password do not match." }, 401);
       const c = await gotrue("otp", { email, create_user: false });
       if (!c.ok) return json({ error: why(c.d, "The code could not be sent. Try again in a minute.") }, 502);
-      return json({ ok: true, step: "code", type: "email" });
+      // The ticket says this email gave its password here; the code is only taken with it.
+      return json({ ok: true, step: "code", type: "email", ticket: await makeTicket(env, email, "email") });
     }
     if (action === "signup") {
       if (!EMAIL.test(email)) return json({ error: "Enter a valid email." }, 400);
       if (password.length < 6) return json({ error: "Use at least 6 characters for the password." }, 400);
+      if (!(await proofReady(env)) || !env.CODER_BUCKET) return json({ error: "sign-in is not set up" }, 503);
       const r = await gotrue("signup", { email, password });
       if (!r.ok) return json({ error: why(r.d, "The account could not be made.") }, 400);
-      const s = sessionOf(r.d);
-      if (s) return json({ ok: true, session: s });
+      // SUPABASE GAVE A SESSION AT ONCE (no email confirmation asked): it is
+      // ended, and a new account also needs the emailed code (the audit, 2026-11-06).
+      if (sessionOf(r.d)) {
+        await endThisSession(r.d);
+        const c = await gotrue("otp", { email, create_user: false });
+        if (!c.ok) return json({ error: why(c.d, "The code could not be sent. Try again in a minute.") }, 502);
+        return json({ ok: true, step: "code", type: "email", ticket: await makeTicket(env, email, "email") });
+      }
       const u = r.d && (r.d.user || r.d);
       if (u && Array.isArray(u.identities) && u.identities.length === 0) return json({ error: "That account already exists — sign in instead." }, 409);
-      return json({ ok: true, step: "code", type: "signup" });
+      // The password was set by this very request; the confirmation code comes by email.
+      return json({ ok: true, step: "code", type: "signup", ticket: await makeTicket(env, email, "signup") });
     }
     if (action === "verify") {
       const code = typeof body.code === "string" ? body.code.trim() : "";
       const type = body.type === "signup" ? "signup" : "email";
       if (!EMAIL.test(email) || !/^\d{4,10}$/.test(code)) return json({ error: "Enter the code from the email." }, 400);
+      // ONLY WITH THE PASSWORD STEP'S TICKET (the audit, 2026-11-06): genuine, not
+      // run out, for this email and this kind of code. Supabase is not asked otherwise.
+      const t = await readTicket(env, body.ticket);
+      if (!t || t.email !== email || t.type !== type) return json({ error: "Start again: enter your email and password.", restart: true }, 401);
+      // FIVE CODE CHECKS PER EMAIL PER 15 MINUTES (the audit, 2026-11-06, after
+      // review), taken before Supabase is asked; a new ticket does not reset them.
+      const go = await takeCodeTry(env, email);
+      if (go.off) return json({ error: "sign-in is not set up" }, 503);
+      if (go.wait) { const m = Math.ceil(go.wait / 60000); return json({ error: "Too many tries with the code. Wait " + m + (m === 1 ? " minute" : " minutes") + ", then start again.", restart: true }, 429); }
+      if (!go.ok) return json({ error: "Too many tries at once. Try again in a minute." }, 429);
       const r = await gotrue("verify", { type, email, token: code });
       const s = r.ok ? sessionOf(r.d) : null;
       if (!s) return json({ error: why(r.d, "That code did not work.") }, 401);
-      return json({ ok: true, session: s });
+      // THE PROOF that this session was made through both steps here.
+      const proof = await proofFor(env, sessionIdOf(s.access_token));
+      if (!proof) return json({ error: "Sign-in did not finish. Try again." }, 502);
+      // A right code: the count starts again.
+      await clearCodeCount(env, email);
+      return json({ ok: true, session: s, proof });
     }
     if (action === "refresh") {
       const rt = typeof body.refresh_token === "string" ? body.refresh_token : "";
       if (!rt || rt.length > 512) return json({ error: "no session" }, 400);
       const r = await gotrue("token?grant_type=refresh_token", { refresh_token: rt });
       const s = r.ok ? sessionOf(r.d) : null;
-      if (!s) return json({ error: "the session ended", ended: r.status >= 400 && r.status < 500 }, r.status >= 400 && r.status < 500 ? 401 : 502);
-      return json({ ok: true, session: s });
+      // ONLY SUPABASE'S REFUSAL ENDS THE SESSION. Busy (429, a rate limit) or down
+      // (5xx) only means "not now": the page keeps the session and tries again
+      // later (the audit, 2026-11-06, after review).
+      const ended = r.status >= 400 && r.status < 500 && r.status !== 429;
+      if (!s) return json(ended ? { error: "the session ended", ended: true } : { error: "The session could not be renewed. Try again in a minute.", ended: false }, ended ? 401 : 502);
+      // THE PROOF CARRIES OVER (the audit, 2026-11-06): Supabase keeps a session's
+      // id when it refreshes it, so a proof valid for the new token is handed back;
+      // any other is left out (and the page signs in again).
+      const keep = await proofOk(env, sessionIdOf(s.access_token), body.proof);
+      return json({ ok: true, session: s, ...(keep ? { proof: body.proof } : {}) });
     }
     if (action === "logout") {
       const h = request.headers.get("authorization") || "";
