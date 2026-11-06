@@ -4,6 +4,21 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Fix: Coder's machine could not start after the last deploy
+
+- My mistake in the deploy that matched the Environment to Claude Code's docs: the new file that signs and fetches tokens for secrets (coder-auth.mjs) was not on the list of files copied onto Coder's machine. The machine's program could not start, so every Coder job failed with "Failed to start container" from that deploy until this fix is deployed.
+- Fixed (one line in the container's Dockerfile), and a new test builds exactly the files the Dockerfile copies and checks the program starts, so a missing file fails the tests before any deploy.
+- The live check of the new Environment window itself passed: saving Trusted from the window, adding a secret with the Add secret form (listed without its value) and removing it all worked; the test repo is back to Full.
+
+## 2026-11-06: Desktop and phone apps, started
+
+- The plan (owner: "start making the desktop apps and mobile apps … so we don't stay behind"): the apps are gofarther.dev in their own window, like Claude's desktop app is claude.ai. So every feature built on the site shows up in the desktop and phone apps at once, with no separate app updates. The apps add what only apps can: their own icon, menu and shortcuts, and later notifications.
+- Phones, now: gofarther.dev can be installed from the phone's browser (iPhone: Share → Add to Home Screen; Android: menu → Install app). It opens full-screen with the GF icon, named Go Farther. Chrome's own check finds nothing stopping it.
+- Desktop, built and tested here: coder/desktop (Electron, what Claude's and VS Code's desktop apps use). One window; the usual menu (copy and paste on a Mac need it); links to other sites open in the browser; GitHub's sign-in stays inside so Connect GitHub works; a small offline page; only notifications and copying allowed. Inside the app the page hides its "Download for Mac / Windows" buttons.
+- A new button, "build desktop apps" (GitHub Actions), makes GoFarther-mac.dmg and GoFarther-windows.exe on GitHub's Mac and Windows machines. Free: the repository is public. By default it only keeps the files with the run; ticking "publish" makes a public release the front page's Download buttons can point to.
+- Not signed yet: that needs the Apple Developer Program ($99 a year, also needed for the iPhone app) and, optionally, a Windows certificate. Until then the Mac asks once in System Settings → Privacy & Security → "Open Anyway", and Windows shows "Windows protected your PC" → More info → Run anyway.
+- Next: the phone apps (Android first: it can be installed without a store; iPhone needs the Apple account). Google Play is $25 once.
+
 ## 2026-11-06: Environment matched to Claude Code's docs (1-7)
 
 Checked against code.claude.com/docs/en/cloud-environments.

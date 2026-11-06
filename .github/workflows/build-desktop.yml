@@ -1,0 +1,89 @@
+name: build desktop apps
+
+# GO FARTHER FOR MAC AND WINDOWS (owner, 2026-11-06: "start making the desktop
+# apps"). Pressed by hand, like the deploy button; a push starts nothing.
+# It builds the app in coder/desktop on GitHub's own Mac and Windows machines
+# (free: this repository is public) and keeps the two files with the run:
+#   GoFarther-mac.dmg        (Apple and Intel Macs)
+#   GoFarther-windows.exe    (Windows installer)
+# Tick "publish" to also put them in a public GitHub release, where the front
+# page's Download buttons can point:
+#   https://github.com/canias7/isibi-app/releases/latest/download/GoFarther-mac.dmg
+#   https://github.com/canias7/isibi-app/releases/latest/download/GoFarther-windows.exe
+# Not signed yet (that needs a paid Apple account and a Windows certificate):
+# the Mac asks once in System Settings → Privacy & Security → "Open Anyway";
+# Windows shows "Windows protected your PC" → More info → Run anyway.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish as a public download (GitHub release)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-desktop
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: mac
+            script: dist:mac
+            file: dist/GoFarther-mac.dmg
+          - os: windows-latest
+            name: windows
+            script: dist:win
+            file: dist/GoFarther-windows.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: coder/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: coder/desktop/package-lock.json
+      - name: Install the app's packages
+        run: npm ci --no-audit --no-fund
+      - name: Run the app's tests
+        run: npm test
+      - name: Build the ${{ matrix.name }} app
+        env:
+          # No paid signing certificate yet: never look for one.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoFarther-${{ matrix.name }}
+          path: coder/desktop/${{ matrix.file }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    if: ${{ inputs.publish }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          gh release create "desktop-${{ github.run_number }}" out/GoFarther-mac.dmg out/GoFarther-windows.exe \
+            --repo "${{ github.repository }}" --target "${{ github.sha }}" --latest \
+            --title "Go Farther for Mac and Windows (build ${{ github.run_number }})" \
+            --notes "Go Farther (Coder) desktop app. Not signed yet: on a Mac, allow it once in System Settings → Privacy & Security → Open Anyway; on Windows, More info → Run anyway."
