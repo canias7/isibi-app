@@ -1,0 +1,27 @@
+{
+  "appId": "dev.gofarther.app",
+  "appName": "Go Farther",
+  "webDir": "www",
+  "appendUserAgent": "GoFartherApp/0.1.0",
+  "backgroundColor": "#faf9f7",
+  "server": {
+    "url": "https://gofarther.dev",
+    "allowNavigation": [
+      "github.com"
+    ],
+    "errorPath": "offline.html"
+  },
+  "ios": {
+    "contentInset": "never"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover",
+      "style": "LIGHT"
+    }
+  }
+}

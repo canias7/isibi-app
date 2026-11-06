@@ -1,0 +1,76 @@
+name: build phone apps
+
+# GO FARTHER FOR ANDROID AND IPHONE (owner, 2026-11-06: "start making the
+# desktop apps and mobile apps"). Pressed by hand; a push starts nothing.
+# The app in coder/mobile (Capacitor) opens gofarther.dev, like the desktop app.
+# Free: this repository is public, so GitHub's Linux and Mac machines cost nothing.
+#   Android: GoFarther-android.apk, kept with the run. It installs on an
+#            Android phone directly (no store): open it, allow "install unknown apps".
+#   iPhone:  built for the iPhone simulator, to check it compiles. Putting it on
+#            a real iPhone (TestFlight) needs the owner's Apple certificates as
+#            GitHub secrets: the next step.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-mobile
+  cancel-in-progress: false
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coder/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: coder/mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install the app's packages
+        run: npm ci --no-audit --no-fund
+      - name: Run the app's tests
+        run: npm test
+      - name: Copy the app's settings into the Android project
+        run: npx cap sync android
+      - name: Build the Android app
+        working-directory: coder/mobile/android
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Name it
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk GoFarther-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoFarther-android
+          path: coder/mobile/GoFarther-android.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  iphone:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: coder/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: coder/mobile/package-lock.json
+      - name: Install the app's packages
+        run: npm ci --no-audit --no-fund
+      - name: Copy the app's settings into the iPhone project
+        run: npx cap sync ios
+      - name: Build the iPhone app (simulator, not signed)
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO build | tail -n 40
+          test "${PIPESTATUS[0]}" = "0"
