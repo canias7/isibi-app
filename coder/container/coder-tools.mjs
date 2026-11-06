@@ -7,7 +7,7 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
-import { readFile, writeFile, mkdir, realpath, stat, unlink, open as openFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile } from "node:fs/promises";
 import { resolve, dirname, relative, isAbsolute, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { lookup } from "node:dns/promises";
@@ -27,6 +27,16 @@ const fail = (m) => { throw new ToolError(m); };
 async function inside(p, { mustExist = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   const abs = resolve(ROOT, p);
+  // CODER'S OWN MEMORY FILE (owner, 2026-11-06): the one file outside the project
+  // the file tools may open, so remembering doesn't show a failed step. Only that
+  // exact path, and never through a link.
+  const mem = process.env.CODER_MEMORY_FILE;
+  if (mem && isAbsolute(mem) && abs === resolve(mem)) {
+    let st = null; try { st = await lstat(abs); } catch { /* not made yet */ }
+    if (st && !st.isFile()) fail("the memory file is not a plain file");
+    if (!st && mustExist) fail("no such file: " + abs);
+    return { abs, rel: abs };
+  }
   const rel = relative(ROOT, abs);
   if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
