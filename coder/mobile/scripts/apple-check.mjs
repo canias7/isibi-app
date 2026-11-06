@@ -1,0 +1,95 @@
+// BEFORE THE IPHONE BUILD (owner, 2026-11-06: "let me just give you the api"):
+// with the owner's App Store Connect API key (a GitHub secret, never shown),
+// register the app's ID with Apple if it is not there yet, and check the app
+// exists in App Store Connect, so the build stops at once with a plain message
+// instead of failing at the end. Apple's API cannot create the app itself:
+// that one step is the owner's, in App Store Connect.
+//
+//   KID, ISS          the key's ID and issuer ID
+//   KEY_PATH          the key file (AuthKey_….p8), put there for this run only
+//   BUNDLE_ID         dev.gofarther.app      APP_NAME   Go Farther
+import { readFileSync } from "node:fs";
+import { createPrivateKey, sign } from "node:crypto";
+
+const API = "https://api.appstoreconnect.apple.com/v1";
+
+/** A short-lived token for Apple's API, signed with the key (ES256), 15 minutes. */
+export function appleToken({ kid, iss, key, now = Date.now() }) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const t = Math.floor(now / 1000);
+  const data = b64({ alg: "ES256", kid, typ: "JWT" }) + "." + b64({ iss, iat: t, exp: t + 900, aud: "appstoreconnect-v1" });
+  const sig = sign("sha256", Buffer.from(data), { key: createPrivateKey(key), dsaEncoding: "ieee-p1363" }).toString("base64url");
+  return data + "." + sig;
+}
+
+/**
+ * Register the ID if needed; say whether the app exists; with `create`, try to
+ * make the app in App Store Connect too (owner, 2026-11-06: "can't you do
+ * that"). Returns { registered, appExists, created, createError }.
+ */
+export async function appleCheck({ kid, iss, key, bundleId, appName, sku = "gofarther", locale = "en-US", create = false, fetchFn = fetch, log = console.log }) {
+  const token = appleToken({ kid, iss, key });
+  const call = async (method, path, body) => {
+    const r = await fetchFn(API + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const why = (j.errors && j.errors[0] && (j.errors[0].detail || j.errors[0].title)) || ("HTTP " + r.status);
+      // A 403 for an action Apple's API never allows ("does not allow 'CREATE'") is not about the key's role.
+      const hint = r.status === 401 ? " (check APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and APPLE_API_KEY_P8)" : r.status === 403 && !/does not allow/i.test(why) ? " (the key needs the Admin or App Manager role)" : "";
+      throw new Error("Apple said: " + why + hint);
+    }
+    return j;
+  };
+  const found = await call("GET", "/bundleIds?filter[identifier]=" + encodeURIComponent(bundleId) + "&limit=200");
+  let registered = false;
+  let bundle = (found.data || []).find((d) => d.attributes && d.attributes.identifier === bundleId);
+  if (!bundle) {
+    const made = await call("POST", "/bundleIds", { data: { type: "bundleIds", attributes: { identifier: bundleId, name: appName, platform: "IOS" } } });
+    bundle = made.data; registered = true;
+    log("Registered the app ID " + bundleId + " with Apple.");
+  } else log("The app ID " + bundleId + " is already registered with Apple.");
+  const apps = await call("GET", "/apps?filter[bundleId]=" + encodeURIComponent(bundleId) + "&limit=1");
+  let appExists = (apps.data || []).length > 0, created = false, createError = "";
+  log(appExists ? "The app is in App Store Connect." : "The app is not in App Store Connect yet.");
+  if (!appExists && create) {
+    try {
+      await call("POST", "/apps", { data: { type: "apps", attributes: { name: appName, sku, primaryLocale: locale, bundleId }, relationships: { bundleId: { data: { type: "bundleIds", id: bundle && bundle.id } } } } });
+      appExists = true; created = true;
+      log("Made the app " + appName + " in App Store Connect.");
+    } catch (e) { createError = String(e.message || e); log("Apple did not let the key make the app: " + createError); }
+  }
+  return { registered, appExists, created, createError };
+}
+
+/** The app's latest builds as Apple sees them: version, build number, processing state, upload time. */
+export async function buildStatus({ kid, iss, key, bundleId, fetchFn = fetch, log = console.log }) {
+  const token = appleToken({ kid, iss, key });
+  const get = async (path) => {
+    const r = await fetchFn(API + path, { headers: { authorization: "Bearer " + token } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error("Apple said: " + ((j.errors && j.errors[0] && (j.errors[0].detail || j.errors[0].title)) || "HTTP " + r.status));
+    return j;
+  };
+  const apps = await get("/apps?filter[bundleId]=" + encodeURIComponent(bundleId) + "&limit=1");
+  const app = (apps.data || [])[0];
+  if (!app) { log("The app is not in App Store Connect."); return []; }
+  const b = await get("/builds?filter[app]=" + encodeURIComponent(app.id) + "&sort=-uploadedDate&limit=5&fields[builds]=version,uploadedDate,processingState,expired");
+  const rows = (b.data || []).map((x) => ({ build: x.attributes.version, state: x.attributes.processingState, uploaded: x.attributes.uploadedDate, expired: !!x.attributes.expired }));
+  log("App " + (app.attributes && app.attributes.name ? app.attributes.name : app.id) + ": " + (rows.length ? rows.length + " recent build(s)" : "no builds yet"));
+  for (const r of rows) log("  build " + r.build + ": " + r.state + (r.expired ? " (expired)" : "") + ", uploaded " + r.uploaded);
+  return rows;
+}
+
+if (import.meta.url === "file://" + process.argv[1]) {
+  const { KID, ISS, KEY_PATH, BUNDLE_ID = "dev.gofarther.app", APP_NAME = "Go Farther" } = process.env;
+  if (process.env.STATUS === "1") {
+    buildStatus({ kid: KID, iss: ISS, key: readFileSync(KEY_PATH, "utf8"), bundleId: BUNDLE_ID }).catch((e) => { console.log("::error::" + String(e.message || e)); process.exit(1); });
+  } else appleCheck({ kid: KID, iss: ISS, key: readFileSync(KEY_PATH, "utf8"), bundleId: BUNDLE_ID, appName: APP_NAME, create: process.env.CREATE_APP === "1" })
+    .then(({ appExists, createError }) => {
+      if (!appExists) {
+        console.log("::error::" + (createError ? "Apple did not let the key make the app (" + createError + "). " : "") + "Create the app in App Store Connect first: https://appstoreconnect.apple.com/apps → + → New App → iOS, name " + APP_NAME + ", Bundle ID " + BUNDLE_ID + ", any SKU (e.g. gofarther). Then press the button again.");
+        process.exit(1);
+      }
+    })
+    .catch((e) => { console.log("::error::" + String(e.message || e)); process.exit(1); });
+}

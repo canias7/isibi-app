@@ -6,12 +6,30 @@ name: build phone apps
 # Free: this repository is public, so GitHub's Linux and Mac machines cost nothing.
 #   Android: GoFarther-android.apk, kept with the run. It installs on an
 #            Android phone directly (no store): open it, allow "install unknown apps".
-#   iPhone:  built for the iPhone simulator, to check it compiles. Putting it on
-#            a real iPhone (TestFlight) needs the owner's Apple certificates as
-#            GitHub secrets: the next step.
+#   iPhone:  built for the iPhone simulator, to check it compiles.
+#            Tick "testflight" to sign it and send it to TestFlight instead, to
+#            install on a real iPhone. That needs four GitHub secrets the owner
+#            adds (names only here, never values):
+#              APPLE_TEAM_ID          the Apple Developer team ID (10 characters)
+#              APPLE_API_KEY_ID       an App Store Connect API key's ID
+#              APPLE_API_ISSUER_ID    that key's issuer ID
+#              APPLE_API_KEY_P8       the key file's contents (AuthKey_….p8)
+#            With the key, the run registers the app ID (dev.gofarther.app) with
+#            Apple if needed, and Apple signs the app itself (cloud signing): no
+#            certificate files are copied anywhere. The app must exist in App
+#            Store Connect (Apple's API cannot create it); the run says so plainly.
 
 on:
   workflow_dispatch:
+    inputs:
+      testflight:
+        description: "Sign the iPhone app and send it to TestFlight"
+        type: boolean
+        default: false
+      status:
+        description: "Only ask Apple how the latest iPhone builds are doing (nothing is built)"
+        type: boolean
+        default: false
 
 concurrency:
   group: build-mobile
@@ -19,6 +37,7 @@ concurrency:
 
 jobs:
   android:
+    if: ${{ !inputs.status }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,6 +72,7 @@ jobs:
           retention-days: 30
 
   iphone:
+    if: ${{ !inputs.testflight && !inputs.status }}
     runs-on: macos-latest
     defaults:
       run:
@@ -70,7 +90,127 @@ jobs:
         run: npx cap sync ios
       - name: Build the iPhone app (simulator, not signed)
         run: |
+          set -o pipefail
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
             -sdk iphonesimulator -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO build | tail -n 40
-          test "${PIPESTATUS[0]}" = "0"
+
+  testflight:
+    if: ${{ inputs.testflight && !inputs.status }}
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: coder/mobile
+    steps:
+      - name: Check the Apple secrets are there
+        # Runs before the code is checked out, so not in coder/mobile.
+        working-directory: ${{ runner.temp }}
+        env:
+          A: ${{ secrets.APPLE_TEAM_ID }}
+          B: ${{ secrets.APPLE_API_KEY_ID }}
+          C: ${{ secrets.APPLE_API_ISSUER_ID }}
+          D: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          # A space or a new line pasted along with a value is dropped.
+          TEAM=$(printf '%s' "$A" | tr -d '[:space:]')
+          KID=$(printf '%s' "$B" | tr -d '[:space:]')
+          ISS=$(printf '%s' "$C" | tr -d '[:space:]')
+          missing=""
+          [ -n "$TEAM" ] || missing="$missing APPLE_TEAM_ID"
+          [ -n "$KID" ] || missing="$missing APPLE_API_KEY_ID"
+          [ -n "$ISS" ] || missing="$missing APPLE_API_ISSUER_ID"
+          [ -n "$D" ] || missing="$missing APPLE_API_KEY_P8"
+          if [ -n "$missing" ]; then echo "::error::Missing GitHub secrets:$missing"; exit 1; fi
+          bad=""
+          printf '%s' "$TEAM" | grep -Eq '^[A-Z0-9]{10}$' || bad="$bad APPLE_TEAM_ID (10 letters and numbers, from Membership details)"
+          printf '%s' "$KID" | grep -Eq '^[A-Z0-9]{10}$' || bad="$bad APPLE_API_KEY_ID (10 letters and numbers, the KEY ID of the key)"
+          printf '%s' "$ISS" | grep -Eqi '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || bad="$bad APPLE_API_ISSUER_ID (the long Issuer ID with dashes)"
+          printf '%s' "$D" | grep -q 'BEGIN PRIVATE KEY' || bad="$bad APPLE_API_KEY_P8 (the whole .p8 file, with its BEGIN and END lines)"
+          if [ -n "$bad" ]; then echo "::error::These GitHub secrets don't look right:$bad"; exit 1; fi
+          for v in "$TEAM" "$KID" "$ISS"; do echo "::add-mask::$v"; done
+          { echo "TEAM=$TEAM"; echo "KID=$KID"; echo "ISS=$ISS"; } >> "$GITHUB_ENV"
+          echo "All Apple secrets present."
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: coder/mobile/package-lock.json
+      - name: Install the app's packages
+        run: npm ci --no-audit --no-fund
+      - name: Copy the app's settings into the iPhone project
+        run: npx cap sync ios
+      - name: Put the App Store Connect key in place (for this run only)
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+          chmod 600 "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+      - name: Register the app ID with Apple and check the app is in App Store Connect
+        # It also tries to make the app in App Store Connect if it isn't there (owner: "can't you do that").
+        run: CREATE_APP=1 KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KID.p8" node scripts/apple-check.mjs
+      - name: Build and sign the iPhone app (Apple's cloud signing)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination "generic/platform=iOS" -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$KID.p8" \
+            -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" \
+            archive | tail -n 40
+      - name: Send it to TestFlight
+        run: |
+          set -o pipefail
+          # The export settings, made with Apple's own tool (no hand-written XML).
+          P="$RUNNER_TEMP/ExportOptions.plist"
+          plutil -create xml1 "$P"
+          plutil -insert method -string app-store-connect "$P"
+          plutil -insert destination -string upload "$P"
+          plutil -insert teamID -string "$TEAM" "$P"
+          plutil -insert signingStyle -string automatic "$P"
+          plutil -insert uploadSymbols -bool YES "$P"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$KID.p8" \
+            -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" | tail -n 40
+      - name: Remove the key
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: rm -rf "$RUNNER_TEMP/keys"
+
+  # THE BUILDS' STATUS (owner, 2026-11-06: "it's not in TestFlight"): Apple's own
+  # view of the latest builds (PROCESSING, VALID, INVALID…), read with the key.
+  apple-status:
+    if: ${{ inputs.status }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coder/mobile
+    steps:
+      - name: Check the Apple secrets are there
+        working-directory: ${{ runner.temp }}
+        env:
+          B: ${{ secrets.APPLE_API_KEY_ID }}
+          C: ${{ secrets.APPLE_API_ISSUER_ID }}
+          D: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          KID=$(printf '%s' "$B" | tr -d '[:space:]')
+          ISS=$(printf '%s' "$C" | tr -d '[:space:]')
+          if [ -z "$KID" ] || [ -z "$ISS" ] || [ -z "$D" ]; then echo "::error::Missing Apple GitHub secrets"; exit 1; fi
+          for v in "$KID" "$ISS"; do echo "::add-mask::$v"; done
+          { echo "KID=$KID"; echo "ISS=$ISS"; } >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - name: Put the App Store Connect key in place (for this run only)
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+          chmod 600 "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+      - name: Ask Apple about the latest builds
+        run: STATUS=1 KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KID.p8" node scripts/apple-check.mjs
+      - name: Remove the key
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: rm -rf "$RUNNER_TEMP/keys"

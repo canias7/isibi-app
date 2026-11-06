@@ -33,6 +33,8 @@ export const REVIEW_TEXT = {
 export const TOOLS_SCRIPT = fileURLToPath(new URL("./coder-tools.mjs", import.meta.url));
 /** The most a Write may hold in one call (it travels as one command argument). */
 export const WRITE_MAX = 1_000_000;
+/** Commands that need root, which the setup script (run as `dev`) never has (live test, 2026-11-06: Coder proposed `sudo apt-get install -y jq`). */
+export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitude|dpkg|yum|dnf|apk|zypper|pacman)(?=\s|$)/m;
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 export const RUN_TOOLS = {
   read: { verb: "Read", label: (a) => a.path + (a.offset ? " from line " + a.offset : "") },
@@ -58,7 +60,7 @@ export const CODER_TOOLS = Object.freeze([
   fn("monitor", "Read what a background job (from bash with run_in_background) has printed: the newest lines, and whether it is still running. wait_s (0-60) waits first, to let it get going.", { job: { type: "string" }, wait_s: { type: "integer" }, lines: { type: "integer" } }, ["job"]),
   fn("stop_job", "Stop a background job by its id. Every job is also stopped when your turn ends.", { job: { type: "string" } }, ["job"]),
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved for this repo and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
-  fn("propose_env", "Propose a change to this repo's environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys); use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the repo's network list, when a request was blocked by it. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host"] }, script: { type: "string", description: "setup_script: the whole new script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
+  fn("propose_env", "Propose a change to this repo's environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start, as your own user without root: no sudo, apt-get or other system package managers; install into the project instead, e.g. npm ci or a Python virtualenv; it cannot read the owner's variables or keys); use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the repo's network list, when a request was blocked by it. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host"] }, script: { type: "string", description: "setup_script: the whole new script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
   fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
   fn("undo_last_job", "Undo the last job that changed files in this chat: its commit is reverted on the branch and pushed when your turn ends. Use it only when the owner asks to undo or revert what you did last; do not make other changes in the same turn. Your turn ends here.", {}, []),
   fn("ask_user", "Ask the owner ONE multiple-choice question when you truly cannot choose for them (e.g. which of two designs, whether to delete something). Give 2 to 4 short options. Your turn ends there; their pick comes back as the next message. Do not use it for things you can decide yourself.", { question: { type: "string" }, options: { type: "array", items: { type: "string" } } }, ["question", "options"]),
@@ -107,7 +109,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - THE OWNER'S STYLE, when it is given to you below, overrides the default above: follow it in every answer, as if they just asked for it.
 - While working, a short line before a group of steps says what you are doing; no running commentary on every command.
 - API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, call request_secret for that exact host RIGHT AWAY (e.g. api.stripe.com, prefix Bearer). Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key. Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY).
-- THE REPO'S ENVIRONMENT (setup script, network list) is changed only with propose_env, which the owner approves on a card: (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; (b) when THE SETUP SCRIPT FAILED, say which command failed and its exit code, then propose a fixed script; (c) when a request was "Blocked by this repo's network list" (curl shows it as "CONNECT tunnel failed, response 403"), propose allow_host for that exact host. Never tell the owner to edit settings themselves instead.
+- THE REPO'S ENVIRONMENT (setup script, network list) is changed only with propose_env, which the owner approves on a card: (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; (b) when THE SETUP SCRIPT FAILED, say which command failed and its exit code, then propose a fixed script (it runs as your own user without root, so never put sudo or apt-get in it); (c) when a request was "Blocked by this repo's network list" (curl shows it as "CONNECT tunnel failed, response 403"), propose allow_host for that exact host. Never tell the owner to edit settings themselves instead.
 - When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
 - If you are told the owner is coming back after a break, start your answer with a one-line recap of where this chat stands (under 400 characters), then answer.`;
@@ -132,7 +134,7 @@ export function readCalls(msg) {
  * Answers `{ status, messages, summary, rounds, usage }`, `status` one of
  * `done`, `stopped`, `rounds`, `time`, `send`, `no-tool`. It never throws.
  */
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", setupScript = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", setupScript = "", setupFailed = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -152,6 +154,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
   // reminded once, before it finishes, to offer them for the setup script.
   const installs = new Set(); let nudged = false;
+  // A SETUP SCRIPT THAT FAILED before this job (live test, 2026-11-06: Coder
+  // was told in its instructions, yet answered as if nothing had happened).
+  // Like the installs above, it is reminded once, before it finishes, to say
+  // which command failed and to propose a fix on the card.
+  let setupNudged = false;
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
   // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
   const jobs = new Map();
@@ -182,6 +189,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
+    if (!calls.length && setupFailed && !setupNudged && !github && !undoRequest) {
+      setupNudged = true;
+      if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
+      const why = setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code;
+      convo.push({ role: "user", content: "(Note from Coder's app, not the owner: the repo's setup script FAILED before this job (" + why + "). Its last output:\n" + String(setupFailed.output || "(none)").slice(-1500) + "\nBefore you finish: say in one line which command failed and why, then propose the whole fixed script with propose_env (kind setup_script). It runs as your own user without root, so no sudo or apt-get.)" });
+      continue;
+    }
     const missing = [...installs].filter((x) => !String(setupScript).includes(x));
     if (!calls.length && missing.length && !nudged && !github && !undoRequest) {
       nudged = true;
@@ -275,6 +289,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (kind === "setup_script") {
           const script = String(c.args.script || "").replace(/\r/g, "").trim();
           if (!script || script.length > 20000) { reply("error: give the whole new setup script (under 20000 characters)"); continue; }
+          if (NEEDS_ROOT_RE.test(script)) { reply("error: the setup script runs as your own user, without root: sudo and system package managers (apt-get, apt, dpkg, yum, dnf, apk) cannot work in it. This machine already has git, build tools, Python 3 with pip and venv, Node 22 with npm, curl, jq, ripgrep, zip and unzip. Install into the project instead (npm ci, or python3 -m venv .venv and .venv/bin/pip install ...), then propose the script again."); continue; }
           change = { kind, script };
         } else if (kind === "allow_host") {
           const host = okHost(c.args.host);
