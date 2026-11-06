@@ -9,6 +9,17 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-06: A job keeps going when you close the tab (like Claude Code)
+
+- From your screenshots: item 1, "Closing the tab", which I had missed. Before, Coder's machine went to sleep after 10 minutes with no tab open, and the job was lost. A finished job was also only saved while a tab was open.
+- **Now each job goes on a watch list when it starts.** Every minute, Coder's server checks each job on the list:
+  - this keeps the job's machine awake;
+  - when the job ends, the server saves it just as an open tab would: pushed to its branch, the chat kept, and Coder remembers it next time.
+- A job comes off the list when it ends, or after 2 hours (a job works for 45 minutes at most).
+- While Coder works, the message box says "Coder is working… you can close this tab".
+- If a tab stays open while the job is saved somewhere else, it loads the saved chat by itself, with the "Saved to the branch" line.
+- Tests: CD112 to CD114. 123 in all, all passing. On the branch, not deployed.
+
 ## 2026-11-06: Deployed: audit items 3 and 4, and Coder like Claude Code
 
 - Your word: "Merge and deploy". Merged into main (3d57f2b4) and deployed (run 42306004077), with the admin-only safety tests passing on GitHub too.

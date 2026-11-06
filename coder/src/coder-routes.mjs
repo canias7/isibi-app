@@ -34,6 +34,7 @@ import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, n
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
+import { watchJob, watchKey } from "./coder-watch.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -455,6 +456,9 @@ export async function handleCoder(request, env, ctx, deps) {
     // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
     // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
     if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
+    // ON THE WATCH LIST (like Claude Code, 2026-11-06): the job keeps going and
+    // is saved when it ends, even after the tab is closed (coder-watch.mjs).
+    await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
     return json({ ok: true, project: next });
   }
 
@@ -462,6 +466,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
     let s = null;
     try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }
+    // An ended job leaves the watch list at once (coder-watch.mjs).
+    const unwatch = () => (typeof bucket.delete === "function" ? bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {}) : null);
     // A CHAT NEVER STAYS "WORKING" FOR GOOD (the audit): a machine that lost the
     // turn (restarted, slept) frees it at once; one that never answers frees it
     // after STALE_MS.
@@ -471,6 +477,7 @@ export async function handleCoder(request, env, ctx, deps) {
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
       const idle = { ...meta, status: "idle", saved: meta.turn, at: Date.now() };
       await saveMeta(bucket, uid, idle);
+      await unwatch();
       return json({ ok: true, events: [ev], next: since, running: false, project: idle });
     };
     if (!s) {
@@ -574,9 +581,13 @@ export async function handleCoder(request, env, ctx, deps) {
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await saveMeta(bucket, uid, ended);
+      await unwatch();
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
     }
-    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta });
+    // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
+    // was open): the page loads the saved chat, which has the save's own lines.
+    const elsewhere = !!s.result && !s.running && meta.status !== "running";
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, ...(elsewhere ? { reload: true } : {}) });
   }
 
   // WHAT CODER CHANGED (the "See changes" button): its branch against the main
@@ -898,6 +909,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
       await putJson(bucket, keyOf(uid, id, "events.json"), [...old, { at: Date.now(), type: "stopped" }].slice(-MAX_EVENTS));
       await saveMeta(bucket, uid, { ...meta, status: "idle", saved: meta.turn, at: Date.now() });
+      if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {});
     }
     return json({ ok: true });
   }

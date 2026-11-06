@@ -9,6 +9,7 @@ code in **each user's own GitHub**.
 | `wrangler.jsonc` | Its config: addresses, container, bucket, settings |
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
+| `src/coder-watch.mjs` | The watch list: every minute, each running job is kept awake and saved when it ends, with or without an open tab |
 | `src/coder-github.mjs` | Sign in with GitHub, the user's token (encrypted), repositories, pull requests |
 | `src/coder-auth.mjs` | Go Farther sign-in (Supabase), the Worker's proof that both steps (password, then the emailed code) happened, the password it remembers and the count of code checks |
 | `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
@@ -28,6 +29,15 @@ code in **each user's own GitHub**.
 4. When a piece of work ends, Coder commits, pushes the branch and opens a
    **pull request** into the main branch. The user merges it on GitHub. Coder
    never pushes to the main branch.
+
+**A job keeps going when the tab is closed** (like Claude Code, 2026-11-06).
+Each job goes on a watch list (`coder/running-jobs/` in Coder's storage) when
+it starts. Every minute the Worker asks Coder's machine about each one, as its
+owner, through the same route the page uses. That keeps the machine awake (it
+sleeps after 10 quiet minutes) and saves the job when it ends: pushed to its
+branch, the whole chat kept. A tab and the minute's run never save a job twice
+(the machine hands its end out once). A job leaves the list when it ends, or
+after 2 hours (a job works for 45 minutes at most).
 
 **Sign-in is both steps, every time** (the audit, 2026-11-06). The password
 step gives the page a 15-minute ticket and ends Supabase's own session for it;
