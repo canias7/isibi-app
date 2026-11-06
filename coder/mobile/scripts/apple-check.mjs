@@ -61,9 +61,30 @@ export async function appleCheck({ kid, iss, key, bundleId, appName, sku = "gofa
   return { registered, appExists, created, createError };
 }
 
+/** The app's latest builds as Apple sees them: version, build number, processing state, upload time. */
+export async function buildStatus({ kid, iss, key, bundleId, fetchFn = fetch, log = console.log }) {
+  const token = appleToken({ kid, iss, key });
+  const get = async (path) => {
+    const r = await fetchFn(API + path, { headers: { authorization: "Bearer " + token } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error("Apple said: " + ((j.errors && j.errors[0] && (j.errors[0].detail || j.errors[0].title)) || "HTTP " + r.status));
+    return j;
+  };
+  const apps = await get("/apps?filter[bundleId]=" + encodeURIComponent(bundleId) + "&limit=1");
+  const app = (apps.data || [])[0];
+  if (!app) { log("The app is not in App Store Connect."); return []; }
+  const b = await get("/builds?filter[app]=" + encodeURIComponent(app.id) + "&sort=-uploadedDate&limit=5&fields[builds]=version,uploadedDate,processingState,expired");
+  const rows = (b.data || []).map((x) => ({ build: x.attributes.version, state: x.attributes.processingState, uploaded: x.attributes.uploadedDate, expired: !!x.attributes.expired }));
+  log("App " + (app.attributes && app.attributes.name ? app.attributes.name : app.id) + ": " + (rows.length ? rows.length + " recent build(s)" : "no builds yet"));
+  for (const r of rows) log("  build " + r.build + ": " + r.state + (r.expired ? " (expired)" : "") + ", uploaded " + r.uploaded);
+  return rows;
+}
+
 if (import.meta.url === "file://" + process.argv[1]) {
   const { KID, ISS, KEY_PATH, BUNDLE_ID = "dev.gofarther.app", APP_NAME = "Go Farther" } = process.env;
-  appleCheck({ kid: KID, iss: ISS, key: readFileSync(KEY_PATH, "utf8"), bundleId: BUNDLE_ID, appName: APP_NAME, create: process.env.CREATE_APP === "1" })
+  if (process.env.STATUS === "1") {
+    buildStatus({ kid: KID, iss: ISS, key: readFileSync(KEY_PATH, "utf8"), bundleId: BUNDLE_ID }).catch((e) => { console.log("::error::" + String(e.message || e)); process.exit(1); });
+  } else appleCheck({ kid: KID, iss: ISS, key: readFileSync(KEY_PATH, "utf8"), bundleId: BUNDLE_ID, appName: APP_NAME, create: process.env.CREATE_APP === "1" })
     .then(({ appExists, createError }) => {
       if (!appExists) {
         console.log("::error::" + (createError ? "Apple did not let the key make the app (" + createError + "). " : "") + "Create the app in App Store Connect first: https://appstoreconnect.apple.com/apps → + → New App → iOS, name " + APP_NAME + ", Bundle ID " + BUNDLE_ID + ", any SKU (e.g. gofarther). Then press the button again.");

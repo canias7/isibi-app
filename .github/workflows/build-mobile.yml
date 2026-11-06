@@ -26,6 +26,10 @@ on:
         description: "Sign the iPhone app and send it to TestFlight"
         type: boolean
         default: false
+      status:
+        description: "Only ask Apple how the latest iPhone builds are doing (nothing is built)"
+        type: boolean
+        default: false
 
 concurrency:
   group: build-mobile
@@ -33,6 +37,7 @@ concurrency:
 
 jobs:
   android:
+    if: ${{ !inputs.status }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -67,7 +72,7 @@ jobs:
           retention-days: 30
 
   iphone:
-    if: ${{ !inputs.testflight }}
+    if: ${{ !inputs.testflight && !inputs.status }}
     runs-on: macos-latest
     defaults:
       run:
@@ -91,7 +96,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO build | tail -n 40
 
   testflight:
-    if: ${{ inputs.testflight }}
+    if: ${{ inputs.testflight && !inputs.status }}
     runs-on: macos-latest
     defaults:
       run:
@@ -169,6 +174,42 @@ jobs:
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
             -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$KID.p8" \
             -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" | tail -n 40
+      - name: Remove the key
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: rm -rf "$RUNNER_TEMP/keys"
+
+  # THE BUILDS' STATUS (owner, 2026-11-06: "it's not in TestFlight"): Apple's own
+  # view of the latest builds (PROCESSING, VALID, INVALID…), read with the key.
+  apple-status:
+    if: ${{ inputs.status }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: coder/mobile
+    steps:
+      - name: Check the Apple secrets are there
+        working-directory: ${{ runner.temp }}
+        env:
+          B: ${{ secrets.APPLE_API_KEY_ID }}
+          C: ${{ secrets.APPLE_API_ISSUER_ID }}
+          D: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          KID=$(printf '%s' "$B" | tr -d '[:space:]')
+          ISS=$(printf '%s' "$C" | tr -d '[:space:]')
+          if [ -z "$KID" ] || [ -z "$ISS" ] || [ -z "$D" ]; then echo "::error::Missing Apple GitHub secrets"; exit 1; fi
+          for v in "$KID" "$ISS"; do echo "::add-mask::$v"; done
+          { echo "KID=$KID"; echo "ISS=$ISS"; } >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - name: Put the App Store Connect key in place (for this run only)
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+          chmod 600 "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+      - name: Ask Apple about the latest builds
+        run: STATUS=1 KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KID.p8" node scripts/apple-check.mjs
       - name: Remove the key
         if: always()
         working-directory: ${{ runner.temp }}

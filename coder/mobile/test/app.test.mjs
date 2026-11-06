@@ -106,3 +106,21 @@ test("M5 (live run, 2026-11-06) the Apple check runs before the code is there, n
   const bad = run({ ...good, A: "my team", D: "not a key" });
   assert.notEqual(bad.code, 0); assert.match(bad.out, /APPLE_TEAM_ID \(10 letters and numbers[\s\S]*APPLE_API_KEY_P8 \(the whole \.p8 file/);
 });
+
+test("M6 build status: Apple's view of the latest builds (version, processing state), read with the key", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { buildStatus } = await import("../scripts/apple-check.mjs");
+  const key = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" });
+  const seen = []; const lines = [];
+  const fetchFn = async (url) => {
+    seen.push(url.replace("https://api.appstoreconnect.apple.com/v1", ""));
+    if (url.includes("/apps?")) return new Response(JSON.stringify({ data: [{ id: "APP1", attributes: { name: "GOFARTHER" } }] }));
+    if (url.includes("/builds?")) return new Response(JSON.stringify({ data: [{ attributes: { version: "12", processingState: "PROCESSING", uploadedDate: "2026-11-06T05:07:59Z", expired: false } }] }));
+    return new Response("{}", { status: 404 });
+  };
+  const rows = await buildStatus({ kid: "K", iss: "I", key, bundleId: "dev.gofarther.app", fetchFn, log: (l) => lines.push(l) });
+  assert.deepEqual(rows, [{ build: "12", state: "PROCESSING", uploaded: "2026-11-06T05:07:59Z", expired: false }]);
+  assert.match(seen[1], /^\/builds\?filter\[app\]=APP1&sort=-uploadedDate/);
+  assert.match(lines.join("\n"), /App GOFARTHER: 1 recent build\(s\)\n  build 12: PROCESSING, uploaded 2026-11-06T05:07:59Z/);
+});
+
