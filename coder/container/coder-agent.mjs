@@ -148,7 +148,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const usage = [];
   const started = now();
   let rounds = 0;
-  let prRequest = null, undoRequest = false;
+  let prRequest = null, undoRequest = false, lastSaid = "";
   // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
   // reminded once, before it finishes, to offer them for the setup script.
   const installs = new Set(); let nudged = false;
@@ -185,12 +185,12 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     const missing = [...installs].filter((x) => !String(setupScript).includes(x));
     if (!calls.length && missing.length && !nudged && !github && !undoRequest) {
       nudged = true;
-      if (said) emit({ type: "text", text: scrub(said) });
+      if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
       convo.push({ role: "user", content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + ", which the repo's setup script does not do. If every new chat will need it, propose the whole setup script with it added, using propose_env (kind setup_script). If not, just say you are done.)" });
       continue;
     }
     if (!calls.length) { emit({ type: "done", text: scrub(said) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
-    if (said) emit({ type: "text", text: scrub(said) });
+    if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
 
     for (const c of calls) if (c.name === "bash" && c.args && typeof c.args.command === "string") for (const m of c.args.command.matchAll(INSTALL_RE)) installs.add(m[1]);
     for (let i = 0; i < calls.length; i++) {
@@ -243,7 +243,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reply("asked the owner for a key for " + host + "; the next message says whether it was saved");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a key first" });
         emit({ type: "secret", host, reason: scrub(String(c.args.reason || "")).trim().slice(0, 300), name: scrub(String(c.args.name || "")).trim().slice(0, 60), header, prefix });
-        return end("done", { summary: "asked for a key for " + host });
+        return end("done", { summary: lastSaid || "asked for a key for " + host });
       } else if (c.name === "review") {
         // A REVIEW, CALLED BY CODER ITSELF (owner, 2026-11-06: "tools called by the model, not front-end stuff").
         const kind = c.args.kind === "security" ? "security" : "code";
@@ -284,7 +284,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reply("proposed to the owner; their answer is the next message");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you proposed an environment change first" });
         emit({ type: "envchange", ...change, reason });
-        return end("done", { summary: kind === "allow_host" ? "asked to allow " + change.host : "proposed a new setup script" });
+        return end("done", { summary: lastSaid || (kind === "allow_host" ? "asked to allow " + change.host : "proposed a new setup script") });
       } else if (c.name === "ask_user") {
         // A QUESTION FOR THE OWNER: the turn ends here; their pick is the next message.
         const question = scrub(String(c.args.question || "")).trim().slice(0, 500);
@@ -293,7 +293,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reply("asked the owner; their answer comes as the next message");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner a question first" });
         emit({ type: "question", text: question, options });
-        return end("done", { summary: question });
+        return end("done", { summary: lastSaid || question });
       } else if (RUN_TOOLS[c.name]) {
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
         const spec = RUN_TOOLS[c.name];

@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Live test fixes: no node_modules on the branch, paragraphs, commit titles
+
+- Live test passed: the setup-script offer after `npm install` (card shown; Decline kept the script), no Review/Undo buttons in the top bar, "do a security review" used Coder's review tool, "undo that last job" reverted it, answers show bullet lists.
+- Found and fixed: (1) a job's `npm install` put node_modules and npm's cache on the branch; installed packages and caches are now never committed (Python, Rust and Yarn ones too). (2) When Grok's answer came in two parts (before and after a web search) they ran together ("tips.- Keep"); now two paragraphs. (3) A job that ended with a card got a commit titled "proposed a new setup script"; it now uses what Coder said about the work.
+
 ## 2026-11-06: Fix: Coder offers installs for the setup script
 
 - Live test: Coder ran `npm install` for a new package and finished without offering to add it to the setup script. Now, when a job ran an install the setup script doesn't do, Coder's app reminds it once before it finishes, and it offers the change on the approval card. Not for GitHub jobs.

@@ -1671,3 +1671,28 @@ test("CD73 (owner '2', live test) after an install the setup script does not do,
   await runCoder({ send: async (q) => { s3.push(q); return t3[k++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x" });
   assert.equal(s3.length, 3, "even an echo of it counts (cheap, harmless): one reminder only");
 });
+
+test("CD74 live test (2026-11-06): installed packages and caches are never committed; two answer parts stay two paragraphs; a card-ending job keeps its words as the commit title", async () => {
+  const { remote, bare } = await fakeRemote();
+  const { gitRoot } = await roots();
+  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-junk");
+  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-junk", token: "", remote, gitRoot })).ok, true);
+  const { mkdir: mk } = await import("node:fs/promises");
+  await mk(join(dir, "node_modules/is-number"), { recursive: true }); await writeFile(join(dir, "node_modules/is-number/index.js"), "x");
+  await mk(join(dir, ".npm/_logs"), { recursive: true }); await writeFile(join(dir, ".npm/_logs/debug.log"), "x");
+  await writeFile(join(dir, "check.js"), "console.log(1)\n");
+  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-junk", token: "", message: "check", remote, gitRoot });
+  assert.equal(p.ok, true, p.why);
+  const files = git(bare, "ls-tree", "-r", "--name-only", "coder/shop-junk");
+  assert.match(files, /check\.js/);
+  assert.doesNotMatch(files, /node_modules|\.npm/);
+  // two message parts from xAI
+  const { coderSend } = await import("../container/coder-model.mjs");
+  const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "I'll look it up." }] }, { type: "message", content: [{ type: "output_text", text: "- Keep it short" }] }] })) });
+  const a = await send({ model: "grok-4.7", messages: [], tools: [] });
+  assert.equal(a.message.content, "I'll look it up.\n\n- Keep it short");
+  // the words said before a card are the summary (the commit title)
+  let n = 0; const t = [say("Added check.js; it prints true then false.", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "r" })])];
+  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }) }, { text: "x" });
+  assert.equal(r.summary, "Added check.js; it prints true then false.");
+});
