@@ -107,6 +107,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
       // A website that copies the key into its answer's headers does not hand it back (the audit, 2026-11-06).
       const back = { ...r.headers };
       if (s) for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (one.includes(s.value) || (s.raw && one.includes(s.raw))) delete back[k]; }
+      r.on("error", () => res.destroy());
       res.writeHead(r.statusCode || 502, back);
       r.pipe(res);
     });
@@ -128,6 +129,9 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     req.pipe(up);
   });
   server.on("connect", (req, sock, head) => {
+    // First of all: a socket error is never left uncaught (live test, 2026-11-06:
+    // a blocked site's connection reset crashed the whole service).
+    sock.on("error", () => {});
     const m = /^\[?([^\]]+?)\]?:(\d+)$/.exec(String(req.url || ""));
     if (!m) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     const host = m[1].toLowerCase(), port = Number(m[2]);

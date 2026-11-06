@@ -821,9 +821,9 @@ test("CD36 the loop runs a file tool like a command (as dev, in the project) and
   const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { runs.push(x); return { code: 0, output: "edited a.js (1 place)" }; } }, { text: "fix it" });
   assert.equal(r.status, "done");
   assert.equal(runs.length, 1);
-  assert.match(runs[0].command, /^node \S+coder-tools\.mjs [A-Za-z0-9+/=]+$/);
+  assert.match(runs[0].command, /^node --no-warnings \S+coder-tools\.mjs [A-Za-z0-9+/=]+$/);
   assert.equal(runs[0].tool, true);
-  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[2], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2" } });
+  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2" } });
   const ev = events.find((e) => e.type === "bash");
   assert.deepEqual([ev.tool, ev.verb, ev.command], ["edit", "Edited", "a.js"]);
   assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "done" }]);
@@ -1594,4 +1594,20 @@ test("CD69 (owner '4') the network list: saved per repo, sent to the machine; th
     px.setNetwork({ limited: false, hosts: [] });
     assert.doesNotMatch(await raw("CONNECT evil.example:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403/, "open again");
   } finally { await px.close(); }
+});
+
+
+test("CD70 live test (2026-11-06): a blocked site never crashes the proxy; tool output has no Node warnings", async () => {
+  const { startProxy } = await import("../container/coder-proxy.mjs");
+  const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px4-")) });
+  try {
+    px.setNetwork({ limited: true, hosts: [] });
+    const { execFile } = await import("node:child_process");
+    const env = { PATH: process.env.PATH, ...px.env() };
+    for (let i = 0; i < 3; i++) {
+      const r = await new Promise((ok) => execFile("curl", ["-sS", "-m", "8", "-o", "/dev/null", "https://blocked.example"], { env }, (e, so, se) => ok(String(se))));
+      assert.match(r, /403/);
+    }
+  } finally { await px.close(); }
+  assert.match(readFileSync(HERE("container/coder-agent.mjs"), "utf8"), /command: "node --no-warnings " \+ TOOLS_SCRIPT/);
 });
