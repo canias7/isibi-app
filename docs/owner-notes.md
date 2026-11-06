@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The setup script, like Claude Code's (all 3)
+
+- Your word: "Do the 3 of them", after comparing Coder with Claude Code's docs.
+- 1. **System packages.** In Claude Code the setup script runs as admin, so `apt install` works. Now a setup line like `apt-get install -y jq` works in Coder too, with or without sudo.
+  - Coder's app runs those lines itself, as admin. Only the checked package names go to apt, and your network setting applies.
+  - Every other line still runs as Coder's own user. So a setup script can never reach your GitHub token or keys: on Coder's machine they sit next to it, while Claude Code keeps them off its machine.
+  - The Setup script page says so.
+- 2. **A failed setup, the way Claude Code handles it.** Coder says which command failed and its exit code, and that you can fix it in Environment → Setup script. It offers a fix on the card only if it has one it tried. It carries on with the rest of the work and never makes up results. This replaces the change from earlier today that forced a card every time.
+- 3. **Only tried lines.** Like Claude Code, Coder only proposes setup lines it ran itself in that chat and saw work. A package must exist; the machine now keeps Debian's package list so names can be checked.
+- On the branch; live after "merge and deploy".
+
 ## 2026-11-06: Deployed, and the fixes checked live
 
 - Merged and deployed (your word). The Setup script page shows its new line, and links no longer swallow bold text.

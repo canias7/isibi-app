@@ -10,8 +10,10 @@ FROM node:22-bookworm
 # the everyday command-line tools Coder uses to look around.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git build-essential python3 python3-pip python3-venv curl ca-certificates openssl iptables \
-    ripgrep jq unzip zip less procps \
-  && rm -rf /var/lib/apt/lists/*
+    ripgrep jq unzip zip less procps
+# The package lists stay (owner, 2026-11-06, "1"): Coder checks a package's name
+# with apt-cache before it proposes it for the setup script, whose plain
+# `apt-get install` lines Coder's service runs as root (it updates them first).
 
 # Projects live here, one folder each, owned by `dev`: the unprivileged user the
 # AI's commands run as, so they can never read the GitHub token git uses (it is
