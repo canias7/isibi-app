@@ -20,6 +20,7 @@
 // message continues from the same messages.
 import { commandProblem, capOutput, readTimeout, scrub } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
+import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -51,6 +52,7 @@ export const CODER_TOOLS = Object.freeze([
   fn("web_fetch", "Read a public web page (documentation, an API's reference) as plain text.", { url: { type: "string" } }, ["url"]),
   fn("monitor", "Read what a background job (from bash with run_in_background) has printed: the newest lines, and whether it is still running. wait_s (0-60) waits first, to let it get going.", { job: { type: "string" }, wait_s: { type: "integer" }, lines: { type: "integer" } }, ["job"]),
   fn("stop_job", "Stop a background job by its id. Every job is also stopped when your turn ends.", { job: { type: "string" } }, ["job"]),
+  fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved for this repo and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
   fn("ask_user", "Ask the owner ONE multiple-choice question when you truly cannot choose for them (e.g. which of two designs, whether to delete something). Give 2 to 4 short options. Your turn ends there; their pick comes back as the next message. Do not use it for things you can decide yourself.", { question: { type: "string" }, options: { type: "array", items: { type: "string" } } }, ["question", "options"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   { type: "function", function: {
@@ -96,6 +98,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - A style request lasts for the rest of the chat. If they say "always" or "from now on", also save it in your memory file for this repo as ONE line starting with "Style: " (e.g. "Style: keep answers short"), replacing any older Style: line, so new chats follow it too. To drop it, delete that line.
 - THE OWNER'S STYLE, when it is given to you below, overrides the default above: follow it in every answer, as if they just asked for it.
 - While working, a short line before a group of steps says what you are doing; no running commentary on every command.
+- API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, use request_secret for that exact host. Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY).
 - When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
 - If you are told the owner is coming back after a break, start your answer with a one-line recap of where this chat stands (under 400 characters), then answer.`;
@@ -208,6 +211,17 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const out = capOutput(String((r && r.output) || ""));
         emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: out });
         reply(out || "(nothing yet)");
+      } else if (c.name === "request_secret") {
+        // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code): a secure card for the owner; the turn ends here.
+        const host = okHost(c.args.host);
+        const header = String(c.args.header || "Authorization").trim();
+        const prefix = c.args.prefix === undefined ? "Bearer" : String(c.args.prefix);
+        if (!host) { reply("error: give an exact public host name like api.stripe.com (no https://, path, IP address or wildcard)"); continue; }
+        if (!HEADER_RE.test(header) || !PREFIXES.includes(prefix)) { reply("error: header is one word (letters, digits, -); prefix is Bearer, Token, Key, Basic or empty"); continue; }
+        reply("asked the owner for a key for " + host + "; the next message says whether it was saved");
+        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a key first" });
+        emit({ type: "secret", host, reason: scrub(String(c.args.reason || "")).trim().slice(0, 300), name: scrub(String(c.args.name || "")).trim().slice(0, 60), header, prefix });
+        return end("done", { summary: "asked for a key for " + host });
       } else if (c.name === "ask_user") {
         // A QUESTION FOR THE OWNER: the turn ends here; their pick is the next message.
         const question = scrub(String(c.args.question || "")).trim().slice(0, 500);
@@ -245,7 +259,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         prRequest = { title: scrub(title), body: scrub(body) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, todo and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, todo and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

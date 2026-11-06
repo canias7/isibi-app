@@ -27,6 +27,7 @@ import { join, dirname, relative, resolve, basename } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT } from "./coder-checks.mjs";
+import { startProxy, okHost } from "./coder-proxy.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
@@ -299,8 +300,11 @@ function killUser() {
   if (Number.isInteger(RUN_UID)) { try { spawnSync("pkill", ["-KILL", "-u", String(RUN_UID)], { stdio: "ignore", timeout: 5000 }); } catch { /* no pkill */ } }
 }
 
-export function createApp({ root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR } = {}) {
+export function createApp({ root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {} } = {}) {
   const sendFn = send || coderSend(env);
+  // THE SECRETS PROXY (owner, 2026-11-06): started the first time a job has secrets.
+  let proxyP = null;
+  const proxyFor = () => (proxyP ||= startProxy({ dir: proxyDir, ...proxyOpts }).catch((e) => { proxyP = null; throw e; }));
   async function startTurn(body) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
@@ -341,6 +345,14 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // for every command, and a setup script run (as `dev`) when this machine first
     // opens the repo, or when the script changed.
     const extraEnv = safeVars(body.setup && body.setup.vars);
+    // NETWORK SECRETS (owner, 2026-11-06, like Claude Code's): the proxy adds
+    // each key to HTTPS requests for its host; the commands only learn the proxy.
+    const secretList = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && okHost(s.host) && typeof s.value === "string" && s.value).slice(0, 20);
+    let secretHosts = [];
+    if (secretList.length) {
+      try { const px = await proxyFor(); px.setSecrets(secretList); secretHosts = px.hosts(); Object.assign(extraEnv, px.env()); }
+      catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Saved secrets could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
+    } else if (proxyP) { try { (await proxyP).setSecrets([]); } catch { /* not started */ } }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
     if (script) {
       const mark = join(gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
@@ -363,7 +375,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(extraEnv).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(extraEnv).join(", ") : "");
+    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(safeVars(body.setup && body.setup.vars)).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(safeVars(body.setup && body.setup.vars)).join(", ") : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {
