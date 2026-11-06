@@ -57,6 +57,8 @@ export function checkImages(list) {
   return { images: out };
 }
 // REVIEW (owner, 2026-11-05, "5"): Coder reviews its branch, written on the server.
+/** The environment's keys as a chat's machine gets them (only its proxy uses them). */
+export const machineSecrets = (list) => (Array.isArray(list) ? list : []).map((s) => ({ kind: s.kind, hosts: s.hosts, paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, value: headerValue(h) })), ...(s.config ? { config: s.config } : {}), raws: [...s.headers.map((h) => h.value), ...configSecrets(s.kind, s.config)] }));
 export const REVIEWS = {
   code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
   security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
@@ -419,7 +421,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
     if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
     // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
-    const secrets = (setup.secrets || []).map((s) => ({ kind: s.kind, hosts: s.hosts, paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, value: headerValue(h) })), ...(s.config ? { config: s.config } : {}), raws: [...s.headers.map((h) => h.value), ...configSecrets(s.kind, s.config)] }));
+    const secrets = machineSecrets(setup.secrets);
     delete setup.secrets;
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
@@ -442,7 +444,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
     const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
     const marks = [...(Array.isArray(meta.marks) ? meta.marks : []), { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
-    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks };
+    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true };
     await saveMeta(bucket, uid, next);
     // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
     // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
@@ -709,6 +711,29 @@ export async function handleCoder(request, env, ctx, deps) {
     return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network };
   };
   const readEnv2 = async () => readEnvData(env, bucket, uid, await theEnvId());
+  // NETWORK AND KEY CHANGES REACH JOBS THAT ARE RUNNING (like Claude Code: "within
+  // about a minute"; owner, 2026-11-06: "Finish all this"): every chat of this
+  // environment that is working now gets the new setting on its machine at once.
+  // A job started from GitHub gets the network but never the keys.
+  const reachRunning = async (cur) => {
+    const envNow = await theEnvId();
+    let reached = 0, cursor;
+    do {
+      const page = await bucket.list({ prefix: "coder/" + uid + "/", cursor }).catch(() => ({ objects: [] }));
+      for (const o of page.objects || []) {
+        const mm = /^coder\/[^/]+\/([^/]+)\/meta\.json$/.exec(o.key);
+        if (!mm || !PROJECT_ID.test(mm[1])) continue;
+        const m = mm[1] === id ? meta : await getJson(bucket, o.key, null);
+        if (!m || m.status !== "running" || (m.envId || (await envIdOf(bucket, uid, m))) !== envNow) continue;
+        try {
+          const r = await deps.container(uid + "-" + mm[1]).fetch(new Request("http://coder/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: mm[1], setup: { network: cur.network }, secrets: m.jobFromGithub ? [] : machineSecrets(cur.secrets) }) }));
+          if (r.ok) reached++;
+        } catch { /* that job's next message gets it anyway */ }
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    return reached;
+  };
   const saveEnv = async (e) => writeEnvData(env, bucket, uid, await theEnvId(), e);
   if (action === "env" && request.method === "GET") return json(await envOut(await readEnv2()));
   if (action === "env" && request.method === "POST") {
@@ -748,7 +773,8 @@ export async function handleCoder(request, env, ctx, deps) {
       cur.network = n;
     }
     await saveEnv(cur);
-    return json(await envOut(cur));
+    const reached = await reachRunning(cur);
+    return json({ ...(await envOut(cur)), reached });
   }
   // A SECRET (owner, 2026-11-06, like Claude Code's "Add secret"): from Coder's
   // card ({ host, value, header?, prefix? }) or the Add secret form ({ name,
@@ -759,7 +785,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const id = String(url.searchParams.get("id") || url.searchParams.get("host") || "").toLowerCase();
       cur.secrets = cur.secrets.filter((s) => s.id.toLowerCase() !== id && !(s.hosts.length === 1 && s.hosts[0] === id));
       await saveEnv(cur);
-      return json({ ok: true, secrets: secretList(cur.secrets) });
+      return json({ ok: true, secrets: secretList(cur.secrets), reached: await reachRunning(cur) });
     }
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const form = Array.isArray(body.hosts);
@@ -786,7 +812,7 @@ export async function handleCoder(request, env, ctx, deps) {
     cur.secrets = [...cur.secrets.filter((s) => s.id !== sec.id), sec];
     if (cur.secrets.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
     await saveEnv(cur);
-    return json({ ok: true, secrets: secretList(cur.secrets) });
+    return json({ ok: true, secrets: secretList(cur.secrets), reached: await reachRunning(cur) });
   }
 
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").

@@ -954,6 +954,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // opens the repo, or when the script changed.
     const ownerVars = safeVars(body.setup && body.setup.vars);
     const extraEnv = { ...ownerVars };
+    t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // NETWORK SECRETS (owner, 2026-11-06, like Claude Code's): the proxy adds
     // each key to HTTPS requests for its host; the commands only learn the proxy.
     // THE NETWORK LIST (owner, 2026-11-06, "4"): with "limited" on, a firewall
@@ -1096,6 +1097,27 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       const project = String(body.project || url.searchParams.get("project") || "");
       if (!PROJECT_ID.test(project)) return send(400, { error: "bad project" });
       const t = turns.get(project);
+      // A NETWORK OR KEY CHANGE WHILE A JOB RUNS (like Claude Code: "within about a
+      // minute"; owner, 2026-11-06: "Finish all this"): the proxy and the firewall
+      // take it at once, for the rest of the job; new commands get the proxy.
+      if (url.pathname === "/network" && req.method === "POST") {
+        if (!t || !t.running) return send(200, { ok: true, applied: false });
+        const list = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && ((Array.isArray(s.hosts) && s.hosts.some(okPattern)) || okHost(s.host))).slice(0, 20);
+        const nn = normNetwork(body.setup && body.setup.network);
+        const net = { ...nn, limited: nn.mode !== "full" };
+        try {
+          if (list.length || net.limited) {
+            const px = await proxyFor();
+            px.setNetwork(net); px.setSecrets(list);
+            if (t.extraEnv) { Object.assign(t.extraEnv, px.env()); if (net.limited) t.extraEnv.CODER_NET_LIMITED = "1"; else delete t.extraEnv.CODER_NET_LIMITED; }
+            if (net.limited) fwOn = firewall(true, RUN_UID);
+          }
+          if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
+          if (!list.length && !net.limited && proxyP) { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); }
+        } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
+        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Trusted", full: "Full", custom: "Custom" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
+        return send(200, { ok: true, applied: true });
+      }
       if (url.pathname === "/state") {
         if (!t) return send(200, { status: "idle", events: [], running: false });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);

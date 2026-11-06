@@ -241,3 +241,35 @@ test("CD106 (2026-11-06) the code-try count never blocks sign-in if the bucket r
   for (let i = 0; i < CODE_TRIES; i++) assert.deepEqual(await takeCodeTry(env, "me@x.y", 1000), { ok: true });
   assert.ok((await takeCodeTry(env, "me@x.y", 1000)).wait > 0, "the sixth try in the window still waits");
 });
+
+test("CD107 network and key changes reach jobs that are running, like Claude Code (within a minute): every running chat of that environment; GitHub-started jobs get the network, never the keys", async () => {
+  const { handleCoder } = await import("../src/coder-routes.mjs");
+  const uid = "user-1234567890abcdef";
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const chat = (id, over) => bucket.put("coder/" + uid + "/" + id + "/meta.json", JSON.stringify({ id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 1, status: "idle", envId: "default", ...over }));
+  await chat("shop-a1", { status: "running" });
+  await chat("shop-b2", { status: "running", jobFromGithub: true });
+  await chat("shop-c3", { status: "idle" });
+  await chat("shop-d4", { status: "running", envId: "other-env1" });
+  const calls = [];
+  const deps = { fetchFn: async () => new Response("{}"), authUser: async () => ({ id: uid, email: "me@x.y" }), container: (name) => ({ fetch: async (req) => { calls.push([name, new URL(req.url).pathname, await req.json()]); return Response.json({ ok: true, applied: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  const key = await (await go("projects/shop-a1/secret", { method: "POST", body: JSON.stringify({ hosts: ["api.example.com"], headers: [{ name: "Authorization", prefix: "Bearer", value: "sk_test_abcdefghijklmnop" }] }) })).json();
+  assert.equal(key.reached, 2, "the two running chats of this environment");
+  calls.length = 0;
+  const r = await (await go("projects/shop-a1/env", { method: "POST", body: JSON.stringify({ network: { mode: "none" } }) })).json();
+  assert.equal(r.reached, 2);
+  const by = Object.fromEntries(calls.map(([n, p, b]) => [n, [p, b]]));
+  assert.deepEqual(Object.keys(by).sort(), [uid + "-shop-a1", uid + "-shop-b2"], "not the idle chat, not another environment's");
+  assert.equal(by[uid + "-shop-a1"][0], "/network");
+  assert.equal(by[uid + "-shop-a1"][1].setup.network.mode, "none");
+  assert.equal(by[uid + "-shop-a1"][1].secrets.length, 1, "the owner's own job gets the key");
+  assert.deepEqual(by[uid + "-shop-b2"][1].secrets, [], "a GitHub-started job never gets the keys");
+  // The machine: no running job, nothing to change; a running one has its proxy and firewall set and a note in the chat.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(src, /if \(url\.pathname === "\/network" && req\.method === "POST"\) \{\n\s+if \(!t \|\| !t\.running\) return send\(200, \{ ok: true, applied: false \}\);/);
+  assert.match(src, /px\.setNetwork\(net\); px\.setSecrets\(list\);\n\s+if \(t\.extraEnv\) \{ Object\.assign\(t\.extraEnv, px\.env\(\)\);/);
+  assert.match(src, /if \(net\.limited\) fwOn = firewall\(true, RUN_UID\);\n\s+\}\n\s+if \(!net\.limited && fwOn\) fwOn = !firewall\(false, RUN_UID\);/);
+});
