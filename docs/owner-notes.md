@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## Waiting on you (noted 2026-11-06, your word: "Note it, i will do it later")
+
+- **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
+- Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
+
 ## 2026-11-06: Deployed: audit items 3 and 4, and Coder like Claude Code
 
 - Your word: "Merge and deploy". Merged into main (3d57f2b4) and deployed (run 42306004077), with the admin-only safety tests passing on GitHub too.
