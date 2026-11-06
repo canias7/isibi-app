@@ -167,6 +167,13 @@ export function capHistory(messages, max = HISTORY_MAX) {
   }
   return out;
 }
+/** WHAT "UNDO" WOULD UNDO (owner, 2026-11-06, "3"): the chat's last commit, and whether the last job made it. */
+export function lastJobFor(meta) {
+  const cs = meta && Array.isArray(meta.commits) ? meta.commits : [];
+  const l = cs[cs.length - 1];
+  return l ? { title: String(l.title || "").slice(0, 200), changed: l.turn === meta.turn } : { title: "", changed: false };
+}
+
 /** A chat's title: the first words of its first message. */
 export function chatTitle(text) {
   const t = String(text || "").replace(/\s+/g, " ").trim();
@@ -348,7 +355,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { secrets, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { secrets, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta) });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }

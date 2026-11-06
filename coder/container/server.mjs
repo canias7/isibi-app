@@ -290,6 +290,17 @@ export function aptCommand(packages, proxy = "", ca = "") {
   return "apt-get update -qq" + o + " && apt-get install -y -q --no-install-recommends" + o + " " + names.join(" ");
 }
 
+/** WHAT "UNDO" WOULD UNDO (owner, 2026-11-06, "3"): the last job that changed files, and whether it was the last job. */
+export function undoNote(j) {
+  if (!j) return "";
+  return "\n\nUNDO: " + (j.title ? "the last job in this chat that changed files was \"" + j.title + "\"" + (j.changed ? " (your last job)." : "; your last job changed no files, so if the owner asks to undo, ask first which one they mean.") : "no job in this chat has changed files yet.");
+}
+export function lastJobOf(body) {
+  const j = body && body.lastJob;
+  if (!j || typeof j !== "object") return null;
+  return { title: String(j.title || "").replace(/\s+/g, " ").trim().slice(0, 200), changed: j.changed === true };
+}
+
 /** THE REPO'S MAIN BRANCH AND THIS CHAT'S BRANCH (live test, 2026-11-06: Coder
  *  guessed `main` and `git diff main...HEAD` failed in a repo whose main branch
  *  has another name). Like the git status Claude Code is given at the start. */
@@ -486,7 +497,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + gitNote(body) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + gitNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {
@@ -504,7 +515,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       },
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
       .then(async (r) => { t.result = { ...r, memory: await readMemory(memFile) }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => {
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.

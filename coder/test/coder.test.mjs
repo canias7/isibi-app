@@ -871,14 +871,14 @@ test("CD38 ask_user: Coder asks one multiple-choice question and the turn ends t
   const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { ran.push(x); return { code: 0, output: "" }; } }, { text: "style the page" });
   assert.equal(r.status, "done");
   assert.equal(ran.length, 0, "nothing after the question runs");
-  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", options: ["Plain CSS", "Tailwind"] });
+  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }, "plain strings still work: a label with no description");
   // every call got its answer, so the next turn continues cleanly
   const toolAnswers = r.messages.filter((m) => m.role === "tool").map((m) => m.content);
   assert.deepEqual(toolAnswers, ["asked the owner; their answer comes as the next message", "not run: you asked the owner a question first"]);
   const bad = scripted([say("", [call("ask_user", { question: "Which?", options: ["only one"] })]), say("Fine.", [])]);
   assert.equal((await runCoder({ send: bad.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x" })).status, "done");
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /on\('\.cd-ask-opt', 'click', \(e\) => send\(e\.currentTarget\.dataset\.answer\)\)/);
+  assert.match(ui, /on\('\[data-ask-go\]', 'click', \(\) => askSend\(\)\);/);
 });
 
 test("CD39 background jobs: bash with run_in_background gives a job; monitor reads it; stop_job ends it; nothing outlives the turn", async () => {
@@ -2025,4 +2025,61 @@ test("CD83 (recorded browser test, 2026-11-06) when the owner changes the setup 
     // The chat itself shows only the owner's words.
     assert.equal(s.events.find((e) => e.type === "user").text, "go");
   } finally { await m.close(); }
+});
+
+test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explanations, Recommended, Other, Skip and Submit; undo asks first when it is not clear; Coder says where a saved key lives", async () => {
+  const { lastJobOf, undoNote } = await import("../container/server.mjs");
+  const { lastJobFor } = await import("../src/coder-routes.mjs");
+  const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  // 2. Choices with a label and a one-line description; several may be chosen when allowed.
+  const ask = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "ask_user"));
+  assert.match(ask, /each with a short label \(1 to 5 words\) and a one-line description[\s\S]*put it first and add \\" \(Recommended\)\\" to its label[\s\S]*choose Other and type their own answer, or Skip/);
+  assert.match(ask, /"multi_select":\{"type":"boolean"\}/);
+  let events = [];
+  const s1 = scripted([say("", [call("ask_user", { question: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi_select: true })])]);
+  await runCoder({ send: s1.send, emit: (e) => events.push(e), exec: async () => ({ code: 0, output: "" }) }, { text: "make a file" });
+  const q = events.find((e) => e.type === "question");
+  assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
+  // The card: a header with the question, rows with a radio (or checkbox), title and explanation, the first already chosen, Other with a box, Skip and Submit, "Needs your input".
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, picked: multi \|\| !opts\.length \? \[\] : \[opts\[0\]\.label\], other: '' \}/, "the recommended (first) choice is already chosen, and kept across redraws");
+  assert.match(ui, /<input type="' \+ kind \+ '" name="cdq' \+ i \+ '" value="' \+ esc\(o\.label\) \+ '"/);
+  assert.match(ui, /<b>' \+ esc\(o\.label\) \+ '<\/b>' \+ \(o\.description \? '<small>' \+ esc\(o\.description\) \+ '<\/small>' : ''\)/);
+  assert.match(ui, /<b>Other<\/b>' \+ \(live \? '<input type="text" class="cd-ask-in" placeholder="Type your own answer"/);
+  assert.match(ui, /data-ask-skip="' \+ i \+ '">Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '">Submit <kbd>Ctrl ↵<\/kbd><\/button>/);
+  assert.match(ui, /<div class="cd-ask-wait">Needs your input<\/div>/);
+  assert.match(ui, /if \(e\.key === 'Enter' && \(e\.ctrlKey \|\| e\.metaKey\)\) \{ e\.preventDefault\(\); askSend\(\); \}/);
+  assert.match(ui, /send\('I skipped your question\. Decide for yourself and go on\.'\)/);
+  assert.match(ui, /a\.picked\.map\(\(v\) => \(v === '__other' \? a\.other\.trim\(\) : v\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together");
+  assert.match(ui, /typeof o === 'string' \? \{ label: o, description: '' \}/, "questions in older chats still show");
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  for (const c of [".cd-ask-row{", ".cd-ask-t small{", ".cd-ask-in{", ".cd-ask-btns{", ".cd-ask-go{", ".cd-ask-wait{"]) assert.ok(css.includes(c), c);
+  // 3. Undo: the Worker sends the last job that changed files and whether it was the last job.
+  assert.deepEqual(lastJobFor({ turn: 5, commits: [{ turn: 3, title: "Add a.txt" }, { turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: true });
+  assert.deepEqual(lastJobFor({ turn: 6, commits: [{ turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: false }, "the last job was a review: it changed nothing");
+  assert.deepEqual(lastJobFor({ turn: 2, commits: [] }), { title: "", changed: false });
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\) \}\);/);
+  assert.deepEqual(lastJobOf({ lastJob: { title: "Add  one.txt\n", changed: true } }), { title: "Add one.txt", changed: true });
+  assert.equal(lastJobOf({}), null);
+  assert.match(undoNote({ title: "Add one.txt", changed: false }), /UNDO: the last job in this chat that changed files was "Add one\.txt"; your last job changed no files, so if the owner asks to undo, ask first which one they mean\./);
+  assert.match(undoNote({ title: "", changed: false }), /no job in this chat has changed files yet/);
+  assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "undo_last_job")), /ask first with ask_user; when they choose that job, call it with confirmed: true[\s\S]*"confirmed":\{"type":"boolean"/);
+  const undo = async (lastJob, args, turns2) => { let n = 0; const seen = []; const ev = []; const r = await runCoder({ send: async (q2) => { seen.push(q2); return turns2[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { text: "Undo that last job.", lastJob }); return { r, seen, ev }; };
+  // The last job was a review (changed nothing): refused until the owner chooses, as Claude Code asks.
+  let u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("", [call("ask_user", { question: "What should I undo?", options: [{ label: "The one.txt job", description: "Removes one.txt with a revert commit." }, { label: "Something else", description: "An environment change or a saved key, in Environment." }] })])]);
+  assert.equal(u.r.undoRequest, undefined);
+  assert.match(JSON.stringify(u.seen[1].messages), /your last job changed no files, so it is not clear what the owner wants undone\. The last job that changed files was \\"Add one\.txt\\"\. Like Claude Code, ask first with ask_user/);
+  assert.ok(u.ev.some((e) => e.type === "question"));
+  // After they choose it: confirmed, undone.
+  u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", { confirmed: true })])]);
+  assert.equal(u.r.undoRequest, true);
+  // Clear case (the last job changed files): undone straight away. Nothing ever changed: said so. No lastJob given (older callers): as before.
+  u = await undo({ title: "Add one.txt", changed: true }, {}, [say("", [call("undo_last_job", {})])]);
+  assert.equal(u.r.undoRequest, true);
+  u = await undo({ title: "", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("Nothing to undo yet.", [])]);
+  assert.equal(u.r.undoRequest, undefined); assert.match(JSON.stringify(u.seen[1].messages), /nothing to undo: no job in this chat has changed files yet/);
+  u = await undo(null, {}, [say("", [call("undo_last_job", {})])]);
+  assert.equal(u.r.undoRequest, true);
+  // 4. After a key is saved on the card and used: where it is saved and how to remove it.
+  assert.match(CODER_SYSTEM, /After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved for this repo and only sent to that host, and that they can remove it in Environment → Network secrets\./);
 });

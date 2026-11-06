@@ -439,9 +439,21 @@
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
       else if (e.type === 'question') {
-        // CODER'S QUESTION (the ask_user tool): the options are buttons, live only on the last one.
+        // CODER'S QUESTION, LIKE CLAUDE CODE'S (owner, 2026-11-06, "2"): each choice
+        // with its explanation, the recommended one first and already chosen, Other
+        // to type your own answer, Skip and Submit. Live only on the last question.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        out.push('<div class="cd-ask"><div class="cd-ask-q">' + esc(e.text) + '</div><div class="cd-ask-opts">' + (e.options || []).map((o) => '<button type="button" class="cd-ask-opt" data-answer="' + esc(o) + '"' + (live ? '' : ' disabled') + '>' + esc(o) + '</button>').join('') + '</div></div>');
+        const opts = (e.options || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || '') })).filter((o) => o.label);
+        const multi = e.multi === true, kind = multi ? 'checkbox' : 'radio';
+        // The choice is kept here, not in the page, so a redraw never loses it.
+        const chatId = S.project ? S.project.id : '';
+        if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, picked: multi || !opts.length ? [] : [opts[0].label], other: '' };
+        const a = live ? S.ask : { picked: [], other: '' };
+        out.push('<div class="cd-ask' + (live ? ' is-live' : '') + '" data-ask="' + i + '"><div class="cd-ask-q">' + esc(e.text) + '</div><div class="cd-ask-list" role="' + (multi ? 'group' : 'radiogroup') + '">' +
+          opts.map((o) => '<label class="cd-ask-row"><input type="' + kind + '" name="cdq' + i + '" value="' + esc(o.label) + '"' + (a.picked.includes(o.label) ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
+          '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="cdq' + i + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="500" autocomplete="off">' : '') + '</span></label>' +
+          '</div>' + (live ? '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '">Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '">Submit <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
+          (live ? '<div class="cd-ask-wait">Needs your input</div>' : ''));
       }
       else if (e.type === 'envchange') {
         // AN ENVIRONMENT CHANGE CODER PROPOSES (owner, 2026-11-06, like Claude Code): shown exactly, approved here.
@@ -688,7 +700,25 @@
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
-    on('.cd-ask-opt', 'click', (e) => send(e.currentTarget.dataset.answer));
+    // THE QUESTION CARD: the choice lives in S.ask; Submit sends it as your answer.
+    const askAnswer = () => { const a = S.ask; if (!a) return ''; return a.picked.map((v) => (v === '__other' ? a.other.trim() : v)).filter(Boolean).join(', '); };
+    const askSend = () => { const t = askAnswer(); if (!t) return; S.ask = null; send(t); };
+    on('.cd-ask.is-live input[type="radio"], .cd-ask.is-live input[type="checkbox"]', 'change', (e) => {
+      if (!S.ask) return;
+      const box = e.currentTarget.closest('.cd-ask');
+      S.ask.picked = [...box.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked')].map((x) => x.value);
+      if (e.currentTarget.value === '__other' && e.currentTarget.checked) { const t = box.querySelector('.cd-ask-in'); if (t) t.focus(); }
+    });
+    on('.cd-ask-in', 'input', (e) => { if (S.ask) S.ask.other = e.currentTarget.value; });
+    on('.cd-ask-in', 'focus', (e) => {
+      // Typing your own answer chooses Other.
+      const r = e.currentTarget.closest('.cd-ask-row').querySelector('input[value="__other"]');
+      if (r && !r.checked) { r.checked = true; r.dispatchEvent(new Event('change')); }
+    });
+    on('.cd-ask-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
+    on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
+    on('[data-ask-go]', 'click', () => askSend());
+    on('[data-ask-skip]', 'click', () => { S.ask = null; send('I skipped your question. Decide for yourself and go on.'); });
     on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : 'I declined the new setup script.'); });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];

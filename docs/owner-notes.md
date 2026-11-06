@@ -4,6 +4,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Like Claude Code: the question card, undo when it isn't clear, where a saved key lives (2, 3, 4)
+
+- You tested all 18 tools in Claude Code and in Coder, and asked for 2, 3 and 4 of the differences.
+- 2. **The question card** now looks and works like Claude Code's.
+  - The question sits on top, and each choice has a short explanation under it. The recommended choice is first, says "(Recommended)" and is already chosen.
+  - There's an "Other" choice with a box to type your own answer, and Coder can allow several choices.
+  - Skip and Submit buttons (Ctrl+Enter also submits), and a "Needs your input" tag while it waits.
+  - Your choice is kept even if the page redraws. Questions in older chats still show.
+- 3. **Undo when it isn't clear.** If Coder's last job changed nothing (like a review) and you say "undo", it first asks which one you mean, the way Claude Code did: that job's files, or something else such as an environment change or a saved key. Coder's app now tells Coder which job is the last one that changed files, and the undo tool won't run until you've chosen. When the last job did change files, undo happens straight away, as before.
+- 4. **After you save a key** on the card and Coder uses it, Coder says in one line where it's saved (this repo, only sent to that site) and that you can remove it in Environment → Network secrets.
+- You said there's a bigger difference you noticed; waiting for it.
+- On the branch; live after "merge and deploy".
+
 ## 2026-11-06: Deployed, and the same test recorded again in the browser
 
 - Merged and deployed (your word). Same browser test, recorded again (3.4 minutes, sent in the chat):
