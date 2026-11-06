@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: TestFlight run: app ID registered; it now tries to make the app too
+
+- The second press got through the secrets check and registered the app ID dev.gofarther.app with Apple using the owner's key, then stopped: the app isn't in App Store Connect yet.
+- Owner: "can't you do that". The run now also tries to make the app in App Store Connect with the key. If Apple allows it, the run carries straight on to build, sign and send to TestFlight; if Apple refuses (its API may not allow making apps), it shows Apple's own words and the steps for the short form in App Store Connect.
+
 ## 2026-11-06: First TestFlight press: one secret missing, and a fix
 
 - The first press stopped at the secrets check: APPLE_API_KEY_ID isn't in GitHub's secrets yet (the other three are). Nothing reached Apple.

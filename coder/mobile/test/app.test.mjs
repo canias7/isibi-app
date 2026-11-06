@@ -60,13 +60,27 @@ test("M4 the Apple check: a real ES256 token Apple can verify; registers the app
     return new Response("{}", { status: 404 });
   };
   const r1 = await appleCheck({ kid: "K", iss: "I", key, bundleId: "dev.gofarther.app", appName: "Go Farther", fetchFn: fake({ ids: [{ attributes: { identifier: "dev.gofarther.app.other" } }], apps: [] }), log: () => {} });
-  assert.deepEqual(r1, { registered: true, appExists: false });
+  assert.deepEqual(r1, { registered: true, appExists: false, created: false, createError: "" });
   assert.deepEqual(calls[1], ["POST", "/bundleIds", { data: { type: "bundleIds", attributes: { identifier: "dev.gofarther.app", name: "Go Farther", platform: "IOS" } } }]);
   // Already registered, app exists: nothing is created
   calls.length = 0;
   const r2 = await appleCheck({ kid: "K", iss: "I", key, bundleId: "dev.gofarther.app", appName: "Go Farther", fetchFn: fake({ ids: [{ attributes: { identifier: "dev.gofarther.app" } }], apps: [{ id: "A1" }] }), log: () => {} });
-  assert.deepEqual(r2, { registered: false, appExists: true });
+  assert.deepEqual(r2, { registered: false, appExists: true, created: false, createError: "" });
   assert.equal(calls.some(([m]) => m === "POST"), false);
+  // With create: Apple allows it → the app is made; Apple refuses → its words are kept, nothing breaks
+  const withApps = (allow) => async (url, init) => {
+    if (url.includes("/bundleIds?")) return new Response(JSON.stringify({ data: [{ id: "BID9", attributes: { identifier: "dev.gofarther.app" } }] }));
+    if (url.includes("/apps?")) return new Response(JSON.stringify({ data: [] }));
+    if (url.endsWith("/apps") && init.method === "POST") {
+      const b = JSON.parse(init.body);
+      assert.deepEqual(b, { data: { type: "apps", attributes: { name: "Go Farther", sku: "gofarther", primaryLocale: "en-US", bundleId: "dev.gofarther.app" }, relationships: { bundleId: { data: { type: "bundleIds", id: "BID9" } } } } });
+      return allow ? new Response(JSON.stringify({ data: { id: "APP1" } }), { status: 201 }) : new Response(JSON.stringify({ errors: [{ detail: "The resource 'apps' does not allow 'CREATE'. Allowed operations are: GET_COLLECTION, GET_INSTANCE, UPDATE" }] }), { status: 403 });
+    }
+    return new Response("{}", { status: 404 });
+  };
+  assert.deepEqual(await appleCheck({ kid: "K", iss: "I", key, bundleId: "dev.gofarther.app", appName: "Go Farther", create: true, fetchFn: withApps(true), log: () => {} }), { registered: false, appExists: true, created: true, createError: "" });
+  const refused = await appleCheck({ kid: "K", iss: "I", key, bundleId: "dev.gofarther.app", appName: "Go Farther", create: true, fetchFn: withApps(false), log: () => {} });
+  assert.equal(refused.appExists, false); assert.match(refused.createError, /does not allow 'CREATE'/);
   // A wrong key: a plain message naming the secrets to check
   await assert.rejects(appleCheck({ kid: "K", iss: "I", key, bundleId: "x.y", appName: "n", fetchFn: async () => new Response(JSON.stringify({ errors: [{ title: "Authentication credentials are missing or invalid." }] }), { status: 401 }), log: () => {} }), /check APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and APPLE_API_KEY_P8/);
 });

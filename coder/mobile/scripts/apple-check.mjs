@@ -22,8 +22,12 @@ export function appleToken({ kid, iss, key, now = Date.now() }) {
   return data + "." + sig;
 }
 
-/** Register the ID if needed; say whether the app exists. Returns { registered, appExists }. */
-export async function appleCheck({ kid, iss, key, bundleId, appName, fetchFn = fetch, log = console.log }) {
+/**
+ * Register the ID if needed; say whether the app exists; with `create`, try to
+ * make the app in App Store Connect too (owner, 2026-11-06: "can't you do
+ * that"). Returns { registered, appExists, created, createError }.
+ */
+export async function appleCheck({ kid, iss, key, bundleId, appName, sku = "gofarther", locale = "en-US", create = false, fetchFn = fetch, log = console.log }) {
   const token = appleToken({ kid, iss, key });
   const call = async (method, path, body) => {
     const r = await fetchFn(API + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -36,23 +40,31 @@ export async function appleCheck({ kid, iss, key, bundleId, appName, fetchFn = f
   };
   const found = await call("GET", "/bundleIds?filter[identifier]=" + encodeURIComponent(bundleId) + "&limit=200");
   let registered = false;
-  if (!(found.data || []).some((d) => d.attributes && d.attributes.identifier === bundleId)) {
-    await call("POST", "/bundleIds", { data: { type: "bundleIds", attributes: { identifier: bundleId, name: appName, platform: "IOS" } } });
-    registered = true;
+  let bundle = (found.data || []).find((d) => d.attributes && d.attributes.identifier === bundleId);
+  if (!bundle) {
+    const made = await call("POST", "/bundleIds", { data: { type: "bundleIds", attributes: { identifier: bundleId, name: appName, platform: "IOS" } } });
+    bundle = made.data; registered = true;
     log("Registered the app ID " + bundleId + " with Apple.");
   } else log("The app ID " + bundleId + " is already registered with Apple.");
   const apps = await call("GET", "/apps?filter[bundleId]=" + encodeURIComponent(bundleId) + "&limit=1");
-  const appExists = (apps.data || []).length > 0;
+  let appExists = (apps.data || []).length > 0, created = false, createError = "";
   log(appExists ? "The app is in App Store Connect." : "The app is not in App Store Connect yet.");
-  return { registered, appExists };
+  if (!appExists && create) {
+    try {
+      await call("POST", "/apps", { data: { type: "apps", attributes: { name: appName, sku, primaryLocale: locale, bundleId }, relationships: { bundleId: { data: { type: "bundleIds", id: bundle && bundle.id } } } } });
+      appExists = true; created = true;
+      log("Made the app " + appName + " in App Store Connect.");
+    } catch (e) { createError = String(e.message || e); log("Apple did not let the key make the app: " + createError); }
+  }
+  return { registered, appExists, created, createError };
 }
 
 if (import.meta.url === "file://" + process.argv[1]) {
   const { KID, ISS, KEY_PATH, BUNDLE_ID = "dev.gofarther.app", APP_NAME = "Go Farther" } = process.env;
-  appleCheck({ kid: KID, iss: ISS, key: readFileSync(KEY_PATH, "utf8"), bundleId: BUNDLE_ID, appName: APP_NAME })
-    .then(({ appExists }) => {
+  appleCheck({ kid: KID, iss: ISS, key: readFileSync(KEY_PATH, "utf8"), bundleId: BUNDLE_ID, appName: APP_NAME, create: process.env.CREATE_APP === "1" })
+    .then(({ appExists, createError }) => {
       if (!appExists) {
-        console.log("::error::Create the app in App Store Connect first: https://appstoreconnect.apple.com/apps → + → New App → iOS, name " + APP_NAME + ", Bundle ID " + BUNDLE_ID + ", any SKU (e.g. gofarther). Then press the button again.");
+        console.log("::error::" + (createError ? "Apple did not let the key make the app (" + createError + "). " : "") + "Create the app in App Store Connect first: https://appstoreconnect.apple.com/apps → + → New App → iOS, name " + APP_NAME + ", Bundle ID " + BUNDLE_ID + ", any SKU (e.g. gofarther). Then press the button again.");
         process.exit(1);
       }
     })

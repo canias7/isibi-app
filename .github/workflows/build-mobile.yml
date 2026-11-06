@@ -143,7 +143,8 @@ jobs:
           printf '%s\n' "$P8" > "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
           chmod 600 "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
       - name: Register the app ID with Apple and check the app is in App Store Connect
-        run: KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KID.p8" node scripts/apple-check.mjs
+        # It also tries to make the app in App Store Connect if it isn't there (owner: "can't you do that").
+        run: CREATE_APP=1 KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KID.p8" node scripts/apple-check.mjs
       - name: Build and sign the iPhone app (Apple's cloud signing)
         run: |
           set -o pipefail
