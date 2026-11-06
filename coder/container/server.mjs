@@ -966,7 +966,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     if (secretList.length || net.limited) {
       try {
         px = await proxyFor();
-        px.setNetwork(net); px.setSecrets(secretList); secretHosts = secretList.length ? px.hosts() : [];
+        px.setNetwork(net); px.setSecrets(secretList); px.setEgress(body.egress || null); secretHosts = secretList.length ? px.hosts() : [];
         // web_fetch follows the list too: Claude Code's docs name only GitHub,
         // connectors, sites with a saved secret and its own API as skipping it.
         proxyEnv = { ...px.env(), ...(net.limited ? { CODER_NET_LIMITED: "1" } : {}) };
@@ -1108,7 +1108,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         try {
           if (list.length || net.limited) {
             const px = await proxyFor();
-            px.setNetwork(net); px.setSecrets(list);
+            px.setNetwork(net); px.setSecrets(list); px.setEgress(body.egress || null);
             if (t.extraEnv) { Object.assign(t.extraEnv, px.env()); if (net.limited) t.extraEnv.CODER_NET_LIMITED = "1"; else delete t.extraEnv.CODER_NET_LIMITED; }
             if (net.limited) fwOn = firewall(true, RUN_UID);
           }

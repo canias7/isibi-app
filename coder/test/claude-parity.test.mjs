@@ -270,6 +270,101 @@ test("CD107 network and key changes reach jobs that are running, like Claude Cod
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(src, /if \(url\.pathname === "\/network" && req\.method === "POST"\) \{\n\s+if \(!t \|\| !t\.running\) return send\(200, \{ ok: true, applied: false \}\);/);
-  assert.match(src, /px\.setNetwork\(net\); px\.setSecrets\(list\);\n\s+if \(t\.extraEnv\) \{ Object\.assign\(t\.extraEnv, px\.env\(\)\);/);
+  assert.match(src, /px\.setNetwork\(net\); px\.setSecrets\(list\); px\.setEgress\(body\.egress \|\| null\);\n\s+if \(t\.extraEnv\) \{ Object\.assign\(t\.extraEnv, px\.env\(\)\);/);
   assert.match(src, /if \(net\.limited\) fwOn = firewall\(true, RUN_UID\);\n\s+\}\n\s+if \(!net\.limited && fwOn\) fwOn = !firewall\(false, RUN_UID\);/);
+});
+
+test("CD108 keys are added outside the machine, like Claude Code: the Worker adds a key only for this job's running chat, its own sites and paths, and keeps a copied key out of the answer", async () => {
+  const E = await import("../src/coder-egress.mjs");
+  const { writeEnvData } = await import("../src/coder-environments.mjs");
+  const uid = "user-1234567890abcdef", id = "shop-e1", chat = uid + "/" + id;
+  const bucket = fakeBucket();
+  const env = { CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const meta = (over = {}) => bucket.put("coder/" + uid + "/" + id + "/meta.json", JSON.stringify({ id, status: "running", turn: 3, envId: "default", ...over }));
+  await meta();
+  await writeEnvData(env, bucket, uid, "default", { script: "", vars: {}, network: { mode: "trusted", hosts: [] }, secrets: [
+    { id: "s1", kind: "headers", hosts: ["api.example.com"], paths: ["/v1/"], headers: [{ name: "Authorization", prefix: "Bearer", value: "sk_test_ABCDEFGH1234" }] },
+    { id: "s2", kind: "body", hosts: ["form.example.com"], paths: [], headers: [], config: { param: "api_key", value: "bodykey_12345678" } },
+  ] });
+  const pass = await E.egressPass(env, chat, 3);
+  const seen = [];
+  const fetchFn = async (url, init) => { seen.push([url, init]); return new Response("ok", { status: 200, headers: { "x-echo": "Bearer sk_test_ABCDEFGH1234", "x-fine": "yes" } }); };
+  const ask = (over = {}, body) => E.handleEgress(new Request("https://gofarther.dev/api/coder/egress", { method: "POST", headers: { "x-coder-chat": chat, "x-coder-turn": "3", "x-coder-egress": pass, "x-coder-url": "https://api.example.com/v1/charges?x=1", "x-coder-method": "GET", "x-coder-headers": Buffer.from(JSON.stringify({ accept: "application/json", authorization: "Bearer fake", host: "evil.example" })).toString("base64url"), ...over }, body }), env, { fetchFn });
+  const r = await ask();
+  assert.equal(r.status, 200);
+  assert.equal(seen[0][0], "https://api.example.com/v1/charges?x=1");
+  assert.equal(seen[0][1].headers.authorization, "Bearer sk_test_ABCDEFGH1234", "the Worker's key, not the one the machine sent");
+  assert.equal(seen[0][1].headers.accept, "application/json");
+  assert.equal("host" in seen[0][1].headers, false);
+  assert.equal(seen[0][1].redirect, "manual");
+  assert.equal(r.headers.get("x-echo"), null, "a copied key does not come back");
+  assert.equal(r.headers.get("x-fine"), "yes");
+  // Refused: another pass, another turn, a site with no key, outside its paths, a dot path, plain http, a stopped job, a GitHub-started job.
+  for (const [over, code] of [[{ "x-coder-egress": "nope" }, 403], [{ "x-coder-turn": "2" }, 403], [{ "x-coder-url": "https://other.example.com/v1/" }, 403], [{ "x-coder-url": "https://api.example.com/v2/x" }, 403], [{ "x-coder-url": "https://api.example.com/v1/../admin" }, 403], [{ "x-coder-url": "http://api.example.com/v1/x" }, 400], [{ "x-coder-url": "https://api.example.com:8443/v1/x" }, 400]]) {
+    assert.equal((await ask(over)).status, code, JSON.stringify(over));
+  }
+  await meta({ status: "idle" }); assert.equal((await ask()).status, 403, "a job that is not running");
+  await meta({ jobFromGithub: true }); assert.equal((await ask()).status, 403, "a GitHub-started job gets no keys");
+  // A body key goes into the form body.
+  await meta(); seen.length = 0;
+  const b = await ask({ "x-coder-url": "https://form.example.com/send", "x-coder-method": "POST", "x-coder-headers": Buffer.from(JSON.stringify({ "content-type": "application/x-www-form-urlencoded" })).toString("base64url") }, "to=ana");
+  assert.equal(b.status, 200);
+  assert.equal(new TextDecoder().decode(seen[0][1].body), "to=ana&api_key=bodykey_12345678");
+  // The machine gets where keys apply, never their values; the Worker answers at /api/coder/egress before any sign-in.
+  assert.deepEqual(E.machineKeyRules([{ kind: "headers", hosts: ["a.com"], paths: [], headers: [{ name: "Authorization", value: "zzzzzzzz" }] }]), [{ kind: "headers", hosts: ["a.com"], paths: [], egress: true }]);
+  const { readFileSync } = await import("node:fs");
+  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /\} else if \(url\.pathname === EGRESS_PATH\) \{[\s\S]{0,200}res = await handleEgress\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\)/);
+});
+
+test("CD109 the Worker's signing gives exactly what the machine's did (AWS, Google Cloud, body keys)", async () => {
+  const W = await import("../src/coder-egress.mjs");
+  const M = await import("../container/coder-auth.mjs");
+  const c = { accessKeyId: "AKIAEXAMPLE1234", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region: "eu-west-1", service: "execute-api", sessionToken: "" };
+  const req = { method: "POST", host: "abc.execute-api.eu-west-1.amazonaws.com", path: "/prod/items?b=2&a=1", headers: { "content-type": "application/json", "x-amz-meta-x": "1" }, body: Buffer.from('{"a":1}') };
+  const when = new Date("2026-11-06T12:00:00Z");
+  assert.deepEqual(await W.sigv4({ ...req, body: new Uint8Array(req.body) }, c, when), M.sigv4(req, c, when));
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
+  const cfg = { keyJson: JSON.stringify({ type: "service_account", client_email: "x@p.iam.gserviceaccount.com", private_key: privateKey, private_key_id: "k1" }), scope: "https://www.googleapis.com/auth/cloud-platform" };
+  const asked = [];
+  const fetchFn = async (u, init) => { asked.push(String(init.body)); return new Response(JSON.stringify({ access_token: "ya29.t", expires_in: 3600 }), { status: 200 }); };
+  W.forgetTokens(); M.forgetTokens();
+  await W.bearerFor("gcp", cfg, { fetchFn, now: () => 1_800_000_000_000 });
+  await M.bearerFor("gcp", cfg, { fetchFn, now: () => 1_800_000_000_000 });
+  assert.equal(asked[0], asked[1], "the same signed request for a token");
+  const j = new TextEncoder().encode('{"a":1}');
+  assert.equal(new TextDecoder().decode(W.withBodyParam("application/json", j, "k", "v")), M.withBodyParam("application/json", Buffer.from(j), "k", "v").toString());
+  assert.equal(new TextDecoder().decode(W.withBodyParam("application/x-www-form-urlencoded", new TextEncoder().encode("a=1"), "k", "v")), M.withBodyParam("application/x-www-form-urlencoded", Buffer.from("a=1"), "k", "v").toString());
+});
+
+test("CD110 the machine's proxy hands a keyed request to the Worker with this job's pass, and never adds a key itself", async () => {
+  const { startProxy } = await import("../container/coder-proxy.mjs");
+  const http = await import("node:http");
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { execFile } = await import("node:child_process");
+  const got = [];
+  const eg = http.createServer((q, r) => { let b = ""; q.on("data", (c) => { b += c; }); q.on("end", () => { got.push({ url: q.url, h: q.headers, body: b }); r.writeHead(200, { "content-type": "text/plain" }); r.end("from the worker"); }); });
+  await new Promise((ok) => eg.listen(0, "127.0.0.1", ok));
+  const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px-eg-")) });
+  const curl = (u, extra = []) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "15", ...extra, u], { env: { PATH: process.env.PATH, ...px.env() } }, (err, so, se) => ok(String(so) || String(se))));
+  try {
+    px.setSecrets([{ kind: "headers", hosts: ["*.b.com"], paths: ["/v1/"], egress: true }]);
+    px.setNetwork({ mode: "custom", hosts: [], defaults: true });
+    px.setEgress({ url: "http://127.0.0.1:" + eg.address().port + "/api/coder/egress", chat: "u1/shop-x1", turn: 4, pass: "PASS-1" });
+    assert.equal(await curl("https://x.b.com/v1/balance?z=1", ["-H", "X-Thing: 1", "-d", "a=1"]), "from the worker");
+    const g = got[0];
+    assert.equal(g.url, "/api/coder/egress");
+    assert.deepEqual([g.h["x-coder-url"], g.h["x-coder-egress"], g.h["x-coder-chat"], g.h["x-coder-turn"], g.h["x-coder-method"]], ["https://x.b.com/v1/balance?z=1", "PASS-1", "u1/shop-x1", "4", "POST"]);
+    const fwd = JSON.parse(Buffer.from(g.h["x-coder-headers"], "base64url").toString());
+    assert.equal(fwd["x-thing"], "1");
+    assert.equal(fwd.authorization, undefined, "the machine adds no key");
+    assert.equal(g.body, "a=1", "the body goes along");
+    // Outside the key's paths: blocked (the site is reachable only through the key); without a pass: refused, never sent with a key.
+    assert.match(await curl("https://x.b.com/v2/other"), /outside the secret's paths/);
+    px.setEgress(null);
+    assert.match(await curl("https://x.b.com/v1/balance"), /this job has no pass for it/);
+    assert.equal(got.length, 1);
+  } finally { await px.close(); eg.close(); }
 });

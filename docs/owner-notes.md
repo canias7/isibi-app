@@ -18,8 +18,10 @@ log (81,000 lines) is in git history.
   - **The starting branch** is picked under the message box before the first message, next to the environment.
   - **Review on the pull request:** when you ask, Coder posts its findings as comments on the pull request's lines.
   - **Rewind:** each of your messages has a Rewind button: restore the code and the chat, the chat only, or the code only. Code goes back by undoing the later jobs with new commits, never by deleting anything on GitHub.
+  - **Network and key changes reach a job that is already running**, like Claude Code ("within about a minute"): every running chat on that environment gets them at once. A job started from GitHub gets the network setting, never the keys.
+  - **Keys are added outside Coder's machine**, like Claude Code. Your saved keys' values no longer go to the machine. Its proxy sends each request for a keyed site to Coder's server with that job's own pass, and the server adds the key and sends it on (headers, body keys, OAuth, Google Cloud and AWS signing, the same as before). So nothing on the machine, even with admin rights, can read a key. It can only use one for its own sites, while its job runs.
   - Kept as they are: Coder reads CODER.md (your word: "we not doing claude md we doing coder md"), and only the setup script's install lines run as admin (safer than Claude Code's whole script).
-- Tests: CD98 to CD106 and CD94b, plus the others above; 115 in all, passing. On the branch, not deployed.
+- Tests: CD98 to CD110 and CD94b, plus the others above; 119 in all, passing. On the branch, not deployed.
 
 ## 2026-11-06: The emailed code is really required now (audit item 3)
 

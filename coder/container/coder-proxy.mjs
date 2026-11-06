@@ -170,6 +170,20 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // or more headers.
   let rules = []; // [{ kind, hosts, paths, headers: [{ name, value }], config, raws }]
   let network = normNetwork(null);
+  // THE WORKER ADDS THE KEYS (2026-11-06, like Claude Code): a keyed request goes
+  // to Coder's server with this job's pass; the key's value never comes here.
+  let egress = null; // { url, chat, turn, pass }
+  const toEgress = (req, res, host, target) => {
+    if (!egress) { res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy: the key for " + host + " is added by Coder's server, and this job has no pass for it"); }
+    const u = new URL(egress.url);
+    const fwd = {};
+    for (const [k, v] of Object.entries(req.headers)) if (!/^(host|proxy-.*|connection|keep-alive|transfer-encoding|te|trailer|upgrade|content-length)$/i.test(k)) fwd[k] = Array.isArray(v) ? v.join(", ") : String(v);
+    const headers = { "content-type": "application/octet-stream", "x-coder-chat": egress.chat, "x-coder-turn": egress.turn, "x-coder-egress": egress.pass, "x-coder-url": "https://" + host + target, "x-coder-method": String(req.method || "GET"), "x-coder-headers": Buffer.from(JSON.stringify(fwd)).toString("base64url") };
+    const lib = u.protocol === "http:" ? http : https;
+    const up = lib.request({ host: u.hostname, port: u.port || (u.protocol === "http:" ? 80 : 443), method: "POST", path: u.pathname, headers }, (r) => { r.on("error", () => res.destroy()); res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); });
+    up.on("error", (e) => { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); res.end("Coder's proxy could not reach Coder's server for " + host + ": " + String(e.code || e.message)); });
+    req.pipe(up);
+  };
   // Never a key for package registries or GitHub (Claude Code's docs), whatever a secret lists.
   const ruleFor = (h) => (keyAllowed(h) ? rules.find((r) => r.hosts.some((p) => hostMatches(h, p))) : undefined);
   const allowed = (h) => hostAllowed(h, network, rules.flatMap((r) => r.hosts).filter(keyAllowed));
@@ -189,6 +203,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     // that secret, it is not reachable at all.
     if (!pathOk && !hostAllowed(host, network, [])) { res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host + " (outside the secret's paths)")); }
     const s = pathOk ? rule : null;
+    if (s && s.egress) return toEgress(req, res, host, target);
     const headers = { ...req.headers, host };
     for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     const set = (name, value) => { for (const k of Object.keys(headers)) if (k.toLowerCase() === name.toLowerCase()) delete headers[k]; headers[name] = value; };
@@ -284,6 +299,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
         if (!s || typeof s !== "object") continue;
         const hosts = (Array.isArray(s.hosts) ? s.hosts : [s.host]).map(okPattern).filter(Boolean);
         const kind = SECRET_KINDS.includes(s.kind) ? s.kind : "headers";
+        // Where a key applies, without its value: the Worker adds it (2026-11-06).
+        if (s.egress === true) { const paths = (Array.isArray(s.paths) ? s.paths : []).filter((x) => PATH_RE.test(String(x))); if (hosts.length) next.push({ kind, hosts, paths, headers: [], config: null, raws: [], egress: true }); continue; }
         const headers = kind !== "headers" ? [] : (Array.isArray(s.headers) ? s.headers : [{ name: s.header || "Authorization", value: s.value }])
           .filter((h) => h && HEADER_RE.test(String(h.name || "")) && typeof h.value === "string" && /^[\x20-\x7e]+$/.test(h.value)).map((h) => ({ name: String(h.name), value: h.value }));
         const config = kind === "headers" ? null : normConfig(kind, s.config);
@@ -295,6 +312,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
       rules = next.slice(0, 20);
     },
     hosts: () => [...new Set(rules.flatMap((r) => r.hosts))],
+    /** This job's pass to Coder's server, which adds the keys: { url, chat, turn, pass } (or null). */
+    setEgress(e) { egress = e && typeof e.url === "string" && /^https?:\/\//.test(e.url) && typeof e.pass === "string" && e.pass ? { url: e.url, chat: String(e.chat || ""), turn: String(e.turn ?? ""), pass: e.pass } : null; },
     /** The repo's network setting: { mode: full | limited | none, hosts }. */
     setNetwork(n) { network = normNetwork(n); },
     /** What the AI's commands get, so their HTTPS goes through here and trusts it. */

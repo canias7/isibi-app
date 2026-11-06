@@ -33,6 +33,7 @@ import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV } from "./coder-environments.mjs";
+import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -57,8 +58,6 @@ export function checkImages(list) {
   return { images: out };
 }
 // REVIEW (owner, 2026-11-05, "5"): Coder reviews its branch, written on the server.
-/** The environment's keys as a chat's machine gets them (only its proxy uses them). */
-export const machineSecrets = (list) => (Array.isArray(list) ? list : []).map((s) => ({ kind: s.kind, hosts: s.hosts, paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, value: headerValue(h) })), ...(s.config ? { config: s.config } : {}), raws: [...s.headers.map((h) => h.value), ...configSecrets(s.kind, s.config)] }));
 export const REVIEWS = {
   code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
   security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
@@ -421,13 +420,18 @@ export async function handleCoder(request, env, ctx, deps) {
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
     if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
     // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
-    const secrets = machineSecrets(setup.secrets);
+    // THE KEYS STAY HERE (2026-11-06, like Claude Code): the machine gets where they
+    // apply and this job's pass for the Worker's egress; the Worker adds them.
+    const secrets = machineKeyRules(setup.secrets);
+    // This job's key values, kept sealed on our side to hide them in its chat (never sent to the machine).
+    const jobValues = (setup.secrets || []).flatMap((s) => [...s.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(s.kind, s.config)]).filter(Boolean);
+    const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
     delete setup.secrets;
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { secrets, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment });
+    r = await post("/turn", { secrets, egress, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -448,7 +452,7 @@ export async function handleCoder(request, env, ctx, deps) {
     await saveMeta(bucket, uid, next);
     // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
     // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
-    if (secrets.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, secrets.flatMap((s) => [...s.headers.map((h) => h.value), ...s.raws])) }));
+    if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
     return json({ ok: true, project: next });
   }
 
@@ -726,7 +730,7 @@ export async function handleCoder(request, env, ctx, deps) {
         const m = mm[1] === id ? meta : await getJson(bucket, o.key, null);
         if (!m || m.status !== "running" || (m.envId || (await envIdOf(bucket, uid, m))) !== envNow) continue;
         try {
-          const r = await deps.container(uid + "-" + mm[1]).fetch(new Request("http://coder/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: mm[1], setup: { network: cur.network }, secrets: m.jobFromGithub ? [] : machineSecrets(cur.secrets) }) }));
+          const r = await deps.container(uid + "-" + mm[1]).fetch(new Request("http://coder/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: mm[1], setup: { network: cur.network }, secrets: m.jobFromGithub ? [] : machineKeyRules(cur.secrets), egress: { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + mm[1], turn: m.turn, pass: await egressPass(env, uid + "/" + mm[1], m.turn) } }) }));
           if (r.ok) reached++;
         } catch { /* that job's next message gets it anyway */ }
       }

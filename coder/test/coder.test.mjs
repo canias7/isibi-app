@@ -429,7 +429,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,1200}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,3000}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1455,7 +1455,10 @@ test("CD64 the secret route: sealed, never shown back, sent only to the machine'
   assert.deepEqual(e.secrets.map((x) => x.host), ["api.stripe.com"]);
   assert.equal(JSON.stringify(e).includes("sk_test_ABCDEF"), false);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.stripe.com"], paths: [], headers: [{ name: "Authorization", value: "Bearer sk_test_ABCDEF" }], raws: ["sk_test_ABCDEF"] }]);
+  // The machine learns where the key applies, never its value (2026-11-06, like Claude Code): the Worker adds it.
+  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.stripe.com"], paths: [], egress: true }]);
+  assert.doesNotMatch(JSON.stringify(sent[0]), /sk_test_ABCDEF/);
+  assert.ok(sent[0].egress && sent[0].egress.pass && /\/api\/coder\/egress$/.test(sent[0].egress.url), "the job's pass for the Worker's egress");
   assert.equal(JSON.stringify(sent[0].setup).includes("sk_test"), false, "never in the setup (the AI's text)");
   assert.equal(JSON.stringify(sent[0].text).includes("sk_test"), false);
   // This job's key values are kept (sealed) to hide them in its chat even if the key is removed meanwhile.
@@ -1740,7 +1743,9 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
   assert.equal(JSON.stringify(s).includes("tok_AAAA1111") || JSON.stringify(s).includes("key_BBBB2222"), false, "values never come back");
   assert.deepEqual(s.secrets[0].hosts, ["api.a.com", "*.b.com"]);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer tok_AAAA1111" }, { name: "X-Api-Key", value: "key_BBBB2222" }], raws: ["tok_AAAA1111", "key_BBBB2222"] }]);
+  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], egress: true }]);
+  assert.doesNotMatch(JSON.stringify(sent[0]), /tok_AAAA1111|key_BBBB2222/, "no key value goes to the machine");
+  const direct = [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer tok_AAAA1111" }, { name: "X-Api-Key", value: "key_BBBB2222" }], raws: ["tok_AAAA1111", "key_BBBB2222"] }];
   assert.deepEqual(sent[0].setup.vars, { NODE_ENV: "test", NAME: "Ana B" });
   const del = await (await go("projects/" + id + "/secret?id=" + encodeURIComponent(s.secrets[0].id), { method: "DELETE" })).json();
   assert.deepEqual(del.secrets, []);
@@ -1753,7 +1758,7 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
   await new Promise((ok) => up.listen(0, "127.0.0.1", ok));
   const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px5-")), upstream: { host: "127.0.0.1", port: up.address().port, ca: readFileSync(join(d, "c")) } });
   try {
-    px.setSecrets(sent[0].secrets); px.setNetwork({ mode: "custom", hosts: [], defaults: true });
+    px.setSecrets(direct); px.setNetwork({ mode: "custom", hosts: [], defaults: true });
     const { execFile } = await import("node:child_process");
     const envx = { PATH: process.env.PATH, ...px.env() };
     const curl = (u) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "15", u], { env: envx }, (err, so, se) => ok(String(so) || String(se))));
