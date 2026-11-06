@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import http from "node:http";
 import { execFileSync, spawn } from "node:child_process";
-import { createApp, prepareRepo, pushRepo, ignoreNew, gitIn, keepOut, projectDirProblem, makeProjectDir, giveTree, killUser, readMemory, writeMemory, repoNotes, submoduleHead, GIT_BIN, GIT_PATH, NO_SUBMODULES } from "../container/server.mjs";
+import { nestedAway, nestedGitPaths, createApp, prepareRepo, pushRepo, ignoreNew, gitIn, keepOut, projectDirProblem, makeProjectDir, giveTree, killUser, readMemory, writeMemory, repoNotes, submoduleHead, GIT_BIN, GIT_PATH, NO_SUBMODULES } from "../container/server.mjs";
 import { handleCoder, leftOutNote } from "../src/coder-routes.mjs";
 import { saveConnection } from "../src/coder-github.mjs";
 
@@ -738,4 +738,48 @@ test("CD94 root runs git by its full name with system folders only, never into s
   const deploy = readFileSync(new URL("../../.github/workflows/deploy-coder.yml", import.meta.url), "utf8");
   assert.match(deploy, /run: sudo -E env "PATH=\$PATH" CODER_TESTS_NEED_ROOT=1 node --test test\/root-safety\.test\.mjs/);
   assert.ok(deploy.indexOf("root-safety.test.mjs") < deploy.indexOf("name: Deploy Coder"), "the root-only tests run after the deploy");
+});
+
+test("CD94b (the final check, 2026-11-06) while root's git works, no repository of the AI's is left in the tree: a failed add, a commit's own status and a revert cannot open one", async () => {
+  // The step itself: every nested .git is away during the work, back after; one whose folder git removed stays in root's folder.
+  const dir = await tmp("coder-rs-away-"), gitDir = await tmp("coder-rs-awaygit-");
+  await mkdir(join(dir, "a/.git"), { recursive: true }); await writeFile(join(dir, "a/.git/config"), "x\n");
+  await mkdir(join(dir, "b/c"), { recursive: true }); await writeFile(join(dir, "b/c/.git"), "gitdir: /elsewhere\n");
+  await writeFile(join(dir, ".git"), "gitdir: " + gitDir + "\n");
+  assert.deepEqual((await nestedGitPaths(dir)).sort(), ["a/.git", "b/c/.git"], "the top-level .git is the project's own");
+  let during = null;
+  await nestedAway(dir, gitDir, async () => { during = await nestedGitPaths(dir); await rm(join(dir, "b"), { recursive: true }); }, () => assert.fail("refused"));
+  assert.deepEqual(during, []);
+  assert.equal(readFileSync(join(dir, "a/.git/config"), "utf8"), "x\n", "put back as it was");
+  assert.equal(existsSync(join(dir, "b")), false, "a folder git removed is not made again");
+  // The whole way: a filled submodule with a filter and `ignore = none`, a save git refuses, then a normal save.
+  const { remote, bare, sha } = await seedRemote(["sub"]);
+  const root = await tmp("coder-rs-root-"), gitRoot = await tmp("coder-rs-git-");
+  const p = join(root, "shop-z");
+  const o = { dir: p, repo: "ana/shop", base: "main", branch: "coder/shop-z", token: "", remote, gitRoot, root };
+  assert.equal((await prepareRepo(o)).ok, true);
+  const marker = join(await tmp("coder-rs-mark-"), "RAN");
+  const sub = join(p, "sub");
+  execFileSync("git", ["clone", "-q", "--no-checkout", bare, sub + "-tmp"], { env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" } });
+  await rm(sub, { recursive: true, force: true }); await rename(sub + "-tmp", sub);
+  inRepo(sub)("checkout", "-q", sha);
+  await addFilter(sub, marker);
+  await writeFile(join(sub, "README.md"), "# changed\n"); await utimes(join(sub, "README.md"), later(10), later(10));
+  await writeFile(join(p, ".gitmodules"), "[submodule \"sub\"]\n\tpath = sub\n\turl = https://example.com/sub.git\n\tignore = none\n");
+  await mkdir(join(p, "zz/.GIT"), { recursive: true }); await writeFile(join(p, "zz/.GIT/x"), "x\n");
+  await writeFile(join(p, "normal.txt"), "normal\n");
+  const failed = await pushRepo({ ...o, message: "x" });
+  assert.equal(failed.ok, false); assert.match(failed.why, /^could not save the changes/);
+  assert.equal(existsSync(marker), false, "a save git refused opened nothing");
+  await rm(join(p, "zz"), { recursive: true });
+  const r = await pushRepo({ ...o, message: "y" });
+  assert.equal(r.ok, true, r.why);
+  assert.equal(existsSync(marker), false, "a normal save opened nothing");
+  assert.ok(existsSync(join(sub, ".git")), "the submodule's own .git is back after the save");
+  assert.match(tree(bare, "coder/shop-z"), /\tnormal\.txt/);
+  // Every root step that writes or reads the work tree goes through the same step.
+  const src = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(src, /nestedAway\(dir, gitDir, \(\) => gitIn\(dir, \["checkout", \.\.\.args\], o\), no\)/, "branch switch");
+  assert.match(src, /nestedAway\(dir, o\.gitDir, async \(\) => \{ const r = await gitIn\(dir, \["revert", "--no-edit", sha\], o\);/, "undo");
+  assert.match(src, /nestedAway\(dir, o\.gitDir, \(\) => gitIn\(dir, \["status", "--porcelain", "--untracked-files=normal"/, "the setup-script step");
 });

@@ -20,7 +20,7 @@
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
@@ -395,6 +395,56 @@ async function listNested(gitDir, names) {
  * repositories found, `subs` the submodules kept out (`{ path, sha, kind }`,
  * kind "link" or "filled"), so a save can say what it left out.
  */
+// NO OTHER REPOSITORY IN THE TREE WHILE ROOT'S GIT WORKS (2026-11-06, the
+// final check of this audit fix found three more ways in: a commit's own
+// status, a revert with nothing to change, and a revert merging a submodule all
+// opened a repository the AI had made inside the project). So, with the AI's
+// commands stopped, every nested .git below the top level is moved into root's
+// own folder for the length of the operation and put back afterwards. While git
+// runs, there is no repository of the AI's for it to open, whatever it decides.
+/** Every entry named .git below the top level (relative paths), found without following links. */
+export async function nestedGitPaths(dir, max = WALK_MAX) {
+  const out = [];
+  let seen = 0;
+  const walk = async (rel) => {
+    let ents;
+    try { ents = await readdir(rel ? join(dir, rel) : dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (++seen > max) throw new Error("over " + max + " files in the project");
+      const r = rel ? rel + "/" + e.name : e.name;
+      if (e.name === ".git") { if (rel) out.push(r); continue; }
+      if (e.isDirectory()) await walk(r);
+    }
+  };
+  await walk("");
+  return out;
+}
+/** Runs `fn` with every nested .git set aside in root's folder; `refuse(why)` when they cannot all be moved. */
+export async function nestedAway(dir, gitDir, fn, refuse) {
+  let found;
+  try { found = await nestedGitPaths(dir); } catch (e) { return refuse("could not check the project's folders: " + String((e && e.message) || e).slice(0, 160)); }
+  if (!found.length) return fn();
+  const hold = join(gitDir, "coder-held-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8));
+  await mkdir(hold, { recursive: true, mode: 0o700 });
+  const moved = [];
+  const putBack = async () => {
+    for (const [rel, to] of moved.reverse()) {
+      // Back where it was, unless git removed that folder meanwhile (then it stays in root's folder).
+      const parent = dirname(join(dir, rel));
+      const ok = await lstat(parent).then((s) => s.isDirectory(), () => false) && !(await lstat(join(dir, rel)).then(() => true, () => false));
+      if (ok) await rename(to, join(dir, rel)).catch(() => {});
+    }
+    await rmdir(hold).catch(() => {});
+  };
+  try {
+    for (const rel of found) { const to = join(hold, String(moved.length)); await rename(join(dir, rel), to); moved.push([rel, to]); }
+  } catch (e) {
+    await putBack();
+    return refuse("could not set aside a repository inside the project: " + String((e && e.message) || e).slice(0, 160));
+  }
+  try { return await fn(); } finally { await putBack(); }
+}
+
 export async function keepOut(dir, { gitDir = gitDirFor(dir), remote = DEFAULT_REMOTE, root = PROJECT_ROOT } = {}) {
   const none = { keep: [], pathspec: [], nested: [], subs: [] };
   const no = (why) => ({ ok: false, why, ...none });
@@ -440,7 +490,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
   const gitDir = gitDirFor(dir, gitRoot);
   const o = { gitDir, remote, root };
   // Every checkout writes the work tree: nested repositories are kept out first (the audit, 2026-11-06).
-  const checkout = async (args) => { const k = await keepOut(dir, o); return k.ok ? gitIn(dir, ["checkout", ...args], o) : { code: -1, output: k.why, stdout: "", refused: true }; };
+  const checkout = async (args) => { const k = await keepOut(dir, o); const no = (why) => ({ code: -1, output: why, stdout: "", refused: true }); return k.ok ? nestedAway(dir, gitDir, () => gitIn(dir, ["checkout", ...args], o), no) : no(k.why); };
   await mkdir(gitRoot, { recursive: true, mode: 0o755 });
   const has = await stat(join(gitDir, "HEAD")).then(() => true, () => false);
   if (has) {
@@ -624,17 +674,26 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
   // tree cannot change between this look and the add, status and commit.
   const k = await keepOut(dir, o);
   if (!k.ok) return { ok: false, pushed: false, why: k.why };
-  await gitIn(dir, ["add", "-A", ...k.pathspec], o);
+  // A filled submodule's new commit is read first (plain reads of its .git), before its .git is set aside.
   const left = await saveSubmodules(dir, k, o);
   const told = left.length ? { left } : {};
-  const st = await gitIn(dir, ["status", "--porcelain", "--ignore-submodules=all", ...k.pathspec], o);
-  // That status hides a staged change to a submodule (its folder removed, or
-  // moved to another commit); the index alone shows it, without looking in any folder.
-  const committed = !!String(st.stdout ?? st.output).trim() || (await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code === 1;
-  if (committed) {
-    const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
-    if (c.code !== 0) return { ok: false, pushed: false, why: "could not commit: " + c.output.slice(0, 200), ...told };
-  }
+  const saved = await nestedAway(dir, o.gitDir, async () => {
+    const a = await gitIn(dir, ["add", "-A", ...k.pathspec], o);
+    // Nothing is committed when git could not take the changes in (the final check, 2026-11-06).
+    // (Git also answers 1 to say a left-out folder is ignored: only a fatal error stops the save.)
+    if (a.code !== 0 && /^fatal:/m.test(a.output)) return { why: "could not save the changes: " + a.output.slice(0, 200) };
+    const st = await gitIn(dir, ["status", "--porcelain", "--ignore-submodules=all", ...k.pathspec], o);
+    // That status hides a staged change to a submodule (its folder removed, or
+    // moved to another commit); the index alone shows it, without looking in any folder.
+    const committed = !!String(st.stdout ?? st.output).trim() || (await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code === 1;
+    if (committed) {
+      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
+      if (c.code !== 0) return { why: "could not commit: " + c.output.slice(0, 200) };
+    }
+    return { committed };
+  }, (why) => ({ why }));
+  if (saved.why) return { ok: false, pushed: false, why: saved.why, ...told };
+  const committed = saved.committed;
   // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
   if (!committed) {
     const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
@@ -772,7 +831,7 @@ export async function ignoreNew(dir, gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE
   // Nested repositories are kept out of this status too (the audit, 2026-11-06).
   const k = await keepOut(dir, o);
   if (!k.ok) return [];
-  const st = await gitIn(dir, ["status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=all", ...k.pathspec], o);
+  const st = await nestedAway(dir, o.gitDir, () => gitIn(dir, ["status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=all", ...k.pathspec], o), () => ({ code: -1, output: "", stdout: "" }));
   const fresh = String(st.stdout ?? st.output).split("\n").filter((l) => l.startsWith("?? ")).map((l) => l.slice(3).replace(/^"|"$/g, "")).filter(Boolean);
   if (!fresh.length) return [];
   const file = join(gitDirFor(dir, gitRoot), "info", "exclude");
@@ -1065,8 +1124,8 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         // The revert writes the work tree: nested repositories are kept out first (the audit, 2026-11-06).
         const k = await keepOut(dir, o);
         if (!k.ok) return send(409, { ok: false, why: k.why });
-        const rv = await gitIn(dir, ["revert", "--no-edit", sha], o);
-        if (rv.code !== 0) { await gitIn(dir, ["revert", "--abort"], o); return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
+        const rv = await nestedAway(dir, o.gitDir, async () => { const r = await gitIn(dir, ["revert", "--no-edit", sha], o); if (r.code !== 0) await gitIn(dir, ["revert", "--abort"], o); return r; }, (why) => ({ code: -1, output: why }));
+        if (rv.code !== 0) { return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
         const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: "", remote, gitRoot, root });
         // What the save left out is said here too (the audit, 2026-11-06).
         const told = p.left ? { left: p.left } : {};
