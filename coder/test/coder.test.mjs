@@ -1116,7 +1116,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
   assert.deepEqual((await (await go("projects/" + id + "/env")).json()).vars, ["API_KEY"], "names only");
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ vars: { "bad-name": "x" } }) })).status, 400);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].setup, { script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" }, network: { limited: false, hosts: [] } });
+  assert.deepEqual(sent[0].setup, { script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" }, network: { mode: "full", hosts: [] } });
   // THE MACHINE: the script runs once, the variable reaches commands.
   const { remote } = await fakeRemote();
   const r0 = await roots();
@@ -1255,7 +1255,7 @@ test("CD53 GitHub-started jobs get no owner variables; variable values never sta
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
   await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "npm ci", vars: { DB_URL: "postgres://secret-pass@db" } }) });
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "from github", fromGithub: true }) });
-  assert.deepEqual(sent[0].setup, { script: "npm ci", vars: {}, network: { limited: false, hosts: [] } });
+  assert.deepEqual(sent[0].setup, { script: "npm ci", vars: {}, network: { mode: "full", hosts: [] } });
   state = { running: false, result: { status: "done", messages: [], summary: "x" }, events: [{ type: "done", text: "the url is postgres://secret-pass@db" }], next: 1 };
   const got = await (await go("projects/" + id + "/state?since=0")).json();
   const saved = JSON.parse(bucket.m.get("coder/user-sec/" + id + "/events.json"));
@@ -1432,7 +1432,7 @@ test("CD64 the secret route: sealed, never shown back, sent only to the machine'
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
   await connectGithub(go, env, deps);
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
-  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "*.stripe.com", value: "k" }) })).status, 400);
+  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "https://stripe.com/x", value: "k" }) })).status, 400);
   assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "" }) })).status, 400);
   const saved = await (await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "sk_test_ABCDEF", name: "Stripe test key" }) })).json();
   assert.equal(JSON.stringify(saved).includes("sk_test_ABCDEF"), false);
@@ -1444,7 +1444,7 @@ test("CD64 the secret route: sealed, never shown back, sent only to the machine'
   assert.deepEqual(e.secrets.map((x) => x.host), ["api.stripe.com"]);
   assert.equal(JSON.stringify(e).includes("sk_test_ABCDEF"), false);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].secrets, [{ host: "api.stripe.com", header: "Authorization", value: "Bearer sk_test_ABCDEF", raw: "sk_test_ABCDEF" }]);
+  assert.deepEqual(sent[0].secrets, [{ hosts: ["api.stripe.com"], paths: [], headers: [{ name: "Authorization", value: "Bearer sk_test_ABCDEF" }], raws: ["sk_test_ABCDEF"] }]);
   assert.equal(JSON.stringify(sent[0].setup).includes("sk_test"), false, "never in the setup (the AI's text)");
   assert.equal(JSON.stringify(sent[0].text).includes("sk_test"), false);
   // This job's key values are kept (sealed) to hide them in its chat even if the key is removed meanwhile.
@@ -1570,15 +1570,15 @@ test("CD69 (owner '4') the network list: saved per repo, sent to the machine; th
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
   await connectGithub(go, env, deps);
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
-  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { add: ["*.x.com"] } }) })).status, 400);
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { add: ["x .com"] } }) })).status, 400);
   let e = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { limited: true, add: ["API.X.com", "api.y.com"] } }) })).json();
-  assert.deepEqual(e.network, { limited: true, hosts: ["api.x.com", "api.y.com"] });
+  assert.deepEqual(e.network, { mode: "limited", hosts: ["api.x.com", "api.y.com"] });
   e = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { remove: ["api.y.com"] } }) })).json();
-  assert.deepEqual(e.network, { limited: true, hosts: ["api.x.com"] });
+  assert.deepEqual(e.network, { mode: "limited", hosts: ["api.x.com"] });
   await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo hi" }) });
-  assert.deepEqual((await (await go("projects/" + id + "/env")).json()).network, { limited: true, hosts: ["api.x.com"] }, "kept when the script is saved");
+  assert.deepEqual((await (await go("projects/" + id + "/env")).json()).network, { mode: "limited", hosts: ["api.x.com"] }, "kept when the script is saved");
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].setup.network, { limited: true, hosts: ["api.x.com"] });
+  assert.deepEqual(sent[0].setup.network, { mode: "limited", hosts: ["api.x.com"] });
   // THE PROXY
   const { startProxy, firewall } = await import("../container/coder-proxy.mjs");
   assert.equal(firewall(true, undefined), false, "no firewall without the AI's user (tests)");
@@ -1695,4 +1695,55 @@ test("CD74 live test (2026-11-06): installed packages and caches are never commi
   let n = 0; const t = [say("Added check.js; it prints true then false.", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "r" })])];
   const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }) }, { text: "x" });
   assert.equal(r.summary, "Added check.js; it prints true then false.");
+});
+
+test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limited/full, secrets with several sites, *.subdomains, path prefixes and headers, .env variables", async () => {
+  const { parseEnv, toEnv, hostAllowed, normSecret, okPattern } = await import("../container/coder-secrets.mjs");
+  assert.deepEqual(parseEnv('A=1\n# note\nB="x y\nz"\nexport C=3 # c\nnot a line\nD=\'q\''), { A: "1", B: "x y\nz", C: "3", D: "q" });
+  assert.deepEqual(parseEnv(toEnv({ A: "1", B: 'say "hi"' })), { A: "1", B: 'say "hi"' });
+  assert.equal(okPattern("*.Example.com"), "*.example.com"); assert.equal(okPattern("*.com"), null); assert.equal(okPattern("*"), null);
+  assert.equal(hostAllowed("a.b.example.com", { mode: "limited", hosts: ["*.example.com"] }), true);
+  assert.equal(hostAllowed("example.com", { mode: "limited", hosts: ["*.example.com"] }), true);
+  assert.equal(hostAllowed("evil-example.com", { mode: "limited", hosts: ["*.example.com"] }), false);
+  assert.equal(hostAllowed("registry.npmjs.org", { mode: "none", hosts: [] }), false, "None blocks even package sites");
+  assert.equal(hostAllowed("x.com", { limited: true, hosts: [] }), false, "the old setting still reads as Limited");
+  assert.equal(normSecret({ host: "api.stripe.com", value: "sk_1", header: "Authorization", prefix: "Bearer" }).headers[0].prefix, "Bearer", "old secrets still work");
+  // THE ROUTES
+  const bucket = fakeBucket(); const env = { ...GH_ENV, CODER_BUCKET: bucket }; const gf = fakeGithub(); const sent = [];
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-env2", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  let e = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ varsText: "NODE_ENV=test\nNAME=\"Ana B\"", network: { mode: "none" } }) })).json();
+  assert.equal(e.varsText, 'NODE_ENV=test\nNAME="Ana B"'); assert.deepEqual(e.network, { mode: "none", hosts: [] });
+  e = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ network: { mode: "limited", hosts: ["*.example.com", "api.x.com"] } }) })).json();
+  assert.deepEqual(e.network, { mode: "limited", hosts: ["*.example.com", "api.x.com"] });
+  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ hosts: ["api.a.com"], paths: ["v1"], headers: [{ name: "Authorization", prefix: "Bearer", value: "k1234567" }] }) })).status, 400, "a path starts with /");
+  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ hosts: ["api.a.com"], headers: [{ name: "Origin", prefix: "", value: "k1234567" }] }) })).status, 400);
+  const s = await (await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ name: "Two keys", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", prefix: "Bearer", value: "tok_AAAA1111" }, { name: "X-Api-Key", prefix: "", value: "key_BBBB2222" }] }) })).json();
+  assert.equal(JSON.stringify(s).includes("tok_AAAA1111") || JSON.stringify(s).includes("key_BBBB2222"), false, "values never come back");
+  assert.deepEqual(s.secrets[0].hosts, ["api.a.com", "*.b.com"]);
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.deepEqual(sent[0].secrets, [{ hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer tok_AAAA1111" }, { name: "X-Api-Key", value: "key_BBBB2222" }], raws: ["tok_AAAA1111", "key_BBBB2222"] }]);
+  assert.deepEqual(sent[0].setup.vars, { NODE_ENV: "test", NAME: "Ana B" });
+  const del = await (await go("projects/" + id + "/secret?id=" + encodeURIComponent(s.secrets[0].id), { method: "DELETE" })).json();
+  assert.deepEqual(del.secrets, []);
+  // THE PROXY: both headers, only under the path, on a subdomain
+  const { startProxy } = await import("../container/coder-proxy.mjs");
+  const d = await mkdtemp(join(tmpdir(), "coder-up3-"));
+  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(d, "k"), "-out", join(d, "c"), "-days", "2", "-subj", "/CN=x.b.com", "-addext", "subjectAltName=DNS:x.b.com"], { stdio: "ignore" });
+  const https = await import("node:https");
+  const up = https.createServer({ key: readFileSync(join(d, "k")), cert: readFileSync(join(d, "c")) }, (q, r) => r.end((q.headers.authorization || "-") + "|" + (q.headers["x-api-key"] || "-")));
+  await new Promise((ok) => up.listen(0, "127.0.0.1", ok));
+  const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px5-")), upstream: { host: "127.0.0.1", port: up.address().port, ca: readFileSync(join(d, "c")) } });
+  try {
+    px.setSecrets(sent[0].secrets); px.setNetwork({ mode: "limited", hosts: [] });
+    const { execFile } = await import("node:child_process");
+    const envx = { PATH: process.env.PATH, ...px.env() };
+    const curl = (u) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "15", u], { env: envx }, (err, so, se) => ok(String(so) || String(se))));
+    assert.equal(await curl("https://x.b.com/v1/balance"), "Bearer tok_AAAA1111|key_BBBB2222");
+    assert.match(await curl("https://x.b.com/v2/other"), /Blocked by this repo's network list: x\.b\.com \(outside the secret's paths\)/, "outside the path, and the site is only allowed through the secret");
+    px.setNetwork({ mode: "full", hosts: [] });
+    assert.equal(await curl("https://x.b.com/v2/other"), "-|-", "Full: reachable, but no key outside the path");
+  } finally { await px.close(); up.close(); }
 });

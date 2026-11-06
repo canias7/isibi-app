@@ -20,7 +20,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
-import { okHost, HEADER_RE, hostAllowed } from "./coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, hostAllowed, hostMatches, normNetwork, PATH_RE } from "./coder-secrets.mjs";
 import { lookup as dnsLookup } from "node:dns";
 import { privateAddress } from "./coder-tools.mjs";
 export { okHost, HEADER_RE, PREFIXES, headerValue } from "./coder-secrets.mjs";
@@ -34,7 +34,7 @@ function publicLookup(hostname, opts, cb) {
     cb(null, list[0].address, list[0].family);
   });
 }
-const BLOCKED = (host) => "Blocked by this repo's network list: " + host + ". Ask the owner to allow it with propose_env (allow_host).";
+const BLOCKED = (host) => "Blocked by this repo's network list: " + host + ". Ask the owner to allow it with propose_env (allow_host), unless network access is None.";
 
 /**
  * THE FIREWALL (Linux, root): the AI's user may only reach this machine itself
@@ -91,22 +91,31 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     return ctx;
   };
 
-  let secrets = new Map(); // host → { header, value }
-  let network = { limited: false, hosts: [] };
-  const allowed = (h) => hostAllowed(h, network, [...secrets.keys()]);
-  // THE TLS SIDE: requests for a secret's host, with its header added.
+  // THE OWNER'S SECRETS (owner, 2026-11-06, like Claude Code's): each covers one
+  // or more sites ("*.example.com" too), optionally only some paths, and adds one
+  // or more headers.
+  let rules = []; // [{ hosts, paths, headers: [{ name, value }], raws }]
+  let network = normNetwork(null);
+  const ruleFor = (h) => rules.find((r) => r.hosts.some((p) => hostMatches(h, p)));
+  const allowed = (h) => hostAllowed(h, network, rules.flatMap((r) => r.hosts));
+  // THE TLS SIDE: requests for a secret's site, with its headers added.
   const inner = http.createServer((req, res) => {
     const host = req.socket.coderHost;
-    const s = secrets.get(host);
+    const rule = ruleFor(host);
+    const pathOk = rule && (!rule.paths.length || rule.paths.some((p) => String(req.url || "").startsWith(p)));
+    // A path outside the secret's prefixes gets no key, and when the site is
+    // reachable only because of that secret, it is not reachable at all.
+    if (!pathOk && !hostAllowed(host, network, [])) { res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host + " (outside the secret's paths)")); }
+    const s = pathOk ? rule : null;
     const headers = { ...req.headers, host };
     for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
-    if (s) { for (const k of Object.keys(headers)) if (k.toLowerCase() === s.header.toLowerCase()) delete headers[k]; headers[s.header] = s.value; }
+    if (s) for (const h of s.headers) { for (const k of Object.keys(headers)) if (k.toLowerCase() === h.name.toLowerCase()) delete headers[k]; headers[h.name] = h.value; }
     let up;
     try {
-    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: req.url, headers, ...(network.limited && !upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
+    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: req.url, headers, ...(network.mode !== "full" && !upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
       // A website that copies the key into its answer's headers does not hand it back (the audit, 2026-11-06).
       const back = { ...r.headers };
-      if (s) for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (one.includes(s.value) || (s.raw && one.includes(s.raw))) delete back[k]; }
+      if (s) { const keys = [...s.headers.map((h) => h.value), ...s.raws]; for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (keys.some((x) => x && one.includes(x))) delete back[k]; } }
       r.on("error", () => res.destroy());
       res.writeHead(r.statusCode || 502, back);
       r.pipe(res);
@@ -123,7 +132,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     if (!allowed(u.hostname.toLowerCase())) { res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": u.hostname }); return res.end(BLOCKED(u.hostname)); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     let up;
-    try { up = http.request({ host: u.hostname, port: u.port || 80, method: req.method, path: u.pathname + u.search, headers, ...(network.limited ? { lookup: publicLookup } : {}) }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
+    try { up = http.request({ host: u.hostname, port: u.port || 80, method: req.method, path: u.pathname + u.search, headers, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
     catch { res.writeHead(400); return res.end("bad request"); }
     up.on("error", () => { if (!res.headersSent) res.writeHead(502); res.end(); });
     req.pipe(up);
@@ -139,7 +148,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     if (!Number.isInteger(port) || port < 1 || port > 65535) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     if (!allowed(host)) { const b = BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     sock.on("error", () => {});
-    if (port === 443 && secrets.has(host)) {
+    if (port === 443 && ruleFor(host)) {
       let ctx; try { ctx = contextFor(host); } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
       sock.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head && head.length) sock.unshift(head);
@@ -151,7 +160,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     }
     // ANY OTHER HOST: a plain tunnel; nothing is read or added.
     let out;
-    try { out = net.connect({ port, host, ...(network.limited ? { lookup: publicLookup } : {}) }, () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
+    try { out = net.connect({ port, host, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
     } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
     out.on("error", () => { try { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); } catch { /* gone */ } });
   });
@@ -161,20 +170,27 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   const port = server.address().port;
   return {
     port, caFile, bundleFile,
-    /** The owner's secrets for this job: [{ host, header, value }] (value already has its prefix). */
+    /**
+     * The owner's secrets for this job: [{ hosts, paths, headers: [{ name, value }], raws }]
+     * (header values already have their prefix), or the older [{ host, header, value, raw }].
+     */
     setSecrets(list) {
-      const next = new Map();
+      const next = [];
       for (const s of Array.isArray(list) ? list : []) {
-        const host = okHost(s && s.host); const header = String((s && s.header) || "Authorization");
-        if (!host || !HEADER_RE.test(header) || typeof s.value !== "string" || !s.value) continue;
-        if (!/^[\x20-\x7e]+$/.test(s.value)) continue;
-        next.set(host, { header, value: s.value, raw: typeof s.raw === "string" && s.raw.length >= 8 ? s.raw : "" });
+        if (!s || typeof s !== "object") continue;
+        const hosts = (Array.isArray(s.hosts) ? s.hosts : [s.host]).map(okPattern).filter(Boolean);
+        const headers = (Array.isArray(s.headers) ? s.headers : [{ name: s.header || "Authorization", value: s.value }])
+          .filter((h) => h && HEADER_RE.test(String(h.name || "")) && typeof h.value === "string" && /^[\x20-\x7e]+$/.test(h.value)).map((h) => ({ name: String(h.name), value: h.value }));
+        if (!hosts.length || !headers.length) continue;
+        const paths = (Array.isArray(s.paths) ? s.paths : []).filter((x) => PATH_RE.test(String(x)));
+        const raws = (Array.isArray(s.raws) ? s.raws : [s.raw]).filter((x) => typeof x === "string" && x.length >= 8);
+        next.push({ hosts, paths, headers, raws });
       }
-      secrets = next;
+      rules = next.slice(0, 20);
     },
-    hosts: () => [...secrets.keys()],
-    /** The repo's network list: { limited, hosts }. */
-    setNetwork(n) { network = { limited: !!(n && n.limited), hosts: (n && Array.isArray(n.hosts) ? n.hosts : []).map(okHost).filter(Boolean).slice(0, 100) }; },
+    hosts: () => [...new Set(rules.flatMap((r) => r.hosts))],
+    /** The repo's network setting: { mode: full | limited | none, hosts }. */
+    setNetwork(n) { network = normNetwork(n); },
     /** What the AI's commands get, so their HTTPS goes through here and trusts it. */
     env() {
       const p = "http://127.0.0.1:" + port;

@@ -30,7 +30,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
-import { okHost, HEADER_RE, KEY_RE, PREFIXES, headerValue } from "../container/coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
@@ -63,13 +63,16 @@ export const REVIEWS = {
 // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
 // owner's own variables, per repository, sealed like the GitHub token.
 /** What the page may see of the saved secrets: never the values. */
-export const secretList = (secrets) => (secrets || []).map((s) => ({ host: s.host, name: s.name || "", header: s.header || "Authorization", at: s.at || 0 }));
+export const secretList = (secrets) => (secrets || []).map(normSecret).filter(Boolean).map((s) => ({ id: s.id, name: s.name, hosts: s.hosts, host: s.hosts[0], paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, prefix: h.prefix })), header: s.headers[0].name, at: s.at }));
 export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
 export async function readEnv(env, bucket, uid, repo) {
   const o = await bucket.get(envKey(uid, repo));
-  const none = { script: "", vars: {}, secrets: [], network: { limited: false, hosts: [] } };
+  const none = { script: "", vars: {}, secrets: [], network: normNetwork(null) };
   if (!o) return none;
-  try { const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box); return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: Array.isArray(v.secrets) ? v.secrets : [], network: { limited: !!(v.network && v.network.limited), hosts: v.network && Array.isArray(v.network.hosts) ? v.network.hosts.filter(okHost) : [] } }; } catch { return none; }
+  try {
+    const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box);
+    return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: (Array.isArray(v.secrets) ? v.secrets : []).map(normSecret).filter(Boolean), network: normNetwork(v.network) };
+  } catch { return none; }
 }
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
@@ -336,7 +339,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
     if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
     // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
-    const secrets = (setup.secrets || []).filter((s) => KEY_RE.test(String(s.value || "")) && HEADER_RE.test(s.header || "Authorization")).map((s) => ({ host: s.host, header: s.header || "Authorization", value: headerValue(s), raw: String(s.value) }));
+    const secrets = (setup.secrets || []).map((s) => ({ hosts: s.hosts, paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, value: headerValue(h) })), raws: s.headers.map((h) => h.value) }));
     delete setup.secrets;
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
@@ -358,7 +361,7 @@ export async function handleCoder(request, env, ctx, deps) {
     await saveMeta(bucket, uid, next);
     // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
     // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
-    if (secrets.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, secrets.flatMap((s) => [s.value, s.raw])) }));
+    if (secrets.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, secrets.flatMap((s) => [...s.headers.map((h) => h.value), ...s.raws])) }));
     return json({ ok: true, project: next });
   }
 
@@ -440,7 +443,7 @@ export async function handleCoder(request, env, ctx, deps) {
       let jobKeys = [];
       const ho = await bucket.get(keyOf(uid, id, "hide.json"));
       if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, id, "hide.json")); }
-      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => { try { return [String(x.value || ""), headerValue(x)]; } catch { return [String(x.value || "")]; } }), ...jobKeys].filter((v) => v.length >= 4);
+      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } })), ...jobKeys].filter((v) => v.length >= 4);
       if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
@@ -501,53 +504,74 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, project: next });
   }
 
-  // THE REPO'S ENVIRONMENT: the script, and the variables' NAMES only (values are write-only).
-  if (action === "env" && request.method === "GET") {
-    const e = await readEnv(env, bucket, uid, meta.repo);
-    return json({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars), secrets: secretList(e.secrets), network: e.network });
-  }
+  // THE REPO'S ENVIRONMENT (owner, 2026-11-06: "make it similar" to Claude
+  // Code's): network access (full / limited / none, plus allowed sites), secrets
+  // (never their values), the setup script, and variables in .env form (shown,
+  // like Claude Code's: they are not for secrets).
+  const envOut = (e) => ({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network });
+  const saveEnv = async (e) => bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script: e.script, vars: e.vars, secrets: e.secrets, network: e.network }) }), { httpMetadata: { contentType: "application/json" } });
+  if (action === "env" && request.method === "GET") return json(envOut(await readEnv(env, bucket, uid, meta.repo)));
   if (action === "env" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const cur = await readEnv(env, bucket, uid, meta.repo);
-    const script = typeof body.script === "string" ? body.script.slice(0, 20000) : cur.script;
-    const vars = { ...cur.vars };
+    if (typeof body.script === "string") { if (body.script.length > 65536) return json({ error: "the setup script is over 64 KB" }, 413); cur.script = body.script; }
+    if (typeof body.varsText === "string") {
+      if (body.varsText.length > 100000) return json({ error: "that is too long" }, 413);
+      cur.vars = parseEnv(body.varsText);
+    }
     for (const [k, v] of Object.entries(body.vars && typeof body.vars === "object" ? body.vars : {})) {
       if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k)) return json({ error: "variable names are letters, digits and _ (" + String(k).slice(0, 40) + ")" }, 400);
-      if (v === null) delete vars[k]; else if (typeof v === "string") vars[k] = v.slice(0, 4000);
+      if (v === null) delete cur.vars[k]; else if (typeof v === "string") cur.vars[k] = v.slice(0, 4000);
     }
-    if (Object.keys(vars).length > 50) return json({ error: "at most 50 variables" }, 400);
-    // THE NETWORK LIST (owner, 2026-11-06, "4"): { limited?, add?: [host], remove?: [host] }.
-    const network = { limited: cur.network.limited, hosts: [...cur.network.hosts] };
+    if (Object.keys(cur.vars).length > 50) return json({ error: "at most 50 variables" }, 400);
     const nb = body.network && typeof body.network === "object" ? body.network : null;
     if (nb) {
-      if (typeof nb.limited === "boolean") network.limited = nb.limited;
-      for (const h of Array.isArray(nb.add) ? nb.add : []) { const ok = okHost(h); if (!ok) return json({ error: "not a host name like api.example.com: " + String(h).slice(0, 60) }, 400); if (!network.hosts.includes(ok)) network.hosts.push(ok); }
-      for (const h of Array.isArray(nb.remove) ? nb.remove : []) network.hosts = network.hosts.filter((x) => x !== String(h).toLowerCase());
-      if (network.hosts.length > 100) return json({ error: "at most 100 allowed sites" }, 400);
+      const n = { ...cur.network, hosts: [...cur.network.hosts] };
+      if (["full", "limited", "none"].includes(nb.mode)) n.mode = nb.mode;
+      if (typeof nb.limited === "boolean") n.mode = nb.limited ? "limited" : "full";
+      if (Array.isArray(nb.hosts)) n.hosts = [];
+      for (const h of [...(Array.isArray(nb.hosts) ? nb.hosts : []), ...(Array.isArray(nb.add) ? nb.add : [])]) { const ok = okPattern(h); if (!ok) return json({ error: "not a site like api.example.com or *.example.com: " + String(h).slice(0, 60) }, 400); if (!n.hosts.includes(ok)) n.hosts.push(ok); }
+      for (const h of Array.isArray(nb.remove) ? nb.remove : []) n.hosts = n.hosts.filter((x) => x !== String(h).toLowerCase());
+      if (n.hosts.length > 100) return json({ error: "at most 100 allowed sites" }, 400);
+      cur.network = n;
     }
-    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script, vars, secrets: cur.secrets, network }) }), { httpMetadata: { contentType: "application/json" } });
-    return json({ ok: true, repo: meta.repo, script, vars: Object.keys(vars), secrets: secretList(cur.secrets), network });
+    await saveEnv(cur);
+    return json(envOut(cur));
   }
-  // A NETWORK SECRET (owner, 2026-11-06, like Claude Code's): saved from the
-  // card Coder pops up, sealed with the repo's environment; DELETE ?host= removes it.
+  // A SECRET (owner, 2026-11-06, like Claude Code's "Add secret"): from Coder's
+  // card ({ host, value, header?, prefix? }) or the Add secret form ({ name,
+  // hosts, paths, headers: [{ name, prefix, value }] }); DELETE ?id= (or ?host=).
   if (action === "secret" && (request.method === "POST" || request.method === "DELETE")) {
-    let body = {}; if (request.method === "POST") { try { body = await request.json(); } catch { body = {}; } }
-    const host = okHost(request.method === "DELETE" ? url.searchParams.get("host") : body.host);
-    if (!host) return json({ error: "that is not a host name like api.stripe.com" }, 400);
     const cur = await readEnv(env, bucket, uid, meta.repo);
-    let list = cur.secrets.filter((s) => s.host !== host);
-    if (request.method === "POST") {
-      const value = typeof body.value === "string" ? body.value.trim() : "";
-      const header = String(body.header || "Authorization").trim();
-      const prefix = body.prefix === undefined ? "Bearer" : String(body.prefix);
+    if (request.method === "DELETE") {
+      const id = String(url.searchParams.get("id") || url.searchParams.get("host") || "").toLowerCase();
+      cur.secrets = cur.secrets.filter((s) => s.id.toLowerCase() !== id && !(s.hosts.length === 1 && s.hosts[0] === id));
+      await saveEnv(cur);
+      return json({ ok: true, secrets: secretList(cur.secrets) });
+    }
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const form = Array.isArray(body.hosts);
+    const rawHosts = form ? body.hosts : [body.host];
+    const hosts = rawHosts.map((h) => String(h || "").trim()).filter(Boolean);
+    if (!hosts.length) return json({ error: "add at least one website, like api.example.com" }, 400);
+    for (const h of hosts) if (!okPattern(h)) return json({ error: "not a site like api.example.com or *.example.com: " + h.slice(0, 60) }, 400);
+    const headers = form ? (Array.isArray(body.headers) ? body.headers : []) : [{ name: body.header || "Authorization", prefix: body.prefix === undefined ? "Bearer" : body.prefix, value: body.value }];
+    if (!headers.length) return json({ error: "add a header with the key" }, 400);
+    for (const h of headers) {
+      const name = String((h && h.name) || "").trim(), value = String((h && h.value) || "").trim(), prefix = String((h && h.prefix) || "");
       if (!value) return json({ error: "paste the key first" }, 400);
       if (!KEY_RE.test(value)) return json({ error: "that does not look like a key: one line of plain letters, digits and symbols, no spaces" }, 400);
-      if (!HEADER_RE.test(header) || !PREFIXES.includes(prefix)) return json({ error: "that header cannot carry a key (use Authorization, or a name ending in -Key or -Token)" }, 400);
-      list = [...list, { host, value, header, prefix, name: String(body.name || "").slice(0, 60), at: Date.now() }];
-      if (list.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
+      if (!HEADER_RE.test(name)) return json({ error: "that header cannot carry a key (use Authorization, or a name ending in -Key or -Token)" }, 400);
+      if (!PREFIXES.includes(prefix)) return json({ error: "the prefix is Bearer, Token, Key, Basic or empty" }, 400);
     }
-    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script: cur.script, vars: cur.vars, secrets: list, network: cur.network }) }), { httpMetadata: { contentType: "application/json" } });
-    return json({ ok: true, secrets: secretList(list) });
+    const paths = (Array.isArray(body.paths) ? body.paths : []).map((x) => String(x).trim()).filter(Boolean);
+    for (const x of paths) if (!PATH_RE.test(x)) return json({ error: "a path prefix starts with / (like /api/v1/): " + x.slice(0, 60) }, 400);
+    const sec = normSecret({ id: form ? "s" + Date.now().toString(36) : okPattern(hosts[0]), name: String(body.name || "").slice(0, 60), hosts, paths, headers: headers.map((h) => ({ name: String(h.name).trim(), prefix: String(h.prefix || ""), value: String(h.value).trim() })), at: Date.now() });
+    if (!sec) return json({ error: "that secret is not complete" }, 400);
+    cur.secrets = [...cur.secrets.filter((s) => s.id !== sec.id), sec];
+    if (cur.secrets.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
+    await saveEnv(cur);
+    return json({ ok: true, secrets: secretList(cur.secrets) });
   }
 
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").

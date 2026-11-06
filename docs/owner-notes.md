@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The Environment window, like Claude Code's
+
+- The Environment button opens a window like Claude Code's "Edit cloud environment": four rows (Network access, Network secrets, Setup script, Environment variables), each with its own page, Back, Cancel and Save changes.
+- Network access: None (no internet at all), Limited (package sites plus the sites you allow, `*.example.com` allowed) or Full.
+- Network secrets: a list with remove, and an Add secret form: name, secret type, one or more websites (`*.` for subdomains), optional path prefixes, one or more headers (name, prefix, value), and a "resolved curl example". Coder never sees the values; Coder's own key card still works too.
+- Setup script: a code box with Choose file (up to 64 KB) and copy.
+- Environment variables: one box in .env format. Like Claude Code's, the values are shown again and are not for secrets.
+
 ## 2026-11-06: Live test fixes: no node_modules on the branch, paragraphs, commit titles
 
 - Live test passed: the setup-script offer after `npm install` (card shown; Decline kept the script), no Review/Undo buttons in the top bar, "do a security review" used Coder's review tool, "undo that last job" reverted it, answers show bullet lists.
