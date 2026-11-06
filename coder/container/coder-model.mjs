@@ -53,9 +53,10 @@ export function toResponsesInput(messages) {
   return { instructions: sys.join("\n\n"), input };
 }
 /** Coder's function tools in the Responses shape, plus Grok's own web search. */
-export function toResponsesTools(tools) {
+export function toResponsesTools(tools, { webSearch = true } = {}) {
   const out = (Array.isArray(tools) ? tools : []).filter((x) => x && x.type === "function" && x.function).map((x) => ({ type: "function", name: x.function.name, description: x.function.description, parameters: x.function.parameters }));
-  return [{ type: "web_search" }, ...out];
+  // The separate page reader (web_fetch) gets no tools at all, not even web search.
+  return webSearch ? [{ type: "web_search" }, ...out] : out;
 }
 /** A Responses answer as `{ message, searches }`: the chat-shaped message, and the web searches Grok made. */
 export function fromResponsesOutput(j) {
@@ -86,7 +87,7 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
     if (!key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
     let withEffort = !!req.effort;
     const { instructions, input } = toResponsesInput(req.messages);
-    const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, tools: toResponsesTools(req.tools), tool_choice: req.tool_choice || "auto", store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
+    const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch !== false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
     let body = make();
     for (let attempt = 0; attempt < 2; attempt++) {
       const r = await fetchFn(CODER_ENDPOINT, {

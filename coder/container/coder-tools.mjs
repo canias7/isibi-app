@@ -19,6 +19,7 @@ import { isIP, BlockList } from "node:net";
 
 export const READ_LINES = 400;
 export const OUT_MAX = 30000;
+export const WEB_MAX = 100_000;
 const ROOT = process.cwd();
 
 class ToolError extends Error {}
@@ -237,7 +238,8 @@ export async function toolWebFetch({ url }, fetchFn = pinnedFetch) {
   const type = r.headers.get("content-type") || "";
   const raw = (await r.text()).slice(0, 2_000_000);
   const text = /html/i.test(type) ? htmlToText(raw) : raw;
-  return "HTTP " + r.status + " " + String(r.url || url) + "\n\n" + text.slice(0, OUT_MAX) + (text.length > OUT_MAX ? "\n[cut]" : "");
+  // Up to 100,000 characters, like Claude Code's WebFetch: a separate reader reads it, not Coder (2026-11-06).
+  return "HTTP " + r.status + " " + String(r.url || url) + "\n\n" + text.slice(0, WEB_MAX) + (text.length > WEB_MAX ? "\n[cut]" : "");
 }
 
 export async function toolLsp({ action, path, line, column }) {
