@@ -492,8 +492,8 @@ export async function handleCoder(request, env, ctx, deps) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
         if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
         else {
-          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder." }, fetchFn).catch(() => null);
-          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? "Pull request #" + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
+          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder.", draft: want.draft === true }, fetchFn).catch(() => null);
+          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });

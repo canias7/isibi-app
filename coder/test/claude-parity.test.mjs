@@ -50,3 +50,28 @@ test("CD100 GitHub like Claude Code: strangers get no reply and cost one search 
   assert.match(t, /\*\*Rename to what\?\*\*\n- getUser \(matches the API\)\n- loadUser\n- fetchUser\n\nChoose one or more, and answer with `@coder <your choice>`\./);
   assert.doesNotMatch(t, /\[object Object\]/);
 });
+
+test("CD101 Create PR and Create draft PR, like Claude Code: buttons in the chat bar; a draft opens as a draft on GitHub", async () => {
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const { openPullRequest } = await import("../src/coder-github.mjs");
+  const call = (name, args) => ({ id: name + "1", type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const steps = [say("", [call("pull_request", { title: "Add a.txt", body: "Adds a.txt.", draft: true })]), say("Draft coming.")];
+  let i = 0;
+  const r = await runCoder({ send: async () => steps[Math.min(i++, 1)], exec: async () => ({ code: 0, output: "" }) }, { text: "Create a draft pull request for this branch." });
+  assert.deepEqual(r.prRequest, { title: "Add a.txt", body: "Adds a.txt.", draft: true });
+  const sent = [];
+  const fetchFn = async (url, init = {}) => { sent.push(JSON.parse(init.body || "{}")); return new Response(JSON.stringify({ html_url: "https://github.com/a/b/pull/2", number: 2 }), { status: 201 }); };
+  assert.deepEqual(await openPullRequest("t", "a/b", { head: "coder/x", base: "main", title: "T", body: "B", draft: true }, fetchFn), { url: "https://github.com/a/b/pull/2", number: 2 });
+  assert.equal(sent[0].draft, true);
+  await openPullRequest("t", "a/b", { head: "coder/x", base: "main", title: "T", body: "B" }, fetchFn);
+  assert.equal("draft" in sent[1], false, "a normal pull request is not a draft");
+  // The page: the two buttons appear once the branch has work and no pull request, and are off while Coder works.
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /p && !\(p\.pr && p\.pr\.url\) && Array\.isArray\(p\.commits\) && p\.commits\.length \? '<button type="button" class="cd-hbtn" id="cdMakePr"' \+ \(S\.running \|\| S\.sending \? ' disabled' : ''\) \+ '>Create PR<\/button><button type="button" class="cd-hbtn" id="cdMakeDraft"/);
+  assert.match(page, /on\('#cdMakePr', 'click', \(\) => send\(PR_ASK\)\);\n\s+on\('#cdMakeDraft', 'click', \(\) => send\(PR_ASK_DRAFT\)\);/);
+  assert.match(page, /const PR_ASK_DRAFT = 'Create a draft pull request for this branch\./);
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /draft: want\.draft === true \}, fetchFn\)/);
+});

@@ -75,8 +75,8 @@ export const CODER_TOOLS = Object.freeze([
   // server pushes and opens it after the turn (Coder never holds the GitHub key).
   { type: "function", function: {
     name: "pull_request",
-    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work.",
-    parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["title", "body"] },
+    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR).",
+    parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" } }, required: ["title", "body"] },
   } },
 ]);
 
@@ -378,7 +378,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);
         if (!title) { reply("error: the pull request needs a title"); continue; }
-        prRequest = { title: scrub(title), body: scrub(body) };
+        prRequest = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words)");

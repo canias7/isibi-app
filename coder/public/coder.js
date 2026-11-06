@@ -297,6 +297,8 @@
   }
 
   // ── A MESSAGE, THEN FOLLOWING THE WORK ────────────────────────────────────
+  const PR_ASK = 'Create a pull request for this branch. Write its title and description from the changes.';
+  const PR_ASK_DRAFT = 'Create a draft pull request for this branch. Write its title and description from the changes.';
   async function send(text) {
     text = String(text || '').trim();
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
@@ -554,6 +556,10 @@
       (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b><span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === false ? '' : ' on') + '" id="cdAutofix" title="When a check fails or you review the pull request, Coder fixes it (up to 3 tries in a row)">Auto-fix: ' + (p.autofix === false ? 'Off' : 'On') + '</button>' : '') +
+      // CREATE PR / CREATE DRAFT PR, like Claude Code's buttons (owner, 2026-11-06:
+      // "Finish all this"): once the branch has work and no pull request yet.
+      // Coder writes the title and description from the changes.
+      (p && !(p.pr && p.pr.url) && Array.isArray(p.commits) && p.commits.length ? '<button type="button" class="cd-hbtn" id="cdMakePr"' + (S.running || S.sending ? ' disabled' : '') + '>Create PR</button><button type="button" class="cd-hbtn" id="cdMakeDraft"' + (S.running || S.sending ? ' disabled' : '') + '>Create draft PR</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
@@ -819,6 +825,8 @@
     on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
+    on('#cdMakePr', 'click', () => send(PR_ASK));
+    on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
     on('#cdEnvSel', 'change', async (e) => {
       const v = e.currentTarget.value;

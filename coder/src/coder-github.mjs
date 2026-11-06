@@ -154,8 +154,8 @@ export async function listRepos(token, fetchFn = fetch) {
 }
 
 /** The pull request for `head` into `base`: opened, or the one already open. `{ url, number }` or null. */
-export async function openPullRequest(token, repo, { head, base, title, body }, fetchFn = fetch) {
-  const made = await gh(token, "/repos/" + repo + "/pulls", { method: "POST", body: { head, base, title, body }, fetchFn });
+export async function openPullRequest(token, repo, { head, base, title, body, draft = false }, fetchFn = fetch) {
+  const made = await gh(token, "/repos/" + repo + "/pulls", { method: "POST", body: { head, base, title, body, ...(draft ? { draft: true } : {}) }, fetchFn });
   if (made.ok && made.data) return { url: made.data.html_url, number: made.data.number };
   const owner = repo.split("/")[0];
   const open = await gh(token, "/repos/" + repo + "/pulls?state=open&head=" + encodeURIComponent(owner + ":" + head), { fetchFn });
