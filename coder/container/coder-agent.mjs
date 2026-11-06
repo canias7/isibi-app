@@ -132,7 +132,7 @@ export function readCalls(msg) {
  * Answers `{ status, messages, summary, rounds, usage }`, `status` one of
  * `done`, `stopped`, `rounds`, `time`, `send`, `no-tool`. It never throws.
  */
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", setupScript = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -149,6 +149,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const started = now();
   let rounds = 0;
   let prRequest = null, undoRequest = false;
+  // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
+  // reminded once, before it finishes, to offer them for the setup script.
+  const installs = new Set(); let nudged = false;
+  const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
   // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
   const jobs = new Map();
   const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...extra });
@@ -178,9 +182,17 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
+    const missing = [...installs].filter((x) => !String(setupScript).includes(x));
+    if (!calls.length && missing.length && !nudged && !github && !undoRequest) {
+      nudged = true;
+      if (said) emit({ type: "text", text: scrub(said) });
+      convo.push({ role: "user", content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + ", which the repo's setup script does not do. If every new chat will need it, propose the whole setup script with it added, using propose_env (kind setup_script). If not, just say you are done.)" });
+      continue;
+    }
     if (!calls.length) { emit({ type: "done", text: scrub(said) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
     if (said) emit({ type: "text", text: scrub(said) });
 
+    for (const c of calls) if (c.name === "bash" && c.args && typeof c.args.command === "string") for (const m of c.args.command.matchAll(INSTALL_RE)) installs.add(m[1]);
     for (let i = 0; i < calls.length; i++) {
       const c = calls[i];
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });

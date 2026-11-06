@@ -1650,3 +1650,24 @@ test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, sou
   const bad = prose('<img src=x onerror=alert(1)> [x](javascript:alert(1)) [y](https://a.dev/"onmouseover=alert(1))');
   assert.doesNotMatch(bad, /<img|href="javascript|"onmouseover/);
 });
+
+test("CD73 (owner '2', live test) after an install the setup script does not do, Coder is reminded once to offer it on the card", async () => {
+  let n = 0; const seen = []; const events = [];
+  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("propose_env", { kind: "setup_script", script: "echo ok\nnpm install", reason: "New chats need the packages." })])];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e) }, { text: "use is-number", setupScript: "echo ok" });
+  assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install`, which the repo's setup script does not do/);
+  assert.ok(events.some((e) => e.type === "text" && /prints true then false/.test(e.text)), "its answer is still shown");
+  assert.ok(events.some((e) => e.type === "envchange"));
+  assert.equal(r.status, "done");
+  // Already in the setup script, from GitHub, or no install: no reminder.
+  for (const opts of [{ setupScript: "npm install" }, { setupScript: "", github: true }]) {
+    let k = 0; const s2 = [];
+    const t2 = [say("", [call("bash", { command: "npm install" })]), say("Done.", [])];
+    await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...opts });
+    assert.equal(s2.length, 2, JSON.stringify(opts));
+  }
+  let k = 0; const s3 = [];
+  const t3 = [say("", [call("bash", { command: "echo npm install is a nice command" })]), say("Done.", [])];
+  await runCoder({ send: async (q) => { s3.push(q); return t3[k++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x" });
+  assert.equal(s3.length, 3, "even an echo of it counts (cheap, harmless): one reminder only");
+});
