@@ -32,7 +32,9 @@ import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
-import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV } from "./coder-environments.mjs";
+import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -56,6 +58,8 @@ export function checkImages(list) {
   return { images: out };
 }
 // REVIEW (owner, 2026-11-05, "5"): Coder reviews its branch, written on the server.
+/** The chat's other repositories, as the machine gets them: each on the chat's branch. */
+export const extraFor = (meta) => (Array.isArray(meta && meta.repos) ? meta.repos : []).slice(0, 3).map((r) => ({ repo: r.repo, base: r.base, branch: meta.branch }));
 export const REVIEWS = {
   code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
   security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
@@ -167,6 +171,13 @@ export function capHistory(messages, max = HISTORY_MAX) {
   }
   return out;
 }
+/** WHAT "UNDO" WOULD UNDO (owner, 2026-11-06, "3"): the chat's last commit, and whether the last job made it. */
+export function lastJobFor(meta) {
+  const cs = meta && Array.isArray(meta.commits) ? meta.commits : [];
+  const l = cs[cs.length - 1];
+  return l ? { title: String(l.title || "").slice(0, 200), changed: l.turn === meta.turn } : { title: "", changed: false };
+}
+
 /** A chat's title: the first words of its first message. */
 export function chatTitle(text) {
   const t = String(text || "").replace(/\s+/g, " ").trim();
@@ -187,7 +198,23 @@ export function commitTitle(summary) {
 }
 
 /**
- * Handle one /api/coder/ request. `deps`: `authUser(request) → { id } | null`,
+ * WHAT A SAVE LEFT OUT, SAID IN THE CHAT (the audit, 2026-11-06). Coder's
+ * machine never runs git inside a folder that holds its own repository (the
+ * audit), so such a folder is not saved; the owner is told which, instead of
+ * reading "Saved to the branch" alone. `left`: `[{ path, kind }]` from the machine.
+ */
+export function leftOutNote(left) {
+  const list = (Array.isArray(left) ? left : []).filter((x) => x && typeof x.path === "string" && x.path);
+  if (!list.length) return "";
+  const what = { repo: "a folder with its own git repository", link: "a submodule's folder that is a link", submodule: "a submodule whose commit could not be read" };
+  const named = list.slice(0, 8).map((x) => x.path.replace(/[\u0000-\u001f`]/g, "").slice(0, 120) + " (" + (what[x.kind] || what.repo) + ")");
+  return "Not saved: " + named.join(", ") + (list.length > 8 ? " and " + (list.length - 8) + " more" : "") + ". Coder's app never runs git inside these" +
+    (list.some((x) => x.kind === "repo" || !what[x.kind]) ? "; to save a folder's files, remove its .git." : ".");
+}
+
+/**
+ * Handle one /api/coder/ request. `deps`: `authUser(request) → { id } | { signin } | { down } | null`
+ * (only `id` is signed in; coder-auth.mjs),
  * `container(name) → { fetch(Request) }`, optional `fetchFn` (GitHub calls).
  */
 export async function handleCoder(request, env, ctx, deps) {
@@ -228,6 +255,12 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   const user = await deps.authUser(request);
+  // THE EMAILED CODE, REALLY REQUIRED (the audit, 2026-11-06): a genuine Supabase
+  // session without the Worker's proof of both sign-in steps is told to sign in
+  // again, and `signin` lets the page tell this from other refusals. When
+  // Supabase cannot be asked, nobody is signed out for it.
+  if (user && user.signin === true && typeof user.id !== "string") return json({ error: "Sign in again.", signin: true }, 401);
+  if (user && user.down === true && typeof user.id !== "string") return json({ error: "Sign-in could not be checked. Try again in a minute." }, 503);
   if (!user || typeof user.id !== "string") return json({ error: "sign in first" }, 401);
   // WHILE TESTING (2026-11-05, the owner: "turn it on", free while testing):
   // only the emails in CODER_USERS may use it. Empty list = nobody.
@@ -280,6 +313,44 @@ export async function handleCoder(request, env, ctx, deps) {
   // A SLASH COMMAND: { text, project? } → { note?, open?, url?, pick? }.
   // (The slash commands were removed on 2026-11-05, owner: each one already has a button.)
 
+  // ENVIRONMENTS, LIKE CLAUDE CODE'S (owner, 2026-11-06, coder-environments.mjs):
+  // the user's own, named, not tied to repos; Default is made for them.
+  //   GET  /environments                 the list (names only)
+  //   POST /environments { name, script?, network?, repos? }   a new one
+  //   POST /environments/:id { name? | archive? }               rename, archive (never Default)
+  if (parts[0] === "environments") {
+    const list = await listEnvs(bucket, uid);
+    if (parts.length === 1 && request.method === "GET") return json({ ok: true, environments: envListOut(list) });
+    if (request.method !== "POST") return json({ error: "method" }, 405);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (parts.length === 1) {
+      if (list.filter((e) => !e.archived).length >= MAX_ENVS) return json({ error: "at most " + MAX_ENVS + " environments" }, 409);
+      const name = String(body.name || "").trim();
+      if (!ENV_NAME.test(name)) return json({ error: "give it a name (up to 40 characters)" }, 400);
+      const script = typeof body.script === "string" ? body.script.replace(/\r/g, "") : "";
+      if (script.length > 65536) return json({ error: "the setup script is over 64 KB" }, 413);
+      const id = envIdFor(name, list);
+      const e = { id, name: uniqueName(name, list), at: Date.now(), repos: (Array.isArray(body.repos) ? body.repos : []).map(String).filter((r) => REPO.test(r)).slice(0, 20) };
+      if (e.repos.length) e.used = Date.now(); // made for these repos: their next chat starts with it
+      await writeEnvData(env, bucket, uid, id, { script, vars: {}, secrets: [], network: normNetwork(body.network && typeof body.network === "object" ? body.network : null) });
+      list.push(e);
+      await saveEnvList(bucket, uid, list);
+      return json({ ok: true, environment: { id, name: e.name, isDefault: false }, environments: envListOut(list) });
+    }
+    const target = parts.length === 2 ? list.find((e) => e.id === parts[1]) : null;
+    if (!target) return json({ error: "no such environment" }, 404);
+    if (target.id === DEFAULT_ENV && (body.name !== undefined || body.archive !== undefined)) return json({ error: "the Default environment keeps its name and is never archived" }, 400);
+    if (body.name !== undefined) {
+      const n = String(body.name).trim();
+      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 40 characters)" }, 400);
+      target.name = uniqueName(n, list.filter((e) => e !== target));
+    }
+    if (body.archive === true) target.archived = true;
+    if (body.archive === false) delete target.archived;
+    await saveEnvList(bucket, uid, list);
+    return json({ ok: true, environment: { id: target.id, name: target.name, archived: !!target.archived }, environments: envListOut(list) });
+  }
+
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
   if (parts.length === 1) {
     const index = await listChats(bucket, uid);
@@ -300,7 +371,12 @@ export async function handleCoder(request, env, ctx, deps) {
     let id = projectIdFor(repo);
     // Never on top of an existing chat or someone's branch.
     for (let k = 0; k < 5 && ((await bucket.get(keyOf(uid, id, "meta.json"))) || (await bucket.get(branchKey(repo, "coder/" + id)))); k++) id = projectIdFor(repo);
-    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
+    // ITS ENVIRONMENT (like Claude Code, picked before the first message): the one
+    // asked for, else the one its repo's chats use, else Default.
+    const envs = await listEnvs(bucket, uid);
+    const asked = typeof body.envId === "string" ? envs.find((e) => e.id === body.envId && !e.archived) : null;
+    const envId = asked ? asked.id : await envForRepo(bucket, uid, repo, envs);
+    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed
     // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
@@ -338,17 +414,26 @@ export async function handleCoder(request, env, ctx, deps) {
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
-    const setup = await readEnv(env, bucket, uid, meta.repo);
+    // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message).
+    const envId = await envIdOf(bucket, uid, meta);
+    const envEntry = (await listEnvs(bucket, uid)).find((e) => e.id === envId) || { id: envId, name: "Default" };
+    const setup = await readEnvData(env, bucket, uid, envId);
+    const environment = { name: envEntry.name, isDefault: envId === DEFAULT_ENV };
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
     if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
     // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
-    const secrets = (setup.secrets || []).map((s) => ({ kind: s.kind, hosts: s.hosts, paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, value: headerValue(h) })), ...(s.config ? { config: s.config } : {}), raws: [...s.headers.map((h) => h.value), ...configSecrets(s.kind, s.config)] }));
+    // THE KEYS STAY HERE (2026-11-06, like Claude Code): the machine gets where they
+    // apply and this job's pass for the Worker's egress; the Worker adds them.
+    const secrets = machineKeyRules(setup.secrets);
+    // This job's key values, kept sealed on our side to hide them in its chat (never sent to the machine).
+    const jobValues = (setup.secrets || []).flatMap((s) => [...s.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(s.kind, s.config)]).filter(Boolean);
+    const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
     delete setup.secrets;
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { secrets, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { secrets, egress, extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -360,11 +445,16 @@ export async function handleCoder(request, env, ctx, deps) {
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + " (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
     }
     // Auto-fix tries in a row; a message from the owner starts the count again.
-    const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0 };
+    await markUsed(bucket, uid, envId, meta.repo).catch(() => {});
+    // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
+    // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
+    const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
+    const marks = [...(Array.isArray(meta.marks) ? meta.marks : []), { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true };
     await saveMeta(bucket, uid, next);
     // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
     // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
-    if (secrets.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, secrets.flatMap((s) => [...s.headers.map((h) => h.value), ...s.raws])) }));
+    if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
     return json({ ok: true, project: next });
   }
 
@@ -402,13 +492,26 @@ export async function handleCoder(request, env, ctx, deps) {
       // each job, but a pull request opens only when the user presses
       // "Create pull request". A merged or closed one is forgotten, so the
       // button comes back for the next one.
-      let pr = meta.pr || null, pushNote = "", pushed = !!meta.pushed;
+      let pr = meta.pr || null, pushNote = "", pushed = !!meta.pushed, prs = meta.prs || {};
+      const extraNotes = [];
       // Each job that changed files is one commit: kept so it can be undone.
       let commits = Array.isArray(meta.commits) ? meta.commits : [];
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
-        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, token: t.token, message: commitTitle(s.result.summary) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, token: t.token, message: commitTitle(s.result.summary), extra: extraFor(meta) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
+        for (const x of Array.isArray(p.extra) ? p.extra : []) {
+          const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.pushed && x.changed !== false ? "Saved to the branch " + meta.branch + " in " + x.repo : "";
+          if (line) extraNotes.push(line);
+        }
+        for (const want of Array.isArray(s.result.prExtra) ? s.result.prExtra : []) {
+          const x = (Array.isArray(meta.repos) ? meta.repos : []).find((r) => r.repo === want.repo);
+          if (!x) { extraNotes.push("No pull request in " + String(want.repo).slice(0, 100) + ": it is not one of this chat's repositories."); continue; }
+          const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder.", draft: want.draft === true }, fetchFn).catch(() => null);
+          if (made) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
+          else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub (is its branch saved?).");
+        }
         if (!p.ok) pushNote = "Not sent to GitHub: " + String(p.why || "the push failed").slice(0, 200);
         else if (p.pushed && p.changed !== false) {
           pushed = true;
@@ -416,6 +519,9 @@ export async function handleCoder(request, env, ctx, deps) {
           if (pr) pr = await prStillOpen(t.token, meta.repo, pr, fetchFn);
           pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
         }
+        // What the save left out, even when nothing else changed (the audit, 2026-11-06).
+        const lo = leftOutNote(p.left);
+        if (lo) pushNote = (pushNote ? pushNote + " · " : "") + lo;
       }
       // UNDO, ASKED FOR IN THE CHAT (owner, 2026-11-06: Coder calls it itself):
       // the last job's commit is reverted and pushed, like the old Undo button.
@@ -428,6 +534,8 @@ export async function handleCoder(request, env, ctx, deps) {
           const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: last.sha }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
           if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "") + "."; }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
+          const lo = leftOutNote(u.left);
+          if (lo && !pushNote.includes(lo)) pushNote += " · " + lo;
         }
       }
       // THE PULL REQUEST CODER WAS ASKED FOR in the chat (owner, 2026-11-05: "b").
@@ -436,22 +544,35 @@ export async function handleCoder(request, env, ctx, deps) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
         if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
         else {
-          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder." }, fetchFn).catch(() => null);
-          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? "Pull request #" + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
+          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder.", draft: want.draft === true }, fetchFn).catch(() => null);
+          pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
+      // THE REVIEW ON THE PULL REQUEST Coder was asked for (like Claude Code's /code-review --comment).
+      const rv = s.result.reviewPost;
+      if (rv) {
+        const x = t && pr && pr.number ? await postReview(t.token, meta.repo, pr.number, rv, fetchFn).catch(() => null) : null;
+        const note = !(t && pr && pr.number) ? "No pull request yet: the review stays in this chat." : x && x.ok ? "Review posted on pull request #" + pr.number + (x.inline ? "" : " (as one comment: GitHub took no line comments)") + "." : "The review could not be posted on GitHub.";
+        pushNote = (pushNote ? pushNote + " · " : "") + note;
+      }
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
+      for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
-      const envNow = await readEnv(env, bucket, uid, meta.repo);
+      const envNow = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta));
       let jobKeys = [];
       const ho = await bucket.get(keyOf(uid, id, "hide.json"));
       if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, id, "hide.json")); }
       const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
       if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
-      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
+      const kept = capHistory(s.result.messages);
+      await putJson(bucket, keyOf(uid, id, "messages.json"), kept);
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
-      await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
-      const ended = { ...meta, saved: meta.turn, pr, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
+      const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
+      await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
+      // The oldest history may have been trimmed: Rewind's marks move with it.
+      const dropM = (Array.isArray(s.result.messages) ? s.result.messages.length : 0) - kept.length, dropE = allEvents.length - keptEvents.length;
+      meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
+      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await saveMeta(bucket, uid, ended);
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
     }
@@ -487,7 +608,8 @@ export async function handleCoder(request, env, ctx, deps) {
     try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: last.sha }).then((x) => x.json()); }
     catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
     if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
-    const note = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + ".";
+    const lo = leftOutNote(r.left);
+    const note = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + "." + (lo ? " · " + lo : "");
     const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "github", text: note };
     await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
@@ -497,6 +619,53 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
+  }
+
+  // REWIND, like Claude Code's (its docs, read 2026-11-06: "Restore code and
+  // conversation", "Restore conversation", "Restore code"; owner: "Finish all
+  // this"): back to just before one of the owner's messages. The code goes back
+  // by reverting the later jobs' commits, newest first, each saved to the branch
+  // (never a force push); the chat goes back by cutting what came after.
+  if (action === "rewind" && request.method === "POST") {
+    if (meta.status === "running") return json({ error: "Coder is still working. Stop it first, or wait." }, 409);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const turn = Number(body.turn), code = body.code === true, chat = body.chat === true;
+    const mark = (Array.isArray(meta.marks) ? meta.marks : []).find((m) => m.turn === turn);
+    if (!mark) return json({ error: "That message is too old to rewind to here." }, 400);
+    if (!code && !chat) return json({ error: "Choose the code, the chat, or both." }, 400);
+    let commits = Array.isArray(meta.commits) ? meta.commits : [];
+    const later = commits.filter((c) => Number(c.turn) >= turn).reverse();
+    let undone = 0;
+    if (code && later.length) {
+      const t = await userToken(env, bucket, uid, { fetchFn });
+      if (!t) return json({ error: "Connect GitHub again first." }, 401);
+      for (const c of later) {
+        let r;
+        try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: c.sha }).then((x) => x.json()); }
+        catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
+        if (!r.ok) {
+          // What was undone so far stays undone, and is recorded.
+          const part = { ...meta, commits: commits.filter((x) => !later.slice(0, undone).includes(x)), at: Date.now() };
+          await saveMeta(bucket, uid, part);
+          return json({ error: "Could not rewind the code" + (undone ? " all the way (" + undone + " of " + later.length + " jobs undone)" : "") + ": " + String(r.why || r.error || "unknown").slice(0, 300), project: part }, 409);
+        }
+        undone++;
+      }
+      commits = commits.filter((c) => !later.includes(c));
+    }
+    let events = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    let msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    if (chat) { events = events.slice(0, mark.ev); msgs = msgs.slice(0, mark.msg); }
+    const note = "Rewound to before an earlier message: " + [code ? (later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes") : "", chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + ".";
+    const ev = { at: Date.now(), type: "github", text: note };
+    events = [...events, ev].slice(-MAX_EVENTS);
+    // Code only: Coder is told, so it knows those changes are gone.
+    if (code && !chat && later.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner rewound the code to before an earlier message. The commits of the later jobs were reverted: " + later.map((c) => "\"" + c.title + "\"").join(", ") + ". Those changes are no longer in the files. Nothing to do now.)" }];
+    await putJson(bucket, keyOf(uid, id, "events.json"), events);
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(msgs));
+    const next = { ...meta, commits, marks: chat ? (meta.marks || []).filter((m) => m.turn < turn) : meta.marks, at: Date.now() };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next, events });
   }
 
   // AUTO-FIX ON/OFF for this chat's pull request (on unless turned off).
@@ -511,12 +680,121 @@ export async function handleCoder(request, env, ctx, deps) {
   // Code's): network access (full / limited / none, plus allowed sites), secrets
   // (never their values), the setup script, and variables in .env form (shown,
   // like Claude Code's: they are not for secrets).
-  const envOut = (e) => ({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network });
-  const saveEnv = async (e) => bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script: e.script, vars: e.vars, secrets: e.secrets, network: e.network }) }), { httpMetadata: { contentType: "application/json" } });
-  if (action === "env" && request.method === "GET") return json(envOut(await readEnv(env, bucket, uid, meta.repo)));
+  // (Since 2026-11-06 these are the CHAT'S ENVIRONMENT, like Claude Code's, which
+  // may be used by other chats too; see coder-environments.mjs.)
+  // LIKE CLAUDE CODE: a chat picks its environment before its first message.
+  // THE STARTING BRANCH, like Claude Code (its docs, read 2026-11-06: "change the
+  // branch in the control after the repository selector"; owner: "Finish all
+  // this"): the repo's branches, and the pick, until the chat's first message.
+  if (action === "branches" && request.method === "GET") {
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    const r = await gh(t.token, "/repos/" + meta.repo + "/branches?per_page=100", { fetchFn });
+    if (!r.ok || !Array.isArray(r.data)) return json({ error: "GitHub could not list the branches" }, 502);
+    const names = r.data.map((b) => String((b && b.name) || "")).filter((n) => BRANCH.test(n) && !n.startsWith("coder/"));
+    return json({ ok: true, base: meta.base, branches: [...new Set([meta.base, ...names])].slice(0, 100) });
+  }
+  // SEVERAL REPOSITORIES IN ONE CHAT, like Claude Code (its docs, read 2026-11-06:
+  // "You can add multiple repositories"; owner: "Finish all this"): up to 3 more,
+  // added or taken away before the chat's first message, each one the owner's
+  // GitHub lets Coder write to. Each gets its own folder and the chat's branch.
+  if (action === "repos" && (request.method === "POST" || request.method === "DELETE")) {
+    if (meta.turn > 0) return json({ error: "this chat's repositories were picked before its first message; start a new chat to use others" }, 409);
+    const list = Array.isArray(meta.repos) ? meta.repos : [];
+    if (request.method === "DELETE") {
+      const gone = String(url.searchParams.get("repo") || "");
+      const next = { ...meta, repos: list.filter((r) => r.repo !== gone) };
+      await saveMeta(bucket, uid, next);
+      return json({ ok: true, project: next });
+    }
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const repo = String(body.repo || "").trim();
+    if (!REPO.test(repo)) return json({ error: "pick one of your GitHub repositories" }, 400);
+    if (repo.toLowerCase() === String(meta.repo).toLowerCase() || list.some((r) => r.repo.toLowerCase() === repo.toLowerCase())) return json({ error: repo + " is already in this chat" }, 400);
+    if (list.length >= 3) return json({ error: "at most 3 more repositories in one chat" }, 400);
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    const r = await gh(t.token, "/repos/" + repo, { fetchFn });
+    if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
+    const base = String(r.data.default_branch || "main");
+    if (!BRANCH.test(base)) return json({ error: "this repository's main branch has a name Coder cannot use" }, 400);
+    const next = { ...meta, repos: [...list, { repo, base }] };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
+  }
+  if (action === "base" && request.method === "POST") {
+    if (meta.turn > 0) return json({ error: "this chat's starting branch was picked before its first message; start a new chat to use another one" }, 409);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const base = typeof body.base === "string" ? body.base : "";
+    if (!BRANCH.test(base) || base.startsWith("coder/")) return json({ error: "pick one of the repository's branches" }, 400);
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    const r = await gh(t.token, "/repos/" + meta.repo + "/branches/" + encodeURIComponent(base), { fetchFn });
+    if (!r.ok) return json({ error: meta.repo + " has no branch named " + base }, 404);
+    const next = { ...meta, base };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
+  }
+  if (action === "environment" && request.method === "POST") {
+    if (meta.turn > 0) return json({ error: "this chat's environment was picked before its first message; start a new chat to use another one" }, 409);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const e = (await listEnvs(bucket, uid)).find((x) => x.id === body.envId && !x.archived);
+    if (!e) return json({ error: "no such environment" }, 404);
+    const next = { ...meta, envId: e.id };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
+  }
+  let chatEnvId = null;
+  const theEnvId = async () => {
+    if (chatEnvId) return chatEnvId;
+    chatEnvId = await envIdOf(bucket, uid, meta);
+    // An older chat keeps the environment it got from now on.
+    if (meta.envId !== chatEnvId) { meta.envId = chatEnvId; await saveMeta(bucket, uid, meta); }
+    return chatEnvId;
+  };
+  const envOut = async (e) => {
+    const list = await listEnvs(bucket, uid);
+    const id = await theEnvId();
+    const me = list.find((x) => x.id === id) || { id, name: "Default" };
+    return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network };
+  };
+  const readEnv2 = async () => readEnvData(env, bucket, uid, await theEnvId());
+  // NETWORK AND KEY CHANGES REACH JOBS THAT ARE RUNNING (like Claude Code: "within
+  // about a minute"; owner, 2026-11-06: "Finish all this"): every chat of this
+  // environment that is working now gets the new setting on its machine at once.
+  // A job started from GitHub gets the network but never the keys.
+  const reachRunning = async (cur) => {
+    const envNow = await theEnvId();
+    let reached = 0, cursor;
+    do {
+      const page = await bucket.list({ prefix: "coder/" + uid + "/", cursor }).catch(() => ({ objects: [] }));
+      for (const o of page.objects || []) {
+        const mm = /^coder\/[^/]+\/([^/]+)\/meta\.json$/.exec(o.key);
+        if (!mm || !PROJECT_ID.test(mm[1])) continue;
+        const m = mm[1] === id ? meta : await getJson(bucket, o.key, null);
+        if (!m || m.status !== "running" || (m.envId || (await envIdOf(bucket, uid, m))) !== envNow) continue;
+        try {
+          const r = await deps.container(uid + "-" + mm[1]).fetch(new Request("http://coder/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: mm[1], setup: { network: cur.network }, secrets: m.jobFromGithub ? [] : machineKeyRules(cur.secrets), egress: { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + mm[1], turn: m.turn, pass: await egressPass(env, uid + "/" + mm[1], m.turn) } }) }));
+          if (r.ok) reached++;
+        } catch { /* that job's next message gets it anyway */ }
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+    return reached;
+  };
+  const saveEnv = async (e) => writeEnvData(env, bucket, uid, await theEnvId(), e);
+  if (action === "env" && request.method === "GET") return json(await envOut(await readEnv2()));
   if (action === "env" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const cur = await readEnv(env, bucket, uid, meta.repo);
+    const cur = await readEnv2();
+    // Its name (never Default's).
+    if (body.name !== undefined) {
+      const id = await theEnvId(), list = await listEnvs(bucket, uid), me = list.find((x) => x.id === id);
+      const n = String(body.name).trim();
+      if (id === DEFAULT_ENV) return json({ error: "the Default environment keeps its name" }, 400);
+      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 40 characters)" }, 400);
+      if (me) { me.name = uniqueName(n, list.filter((x) => x !== me)); await saveEnvList(bucket, uid, list); }
+    }
     if (typeof body.script === "string") { if (body.script.length > 65536) return json({ error: "the setup script is over 64 KB" }, 413); cur.script = body.script; }
     if (typeof body.varsText === "string") {
       if (body.varsText.length > 100000) return json({ error: "that is too long" }, 413);
@@ -543,18 +821,19 @@ export async function handleCoder(request, env, ctx, deps) {
       cur.network = n;
     }
     await saveEnv(cur);
-    return json(envOut(cur));
+    const reached = await reachRunning(cur);
+    return json({ ...(await envOut(cur)), reached });
   }
   // A SECRET (owner, 2026-11-06, like Claude Code's "Add secret"): from Coder's
   // card ({ host, value, header?, prefix? }) or the Add secret form ({ name,
   // hosts, paths, headers: [{ name, prefix, value }] }); DELETE ?id= (or ?host=).
   if (action === "secret" && (request.method === "POST" || request.method === "DELETE")) {
-    const cur = await readEnv(env, bucket, uid, meta.repo);
+    const cur = await readEnv2();
     if (request.method === "DELETE") {
       const id = String(url.searchParams.get("id") || url.searchParams.get("host") || "").toLowerCase();
       cur.secrets = cur.secrets.filter((s) => s.id.toLowerCase() !== id && !(s.hosts.length === 1 && s.hosts[0] === id));
       await saveEnv(cur);
-      return json({ ok: true, secrets: secretList(cur.secrets) });
+      return json({ ok: true, secrets: secretList(cur.secrets), reached: await reachRunning(cur) });
     }
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const form = Array.isArray(body.hosts);
@@ -581,7 +860,7 @@ export async function handleCoder(request, env, ctx, deps) {
     cur.secrets = [...cur.secrets.filter((s) => s.id !== sec.id), sec];
     if (cur.secrets.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
     await saveEnv(cur);
-    return json({ ok: true, secrets: secretList(cur.secrets) });
+    return json({ ok: true, secrets: secretList(cur.secrets), reached: await reachRunning(cur) });
   }
 
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").

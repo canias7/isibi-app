@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "undo_last_job", "ask_user", "todo", "bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,7 +89,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -144,28 +144,30 @@ const roots = async () => ({ gitRoot: await mkdtemp(join(tmpdir(), "coder-git-")
 test("CD8 the repository: cloned onto Coder's branch, worked on, committed and pushed; the token never lands in the repository's settings", async () => {
   const { remote, bare } = await fakeRemote();
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-abcd");
-  const prep = await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", remote, gitRoot });
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-abcd");
+  const prep = await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", remote, gitRoot, root });
   assert.equal(prep.ok, true, prep.why);
   assert.equal(git(dir, "rev-parse", "--abbrev-ref", "HEAD").trim(), "coder/shop-abcd");
   assert.doesNotMatch(await readFile(join(gitRoot, "shop-abcd", "config"), "utf8"), /SECRETTOKEN/, "the token was written into the repository");
   assert.equal(await readFile(join(dir, ".git"), "utf8"), "gitdir: " + join(gitRoot, "shop-abcd") + "\n", "the git folder lives outside the work tree");
   await writeFile(join(dir, "index.html"), "<h1>Shop</h1>\n");
-  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", message: "Added the home page", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", message: "Added the home page", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   assert.equal(p.pushed, true);
   assert.match(git(bare, "log", "--oneline", "coder/shop-abcd"), /Added the home page/);
   assert.equal(git(bare, "show", "coder/shop-abcd:index.html"), "<h1>Shop</h1>\n");
   assert.equal(git(bare, "rev-parse", "main").trim() !== git(bare, "rev-parse", "coder/shop-abcd").trim(), true, "main was changed");
   // A FRESH MACHINE picks the work up from Coder's branch, not from main.
-  const dir2 = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-abcd");
+  const root2 = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir2 = join(root2, "shop-abcd");
   const g2 = (await roots()).gitRoot;
-  assert.equal((await prepareRepo({ dir: dir2, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "", remote, gitRoot: g2 })).ok, true);
+  assert.equal((await prepareRepo({ dir: dir2, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "", remote, gitRoot: g2, root: root2 })).ok, true);
   assert.equal(await readFile(join(dir2, "index.html"), "utf8"), "<h1>Shop</h1>\n");
   // Nothing new: nothing pushed.
-  assert.equal((await pushRepo({ dir: dir2, repo: "ana/shop", branch: "coder/shop-abcd", token: "", message: "x", remote, gitRoot: g2 })).pushed, false);
+  assert.equal((await pushRepo({ dir: dir2, repo: "ana/shop", branch: "coder/shop-abcd", token: "", message: "x", remote, gitRoot: g2, root: root2 })).pushed, false);
   // git's own output never shows the token.
-  assert.doesNotMatch((await gitIn(dir, ["config", "--list"], { token: "ghu_SECRETTOKEN1234567890", gitDir: join(gitRoot, "shop-abcd") })).output, /SECRETTOKEN/);
+  assert.doesNotMatch((await gitIn(dir, ["config", "--list"], { token: "ghu_SECRETTOKEN1234567890", gitDir: join(gitRoot, "shop-abcd"), root })).output, /SECRETTOKEN/);
 });
 
 test("CD8b the AI's commands run as a separate, unprivileged user: what only the service can read, they cannot", { skip: process.getuid && process.getuid() === 0 ? false : "needs root to switch users" }, async () => {
@@ -282,7 +284,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.deepEqual([made.ok, made.number, made.project.pr], [true, 1, { url: "https://github.com/ana/shop/pull/1", number: 1 }]);
     assert.ok(ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"));
     // THE CODE IS NEVER STORED WITH US: only the chat, the connection and the project's meta.
-    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile)\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
+    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile|environments)\.json$|^coder\/[\w-]+\/environments\/[a-z0-9-]+\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
     assert.doesNotMatch([...bucket.m.values()].join(""), /<h1>Hi<\/h1>\\n"\s*}/);
   } finally { await close(); }
 });
@@ -327,7 +329,7 @@ test("CD11 the model call: Grok's endpoint, the key only in the header, one retr
 });
 
 // ── ITS OWN APP: OWN WORKER, OWN CONTAINER, OWN STORAGE, NOTHING IN THE MAIN APP ──
-import { authUser } from "../src/coder-auth.mjs";
+import { authUser, proofFor } from "../src/coder-auth.mjs";
 import { readdirSync } from "node:fs";
 import { corsHeaders } from "../src/coder-cors.mjs";
 const HERE = (p) => new URL("../" + p, import.meta.url);
@@ -362,10 +364,12 @@ test("CD12 Coder is its own app: its own worker.js, config, container and bucket
 });
 
 test("CD13 sign-in is checked against Supabase by Coder's own Worker; only the builder's page may call it from a browser", async () => {
-  const env = { SUPABASE_URL: "https://sb.example", SUPABASE_ANON_KEY: "anon" };
+  // Since the audit (2026-11-06) the token must also come with the Worker's proof for its session (test/auth-proof.test.mjs).
+  const env = { SUPABASE_URL: "https://sb.example", SUPABASE_ANON_KEY: "anon", CODER_TOKEN_KEY: KEY };
   const seen = [];
-  const fetchFn = async (url, init) => { seen.push([url, init.headers]); return url && init.headers.Authorization === "Bearer good" ? new Response(JSON.stringify({ id: "u1", email: "a@b.c" })) : new Response("", { status: 401 }); };
-  assert.deepEqual(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer good" } }), env, { fetchFn }), { id: "u1", email: "a@b.c" });
+  const good = "h." + Buffer.from(JSON.stringify({ session_id: "s1" })).toString("base64url") + ".sig";
+  const fetchFn = async (url, init) => { seen.push([url, init.headers]); return url && init.headers.Authorization === "Bearer " + good ? new Response(JSON.stringify({ id: "u1", email: "a@b.c" })) : new Response("", { status: 401 }); };
+  assert.deepEqual(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer " + good, "x-coder-proof": await proofFor(env, "s1") } }), env, { fetchFn }), { id: "u1", email: "a@b.c" });
   assert.equal(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer bad" } }), env, { fetchFn }), null);
   assert.equal(await authUser(new Request("https://x/"), env, { fetchFn }), null);
   assert.equal(seen[0][0], "https://sb.example/auth/v1/user");
@@ -425,7 +429,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,1200}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,3000}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -538,22 +542,26 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   const { commentsText } = await import("../src/coder-routes.mjs");
   // SIGN-IN: password checked, then a code emailed; the code gives a session.
   const calls = [];
+  // Since the audit (2026-11-06): a ticket between the steps, and a session id in the token for the proof;
+  // the account's id and the bucket for the remembered password and the code count (test/auth-proof.test.mjs).
+  const acc = "h." + Buffer.from(JSON.stringify({ session_id: "s1" })).toString("base64url") + ".sig";
   const fetchFn = async (url, init) => {
     calls.push([url, JSON.parse(init.body || "{}")]);
     const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s });
-    if (url.endsWith("token?grant_type=password")) return JSON.parse(init.body).password === "right" ? J({ access_token: "a" }) : J({ error_description: "Invalid login credentials" }, 400);
+    if (url.endsWith("token?grant_type=password")) return JSON.parse(init.body).password === "right" ? J({ access_token: "a", user: { id: "u1" } }) : J({ error_description: "Invalid login credentials" }, 400);
     if (url.endsWith("/otp")) return J({});
-    if (url.endsWith("/verify")) return J({ access_token: "acc", refresh_token: "ref", expires_in: 3600, user: { id: "u1", email: "me@example.com", role: "x" } });
+    if (url.endsWith("/verify")) return J({ access_token: acc, refresh_token: "ref", expires_in: 3600, user: { id: "u1", email: "me@example.com", role: "x" } });
     return J({}, 404);
   };
-  const env = { SUPABASE_URL: "https://sb", SUPABASE_ANON_KEY: "anon" };
+  const env = { SUPABASE_URL: "https://sb", SUPABASE_ANON_KEY: "anon", CODER_TOKEN_KEY: KEY, CODER_BUCKET: fakeBucket() };
   const post = (a, b) => handleSignin(new Request("https://gofarther.dev/api/auth/" + a, { method: "POST", body: JSON.stringify(b) }), env, { fetchFn });
   assert.equal((await post("signin", { email: "me@example.com", password: "wrong" })).status, 401);
   const ok = await post("signin", { email: "Me@example.com", password: "right" });
-  assert.deepEqual(await ok.json(), { ok: true, step: "code", type: "email" });
+  const { ticket, ...said } = await ok.json();
+  assert.deepEqual(said, { ok: true, step: "code", type: "email" });
   assert.deepEqual(calls.find((c) => c[0].endsWith("/otp"))[1], { email: "me@example.com", create_user: false }, "a sign-in never makes an account");
-  const v = await (await post("verify", { email: "me@example.com", code: "123456", type: "email" })).json();
-  assert.equal(v.session.access_token, "acc");
+  const v = await (await post("verify", { email: "me@example.com", code: "123456", type: "email", ticket })).json();
+  assert.equal(v.session.access_token, acc);
   assert.deepEqual(v.session.user, { id: "u1", email: "me@example.com" }, "only what the page needs");
   assert.equal((await post("verify", { email: "me@example.com", code: "abc" })).status, 400);
   assert.equal(sessionOf({}), null);
@@ -593,8 +601,9 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   const { readMemory, writeMemory } = await import("../container/server.mjs");
   const { remote, bare } = await fakeRemote();
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-hook");
-  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-hook", token: "", remote, gitRoot })).ok, true);
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-hook");
+  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-hook", token: "", remote, gitRoot, root })).ok, true);
   // A hook planted in the git folder, and a remote pointed elsewhere, change nothing.
   const gd = join(gitRoot, "shop-hook");
   const marker = join(dir, "..", "HOOK-RAN");
@@ -602,13 +611,13 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   for (const h of ["pre-commit", "pre-push", "post-checkout"]) { writeFileSync(join(gd, "hooks", h), "#!/bin/sh\ntouch " + marker + "\n"); execFileSync("chmod", ["+x", join(gd, "hooks", h)]); }
   execFileSync("git", ["--git-dir=" + gd, "remote", "add", "origin", "/nonexistent/evil.git"]);
   writeFileSync(join(dir, "b.txt"), "b\n");
-  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-hook", token: "", message: "b", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-hook", token: "", message: "b", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   assert.equal(existsSync(marker), false, "a hook ran");
   assert.equal(git(bare, "show", "coder/shop-hook:b.txt"), "b\n", "pushed to the real repository, not to origin");
   // A work tree's own .git pointing elsewhere is ignored by our git.
   writeFileSync(join(dir, ".git"), "gitdir: /nonexistent\n");
-  assert.equal((await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], { gitDir: gd })).output.trim(), "coder/shop-hook");
+  assert.equal((await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], { gitDir: gd, root })).output.trim(), "coder/shop-hook");
   // THE MEMORY: a link is never followed, for reading or writing.
   const m = await mkdtemp(join(tmpdir(), "coder-memt-"));
   const secret = join(m, "secret.txt"); writeFileSync(secret, "TOP-SECRET");
@@ -763,19 +772,20 @@ test("CD33 an empty repository (no branches yet, found in the live test) gets it
   execFileSync("git", ["init", "-q", "--bare", join(ghRoot, "ana/empty.git")]);
   const remote = ghRoot + "/";
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "empty-abcd");
-  const prep = await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot });
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "empty-abcd");
+  const prep = await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot, root });
   assert.equal(prep.ok, true, prep.why);
   // Its main branch is made first (an empty "Start" commit), so a pull request has a base.
   assert.equal(git(join(ghRoot, "ana/empty.git"), "log", "-1", "--format=%s", "main").trim(), "Start");
-  const none = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "hi", remote, gitRoot });
+  const none = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "hi", remote, gitRoot, root });
   assert.deepEqual([none.ok, none.pushed], [true, false], none.why);
   writeFileSync(join(dir, "README.md"), "# empty\n");
-  const p = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "Add README", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "Add README", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   assert.equal(git(join(ghRoot, "ana/empty.git"), "show", "coder/empty-abcd:README.md"), "# empty\n");
   // Opened again on the same machine: still fine.
-  assert.equal((await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot })).ok, true);
+  assert.equal((await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot, root })).ok, true);
 });
 
 test("CD34 the file tools: read, write, edit, grep and glob work inside the project only", async () => {
@@ -871,14 +881,14 @@ test("CD38 ask_user: Coder asks one multiple-choice question and the turn ends t
   const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { ran.push(x); return { code: 0, output: "" }; } }, { text: "style the page" });
   assert.equal(r.status, "done");
   assert.equal(ran.length, 0, "nothing after the question runs");
-  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", options: ["Plain CSS", "Tailwind"] });
+  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }, "plain strings still work: a label with no description");
   // every call got its answer, so the next turn continues cleanly
   const toolAnswers = r.messages.filter((m) => m.role === "tool").map((m) => m.content);
   assert.deepEqual(toolAnswers, ["asked the owner; their answer comes as the next message", "not run: you asked the owner a question first"]);
   const bad = scripted([say("", [call("ask_user", { question: "Which?", options: ["only one"] })]), say("Fine.", [])]);
   assert.equal((await runCoder({ send: bad.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x" })).status, "done");
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /on\('\.cd-ask-opt', 'click', \(e\) => send\(e\.currentTarget\.dataset\.answer\)\)/);
+  assert.match(ui, /on\('\[data-ask-go\]', 'click', \(\) => askSend\(\)\);/);
 });
 
 test("CD39 background jobs: bash with run_in_background gives a job; monitor reads it; stop_job ends it; nothing outlives the turn", async () => {
@@ -975,11 +985,12 @@ test("CD42 @coder in GitHub comments: only signed notifications, only connected+
   };
   const hook = (payload, s = sign) => { const raw = JSON.stringify(payload); return M.handleWebhook(new Request("https://gofarther.dev/api/coder/github/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": s(raw) }, body: raw }), env, null, { fetchFn, coder }); };
   assert.equal((await hook(issue("@coder x"), () => "sha256=00")).status, 401, "unsigned is refused");
-  // a stranger: refused politely, no job
+  // a stranger: no job and no reply at all, like Claude Code (owner, 2026-11-06: "Finish all this")
   const stranger = issue("@coder spend money", { sender: { login: "someone", type: "User" }, comment: { body: "@coder spend money", user: { login: "someone" } } });
   assert.equal((await hook(stranger)).status, 202);
   assert.equal(coderCalls.length, 0, "a stranger started nothing");
-  assert.match(gh.find(([m, u]) => m === "POST" && /issues\/5\/comments/.test(u))[2].body, /only works for accounts that connected GitHub/);
+  assert.equal(gh.filter(([m]) => m === "POST").length, 0, "no comment, not even a token to post one");
+  assert.equal(JSON.parse(bucket.m.get("coder/logins/someone.json")).none, true, "the miss is remembered, so the next one costs no search");
   gh.length = 0;
   // the owner: a chat, "On it" as the app, the job
   assert.equal((await hook(issue("@coder add a dark mode toggle"))).status, 202);
@@ -1112,7 +1123,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
   const saved = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } }) })).json();
   assert.deepEqual([saved.script, saved.vars], ["echo set up > ready.txt", ["API_KEY"]]);
-  assert.doesNotMatch(bucket.m.get("coder/user-env/env/ana__shop.json"), /sk-secret-123/, "sealed");
+  assert.doesNotMatch(bucket.m.get("coder/user-env/environments/default.json"), /sk-secret-123/, "sealed (on the chat's environment: Default)");
   assert.deepEqual((await (await go("projects/" + id + "/env")).json()).vars, ["API_KEY"], "names only");
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ vars: { "bad-name": "x" } }) })).status, 400);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
@@ -1437,14 +1448,17 @@ test("CD64 the secret route: sealed, never shown back, sent only to the machine'
   const saved = await (await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "sk_test_ABCDEF", name: "Stripe test key" }) })).json();
   assert.equal(JSON.stringify(saved).includes("sk_test_ABCDEF"), false);
   assert.equal(saved.secrets[0].host, "api.stripe.com");
-  assert.doesNotMatch(bucket.m.get("coder/user-sec/env/ana__shop.json"), /sk_test_ABCDEF/, "sealed");
+  assert.doesNotMatch(bucket.m.get("coder/user-sec/environments/default.json"), /sk_test_ABCDEF/, "sealed (on the chat's environment: Default)");
   // Saving the environment keeps the secret; its GET shows the host only.
   await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo hi", vars: { A: "b" } }) });
   const e = await (await go("projects/" + id + "/env")).json();
   assert.deepEqual(e.secrets.map((x) => x.host), ["api.stripe.com"]);
   assert.equal(JSON.stringify(e).includes("sk_test_ABCDEF"), false);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.stripe.com"], paths: [], headers: [{ name: "Authorization", value: "Bearer sk_test_ABCDEF" }], raws: ["sk_test_ABCDEF"] }]);
+  // The machine learns where the key applies, never its value (2026-11-06, like Claude Code): the Worker adds it.
+  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.stripe.com"], paths: [], egress: true }]);
+  assert.doesNotMatch(JSON.stringify(sent[0]), /sk_test_ABCDEF/);
+  assert.ok(sent[0].egress && sent[0].egress.pass && /\/api\/coder\/egress$/.test(sent[0].egress.url), "the job's pass for the Worker's egress");
   assert.equal(JSON.stringify(sent[0].setup).includes("sk_test"), false, "never in the setup (the AI's text)");
   assert.equal(JSON.stringify(sent[0].text).includes("sk_test"), false);
   // This job's key values are kept (sealed) to hide them in its chat even if the key is removed meanwhile.
@@ -1658,7 +1672,7 @@ test("CD73 (owner '2', live test) after an install the setup script does not do,
   let n = 0; const seen = []; const events = [];
   const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("propose_env", { kind: "setup_script", script: "echo ok\nnpm install", reason: "New chats need the packages." })])];
   const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e) }, { text: "use is-number", setupScript: "echo ok" });
-  assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install`, which the repo's setup script does not do/);
+  assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install`, which the environment's setup script does not do/);
   assert.ok(events.some((e) => e.type === "text" && /prints true then false/.test(e.text)), "its answer is still shown");
   assert.ok(events.some((e) => e.type === "envchange"));
   assert.equal(r.status, "done");
@@ -1678,13 +1692,14 @@ test("CD73 (owner '2', live test) after an install the setup script does not do,
 test("CD74 live test (2026-11-06): installed packages and caches are never committed; two answer parts stay two paragraphs; a card-ending job keeps its words as the commit title", async () => {
   const { remote, bare } = await fakeRemote();
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-junk");
-  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-junk", token: "", remote, gitRoot })).ok, true);
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-junk");
+  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-junk", token: "", remote, gitRoot, root })).ok, true);
   const { mkdir: mk } = await import("node:fs/promises");
   await mk(join(dir, "node_modules/is-number"), { recursive: true }); await writeFile(join(dir, "node_modules/is-number/index.js"), "x");
   await mk(join(dir, ".npm/_logs"), { recursive: true }); await writeFile(join(dir, ".npm/_logs/debug.log"), "x");
   await writeFile(join(dir, "check.js"), "console.log(1)\n");
-  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-junk", token: "", message: "check", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-junk", token: "", message: "check", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   const files = git(bare, "ls-tree", "-r", "--name-only", "coder/shop-junk");
   assert.match(files, /check\.js/);
@@ -1728,7 +1743,9 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
   assert.equal(JSON.stringify(s).includes("tok_AAAA1111") || JSON.stringify(s).includes("key_BBBB2222"), false, "values never come back");
   assert.deepEqual(s.secrets[0].hosts, ["api.a.com", "*.b.com"]);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer tok_AAAA1111" }, { name: "X-Api-Key", value: "key_BBBB2222" }], raws: ["tok_AAAA1111", "key_BBBB2222"] }]);
+  assert.deepEqual(sent[0].secrets, [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], egress: true }]);
+  assert.doesNotMatch(JSON.stringify(sent[0]), /tok_AAAA1111|key_BBBB2222/, "no key value goes to the machine");
+  const direct = [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer tok_AAAA1111" }, { name: "X-Api-Key", value: "key_BBBB2222" }], raws: ["tok_AAAA1111", "key_BBBB2222"] }];
   assert.deepEqual(sent[0].setup.vars, { NODE_ENV: "test", NAME: "Ana B" });
   const del = await (await go("projects/" + id + "/secret?id=" + encodeURIComponent(s.secrets[0].id), { method: "DELETE" })).json();
   assert.deepEqual(del.secrets, []);
@@ -1741,7 +1758,7 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
   await new Promise((ok) => up.listen(0, "127.0.0.1", ok));
   const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px5-")), upstream: { host: "127.0.0.1", port: up.address().port, ca: readFileSync(join(d, "c")) } });
   try {
-    px.setSecrets(sent[0].secrets); px.setNetwork({ mode: "custom", hosts: [], defaults: true });
+    px.setSecrets(direct); px.setNetwork({ mode: "custom", hosts: [], defaults: true });
     const { execFile } = await import("node:child_process");
     const envx = { PATH: process.env.PATH, ...px.env() };
     const curl = (u) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "15", u], { env: envx }, (err, so, se) => ok(String(so) || String(se))));
@@ -2025,4 +2042,145 @@ test("CD83 (recorded browser test, 2026-11-06) when the owner changes the setup 
     // The chat itself shows only the owner's words.
     assert.equal(s.events.find((e) => e.type === "user").text, "go");
   } finally { await m.close(); }
+});
+
+test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explanations, Recommended, Other, Skip and Submit; undo asks first when it is not clear; Coder says where a saved key lives", async () => {
+  const { lastJobOf, undoNote } = await import("../container/server.mjs");
+  const { lastJobFor } = await import("../src/coder-routes.mjs");
+  const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  // 2. Choices with a label and a one-line description; several may be chosen when allowed.
+  const ask = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "ask_user"));
+  assert.match(ask, /each with a short label \(1 to 5 words\) and a one-line description[\s\S]*put it first and add \\" \(Recommended\)\\" to its label[\s\S]*choose Other and type their own answer, or Skip/);
+  assert.match(ask, /"multi_select":\{"type":"boolean"\}/);
+  let events = [];
+  const s1 = scripted([say("", [call("ask_user", { question: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi_select: true })])]);
+  await runCoder({ send: s1.send, emit: (e) => events.push(e), exec: async () => ({ code: 0, output: "" }) }, { text: "make a file" });
+  const q = events.find((e) => e.type === "question");
+  assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
+  // The card: a header with the question, rows with a radio (or checkbox), title and explanation, the first already chosen, Other with a box, Skip and Submit, "Needs your input".
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, picked: multi \|\| !opts\.length \? \[\] : \[opts\[0\]\.label\], other: '' \}/, "the recommended (first) choice is already chosen, and kept across redraws");
+  assert.match(ui, /<input type="' \+ kind \+ '" name="cdq' \+ i \+ '" value="' \+ esc\(o\.label\) \+ '"/);
+  assert.match(ui, /<b>' \+ esc\(o\.label\) \+ '<\/b>' \+ \(o\.description \? '<small>' \+ esc\(o\.description\) \+ '<\/small>' : ''\)/);
+  assert.match(ui, /<b>Other<\/b>' \+ \(live \? '<input type="text" class="cd-ask-in" placeholder="Type your own answer"/);
+  assert.match(ui, /data-ask-skip="' \+ i \+ '">Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '">Submit <kbd>Ctrl ↵<\/kbd><\/button>/);
+  assert.match(ui, /<div class="cd-ask-wait">Needs your input<\/div>/);
+  assert.match(ui, /if \(e\.key === 'Enter' && \(e\.ctrlKey \|\| e\.metaKey\)\) \{ e\.preventDefault\(\); askSend\(\); \}/);
+  assert.match(ui, /send\('I skipped your question\. Decide for yourself and go on\.'\)/);
+  assert.match(ui, /a\.picked\.map\(\(v\) => \(v === '__other' \? a\.other\.trim\(\) : v\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together");
+  assert.match(ui, /typeof o === 'string' \? \{ label: o, description: '' \}/, "questions in older chats still show");
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  for (const c of [".cd-ask-row{", ".cd-ask-t small{", ".cd-ask-in{", ".cd-ask-btns{", ".cd-ask-go{", ".cd-ask-wait{"]) assert.ok(css.includes(c), c);
+  // 3. Undo: the Worker sends the last job that changed files and whether it was the last job.
+  assert.deepEqual(lastJobFor({ turn: 5, commits: [{ turn: 3, title: "Add a.txt" }, { turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: true });
+  assert.deepEqual(lastJobFor({ turn: 6, commits: [{ turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: false }, "the last job was a review: it changed nothing");
+  assert.deepEqual(lastJobFor({ turn: 2, commits: [] }), { title: "", changed: false });
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment \}\);/);
+  assert.deepEqual(lastJobOf({ lastJob: { title: "Add  one.txt\n", changed: true } }), { title: "Add one.txt", changed: true });
+  assert.equal(lastJobOf({}), null);
+  assert.match(undoNote({ title: "Add one.txt", changed: false }), /UNDO: the last job in this chat that changed files was "Add one\.txt"; your last job changed no files, so if the owner asks to undo, ask first which one they mean\./);
+  assert.match(undoNote({ title: "", changed: false }), /no job in this chat has changed files yet/);
+  assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "undo_last_job")), /ask first with ask_user; when they choose that job, call it with confirmed: true[\s\S]*"confirmed":\{"type":"boolean"/);
+  const undo = async (lastJob, args, turns2) => { let n = 0; const seen = []; const ev = []; const r = await runCoder({ send: async (q2) => { seen.push(q2); return turns2[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { text: "Undo that last job.", lastJob }); return { r, seen, ev }; };
+  // The last job was a review (changed nothing): refused until the owner chooses, as Claude Code asks.
+  let u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("", [call("ask_user", { question: "What should I undo?", options: [{ label: "The one.txt job", description: "Removes one.txt with a revert commit." }, { label: "Something else", description: "An environment change or a saved key, in Environment." }] })])]);
+  assert.equal(u.r.undoRequest, undefined);
+  assert.match(JSON.stringify(u.seen[1].messages), /your last job changed no files, so it is not clear what the owner wants undone\. The last job that changed files was \\"Add one\.txt\\"\. Like Claude Code, ask first with ask_user/);
+  assert.ok(u.ev.some((e) => e.type === "question"));
+  // After they choose it: confirmed, undone.
+  u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", { confirmed: true })])]);
+  assert.equal(u.r.undoRequest, true);
+  // Clear case (the last job changed files): undone straight away. Nothing ever changed: said so. No lastJob given (older callers): as before.
+  u = await undo({ title: "Add one.txt", changed: true }, {}, [say("", [call("undo_last_job", {})])]);
+  assert.equal(u.r.undoRequest, true);
+  u = await undo({ title: "", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("Nothing to undo yet.", [])]);
+  assert.equal(u.r.undoRequest, undefined); assert.match(JSON.stringify(u.seen[1].messages), /nothing to undo: no job in this chat has changed files yet/);
+  u = await undo(null, {}, [say("", [call("undo_last_job", {})])]);
+  assert.equal(u.r.undoRequest, true);
+  // 4. After a key is saved on the card and used: where it is saved and how to remove it.
+  assert.match(CODER_SYSTEM, /After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment \(every chat using it gets it\) and only sent to that host, and that they can remove it in Environment → Network secrets\./);
+});
+
+test("CD85 (owner: 'make it like claude code') environments: named, Default made for you, picked before a chat's first message, shared by every chat that picks it; old per-repo settings move into one; Coder can propose a new one", async () => {
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const fetchFn = async (u, init = {}) => (String(u) === "https://api.github.com/repos/ana/blog" ? new Response(JSON.stringify({ default_branch: "main", permissions: { push: true } }), { status: 200, headers: { "content-type": "application/json" } }) : gf.fetchFn(u, init));
+  const sent = [];
+  const deps = { fetchFn, authUser: async () => ({ id: "user-envs", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };
+  const go = async (path, init = {}) => { const r = await handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps); return { status: r.status, data: await r.json() }; };
+  await connectGithub((p, i) => handleCoder(new Request("https://gofarther.dev/api/coder/" + p, { ...(i || {}), headers: { "content-type": "application/json" } }), env, {}, deps), env, deps);
+  // An old repo's settings (from before environments), sealed where they were.
+  await bucket.put("coder/user-envs/env/ana__shop.json", JSON.stringify({ at: 1, box: await seal(env, { script: "echo old > old.txt", vars: { OLD: "1" }, secrets: [], network: { mode: "full", hosts: [], defaults: true } }) }));
+  // Default is made for you.
+  let l = await go("environments");
+  assert.deepEqual(l.data.environments, [{ id: "default", name: "Default", isDefault: true }]);
+  // A new chat on the old repo: its settings moved into an environment named after it (nothing lost), and the chat uses it.
+  const a = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).data.project;
+  const ea = (await go("projects/" + a.id + "/env")).data;
+  assert.equal(ea.name, "shop"); assert.equal(ea.script, "echo old > old.txt"); assert.deepEqual(ea.vars, ["OLD"]); assert.equal(ea.network.mode, "full");
+  assert.equal(ea.isDefault, false); assert.equal(ea.locked, false);
+  assert.ok(bucket.m.has("coder/user-envs/env/ana__shop.json"), "the old file stays where it was");
+  assert.doesNotMatch(bucket.m.get("coder/user-envs/environments/" + ea.envId + ".json"), /echo old/, "still sealed");
+  // A chat in another repo starts on Default; it can pick the shop environment before its first message: both then share it.
+  const b = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog" }) })).data.project;
+  assert.equal((await go("projects/" + b.id + "/env")).data.name, "Default");
+  assert.equal((await go("projects/" + b.id + "/environment", { method: "POST", body: JSON.stringify({ envId: ea.envId }) })).status, 200);
+  await go("projects/" + b.id + "/env", { method: "POST", body: JSON.stringify({ script: "echo shared > s.txt" }) });
+  assert.equal((await go("projects/" + a.id + "/env")).data.script, "echo shared > s.txt", "one environment, every chat that picks it");
+  await go("projects/" + b.id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "sk_test_SHAREDKEY123", header: "Authorization", prefix: "Bearer" }) });
+  assert.deepEqual((await go("projects/" + a.id + "/env")).data.secrets.map((x) => x.host), ["api.stripe.com"], "a key saved from one chat reaches every chat on that environment (names only)");
+  // The turn gets that environment's settings and its name; then the pick is fixed.
+  await go("projects/" + b.id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  const t = sent.pop();
+  assert.equal(t.setup.script, "echo shared > s.txt"); assert.deepEqual(t.environment, { name: "shop", isDefault: false });
+  assert.equal(t.secrets[0].hosts[0], "api.stripe.com");
+  assert.equal((await go("projects/" + b.id + "/environment", { method: "POST", body: JSON.stringify({ envId: "default" }) })).status, 409, "picked before the first message, like Claude Code");
+  assert.equal((await go("projects/" + b.id + "/env")).data.locked, true);
+  // Your own environments: add one (made for a repo: that repo's next chat starts with it), rename, archive; Default keeps its name and is never archived.
+  const made = await go("environments", { method: "POST", body: JSON.stringify({ name: "testing2", script: "mkdir -p cache", network: { mode: "trusted" }, repos: ["ana/blog"] }) });
+  assert.equal(made.status, 200); const t2 = made.data.environment.id;
+  const c = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog" }) })).data.project;
+  assert.equal(c.envId, t2, "the newest environment for this repo is offered first");
+  assert.equal((await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog", envId: "default" }) })).data.project.envId, "default", "or the one you pick");
+  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "testing2" }) })).data.environment.name, "testing2 2", "names stay unique");
+  assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ name: "blog env" }) })).data.environment.name, "blog env");
+  assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ name: "x" }) })).status, 400);
+  assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ archive: true }) })).status, 400);
+  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "" }) })).status, 400);
+  assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ archive: true }) })).status, 200);
+  l = await go("environments");
+  assert.ok(!l.data.environments.some((x) => x.id === t2), "archived: gone from the list for new chats");
+  assert.equal((await go("projects/" + c.id + "/env")).data.script, "mkdir -p cache", "a chat that uses it keeps working");
+  // An older chat (no environment saved yet) gets its repo's and keeps it.
+  const old = JSON.parse(bucket.m.get("coder/user-envs/" + a.id + "/meta.json")); delete old.envId; bucket.m.set("coder/user-envs/" + a.id + "/meta.json", JSON.stringify(old));
+  assert.equal((await go("projects/" + a.id + "/env")).data.envId, ea.envId);
+  assert.equal(JSON.parse(bucket.m.get("coder/user-envs/" + a.id + "/meta.json")).envId, ea.envId);
+  // CODER: told the chat's environment; on Default, what only this repo needs goes in a new environment (its own card).
+  const { envNameNote } = await import("../container/server.mjs");
+  assert.match(envNameNote({ environment: { name: "Default", isDefault: true } }), /THIS CHAT'S ENVIRONMENT: "Default" \(the Default one, which chats in all the owner's repos use: what only this repo needs goes in a new environment, propose_env kind new_environment\)/);
+  assert.match(envNameNote({ environment: { name: "shop", isDefault: false } }), /"shop" \(picked when this chat started; every chat that picks it shares its settings\)/);
+  assert.equal(envNameNote({}), "");
+  const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  assert.match(CODER_SYSTEM, /THIS CHAT'S ENVIRONMENT \(like Claude Code's: named, picked before the chat's first message, used by every chat that picks it[\s\S]*If it is the Default environment[\s\S]*goes in a NEW environment instead \(kind new_environment, named after the repo\)/);
+  assert.match(JSON.stringify(CODER_TOOLS.find((x) => x.function.name === "propose_env")), /"enum":\["setup_script","allow_host","new_environment"\]/);
+  const ran = [{ role: "assistant", content: "", tool_calls: [{ id: "m1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "mkdir -p cache" }) } }] }, { role: "tool", tool_call_id: "m1", content: "exit code 0\n" }];
+  let n = 0; const seen = []; const ev = [];
+  const turns = [say("", [call("propose_env", { kind: "new_environment", script: "mkdir -p cache", reason: "r" })]), say("", [call("propose_env", { kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." })])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { messages: ran, text: "add a cache folder to the setup" });
+  assert.match(JSON.stringify(seen[1].messages), /give the new environment a name/);
+  const card = ev.find((e) => e.type === "envchange");
+  assert.deepEqual({ ...card, at: 0 }, { at: 0, type: "envchange", kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." });
+  // THE PAGE: the picker under the box before the first message (with Add environment), the window's name and Archive, and the cards.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /S\.project && !S\.project\.turn && S\.envInfo && !S\.running[\s\S]{0,200}<select id="cdEnvSel" aria-label="Environment">[\s\S]{0,300}<option value="__add">\+ Add environment…<\/option>/);
+  assert.match(ui, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/environment', \{ method: 'POST', body: JSON\.stringify\(\{ envId \}\) \}\)/);
+  assert.match(ui, /askText\('Add environment'/);
+  assert.match(ui, /head\('Environment: ' \+ \(e\.name \|\| 'Default'\)\)/);
+  assert.match(ui, /if \(!e\.isDefault && e\.envId\) rows\.unshift\(\['name', 'Name', e\.name \|\| ''\]\);/);
+  assert.match(ui, /Archive this environment/);
+  assert.match(ui, /<b class="cd-secret-t">Create new environment\?<\/b>[\s\S]*<span>Personal<\/span>[\s\S]*<small>Network access<\/small>[\s\S]*<small>Repositories<\/small>[\s\S]*<small>Setup script<\/small>[\s\S]*>Deny<\/button>[\s\S]*>Create environment<\/button>/);
+  assert.match(ui, /call\('\/environments', \{ method: 'POST', body: JSON\.stringify\(\{ name: x\.name, script: x\.script, network: \{ mode: x\.network \|\| 'trusted' \}, repos: \[S\.project\.repo\] \}\) \}\)/);
+  assert.match(ui, /'Update the setup script of ' \+ esc\(envName\) \+ '\?'/);
+  assert.match(ui, /This secret is saved on the environment ' \+ esc\(S\.envInfo \? S\.envInfo\.name : 'of this chat'\)/);
 });

@@ -31,7 +31,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: "Type DELETE to delete the old app's Workers, sites, storage and branches (cannot be undone)"
+        description: "Type DELETE to delete the old app's Workers, sites, storage and branches, or DELETE MODEL SERVER to delete only model.gofarther.dev and its tunnel (cannot be undone)"
         required: true
         default: ""
 
@@ -134,10 +134,48 @@ jobs:
           done < .github/old-stuff/neon-projects.txt
           echo "$n Neon projects deleted"
 
+  # THE OPEN MODEL SERVER (owner, 2026-11-06: "Do 1,2,3,4", after the audit):
+  # model.gofarther.dev answered anyone, with no sign-in, through the Cloudflare
+  # tunnel gofarther-ml. The 2026-11-06 list showed nothing else uses it: no
+  # other DNS record points at the tunnel and no Worker mentions the address.
+  # Only this job runs when the box says DELETE MODEL SERVER. It deletes that one
+  # DNS record, then the tunnel, unless another record still points at it.
+  model-server:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'DELETE MODEL SERVER' }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: "Delete model.gofarther.dev, then its tunnel"
+        run: |
+          set -euo pipefail
+          API=https://api.cloudflare.com/client/v4
+          H="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          ZONE=$(curl -fsS -H "$H" "$API/zones?name=gofarther.dev" | jq -r '.result[0].id')
+          recs=$(curl -fsS -H "$H" "$API/zones/$ZONE/dns_records?name=model.gofarther.dev")
+          echo "$recs" | jq -r '.result[] | "found  " + .type + "  " + .name + "  " + .content'
+          tunnels=$(echo "$recs" | jq -r '.result[] | .content | select(endswith(".cfargotunnel.com")) | sub("\\.cfargotunnel\\.com$"; "")' | sort -u)
+          for id in $(echo "$recs" | jq -r '.result[].id'); do
+            curl -fsS -X DELETE -H "$H" "$API/zones/$ZONE/dns_records/$id" | jq -r '"deleted the DNS record " + .result.id'
+          done
+          for t in $tunnels; do
+            n=$(curl -fsS -H "$H" "$API/zones/$ZONE/dns_records?per_page=500" | jq --arg c "$t.cfargotunnel.com" '[.result[] | select(.content == $c)] | length')
+            if [ "$n" != "0" ]; then echo "tunnel $t: $n other record(s) still use it, so it stays"; continue; fi
+            curl -sS -X DELETE -H "$H" "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/$t/connections" | jq -c '{connections_removed: .success, errors}'
+            curl -sS -X DELETE -H "$H" "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/$t" | jq -c '{tunnel_deleted: .success, errors}'
+          done
+      - name: Check
+        run: |
+          sleep 20
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://model.gofarther.dev/api/version || true)
+          echo "model.gofarther.dev now answers: ${code:-nothing} (anything but 200 is right)"
+          curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel?is_deleted=false&per_page=100" | jq -r '.result[] | "tunnel still there  " + .name + "  " + (.status // "")'
+
   refused:
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.confirm != 'DELETE' }}
+    if: ${{ github.event.inputs.confirm != 'DELETE' && github.event.inputs.confirm != 'DELETE MODEL SERVER' }}
     steps:
       - run: |
-          echo "::error::Nothing was deleted: the box did not say DELETE."
+          echo "::error::Nothing was deleted: the box did not say DELETE or DELETE MODEL SERVER."
           exit 1

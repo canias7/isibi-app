@@ -6,6 +6,7 @@ import { authUser } from "./src/coder-auth.mjs";
 import { corsHeaders } from "./src/coder-cors.mjs";
 import { servePage } from "./src/coder-page.mjs";
 import { handleSignin } from "./src/coder-signin.mjs";
+import { handleEgress, EGRESS_PATH } from "./src/coder-egress.mjs";
 import { runMentionJobs } from "./src/coder-mentions.mjs";
 
 /**
@@ -49,6 +50,9 @@ export default {
     let res;
     if (url.pathname.startsWith("/api/auth/")) {
       res = await handleSignin(request, env);
+    } else if (url.pathname === EGRESS_PATH) {
+      // KEYS ADDED HERE, never on the machine (2026-11-06, like Claude Code): a job's pass, not a user.
+      res = await handleEgress(request, env);
     } else if (url.pathname.startsWith("/api/coder/")) {
       res = await handleCoder(request, env, ctx, {
         authUser: (r) => authUser(r, env),

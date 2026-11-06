@@ -80,7 +80,17 @@ export const profileKey = (uid) => "coder/" + uid + "/profile.json";
 export async function accountForLogin(bucket, login) {
   if (!login) return null;
   let hit = await getJson(bucket, loginKey(login));
-  if (!hit) {
+  // A login with no account was looked for recently: no new search through
+  // every connection (the audit, 2026-11-06: each stranger's @coder did one).
+  // Connecting GitHub writes the login's own record, which replaces this.
+  if (hit && hit.none) return Number(hit.at) > Date.now() - LOGIN_MISS_MS ? null : accountForLoginScan(bucket, login);
+  if (!hit) return accountForLoginScan(bucket, login);
+  return accountForHit(bucket, login, hit);
+}
+const LOGIN_MISS_MS = 24 * 60 * 60 * 1000;
+async function accountForLoginScan(bucket, login) {
+  let hit = null;
+  {
     // Connections made before the index: look through them once.
     let cursor;
     do {
@@ -94,7 +104,10 @@ export async function accountForLogin(bucket, login) {
       cursor = !hit && page.truncated ? page.cursor : undefined;
     } while (cursor);
   }
-  if (!hit) return null;
+  if (!hit) { await putJson(bucket, loginKey(login), { none: true, at: Date.now() }).catch(() => {}); return null; }
+  return accountForHit(bucket, login, hit);
+}
+async function accountForHit(bucket, login, hit) {
   // The account must still be connected to THAT login (the audit: an old login kept pointing here).
   const conn = await getJson(bucket, "coder/" + hit.uid + "/github.json");
   if (!conn || String(conn.login || "").toLowerCase() !== String(login).toLowerCase()) return null;
@@ -151,12 +164,12 @@ export async function startMention(env, deps, m) {
   const bucket = env.CODER_BUCKET;
   const fetchFn = deps.fetchFn || fetch;
   const acct = await accountForLogin(bucket, m.login);
+  // LIKE CLAUDE CODE (its GitHub docs, read 2026-11-06: only people allowed to
+  // use it can start it; others are ignored): a stranger's @coder gets no reply
+  // at all. Before, every stranger's mention made the app post a comment.
+  if (!acct || !allowed(env, acct.email)) return { ok: false, why: "not allowed" };
   const botToken = await installationToken(env, m.installation, fetchFn);
   const say = async (text) => { if (botToken) return ghApi(botToken, "/repos/" + m.repo + "/issues/" + m.number + "/comments", { method: "POST", body: { body: text }, fetchFn }); return null; };
-  if (!acct || !allowed(env, acct.email)) {
-    await say("@" + m.login + " Coder only works for accounts that connected GitHub on https://gofarther.dev and are allowed to use it.");
-    return { ok: false, why: "not allowed" };
-  }
   const user = { id: acct.uid, email: acct.email };
   const run = (path, init = {}) => deps.coder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), user).then((r) => r.json().catch(() => ({})).then((j) => ({ status: r.status, data: j })));
   // ONE CHAT PER ISSUE OR PR: the next @coder in the thread continues it.
@@ -280,7 +293,7 @@ export async function startAutofix(env, deps, f) {
     if (r && r.ok) log = (await r.text().catch(() => "")).replace(/^\S+Z /gm, "").slice(-6000);
   }
   const text = "AUTO-FIX for pull request" + (f.number ? " #" + f.number : "") + " on " + f.branch + ".\n\n" + UNTRUSTED + "\n<<<GITHUB\n" + f.text + (log ? "\n\nThe end of the failed run's log:\n" + log : "") + "\nGITHUB>>>" +
-    "\n\nFix this on the branch with small, focused changes, and check them (run the same tests or build locally if you can). If the cause is not in your changes, or it is unclear what the reviewer wants, change nothing and explain instead.";
+    "\n\nFix this on the branch with small, focused changes, and check them (run the same tests or build locally if you can). If the cause is not in your changes, change nothing and explain instead. If it is unclear what the reviewer wants, change nothing: ask the owner with ask_user (one short question, with the readings you see as the choices), and stop. (Like Claude Code's auto-fix: a clear fix is made and pushed; an unclear one is asked about first.)";
   const ack = f.number && botToken ? await ghApi(botToken, "/repos/" + f.repo + "/issues/" + f.number + "/comments", { method: "POST", body: { body: (f.kind === "check" ? "A check failed. " : "Thanks for the review. ") + "Coder is working on a fix (try " + ((meta.autofixTries || 0) + 1) + " of " + AUTOFIX_MAX + ") and will update this comment.\n\n— Coder (gofarther.dev)" }, fetchFn }) : null;
   const sent = await run("projects/" + owner.id + "/message", { method: "POST", body: JSON.stringify({ text: text.slice(0, 18000), autofix: true, fromGithub: true }) });
   if (sent.status !== 200) return { ok: false, why: "could not start" };
@@ -297,7 +310,7 @@ export function finalText(job, project, events) {
   const gh = after.filter((e) => e.type === "github").map((e) => e.text);
   const lines = ["@" + job.login + " " + (question ? "Coder has a question:" : err && !done ? "Coder ran into a problem:" : "Done.")];
   if (done && done.text) lines.push("", String(done.text).slice(0, 6000));
-  if (question) lines.push("", "**" + question.text + "**", ...(question.options || []).map((o) => "- " + o), "", "Answer with `@coder <your choice>`.");
+  if (question) lines.push("", "**" + question.text + "**", ...(question.options || []).map((o) => "- " + (o && typeof o === "object" ? String(o.label || "") + (o.description ? " (" + String(o.description) + ")" : "") : String(o))), "", (question.multi ? "Choose one or more, and answer" : "Answer") + " with `@coder <your choice>`.");
   if (err && !done) lines.push("", String(err.text).slice(0, 500));
   const branch = project && project.branch;
   if (project && project.pr && project.pr.url) lines.push("", "Pull request: " + project.pr.url);

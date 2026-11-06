@@ -4,6 +4,117 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Audit items 1, 2 and 4 done; Coder closer to Claude Code
+
+- Your word: "Do 1,2,3,4", then "Finish all this" (about the differences from Claude Code's docs).
+- **1. The open model server is gone.** Its address was deleted. It was the only one using its tunnel, and none of your Workers used it. Nobody on the internet can reach it now. The tunnel itself ("gofarther-ml") is still listed in Cloudflare, because GitHub's Cloudflare key can't delete tunnels. You can delete it there (Zero Trust, Networks, Tunnels), and switch off the computer that ran it.
+  - "list old stuff" now also lists DNS records, tunnels, and which Workers use them. "delete old stuff" has a second word, DELETE MODEL SERVER, that deletes only this.
+- **2. The old gofarther-ai project is stopped, and its data is kept.** Its 6 scheduled jobs are switched off (they were the only thing still using it; one deleted rows older than 90 days every night). The table that let any account mark a mail domain as its own is closed, and so is the one anyone could change. Its 21 working functions now answer "shut down" (the other 4 already did). Their code was saved first, twice, and the two copies were compared; you have it as a file in the chat. Nothing was sent from it since July.
+- **4. The last gaps in Coder's machine are closed.** While Coder's app runs git, any other repository inside the project is moved aside and put back after, so git can't open one the AI made. A final check had found three more ways in; all three are tested now.
+- **Like Claude Code (from the comparison with its docs):**
+  - On GitHub, a stranger's @coder gets no reply at all. Auto-fix asks you first when a review comment is unclear. Coder's questions show their choices on GitHub (they showed "[object Object]").
+  - **Create PR** and **Create draft PR** buttons in the chat bar, once the branch has work. Coder writes the title and description.
+  - **Web pages are read by a separate reader.** It answers Coder's question from the page, so nothing hidden in a page reaches Coder itself. Pages up to 100,000 characters, each read once per 15 minutes.
+  - **The starting branch** is picked under the message box before the first message, next to the environment.
+  - **Review on the pull request:** when you ask, Coder posts its findings as comments on the pull request's lines.
+  - **Rewind:** each of your messages has a Rewind button: restore the code and the chat, the chat only, or the code only. Code goes back by undoing the later jobs with new commits, never by deleting anything on GitHub.
+  - **Network and key changes reach a job that is already running**, like Claude Code ("within about a minute"): every running chat on that environment gets them at once. A job started from GitHub gets the network setting, never the keys.
+  - **Keys are added outside Coder's machine**, like Claude Code. Your saved keys' values no longer go to the machine. Its proxy sends each request for a keyed site to Coder's server with that job's own pass, and the server adds the key and sends it on (headers, body keys, OAuth, Google Cloud and AWS signing, the same as before). So nothing on the machine, even with admin rights, can read a key. It can only use one for its own sites, while its job runs.
+  - **Several repositories in one chat**, like Claude Code: under the message box, before the first message, "+ Repository" adds up to 3 more of yours (each shows as a tag with ×). Each one gets its own folder next to the chat's first one, prepared and saved the same safe way, on the chat's branch in its own repository. Coder can work in all of them, and open a pull request in any of them. Rewind, Undo and See changes still cover the chat's first repository only.
+  - Kept as they are: Coder reads CODER.md (your word: "we not doing claude md we doing coder md"), and only the setup script's install lines run as admin (safer than Claude Code's whole script).
+- Tests: CD98 to CD111 and CD94b, plus the others above; 120 in all, passing. On the branch, not deployed.
+
+## 2026-11-06: The emailed code is really required now (audit item 3)
+
+- Your word: "Do 1,2,3,4". This is 3.
+- **Both steps, every time.** Signing in is still your password, then the code we email you. What changed is that Coder's server now checks that both steps really happened on gofarther.dev before it lets anyone use Coder.
+  - The password step gives the page a ticket that lasts 15 minutes. The code is only accepted with that ticket, for the same email. If it runs out, the card goes back to the password step and says "Start again".
+  - The code step gives the session plus the server's own proof. The page sends the proof with every Coder call. Without it, Coder answers "Sign in again."
+  - A new account also needs the emailed code.
+  - The password check no longer leaves a spare session behind. Only that one is ended, never your other devices.
+- **Three reviewers checked it. I fixed everything they found:**
+  - **A gap around password resets is closed too.** Coder now remembers your password the first time you sign in after this ships (a scrambled copy that can't be turned back into your password), and later sign-ins must use that same password.
+  - **If you ever change your password outside Coder** (Supabase's dashboard or a reset email), Coder will say "That email and password do not match." To fix it, delete one file in Cloudflare: R2, bucket `gofarther-coder`, `coder/<your user id>/signin-pin.json`. The next sign-in then remembers the new password.
+  - **Wrong codes are limited:** 5 tries per email every 15 minutes. After that, the card says how many minutes to wait. A right code resets the count. A new password step doesn't. If the storage ever refuses the counting, sign-in still works.
+  - **A short hiccup no longer signs you out.** If the sign-in service is busy or down when your session needs renewing, you stay signed in and Coder says to try again in a minute.
+  - **What you were typing is kept.** When Coder sends you back to sign in, the text in the chat box (or a message that was on its way) comes back in the box after you sign in.
+  - **Old Coder tabs reload by themselves.** A tab left open from before this change now moves to the new page as soon as you open a new one. Before this fix, it would have signed you out about once an hour.
+- **No more stuck page.** When a session ends (you signed out on another device, for example), the page now goes back to the sign-in card, which says "Sign in again." It does this once, never in a loop. If the sign-in service can't be reached, you stay signed in and Coder says to try again in a minute.
+- **After this goes live, everyone signs in once more, you too.** Sessions from before have no proof. That's expected. Also reload any Coder window that was already open (desktop app: View, then Reload; phone: close the app and open it again).
+- No new design: "Sign in again." and the new messages appear in the sign-in card's usual message line.
+- Tests: CD86 to CD89 (new file `coder/test/auth-proof.test.mjs`). CD13 and CD22 changed only where the ticket and proof are now needed. CD22 now also gives the account's id and the bucket, which the password step needs.
+- On a branch, not deployed. Live after "merge and deploy".
+
+## 2026-11-06: Audit item 4, first part: three reviewers checked the fix, and their findings are fixed
+
+- Your word: "Do 1,2,3,4". Three reviewers checked the fix below. All 14 of their findings were right, and they're fixed. A few of their suggested methods were changed, and the reasons are in the record.
+- **The AI's leftover programs are really stopped now.** A program that keeps restarting itself under a new number could survive the old stop and change files while the app was saving. Now the system stops all of the AI's programs at once. If that fails, the app doesn't touch the files.
+- **Giving files to the AI's user can't be tricked.** If a folder was swapped for a link at just the wrong moment, files outside the project could be handed over. The app now holds each folder open while it works in it.
+- **Nothing is left out without a word.** If a save skips a folder that has its own repository, the chat says "Not saved: …" and names it. A submodule the AI moved to a newer commit (like "update the theme") is saved again. The app reads the commit itself and never runs git inside that folder.
+- **Faster saves on big projects.** Folders git ignores (like node_modules) aren't searched any more. On a test project with 176,000 files, that check went from 0.5 s to under 0.1 s. Handing the files over at the start of a job takes 0.6 to 0.9 s instead of 1 to 1.6 s.
+- A folder nested too deep for the system no longer blocks a chat. The job still starts, and the save names the folder to delete.
+- The app reads CODER.md and the memory file only if they're the AI's own plain files, never a second name for another file.
+- **The deploy button now also runs the safety tests that need admin rights.** Before, it skipped them.
+- 8 new tests (98 in all). They pass as admin, and as a normal user with the admin-only ones skipped. On the branch, not deployed.
+
+## 2026-11-06: Audit item 4, first part: Coder's app can't be steered by the AI's files
+
+- Your word: "Do 1,2,3,4". This is the first part of 4 (two of the root findings on Coder's machine).
+- **A repository the AI makes inside a project is left alone.** Before every save, undo or branch switch, Coder's app looks for any folder in the project that has its own `.git`. Git never runs inside it and it's never saved, not even as a submodule. Everything else is saved as before. Repositories with ordinary submodules work as before, and a folder that is plain again (its `.git` removed) is saved again.
+- **Project folders can't be swapped.** The folder holding all projects now belongs to the app, not to the AI's user. The app makes each project's folder itself and gives only that folder to the AI's user. If a project's folder is ever a link, the app refuses to work in it and says so.
+- **Giving files to the AI's user** now goes one file at a time. Links are never followed, and a file that also lives somewhere else (a hard link) keeps its owner.
+- The app runs git by its full name, with system folders only.
+- Very rare: if a folder with its own repository has a name that isn't plain text, Coder says so and doesn't save until it's renamed.
+- 5 new tests (CD90 to CD94); all 90 pass. On the branch, not deployed.
+
+## 2026-11-06: Full platform audit
+
+- Your word: "do full platform audit, imma go to bed".
+- It was read-only. Nothing was changed, deployed or merged. No Grok calls were made, and no sign-in emails were sent.
+- It covered 19 areas: the 15 planned, plus 4 that a final check said were missing. Separate reviewers challenged each finding, and duplicates were merged. Your usage limit cut off the last 12 checks, so I checked those against the code myself.
+- **The report is not in this repository.** The repository is public, and the report describes problems that are still live. You have it as a file in the chat (`audit-2026-11-06.md`).
+- The audit had left a folder of test keys (`ca/`) in the repo folder. I moved it out before anything was committed.
+- Nothing gets fixed until you choose what to fix.
+
+## 2026-11-06: Environments like Claude Code's
+
+- Your word: "make it like claude code", after I checked Claude Code's docs (code.claude.com/docs/en/cloud-environments).
+- **Your own environments.** Environments now belong to you, have names, and aren't tied to repos. Default is made for you.
+  - Each environment holds the network setting, the keys, the setup script and the variables, and they apply to every chat that uses it. A key saved from one chat reaches every chat on that environment.
+- **Picking one.** A chat picks its environment under the message box, before its first message, like Claude Code's picker. "+ Add environment…" makes a new one and opens it.
+  - After the first message the pick is fixed, as in Claude Code's docs. The Environment button then edits that environment.
+  - A repo's next chat starts with the environment used (or made) most recently for that repo.
+- **The Environment window** shows the environment's name, with a Name row to rename it and "Archive this environment". Default can't be renamed or archived.
+  - An archived environment leaves the list, but chats that already use it keep working.
+- **Nothing is lost.** Each repo's settings from before move into an environment named after the repo the first time one of its chats needs them. The old files stay where they were.
+- **Coder's cards.**
+  - Coder knows which environment the chat uses. Its setup-script and "Allow this site?" cards name that environment, and the key card says the key is saved on it.
+  - Like the "testing2" card you saw in Claude Code: when a chat uses Default and something is only for this repo, Coder offers "Create new environment?" (name, network, repository, setup script; Deny / Create environment). This chat keeps its environment, and new chats of this repo start with the new one.
+- Previews checked on the live page with this new page code; live after "merge and deploy".
+
+## 2026-11-06: Like Claude Code: the question card, undo when it isn't clear, where a saved key lives (2, 3, 4)
+
+- You tested all 18 tools in Claude Code and in Coder, and asked for 2, 3 and 4 of the differences.
+- 2. **The question card** now looks and works like Claude Code's.
+  - The question sits on top, and each choice has a short explanation under it. The recommended choice is first, says "(Recommended)" and is already chosen.
+  - There's an "Other" choice with a box to type your own answer, and Coder can allow several choices.
+  - Skip and Submit buttons (Ctrl+Enter also submits), and a "Needs your input" tag while it waits.
+  - Your choice is kept even if the page redraws. Questions in older chats still show.
+- 3. **Undo when it isn't clear.** If Coder's last job changed nothing (like a review) and you say "undo", it first asks which one you mean, the way Claude Code did: that job's files, or something else such as an environment change or a saved key. Coder's app now tells Coder which job is the last one that changed files, and the undo tool won't run until you've chosen. When the last job did change files, undo happens straight away, as before.
+- 4. **After you save a key** on the card and Coder uses it, Coder says in one line where it's saved (this repo, only sent to that site) and that you can remove it in Environment → Network secrets.
+- You said there's a bigger difference you noticed; waiting for it.
+- On the branch; live after "merge and deploy".
+
+## 2026-11-06: Deployed, and the same test recorded again in the browser
+
+- Merged and deployed (your word). Same browser test, recorded again (3.4 minutes, sent in the chat):
+  - tree was installed as admin and ran (v2.1.0);
+  - the broken line was reported with its exit code and where to fix it;
+  - the card came only after Coder ran the line;
+  - after Decline, Coder now says the right thing: "The setup script change was declined, so it stays as echo "setup ok" > setup-ran.txt."
+- The chat's top bar stays on one line in the video.
+- Coder's tools right now, listed for you: read, write, edit, grep, glob, lsp, bash, monitor, stop_job, web_fetch, Grok's web search, ask_user, todo, request_secret, propose_env, review, undo_last_job, pull_request (18).
+
 ## 2026-11-06: Recorded browser test of the setup script, and one fix
 
 - Your word: live tests in the browser, recorded. Done on gofarther.dev with the test account, only by clicking and typing. Recording: 3.4 minutes, sent in the chat.
