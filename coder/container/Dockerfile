@@ -9,7 +9,7 @@ FROM node:22-bookworm
 # What a developer usually reaches for: git, a compiler toolchain, Python, and
 # the everyday command-line tools Coder uses to look around.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git build-essential python3 python3-pip python3-venv curl ca-certificates \
+    git build-essential python3 python3-pip python3-venv curl ca-certificates openssl \
     ripgrep jq unzip zip less procps \
   && rm -rf /var/lib/apt/lists/*
 
@@ -32,7 +32,7 @@ ENV CODER_RUN_UID=1001 CODER_RUN_GID=1001
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.
-COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs ./
+COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]

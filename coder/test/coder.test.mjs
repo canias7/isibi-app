@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "ask_user", "todo", "bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "ask_user", "todo", "bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,7 +89,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -424,7 +424,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,600}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, away: [^}]*\}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,1200}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, away: [^}]*\}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1375,4 +1375,77 @@ test("CD61 the file tools may open Coder's own memory file (and only that file) 
   assert.equal(await readFile(mem, "utf8"), "teal\n");
   assert.match(tool("read", { path: join(memDir, "other.txt") }).out, /outside the project/, "a neighbour of the memory file is still refused");
   assert.match(tool("read", { path: mem }, {}).out, /outside the project/, "without the setting, the memory file is outside too");
+});
+
+test("CD62 network secrets: the proxy adds the key only for its host, over TLS the command trusts; the command never has the key", async () => {
+  const { startProxy, okHost, headerValue } = await import("../container/coder-proxy.mjs");
+  assert.equal(okHost("API.Stripe.com"), "api.stripe.com");
+  for (const bad of ["*.stripe.com", "10.0.0.1", "localhost", "https://api.stripe.com", "db.internal", "a"]) assert.equal(okHost(bad), null, bad);
+  assert.equal(headerValue({ value: "sk_test_1", prefix: "Bearer" }), "Bearer sk_test_1");
+  assert.equal(headerValue({ value: "u:p", prefix: "Basic" }), "Basic dTpw");
+  // A STAND-IN FOR api.example.com: real TLS on this machine, echoing the auth header it got.
+  const d = await mkdtemp(join(tmpdir(), "coder-up-"));
+  writeFileSync(join(d, "ext"), "subjectAltName=DNS:api.example.com\n");
+  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(d, "k"), "-out", join(d, "c"), "-days", "2", "-subj", "/CN=api.example.com", "-addext", "subjectAltName=DNS:api.example.com"], { stdio: "ignore" });
+  const https = await import("node:https");
+  const up = https.createServer({ key: readFileSync(join(d, "k")), cert: readFileSync(join(d, "c")) }, (q, r) => r.end("auth=" + (q.headers.authorization || "none") + " path=" + q.url));
+  await new Promise((ok) => up.listen(0, "127.0.0.1", ok));
+  const px = await startProxy({ dir: await mkdtemp(join(tmpdir(), "coder-px-")), upstream: { host: "127.0.0.1", port: up.address().port, ca: readFileSync(join(d, "c")) } });
+  try {
+    px.setSecrets([{ host: "api.example.com", header: "Authorization", value: "Bearer sk_test_SECRET" }, { host: "bad host", value: "x" }]);
+    assert.deepEqual(px.hosts(), ["api.example.com"]);
+    const env = { PATH: process.env.PATH, ...px.env() };
+    assert.equal(JSON.stringify(env).includes("sk_test_SECRET"), false, "the command's environment has no key");
+    // (curl runs beside the test, not blocking it: the proxy lives in this process)
+    const { execFile } = await import("node:child_process");
+    const curl = (args) => new Promise((ok) => execFile("curl", args, { env }, (err, so) => ok(err ? "failed" : String(so))));
+    const out = await curl(["-sS", "--max-time", "20", "https://api.example.com/v1/balance", "-H", "Authorization: Bearer fake"]);
+    assert.equal(out, "auth=Bearer sk_test_SECRET path=/v1/balance", "the proxy put the real key in (over the command's own)");
+    px.setSecrets([]);
+    const none = await curl(["-sS", "--max-time", "5", "https://api.example.com/"]);
+    assert.doesNotMatch(none, /SECRET/, "without the secret, nothing is added");
+  } finally { await px.close(); up.close(); }
+});
+
+test("CD63 request_secret: Coder asks for a key for one host; the turn ends with a card; bad hosts are refused", async () => {
+  const events = [];
+  const turns = [say("", [call("request_secret", { host: "https://evil" , reason: "x" })]), say("", [call("request_secret", { host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key" }), call("bash", { command: "echo never" })])];
+  let n = 0;
+  const seen = [];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { text: "check my stripe balance" });
+  assert.equal(r.status, "done");
+  const { at, ...card } = events.find((e) => e.type === "secret");
+  assert.deepEqual(card, { type: "secret", host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key", header: "Authorization", prefix: "Bearer" });
+  assert.match(JSON.stringify(seen[1].messages), /exact public host name/);
+  assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false, "nothing after the request runs");
+  assert.match(JSON.stringify(r.messages), /not run: you asked the owner for a key first/);
+});
+
+test("CD64 the secret route: sealed, never shown back, sent only to the machine's proxy, not for GitHub jobs, hidden in the chat", async () => {
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const sent = [];
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-sec", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "*.stripe.com", value: "k" }) })).status, 400);
+  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "" }) })).status, 400);
+  const saved = await (await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "sk_test_ABCDEF", name: "Stripe test key" }) })).json();
+  assert.equal(JSON.stringify(saved).includes("sk_test_ABCDEF"), false);
+  assert.equal(saved.secrets[0].host, "api.stripe.com");
+  assert.doesNotMatch(bucket.m.get("coder/user-sec/env/ana__shop.json"), /sk_test_ABCDEF/, "sealed");
+  // Saving the environment keeps the secret; its GET shows the host only.
+  await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo hi", vars: { A: "b" } }) });
+  const e = await (await go("projects/" + id + "/env")).json();
+  assert.deepEqual(e.secrets.map((x) => x.host), ["api.stripe.com"]);
+  assert.equal(JSON.stringify(e).includes("sk_test_ABCDEF"), false);
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.deepEqual(sent[0].secrets, [{ host: "api.stripe.com", header: "Authorization", value: "Bearer sk_test_ABCDEF" }]);
+  assert.equal(JSON.stringify(sent[0].setup).includes("sk_test"), false, "never in the setup (the AI's text)");
+  assert.equal(JSON.stringify(sent[0].text).includes("sk_test"), false);
+  // Removed.
+  const del = await (await go("projects/" + id + "/secret?host=api.stripe.com", { method: "DELETE" })).json();
+  assert.deepEqual(del.secrets, []);
 });

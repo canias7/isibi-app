@@ -157,6 +157,7 @@
       '<label class="cd-envl">Variables <small>available to Coder\'s commands, e.g. an API key for tests. Values are hidden after saving.</small></label>' +
       '<div class="cd-envvars">' + (names.length ? names.map((n) => '<div class="cd-envrow"><code>' + esc(n) + '</code><span>' + (n in edit ? 'new value' : '•••••• set') + '</span><button type="button" data-envdel="' + esc(n) + '" aria-label="Remove ' + esc(n) + '">×</button></div>').join('') : '<p class="cd-muted">No variables yet.</p>') + '</div>' +
       '<div class="cd-envadd"><input id="envName" placeholder="NAME" autocomplete="off" spellcheck="false"><input id="envVal" type="password" placeholder="value" autocomplete="new-password"><button type="button" class="cd-hbtn" id="envAdd">Add</button></div>' +
+      ((S.env.secrets || []).length ? '<label class="cd-envl">Secrets <small>keys Coder asked for; added to requests for their host, never shown to Coder</small></label><div class="cd-envvars">' + S.env.secrets.map((x) => '<div class="cd-envrow"><code>' + esc(x.host) + '</code><span>' + esc(x.name || '•••••• saved') + '</span><button type="button" data-secdel="' + esc(x.host) + '" aria-label="Remove the secret for ' + esc(x.host) + '">×</button></div>').join('') + '</div>' : '') +
       '<div class="cd-envfoot"><button type="button" class="cd-btn" id="envSave">Save</button><span class="cd-muted">' + esc(S.envMsg || '') + '</span></div>' +
     '</div>';
   }
@@ -267,6 +268,7 @@
 
   // ── DRAWING ───────────────────────────────────────────────────────────────
   const ICON = {
+    lock: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2"/></svg>',
     clip: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
     gh: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>',
     term: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8"/></svg>',
@@ -353,6 +355,17 @@
         // CODER'S QUESTION (the ask_user tool): the options are buttons, live only on the last one.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         out.push('<div class="cd-ask"><div class="cd-ask-q">' + esc(e.text) + '</div><div class="cd-ask-opts">' + (e.options || []).map((o) => '<button type="button" class="cd-ask-opt" data-answer="' + esc(o) + '"' + (live ? '' : ' disabled') + '>' + esc(o) + '</button>').join('') + '</div></div>');
+      }
+      else if (e.type === 'secret') {
+        // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        out.push('<div class="cd-secret"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Coder needs a secret for ' + esc(e.host) + '</b>' +
+          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+          '<p class="cd-secret-p">This secret is saved for ' + esc(S.project ? S.project.repo : 'this repo') + '. Coder\'s commands in that repo can use it and reach ' + esc(e.host) + '. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>' +
+          (live ? '<label class="cd-secret-l" for="cdSecretIn">' + esc(e.name || 'Token') + '</label><input id="cdSecretIn" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">' +
+            (S.secretMsg ? '<p class="cd-secret-err">' + esc(S.secretMsg) + '</p>' : '') +
+            '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '">Decline</button><button type="button" class="cd-secret-save" data-secret-host="' + esc(e.host) + '" data-secret-header="' + esc(e.header || 'Authorization') + '" data-secret-prefix="' + esc(e.prefix == null ? 'Bearer' : e.prefix) + '" data-secret-name="' + esc(e.name || '') + '" disabled>Save</button></div>'
+          : '') + '</div>');
       }
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
@@ -580,6 +593,25 @@
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     on('.cd-ask-opt', 'click', (e) => send(e.currentTarget.dataset.answer));
+    on('[data-secdel]', 'click', async (e) => {
+      const host = e.currentTarget.dataset.secdel;
+      if (!S.project || !(await askSure('Remove the secret for ' + host + '?', 'Coder\'s commands will no longer get a key for ' + host + '.', 'Remove'))) return;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret?host=' + encodeURIComponent(host), { method: 'DELETE' });
+      if (r.status === 200 && S.env) { S.env.secrets = r.data.secrets; S.envMsg = 'Removed.'; } else S.envMsg = (r.data && r.data.error) || 'It could not be removed.';
+      draw();
+    });
+    on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
+    on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
+    on('.cd-secret-save', 'click', async (e) => {
+      const d = e.currentTarget.dataset; const box = document.getElementById('cdSecretIn'); const value = box ? box.value.trim() : '';
+      if (!value || !S.project) return;
+      e.currentTarget.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret', { method: 'POST', body: JSON.stringify({ host: d.secretHost, value, header: d.secretHeader, prefix: d.secretPrefix, name: d.secretName }) });
+      if (box) box.value = '';
+      if (r.status !== 200) { S.secretMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
+      S.secretMsg = ''; if (S.env) S.env.secrets = r.data.secrets;
+      send('I saved the secret for ' + d.secretHost + '.');
+    });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);

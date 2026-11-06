@@ -30,6 +30,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
+import { okHost, HEADER_RE, PREFIXES, headerValue } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
@@ -61,11 +62,13 @@ export const REVIEWS = {
 };
 // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
 // owner's own variables, per repository, sealed like the GitHub token.
+/** What the page may see of the saved secrets: never the values. */
+export const secretList = (secrets) => (secrets || []).map((s) => ({ host: s.host, name: s.name || "", header: s.header || "Authorization", at: s.at || 0 }));
 export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
 export async function readEnv(env, bucket, uid, repo) {
   const o = await bucket.get(envKey(uid, repo));
-  if (!o) return { script: "", vars: {} };
-  try { const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box); return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {} }; } catch { return { script: "", vars: {} }; }
+  if (!o) return { script: "", vars: {}, secrets: [] };
+  try { const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box); return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: Array.isArray(v.secrets) ? v.secrets : [] }; } catch { return { script: "", vars: {}, secrets: [] }; }
 }
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
@@ -330,12 +333,15 @@ export async function handleCoder(request, env, ctx, deps) {
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
     const setup = await readEnv(env, bucket, uid, meta.repo);
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
-    if (body.fromGithub === true) setup.vars = {};
+    if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
+    // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
+    const secrets = (setup.secrets || []).map((s) => ({ host: s.host, header: s.header || "Authorization", value: headerValue(s) }));
+    delete setup.secrets;
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { secrets, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -413,7 +419,8 @@ export async function handleCoder(request, env, ctx, deps) {
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
-      const secrets = Object.values((await readEnv(env, bucket, uid, meta.repo)).vars).map(String).filter((v) => v.length >= 4);
+      const envNow = await readEnv(env, bucket, uid, meta.repo);
+      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [String(x.value || ""), headerValue(x)])].filter((v) => v.length >= 4);
       if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
@@ -477,7 +484,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // THE REPO'S ENVIRONMENT: the script, and the variables' NAMES only (values are write-only).
   if (action === "env" && request.method === "GET") {
     const e = await readEnv(env, bucket, uid, meta.repo);
-    return json({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars) });
+    return json({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars), secrets: secretList(e.secrets) });
   }
   if (action === "env" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -489,8 +496,29 @@ export async function handleCoder(request, env, ctx, deps) {
       if (v === null) delete vars[k]; else if (typeof v === "string") vars[k] = v.slice(0, 4000);
     }
     if (Object.keys(vars).length > 50) return json({ error: "at most 50 variables" }, 400);
-    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script, vars }) }), { httpMetadata: { contentType: "application/json" } });
-    return json({ ok: true, repo: meta.repo, script, vars: Object.keys(vars) });
+    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script, vars, secrets: cur.secrets }) }), { httpMetadata: { contentType: "application/json" } });
+    return json({ ok: true, repo: meta.repo, script, vars: Object.keys(vars), secrets: secretList(cur.secrets) });
+  }
+  // A NETWORK SECRET (owner, 2026-11-06, like Claude Code's): saved from the
+  // card Coder pops up, sealed with the repo's environment; DELETE ?host= removes it.
+  if (action === "secret" && (request.method === "POST" || request.method === "DELETE")) {
+    let body = {}; if (request.method === "POST") { try { body = await request.json(); } catch { body = {}; } }
+    const host = okHost(request.method === "DELETE" ? url.searchParams.get("host") : body.host);
+    if (!host) return json({ error: "that is not a host name like api.stripe.com" }, 400);
+    const cur = await readEnv(env, bucket, uid, meta.repo);
+    let list = cur.secrets.filter((s) => s.host !== host);
+    if (request.method === "POST") {
+      const value = typeof body.value === "string" ? body.value.trim() : "";
+      const header = String(body.header || "Authorization").trim();
+      const prefix = body.prefix === undefined ? "Bearer" : String(body.prefix);
+      if (!value) return json({ error: "paste the key first" }, 400);
+      if (value.length > 4000 || /[\r\n]/.test(value)) return json({ error: "that does not look like a key (one line, under 4000 characters)" }, 400);
+      if (!HEADER_RE.test(header) || !PREFIXES.includes(prefix)) return json({ error: "bad header or prefix" }, 400);
+      list = [...list, { host, value, header, prefix, name: String(body.name || "").slice(0, 60), at: Date.now() }];
+      if (list.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
+    }
+    await bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script: cur.script, vars: cur.vars, secrets: list }) }), { httpMetadata: { contentType: "application/json" } });
+    return json({ ok: true, secrets: secretList(list) });
   }
 
   // THE REPO'S FILE NAMES, for @ in the chat box (owner, 2026-11-05, "16").

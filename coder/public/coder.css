@@ -207,6 +207,21 @@
 .cd-ask-opt{font:inherit;font-size:14px;border:1px solid #d9d6cf;background:#faf9f5;color:#1f1e1d;border-radius:999px;padding:8px 14px;cursor:pointer}
 .cd-ask-opt:hover:not(:disabled){background:#f0eee8;border-color:#1f1e1d}
 .cd-ask-opt:disabled{opacity:.55;cursor:default}
+/* THE SECRET CARD (owner, 2026-11-06): Claude Code's network-secret card, in Coder's colours. */
+.cd-secret{border:1px solid #e5e3dd;border-radius:18px;padding:22px 20px 18px;margin:10px 0;background:#faf9f5;text-align:center}
+.cd-secret-icon{width:52px;height:52px;margin:0 auto 12px;border-radius:12px;background:#1f1e1d;color:#fff;display:flex;align-items:center;justify-content:center}
+.cd-secret-t{display:block;font-size:16px;color:#1f1e1d;margin-bottom:8px}
+.cd-secret-why{font-size:14px;color:#1f1e1d;margin:0 0 6px;line-height:1.45}
+.cd-secret-p{font-size:13.5px;color:#6b6a66;margin:0 0 14px;line-height:1.5;text-align:left}
+.cd-secret-l{display:block;text-align:left;font-size:13px;color:#6b6a66;margin:0 0 6px 4px}
+.cd-secret-in{width:100%;box-sizing:border-box;font:inherit;font-size:15px;border:1px solid #d9d6cf;border-radius:999px;padding:11px 16px;background:#fff;color:#1f1e1d;outline:none}
+.cd-secret-in:focus{border-color:#1f1e1d}
+.cd-secret-err{color:#b3261e;font-size:13px;text-align:left;margin:8px 4px 0}
+.cd-secret-btns{display:flex;gap:10px;margin-top:16px}
+.cd-secret-btns button{flex:1;font:inherit;font-size:15px;font-weight:600;border-radius:999px;padding:11px 0;cursor:pointer}
+.cd-secret-no{border:1px solid #d9d6cf;background:#fff;color:#1f1e1d}
+.cd-secret-save{border:1px solid #1f1e1d;background:#1f1e1d;color:#fff}
+.cd-secret-save:disabled{background:#a9a7a1;border-color:#a9a7a1;cursor:default}
 
 /* Pictures in the chat box and in your messages; @ file suggestions. */
 .cd-compose{position:relative}

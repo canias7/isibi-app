@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Secrets that Coder never sees (like Claude Code's network secrets)
+
+- When a job needs an API key (Stripe, OpenAI…), Coder asks with a new tool, request_secret, and a card pops up in the chat: "Coder needs a secret for api.stripe.com", a box for the key, Decline / Save. Nothing is shown anywhere until Coder asks.
+- The key is saved sealed with the repo's environment (Coder's storage, never GitHub, never the chat). On each job, a small proxy on Coder's machine adds it to HTTPS requests for that one host. Grok and its commands never have the key: they just call https://api.stripe.com/... and the proxy fills it in.
+- Not given to jobs started from GitHub (@coder, auto-fix), same as the variables. If a key ever shows up in output, the saved chat shows [hidden].
+- Saved keys appear in the Environment panel only as host names, with x to remove one.
+- Works for curl, Python, git and most tools; Node's own fetch only when it honours the proxy setting.
+
 ## 2026-11-06: @coder jobs show a short label in the chat
 
 - Retest found the chat showing Coder's whole safety wrapper for an @coder comment. It now shows "@you on GitHub: what you asked", like auto-fix's short label. Coder still gets the full, wrapped text.
