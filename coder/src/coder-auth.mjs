@@ -169,7 +169,16 @@ export async function takeCodeTry(env, email, now = Date.now()) {
     const since = live ? c.since : now;
     if (n >= CODE_TRIES) return { wait: Math.max(1, since + CODE_WINDOW_MS - now) };
     const onlyIf = new Headers(o ? { "if-match": o.httpEtag || '"' + o.etag + '"' } : { "if-none-match": "*" });
-    if ((await bucket.put(key, JSON.stringify({ n: n + 1, since }), { ...JSON_TYPE, onlyIf })) !== null) return { ok: true };
+    let wrote;
+    try { wrote = await bucket.put(key, JSON.stringify({ n: n + 1, since }), { ...JSON_TYPE, onlyIf }); }
+    catch {
+      // R2 refused the condition itself (2026-11-06: never tried against the live
+      // bucket before shipping): count without it. The count must never be what
+      // stops the owner signing in.
+      await bucket.put(key, JSON.stringify({ n: n + 1, since }), JSON_TYPE).catch(() => {});
+      return { ok: true };
+    }
+    if (wrote !== null) return { ok: true };
   }
   return { busy: true };
 }

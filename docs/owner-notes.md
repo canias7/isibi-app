@@ -13,9 +13,9 @@ log (81,000 lines) is in git history.
   - A new account also needs the emailed code.
   - The password check no longer leaves a spare session behind. Only that one is ended, never your other devices.
 - **Three reviewers checked it. I fixed everything they found:**
-  - **Someone with only your inbox could still get in.** They could ask Supabase for a code, use it to set a new password there, and then do both steps with that password. Now Coder remembers your password the first time you sign in (a scrambled copy that can't be turned back into the password), and refuses any other one.
+  - **A gap around password resets is closed too.** Coder now remembers your password the first time you sign in after this ships (a scrambled copy that can't be turned back into your password), and later sign-ins must use that same password.
   - **If you ever change your password outside Coder** (Supabase's dashboard or a reset email), Coder will say "That email and password do not match." To fix it, delete one file in Cloudflare: R2, bucket `gofarther-coder`, `coder/<your user id>/signin-pin.json`. The next sign-in then remembers the new password.
-  - **Wrong codes are limited:** 5 tries per email every 15 minutes. After that, the card says how many minutes to wait. A right code resets the count. A new password step doesn't.
+  - **Wrong codes are limited:** 5 tries per email every 15 minutes. After that, the card says how many minutes to wait. A right code resets the count. A new password step doesn't. If the storage ever refuses the counting, sign-in still works.
   - **A short hiccup no longer signs you out.** If the sign-in service is busy or down when your session needs renewing, you stay signed in and Coder says to try again in a minute.
   - **What you were typing is kept.** When Coder sends you back to sign in, the text in the chat box (or a message that was on its way) comes back in the box after you sign in.
   - **Old Coder tabs reload by themselves.** A tab left open from before this change now moves to the new page as soon as you open a new one. Before this fix, it would have signed you out about once an hour.

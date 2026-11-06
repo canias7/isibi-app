@@ -232,3 +232,12 @@ test("CD105 Rewind, like Claude Code's: back to before one of your messages — 
   assert.match(page, /\[\['both', 'Restore code and chat'\], \['chat', 'Restore chat only'\], \['code', 'Restore code only'\]\]/);
   assert.match(page, /on\('\[data-rewind\]', 'click', \(e\) => rewind\(Number\(e\.currentTarget\.dataset\.rewind\)\)\);/);
 });
+
+test("CD106 (2026-11-06) the code-try count never blocks sign-in if the bucket refuses a conditional write; it still counts", async () => {
+  const { takeCodeTry, CODE_TRIES } = await import("../src/coder-auth.mjs");
+  const m = new Map();
+  const bucket = { async get(k) { return m.has(k) ? { text: async () => m.get(k), etag: "e1", httpEtag: '"e1"' } : null; }, async put(k, v, o = {}) { if (o.onlyIf) throw new Error("unsupported condition"); m.set(k, v); return {}; } };
+  const env = { CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  for (let i = 0; i < CODE_TRIES; i++) assert.deepEqual(await takeCodeTry(env, "me@x.y", 1000), { ok: true });
+  assert.ok((await takeCodeTry(env, "me@x.y", 1000)).wait > 0, "the sixth try in the window still waits");
+});
