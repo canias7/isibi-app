@@ -975,11 +975,12 @@ test("CD42 @coder in GitHub comments: only signed notifications, only connected+
   };
   const hook = (payload, s = sign) => { const raw = JSON.stringify(payload); return M.handleWebhook(new Request("https://gofarther.dev/api/coder/github/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": s(raw) }, body: raw }), env, null, { fetchFn, coder }); };
   assert.equal((await hook(issue("@coder x"), () => "sha256=00")).status, 401, "unsigned is refused");
-  // a stranger: refused politely, no job
+  // a stranger: no job and no reply at all, like Claude Code (owner, 2026-11-06: "Finish all this")
   const stranger = issue("@coder spend money", { sender: { login: "someone", type: "User" }, comment: { body: "@coder spend money", user: { login: "someone" } } });
   assert.equal((await hook(stranger)).status, 202);
   assert.equal(coderCalls.length, 0, "a stranger started nothing");
-  assert.match(gh.find(([m, u]) => m === "POST" && /issues\/5\/comments/.test(u))[2].body, /only works for accounts that connected GitHub/);
+  assert.equal(gh.filter(([m]) => m === "POST").length, 0, "no comment, not even a token to post one");
+  assert.equal(JSON.parse(bucket.m.get("coder/logins/someone.json")).none, true, "the miss is remembered, so the next one costs no search");
   gh.length = 0;
   // the owner: a chat, "On it" as the app, the job
   assert.equal((await hook(issue("@coder add a dark mode toggle"))).status, 202);
