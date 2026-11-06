@@ -36,6 +36,14 @@ the token only in its own environment. Every command the AI runs is started as
 the unprivileged `dev` user, with no secrets in its environment. The token is
 never written into the repository's settings.
 
+**Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
+projects folder (`/work`) belongs to root: the service makes each project's
+folder and hands only that folder to `dev`, and refuses to work in a project
+folder that is a link. Git never runs inside a repository the AI made in the
+project (or a submodule folder it made into one), and such a folder is never
+saved. Files are handed to `dev` one by one, never through a link, and a file
+with another name elsewhere (a hard link) keeps its owner.
+
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 

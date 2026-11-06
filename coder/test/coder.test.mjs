@@ -144,28 +144,30 @@ const roots = async () => ({ gitRoot: await mkdtemp(join(tmpdir(), "coder-git-")
 test("CD8 the repository: cloned onto Coder's branch, worked on, committed and pushed; the token never lands in the repository's settings", async () => {
   const { remote, bare } = await fakeRemote();
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-abcd");
-  const prep = await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", remote, gitRoot });
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-abcd");
+  const prep = await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", remote, gitRoot, root });
   assert.equal(prep.ok, true, prep.why);
   assert.equal(git(dir, "rev-parse", "--abbrev-ref", "HEAD").trim(), "coder/shop-abcd");
   assert.doesNotMatch(await readFile(join(gitRoot, "shop-abcd", "config"), "utf8"), /SECRETTOKEN/, "the token was written into the repository");
   assert.equal(await readFile(join(dir, ".git"), "utf8"), "gitdir: " + join(gitRoot, "shop-abcd") + "\n", "the git folder lives outside the work tree");
   await writeFile(join(dir, "index.html"), "<h1>Shop</h1>\n");
-  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", message: "Added the home page", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-abcd", token: "ghu_SECRETTOKEN1234567890", message: "Added the home page", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   assert.equal(p.pushed, true);
   assert.match(git(bare, "log", "--oneline", "coder/shop-abcd"), /Added the home page/);
   assert.equal(git(bare, "show", "coder/shop-abcd:index.html"), "<h1>Shop</h1>\n");
   assert.equal(git(bare, "rev-parse", "main").trim() !== git(bare, "rev-parse", "coder/shop-abcd").trim(), true, "main was changed");
   // A FRESH MACHINE picks the work up from Coder's branch, not from main.
-  const dir2 = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-abcd");
+  const root2 = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir2 = join(root2, "shop-abcd");
   const g2 = (await roots()).gitRoot;
-  assert.equal((await prepareRepo({ dir: dir2, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "", remote, gitRoot: g2 })).ok, true);
+  assert.equal((await prepareRepo({ dir: dir2, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "", remote, gitRoot: g2, root: root2 })).ok, true);
   assert.equal(await readFile(join(dir2, "index.html"), "utf8"), "<h1>Shop</h1>\n");
   // Nothing new: nothing pushed.
-  assert.equal((await pushRepo({ dir: dir2, repo: "ana/shop", branch: "coder/shop-abcd", token: "", message: "x", remote, gitRoot: g2 })).pushed, false);
+  assert.equal((await pushRepo({ dir: dir2, repo: "ana/shop", branch: "coder/shop-abcd", token: "", message: "x", remote, gitRoot: g2, root: root2 })).pushed, false);
   // git's own output never shows the token.
-  assert.doesNotMatch((await gitIn(dir, ["config", "--list"], { token: "ghu_SECRETTOKEN1234567890", gitDir: join(gitRoot, "shop-abcd") })).output, /SECRETTOKEN/);
+  assert.doesNotMatch((await gitIn(dir, ["config", "--list"], { token: "ghu_SECRETTOKEN1234567890", gitDir: join(gitRoot, "shop-abcd"), root })).output, /SECRETTOKEN/);
 });
 
 test("CD8b the AI's commands run as a separate, unprivileged user: what only the service can read, they cannot", { skip: process.getuid && process.getuid() === 0 ? false : "needs root to switch users" }, async () => {
@@ -593,8 +595,9 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   const { readMemory, writeMemory } = await import("../container/server.mjs");
   const { remote, bare } = await fakeRemote();
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-hook");
-  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-hook", token: "", remote, gitRoot })).ok, true);
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-hook");
+  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-hook", token: "", remote, gitRoot, root })).ok, true);
   // A hook planted in the git folder, and a remote pointed elsewhere, change nothing.
   const gd = join(gitRoot, "shop-hook");
   const marker = join(dir, "..", "HOOK-RAN");
@@ -602,13 +605,13 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   for (const h of ["pre-commit", "pre-push", "post-checkout"]) { writeFileSync(join(gd, "hooks", h), "#!/bin/sh\ntouch " + marker + "\n"); execFileSync("chmod", ["+x", join(gd, "hooks", h)]); }
   execFileSync("git", ["--git-dir=" + gd, "remote", "add", "origin", "/nonexistent/evil.git"]);
   writeFileSync(join(dir, "b.txt"), "b\n");
-  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-hook", token: "", message: "b", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-hook", token: "", message: "b", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   assert.equal(existsSync(marker), false, "a hook ran");
   assert.equal(git(bare, "show", "coder/shop-hook:b.txt"), "b\n", "pushed to the real repository, not to origin");
   // A work tree's own .git pointing elsewhere is ignored by our git.
   writeFileSync(join(dir, ".git"), "gitdir: /nonexistent\n");
-  assert.equal((await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], { gitDir: gd })).output.trim(), "coder/shop-hook");
+  assert.equal((await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], { gitDir: gd, root })).output.trim(), "coder/shop-hook");
   // THE MEMORY: a link is never followed, for reading or writing.
   const m = await mkdtemp(join(tmpdir(), "coder-memt-"));
   const secret = join(m, "secret.txt"); writeFileSync(secret, "TOP-SECRET");
@@ -763,19 +766,20 @@ test("CD33 an empty repository (no branches yet, found in the live test) gets it
   execFileSync("git", ["init", "-q", "--bare", join(ghRoot, "ana/empty.git")]);
   const remote = ghRoot + "/";
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "empty-abcd");
-  const prep = await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot });
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "empty-abcd");
+  const prep = await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot, root });
   assert.equal(prep.ok, true, prep.why);
   // Its main branch is made first (an empty "Start" commit), so a pull request has a base.
   assert.equal(git(join(ghRoot, "ana/empty.git"), "log", "-1", "--format=%s", "main").trim(), "Start");
-  const none = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "hi", remote, gitRoot });
+  const none = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "hi", remote, gitRoot, root });
   assert.deepEqual([none.ok, none.pushed], [true, false], none.why);
   writeFileSync(join(dir, "README.md"), "# empty\n");
-  const p = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "Add README", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/empty", branch: "coder/empty-abcd", token: "", message: "Add README", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   assert.equal(git(join(ghRoot, "ana/empty.git"), "show", "coder/empty-abcd:README.md"), "# empty\n");
   // Opened again on the same machine: still fine.
-  assert.equal((await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot })).ok, true);
+  assert.equal((await prepareRepo({ dir, repo: "ana/empty", base: "main", branch: "coder/empty-abcd", token: "", remote, gitRoot, root })).ok, true);
 });
 
 test("CD34 the file tools: read, write, edit, grep and glob work inside the project only", async () => {
@@ -1678,13 +1682,14 @@ test("CD73 (owner '2', live test) after an install the setup script does not do,
 test("CD74 live test (2026-11-06): installed packages and caches are never committed; two answer parts stay two paragraphs; a card-ending job keeps its words as the commit title", async () => {
   const { remote, bare } = await fakeRemote();
   const { gitRoot } = await roots();
-  const dir = join(await mkdtemp(join(tmpdir(), "coder-w-")), "shop-junk");
-  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-junk", token: "", remote, gitRoot })).ok, true);
+  const root = await mkdtemp(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-junk");
+  assert.equal((await prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-junk", token: "", remote, gitRoot, root })).ok, true);
   const { mkdir: mk } = await import("node:fs/promises");
   await mk(join(dir, "node_modules/is-number"), { recursive: true }); await writeFile(join(dir, "node_modules/is-number/index.js"), "x");
   await mk(join(dir, ".npm/_logs"), { recursive: true }); await writeFile(join(dir, ".npm/_logs/debug.log"), "x");
   await writeFile(join(dir, "check.js"), "console.log(1)\n");
-  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-junk", token: "", message: "check", remote, gitRoot });
+  const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-junk", token: "", message: "check", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
   const files = git(bare, "ls-tree", "-r", "--name-only", "coder/shop-junk");
   assert.match(files, /check\.js/);

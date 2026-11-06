@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Audit item 4, first part: Coder's app can't be steered by the AI's files
+
+- Your word: "Do 1,2,3,4". This is the first part of 4 (two of the root findings on Coder's machine).
+- **A repository the AI makes inside a project is left alone.** Before every save, undo or branch switch, Coder's app looks for any folder in the project that has its own `.git`. Git never runs inside it and it's never saved, not even as a submodule. Everything else is saved as before. Repositories with ordinary submodules work as before, and a folder that is plain again (its `.git` removed) is saved again.
+- **Project folders can't be swapped.** The folder holding all projects now belongs to the app, not to the AI's user. The app makes each project's folder itself and gives only that folder to the AI's user. If a project's folder is ever a link, the app refuses to work in it and says so.
+- **Giving files to the AI's user** now goes one file at a time. Links are never followed, and a file that also lives somewhere else (a hard link) keeps its owner.
+- The app runs git by its full name, with system folders only.
+- Very rare: if a folder with its own repository has a name that isn't plain text, Coder says so and doesn't save until it's renamed.
+- 5 new tests (CD90 to CD94); all 90 pass. On the branch, not deployed.
+
 ## 2026-11-06: Full platform audit
 
 - Your word: "do full platform audit, imma go to bed".
