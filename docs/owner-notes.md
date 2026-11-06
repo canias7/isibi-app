@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Deployed, and the same test recorded again in the browser
+
+- Merged and deployed (your word). Same browser test, recorded again (3.4 minutes, sent in the chat):
+  - tree was installed as admin and ran (v2.1.0);
+  - the broken line was reported with its exit code and where to fix it;
+  - the card came only after Coder ran the line;
+  - after Decline, Coder now says the right thing: "The setup script change was declined, so it stays as echo "setup ok" > setup-ran.txt."
+- The chat's top bar stays on one line in the video.
+- Coder's tools right now, listed for you: read, write, edit, grep, glob, lsp, bash, monitor, stop_job, web_fetch, Grok's web search, ask_user, todo, request_secret, propose_env, review, undo_last_job, pull_request (18).
+
 ## 2026-11-06: Recorded browser test of the setup script, and one fix
 
 - Your word: live tests in the browser, recorded. Done on gofarther.dev with the test account, only by clicking and typing. Recording: 3.4 minutes, sent in the chat.
