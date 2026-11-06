@@ -27,7 +27,7 @@ import { join, dirname, relative, resolve, basename } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT } from "./coder-checks.mjs";
-import { startProxy, okHost } from "./coder-proxy.mjs";
+import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
@@ -309,6 +309,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
   const sendFn = send || coderSend(env);
   // THE SECRETS PROXY (owner, 2026-11-06): started the first time a job has secrets.
   let proxyP = null;
+  let fwOn = false;
   const proxyFor = () => (proxyP ||= startProxy({ dir: proxyDir, ...proxyOpts }).catch((e) => { proxyP = null; throw e; }));
   async function startTurn(body) {
     const project = String(body.project || "");
@@ -352,16 +353,31 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): the owner's own variables
     // for every command, and a setup script run (as `dev`) when this machine first
     // opens the repo, or when the script changed.
-    const extraEnv = safeVars(body.setup && body.setup.vars);
+    const ownerVars = safeVars(body.setup && body.setup.vars);
+    const extraEnv = { ...ownerVars };
     // NETWORK SECRETS (owner, 2026-11-06, like Claude Code's): the proxy adds
     // each key to HTTPS requests for its host; the commands only learn the proxy.
+    // THE NETWORK LIST (owner, 2026-11-06, "4"): with "limited" on, a firewall
+    // leaves the proxy as the only way out, and the proxy checks the list.
     const secretList = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && okHost(s.host) && typeof s.value === "string" && s.value).slice(0, 20);
-    let secretHosts = [];
-    if (secretList.length) {
-      try { const px = await proxyFor(); px.setSecrets(secretList); secretHosts = px.hosts(); Object.assign(extraEnv, px.env()); }
-      catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Saved secrets could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
-    } else if (proxyP) { try { (await proxyP).setSecrets([]); } catch { /* not started */ } }
+    const net = body.setup && body.setup.network && typeof body.setup.network === "object" ? { limited: body.setup.network.limited === true, hosts: Array.isArray(body.setup.network.hosts) ? body.setup.network.hosts : [] } : { limited: false, hosts: [] };
+    let secretHosts = [], proxyEnv = {}, px = null, netNote = "";
+    if (secretList.length || net.limited) {
+      try {
+        px = await proxyFor();
+        px.setNetwork(net); px.setSecrets(secretList); secretHosts = secretList.length ? px.hosts() : [];
+        proxyEnv = { ...px.env(), ...(net.limited ? { CODER_NET_LIMITED: "1" } : {}) };
+        Object.assign(extraEnv, proxyEnv);
+        if (net.limited) {
+          fwOn = firewall(true, RUN_UID);
+          netNote = "\n\nNETWORK: this repo is LIMITED to package sites" + (net.hosts.length ? " and " + net.hosts.join(", ") : "") + (secretHosts.length ? " (plus hosts with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\": if the work needs that site, ask the owner with propose_env (kind allow_host)." + (fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+        }
+      } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
+    }
+    if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
+    if (!secretList.length && !net.limited && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); } catch { /* not started */ } }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
+    let setupFailed = null;
     if (script) {
       const mark = join(gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
       const sha = createHash("sha256").update(script).digest("hex");
@@ -369,9 +385,15 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       if (done.trim() !== sha) {
         const id = "setup-" + Date.now();
         t.events.push({ at: Date.now(), type: "bash", id, tool: "setup", verb: "Ran setup", command: script.split("\n")[0].slice(0, 200) });
-        const r = await execIn(dir, script, 600, { bgDir, kill: true, extraEnv });
+        // THE SETUP SCRIPT CANNOT READ THE OWNER'S VARIABLES OR KEYS (owner,
+        // 2026-11-06, "1", like Claude Code): no variables, and no keys added
+        // by the proxy while it runs; only the network list applies.
+        if (px && secretList.length) px.setSecrets([]);
+        const r = await execIn(dir, script, 600, { bgDir, kill: true, extraEnv: net.limited ? proxyEnv : {} });
+        if (px && secretList.length) px.setSecrets(secretList);
         t.events.push({ at: Date.now(), type: "result", id, code: r.code, output: String(r.output || "").slice(-8000), ...(r.timedOut ? { timedOut: true } : {}) });
         if (r.code === 0) await writeFile(mark, sha).catch(() => {});
+        else setupFailed = { code: r.code, timedOut: !!r.timedOut, output: String(r.output || "").slice(-1500) };
         // WHAT SETUP MADE IS NEVER SAVED TO THE BRANCH (live test, 2026-11-05: an
         // `npm ci` would have committed node_modules): new files from the setup go
         // in the git folder's own ignore list (root's folder, not the repo).
@@ -383,7 +405,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(safeVars(body.setup && body.setup.vars)).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(safeVars(body.setup && body.setup.vars)).join(", ") : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran out of time" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nSay which command failed and why in one line, then propose a fixed script with propose_env (kind setup_script) before other work that needs it." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     runCoder({
       send: sendFn,
       exec: async ({ command, timeoutS, tool, payload }) => {

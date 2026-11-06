@@ -53,6 +53,7 @@ export const CODER_TOOLS = Object.freeze([
   fn("monitor", "Read what a background job (from bash with run_in_background) has printed: the newest lines, and whether it is still running. wait_s (0-60) waits first, to let it get going.", { job: { type: "string" }, wait_s: { type: "integer" }, lines: { type: "integer" } }, ["job"]),
   fn("stop_job", "Stop a background job by its id. Every job is also stopped when your turn ends.", { job: { type: "string" } }, ["job"]),
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved for this repo and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
+  fn("propose_env", "Propose a change to this repo's environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys); use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the repo's network list, when a request was blocked by it. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host"] }, script: { type: "string", description: "setup_script: the whole new script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
   fn("ask_user", "Ask the owner ONE multiple-choice question when you truly cannot choose for them (e.g. which of two designs, whether to delete something). Give 2 to 4 short options. Your turn ends there; their pick comes back as the next message. Do not use it for things you can decide yourself.", { question: { type: "string" }, options: { type: "array", items: { type: "string" } } }, ["question", "options"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   { type: "function", function: {
@@ -99,6 +100,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - THE OWNER'S STYLE, when it is given to you below, overrides the default above: follow it in every answer, as if they just asked for it.
 - While working, a short line before a group of steps says what you are doing; no running commentary on every command.
 - API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, call request_secret for that exact host RIGHT AWAY (e.g. api.stripe.com, prefix Bearer). Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key. Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY).
+- THE REPO'S ENVIRONMENT (setup script, network list) is changed only with propose_env, which the owner approves on a card: (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; (b) when THE SETUP SCRIPT FAILED, say which command failed and its exit code, then propose a fixed script; (c) when a request was "Blocked by this repo's network list", propose allow_host for that exact host. Never tell the owner to edit settings themselves instead.
 - When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
 - If you are told the owner is coming back after a break, start your answer with a one-line recap of where this chat stands (under 400 characters), then answer.`;
@@ -223,6 +225,25 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a key first" });
         emit({ type: "secret", host, reason: scrub(String(c.args.reason || "")).trim().slice(0, 300), name: scrub(String(c.args.name || "")).trim().slice(0, 60), header, prefix });
         return end("done", { summary: "asked for a key for " + host });
+      } else if (c.name === "propose_env") {
+        // AN ENVIRONMENT CHANGE, APPROVED BY THE OWNER ON A CARD (owner, 2026-11-06, like Claude Code).
+        if (github) { reply("error: environment changes cannot be proposed in a job started from GitHub; mention it in your answer instead"); continue; }
+        const kind = String(c.args.kind || "");
+        const reason = scrub(String(c.args.reason || "")).trim().slice(0, 300);
+        let change = null;
+        if (kind === "setup_script") {
+          const script = String(c.args.script || "").replace(/\r/g, "").trim();
+          if (!script || script.length > 20000) { reply("error: give the whole new setup script (under 20000 characters)"); continue; }
+          change = { kind, script };
+        } else if (kind === "allow_host") {
+          const host = okHost(c.args.host);
+          if (!host) { reply("error: give one exact public host name like api.example.com (no https://, path, IP address or wildcard)"); continue; }
+          change = { kind, host };
+        } else { reply("error: kind is setup_script or allow_host"); continue; }
+        reply("proposed to the owner; their answer is the next message");
+        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you proposed an environment change first" });
+        emit({ type: "envchange", ...change, reason });
+        return end("done", { summary: kind === "allow_host" ? "asked to allow " + change.host : "proposed a new setup script" });
       } else if (c.name === "ask_user") {
         // A QUESTION FOR THE OWNER: the turn ends here; their pick is the next message.
         const question = scrub(String(c.args.question || "")).trim().slice(0, 500);
@@ -260,7 +281,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         prRequest = { title: scrub(title), body: scrub(body) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, todo and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, todo and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

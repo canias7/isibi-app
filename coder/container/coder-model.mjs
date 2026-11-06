@@ -13,7 +13,9 @@ export const CODER_CALL_MS = 4 * 60 * 1000;
 // attached to its effort levels"). Each model with the effort levels it takes;
 // the screen shows this list and the Worker refuses anything not on it.
 export const CODER_MODELS = [
-  { id: "grok-4.7", name: "Grok 4.7", efforts: ["low", "medium", "high"], effort: "medium" },
+  // xAI's docs (docs.x.ai/docs/guides/reasoning, checked 2026-11-06): grok-4.7 takes
+  // reasoning.effort low / medium / high (its default) / xhigh; reasoning cannot be turned off.
+  { id: "grok-4.7", name: "Grok 4.7", efforts: ["low", "medium", "high", "xhigh"], effort: "high" },
 ];
 /** A model and effort from the list: `{ model, effort }`, the defaults for anything else. */
 export function pickModel(model, effort) {

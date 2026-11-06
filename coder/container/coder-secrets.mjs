@@ -26,3 +26,13 @@ export function headerValue({ value, prefix }) {
   if (p === "Basic") return "Basic " + btoa(v.includes(":") ? v : v + ":");
   return (p ? p + " " : "") + v;
 }
+
+// THE REPO'S NETWORK LIST (owner, 2026-11-06, like Claude Code's "Limited"
+// access): package sites are always allowed, like Claude Code's default list.
+export const PACKAGE_HOSTS = ["registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org", "pypi.org", "files.pythonhosted.org", "github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com", "api.github.com", "crates.io", "static.crates.io", "index.crates.io", "proxy.golang.org", "sum.golang.org", "rubygems.org", "repo.maven.apache.org", "repo1.maven.org", "deb.debian.org", "security.debian.org"];
+/** Is `host` reachable under this network setting? (`extra`: hosts with saved keys) */
+export function hostAllowed(host, network, extra = []) {
+  if (!network || !network.limited) return true;
+  const h = String(host || "").toLowerCase();
+  return PACKAGE_HOSTS.includes(h) || (network.hosts || []).includes(h) || extra.includes(h);
+}

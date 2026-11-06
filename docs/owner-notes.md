@@ -4,6 +4,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Effort levels match xAI's docs
+
+- xAI's reasoning guide (docs.x.ai/docs/guides/reasoning) lists Grok 4.7's efforts as low, medium, high (its default) and xhigh. The picker now offers Low, Medium, High and Extra high, and starts on High like xAI (it was Medium, and Extra high was missing). The landing page chip says High.
+
+## 2026-11-06: Environment like Claude Code's (1-5)
+
+- 1. The setup script can no longer read the owner's variables or keys (it runs with neither, like Claude Code).
+- 5. A new approval card: Coder proposes an environment change with a tool (propose_env), the card shows exactly what would change, and nothing changes until the owner presses Approve.
+- 2. After Coder had to install something every chat needs (npm ci…), it proposes adding it to the setup script on that card.
+- 3. When the setup script fails, Coder is told the exit code and output, says which command failed, and proposes a fixed script on the card.
+- 4. Network access per repo, in the Environment panel: Open (any public site, as before) or Limited (package sites like npm, PyPI, GitHub, plus the repo's list, plus sites with saved keys). A blocked request tells Coder, which asks "Allow Coder to reach this site?" on the card. Where the machine allows it, a firewall makes the proxy the only way out; where it doesn't, the list still covers tools that use the proxy setting, and Coder is told which.
+- None of this can be proposed from GitHub jobs.
+
 ## 2026-11-06: Last audit item: keys stay hidden even if removed mid-job
 
 - Each job's key values are kept sealed until the job ends, so its saved chat still hides them if the owner removes the key while the job runs.

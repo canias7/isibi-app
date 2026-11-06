@@ -14,6 +14,7 @@ import { lookup } from "node:dns/promises";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
+import tls from "node:tls";
 import { isIP, BlockList } from "node:net";
 
 export const READ_LINES = 400;
@@ -178,16 +179,34 @@ export function safeLookup(hostname, opts, cb) {
   });
 }
 /** fetch-like GET through http/https with safeLookup: `{ status, url, headers: { get }, text() }`. */
+/** WITH THE REPO'S NETWORK LIST ON, web_fetch goes through Coder's proxy (the only way out), which checks the list. */
+function viaProxy(url) {
+  const p = process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
+  if (!p) return null;
+  const px = new URL(p);
+  if (url.protocol === "http:") return { host: px.hostname, port: px.port, path: url.href, headers: { host: url.host } };
+  return { createConnection: (_o, cb) => {
+    const c = http.request({ host: px.hostname, port: px.port, method: "CONNECT", path: url.hostname + ":" + (url.port || 443) });
+    c.on("connect", (res, sock) => {
+      if (res.statusCode !== 200) { sock.destroy(); return cb(new ToolError(res.statusCode === 403 ? "blocked by this repo's network list: " + url.hostname + " (ask the owner with propose_env, allow_host)" : "the proxy refused " + url.hostname)); }
+      cb(null, tls.connect({ socket: sock, servername: url.hostname }));
+    });
+    c.on("error", (e) => cb(e));
+    c.end();
+  } };
+}
 export function pinnedFetch(u, { headers = {} } = {}) {
   const url = new URL(String(u));
   const mod = url.protocol === "https:" ? https : http;
+  const px = viaProxy(url);
   return new Promise((done, no) => {
-    const req = mod.request(url, { method: "GET", headers, lookup: safeLookup, timeout: 20000 }, (res) => {
+    const req = (px && px.path ? http.request({ ...px, method: "GET", headers: { ...headers, ...px.headers }, timeout: 20000 }, onRes) : mod.request(url, { method: "GET", headers, timeout: 20000, ...(px ? px : { lookup: safeLookup }) }, onRes));
+    function onRes(res) {
       const chunks = []; let size = 0;
       res.on("data", (c) => { size += c.length; if (size <= 2_000_000) chunks.push(c); else res.destroy(); });
       res.on("end", () => done({ status: res.statusCode, url: url.href, headers: { get: (k) => { const v = res.headers[String(k).toLowerCase()]; return Array.isArray(v) ? v[0] : v ?? null; } }, text: async () => Buffer.concat(chunks).toString("utf8") }));
       res.on("error", no);
-    });
+    }
     req.on("timeout", () => req.destroy(new Error("the page took too long")));
     req.on("error", (e) => no(e.code === "EPRIVATE" ? new ToolError("that address is on a private network") : e));
     req.end();

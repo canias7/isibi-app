@@ -8,7 +8,8 @@
   const POLL_MS = 1500;
   // THE MODEL LIST AND THE USER'S PICK come from the server
   // (2026-11-05: "put it server side"); the page only shows them.
-  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
+  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'high' }];
+  const EFFORT_NAME = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high' };
   async function loadSettings() {
     const r = await call('/settings');
     if (r.status === 200 && r.data) {
@@ -157,6 +158,9 @@
       '<label class="cd-envl">Variables <small>available to Coder\'s commands, e.g. an API key for tests. Values are hidden after saving.</small></label>' +
       '<div class="cd-envvars">' + (names.length ? names.map((n) => '<div class="cd-envrow"><code>' + esc(n) + '</code><span>' + (n in edit ? 'new value' : '•••••• set') + '</span><button type="button" data-envdel="' + esc(n) + '" aria-label="Remove ' + esc(n) + '">×</button></div>').join('') : '<p class="cd-muted">No variables yet.</p>') + '</div>' +
       '<div class="cd-envadd"><input id="envName" placeholder="NAME" autocomplete="off" spellcheck="false"><input id="envVal" type="password" placeholder="value" autocomplete="new-password"><button type="button" class="cd-hbtn" id="envAdd">Add</button></div>' +
+      '<label class="cd-envl">Network access <small>which websites Coder\'s commands may reach</small></label>' +
+      '<label class="cd-envnet"><input type="checkbox" id="envLimited"' + (S.env.network && S.env.network.limited ? ' checked' : '') + '> Limited: package sites (npm, PyPI, GitHub…) and the sites below. Coder asks before adding one.</label>' +
+      (S.env.network && S.env.network.hosts && S.env.network.hosts.length ? '<div class="cd-envvars">' + S.env.network.hosts.map((h) => '<div class="cd-envrow"><code>' + esc(h) + '</code><span>allowed</span><button type="button" data-hostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') + '</div>' : '') +
       ((S.env.secrets || []).length ? '<label class="cd-envl">Secrets <small>keys Coder asked for; added to requests for their host, never shown to Coder</small></label><div class="cd-envvars">' + S.env.secrets.map((x) => '<div class="cd-envrow"><code>' + esc(x.host) + '</code><span>' + esc(x.name || '•••••• saved') + '</span><button type="button" data-secdel="' + esc(x.host) + '" aria-label="Remove the secret for ' + esc(x.host) + '">×</button></div>').join('') + '</div>' : '') +
       '<div class="cd-envfoot"><button type="button" class="cd-btn" id="envSave">Save</button><span class="cd-muted">' + esc(S.envMsg || '') + '</span></div>' +
     '</div>';
@@ -268,6 +272,7 @@
 
   // ── DRAWING ───────────────────────────────────────────────────────────────
   const ICON = {
+    globe: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
     lock: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2"/></svg>',
     clip: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
     gh: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>',
@@ -355,6 +360,16 @@
         // CODER'S QUESTION (the ask_user tool): the options are buttons, live only on the last one.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         out.push('<div class="cd-ask"><div class="cd-ask-q">' + esc(e.text) + '</div><div class="cd-ask-opts">' + (e.options || []).map((o) => '<button type="button" class="cd-ask-opt" data-answer="' + esc(o) + '"' + (live ? '' : ' disabled') + '>' + esc(o) + '</button>').join('') + '</div></div>');
+      }
+      else if (e.type === 'envchange') {
+        // AN ENVIRONMENT CHANGE CODER PROPOSES (owner, 2026-11-06, like Claude Code): shown exactly, approved here.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const host = e.kind === 'allow_host';
+        out.push('<div class="cd-secret cd-envchange"><div class="cd-secret-icon">' + (host ? ICON.globe : ICON.term) + '</div><b class="cd-secret-t">' + (host ? 'Allow Coder to reach ' + esc(e.host) + '?' : 'Update this repo\'s setup script?') + '</b>' +
+          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+          (host ? '<p class="cd-secret-p">Adds ' + esc(e.host) + ' to the sites Coder may reach in ' + esc(S.project ? S.project.repo : 'this repo') + '. You can remove it in Environment.</p>'
+            : '<p class="cd-secret-p">The whole new script, run once on Coder\'s machine before it starts (it cannot read your variables or keys):</p><pre class="cd-envchange-pre">' + esc(e.script) + '</pre>') +
+          (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">Decline</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">Approve</button></div>' : '') + '</div>');
       }
       else if (e.type === 'secret') {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
@@ -530,7 +545,7 @@
       '</form>' +
       '<div class="cd-picks">' +
         '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
-        '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + e[0].toUpperCase() + e.slice(1) + '</option>').join('') + '</select></label>' +
+        '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + (EFFORT_NAME[e] || e) + '</option>').join('') + '</select></label>' +
       '</div>' +
     '</div>';
   }
@@ -599,6 +614,28 @@
       if (!S.project || !(await askSure('Remove the secret for ' + host + '?', 'Coder\'s commands will no longer get a key for ' + host + '.', 'Remove'))) return;
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret?host=' + encodeURIComponent(host), { method: 'DELETE' });
       if (r.status === 200 && S.env) { S.env.secrets = r.data.secrets; S.envMsg = 'Removed.'; } else S.envMsg = (r.data && r.data.error) || 'It could not be removed.';
+      draw();
+    });
+    on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : 'I declined the new setup script.'); });
+    on('[data-envchange-ok]', 'click', async (e) => {
+      const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];
+      if (!x || !S.project) return;
+      e.currentTarget.disabled = true;
+      const body = x.kind === 'allow_host' ? { network: { add: [x.host] } } : { script: x.script };
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify(body) });
+      if (r.status !== 200) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
+      S.envChangeMsg = ''; if (S.env) S.env = r.data;
+      send(x.kind === 'allow_host' ? 'I allowed ' + x.host + '.' : 'I approved the new setup script.');
+    });
+    on('#envLimited', 'change', async (e) => {
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify({ network: { limited: e.currentTarget.checked } }) });
+      if (r.status === 200) { S.env = r.data; S.envMsg = e.currentTarget.checked ? 'Limited: package sites and the list below. Used from the next message.' : 'Open: any public site. Used from the next message.'; } else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
+      draw();
+    });
+    on('[data-hostdel]', 'click', async (e) => {
+      const host = e.currentTarget.dataset.hostdel;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify({ network: { remove: [host] } }) });
+      if (r.status === 200) { S.env = r.data; S.envMsg = 'Removed.'; } else S.envMsg = (r.data && r.data.error) || 'It could not be removed.';
       draw();
     });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
