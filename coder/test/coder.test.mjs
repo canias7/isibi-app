@@ -1447,6 +1447,12 @@ test("CD64 the secret route: sealed, never shown back, sent only to the machine'
   assert.deepEqual(sent[0].secrets, [{ host: "api.stripe.com", header: "Authorization", value: "Bearer sk_test_ABCDEF", raw: "sk_test_ABCDEF" }]);
   assert.equal(JSON.stringify(sent[0].setup).includes("sk_test"), false, "never in the setup (the AI's text)");
   assert.equal(JSON.stringify(sent[0].text).includes("sk_test"), false);
+  // This job's key values are kept (sealed) to hide them in its chat even if the key is removed meanwhile.
+  const hide = [...bucket.m.keys()].find((k) => k.endsWith("/hide.json"));
+  assert.ok(hide, "kept for the end of the job");
+  assert.doesNotMatch(bucket.m.get(hide), /sk_test_ABCDEF/, "sealed");
+  const { unseal } = await import("../src/coder-github.mjs");
+  assert.ok((await unseal(env, JSON.parse(bucket.m.get(hide)).box)).includes("sk_test_ABCDEF"));
   // Removed.
   const del = await (await go("projects/" + id + "/secret?host=api.stripe.com", { method: "DELETE" })).json();
   assert.deepEqual(del.secrets, []);

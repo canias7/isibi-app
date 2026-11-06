@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Last audit item: keys stay hidden even if removed mid-job
+
+- Each job's key values are kept sealed until the job ends, so its saved chat still hides them if the owner removes the key while the job runs.
+
 ## 2026-11-06: Audit #3 fixes (secrets and the latest changes)
 
 - The key middleman can no longer be crashed by a bad request (bad port, broken request, odd characters); before, one bad request from Grok's commands could stop every chat on that machine.

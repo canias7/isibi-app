@@ -355,6 +355,9 @@ export async function handleCoder(request, env, ctx, deps) {
     // Auto-fix tries in a row; a message from the owner starts the count again.
     const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0 };
     await saveMeta(bucket, uid, next);
+    // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
+    // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
+    if (secrets.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, secrets.flatMap((s) => [s.value, s.raw])) }));
     return json({ ok: true, project: next });
   }
 
@@ -420,7 +423,10 @@ export async function handleCoder(request, env, ctx, deps) {
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
       const envNow = await readEnv(env, bucket, uid, meta.repo);
-      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => { try { return [String(x.value || ""), headerValue(x)]; } catch { return [String(x.value || "")]; } })].filter((v) => v.length >= 4);
+      let jobKeys = [];
+      const ho = await bucket.get(keyOf(uid, id, "hide.json"));
+      if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, id, "hide.json")); }
+      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => { try { return [String(x.value || ""), headerValue(x)]; } catch { return [String(x.value || "")]; } }), ...jobKeys].filter((v) => v.length >= 4);
       if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
