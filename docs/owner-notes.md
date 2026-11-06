@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Audit item 4, first part: three reviewers checked the fix, and their findings are fixed
+
+- Your word: "Do 1,2,3,4". Three reviewers checked the fix below. All 14 of their findings were right, and they're fixed. A few of their suggested methods were changed, and the reasons are in the record.
+- **The AI's leftover programs are really stopped now.** A program that keeps restarting itself under a new number could survive the old stop and change files while the app was saving. Now the system stops all of the AI's programs at once. If that fails, the app doesn't touch the files.
+- **Giving files to the AI's user can't be tricked.** If a folder was swapped for a link at just the wrong moment, files outside the project could be handed over. The app now holds each folder open while it works in it.
+- **Nothing is left out without a word.** If a save skips a folder that has its own repository, the chat says "Not saved: …" and names it. A submodule the AI moved to a newer commit (like "update the theme") is saved again. The app reads the commit itself and never runs git inside that folder.
+- **Faster saves on big projects.** Folders git ignores (like node_modules) aren't searched any more. On a test project with 176,000 files, that check went from 0.5 s to under 0.1 s. Handing the files over at the start of a job takes 0.6 to 0.9 s instead of 1 to 1.6 s.
+- A folder nested too deep for the system no longer blocks a chat. The job still starts, and the save names the folder to delete.
+- The app reads CODER.md and the memory file only if they're the AI's own plain files, never a second name for another file.
+- **The deploy button now also runs the safety tests that need admin rights.** Before, it skipped them.
+- 8 new tests (98 in all). They pass as admin, and as a normal user with the admin-only ones skipped. On the branch, not deployed.
+
 ## 2026-11-06: Audit item 4, first part: Coder's app can't be steered by the AI's files
 
 - Your word: "Do 1,2,3,4". This is the first part of 4 (two of the root findings on Coder's machine).

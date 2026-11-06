@@ -22,7 +22,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, lstatSync, lchownSync } from "node:fs";
+import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
@@ -146,8 +146,14 @@ export async function makeProjectDir(dir, { root = PROJECT_ROOT, owner = null } 
 // folders only on its PATH, so no `git` or helper installed in /usr/local is run.
 export const GIT_BIN = "/usr/bin/git";
 export const GIT_PATH = "/usr/sbin:/usr/bin:/sbin:/bin";
-// SUBMODULES ARE NEVER ENTERED (the audit, 2026-11-06), on every call: fetch,
-// push, checkout and the rest never run git inside a submodule's folder.
+// SUBMODULES (the audit, 2026-11-06): these settings go on every root git call,
+// so fetch, push and checkout never recurse into a submodule. They do NOT keep
+// `git status` or `git add` out of one: a repository's own .gitmodules (`ignore
+// = none`) overrides diff.ignoreSubmodules (the audit saw a status that had only
+// this setting run a submodule's filter), and `git add` does not read it at all.
+// Those two are kept out on the command line instead: every status carries
+// --ignore-submodules=all, and add and status carry keepOut's exclusions (below).
+// A diff of the work tree would need --ignore-submodules=all on its command line too.
 export const NO_SUBMODULES = ["-c", "submodule.recurse=false", "-c", "diff.ignoreSubmodules=all", "-c", "fetch.recurseSubmodules=false", "-c", "push.recurseSubmodules=no"];
 const RAW_MAX = 256 * 1024 * 1024;
 
@@ -204,12 +210,26 @@ const DOT_GIT = Buffer.from(".git");
 const gone = (e) => !!e && ["ENOENT", "ENOTDIR", "EACCES"].includes(e.code);
 export const WALK_MAX = 3_000_000;
 export const KEEP_OUT_MAX = 2000;
+// THE LONGEST PATH THE SYSTEM TAKES, in bytes with its end mark (the audit,
+// 2026-11-06). Git names the project's files from the project's folder, so it
+// cannot reach a folder whose path from there is this long either.
+export const PATH_MAX = 4096;
 const NESTED_START = "# folders holding their own git repository: never saved (Coder)";
 const NESTED_END = "# end of folders holding their own git repository (Coder)";
 
-/** What the index holds (from `git ls-files -s -z`): its submodules and the folders that hold its tracked files, as byte-exact keys. */
+/** A key (bytes as latin1) shown as text, short. */
+const shown = (key) => JSON.stringify(Buffer.from(key, "latin1").toString("utf8").slice(0, 80));
+/**
+ * A FOLDER TOO DEEP FOR THIS SERVICE TO CHECK, though git could still reach it
+ * from the project's folder (the audit, 2026-11-06: a 4,102-byte path
+ * made every push fail with a bare ENAMETOOLONG). Refused with its name, so the
+ * AI can delete it in the next job; the job itself still starts (giveTree skips it).
+ */
+const tooDeep = (rel) => Object.assign(new Error("the folder " + shown(rel) + " is nested too deep for Coder's app to check; delete it or move it higher up"), { code: "CODER_TOO_DEEP" });
+
+/** What the index holds (from `git ls-files -s -z`): its submodules (each with the commit it records, "" when unmerged) and the folders that hold its tracked files, as byte-exact keys. */
 function indexPaths(data) {
-  const gitlinks = new Set(), trackedDirs = new Set();
+  const gitlinks = new Map(), trackedDirs = new Set();
   for (let at = 0; at < data.length;) {
     let end = data.indexOf(0, at);
     if (end < 0) end = data.length;
@@ -218,51 +238,132 @@ function indexPaths(data) {
     const tab = rec.indexOf(9);
     if (tab < 0) continue;
     const path = rec.subarray(tab + 1).toString("latin1");
-    if (rec.subarray(0, 6).toString("latin1") === "160000") gitlinks.add(path);
+    const [mode, sha, stage] = rec.subarray(0, tab).toString("latin1").split(" ");
+    if (mode === "160000") gitlinks.set(path, stage === "0" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha) ? sha : "");
     for (let i = path.indexOf("/"); i > 0; i = path.indexOf("/", i + 1)) trackedDirs.add(path.slice(0, i));
   }
   return { gitlinks, trackedDirs };
 }
 
 /**
+ * THE FOLDERS GIT IGNORES WHOLE (the audit, 2026-11-06: walking node_modules,
+ * .venv and the like made a push several times slower). `git ls-files --others
+ * --ignored --directory` names a folder whole only when everything git would
+ * see in it is ignored, so `git add` and `git status` never take anything from
+ * it, and never take a repository inside it for a submodule. Git only lists
+ * here: it runs nothing inside the project's folders. If git cannot answer,
+ * nothing is skipped.
+ */
+async function ignoredDirs(dir, o) {
+  const out = new Set();
+  const r = await gitIn(dir, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { ...o, raw: true });
+  if (r.code !== 0) return out;
+  for (let at = 0; at < r.data.length;) {
+    let end = r.data.indexOf(0, at);
+    if (end < 0) end = r.data.length;
+    if (end - at > 1 && r.data[end - 1] === 0x2f) out.add(r.data.subarray(at, end - 1).toString("latin1"));
+    at = end + 1;
+  }
+  return out;
+}
+
+/**
  * The folders under `dir` that git would take for a repository: each holds an
  * entry named `.git` (of any kind) and is not a folder of tracked files (git
  * goes into those as plain folders). Never through a link, never into a `.git`
- * or a submodule's folder (root's git does not go into those), and not into a
+ * or a submodule's folder (root's git does not go into those), not into a
+ * folder git ignores whole (`skip`) or cannot reach (too deep), and not into a
  * repository found (kept out whole). Byte-exact keys, relative to `dir`.
  */
-async function nestedRepos(dir, gitlinks, trackedDirs) {
+async function nestedRepos(dir, gitlinks, trackedDirs, skip = new Set()) {
   const top = Buffer.from(dir);
   const found = [];
   let seen = 0;
   for (const stack = [""]; stack.length;) {
     const rel = stack.pop();
     let list;
-    try { list = await readdir(rel ? Buffer.concat([top, SLASH, Buffer.from(rel, "latin1")]) : top, { withFileTypes: true, encoding: "buffer" }); } catch (e) { if (gone(e)) continue; throw e; }
+    try { list = await readdir(rel ? Buffer.concat([top, SLASH, Buffer.from(rel, "latin1")]) : top, { withFileTypes: true, encoding: "buffer" }); } catch (e) {
+      if (gone(e)) continue;
+      if (e.code === "ENAMETOOLONG") throw tooDeep(rel);
+      throw e;
+    }
     if ((seen += list.length) > WALK_MAX) throw new Error("the project has over " + WALK_MAX + " files and folders to check");
     // The top's own `.git` is the pointer prepareRepo writes: expected.
     if (rel && !trackedDirs.has(rel) && list.some((e) => e.name.equals(DOT_GIT))) { found.push(rel); continue; }
     for (const e of list) {
       if (!e.isDirectory() || e.name.equals(DOT_GIT)) continue;
       const r = (rel ? rel + "/" : "") + e.name.toString("latin1");
-      if (!gitlinks.has(r)) stack.push(r);
+      if (r.length < PATH_MAX && !gitlinks.has(r) && !skip.has(r)) stack.push(r);
     }
   }
   return found;
 }
 
-/** A submodule's folder root's git must stay out of: reached through a link on the way, or holding a `.git` of any kind. */
+/** Why root's git must stay out of a submodule's folder: "link" (it is, or is reached through, a link), "filled" (it holds a `.git` of any kind), or "" (git may look). */
 async function gitlinkUnsafe(dir, rel) {
+  // Git cannot reach a path this long either.
+  if (rel.length >= PATH_MAX) return "";
+  const look = async (p) => { try { return await lstat(p); } catch (e) { if (gone(e)) return null; if (e.code === "ENAMETOOLONG") throw tooDeep(rel); throw e; } };
   let p = Buffer.from(dir);
   for (const part of rel.split("/")) {
     p = Buffer.concat([p, SLASH, Buffer.from(part, "latin1")]);
-    let st;
-    try { st = await lstat(p); } catch (e) { if (gone(e)) return false; throw e; }
-    if (st.isSymbolicLink()) return true;
+    const st = await look(p);
+    if (!st) return "";
+    if (st.isSymbolicLink()) return "link";
     // Not a folder: git sees the submodule as removed and looks no further.
-    if (!st.isDirectory()) return false;
+    if (!st.isDirectory()) return "";
   }
-  try { await lstat(Buffer.concat([p, SLASH, DOT_GIT])); return true; } catch (e) { if (gone(e)) return false; throw e; }
+  return (await look(Buffer.concat([p, SLASH, DOT_GIT]))) ? "filled" : "";
+}
+
+/** A small plain file's text, by Node: never through a link at its end, only a file with one name (no hard link), at most `max` bytes. `null` otherwise. */
+async function readPlain(p, max = 4096) {
+  let fh;
+  try {
+    fh = await open(p, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const st = await fh.stat();
+    if (!st.isFile() || st.nlink !== 1 || st.size > max) return null;
+    const buf = Buffer.alloc(st.size);
+    await fh.read(buf, 0, buf.length, 0);
+    return buf.toString("latin1");
+  } catch { return null; } finally { if (fh) await fh.close().catch(() => {}); }
+}
+
+/**
+ * THE COMMIT A FILLED SUBMODULE'S FOLDER IS AT, read by Node, never by git (the
+ * audit, 2026-11-06): git run in that folder would obey its settings, which the
+ * AI's user wrote. Only from a real `.git` folder in it (a `.git` file pointing
+ * elsewhere is not followed): HEAD, then its branch's own file or packed-refs,
+ * every folder on the way a real folder and every file a plain one. Nothing of
+ * the AI's user runs while this is read (killUser), so nothing can change under
+ * it. A commit id as long as the one the index records, or "".
+ */
+export async function submoduleHead(dir, rel, len = 40) {
+  const isDir = async (p) => { try { return (await lstat(p)).isDirectory(); } catch { return false; } };
+  const ok = (s) => typeof s === "string" && s.length === len && /^[0-9a-f]+$/.test(s);
+  let p = Buffer.from(dir);
+  for (const part of [...rel.split("/"), ".git"]) {
+    p = Buffer.concat([p, SLASH, Buffer.from(part, "utf8")]);
+    if (!(await isDir(p))) return "";
+  }
+  const head = String(await readPlain(Buffer.concat([p, Buffer.from("/HEAD")]), 512) ?? "").trim();
+  if (ok(head)) return head;
+  const m = /^ref: (refs\/heads\/[A-Za-z0-9._/-]{1,200})$/.exec(head);
+  if (!m) return "";
+  const parts = m[1].split("/");
+  if (parts.some((c) => !c || c.startsWith(".") || c.endsWith(".lock"))) return "";
+  let q = p, real = true;
+  for (const c of parts.slice(0, -1)) { q = Buffer.concat([q, SLASH, Buffer.from(c)]); if (!(await isDir(q))) { real = false; break; } }
+  if (real) {
+    const loose = String(await readPlain(Buffer.concat([q, SLASH, Buffer.from(parts.at(-1))]), 512) ?? "").trim();
+    if (ok(loose)) return loose;
+  }
+  const packed = await readPlain(Buffer.concat([p, Buffer.from("/packed-refs")]), 4 * 1024 * 1024);
+  for (const line of String(packed ?? "").split("\n")) {
+    const [sha, name] = line.split(" ");
+    if (name === m[1] && ok(sha)) return sha;
+  }
+  return "";
 }
 
 // A path git can be given by name: plain text (UTF-8), no line break.
@@ -288,34 +389,44 @@ async function listNested(gitDir, names) {
 
 /**
  * NESTED REPOSITORIES KEPT OUT, before a root git command that looks at or
- * writes the work tree (see above). `{ ok, why?, keep, pathspec }`: `pathspec`
- * goes at the end of `git add` and `git status` (empty when nothing is kept out,
- * so the command is the same as before).
+ * writes the work tree (see above). `{ ok, why?, keep, pathspec, nested, subs }`:
+ * `pathspec` goes at the end of `git add` and `git status` (empty when nothing
+ * is kept out, so the command is the same as before); `nested` are the new
+ * repositories found, `subs` the submodules kept out (`{ path, sha, kind }`,
+ * kind "link" or "filled"), so a save can say what it left out.
  */
 export async function keepOut(dir, { gitDir = gitDirFor(dir), remote = DEFAULT_REMOTE, root = PROJECT_ROOT } = {}) {
-  const no = (why) => ({ ok: false, why, keep: [], pathspec: [] });
+  const none = { keep: [], pathspec: [], nested: [], subs: [] };
+  const no = (why) => ({ ok: false, why, ...none });
   const bad = await projectDirProblem(dir, root);
   if (bad) return no(bad);
   // No repository here yet: root's git has nothing to look at.
-  if (!(await stat(join(gitDir, "HEAD")).then(() => true, () => false))) return { ok: true, keep: [], pathspec: [] };
+  if (!(await stat(join(gitDir, "HEAD")).then(() => true, () => false))) return { ok: true, ...none };
+  const o = { gitDir, remote, root };
+  // Coder's own section of the ignore list goes first (the audit, 2026-11-06), so
+  // git is asked what it ignores without it: a folder hidden only by that section
+  // must be walked again, or a repository in it would drop off the list unseen.
+  try { await listNested(gitDir, []); } catch (e) { return no("could not update the ignore list: " + String((e && e.message) || e).slice(0, 160)); }
   // The index alone (git reads no work tree for this).
-  const ls = await gitIn(dir, ["ls-files", "-s", "-z"], { gitDir, remote, root, raw: true });
+  const ls = await gitIn(dir, ["ls-files", "-s", "-z"], { ...o, raw: true });
   if (ls.code !== 0) return no("could not read the repository's file list: " + ls.output.slice(0, 200));
   const { gitlinks, trackedDirs } = indexPaths(ls.data);
+  const skip = await ignoredDirs(dir, o);
   let fresh;
   const subs = [];
   try {
-    fresh = await nestedRepos(dir, gitlinks, trackedDirs);
-    for (const g of gitlinks) if (await gitlinkUnsafe(dir, g)) subs.push(g);
-  } catch (e) { return no("could not check the project's folders: " + String((e && e.message) || e).slice(0, 160)); }
-  const all = [...fresh, ...subs];
+    fresh = await nestedRepos(dir, gitlinks, trackedDirs, skip);
+    for (const [g, sha] of gitlinks) { const kind = await gitlinkUnsafe(dir, g); if (kind) subs.push({ key: g, sha, kind }); }
+  } catch (e) { return no("could not check the project's folders: " + String((e && e.message) || e).slice(0, 200)); }
+  const all = [...fresh, ...subs.map((s) => s.key)];
   if (all.length > KEEP_OUT_MAX) return no("over " + KEEP_OUT_MAX + " folders inside the project hold their own git repository; remove their .git folders");
   // A name git cannot be given exactly is refused, never guessed at.
   const keep = all.map(nameable);
   const odd = keep.indexOf(null);
   if (odd >= 0) return no("a folder inside the project holds its own git repository and its name is not plain text (" + JSON.stringify(Buffer.from(all[odd], "latin1").toString("utf8")).slice(0, 120) + "); rename it, or remove its .git");
   try { await listNested(gitDir, keep.slice(0, fresh.length)); } catch (e) { return no("could not update the ignore list: " + String((e && e.message) || e).slice(0, 160)); }
-  return { ok: true, keep, pathspec: keep.length ? ["--", ".", ...keep.map((s) => ":(exclude,literal)" + s)] : [] };
+  return { ok: true, keep, pathspec: keep.length ? ["--", ".", ...keep.map((s) => ":(exclude,literal)" + s)] : [],
+    nested: keep.slice(0, fresh.length), subs: subs.map((s, i) => ({ path: keep[fresh.length + i], sha: s.sha, kind: s.kind })) };
 }
 
 /**
@@ -337,12 +448,12 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
     // dev's left running while root works in it.
     const bad = await projectDirProblem(dir, root);
     if (bad) return { ok: false, why: bad };
-    killUser();
+    if (!killUser()) return { ok: false, why: NOT_STOPPED };
   } else {
     // A NEW CLONE goes in a folder this service makes itself (the audit, 2026-11-06).
     const pd = await makeProjectDir(dir, { root });
     if (pd.why) return { ok: false, why: pd.why };
-    if (!pd.made) killUser();
+    if (!pd.made && !killUser()) return { ok: false, why: NOT_STOPPED };
     const c = await gitIn(dir, ["init", "-q", "-b", base], o);
     if (c.code !== 0) return { ok: false, why: "could not start the repository: " + c.output.slice(0, 200) };
     // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
@@ -408,35 +519,60 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
  * AI's commands had hard-linked into the tree. Now each entry is looked at
  * itself (lstat, never through a link): it goes to `owner` (a link is changed
  * itself, never what it points to), nothing but a real folder is gone into, and
- * a file with more than one hard link keeps its owner. Callers stop the AI's
- * user's processes first (killUser) when the tree is one it used. `""`, or why not.
+ * a file with more than one hard link keeps its owner.
+ *
+ * EACH FOLDER IS HELD OPEN WHILE ROOT WORKS IN IT (the audit, 2026-11-06):
+ * a walk by path name followed a folder that a process of the AI's user swapped
+ * for a link between the look and the listing, and handed root's files outside
+ * the tree (the audit's race hit it within ten walks; `chown -R` never did).
+ * Now each folder is opened without following a link, checked to be the very
+ * folder that was found (device and inode), and its entries are listed, looked
+ * at and handed over through that open folder (/proc/self/fd/N/name), so a swap
+ * of any part of its path changes nothing. A folder that cannot be opened that
+ * way (swapped, gone, or too deep to name) is left as it is, with what is in it.
+ * Callers also stop the AI's user's processes first (killUser). `""`, or why not.
  */
 export async function giveTree(dir, owner, { root = PROJECT_ROOT } = {}) {
   const bad = await projectDirProblem(dir, root);
   if (bad) return bad;
+  if (!existsSync("/proc/self/fd")) return "could not hand the project's files over: this machine has no /proc";
   const { uid, gid } = owner;
-  const give = (p, st) => { if (st.uid !== uid || st.gid !== gid) lchownSync(p, uid, gid); };
+  const theirs = (st) => st.uid === uid && st.gid === gid;
+  // A folder that is not the one found any more, or cannot be named (too deep): skipped.
+  const skipped = (e) => gone(e) || ["ELOOP", "ENAMETOOLONG"].includes(e && e.code);
   try {
-    const top = Buffer.from(dir);
-    give(top, lstatSync(top));
-    for (const stack = [top]; stack.length;) {
+    const t = lstatSync(dir);
+    let lap = Date.now();
+    for (const stack = [{ path: Buffer.from(dir), dev: t.dev, ino: t.ino }]; stack.length;) {
+      // The service keeps answering: a pause every 50 ms (a listing awaited per
+      // folder made the walk twice as slow as this, and `chown -R` is not much faster).
+      if (Date.now() - lap > 50) { await new Promise((r) => setImmediate(r)); lap = Date.now(); }
       const d = stack.pop();
-      let names;
-      try { names = await readdir(d, { encoding: "buffer" }); } catch (e) { if (gone(e)) continue; throw e; }
-      // Each folder is listed without blocking; its entries are then done in one
-      // go (as fast as `chown -R`: an awaited call per entry was eight times slower).
-      for (const name of names) {
-        const p = Buffer.concat([d, SLASH, name]);
-        let st;
-        try { st = lstatSync(p); } catch (e) { if (gone(e)) continue; throw e; }
-        if (st.isDirectory()) { give(p, st); stack.push(p); } else if (st.nlink < 2) give(p, st);
-      }
+      let fd;
+      try { fd = openSync(d.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); } catch (e) { if (skipped(e)) continue; throw e; }
+      try {
+        const st = fstatSync(fd);
+        if (st.dev !== d.dev || st.ino !== d.ino) continue;
+        if (!theirs(st)) fchownSync(fd, uid, gid);
+        const here = "/proc/self/fd/" + fd;
+        const names = readdirSync(here, { encoding: "buffer" });
+        const pre = Buffer.from(here + "/");
+        for (const name of names) {
+          const p = Buffer.concat([pre, name]);
+          // An entry gone between the look and the change is skipped, never an error.
+          try {
+            const s = lstatSync(p);
+            if (s.isDirectory()) stack.push({ path: Buffer.concat([d.path, SLASH, name]), dev: s.dev, ino: s.ino });
+            else if (s.nlink < 2 && !theirs(s)) lchownSync(p, uid, gid);
+          } catch (e) { if (gone(e)) continue; throw e; }
+        }
+      } finally { closeSync(fd); }
     }
   } catch (e) { return "could not hand the project's files over: " + String((e && e.message) || e).slice(0, 160); }
   return "";
 }
 
-/** Everything Coder changed, committed and pushed to its branch. `{ ok, pushed, sha?, why? }`. */
+/** Everything Coder changed, committed and pushed to its branch. `{ ok, pushed, sha?, why?, left? }` (`left`: what was not saved, see saveSubmodules). */
 // NEVER COMMITTED (live test, 2026-11-06: an `npm install` in a job put
 // node_modules and npm's cache on the branch): installed packages and caches go
 // in the git folder's own ignore list (root's folder, not the repo's .gitignore).
@@ -448,52 +584,85 @@ async function excludeJunk(dir, gitRoot) {
   const add = NEVER_COMMIT.filter((x) => !old.split("\n").includes(x));
   if (add.length) await writeFile(file, old + (old && !old.endsWith("\n") ? "\n" : "") + "# installed packages and caches (Coder)\n" + add.join("\n") + "\n");
 }
+/**
+ * WHAT A SAVE LEAVES OUT IS SAID, AND A SUBMODULE MOVED TO ANOTHER COMMIT IS
+ * STILL SAVED (the audit, 2026-11-06: keeping root's git out of those folders
+ * had silently dropped them). The AI's user cannot run `git submodule update`
+ * (the git folder is root's), so to fill a submodule or move it to a newer
+ * commit it clones into the submodule's folder. Root's git stays out of that
+ * folder: the commit it holds is read by Node (submoduleHead) and recorded in
+ * the index alone (`update-index --cacheinfo` reads no folder). Returns what is
+ * left out, `[{ path, kind }]`: "repo" (a new folder with its own repository),
+ * "link" (a submodule's folder that is a link) or "submodule" (a filled
+ * submodule whose commit could not be read).
+ */
+async function saveSubmodules(dir, k, o) {
+  const left = k.nested.map((path) => ({ path, kind: "repo" }));
+  for (const s of k.subs) {
+    if (s.kind !== "filled") { left.push({ path: s.path, kind: "link" }); continue; }
+    const head = s.sha ? await submoduleHead(dir, s.path, s.sha.length) : "";
+    if (!head) { left.push({ path: s.path, kind: "submodule" }); continue; }
+    if (head === s.sha) continue;
+    // Only a submodule already in the index can be moved (no --add): nothing new is made here.
+    const u = await gitIn(dir, ["update-index", "--cacheinfo", "160000," + head + "," + s.path], o);
+    if (u.code !== 0) left.push({ path: s.path, kind: "submodule" });
+  }
+  return left;
+}
+
 export async function pushRepo({ dir, repo, branch, token, message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
-  // before anything is read; nothing of the AI's user runs while root works; and
-  // nested repositories are found again before each step that reads the tree.
+  // before anything is read, and nothing of the AI's user runs while root works.
   const bad = await projectDirProblem(dir, root);
   if (bad) return { ok: false, pushed: false, why: bad };
-  killUser();
+  if (!killUser()) return { ok: false, pushed: false, why: NOT_STOPPED };
   await excludeJunk(dir, gitRoot).catch(() => {});
-  let k = await keepOut(dir, o);
+  // ONE LOOK FOR NESTED REPOSITORIES (the audit, 2026-11-06: three looks per
+  // save made a big project's push seconds slower and closed no gap): nothing of
+  // the AI's user runs any more, and root's own git never makes a `.git`, so the
+  // tree cannot change between this look and the add, status and commit.
+  const k = await keepOut(dir, o);
   if (!k.ok) return { ok: false, pushed: false, why: k.why };
   await gitIn(dir, ["add", "-A", ...k.pathspec], o);
-  if (!(k = await keepOut(dir, o)).ok) return { ok: false, pushed: false, why: k.why };
+  const left = await saveSubmodules(dir, k, o);
+  const told = left.length ? { left } : {};
   const st = await gitIn(dir, ["status", "--porcelain", "--ignore-submodules=all", ...k.pathspec], o);
-  // That status hides a staged change to a submodule (its folder removed); the
-  // index alone shows it, without looking in any folder.
+  // That status hides a staged change to a submodule (its folder removed, or
+  // moved to another commit); the index alone shows it, without looking in any folder.
   const committed = !!String(st.stdout ?? st.output).trim() || (await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code === 1;
   if (committed) {
-    if (!(k = await keepOut(dir, o)).ok) return { ok: false, pushed: false, why: k.why };
     const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
-    if (c.code !== 0) return { ok: false, pushed: false, why: "could not commit: " + c.output.slice(0, 200) };
+    if (c.code !== 0) return { ok: false, pushed: false, why: "could not commit: " + c.output.slice(0, 200), ...told };
   }
   // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
   if (!committed) {
     const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
-    if (own.code === 0 && String(own.stdout ?? own.output).trim() === "0") return { ok: true, pushed: false, changed: false };
+    if (own.code === 0 && String(own.stdout ?? own.output).trim() === "0") return { ok: true, pushed: false, changed: false, ...told };
     // An empty repository with nothing made yet: no commit at all, nothing to send.
-    if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, pushed: false, changed: false };
+    if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, pushed: false, changed: false, ...told };
   }
   const url = remote + repo + ".git";
   const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token });
-  if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300) };
+  if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300), ...told };
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
   // `changed`: this job changed files (a new commit), so there is new work to show.
-  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha };
+  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, ...told };
 }
 
 // ── THE MEMORY FILE, READ AND WRITTEN SAFELY ─────────────────────────────────
 // The AI writes it (as `dev`) but root reads and writes it: never through a
-// link, only a plain file, only so much.
-export async function readMemory(file) {
+// link, only a plain file, only so much. AND ONLY A FILE WITH ONE NAME, THE AI'S
+// OWN (the audit, 2026-11-06): where the system lets a user hard-link a file
+// it does not own, the AI's commands could give MEMORY.md a second name for one
+// of root's files (the proxy's key), and root would read it into the chat.
+// Root makes this file and hands it over, so any other owner means it was swapped.
+export async function readMemory(file, uid = RUN_UID) {
   let fh;
   try {
     fh = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const st = await fh.stat();
-    if (!st.isFile()) return null;
+    if (!st.isFile() || st.nlink !== 1 || (Number.isInteger(uid) && st.uid !== uid)) return null;
     const buf = Buffer.alloc(Math.min(st.size, MEMORY_MAX));
     await fh.read(buf, 0, buf.length, 0);
     return buf.toString("utf8");
@@ -527,12 +696,14 @@ export async function repoNotes(dir) {
     if (left <= 0) break;
     let text = "";
     // THE AUDIT (2026-11-05): read by root, so never through a link (a repo can
-    // commit CODER.md as a link to a secret file) and only a plain file.
+    // commit CODER.md as a link to a secret file) and only a plain file. And only
+    // a file with one name (the audit, 2026-11-06): never a hard link the AI's
+    // commands made to a file of root's, which root would read into the chat.
     let fh;
     try {
       fh = await open(join(dir, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const st = await fh.stat();
-      if (!st.isFile()) continue;
+      if (!st.isFile() || st.nlink !== 1) continue;
       const buf = Buffer.alloc(Math.min(st.size, left * 4));
       await fh.read(buf, 0, buf.length, 0);
       text = buf.toString("utf8");
@@ -630,10 +801,43 @@ function killAll(t) {
   // background itself with `&` (the audit, 2026-11-05): nothing outlives the job.
   killUser();
 }
-/** Every process of the AI's user, at once (before root touches its files, and when a job ends). */
-function killUser() {
-  if (Number.isInteger(RUN_UID)) { try { spawnSync("pkill", ["-KILL", "-u", String(RUN_UID)], { stdio: "ignore", timeout: 5000 }); } catch { /* no pkill */ } }
+/**
+ * EVERY PROCESS OF THE AI'S USER, STOPPED (before root touches its files, and
+ * when a job ends). THE AUDIT (2026-11-06): this was one `pkill -u`, which
+ * reads the process list and then kills what it listed. A process that keeps
+ * moving to a new pid (it forks, the parent exits, the child goes on) was never
+ * on that list (it survived in 5 of 5 tries), so it could change the tree between
+ * root's look for nested repositories and root's `git add`; and `-u` missed
+ * setuid programs the AI's user started. Now the kernel does it: kill(-1) sent
+ * AS that user reaches every process that user may signal, setuid ones included,
+ * in one sweep a fork cannot slip past (none survived). Sent three times.
+ *
+ * The sender starts as root and becomes that user itself, without starting a new
+ * program (python), so the system marks it as one that user's processes may not
+ * trace (the audit, 2026-11-06: a `kill` started as that user could be traced,
+ * where the system allows it, and its kill skipped while it still reported
+ * success). One that is stopped instead runs into the time limit, and that counts
+ * as a failure. A bare environment either way. Without python, /bin/kill is
+ * started as that user. `false` when it could not be sent: root then does
+ * nothing with the AI's files. Never as root or as this service's own user.
+ */
+const KILL_AS = "import os,sys\nu,g=int(sys.argv[1]),int(sys.argv[2])\nos.setgroups([]);os.setgid(g);os.setuid(u)\nfor _ in range(3):\n  try:os.kill(-1,9)\n  except ProcessLookupError:pass\n";
+export function killUser(uid = RUN_UID, gid = RUN_GID) {
+  if (!Number.isInteger(uid)) return true;
+  if (uid === 0 || (typeof process.getuid === "function" && uid === process.getuid())) return false;
+  const g = Number.isInteger(gid) ? gid : uid;
+  const python = ["/usr/bin/python3", "/bin/python3"].find((p) => existsSync(p));
+  if (python) {
+    const r = spawnSync(python, ["-I", "-S", "-c", KILL_AS, String(uid), String(g)], { env: {}, cwd: "/", stdio: "ignore", timeout: 5000 });
+    return !r.error && r.status === 0;
+  }
+  for (let i = 0; i < 3; i++) {
+    const r = spawnSync("/bin/kill", ["-KILL", "--", "-1"], { uid, gid: g, env: {}, cwd: "/", stdio: "ignore", timeout: 5000 });
+    if (r.error) return false;
+  }
+  return true;
 }
+const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
 export function createApp({ root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
@@ -651,9 +855,10 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
     const t = { running: true, stop: false, events: [], result: null, bg: new Set() };
     turns.set(project, t);
-    // Nothing left from before may race root while it prepares the files (the audit).
-    killUser();
     const fail = (status, why) => { t.running = false; turns.delete(project); return [status, { error: why }]; };
+    // Nothing left from before may race root while it prepares the files (the
+    // audit); if it cannot be stopped, the job does not start (2026-11-06).
+    if (!killUser()) return fail(500, NOT_STOPPED);
     const dir = join(root, project);
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
@@ -863,8 +1068,10 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         const rv = await gitIn(dir, ["revert", "--no-edit", sha], o);
         if (rv.code !== 0) { await gitIn(dir, ["revert", "--abort"], o); return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
         const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: "", remote, gitRoot, root });
-        if (!p.ok) return send(502, { ok: false, why: p.why });
-        return send(200, { ok: true, sha: p.sha });
+        // What the save left out is said here too (the audit, 2026-11-06).
+        const told = p.left ? { left: p.left } : {};
+        if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
+        return send(200, { ok: true, sha: p.sha, ...told });
       }
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
