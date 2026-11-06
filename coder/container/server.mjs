@@ -177,8 +177,20 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
 }
 
 /** Everything Coder changed, committed and pushed to its branch. `{ ok, pushed, sha?, why? }`. */
+// NEVER COMMITTED (live test, 2026-11-06: an `npm install` in a job put
+// node_modules and npm's cache on the branch): installed packages and caches go
+// in the git folder's own ignore list (root's folder, not the repo's .gitignore).
+export const NEVER_COMMIT = ["node_modules/", ".npm/", ".cache/", ".yarn/cache/", ".pnpm-store/", "__pycache__/", "*.pyc", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/", "target/debug/", "target/release/"];
+async function excludeJunk(dir, gitRoot) {
+  const file = join(gitDirFor(dir, gitRoot), "info", "exclude");
+  await mkdir(dirname(file), { recursive: true });
+  const old = await readFile(file, "utf8").catch(() => "");
+  const add = NEVER_COMMIT.filter((x) => !old.split("\n").includes(x));
+  if (add.length) await writeFile(file, old + (old && !old.endsWith("\n") ? "\n" : "") + "# installed packages and caches (Coder)\n" + add.join("\n") + "\n");
+}
 export async function pushRepo({ dir, repo, branch, token, message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote };
+  await excludeJunk(dir, gitRoot).catch(() => {});
   await gitIn(dir, ["add", "-A"], o);
   const st = await gitIn(dir, ["status", "--porcelain"], o);
   const committed = !!String(st.stdout ?? st.output).trim();

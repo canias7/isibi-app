@@ -63,7 +63,8 @@ export function fromResponsesOutput(j) {
   const tool_calls = [], searches = [];
   for (const item of Array.isArray(j && j.output) ? j.output : []) {
     if (!item) continue;
-    if (item.type === "message") text += (Array.isArray(item.content) ? item.content : []).map((c) => (c && typeof c.text === "string" ? c.text : "")).join("");
+    // Two messages (say, one before a web search and one after) are two paragraphs (live test, 2026-11-06: "tips.- Keep…").
+    if (item.type === "message") { const part = (Array.isArray(item.content) ? item.content : []).map((c) => (c && typeof c.text === "string" ? c.text : "")).join(""); text += text && part ? "\n\n" + part : part; }
     else if (item.type === "function_call") tool_calls.push({ id: String(item.call_id || item.id || ""), type: "function", function: { name: String(item.name || ""), arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments || {}) } });
     else if (item.type === "web_search_call") {
       const a = item.action || {};
