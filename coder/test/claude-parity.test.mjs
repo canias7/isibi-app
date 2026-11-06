@@ -146,3 +146,29 @@ test("CD103 the starting branch, like Claude Code: the repo's branches are liste
   assert.match(page, /S\.project && !S\.project\.turn && S\.branches && S\.branches\.length && !S\.running\n\s+\? '<label class="cd-pick cd-pick-branch"/);
   assert.match(page, /on\('#cdBaseSel', 'change', \(e\) => pickBase\(e\.currentTarget\.value\)\);/);
 });
+
+test("CD104 review findings as comments on the pull request's lines, like Claude Code's /code-review --comment: only when asked, never from GitHub jobs", async () => {
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const { postReview } = await import("../src/coder-github.mjs");
+  const call = (name, args) => ({ id: name + "1", type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const ask = { summary: "Two problems.", comments: [{ path: "src/a.js", line: 12, body: "Off by one: use <=." }, { path: "../etc/x", line: 1, body: "no" }, { path: "b.js", line: 0, body: "no" }] };
+  const run = async (github) => { const steps = [say("", [call("pr_comments", ask)]), say("Posted two findings.")]; let i = 0; const seen = []; const r = await runCoder({ send: async (q) => { seen.push(q); return steps[Math.min(i++, 1)]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "review it on the PR", github }); return { r, seen }; };
+  const { r } = await run(false);
+  assert.deepEqual(r.reviewPost, { summary: "Two problems.", comments: [{ path: "src/a.js", line: 12, body: "Off by one: use <=." }] }, "bad paths and lines are dropped");
+  const gh = await run(true);
+  assert.equal(gh.r.reviewPost, undefined, "a GitHub-started job posts nothing as the owner");
+  assert.match(JSON.stringify(gh.seen[1].messages), /comments cannot be posted on the owner's behalf in a job started from GitHub/);
+  // GitHub: one review with line comments; if GitHub refuses them, the findings go in the review's text.
+  const sent = []; let refuse = false;
+  const fetchFn = async (url, init = {}) => { sent.push([String(url), JSON.parse(init.body || "{}")]); if (refuse && JSON.parse(init.body).comments) return new Response(JSON.stringify({ message: "Unprocessable" }), { status: 422 }); return new Response(JSON.stringify({ html_url: "https://github.com/a/b/pull/2#r1" }), { status: 200 }); };
+  assert.deepEqual(await postReview("t", "a/b", 2, r.reviewPost, fetchFn), { ok: true, url: "https://github.com/a/b/pull/2#r1", inline: true });
+  assert.equal(sent[0][0], "https://api.github.com/repos/a/b/pulls/2/reviews");
+  assert.deepEqual(sent[0][1].comments, [{ path: "src/a.js", line: 12, side: "RIGHT", body: "Off by one: use <=." }]);
+  assert.equal(sent[0][1].event, "COMMENT", "a review never approves or blocks, like Claude Code's");
+  refuse = true; sent.length = 0;
+  assert.equal((await postReview("t", "a/b", 2, r.reviewPost, fetchFn)).inline, false);
+  assert.match(sent[1][1].body, /- `src\/a\.js:12`: Off by one: use <=\./);
+  const { readFileSync } = await import("node:fs");
+  assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /No pull request yet: the review stays in this chat\./);
+});

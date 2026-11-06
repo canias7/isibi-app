@@ -66,6 +66,9 @@ export const CODER_TOOLS = Object.freeze([
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved on this chat's environment (every chat using it gets it) and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
   fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "trusted", "full"], description: "new_environment: network level (default trusted)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
   fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
+  // REVIEW ON THE PULL REQUEST, like Claude Code's /code-review --comment (its docs,
+  // read 2026-11-06; owner: "Finish all this"): the findings as line comments.
+  fn("pr_comments", "Post review findings as comments on the lines of this chat's pull request, like a reviewer on GitHub. Use it ONLY when the owner asks for the review (or comments) on the pull request. Give every finding at once: path (from the repo's root), line (in the new version of the file, a line the pull request changed), body (the problem and a one-line fix). They are posted when your turn ends.", { summary: { type: "string" }, comments: { type: "array", items: { type: "object", properties: { path: { type: "string" }, line: { type: "integer" }, body: { type: "string" } }, required: ["path", "line", "body"] } } }, ["summary", "comments"]),
   fn("undo_last_job", "Undo the last job that changed files in this chat: its commit is reverted on the branch and pushed when your turn ends. Use it only when the owner asks to undo or revert. Like Claude Code: if it is not clear what they mean (your last job changed no files, or they might mean something else, such as an environment change or a saved key), ask first with ask_user; when they choose that job, call it with confirmed: true. Do not make other changes in the same turn. Your turn ends here.", { confirmed: { type: "boolean", description: "true only after the owner chose undoing that job on your question card" } }, []),
   fn("ask_user", "Ask the owner ONE question, like Claude Code's, when you truly cannot choose for them (which of two designs, whether to delete something, what they meant). Give 2 to 4 options, each with a short label (1 to 5 words) and a one-line description of what it means or what happens. If you recommend one, put it first and add \" (Recommended)\" to its label. The owner can also choose Other and type their own answer, or Skip. multi_select: true when they may choose several. Your turn ends there; their answer comes back as the next message. Do not use it for things you can decide yourself.", { question: { type: "string" }, options: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "1 to 5 words" }, description: { type: "string", description: "one line: what it means or what happens" } }, required: ["label"] } }, multi_select: { type: "boolean" } }, ["question", "options"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
@@ -88,7 +91,7 @@ export const CODER_SYSTEM = `You are Coder, a software developer working for the
 The project lives in the current folder. You work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 1 MB at once), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
@@ -195,7 +198,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const usage = [];
   const started = now();
   let rounds = 0;
-  let prRequest = null, undoRequest = false, lastSaid = "";
+  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null;
   // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
   // reminded once, before it finishes, to offer them for the setup script.
   const installs = new Set(); let nudged = false;
@@ -207,7 +210,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
   // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
   const jobs = new Map();
-  const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -401,6 +404,15 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);
         emit({ type: "todo", items });
         reply("ok: the owner sees the checklist");
+      } else if (c.name === "pr_comments") {
+        // From GitHub (strangers can write there) nothing is posted as the owner.
+        if (github) { reply("error: comments cannot be posted on the owner's behalf in a job started from GitHub; put the findings in your answer instead"); continue; }
+        const list = (Array.isArray(c.args.comments) ? c.args.comments : []).slice(0, 30).map((x) => ({ path: String((x && x.path) || "").replace(/^\/+/, "").trim().slice(0, 300), line: Number(x && x.line), body: scrub(String((x && x.body) || "").trim()).slice(0, 2000) }))
+          .filter((x) => x.path && !x.path.split("/").includes("..") && Number.isInteger(x.line) && x.line > 0 && x.body);
+        if (!list.length) { reply("error: give at least one comment with a path, a line and a body"); continue; }
+        reviewPost = { summary: scrub(String(c.args.summary || "").trim()).slice(0, 4000), comments: list };
+        emit({ type: "pr", text: "Review for the pull request: " + list.length + " comment" + (list.length > 1 ? "s" : "") });
+        reply("ok: the " + list.length + " comment" + (list.length > 1 ? "s are" : " is") + " posted on the pull request when your turn ends (if the chat has one). Finish by telling the owner what you found.");
       } else if (c.name === "pull_request") {
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);
@@ -408,7 +420,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         prRequest = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

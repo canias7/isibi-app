@@ -163,6 +163,22 @@ export async function openPullRequest(token, repo, { head, base, title, body, dr
   return pr ? { url: pr.html_url, number: pr.number } : null;
 }
 
+/**
+ * REVIEW FINDINGS ON THE PULL REQUEST (like Claude Code's /code-review --comment):
+ * one review with a comment on each line. When GitHub refuses the line
+ * comments (a line outside the pull request's changes), the same findings go in
+ * the review's own text instead. `{ ok, url?, inline }`.
+ */
+export async function postReview(token, repo, number, { summary = "", comments = [] }, fetchFn = fetch) {
+  const path = "/repos/" + repo + "/pulls/" + Number(number) + "/reviews";
+  const head = (summary || "Review by Coder.") + "\n\nReviewed by Coder.";
+  const r = await gh(token, path, { method: "POST", body: { event: "COMMENT", body: head, comments: comments.map((c) => ({ path: c.path, line: c.line, side: "RIGHT", body: c.body })) }, fetchFn });
+  if (r.ok) return { ok: true, url: r.data && r.data.html_url, inline: true };
+  const listed = comments.map((c) => "- `" + c.path + ":" + c.line + "`: " + c.body).join("\n");
+  const r2 = await gh(token, path, { method: "POST", body: { event: "COMMENT", body: (summary || "Review by Coder.") + "\n\n" + listed + "\n\nReviewed by Coder." }, fetchFn });
+  return r2.ok ? { ok: true, url: r2.data && r2.data.html_url, inline: false } : { ok: false };
+}
+
 /** A repository's name, as GitHub writes it: owner/name. */
 export const REPO = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 /** A branch name we may use. */
