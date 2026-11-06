@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The iPhone app is in TestFlight
+
+- The owner created the app in App Store Connect (GOFARTHER, dev.gofarther.app); Apple's API refuses to make apps ("The resource 'apps' does not allow 'CREATE'"), so that one step stays on the website.
+- Then the "build phone apps" button with "testflight" ticked: the app ID check passed, the iPhone app was built, signed by Apple's cloud signing with the owner's key, and uploaded: "Upload succeeded … EXPORT SUCCEEDED". Apple processes a new build for a few minutes before it shows in TestFlight.
+- To install on an iPhone: the TestFlight app from the App Store, and the owner added as an internal tester in App Store Connect → the app → TestFlight.
+- (The run's wording no longer blames the key's role when Apple refuses an action it never allows.)
+
 ## 2026-11-06: TestFlight run: app ID registered; it now tries to make the app too
 
 - The second press got through the secrets check and registered the app ID dev.gofarther.app with Apple using the owner's key, then stopped: the app isn't in App Store Connect yet.
