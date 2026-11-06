@@ -108,3 +108,41 @@ test("CD102 web pages are read by a separate reader, like Claude Code's WebFetch
   assert.equal("tools" in bodies[0] || "tool_choice" in bodies[0], false);
   assert.deepEqual(bodies[1].tools, [{ type: "web_search" }]);
 });
+
+test("CD103 the starting branch, like Claude Code: the repo's branches are listed and one is picked before the first message, never after", async () => {
+  const { handleCoder } = await import("../src/coder-routes.mjs");
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev", CODER_BUCKET: bucket };
+  const uid = "user-1234567890abcdef";
+  await saveConnection(env, bucket, uid, { access: "ghu_user" }, "ana");
+  const asked = [];
+  const fetchFn = async (url) => {
+    const u = String(url); asked.push(u);
+    const J = (o, status = 200) => new Response(JSON.stringify(o), { status });
+    if (u === "https://api.github.com/repos/ana/shop") return J({ default_branch: "main", permissions: { push: true } });
+    if (u.startsWith("https://api.github.com/repos/ana/shop/branches?")) return J([{ name: "main" }, { name: "dev" }, { name: "coder/old-1" }, { name: "bad name" }]);
+    if (u === "https://api.github.com/repos/ana/shop/branches/dev") return J({ name: "dev" });
+    return J({ message: "Not Found" }, 404);
+  };
+  const deps = { fetchFn, authUser: async () => ({ id: uid, email: "me@x.y" }), container: () => ({ fetch: async () => Response.json({}) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  const made = await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json();
+  const id = made.project.id;
+  assert.equal(made.project.base, "main", "the repo's default branch until another is picked");
+  const list = await (await go("projects/" + id + "/branches")).json();
+  assert.deepEqual(list.branches, ["main", "dev"], "Coder's own branches and impossible names are left out");
+  assert.equal((await go("projects/" + id + "/base", { method: "POST", body: JSON.stringify({ base: "nope" }) })).status, 404, "only a branch GitHub has");
+  assert.equal((await go("projects/" + id + "/base", { method: "POST", body: JSON.stringify({ base: "coder/old-1" }) })).status, 400);
+  const picked = await (await go("projects/" + id + "/base", { method: "POST", body: JSON.stringify({ base: "dev" }) })).json();
+  assert.equal(picked.project.base, "dev");
+  // After the first message the branch is fixed (like the environment).
+  const key = "coder/" + uid + "/" + id + "/meta.json";
+  await bucket.put(key, JSON.stringify({ ...JSON.parse(bucket.m.get(key)), turn: 1 }));
+  assert.equal((await go("projects/" + id + "/base", { method: "POST", body: JSON.stringify({ base: "main" }) })).status, 409);
+  // The page: the picker shows before the first message only, next to the environment.
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /S\.project && !S\.project\.turn && S\.branches && S\.branches\.length && !S\.running\n\s+\? '<label class="cd-pick cd-pick-branch"/);
+  assert.match(page, /on\('#cdBaseSel', 'change', \(e\) => pickBase\(e\.currentTarget\.value\)\);/);
+});

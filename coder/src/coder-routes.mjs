@@ -570,6 +570,30 @@ export async function handleCoder(request, env, ctx, deps) {
   // (Since 2026-11-06 these are the CHAT'S ENVIRONMENT, like Claude Code's, which
   // may be used by other chats too; see coder-environments.mjs.)
   // LIKE CLAUDE CODE: a chat picks its environment before its first message.
+  // THE STARTING BRANCH, like Claude Code (its docs, read 2026-11-06: "change the
+  // branch in the control after the repository selector"; owner: "Finish all
+  // this"): the repo's branches, and the pick, until the chat's first message.
+  if (action === "branches" && request.method === "GET") {
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    const r = await gh(t.token, "/repos/" + meta.repo + "/branches?per_page=100", { fetchFn });
+    if (!r.ok || !Array.isArray(r.data)) return json({ error: "GitHub could not list the branches" }, 502);
+    const names = r.data.map((b) => String((b && b.name) || "")).filter((n) => BRANCH.test(n) && !n.startsWith("coder/"));
+    return json({ ok: true, base: meta.base, branches: [...new Set([meta.base, ...names])].slice(0, 100) });
+  }
+  if (action === "base" && request.method === "POST") {
+    if (meta.turn > 0) return json({ error: "this chat's starting branch was picked before its first message; start a new chat to use another one" }, 409);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const base = typeof body.base === "string" ? body.base : "";
+    if (!BRANCH.test(base) || base.startsWith("coder/")) return json({ error: "pick one of the repository's branches" }, 400);
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    const r = await gh(t.token, "/repos/" + meta.repo + "/branches/" + encodeURIComponent(base), { fetchFn });
+    if (!r.ok) return json({ error: meta.repo + " has no branch named " + base }, 404);
+    const next = { ...meta, base };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
+  }
   if (action === "environment" && request.method === "POST") {
     if (meta.turn > 0) return json({ error: "this chat's environment was picked before its first message; start a new chat to use another one" }, 409);
     let body = {}; try { body = await request.json(); } catch { body = {}; }

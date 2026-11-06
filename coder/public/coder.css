@@ -377,6 +377,10 @@
 .cd-picks .cd-pick-env { display: inline-flex; align-items: center; gap: 3px; margin-right: auto; padding-left: 8px; color: #6b7280; }
 .cd-picks .cd-pick-env svg { flex: none; }
 .cd-pick-env select { max-width: 200px; text-overflow: ellipsis; }
+/* The starting branch (2026-11-06, like Claude Code), before the environment. */
+.cd-picks .cd-pick-branch { display: inline-flex; align-items: center; gap: 3px; padding-left: 8px; color: #6b7280; }
+.cd-picks .cd-pick-branch svg { flex: none; }
+.cd-pick-branch select { max-width: 160px; text-overflow: ellipsis; }
 .cd-em-top { margin: -4px 0 12px; }
 .cd-em-archive { display: block; margin: 14px auto 0; border: 0; background: none; color: #b3261e; font: inherit; font-size: 13.5px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
 .cd-em-archive:hover { background: #fbeeed; }

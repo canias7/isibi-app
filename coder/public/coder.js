@@ -154,6 +154,21 @@
     S.envInfo = { envId: r.data.envId, name: r.data.name || 'Default', isDefault: !!r.data.isDefault, locked: !!r.data.locked, environments: r.data.environments || [] };
     draw();
   }
+  // THE STARTING BRANCH (like Claude Code): picked before the first message.
+  async function loadBranches() {
+    if (!S.project || S.project.turn) return;
+    const id = S.project.id;
+    const r = await call('/projects/' + encodeURIComponent(id) + '/branches');
+    if (!S.project || S.project.id !== id || r.status !== 200 || !r.data) return;
+    S.branches = r.data.branches || [];
+    draw();
+  }
+  async function pickBase(base) {
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/base', { method: 'POST', body: JSON.stringify({ base }) });
+    if (r.status === 200 && r.data && r.data.project) S.project = r.data.project;
+    else S.error = (r.data && r.data.error) || 'That branch could not be picked.';
+    draw();
+  }
   async function pickEnv(envId) {
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/environment', { method: 'POST', body: JSON.stringify({ envId }) });
     if (r.status === 200 && r.data && r.data.project) S.project = r.data.project;
@@ -291,6 +306,7 @@
     S.project = r.data.project; S.events = r.data.events || [];
     S.running = S.project.status === 'running';
     S.envInfo = null; loadEnvInfo();
+    S.branches = null; loadBranches();
     draw(true);
     // A turn still running: its own steps come from the machine, after the saved ones.
     if (S.running) { S.next = 0; startPoll(); }
@@ -700,6 +716,9 @@
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
       '<div class="cd-picks">' +
+        (S.project && !S.project.turn && S.branches && S.branches.length && !S.running
+          ? '<label class="cd-pick cd-pick-branch" title="Starting branch (picked before the first message)">' + ICON.branch + '<select id="cdBaseSel" aria-label="Starting branch">' + S.branches.map((b) => '<option value="' + esc(b) + '"' + (b === S.project.base ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></label>'
+          : '') +
         (S.project && !S.project.turn && S.envInfo && !S.running
           ? '<label class="cd-pick cd-pick-env" title="Environment (picked before the first message)">' + ICON.cloud + '<select id="cdEnvSel" aria-label="Environment">' + S.envInfo.environments.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === S.envInfo.envId ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '<option value="__add">+ Add environment…</option></select></label>'
           : '') +
@@ -828,6 +847,7 @@
     on('#cdMakePr', 'click', () => send(PR_ASK));
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
+    on('#cdBaseSel', 'change', (e) => pickBase(e.currentTarget.value));
     on('#cdEnvSel', 'change', async (e) => {
       const v = e.currentTarget.value;
       if (v !== '__add') return pickEnv(v);
