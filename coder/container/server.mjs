@@ -375,7 +375,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
           command = command.replace("@REQUEST", "@" + f);
         }
         // A file or web tool is ended at its time limit, never sent to the background.
-        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, extraEnv });
+        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
         if (r && r.background && r.pid) t.bg.add(r.pid);
         return r;
       },

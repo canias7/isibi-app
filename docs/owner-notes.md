@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: @coder jobs show a short label in the chat
+
+- Retest found the chat showing Coder's whole safety wrapper for an @coder comment. It now shows "@you on GitHub: what you asked", like auto-fix's short label. Coder still gets the full, wrapped text.
+
+## 2026-11-06: Coder's file tools can open its own memory file
+
+- In the retest, saving or forgetting a style showed a red "error" step: the read tool only opens files inside the project, and Coder's memory file is kept outside it (so it never reaches GitHub). Coder fell back to the shell and finished, but it looked broken. Now read, write and edit may also open that one memory file, nothing else outside the project, and never through a link.
+
 ## 2026-11-05: Fix: pictures stay for the whole job
 
 - Full retest found it: since the audit change "pictures go to Grok once", a job that read files first and described the picture at the end had lost it, and Grok invented one ("a teal square with a robot"). Pictures now stay for every step of the job (like Claude), and leave only the saved history afterwards. Costs a little more per job with a picture; correctness first.
