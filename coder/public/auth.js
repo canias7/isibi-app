@@ -106,6 +106,11 @@ const Auth = (() => {
   });
 
   load();
+  // A STORED SESSION THIS PAGE CANNOT USE (no proof: from before 2026-11-06) is
+  // removed, not just ignored. A tab still open on the old page then reloads into
+  // this one at once, instead of renewing the session without a proof later and
+  // signing this tab out (the audit, 2026-11-06, after review).
+  try { if (!session && localStorage.getItem(SESSION_KEY)) localStorage.removeItem(SESSION_KEY); } catch (e) {}
   return {
     signIn, signUp, verifyCode, refresh, accessToken, signOut, end, justEnded,
     isSignedIn: () => !!session,

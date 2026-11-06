@@ -10,7 +10,7 @@ code in **each user's own GitHub**.
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
 | `src/coder-github.mjs` | Sign in with GitHub, the user's token (encrypted), repositories, pull requests |
-| `src/coder-auth.mjs` | Go Farther sign-in (Supabase), and the Worker's proof that both steps (password, then the emailed code) happened |
+| `src/coder-auth.mjs` | Go Farther sign-in (Supabase), the Worker's proof that both steps (password, then the emailed code) happened, the password it remembers and the count of code checks |
 | `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
 | `src/coder-cors.mjs` | Only gofarther.dev may call it from another address |
@@ -37,8 +37,23 @@ session and the Worker's proof, which the page sends with every call
 Tickets and proofs are signed with a key made from `CODER_TOKEN_KEY`; without
 it nobody can sign in.
 
+- **The password the Worker remembers.** Anyone with the inbox alone could ask
+  Supabase for a code and then set a new password there. So the first time an
+  account's password passes the password step here, the Worker keeps its own
+  scrambled copy (`coder/<user id>/signin-pin.json` in the bucket), and after
+  that the password step wants that same password too. Coder has no page to
+  change a password. **If a password is ever changed at Supabase** (the
+  dashboard, a reset email), Coder refuses it with "That email and password do
+  not match." until that one file is deleted; the next sign-in then remembers
+  the new password. Until an account's first password step here, nothing is
+  remembered for it, and the same is true right after `CODER_TOKEN_KEY` changes.
+- **Wrong codes are counted.** Each email gets 5 code checks per 15 minutes,
+  before Supabase is asked. Then the card says to wait and start again. A right
+  code starts the count again; a new password step does not.
+
 **The code is never stored with us.** Coder's bucket keeps the chat, the project
-list and the GitHub connection (encrypted with `CODER_TOKEN_KEY`).
+list and the GitHub connection (encrypted with `CODER_TOKEN_KEY`), and for
+sign-in the remembered passwords (scrambled) and the code counts.
 
 **The AI never sees the GitHub token.** Git runs in the service, as root, with
 the token only in its own environment. Every command the AI runs is started as

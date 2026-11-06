@@ -19,6 +19,9 @@
 //
 // Both are signed with a key made from CODER_TOKEN_KEY. Without that key no
 // ticket or proof can be made or accepted, so nobody can sign in (fail closed).
+// Two more things kept in the bucket close the gaps the review found (below):
+// the password the Worker remembers (a password set at Supabase with the inbox
+// alone is refused) and the count of code checks (5 per email per 15 minutes).
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -82,6 +85,98 @@ export async function proofOk(env, sessionId, proof) {
   if (typeof proof !== "string" || !proof) return false;
   const want = await proofFor(env, sessionId);
   return !!want && sameText(want, proof);
+}
+
+// THE PASSWORD THE WORKER REMEMBERS (the audit, 2026-11-06, after review).
+// Supabase lets any of its sessions set a new password, and a session asked for
+// with the inbox alone (a code straight from Supabase) is enough for that. With
+// that new password, both steps here would pass. So the first time a password
+// passes the password step here, the Worker keeps its own scrambled copy of it
+// (coder/<user id>/signin-pin.json), and from then on the password step also
+// wants that same password. The copy is PBKDF2 with a random salt, then signed
+// with the proof key, so the bucket alone does not help anyone guess the
+// password. Coder has no page to change a password: one changed at Supabase is
+// refused here until that file is deleted; the next password step then
+// remembers the new one. A copy made with another CODER_TOKEN_KEY is remembered
+// again at the next password step.
+/** PBKDF2 rounds for the remembered password: the most a Cloudflare Worker allows. */
+export const PIN_ROUNDS = 100000;
+/** Where the remembered password of one account is kept. */
+export const pinKeyOf = (uid) => "coder/" + uid + "/signin-pin.json";
+async function pinOf(key, password, salt) {
+  const base = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: PIN_ROUNDS }, base, 256);
+  return mac(key, "pin:" + b64url(bits));
+}
+/**
+ * Whether `password` is the one the Worker remembers for this account. Nothing
+ * remembered yet (or remembered with another key): it is remembered now, and
+ * the answer is yes. No proof key, no bucket, or a damaged copy: no.
+ */
+export async function rememberedPassword(env, uid, password) {
+  const key = await proofKey(env);
+  const bucket = env && env.CODER_BUCKET;
+  if (!key || !bucket || typeof uid !== "string" || !/^[\w-]{1,100}$/.test(uid) || typeof password !== "string" || !password) return false;
+  const check = (await mac(key, "pin-key")).slice(0, 16);
+  const o = await bucket.get(pinKeyOf(uid));
+  if (o) {
+    let p = null;
+    try { p = JSON.parse(await o.text()); } catch { p = null; }
+    if (!p || typeof p.k !== "string" || typeof p.salt !== "string" || typeof p.pin !== "string") return false;
+    if (p.k === check) {
+      let salt;
+      try { salt = unb64url(p.salt); } catch { return false; }
+      return salt.length === 16 && sameText(await pinOf(key, password, salt), p.pin);
+    }
+  }
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  await bucket.put(pinKeyOf(uid), JSON.stringify({ v: 1, k: check, salt: b64url(salt), pin: await pinOf(key, password, salt), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+  return true;
+}
+
+// WRONG CODES ARE COUNTED (the audit, 2026-11-06, after review). After the
+// password step, the emailed code is all that stands between someone with the
+// password and Coder, and a ticket can be used for 15 minutes. So each email
+// gets 5 code checks per 15 minutes, counted before Supabase is asked, whatever
+// the ticket; a right code clears the count and a new password step does not.
+// The count is changed only if nobody changed it in between (R2 checks the
+// etag, If-Match, or that there is none yet, If-None-Match), so guesses sent all
+// at once cannot all slip through.
+/** Code checks allowed per email in CODE_WINDOW_MS. */
+export const CODE_TRIES = 5;
+export const CODE_WINDOW_MS = 15 * 60 * 1000;
+/** Where one email's count is kept (the email itself is not in the name). */
+export async function codeCountKeyOf(env, email) {
+  const key = await proofKey(env);
+  return key ? "coder/signin-codes/" + (await mac(key, "codes:" + email)) + ".json" : "";
+}
+const JSON_TYPE = { httpMetadata: { contentType: "application/json" } };
+/**
+ * One code check taken for this email: `{ ok: true }`; `{ wait }` (ms) when
+ * CODE_TRIES were taken in the last CODE_WINDOW_MS; `{ busy: true }` when
+ * too many checks for it came at once; `{ off: true }` without a bucket or key.
+ */
+export async function takeCodeTry(env, email, now = Date.now()) {
+  const bucket = env && env.CODER_BUCKET;
+  const key = await codeCountKeyOf(env, email);
+  if (!bucket || !key) return { off: true };
+  for (let i = 0; i < 4; i++) {
+    const o = await bucket.get(key);
+    let c = null;
+    if (o) { try { c = JSON.parse(await o.text()); } catch { c = null; } }
+    const live = !!c && Number.isFinite(c.n) && Number.isFinite(c.since) && c.since > 0 && now - c.since < CODE_WINDOW_MS;
+    const n = live ? c.n : 0;
+    const since = live ? c.since : now;
+    if (n >= CODE_TRIES) return { wait: Math.max(1, since + CODE_WINDOW_MS - now) };
+    const onlyIf = new Headers(o ? { "if-match": o.httpEtag || '"' + o.etag + '"' } : { "if-none-match": "*" });
+    if ((await bucket.put(key, JSON.stringify({ n: n + 1, since }), { ...JSON_TYPE, onlyIf })) !== null) return { ok: true };
+  }
+  return { busy: true };
+}
+/** A right code: the count starts again. */
+export async function clearCodeCount(env, email) {
+  const key = await codeCountKeyOf(env, email);
+  if (key && env.CODER_BUCKET) await env.CODER_BUCKET.put(key, JSON.stringify({ n: 0, since: 0 }), JSON_TYPE);
 }
 
 /** The password step's ticket: who gave their password here, for which code, until when. */
