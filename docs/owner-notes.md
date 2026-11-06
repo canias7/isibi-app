@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Fix: Coder's machine could not start after the last deploy
+
+- My mistake in the deploy that matched the Environment to Claude Code's docs: the new file that signs and fetches tokens for secrets (coder-auth.mjs) was not on the list of files copied onto Coder's machine. The machine's program could not start, so every Coder job failed with "Failed to start container" from that deploy until this fix is deployed.
+- Fixed (one line in the container's Dockerfile), and a new test builds exactly the files the Dockerfile copies and checks the program starts, so a missing file fails the tests before any deploy.
+- The live check of the new Environment window itself passed: saving Trusted from the window, adding a secret with the Add secret form (listed without its value) and removing it all worked; the test repo is back to Full.
+
 ## 2026-11-06: Desktop and phone apps, started
 
 - The plan (owner: "start making the desktop apps and mobile apps … so we don't stay behind"): the apps are gofarther.dev in their own window, like Claude's desktop app is claude.ai. So every feature built on the site shows up in the desktop and phone apps at once, with no separate app updates. The apps add what only apps can: their own icon, menu and shortcuts, and later notifications.

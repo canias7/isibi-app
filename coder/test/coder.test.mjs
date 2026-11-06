@@ -1813,3 +1813,19 @@ test("CD77 (owner 2026-11-06: desktop and phone apps) the site is installable: a
   assert.match(readFileSync(HERE("public/app.css"), "utf8"), /\.gf-inapp \.gf-dlrow \{ display: none; \}/);
   for (const re of [/<link rel="manifest" href="\/manifest\.webmanifest" \/>/, /<link rel="apple-touch-icon" href="\/icons\/apple-touch-icon\.png" \/>/, /<meta name="apple-mobile-web-app-capable" content="yes" \/>/, /<meta name="theme-color" content="#faf9f7" \/>/]) assert.match(html, re);
 });
+
+test("CD78 (live outage, 2026-11-06) Coder's machine starts with exactly the files its Dockerfile copies: no missing module", async () => {
+  // The deploy of 2026-11-06 added container/coder-auth.mjs but not to the Dockerfile's COPY line:
+  // the machine's program could not start, and every job failed until it was fixed.
+  const docker = readFileSync(HERE("container/Dockerfile"), "utf8");
+  const copy = docker.split("\n").find((l) => /^COPY package\.json /.test(l));
+  assert.ok(copy, "the COPY line");
+  const files = copy.replace(/^COPY /, "").replace(/ \.\/$/, "").split(/\s+/);
+  const dir = await mkdtemp(join(tmpdir(), "coder-image-"));
+  for (const f of files) writeFileSync(join(dir, f), readFileSync(HERE("container/" + f)));
+  // Every local import of every copied file is copied too.
+  for (const f of files.filter((x) => x.endsWith(".mjs"))) for (const m of readFileSync(HERE("container/" + f), "utf8").matchAll(/(?:from|import\()\s*"\.\/([\w.-]+)"/g)) assert.ok(files.includes(m[1]), f + " imports " + m[1] + ", which the Dockerfile does not copy");
+  // And the program really loads from those files alone.
+  const out = execFileSync("node", ["--input-type=module", "-e", "await import('./server.mjs'); await import('./coder-tools.mjs'); console.log('STARTS OK')"], { cwd: dir }).toString();
+  assert.match(out, /STARTS OK/);
+});

@@ -32,7 +32,7 @@ ENV CODER_RUN_UID=1001 CODER_RUN_GID=1001
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.
-COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs ./
+COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]
