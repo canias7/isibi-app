@@ -187,7 +187,7 @@ export async function startMention(env, deps, m) {
   const ask = m.text.replace(MENTION, "$1").trim();
   const text = "From GitHub, " + m.repo + ".\n\n@" + m.login + " (the owner) asks: " + ask + "\n\n" + UNTRUSTED + "\n<<<GITHUB\n" + m.extra + "\nGITHUB>>>\n\n(Your answer is posted PUBLICLY on GitHub: never put secrets, tokens or environment values in it. If they ask for a pull request, use the pull_request tool.)";
   const ack = await say("On it, @" + m.login + ". I'm working on `" + m.repo + "` and will update this comment when I'm done.\n\n— Coder (gofarther.dev)");
-  const sent = await run("projects/" + thread.id + "/message", { method: "POST", body: JSON.stringify({ text: text.slice(0, 12000), fromGithub: true }) });
+  const sent = await run("projects/" + thread.id + "/message", { method: "POST", body: JSON.stringify({ text: text.slice(0, 12000), fromGithub: true, shown: "@" + m.login + " on GitHub: " + ask.slice(0, 260) }) });
   if (sent.status !== 200) {
     const why = "Coder could not start: " + String((sent.data && sent.data.error) || sent.status).slice(0, 200);
     if (ack && ack.ok && botToken) await ghApi(botToken, "/repos/" + m.repo + "/issues/comments/" + ack.data.id, { method: "PATCH", body: { body: "@" + m.login + " " + why }, fetchFn });
