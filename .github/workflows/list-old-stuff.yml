@@ -51,6 +51,14 @@ jobs:
           ZONE=$(curl -fsS -H "$H" "$API/zones?name=gofarther.dev" | jq -r '.result[0].id')
           curl -fsS -H "$H" "$API/zones/$ZONE/dns_records?per_page=500" | jq -r '.result[] | "dns  " + .type + "  " + .name + "  " + (.content | tostring | .[0:80]) + "  proxied=" + (.proxied | tostring)'
           curl -fsS -H "$H" "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel?is_deleted=false&per_page=100" | jq -r '.result[] | "tunnel  " + .id + "  " + .name + "  " + (.status // "") + "  connections=" + ((.connections // []) | length | tostring)' || echo "(tunnels: this token cannot read them)"
+          # Every address, in every zone of the account, that sends visitors to a tunnel.
+          for z in $(curl -fsS -H "$H" "$API/zones?per_page=50" | jq -r '.result[] | .id + ":" + .name'); do
+            curl -fsS -H "$H" "$API/zones/${z%%:*}/dns_records?per_page=500" | jq -r --arg zone "${z#*:}" '.result[] | select(.content | tostring | endswith(".cfargotunnel.com")) | "to-tunnel  " + $zone + "  " + .name + "  " + .content'
+          done
+          # Each tunnel's own list of addresses (its ingress rules), when the token may read it.
+          for t in $(curl -fsS -H "$H" "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel?is_deleted=false&per_page=100" | jq -r '.result[].id'); do
+            curl -fsS -H "$H" "$API/accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/$t/configurations" | jq -r --arg t "$t" '.result.config.ingress[]? | "tunnel-route  " + $t + "  " + (.hostname // "(catch-all)") + "  ->  " + .service' || echo "tunnel-route  $t  (this token cannot read its routes)"
+          done
       - name: Which Workers mention model.gofarther.dev or the old Supabase project (yes or no only)
         run: |
           API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"

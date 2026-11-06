@@ -14,6 +14,8 @@ test("CD98 (2026-11-06, the audit) list old stuff stays read only, and shows DNS
   assert.doesNotMatch(y, /wrangler[^\n]*\b(delete|deploy|put|create)\b/i, "no wrangler command that changes anything");
   assert.match(y, /\/dns_records\?per_page=500/);
   assert.match(y, /\/cfd_tunnel\?is_deleted=false/);
+  assert.match(y, /select\(\.content \| tostring \| endswith\("\.cfargotunnel\.com"\)\)/, "addresses in every zone that point at a tunnel");
+  assert.match(y, /\/cfd_tunnel\/\$t\/configurations/, "each tunnel's own routes");
   assert.match(y, /grep -q 'model\\\.gofarther\\\.dev'/);
   assert.match(y, /grep -q 'lkpfeqrelvziltfwpuxi'/);
   // Yes or no only: never the Worker's code or its variables.
