@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Setup script changes deployed and checked live
+
+- Merged and deployed (your word). Checked in a new chat on the test repo:
+  - 1. On the Trusted network, the setup line `apt-get install -y tree` was installed as admin by Coder's app ("Setting up tree (2.1.0-1)"), and Coder then ran `tree --version` (v2.1.0).
+  - 2. With a broken setup line, Coder said: "The setup script failed: nonexistent-tool-xyz --install exited with code 127 (command not found). You can fix it in Environment → Setup script; new chats run the fixed script." No card was forced.
+  - 3. Asked to add a line that makes a cache folder, Coder first ran `mkdir -p cache`, then the whole new script, and only then showed the card.
+- The test repo was set back afterwards: the original setup script, Full network.
+
 ## 2026-11-06: The setup script, like Claude Code's (all 3)
 
 - Your word: "Do the 3 of them", after comparing Coder with Claude Code's docs.
