@@ -20,3 +20,20 @@ test("CD98 (2026-11-06, the audit) list old stuff stays read only, and shows DNS
   assert.match(y, /echo "worker \$w: model\.gofarther\.dev=\$m  gofarther-ai-supabase=\$s"/);
   assert.doesNotMatch(y, /echo "\$text"|printf '%s\\n' "\$text"/);
 });
+
+test("CD99 (owner 2026-11-06, \"Do 1\") DELETE MODEL SERVER deletes only model.gofarther.dev and its tunnel; DELETE alone does not", () => {
+  const y = read(".github/workflows/delete-old-stuff.yml");
+  const job = (name) => { const from = y.indexOf("\n  " + name + ":\n"); assert.ok(from > 0, name); const rest = y.slice(from + 1); const next = rest.search(/\n  [a-z][a-z-]*:\n/); return next > 0 ? rest.slice(0, next) : rest; };
+  const ms = job("model-server"), old = job("delete"), refused = job("refused");
+  assert.match(ms, /if: \$\{\{ github\.event\.inputs\.confirm == 'DELETE MODEL SERVER' \}\}/);
+  assert.match(old, /if: \$\{\{ github\.event\.inputs\.confirm == 'DELETE' \}\}/);
+  assert.match(refused, /confirm != 'DELETE' && github\.event\.inputs\.confirm != 'DELETE MODEL SERVER'/);
+  // Only the one name, never the zone's other records (mail, the site, coder.gofarther.dev).
+  assert.match(ms, /dns_records\?name=model\.gofarther\.dev"/);
+  assert.equal((ms.match(/-X DELETE/g) || []).length, 3, "the record, the tunnel's connections, the tunnel");
+  assert.match(ms, /-X DELETE -H "\$H" "\$API\/zones\/\$ZONE\/dns_records\/\$id"/);
+  assert.doesNotMatch(ms, /wrangler|old-stuff\/|branches|r2\/buckets|neon/i);
+  // The tunnel goes only when no other DNS record still points at it.
+  assert.match(ms, /if \[ "\$n" != "0" \]; then echo "tunnel \$t: \$n other record\(s\) still use it, so it stays"; continue; fi/);
+  assert.ok(ms.indexOf("dns_records/$id") < ms.indexOf("cfd_tunnel/$t\""), "the record goes first, then the tunnel");
+});
