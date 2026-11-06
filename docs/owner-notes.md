@@ -4,6 +4,11 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The Apple key goes in GitHub's secrets, not the chat
+
+- The owner offered to give the Apple API key in the chat. Not in the chat (it would be stored in the conversation; the rule is Claude never sees secret values): the owner puts it in GitHub's secrets, and GitHub's Mac machine uses it.
+- The TestFlight run now first uses the key to register the app ID (dev.gofarther.app) with Apple when it isn't there, and checks the app exists in App Store Connect, stopping at once with a plain message if not (Apple's API cannot create the app itself, so that one step stays in App Store Connect). A wrong key gets a message naming the secrets to check.
+
 ## 2026-11-06: Phone apps build; TestFlight ready to switch on
 
 - "build phone apps" ran: the Android app (GoFarther-android.apk, 3.7 MB) and the iPhone app (Xcode: BUILD SUCCEEDED, ID dev.gofarther.app) both build on GitHub's machines, free.

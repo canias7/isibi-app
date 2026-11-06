@@ -14,8 +14,10 @@ name: build phone apps
 #              APPLE_API_KEY_ID       an App Store Connect API key's ID
 #              APPLE_API_ISSUER_ID    that key's issuer ID
 #              APPLE_API_KEY_P8       the key file's contents (AuthKey_….p8)
-#            With the key, Apple signs the app itself (cloud signing): no
-#            certificate files are copied anywhere.
+#            With the key, the run registers the app ID (dev.gofarther.app) with
+#            Apple if needed, and Apple signs the app itself (cloud signing): no
+#            certificate files are copied anywhere. The app must exist in App
+#            Store Connect (Apple's API cannot create it); the run says so plainly.
 
 on:
   workflow_dispatch:
@@ -127,6 +129,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/keys"
           printf '%s\n' "$P8" > "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
           chmod 600 "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+      - name: Register the app ID with Apple and check the app is in App Store Connect
+        run: KEY_PATH="$RUNNER_TEMP/keys/AuthKey_$KID.p8" node scripts/apple-check.mjs
       - name: Build and sign the iPhone app (Apple's cloud signing)
         run: |
           set -o pipefail
