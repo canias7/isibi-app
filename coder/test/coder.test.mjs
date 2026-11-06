@@ -1829,3 +1829,16 @@ test("CD78 (live outage, 2026-11-06) Coder's machine starts with exactly the fil
   const out = execFileSync("node", ["--input-type=module", "-e", "await import('./server.mjs'); await import('./coder-tools.mjs'); console.log('STARTS OK')"], { cwd: dir }).toString();
   assert.match(out, /STARTS OK/);
 });
+
+test("CD79 (owner 2026-11-06: the phone apps) the page clears the status bar and home bar, and in the phone app sends other sites to the app's browser sheet but keeps GitHub's sign-in inside", () => {
+  const css = readFileSync(HERE("public/app.css"), "utf8");
+  assert.match(css, /body \{ padding: env\(safe-area-inset-top, 0px\) env\(safe-area-inset-right, 0px\) env\(safe-area-inset-bottom, 0px\) env\(safe-area-inset-left, 0px\); \}/);
+  const js = readFileSync(HERE("public/app.js"), "utf8");
+  assert.match(js, /if \(\/GoFartherApp\\\/\/\.test\(navigator\.userAgent\)\) \{/);
+  assert.match(js, /if \(u\.hostname === 'github\.com' && GITHUB_INSIDE\.test\(u\.pathname\)\) \{ location\.href = u\.href; return; \}/);
+  assert.match(js, /window\.Capacitor\.Plugins\.Browser/);
+  // The same GitHub pages stay inside as in the desktop app's rules.
+  const re = new RegExp(js.match(/const GITHUB_INSIDE = \/(.+)\/;\n/)[1]);
+  for (const ok of ["/login/oauth/authorize", "/login", "/session", "/sessions/two-factor/app", "/apps/gofarther-coder/installations/new", "/settings/installations/1"]) assert.ok(re.test(ok), ok);
+  for (const no of ["/canias7/testingforclaude/pull/7", "/", "/settings/profile"]) assert.ok(!re.test(no), no);
+});

@@ -1,0 +1,21 @@
+{
+  "name": "go-farther-mobile",
+  "version": "0.1.0",
+  "description": "Go Farther (Coder) for iPhone and Android",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "sync": "cap sync",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/browser": "8.0.5",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
+}

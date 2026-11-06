@@ -22,6 +22,8 @@ repository on 2026-11-05. The full old tree is in git history (the commit before
 | `coder/container/` | Coder's own container: the agent loop (Grok, one tool, `bash`; it finishes by answering in words), safety checks, git |
 | `coder/test/` | `npm test` from `coder/` |
 | `coder/desktop/` | The desktop app for Mac and Windows (Electron): gofarther.dev in its own window; `npm test` from `coder/desktop/` |
+| `coder/mobile/` | The phone app for iPhone and Android (Capacitor): gofarther.dev in its own app; `npm test` from `coder/mobile/` |
+| `.github/workflows/build-mobile.yml` | The phone build button: Android `.apk`; iPhone built for the simulator (TestFlight needs the owner's Apple certificates) |
 | `.github/workflows/build-desktop.yml` | The desktop build button: Mac `.dmg` and Windows `.exe`; tick "publish" for a public release |
 | `.github/workflows/deploy-coder.yml` | The deploy button (Claude may press it when the owner says deploy) |
 | `.github/workflows/list-old-stuff.yml` | Lists what is left of the old app (read-only) |

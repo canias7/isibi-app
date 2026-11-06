@@ -7,6 +7,23 @@
   // There, the "Download for Mac / Windows" buttons are hidden.
   const inApp = /GoFartherDesktop\/|GoFartherApp\//.test(navigator.userAgent) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
   if (inApp) document.documentElement.classList.add('gf-inapp');
+  // IN THE PHONE APP: links to other sites open in the app's own browser sheet
+  // (Safari / Chrome on top of the app), so the app is never left stuck on
+  // another site. GitHub's sign-in and install pages stay in the app, like on
+  // the desktop (Connect GitHub must come back here).
+  if (/GoFartherApp\//.test(navigator.userAgent)) {
+    const GITHUB_INSIDE = /^\/(login|session|sessions)(\/|$)|^\/apps\/[\w.-]+\/installations(\/|$)|^\/settings\/installations(\/|$)/;
+    document.addEventListener('click', (e) => {
+      const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a) return;
+      let u; try { u = new URL(a.getAttribute('href'), location.href); } catch { return; }
+      if (u.origin === location.origin || !/^https?:$/.test(u.protocol)) return;
+      e.preventDefault();
+      if (u.hostname === 'github.com' && GITHUB_INSIDE.test(u.pathname)) { location.href = u.href; return; }
+      const B = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser;
+      if (B && B.open) B.open({ url: u.href }); else window.open(u.href, '_blank', 'noopener');
+    }, true);
+  }
   let mode = 'in';      // in | up
   let step = 1;         // 1: email + password, 2: the emailed code
   let codeType = 'email';

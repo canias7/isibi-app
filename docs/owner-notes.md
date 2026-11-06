@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The phone apps, started (iPhone and Android)
+
+- coder/mobile: the phone app (Capacitor), gofarther.dev in its own app like the desktop one, named Go Farther with the GF icon and a plain GF splash screen (ID dev.gofarther.app).
+- In the phone app the page hides the download buttons, opens links to other sites in the app's own browser sheet (so the app never gets stuck on another site), and keeps GitHub's sign-in inside so Connect GitHub comes back to the app. Checked by pretending to be the app in a browser.
+- The page now keeps clear of the status bar, the notch and the home bar on phones (zero on computers, so nothing changes there).
+- A new button, "build phone apps": the Android app as GoFarther-android.apk (installs on an Android phone directly), and the iPhone app built for the simulator to check it compiles. Free (public repository).
+- Next: the owner has the Apple certificates; with them as GitHub secrets the iPhone build can be signed and sent to TestFlight, to install on a real iPhone.
+
 ## 2026-11-06: Fix: Coder's machine could not start after the last deploy
 
 - My mistake in the deploy that matched the Environment to Claude Code's docs: the new file that signs and fetches tokens for secrets (coder-auth.mjs) was not on the list of files copied onto Coder's machine. The machine's program could not start, so every Coder job failed with "Failed to start container" from that deploy until this fix is deployed.
