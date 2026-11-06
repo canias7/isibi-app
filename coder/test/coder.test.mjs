@@ -327,7 +327,7 @@ test("CD11 the model call: Grok's endpoint, the key only in the header, one retr
 });
 
 // ── ITS OWN APP: OWN WORKER, OWN CONTAINER, OWN STORAGE, NOTHING IN THE MAIN APP ──
-import { authUser } from "../src/coder-auth.mjs";
+import { authUser, proofFor } from "../src/coder-auth.mjs";
 import { readdirSync } from "node:fs";
 import { corsHeaders } from "../src/coder-cors.mjs";
 const HERE = (p) => new URL("../" + p, import.meta.url);
@@ -362,10 +362,12 @@ test("CD12 Coder is its own app: its own worker.js, config, container and bucket
 });
 
 test("CD13 sign-in is checked against Supabase by Coder's own Worker; only the builder's page may call it from a browser", async () => {
-  const env = { SUPABASE_URL: "https://sb.example", SUPABASE_ANON_KEY: "anon" };
+  // Since the audit (2026-11-06) the token must also come with the Worker's proof for its session (test/auth-proof.test.mjs).
+  const env = { SUPABASE_URL: "https://sb.example", SUPABASE_ANON_KEY: "anon", CODER_TOKEN_KEY: KEY };
   const seen = [];
-  const fetchFn = async (url, init) => { seen.push([url, init.headers]); return url && init.headers.Authorization === "Bearer good" ? new Response(JSON.stringify({ id: "u1", email: "a@b.c" })) : new Response("", { status: 401 }); };
-  assert.deepEqual(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer good" } }), env, { fetchFn }), { id: "u1", email: "a@b.c" });
+  const good = "h." + Buffer.from(JSON.stringify({ session_id: "s1" })).toString("base64url") + ".sig";
+  const fetchFn = async (url, init) => { seen.push([url, init.headers]); return url && init.headers.Authorization === "Bearer " + good ? new Response(JSON.stringify({ id: "u1", email: "a@b.c" })) : new Response("", { status: 401 }); };
+  assert.deepEqual(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer " + good, "x-coder-proof": await proofFor(env, "s1") } }), env, { fetchFn }), { id: "u1", email: "a@b.c" });
   assert.equal(await authUser(new Request("https://x/", { headers: { Authorization: "Bearer bad" } }), env, { fetchFn }), null);
   assert.equal(await authUser(new Request("https://x/"), env, { fetchFn }), null);
   assert.equal(seen[0][0], "https://sb.example/auth/v1/user");
@@ -538,22 +540,25 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   const { commentsText } = await import("../src/coder-routes.mjs");
   // SIGN-IN: password checked, then a code emailed; the code gives a session.
   const calls = [];
+  // Since the audit (2026-11-06): a ticket between the steps, and a session id in the token for the proof (test/auth-proof.test.mjs).
+  const acc = "h." + Buffer.from(JSON.stringify({ session_id: "s1" })).toString("base64url") + ".sig";
   const fetchFn = async (url, init) => {
     calls.push([url, JSON.parse(init.body || "{}")]);
     const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s });
     if (url.endsWith("token?grant_type=password")) return JSON.parse(init.body).password === "right" ? J({ access_token: "a" }) : J({ error_description: "Invalid login credentials" }, 400);
     if (url.endsWith("/otp")) return J({});
-    if (url.endsWith("/verify")) return J({ access_token: "acc", refresh_token: "ref", expires_in: 3600, user: { id: "u1", email: "me@example.com", role: "x" } });
+    if (url.endsWith("/verify")) return J({ access_token: acc, refresh_token: "ref", expires_in: 3600, user: { id: "u1", email: "me@example.com", role: "x" } });
     return J({}, 404);
   };
-  const env = { SUPABASE_URL: "https://sb", SUPABASE_ANON_KEY: "anon" };
+  const env = { SUPABASE_URL: "https://sb", SUPABASE_ANON_KEY: "anon", CODER_TOKEN_KEY: KEY };
   const post = (a, b) => handleSignin(new Request("https://gofarther.dev/api/auth/" + a, { method: "POST", body: JSON.stringify(b) }), env, { fetchFn });
   assert.equal((await post("signin", { email: "me@example.com", password: "wrong" })).status, 401);
   const ok = await post("signin", { email: "Me@example.com", password: "right" });
-  assert.deepEqual(await ok.json(), { ok: true, step: "code", type: "email" });
+  const { ticket, ...said } = await ok.json();
+  assert.deepEqual(said, { ok: true, step: "code", type: "email" });
   assert.deepEqual(calls.find((c) => c[0].endsWith("/otp"))[1], { email: "me@example.com", create_user: false }, "a sign-in never makes an account");
-  const v = await (await post("verify", { email: "me@example.com", code: "123456", type: "email" })).json();
-  assert.equal(v.session.access_token, "acc");
+  const v = await (await post("verify", { email: "me@example.com", code: "123456", type: "email", ticket })).json();
+  assert.equal(v.session.access_token, acc);
   assert.deepEqual(v.session.user, { id: "u1", email: "me@example.com" }, "only what the page needs");
   assert.equal((await post("verify", { email: "me@example.com", code: "abc" })).status, 400);
   assert.equal(sessionOf({}), null);

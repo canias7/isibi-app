@@ -10,7 +10,8 @@ code in **each user's own GitHub**.
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
 | `src/coder-github.mjs` | Sign in with GitHub, the user's token (encrypted), repositories, pull requests |
-| `src/coder-auth.mjs` | Go Farther sign-in (Supabase) |
+| `src/coder-auth.mjs` | Go Farther sign-in (Supabase), and the Worker's proof that both steps (password, then the emailed code) happened |
+| `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
 | `src/coder-cors.mjs` | Only gofarther.dev may call it from another address |
 | `container/` | The container image: the agent loop (one tool: `bash`), the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
@@ -27,6 +28,14 @@ code in **each user's own GitHub**.
 4. When a piece of work ends, Coder commits, pushes the branch and opens a
    **pull request** into the main branch. The user merges it on GitHub. Coder
    never pushes to the main branch.
+
+**Sign-in is both steps, every time** (the audit, 2026-11-06). The password
+step gives the page a 15-minute ticket and ends Supabase's own session for it;
+the emailed code is only taken with that ticket. The code step gives the
+session and the Worker's proof, which the page sends with every call
+(`x-coder-proof`). A Supabase session without the proof gets "Sign in again."
+Tickets and proofs are signed with a key made from `CODER_TOKEN_KEY`; without
+it nobody can sign in.
 
 **The code is never stored with us.** Coder's bucket keeps the chat, the project
 list and the GitHub connection (encrypted with `CODER_TOKEN_KEY`).
@@ -50,4 +59,6 @@ Pull requests (read and write) and Metadata (read), installable by any account.
 The **deploy coder** button (`.github/workflows/deploy-coder.yml`), pressed by
 the owner. It needs these GitHub secrets: `CLOUDFLARE_API_TOKEN`,
 `CLOUDFLARE_ACCOUNT_ID`, `XAI_API_KEY`, `CODER_GITHUB_CLIENT_SECRET`. The token
-key is derived from the client secret during the deploy.
+key is derived from the client secret during the deploy. It also signs the
+sign-in proofs, so a new client secret means everyone connects GitHub and signs
+in again.

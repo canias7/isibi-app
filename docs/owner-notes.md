@@ -4,6 +4,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: The emailed code is really required now (audit item 3)
+
+- Your word: "Do 1,2,3,4". This is 3.
+- **Both steps, every time.** Signing in is still your password, then the code we email you. What changed is that Coder's server now checks that both steps really happened on gofarther.dev before it lets anyone use Coder.
+  - The password step gives the page a ticket that lasts 15 minutes. The code is only accepted with that ticket, for the same email. If it runs out, the card goes back to the password step and says "Start again".
+  - The code step gives the session plus the server's own proof. The page sends the proof with every Coder call. Without it, Coder answers "Sign in again."
+  - A new account also needs the emailed code.
+  - The password check no longer leaves a spare session behind. Only that one is ended, never your other devices.
+- **No more stuck page.** When a session ends (you signed out on another device, for example), the page now goes back to the sign-in card, which says "Sign in again." It does this once, never in a loop. If the sign-in service can't be reached, you stay signed in and Coder says to try again in a minute.
+- **After this goes live, everyone signs in once more, you too.** Sessions from before have no proof. That's expected.
+- No new design: "Sign in again." appears in the sign-in card's usual message line.
+- Tests: CD86 to CD89 (new file `coder/test/auth-proof.test.mjs`). CD13 and CD22 changed only where the ticket and proof are now needed.
+- On a branch, not deployed. Live after "merge and deploy".
+
 ## 2026-11-06: Full platform audit
 
 - Your word: "do full platform audit, imma go to bed".

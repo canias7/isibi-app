@@ -44,14 +44,26 @@
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  async function call(path, init) {
+  // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
+  // A call refused because the session is over (signed out here or on another
+  // device, or a session without the proof) ends the session on this page and
+  // goes back to sign-in. A token refused as old gets one fresh token and one
+  // more try, never more; other refusals (like "Connect GitHub again") stay as they are.
+  async function call(path, init, again) {
     const token = window.Auth && typeof window.Auth.accessToken === 'function' ? await window.Auth.accessToken() : null;
-    if (!token) return { status: 401, data: { error: 'sign in first' } };
+    if (!token) { if (window.Auth && window.Auth.end) window.Auth.end(); return { status: 401, data: { error: 'sign in first' } }; }
     let r;
     try {
-      r = await fetch(API + path, { ...(init || {}), headers: { Authorization: 'Bearer ' + token, ...(init && init.body ? { 'content-type': 'application/json' } : {}) } });
+      r = await fetch(API + path, { ...(init || {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(init && init.body ? { 'content-type': 'application/json' } : {}) } });
     } catch (e) { return { status: 0, data: { error: 'Coder could not be reached. Check your connection.' } }; }
     const data = await r.json().catch(() => ({}));
+    if (r.status === 401 && (data.signin === true || data.error === 'sign in first')) {
+      if (data.signin !== true && !again) {
+        const fresh = await window.Auth.refresh(token);
+        if (fresh && fresh.access_token !== token) return call(path, init, true);
+      }
+      window.Auth.end();
+    }
     return { status: r.status, data };
   }
 
