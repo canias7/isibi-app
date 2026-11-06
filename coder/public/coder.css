@@ -283,3 +283,9 @@
 .cd-envnet{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;color:#1f1e1d;margin:2px 0 8px;line-height:1.4}
 .cd-envnet input{margin-top:3px}
 .cd-secret-icon svg{width:26px;height:26px}
+/* ANSWERS, formatted (owner, 2026-11-06). */
+.cd-ai ul, .cd-ai ol { margin: 4px 0 10px; padding-left: 22px; }
+.cd-ai li { margin: 3px 0; }
+.cd-ai h4 { font-size: 15px; margin: 12px 0 6px; }
+.cd-ai .cd-cite { display: inline-block; font-size: 11px; line-height: 16px; min-width: 16px; padding: 0 4px; margin: 0 1px; text-align: center; border-radius: 8px; background: #f0ede7; color: #4a4945; text-decoration: none; vertical-align: 1px; }
+.cd-ai .cd-cite:hover { background: #e5e1d8; }

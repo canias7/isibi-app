@@ -411,6 +411,19 @@ export async function handleCoder(request, env, ctx, deps) {
           pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
         }
       }
+      // UNDO, ASKED FOR IN THE CHAT (owner, 2026-11-06: Coder calls it itself):
+      // the last job's commit is reverted and pushed, like the old Undo button.
+      if (s.result.undoRequest && t) {
+        const before = Array.isArray(meta.commits) ? meta.commits.length : 0;
+        if (commits.length > before) pushNote = (pushNote ? pushNote + " · " : "") + "Not undone: this job changed files too. Ask again on its own.";
+        else if (!commits.length) pushNote = (pushNote ? pushNote + " · " : "") + "Nothing to undo: no job in this chat changed files yet.";
+        else {
+          const last = commits[commits.length - 1];
+          const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: last.sha }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
+          if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "") + "."; }
+          else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
+        }
+      }
       // THE PULL REQUEST CODER WAS ASKED FOR in the chat (owner, 2026-11-05: "b").
       const want = s.result.prRequest;
       if (want && t && pushed) {

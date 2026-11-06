@@ -121,17 +121,7 @@
   }
   // UNDO THE LAST JOB (owner, 2026-11-05): Coder's own "are you sure?", then the server reverts it.
   // REVIEW (owner, 2026-11-05): the server writes the review request; Coder only reads and reports.
-  async function sendReview(kind) {
-    if (!S.project || S.running || S.sending) return;
-    S.sending = true; S.error = '';
-    const base = S.events.length;
-    const label = kind === 'security' ? 'Security review' : 'Review';
-    S.events.push({ type: 'user', text: label, at: Date.now(), local: true }); draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ review: kind, model: S.pick.model, effort: S.pick.effort }) });
-    S.sending = false;
-    if (r.status !== 200) { S.events = S.events.slice(0, base); S.error = (r.data && r.data.error) || 'The review did not start.'; return draw(); }
-    S.project = r.data.project; S.running = true; syncEntry(); S.next = 0; startPoll(); draw(true);
-  }
+
   // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): setup script + variables, kept on the server.
   async function loadEnv() {
     if (!S.project) return;
@@ -165,17 +155,7 @@
       '<div class="cd-envfoot"><button type="button" class="cd-btn" id="envSave">Save</button><span class="cd-muted">' + esc(S.envMsg || '') + '</span></div>' +
     '</div>';
   }
-  async function undoLast() {
-    const p = S.project;
-    if (!p || S.undoing || !p.commits || !p.commits.length) return;
-    const last = p.commits[p.commits.length - 1];
-    if (!(await askSure('Undo the last job?', '“' + (last.title || 'Coder’s changes') + '” will be reversed on the branch ' + p.branch + '. Nothing else changes.', 'Undo'))) return;
-    S.undoing = true; draw();
-    const r = await call('/projects/' + encodeURIComponent(p.id) + '/undo', { method: 'POST', body: '{}' });
-    S.undoing = false;
-    if (r.status === 200 && r.data && r.data.project) { S.project = r.data.project; S.events = S.events.concat(r.data.events || []); S.changes = null; syncEntry(); return draw(true); }
-    note((r.data && r.data.error) || 'It could not be undone.');
-  }
+
   async function removeChat(id) {
     const x = S.projects.find((p) => p.id === id);
     if (!x || !(await askSure('Remove “' + (x.title || 'New chat') + '”?', 'Its branch and pull request stay on GitHub.', 'Remove'))) return;
@@ -284,12 +264,41 @@
   };
 
   // Light formatting for what the AI writes: `code`, ``` blocks, links.
+  // CODER'S ANSWERS, lightly formatted (owner, 2026-11-06: "nicer answer
+  // rendering"): code blocks, bullet and numbered lists, small headings, bold,
+  // `code`, [text](https://…) links and [[1]](https://…) source marks.
+  function inline(s) {
+    const links = [];
+    const keep = (html) => '\u0000' + (links.push(html) - 1) + '\u0000';
+    let h = esc(s)
+      .replace(/\[\[(\d{1,2})\]\]\((https:\/\/[^\s)]+)\)/g, (_, n, u) => keep('<a class="cd-cite" href="' + u + '" target="_blank" rel="noopener">' + n + '</a>'))
+      .replace(/\[([^\]\n]{1,200})\]\((https:\/\/[^\s)]+)\)/g, (_, txt, u) => keep('<a href="' + u + '" target="_blank" rel="noopener">' + txt + '</a>'))
+      .replace(/`([^`\n]+)`/g, (_, c) => keep('<code>' + c + '</code>'))
+      .replace(/(https:\/\/[^\s<]+[^\s<.,;:!?)])/g, (u) => keep('<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>'))
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+    return h.replace(/\u0000(\d+)\u0000/g, (_, i) => links[Number(i)]);
+  }
+  function blocks(text) {
+    const out = [];
+    for (const block of String(text).trim().split(/\n{2,}/)) {
+      const lines = block.split('\n');
+      const bullet = (l) => /^\s*[-*•]\s+/.test(l), num = (l) => /^\s*\d{1,3}[.)]\s+/.test(l);
+      if (lines.every(bullet)) out.push('<ul>' + lines.map((l) => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>');
+      else if (lines.every(num)) out.push('<ol>' + lines.map((l) => '<li>' + inline(l.replace(/^\s*\d{1,3}[.)]\s+/, '')) + '</li>').join('') + '</ol>');
+      else if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) out.push('<h4>' + inline(lines[0].replace(/^#{1,4}\s+/, '')) + '</h4>');
+      else {
+        // A paragraph followed by its own list (no blank line between them).
+        const first = lines.findIndex((l) => bullet(l) || num(l));
+        if (first > 0 && lines.slice(first).every(bullet)) { out.push('<p>' + lines.slice(0, first).map(inline).join('<br>') + '</p>'); out.push('<ul>' + lines.slice(first).map((l) => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>'); }
+        else if (first > 0 && lines.slice(first).every(num)) { out.push('<p>' + lines.slice(0, first).map(inline).join('<br>') + '</p>'); out.push('<ol>' + lines.slice(first).map((l) => '<li>' + inline(l.replace(/^\s*\d{1,3}[.)]\s+/, '')) + '</li>').join('') + '</ol>'); }
+        else out.push('<p>' + lines.map(inline).join('<br>') + '</p>');
+      }
+    }
+    return out.join('');
+  }
   function prose(t) {
     const parts = String(t || '').split(/```[a-zA-Z0-9_-]*\n?/);
-    return parts.map((p, i) => i % 2
-      ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>'
-      : '<p>' + esc(p.trim()).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/(https:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>') + '</p>'
-    ).join('').replace(/<p><\/p>/g, '');
+    return parts.map((p, i) => i % 2 ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>' : (p.trim() ? blocks(p) : '')).join('');
   }
 
   // ONE COMMAND as a quiet line, "Ran <command> ▸", like the Claude app
@@ -402,8 +411,6 @@
       (p ? '<b class="cd-title-bar">' + esc(title) + '</b><span class="cd-repo-bar">' + ICON.gh + esc(p.repo) + '</span>' : '') +
       (p ? '<span class="cd-branch">' + ICON.branch + esc(p.branch) + '</span>' : '') +
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === false ? '' : ' on') + '" id="cdAutofix" title="When a check fails or you review the pull request, Coder fixes it (up to 3 tries in a row)">Auto-fix: ' + (p.autofix === false ? 'Off' : 'On') + '</button>' : '') +
-      (p && Array.isArray(p.commits) && p.commits.length && !S.running ? '<button type="button" class="cd-hbtn" id="cdUndo"' + (S.undoing ? ' disabled' : '') + ' title="Undo: ' + esc(p.commits[p.commits.length - 1].title || '') + '">' + (S.undoing ? 'Undoing…' : 'Undo last job') + '</button>' : '') +
-      (p && !S.running ? '<span class="cd-revwrap"><button type="button" class="cd-hbtn" id="cdReview" aria-haspopup="menu">Review ▾</button>' + (S.reviewMenu ? '<span class="cd-revmenu" role="menu"><button type="button" data-review="code" role="menuitem"><b>Review changes</b><small>Bugs, edge cases, missing tests</small></button><button type="button" data-review="security" role="menuitem"><b>Security review</b><small>Injection, secrets, auth, XSS…</small></button></span>' : '') + '</span>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
@@ -660,14 +667,11 @@
     on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
-    on('#cdUndo', 'click', () => undoLast());
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
     on('#cdEnv', 'click', () => { S.showEnv = !S.showEnv; S.showChanges = false; if (S.showEnv) loadEnv(); draw(); });
     on('#envAdd', 'click', () => { const n = root.querySelector('#envName'), v = root.querySelector('#envVal'); S.envEdit = S.envEdit || {}; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; if (n && n.value.trim()) { S.envEdit[n.value.trim()] = v ? v.value : ''; } draw(); });
     on('[data-envdel]', 'click', (e) => { S.envEdit = S.envEdit || {}; S.envEdit[e.currentTarget.dataset.envdel] = null; S.envDraft = { script: (root.querySelector('#envScript') || {}).value }; draw(); });
     on('#envSave', 'click', () => saveEnv((root.querySelector('#envScript') || {}).value || ''));
-    on('#cdReview', 'click', (e) => { e.stopPropagation(); S.reviewMenu = !S.reviewMenu; draw(); });
-    on('[data-review]', 'click', (e) => { S.reviewMenu = false; sendReview(e.currentTarget.dataset.review); });
     on('#cdAttach', 'click', () => { const f = root.querySelector('#cdFile'); if (f) f.click(); });
     on('#cdFile', 'change', (e) => { addPics(e.target.files); e.target.value = ''; });
     on('[data-unpic]', 'click', (e) => { S.pics.splice(Number(e.currentTarget.dataset.unpic), 1); draw(); });
