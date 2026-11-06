@@ -81,6 +81,7 @@ test("M4 the Apple check: a real ES256 token Apple can verify; registers the app
   assert.deepEqual(await appleCheck({ kid: "K", iss: "I", key, bundleId: "dev.gofarther.app", appName: "Go Farther", create: true, fetchFn: withApps(true), log: () => {} }), { registered: false, appExists: true, created: true, createError: "" });
   const refused = await appleCheck({ kid: "K", iss: "I", key, bundleId: "dev.gofarther.app", appName: "Go Farther", create: true, fetchFn: withApps(false), log: () => {} });
   assert.equal(refused.appExists, false); assert.match(refused.createError, /does not allow 'CREATE'/);
+  assert.doesNotMatch(refused.createError, /Admin or App Manager/, "not blamed on the key's role (live run, 2026-11-06)");
   // A wrong key: a plain message naming the secrets to check
   await assert.rejects(appleCheck({ kid: "K", iss: "I", key, bundleId: "x.y", appName: "n", fetchFn: async () => new Response(JSON.stringify({ errors: [{ title: "Authentication credentials are missing or invalid." }] }), { status: 401 }), log: () => {} }), /check APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and APPLE_API_KEY_P8/);
 });

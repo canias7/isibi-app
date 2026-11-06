@@ -34,7 +34,9 @@ export async function appleCheck({ kid, iss, key, bundleId, appName, sku = "gofa
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
       const why = (j.errors && j.errors[0] && (j.errors[0].detail || j.errors[0].title)) || ("HTTP " + r.status);
-      throw new Error("Apple said: " + why + (r.status === 401 ? " (check APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and APPLE_API_KEY_P8)" : r.status === 403 ? " (the key needs the Admin or App Manager role)" : ""));
+      // A 403 for an action Apple's API never allows ("does not allow 'CREATE'") is not about the key's role.
+      const hint = r.status === 401 ? " (check APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and APPLE_API_KEY_P8)" : r.status === 403 && !/does not allow/i.test(why) ? " (the key needs the Admin or App Manager role)" : "";
+      throw new Error("Apple said: " + why + hint);
     }
     return j;
   };
