@@ -4,6 +4,15 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Full platform audit
+
+- Your word: "do full platform audit, imma go to bed".
+- It was read-only. Nothing was changed, deployed or merged. No Grok calls were made, and no sign-in emails were sent.
+- It covered 19 areas: the 15 planned, plus 4 that a final check said were missing. Separate reviewers challenged each finding, and duplicates were merged. Your usage limit cut off the last 12 checks, so I checked those against the code myself.
+- **The report is not in this repository.** The repository is public, and the report describes problems that are still live. You have it as a file in the chat (`audit-2026-11-06.md`).
+- The audit had left a folder of test keys (`ca/`) in the repo folder. I moved it out before anything was committed.
+- Nothing gets fixed until you choose what to fix.
+
 ## 2026-11-06: Environments like Claude Code's
 
 - Your word: "make it like claude code", after I checked Claude Code's docs (code.claude.com/docs/en/cloud-environments).
