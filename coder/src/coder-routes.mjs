@@ -416,7 +416,11 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     // Auto-fix tries in a row; a message from the owner starts the count again.
     await markUsed(bucket, uid, envId, meta.repo).catch(() => {});
-    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0 };
+    // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
+    // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
+    const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
+    const marks = [...(Array.isArray(meta.marks) ? meta.marks : []), { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks };
     await saveMeta(bucket, uid, next);
     // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
     // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
@@ -511,9 +515,14 @@ export async function handleCoder(request, env, ctx, deps) {
       if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, id, "hide.json")); }
       const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
       if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
-      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
+      const kept = capHistory(s.result.messages);
+      await putJson(bucket, keyOf(uid, id, "messages.json"), kept);
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
-      await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...fresh].slice(-MAX_EVENTS));
+      const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
+      await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
+      // The oldest history may have been trimmed: Rewind's marks move with it.
+      const dropM = (Array.isArray(s.result.messages) ? s.result.messages.length : 0) - kept.length, dropE = allEvents.length - keptEvents.length;
+      meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       const ended = { ...meta, saved: meta.turn, pr, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await saveMeta(bucket, uid, ended);
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
@@ -560,6 +569,53 @@ export async function handleCoder(request, env, ctx, deps) {
     const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
+  }
+
+  // REWIND, like Claude Code's (its docs, read 2026-11-06: "Restore code and
+  // conversation", "Restore conversation", "Restore code"; owner: "Finish all
+  // this"): back to just before one of the owner's messages. The code goes back
+  // by reverting the later jobs' commits, newest first, each saved to the branch
+  // (never a force push); the chat goes back by cutting what came after.
+  if (action === "rewind" && request.method === "POST") {
+    if (meta.status === "running") return json({ error: "Coder is still working. Stop it first, or wait." }, 409);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const turn = Number(body.turn), code = body.code === true, chat = body.chat === true;
+    const mark = (Array.isArray(meta.marks) ? meta.marks : []).find((m) => m.turn === turn);
+    if (!mark) return json({ error: "That message is too old to rewind to here." }, 400);
+    if (!code && !chat) return json({ error: "Choose the code, the chat, or both." }, 400);
+    let commits = Array.isArray(meta.commits) ? meta.commits : [];
+    const later = commits.filter((c) => Number(c.turn) >= turn).reverse();
+    let undone = 0;
+    if (code && later.length) {
+      const t = await userToken(env, bucket, uid, { fetchFn });
+      if (!t) return json({ error: "Connect GitHub again first." }, 401);
+      for (const c of later) {
+        let r;
+        try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, sha: c.sha }).then((x) => x.json()); }
+        catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
+        if (!r.ok) {
+          // What was undone so far stays undone, and is recorded.
+          const part = { ...meta, commits: commits.filter((x) => !later.slice(0, undone).includes(x)), at: Date.now() };
+          await saveMeta(bucket, uid, part);
+          return json({ error: "Could not rewind the code" + (undone ? " all the way (" + undone + " of " + later.length + " jobs undone)" : "") + ": " + String(r.why || r.error || "unknown").slice(0, 300), project: part }, 409);
+        }
+        undone++;
+      }
+      commits = commits.filter((c) => !later.includes(c));
+    }
+    let events = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    let msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    if (chat) { events = events.slice(0, mark.ev); msgs = msgs.slice(0, mark.msg); }
+    const note = "Rewound to before an earlier message: " + [code ? (later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes") : "", chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + ".";
+    const ev = { at: Date.now(), type: "github", text: note };
+    events = [...events, ev].slice(-MAX_EVENTS);
+    // Code only: Coder is told, so it knows those changes are gone.
+    if (code && !chat && later.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner rewound the code to before an earlier message. The commits of the later jobs were reverted: " + later.map((c) => "\"" + c.title + "\"").join(", ") + ". Those changes are no longer in the files. Nothing to do now.)" }];
+    await putJson(bucket, keyOf(uid, id, "events.json"), events);
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(msgs));
+    const next = { ...meta, commits, marks: chat ? (meta.marks || []).filter((m) => m.turn < turn) : meta.marks, at: Date.now() };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next, events });
   }
 
   // AUTO-FIX ON/OFF for this chat's pull request (on unless turned off).

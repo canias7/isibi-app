@@ -119,6 +119,34 @@
       document.addEventListener('keydown', key); ok.focus();
     });
   }
+  // CODER'S OWN BOX WITH SEVERAL CHOICES (Rewind's three, like Claude Code's).
+  function askPick(title, text, choices) {
+    return new Promise((done) => {
+      const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+      const box = document.createElement('div'); box.className = 'cd-sure-box'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+      const h = document.createElement('div'); h.className = 'cd-sure-title'; h.textContent = title;
+      const p = document.createElement('div'); p.className = 'cd-sure-text'; p.textContent = text;
+      const col = document.createElement('div'); col.className = 'cd-pick-col';
+      const end = (v) => { document.removeEventListener('keydown', key); wrap.remove(); done(v); };
+      const key = (e) => { if (e.key === 'Escape') end(null); };
+      choices.forEach(([v, label]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = () => end(v); col.append(b); });
+      const no = document.createElement('button'); no.type = 'button'; no.className = 'cd-sure-no'; no.textContent = 'Never mind'; no.onclick = () => end(null); col.append(no);
+      box.append(h, p, col); wrap.append(box); document.body.append(wrap);
+      wrap.onclick = (e) => { if (e.target === wrap) end(null); };
+      document.addEventListener('keydown', key); col.firstChild.focus();
+    });
+  }
+  // REWIND (like Claude Code's /rewind, 2026-11-06): back to before one of your messages.
+  async function rewind(turn) {
+    const pick = await askPick('Rewind to before this message?', 'Coder goes back to how things were before you sent it. Code changes are undone with new commits on the branch, never deleted from GitHub.',
+      [['both', 'Restore code and chat'], ['chat', 'Restore chat only'], ['code', 'Restore code only']]);
+    if (!pick || !S.project) return;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify({ turn, code: pick !== 'chat', chat: pick !== 'code' }) });
+    if (r.data && r.data.project) S.project = r.data.project;
+    if (r.status === 200 && r.data) { S.events = r.data.events || S.events; S.error = ''; }
+    else S.error = (r.data && r.data.error) || 'Could not rewind.';
+    syncEntry(); draw();
+  }
   // CODER'S OWN BOX WITH A TEXT FIELD (a new environment's name).
   function askText(title, text, yes, value) {
     return new Promise((done) => {
@@ -498,7 +526,8 @@
       if (e.type === 'bash') { group.push([e, i]); return; }
       if (e.type === 'result') return;
       flush();
-      if (e.type === 'user') out.push('<div class="cd-user">' + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble">' + esc(e.text) + '</div></div>');
+      const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
+      if (e.type === 'user') out.push('<div class="cd-user">' + (mark ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble">' + esc(e.text) + '</div></div>');
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
@@ -844,6 +873,7 @@
     on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
+    on('[data-rewind]', 'click', (e) => rewind(Number(e.currentTarget.dataset.rewind)));
     on('#cdMakePr', 'click', () => send(PR_ASK));
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });

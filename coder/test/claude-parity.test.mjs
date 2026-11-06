@@ -172,3 +172,63 @@ test("CD104 review findings as comments on the pull request's lines, like Claude
   const { readFileSync } = await import("node:fs");
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /No pull request yet: the review stays in this chat\./);
 });
+
+test("CD105 Rewind, like Claude Code's: back to before one of your messages — code, chat or both; code by reverting the later jobs newest first, never a force push", async () => {
+  const { handleCoder } = await import("../src/coder-routes.mjs");
+  const uid = "user-1234567890abcdef", id = "shop-r1";
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev" };
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const setup = async (over = {}) => {
+    const bucket = fakeBucket();
+    await saveConnection({ ...env }, bucket, uid, { access: "ghu_user" }, "ana");
+    const meta = { id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 3, status: "idle", commits: [{ sha: "a1", turn: 1, title: "Job one" }, { sha: "b2", turn: 2, title: "Job two" }, { sha: "c3", turn: 3, title: "Job three" }], marks: [{ turn: 1, ev: 0, msg: 0 }, { turn: 2, ev: 3, msg: 4 }, { turn: 3, ev: 6, msg: 8 }], ...over };
+    await bucket.put("coder/" + uid + "/" + id + "/meta.json", JSON.stringify(meta));
+    await bucket.put("coder/" + uid + "/" + id + "/events.json", JSON.stringify(Array.from({ length: 9 }, (_, k) => ({ type: k % 3 ? "done" : "user", text: "e" + k }))));
+    await bucket.put("coder/" + uid + "/" + id + "/messages.json", JSON.stringify(Array.from({ length: 12 }, (_, k) => ({ role: k % 4 ? "assistant" : "user", content: "m" + k }))));
+    const undos = []; let failAt = over.failAt || 0;
+    const deps = { fetchFn: async () => new Response("{}"), authUser: async () => ({ id: uid, email: "me@x.y" }), container: () => ({ fetch: async (req) => { const b = await req.json(); undos.push([new URL(req.url).pathname, b.sha]); return Response.json(failAt && undos.length === failAt ? { ok: false, why: "conflict" } : { ok: true }); } }) };
+    const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), { ...env, CODER_BUCKET: bucket }, {}, deps);
+    const read = (f) => JSON.parse(bucket.m.get("coder/" + uid + "/" + id + "/" + f));
+    return { go, read, undos };
+  };
+  const rw = (go, body) => go("projects/" + id + "/rewind", { method: "POST", body: JSON.stringify(body) });
+  // Code and chat: jobs 3 then 2 are undone (newest first), the chat is cut before message 2.
+  let x = await setup();
+  let r = await (await rw(x.go, { turn: 2, code: true, chat: true })).json();
+  assert.deepEqual(x.undos, [["/undo", "c3"], ["/undo", "b2"]]);
+  assert.deepEqual(r.project.commits.map((c) => c.sha), ["a1"]);
+  assert.deepEqual(r.project.marks.map((m) => m.turn), [1]);
+  assert.deepEqual(x.read("events.json").map((e) => e.text).slice(0, 3), ["e0", "e1", "e2"]);
+  assert.match(x.read("events.json")[3].text, /^Rewound to before an earlier message: the code is back as it was \(2 jobs undone, saved to the branch coder\/shop-r1\); the chat after it is gone\.$/);
+  assert.equal(x.read("messages.json").length, 4);
+  // Chat only: no code is touched.
+  x = await setup();
+  r = await (await rw(x.go, { turn: 3, chat: true })).json();
+  assert.deepEqual(x.undos, []);
+  assert.equal(x.read("messages.json").length, 8);
+  assert.deepEqual(r.project.commits.map((c) => c.sha), ["a1", "b2", "c3"]);
+  // Code only: the chat stays, and Coder is told what was reverted.
+  x = await setup();
+  await rw(x.go, { turn: 3, code: true });
+  assert.deepEqual(x.undos, [["/undo", "c3"]]);
+  assert.match(x.read("messages.json").at(-1).content, /rewound the code to before an earlier message\. The commits of the later jobs were reverted: "Job three"/);
+  // Refused: while working, an unknown message, nothing chosen; a failure part-way keeps what was done.
+  x = await setup({ status: "running" });
+  assert.equal((await rw(x.go, { turn: 2, code: true, chat: true })).status, 409);
+  x = await setup();
+  assert.equal((await rw(x.go, { turn: 9, chat: true })).status, 400);
+  assert.equal((await rw(x.go, { turn: 2 })).status, 400);
+  x = await setup({ failAt: 2 });
+  r = await rw(x.go, { turn: 2, code: true, chat: true });
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).error, /1 of 2 jobs undone/);
+  assert.deepEqual(x.read("meta.json").commits.map((c) => c.sha), ["a1", "b2"], "job three stays undone");
+  // Each message records where it starts; trimming old history moves the marks with it; the page shows Rewind.
+  const { readFileSync } = await import("node:fs");
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /\{ turn: meta\.turn \+ 1, ev: evCount, msg: Array\.isArray\(messages\) \? messages\.length : 0 \}/);
+  assert.match(routes, /\.map\(\(m\) => \(\{ \.\.\.m, msg: m\.msg - dropM, ev: m\.ev - dropE \}\)\)\.filter\(\(m\) => m\.msg >= 0 && m\.ev >= 0\)/);
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /\[\['both', 'Restore code and chat'\], \['chat', 'Restore chat only'\], \['code', 'Restore code only'\]\]/);
+  assert.match(page, /on\('\[data-rewind\]', 'click', \(e\) => rewind\(Number\(e\.currentTarget\.dataset\.rewind\)\)\);/);
+});
