@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Environment matched to Claude Code's docs (1-7)
+
+Checked against code.claude.com/docs/en/cloud-environments.
+- 1. Four network levels, like Claude Code's: None, Trusted (the default list), Full, and Custom (your own sites, with an "Also include the default list" box). Older "Limited" settings read as Custom with the default list.
+- 2. New repos start on Trusted, like Claude Code's Default environment (was Full). Repos already saved as Full stay Full. Approving "Allow this site?" on Trusted switches to Custom with the default list plus that site.
+- 3. The default list is Claude Code's: about 160 sites (npm, PyPI, RubyGems, crates, Go, Maven, NuGet and other registries; GitHub, GitLab, Bitbucket; Docker and other container registries; Google Cloud, Azure, AWS; Ubuntu, Anaconda, HashiCorp, Datadog and more).
+- 4. Sites with a saved secret stay reachable at every level, even None.
+- 5. Keys are never sent to package registries, GitHub or Anthropic's API, even if a secret lists them.
+- 6. The setup script gets about 5 minutes (was 10), and runs again when the script or the network setting changes, or after about 7 days, like Claude Code's cache.
+- 7. More secret types: body parameter (added to JSON and form bodies), OAuth 2.0 client credentials (token fetched and renewed by the proxy), Google Cloud service account, and AWS SigV4 (each request signed; checked against AWS's own test examples).
+- Coder's web_fetch follows the site list like any other request; the docs name only GitHub, connectors, sites with a saved secret and Anthropic's own API as skipping it. Grok's web search (on xAI's side) is unaffected.
+
 ## 2026-11-06: The Environment window, like Claude Code's
 
 - The Environment button opens a window like Claude Code's "Edit cloud environment": four rows (Network access, Network secrets, Setup script, Environment variables), each with its own page, Back, Cancel and Save changes.

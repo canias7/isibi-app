@@ -20,7 +20,8 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
-import { okHost, okPattern, HEADER_RE, hostAllowed, hostMatches, normNetwork, PATH_RE } from "./coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, hostAllowed, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS } from "./coder-secrets.mjs";
+import { bearerFor, sigv4, withBodyParam } from "./coder-auth.mjs";
 import { lookup as dnsLookup } from "node:dns";
 import { privateAddress } from "./coder-tools.mjs";
 export { okHost, HEADER_RE, PREFIXES, headerValue } from "./coder-secrets.mjs";
@@ -94,12 +95,13 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // THE OWNER'S SECRETS (owner, 2026-11-06, like Claude Code's): each covers one
   // or more sites ("*.example.com" too), optionally only some paths, and adds one
   // or more headers.
-  let rules = []; // [{ hosts, paths, headers: [{ name, value }], raws }]
+  let rules = []; // [{ kind, hosts, paths, headers: [{ name, value }], config, raws }]
   let network = normNetwork(null);
-  const ruleFor = (h) => rules.find((r) => r.hosts.some((p) => hostMatches(h, p)));
-  const allowed = (h) => hostAllowed(h, network, rules.flatMap((r) => r.hosts));
-  // THE TLS SIDE: requests for a secret's site, with its headers added.
-  const inner = http.createServer((req, res) => {
+  // Never a key for package registries or GitHub (Claude Code's docs), whatever a secret lists.
+  const ruleFor = (h) => (keyAllowed(h) ? rules.find((r) => r.hosts.some((p) => hostMatches(h, p))) : undefined);
+  const allowed = (h) => hostAllowed(h, network, rules.flatMap((r) => r.hosts).filter(keyAllowed));
+  // THE TLS SIDE: requests for a secret's site, with its key added the way its type says.
+  const inner = http.createServer(async (req, res) => {
     const host = req.socket.coderHost;
     const rule = ruleFor(host);
     const pathOk = rule && (!rule.paths.length || rule.paths.some((p) => String(req.url || "").startsWith(p)));
@@ -109,20 +111,35 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const s = pathOk ? rule : null;
     const headers = { ...req.headers, host };
     for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
-    if (s) for (const h of s.headers) { for (const k of Object.keys(headers)) if (k.toLowerCase() === h.name.toLowerCase()) delete headers[k]; headers[h.name] = h.value; }
+    const set = (name, value) => { for (const k of Object.keys(headers)) if (k.toLowerCase() === name.toLowerCase()) delete headers[k]; headers[name] = value; };
+    let body = null; // set when the body is read here (aws, body)
+    if (s) {
+      try {
+        if (s.kind === "headers") for (const h of s.headers) set(h.name, h.value);
+        else if (s.kind === "oauth" || s.kind === "gcp") { const tok = await bearerFor(s.kind, s.config, upstream.fetchFn ? { fetchFn: upstream.fetchFn } : {}); s.live = tok; set("Authorization", "Bearer " + tok); }
+        else {
+          const chunks = []; let size = 0;
+          for await (const c of req) { size += c.length; if (size > 10 * 1024 * 1024) throw new Error("the request body is over 10 MB"); chunks.push(c); }
+          body = Buffer.concat(chunks);
+          if (s.kind === "body" && (body.length || !["GET", "HEAD", "OPTIONS", "DELETE"].includes(String(req.method).toUpperCase()))) { const nb = withBodyParam(headers["content-type"], body, s.config.param, s.config.value); if (nb) { body = nb; if (!headers["content-type"]) headers["content-type"] = "application/x-www-form-urlencoded"; } }
+          if (s.kind === "aws") for (const [k, v] of Object.entries(sigv4({ method: req.method, host, path: req.url, headers, body }, s.config))) set(k, v);
+          delete headers["transfer-encoding"]; headers["content-length"] = String(body.length);
+        }
+      } catch (e) { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy could not add the secret for " + host + ": " + String((e && e.message) || e).slice(0, 200)); }
+    }
     let up;
     try {
     up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: req.url, headers, ...(network.mode !== "full" && !upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
       // A website that copies the key into its answer's headers does not hand it back (the audit, 2026-11-06).
       const back = { ...r.headers };
-      if (s) { const keys = [...s.headers.map((h) => h.value), ...s.raws]; for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (keys.some((x) => x && one.includes(x))) delete back[k]; } }
+      if (s) { const keys = [...s.headers.map((h) => h.value), ...s.raws, s.live].filter((x) => x && x.length >= 8); for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (keys.some((x) => one.includes(x))) delete back[k]; } }
       r.on("error", () => res.destroy());
       res.writeHead(r.statusCode || 502, back);
       r.pipe(res);
     });
     } catch (e) { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy could not send that request (" + String(e.code || "bad request") + ")"); }
     up.on("error", (e) => { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); res.end("Coder's proxy could not reach " + host + ": " + String(e.code || e.message)); });
-    req.pipe(up);
+    if (body) up.end(body); else req.pipe(up);
   });
 
   const server = http.createServer((req, res) => {
@@ -167,6 +184,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // Nothing a command sends may crash the service (the audit, 2026-11-06).
   for (const s of [server, inner]) { s.on("clientError", (_e, so) => { try { so.destroy(); } catch { /* gone */ } }); s.on("error", () => {}); }
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
+  server.unref(); // never what keeps the service (or a test) running
   const port = server.address().port;
   return {
     port, caFile, bundleFile,
@@ -179,12 +197,14 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
       for (const s of Array.isArray(list) ? list : []) {
         if (!s || typeof s !== "object") continue;
         const hosts = (Array.isArray(s.hosts) ? s.hosts : [s.host]).map(okPattern).filter(Boolean);
-        const headers = (Array.isArray(s.headers) ? s.headers : [{ name: s.header || "Authorization", value: s.value }])
+        const kind = SECRET_KINDS.includes(s.kind) ? s.kind : "headers";
+        const headers = kind !== "headers" ? [] : (Array.isArray(s.headers) ? s.headers : [{ name: s.header || "Authorization", value: s.value }])
           .filter((h) => h && HEADER_RE.test(String(h.name || "")) && typeof h.value === "string" && /^[\x20-\x7e]+$/.test(h.value)).map((h) => ({ name: String(h.name), value: h.value }));
-        if (!hosts.length || !headers.length) continue;
+        const config = kind === "headers" ? null : normConfig(kind, s.config);
+        if (!hosts.length || (kind === "headers" ? !headers.length : !config)) continue;
         const paths = (Array.isArray(s.paths) ? s.paths : []).filter((x) => PATH_RE.test(String(x)));
         const raws = (Array.isArray(s.raws) ? s.raws : [s.raw]).filter((x) => typeof x === "string" && x.length >= 8);
-        next.push({ hosts, paths, headers, raws });
+        next.push({ kind, hosts, paths, headers, config, raws });
       }
       rules = next.slice(0, 20);
     },

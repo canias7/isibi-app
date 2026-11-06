@@ -341,3 +341,4 @@
 .cd-em-cancel,.cd-em-yes{font:inherit;font-size:14.5px;border-radius:10px;padding:9px 16px;cursor:pointer;border:1px solid #e5e3dd;background:#f5f4f0;color:#1f1e1d}
 .cd-em-yes{background:#1f1e1d;border-color:#1f1e1d;color:#fff}
 .cd-em-yes:disabled{opacity:.5}
+.cd-em-area{min-height:120px;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}

@@ -30,7 +30,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
-import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv } from "../container/coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
@@ -63,7 +63,10 @@ export const REVIEWS = {
 // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): a setup script and the
 // owner's own variables, per repository, sealed like the GitHub token.
 /** What the page may see of the saved secrets: never the values. */
-export const secretList = (secrets) => (secrets || []).map(normSecret).filter(Boolean).map((s) => ({ id: s.id, name: s.name, hosts: s.hosts, host: s.hosts[0], paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, prefix: h.prefix })), header: s.headers[0].name, at: s.at }));
+const KIND_LABEL = { headers: "", body: "body parameter", oauth: "OAuth 2.0 client credentials", gcp: "Google Cloud service account", aws: "AWS SigV4" };
+export const secretList = (secrets) => (secrets || []).map(normSecret).filter(Boolean).map((s) => ({ id: s.id, name: s.name, kind: s.kind, hosts: s.hosts, host: s.hosts[0], paths: s.paths,
+  headers: s.kind === "headers" ? s.headers.map((h) => ({ name: h.name, prefix: h.prefix })) : [{ name: KIND_LABEL[s.kind] + (s.kind === "body" ? " " + s.config.param : s.kind === "aws" ? " " + s.config.service + " " + s.config.region : ""), prefix: "" }],
+  header: s.kind === "headers" ? s.headers[0].name : KIND_LABEL[s.kind], at: s.at }));
 export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
 export async function readEnv(env, bucket, uid, repo) {
   const o = await bucket.get(envKey(uid, repo));
@@ -339,7 +342,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
     if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
     // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
-    const secrets = (setup.secrets || []).map((s) => ({ hosts: s.hosts, paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, value: headerValue(h) })), raws: s.headers.map((h) => h.value) }));
+    const secrets = (setup.secrets || []).map((s) => ({ kind: s.kind, hosts: s.hosts, paths: s.paths, headers: s.headers.map((h) => ({ name: h.name, value: headerValue(h) })), ...(s.config ? { config: s.config } : {}), raws: [...s.headers.map((h) => h.value), ...configSecrets(s.kind, s.config)] }));
     delete setup.secrets;
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
@@ -443,7 +446,7 @@ export async function handleCoder(request, env, ctx, deps) {
       let jobKeys = [];
       const ho = await bucket.get(keyOf(uid, id, "hide.json"));
       if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, id, "hide.json")); }
-      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } })), ...jobKeys].filter((v) => v.length >= 4);
+      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
       if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
       await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(s.result.messages));
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
@@ -527,12 +530,16 @@ export async function handleCoder(request, env, ctx, deps) {
     const nb = body.network && typeof body.network === "object" ? body.network : null;
     if (nb) {
       const n = { ...cur.network, hosts: [...cur.network.hosts] };
-      if (["full", "limited", "none"].includes(nb.mode)) n.mode = nb.mode;
-      if (typeof nb.limited === "boolean") n.mode = nb.limited ? "limited" : "full";
+      if (["none", "trusted", "full", "custom"].includes(nb.mode)) n.mode = nb.mode;
+      if (nb.mode === "limited" || nb.limited === true) n.mode = "custom";
+      if (nb.limited === false) n.mode = "full";
+      if (typeof nb.defaults === "boolean") n.defaults = nb.defaults;
       if (Array.isArray(nb.hosts)) n.hosts = [];
       for (const h of [...(Array.isArray(nb.hosts) ? nb.hosts : []), ...(Array.isArray(nb.add) ? nb.add : [])]) { const ok = okPattern(h); if (!ok) return json({ error: "not a site like api.example.com or *.example.com: " + String(h).slice(0, 60) }, 400); if (!n.hosts.includes(ok)) n.hosts.push(ok); }
       for (const h of Array.isArray(nb.remove) ? nb.remove : []) n.hosts = n.hosts.filter((x) => x !== String(h).toLowerCase());
       if (n.hosts.length > 100) return json({ error: "at most 100 allowed sites" }, 400);
+      // Allowing a site on the default list (Trusted) makes it Custom: the default list plus that site.
+      if (Array.isArray(nb.add) && nb.add.length && n.mode === "trusted") { n.mode = "custom"; n.defaults = true; }
       cur.network = n;
     }
     await saveEnv(cur);
@@ -555,8 +562,11 @@ export async function handleCoder(request, env, ctx, deps) {
     const hosts = rawHosts.map((h) => String(h || "").trim()).filter(Boolean);
     if (!hosts.length) return json({ error: "add at least one website, like api.example.com" }, 400);
     for (const h of hosts) if (!okPattern(h)) return json({ error: "not a site like api.example.com or *.example.com: " + h.slice(0, 60) }, 400);
-    const headers = form ? (Array.isArray(body.headers) ? body.headers : []) : [{ name: body.header || "Authorization", prefix: body.prefix === undefined ? "Bearer" : body.prefix, value: body.value }];
-    if (!headers.length) return json({ error: "add a header with the key" }, 400);
+    const kind = SECRET_KINDS.includes(body.kind) ? body.kind : "headers";
+    const config = kind === "headers" ? null : normConfig(kind, body.config);
+    if (kind !== "headers" && !config) return json({ error: { body: "give the parameter name and its value", oauth: "give an https token URL, the client ID and the client secret", gcp: "paste the service account's JSON key file (type service_account)", aws: "give the access key ID, the secret access key, the region (like us-east-1) and the service (like s3)" }[kind] }, 400);
+    const headers = kind !== "headers" ? [] : form ? (Array.isArray(body.headers) ? body.headers : []) : [{ name: body.header || "Authorization", prefix: body.prefix === undefined ? "Bearer" : body.prefix, value: body.value }];
+    if (kind === "headers" && !headers.length) return json({ error: "add a header with the key" }, 400);
     for (const h of headers) {
       const name = String((h && h.name) || "").trim(), value = String((h && h.value) || "").trim(), prefix = String((h && h.prefix) || "");
       if (!value) return json({ error: "paste the key first" }, 400);
@@ -566,7 +576,7 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     const paths = (Array.isArray(body.paths) ? body.paths : []).map((x) => String(x).trim()).filter(Boolean);
     for (const x of paths) if (!PATH_RE.test(x)) return json({ error: "a path prefix starts with / (like /api/v1/): " + x.slice(0, 60) }, 400);
-    const sec = normSecret({ id: form ? "s" + Date.now().toString(36) : okPattern(hosts[0]), name: String(body.name || "").slice(0, 60), hosts, paths, headers: headers.map((h) => ({ name: String(h.name).trim(), prefix: String(h.prefix || ""), value: String(h.value).trim() })), at: Date.now() });
+    const sec = normSecret({ id: form ? "s" + Date.now().toString(36) : okPattern(hosts[0]), name: String(body.name || "").slice(0, 60), kind, config, hosts, paths, headers: headers.map((h) => ({ name: String(h.name).trim(), prefix: String(h.prefix || ""), value: String(h.value).trim() })), at: Date.now() });
     if (!sec) return json({ error: "that secret is not complete" }, 400);
     cur.secrets = [...cur.secrets.filter((s) => s.id !== sec.id), sec];
     if (cur.secrets.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
