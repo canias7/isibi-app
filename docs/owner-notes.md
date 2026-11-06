@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Phone apps build; TestFlight ready to switch on
+
+- "build phone apps" ran: the Android app (GoFarther-android.apk, 3.7 MB) and the iPhone app (Xcode: BUILD SUCCEEDED, ID dev.gofarther.app) both build on GitHub's machines, free.
+- The button now has a "testflight" box: it signs the iPhone app with Apple's cloud signing (an App Store Connect API key; no certificate files copied anywhere) and sends it to TestFlight, to install on a real iPhone. It needs four GitHub secrets the owner adds: APPLE_TEAM_ID, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, APPLE_API_KEY_P8. The key file exists only during the run and is removed after.
+- The app answers Apple's encryption question once in its settings (it only uses standard HTTPS), so TestFlight doesn't ask on every build.
+
 ## 2026-11-06: Live checks after the outage fix, and a small display fix
 
 - Live: Coder's machine starts again (a new chat answered "Hi. What do you want to work on?").

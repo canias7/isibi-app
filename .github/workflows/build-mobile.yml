@@ -6,12 +6,24 @@ name: build phone apps
 # Free: this repository is public, so GitHub's Linux and Mac machines cost nothing.
 #   Android: GoFarther-android.apk, kept with the run. It installs on an
 #            Android phone directly (no store): open it, allow "install unknown apps".
-#   iPhone:  built for the iPhone simulator, to check it compiles. Putting it on
-#            a real iPhone (TestFlight) needs the owner's Apple certificates as
-#            GitHub secrets: the next step.
+#   iPhone:  built for the iPhone simulator, to check it compiles.
+#            Tick "testflight" to sign it and send it to TestFlight instead, to
+#            install on a real iPhone. That needs four GitHub secrets the owner
+#            adds (names only here, never values):
+#              APPLE_TEAM_ID          the Apple Developer team ID (10 characters)
+#              APPLE_API_KEY_ID       an App Store Connect API key's ID
+#              APPLE_API_ISSUER_ID    that key's issuer ID
+#              APPLE_API_KEY_P8       the key file's contents (AuthKey_….p8)
+#            With the key, Apple signs the app itself (cloud signing): no
+#            certificate files are copied anywhere.
 
 on:
   workflow_dispatch:
+    inputs:
+      testflight:
+        description: "Sign the iPhone app and send it to TestFlight"
+        type: boolean
+        default: false
 
 concurrency:
   group: build-mobile
@@ -53,6 +65,7 @@ jobs:
           retention-days: 30
 
   iphone:
+    if: ${{ !inputs.testflight }}
     runs-on: macos-latest
     defaults:
       run:
@@ -70,7 +83,74 @@ jobs:
         run: npx cap sync ios
       - name: Build the iPhone app (simulator, not signed)
         run: |
+          set -o pipefail
           xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
             -sdk iphonesimulator -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO build | tail -n 40
-          test "${PIPESTATUS[0]}" = "0"
+
+  testflight:
+    if: ${{ inputs.testflight }}
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: coder/mobile
+    env:
+      TEAM: ${{ secrets.APPLE_TEAM_ID }}
+      KID: ${{ secrets.APPLE_API_KEY_ID }}
+      ISS: ${{ secrets.APPLE_API_ISSUER_ID }}
+    steps:
+      - name: Check the Apple secrets are there
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          missing=""
+          [ -n "$TEAM" ] || missing="$missing APPLE_TEAM_ID"
+          [ -n "$KID" ] || missing="$missing APPLE_API_KEY_ID"
+          [ -n "$ISS" ] || missing="$missing APPLE_API_ISSUER_ID"
+          [ -n "$P8" ] || missing="$missing APPLE_API_KEY_P8"
+          if [ -n "$missing" ]; then echo "::error::Missing GitHub secrets:$missing"; exit 1; fi
+          echo "All Apple secrets present."
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: coder/mobile/package-lock.json
+      - name: Install the app's packages
+        run: npm ci --no-audit --no-fund
+      - name: Copy the app's settings into the iPhone project
+        run: npx cap sync ios
+      - name: Put the App Store Connect key in place (for this run only)
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+          chmod 600 "$RUNNER_TEMP/keys/AuthKey_$KID.p8"
+      - name: Build and sign the iPhone app (Apple's cloud signing)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination "generic/platform=iOS" -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$KID.p8" \
+            -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" \
+            archive | tail -n 40
+      - name: Send it to TestFlight
+        run: |
+          set -o pipefail
+          # The export settings, made with Apple's own tool (no hand-written XML).
+          P="$RUNNER_TEMP/ExportOptions.plist"
+          plutil -create xml1 "$P"
+          plutil -insert method -string app-store-connect "$P"
+          plutil -insert destination -string upload "$P"
+          plutil -insert teamID -string "$TEAM" "$P"
+          plutil -insert signingStyle -string automatic "$P"
+          plutil -insert uploadSymbols -bool YES "$P"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$KID.p8" \
+            -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS" | tail -n 40
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"
