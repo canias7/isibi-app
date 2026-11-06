@@ -2005,3 +2005,24 @@ test("CD82 (owner 2026-11-06) the chat's top bar stays on one line on a computer
   // Phones keep their own layout (the owner: don't worry about the phone layout).
   assert.match(css, /@media \(max-width: 760px\) \{\s*\.cd-menu \{ display: inline-block; \}/);
 });
+
+test("CD83 (recorded browser test, 2026-11-06) when the owner changes the setup script or network in Environment between messages, Coder is told in the message itself", async () => {
+  const m = await envMachine([say("Done.", [])]);
+  const userMsg = () => String((m.seen[0].messages.filter((x) => x.role === "user").pop() || {}).content || "");
+  try {
+    await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
+    assert.equal(userMsg(), "go", "the first message on a machine: nothing to tell");
+    await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
+    assert.equal(userMsg(), "go", "nothing changed: nothing to tell");
+    await m.run({ setup: { script: "echo two", network: { mode: "full" } } });
+    assert.match(userMsg(), /^\(Note from Coder's app, not the owner: since the last message, the owner changed the setup script in Environment\. The setup script now is:\necho two\nIt ran again before this message and worked \(exit code 0\)\. Go by this, not by what the chat said before\.\)\n\ngo$/);
+    await m.run({ setup: { script: "echo two\nnope-cmd-xyz", network: { mode: "full" } } });
+    assert.match(userMsg(), /The setup script now is:\necho two\nnope-cmd-xyz\nIt ran again before this message and FAILED \(see THE SETUP SCRIPT FAILED\)\./);
+    await m.run({ setup: { script: "", network: { mode: "full" } } });
+    assert.match(userMsg(), /the owner changed the setup script \(it was removed\) in Environment\. Go by this/);
+    const s = await m.run({ setup: { script: "", network: { mode: "trusted" } } });
+    assert.match(userMsg(), /the owner changed the network setting \(now trusted\) in Environment\./);
+    // The chat itself shows only the owner's words.
+    assert.equal(s.events.find((e) => e.type === "user").text, "go");
+  } finally { await m.close(); }
+});

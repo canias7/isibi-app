@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Recorded browser test of the setup script, and one fix
+
+- Your word: live tests in the browser, recorded. Done on gofarther.dev with the test account, only by clicking and typing. Recording: 3.4 minutes, sent in the chat.
+  - In the Environment window, network set to Trusted and setup script set to `apt-get install -y tree`. Coder's app installed tree as admin, and Coder ran `tree --version` (v2.1.0).
+  - A broken line added in the window: Coder said which command failed (exit 127) and that it can be fixed in Environment → Setup script.
+  - Script and network put back in the window. Asked for a "cache" folder line, Coder ran it first, then showed the card. Decline worked.
+- Found: after Decline, Coder said the script "still has the failing nonexistent-tool-xyz line", which you had already removed in the window. Coder trusted its memory of the chat over the script it was given.
+- Fixed: when you change the setup script or network in Environment between messages, Coder's app tells Coder in the message itself, with the new script and whether it ran fine. The note stays in the chat's history. The chat still shows only your words.
+- On the branch; live after "merge and deploy".
+
 ## 2026-11-06: The chat's top bar stays on one line
 
 - Your "Ok" to the fix: on a computer, a long chat title or branch no longer pushes "See changes" onto a second line.
