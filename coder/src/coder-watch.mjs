@@ -68,3 +68,41 @@ export async function runWatchedJobs(env, deps, now = Date.now()) {
   for (let i = 0; i < keys.length; i += AT_ONCE) await Promise.all(keys.slice(i, i + AT_ONCE).map((k) => one(k).catch(() => {})));
   return { checked, ended };
 }
+
+// ── NEVER ASLEEP WITH WORK ON IT (2026-11-06) ───────────────────────────────
+// The old builder's way (its container-hold.mjs; the owner: "we had something
+// like that on the previous builder"), and like Claude Code's cloud sessions,
+// which stay up while they work and pause after a few quiet minutes. When
+// Coder's machine has had no request for 10 minutes, the container library is
+// about to stop it; first the machine is asked whether it has work (its /busy),
+// and it stays awake while a job is working, or has ended and is not saved yet.
+// The every-minute run above stays: it is what saves a job when no tab is open.
+
+/** A working job keeps its machine awake for 2 hours at most (it works for 45 minutes at most). */
+export const HOLD_MAX_MS = WATCH_MAX_MS;
+/** An ended job waits at most 30 minutes to be saved (the every-minute run saves it within a minute). */
+export const SAVE_WAIT_MS = 30 * 60 * 1000;
+/** How long the machine has to say whether it is busy: it answers at once unless it is stuck. */
+export const BUSY_PROBE_MS = 5000;
+
+const count = (v) => Number.isInteger(v) && v > 0;
+const ms = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+/**
+ * Should this machine stay awake, given its /busy answer (null when it could
+ * not be asked)? Strict on purpose, like the old builder's: no answer, a
+ * strange answer, an idle machine or work past its time all let it sleep, so a
+ * stuck machine never stays up (and costs) for good. Answers `{ hold, why }`.
+ */
+export function holdDecision(state) {
+  if (!state || typeof state !== "object") return { hold: false, why: "no-answer" };
+  if (count(state.working)) {
+    if (!ms(state.workingMs)) return { hold: false, why: "unreadable" };
+    if (state.workingMs <= HOLD_MAX_MS) return { hold: true, why: "working" };
+  }
+  if (count(state.unsaved)) {
+    if (!ms(state.unsavedMs)) return { hold: false, why: "unreadable" };
+    if (state.unsavedMs <= SAVE_WAIT_MS) return { hold: true, why: "unsaved" };
+  }
+  return { hold: false, why: count(state.working) || count(state.unsaved) ? "stuck" : "idle" };
+}

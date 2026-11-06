@@ -18,7 +18,9 @@ log (81,000 lines) is in git history.
 - A job comes off the list when it ends, or after 2 hours (a job works for 45 minutes at most).
 - While Coder works, the message box says "Coder is working… you can close this tab".
 - If a tab stays open while the job is saved somewhere else, it loads the saved chat by itself, with the "Saved to the branch" line.
-- Tests: CD112 to CD114. 123 in all, all passing. On the branch, not deployed.
+- **Your question: how Claude Code does it.** Its jobs run on its own cloud machines. The chat history is kept on its servers, so the browser is only a window: "The session keeps running after you close your laptop, and you can check on it or steer it from any device." A machine pauses "after a few minutes without activity", with its files saved.
+- **You were right: the old builder had it.** Its "container hold" asked the machine "are you still working?" just before it was put to sleep, and kept it on if so, with a time limit so a stuck one never ran (and cost) for good. Coder now does the same: the machine stays on while a job works (2 hours at most) or while a finished job waits to be saved (30 minutes at most), and sleeps as before otherwise. The every-minute check stays; it is what saves the job when no tab is open.
+- Tests: CD112 to CD117. 126 in all, all passing.
 
 ## 2026-11-06: Deployed: audit items 3 and 4, and Coder like Claude Code
 

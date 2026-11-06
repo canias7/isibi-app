@@ -835,7 +835,25 @@ export function gitNote(body) {
 }
 
 // ── THE TURNS ────────────────────────────────────────────────────────────────
-const turns = new Map(); // project → { running, stop, events, result }
+const turns = new Map(); // project → { running, stop, events, result, started, ended, claimed }
+
+/**
+ * IS THERE WORK HERE? (2026-11-06, like the old builder's /busy; the owner: "we
+ * had something like that on the previous builder".) Asked by Coder's Worker
+ * before this machine is put to sleep (worker.js): a job still working, or one
+ * that ended and is not saved yet, keeps it awake. It reads a few numbers and
+ * touches nothing, so it answers at once while a job runs.
+ * `workingMs`: how long the oldest working job has run; `unsavedMs`: how long
+ * the oldest ended job has waited to be saved.
+ */
+export function busyState(map, now = Date.now()) {
+  let working = 0, unsaved = 0, workingMs = 0, unsavedMs = 0;
+  for (const t of map.values()) {
+    if (t.running) { working++; workingMs = Math.max(workingMs, now - (Number(t.started) || now)); }
+    else if (t.result && !t.claimed) { unsaved++; unsavedMs = Math.max(unsavedMs, now - (Number(t.ended) || now)); }
+  }
+  return { busy: working + unsaved > 0, working, unsaved, workingMs: Math.max(0, workingMs), unsavedMs: Math.max(0, unsavedMs) };
+}
 
 /** Stop every background command a turn left running (its whole process group). */
 /** Files that are new right now (not tracked, not ignored) go in the git folder's info/exclude. */
@@ -925,7 +943,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     const cur = turns.get(project);
     if (cur && cur.running) return [409, { error: "busy" }];
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
-    const t = { running: true, stop: false, events: [], result: null, bg: new Set() };
+    const t = { running: true, stop: false, events: [], result: null, bg: new Set(), started: Date.now() };
     turns.set(project, t);
     const fail = (status, why) => { t.running = false; turns.delete(project); return [status, { error: why }]; };
     // Nothing left from before may race root while it prepares the files (the
@@ -1100,6 +1118,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.
         killAll(t);
         rm(bgDir, { recursive: true, force: true }).catch(() => {});
+        t.ended = Date.now();
         t.running = false;
       });
     return [200, { ok: true }];
@@ -1121,6 +1140,8 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       const want = env && env.CODER_CONTROL_KEY;
       if (want && req.headers["x-coder-key"] !== want) return send(403, { error: "not allowed" });
       if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body); return send(st, o); }
+      // Asked before this machine is put to sleep (busyState).
+      if (url.pathname === "/busy" && req.method === "GET") return send(200, busyState(turns));
       const project = String(body.project || url.searchParams.get("project") || "");
       if (!PROJECT_ID.test(project)) return send(400, { error: "bad project" });
       const t = turns.get(project);

@@ -122,7 +122,7 @@ test("CD113 the watch list never keeps a machine awake for nothing: an ended, re
 
 test("CD114 wiring: every minute the Worker runs the watch list beside @coder's jobs; the page says the tab can be closed, and loads the saved chat when it was saved elsewhere", () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /import \{ runWatchedJobs \} from "\.\/src\/coder-watch\.mjs";/);
+  assert.match(worker, /import \{ runWatchedJobs[ ,][^}]*\} from "\.\/src\/coder-watch\.mjs";/);
   assert.match(worker, /const coder = \(req, who\) => handleCoder\(req, env, ctx, \{ authUser: async \(\) => who, container \}\);\n\s+ctx\.waitUntil\(runMentionJobs\(env, \{ coder \}\)[^\n]*\n\s+ctx\.waitUntil\(runWatchedJobs\(env, \{ coder \}\)/);
   assert.match(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /"crons": \["\* \* \* \* \*"\]/, "every minute");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
@@ -131,4 +131,65 @@ test("CD114 wiring: every minute the Worker runs the watch list beside @coder's 
   assert.match(page, /'Coder is working… you can close this tab'/);
   assert.match(page, /if \(r\.data\.reload\) \{ if \(r\.data\.project\) S\.project = r\.data\.project; S\.running = false; syncEntry\(\); draw\(\); return reloadChat\(id\); \}/, "shown as done at once, then the saved chat");
   assert.match(page, /async function reloadChat\(id\) \{\n\s+const r = await call\('\/projects\/' \+ encodeURIComponent\(id\)\);/);
+});
+
+test("CD115 never asleep with work on it, the old builder's way (owner: \"we had something like that on the previous builder\"): the machine says whether a job is working or waiting to be saved, and only that keeps it awake, for a limited time", async () => {
+  const { busyState } = await import("../container/server.mjs");
+  const W = await import("../src/coder-watch.mjs");
+  const now = 10_000_000;
+  // What the machine says.
+  assert.deepEqual(busyState(new Map(), now), { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0 });
+  const map = new Map([["a-1", { running: true, started: now - 60_000, events: [] }]]);
+  assert.deepEqual(busyState(map, now), { busy: true, working: 1, unsaved: 0, workingMs: 60_000, unsavedMs: 0 });
+  map.set("a-1", { running: false, result: { status: "done" }, started: now - 600_000, ended: now - 90_000, events: [] });
+  assert.deepEqual(busyState(map, now), { busy: true, working: 0, unsaved: 1, workingMs: 0, unsavedMs: 90_000 }, "ended, not saved yet");
+  map.get("a-1").claimed = true;
+  assert.equal(busyState(map, now).busy, false, "saved: nothing keeps it awake");
+  map.set("b-2", { running: false, result: null, events: [] });
+  assert.equal(busyState(map, now).busy, false, "a job that never started");
+  // What Coder's Worker decides from it.
+  assert.deepEqual(W.holdDecision(null), { hold: false, why: "no-answer" }, "a machine that does not answer sleeps");
+  assert.deepEqual(W.holdDecision({ busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0 }), { hold: false, why: "idle" });
+  assert.deepEqual(W.holdDecision({ working: 1, workingMs: 44 * 60_000 }), { hold: true, why: "working" });
+  assert.deepEqual(W.holdDecision({ working: 1, workingMs: W.HOLD_MAX_MS + 1 }), { hold: false, why: "stuck" }, "past 2 hours");
+  assert.deepEqual(W.holdDecision({ working: 0, unsaved: 1, unsavedMs: 60_000 }), { hold: true, why: "unsaved" });
+  assert.deepEqual(W.holdDecision({ unsaved: 1, unsavedMs: W.SAVE_WAIT_MS + 1 }), { hold: false, why: "stuck" }, "nobody saved it in 30 minutes");
+  assert.deepEqual(W.holdDecision({ working: 1, workingMs: W.HOLD_MAX_MS + 1, unsaved: 1, unsavedMs: 1000 }), { hold: true, why: "unsaved" });
+  // Strict, like the old builder's: nothing merely "truthy" keeps a machine (and its bill) going.
+  assert.deepEqual(W.holdDecision({ busy: "true", working: "1", workingMs: 5 }), { hold: false, why: "idle" });
+  assert.deepEqual(W.holdDecision({ working: 1, workingMs: "5" }), { hold: false, why: "unreadable" });
+  assert.deepEqual(W.holdDecision({ working: 1 }), { hold: false, why: "unreadable" });
+  assert.equal(W.HOLD_MAX_MS, 2 * 60 * 60 * 1000);
+  assert.equal(W.SAVE_WAIT_MS, 30 * 60 * 1000);
+});
+
+test("CD116 the machine's /busy is behind its control key like the rest of its panel, and answers while a job works", async () => {
+  const http = await import("node:http");
+  const { createApp } = await import("../container/server.mjs");
+  const srv = http.createServer(createApp({ env: { CODER_CONTROL_KEY: "k".repeat(32) } }));
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    assert.equal((await fetch(base + "/busy")).status, 403, "not without the key");
+    const r = await fetch(base + "/busy", { headers: { "x-coder-key": "k".repeat(32) } });
+    assert.equal(r.status, 200);
+    const b = await r.json();
+    assert.equal(typeof b.busy, "boolean");
+    assert.deepEqual(Object.keys(b).sort(), ["busy", "unsaved", "unsavedMs", "working", "workingMs"]);
+  } finally { await new Promise((r) => srv.close(r)); }
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, bg: new Set\(\), started: Date\.now\(\) \};/);
+  assert.match(server, /t\.ended = Date\.now\(\);\n\s+t\.running = false;/);
+  assert.match(server, /if \(want && req\.headers\["x-coder-key"\] !== want\) return send\(403, \{ error: "not allowed" \}\);[\s\S]{0,300}if \(url\.pathname === "\/busy" && req\.method === "GET"\) return send\(200, busyState\(turns\)\);/, "after the key check");
+});
+
+test("CD117 wiring: before the machine sleeps, Coder's container asks it (with its key, for 5 seconds at most) and stops it only when the decision says so", () => {
+  const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /import \{ runWatchedJobs, holdDecision, BUSY_PROBE_MS \} from "\.\/src\/coder-watch\.mjs";/);
+  assert.match(worker, /async onActivityExpired\(\) \{\n\s+if \(!this\.container\.running\) return;/);
+  assert.match(worker, /this\.containerFetch\(new Request\("http:\/\/coder\/busy", \{ headers: this\.controlKey \? \{ "x-coder-key": this\.controlKey \} : \{\} \}\), this\.defaultPort\)/);
+  assert.match(worker, /Promise\.race\(\[ask, new Promise\(\(ok\) => setTimeout\(\(\) => ok\(null\), BUSY_PROBE_MS\)\)\]\)/);
+  assert.match(worker, /const d = holdDecision\(state\);[\s\S]{0,200}if \(d\.hold\) return;\n\s+await this\.stop\(\);/);
+  assert.match(worker, /this\.controlKey = env\.CODER_TOKEN_KEY \? controlKeySync\(env\.CODER_TOKEN_KEY\) : "";/);
+  assert.match(worker, /sleepAfter = "10m";/, "an idle machine still sleeps after 10 minutes");
 });

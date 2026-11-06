@@ -8,7 +8,7 @@ import { servePage } from "./src/coder-page.mjs";
 import { handleSignin } from "./src/coder-signin.mjs";
 import { handleEgress, EGRESS_PATH } from "./src/coder-egress.mjs";
 import { runMentionJobs } from "./src/coder-mentions.mjs";
-import { runWatchedJobs } from "./src/coder-watch.mjs";
+import { runWatchedJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
 
 /**
  * CODER'S CONTAINER: a developer machine (Node, Python, git, build tools), one
@@ -32,7 +32,26 @@ export class CoderContainer extends Container {
   sleepAfter = "10m";
   constructor(ctx, env, options) {
     super(ctx, env, options);
-    this.envVars = { ...(env.XAI_API_KEY ? { XAI_API_KEY: env.XAI_API_KEY } : {}), ...(env.CODER_MODEL ? { CODER_MODEL: env.CODER_MODEL } : {}), ...(env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) };
+    this.controlKey = env.CODER_TOKEN_KEY ? controlKeySync(env.CODER_TOKEN_KEY) : "";
+    this.envVars = { ...(env.XAI_API_KEY ? { XAI_API_KEY: env.XAI_API_KEY } : {}), ...(env.CODER_MODEL ? { CODER_MODEL: env.CODER_MODEL } : {}), ...(this.controlKey ? { CODER_CONTROL_KEY: this.controlKey } : {}) };
+  }
+  // NEVER ASLEEP WITH WORK ON IT (2026-11-06, the old builder's way; like Claude
+  // Code's cloud sessions): after 10 quiet minutes the library would stop the
+  // machine; first it is asked whether a job is working or waiting to be saved
+  // (its /busy), and then it stays awake. Silent, idle, or busy past its time:
+  // it sleeps as before (coder-watch.mjs, holdDecision).
+  async onActivityExpired() {
+    if (!this.container.running) return;
+    let state = null;
+    try {
+      const ask = this.containerFetch(new Request("http://coder/busy", { headers: this.controlKey ? { "x-coder-key": this.controlKey } : {} }), this.defaultPort);
+      const r = await Promise.race([ask, new Promise((ok) => setTimeout(() => ok(null), BUSY_PROBE_MS))]);
+      state = r && r.ok ? await r.json() : null;
+    } catch { state = null; }
+    const d = holdDecision(state);
+    console.log("coder machine: " + (d.hold ? "kept awake" : "may sleep") + " (" + d.why + ")");
+    if (d.hold) return;
+    await this.stop();
   }
 }
 

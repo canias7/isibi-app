@@ -39,6 +39,15 @@ branch, the whole chat kept. A tab and the minute's run never save a job twice
 (the machine hands its end out once). A job leaves the list when it ends, or
 after 2 hours (a job works for 45 minutes at most).
 
+**And the machine never sleeps with work on it** (the old builder's way).
+When it has had no request for 10 minutes, the container library is about to
+stop it; first `CoderContainer.onActivityExpired` asks it (`/busy`, behind its
+control key) whether a job is working or has ended without being saved, and
+then it stays awake: 2 hours at most for a working job, 30 minutes for one
+waiting to be saved. A machine that does not answer within 5 seconds, an idle
+one, or one past those times sleeps as before (`holdDecision` in
+`src/coder-watch.mjs`).
+
 **Sign-in is both steps, every time** (the audit, 2026-11-06). The password
 step gives the page a 15-minute ticket and ends Supabase's own session for it;
 the emailed code is only taken with that ticket. The code step gives the
