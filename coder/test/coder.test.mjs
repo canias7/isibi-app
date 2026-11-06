@@ -282,7 +282,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.deepEqual([made.ok, made.number, made.project.pr], [true, 1, { url: "https://github.com/ana/shop/pull/1", number: 1 }]);
     assert.ok(ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"));
     // THE CODE IS NEVER STORED WITH US: only the chat, the connection and the project's meta.
-    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile)\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
+    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile|environments)\.json$|^coder\/[\w-]+\/environments\/[a-z0-9-]+\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
     assert.doesNotMatch([...bucket.m.values()].join(""), /<h1>Hi<\/h1>\\n"\s*}/);
   } finally { await close(); }
 });
@@ -1112,7 +1112,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
   const saved = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } }) })).json();
   assert.deepEqual([saved.script, saved.vars], ["echo set up > ready.txt", ["API_KEY"]]);
-  assert.doesNotMatch(bucket.m.get("coder/user-env/env/ana__shop.json"), /sk-secret-123/, "sealed");
+  assert.doesNotMatch(bucket.m.get("coder/user-env/environments/default.json"), /sk-secret-123/, "sealed (on the chat's environment: Default)");
   assert.deepEqual((await (await go("projects/" + id + "/env")).json()).vars, ["API_KEY"], "names only");
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ vars: { "bad-name": "x" } }) })).status, 400);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
@@ -1437,7 +1437,7 @@ test("CD64 the secret route: sealed, never shown back, sent only to the machine'
   const saved = await (await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "sk_test_ABCDEF", name: "Stripe test key" }) })).json();
   assert.equal(JSON.stringify(saved).includes("sk_test_ABCDEF"), false);
   assert.equal(saved.secrets[0].host, "api.stripe.com");
-  assert.doesNotMatch(bucket.m.get("coder/user-sec/env/ana__shop.json"), /sk_test_ABCDEF/, "sealed");
+  assert.doesNotMatch(bucket.m.get("coder/user-sec/environments/default.json"), /sk_test_ABCDEF/, "sealed (on the chat's environment: Default)");
   // Saving the environment keeps the secret; its GET shows the host only.
   await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo hi", vars: { A: "b" } }) });
   const e = await (await go("projects/" + id + "/env")).json();
@@ -1658,7 +1658,7 @@ test("CD73 (owner '2', live test) after an install the setup script does not do,
   let n = 0; const seen = []; const events = [];
   const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("propose_env", { kind: "setup_script", script: "echo ok\nnpm install", reason: "New chats need the packages." })])];
   const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e) }, { text: "use is-number", setupScript: "echo ok" });
-  assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install`, which the repo's setup script does not do/);
+  assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install`, which the environment's setup script does not do/);
   assert.ok(events.some((e) => e.type === "text" && /prints true then false/.test(e.text)), "its answer is still shown");
   assert.ok(events.some((e) => e.type === "envchange"));
   assert.equal(r.status, "done");
@@ -2058,7 +2058,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.deepEqual(lastJobFor({ turn: 5, commits: [{ turn: 3, title: "Add a.txt" }, { turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: true });
   assert.deepEqual(lastJobFor({ turn: 6, commits: [{ turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: false }, "the last job was a review: it changed nothing");
   assert.deepEqual(lastJobFor({ turn: 2, commits: [] }), { title: "", changed: false });
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\) \}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment \}\);/);
   assert.deepEqual(lastJobOf({ lastJob: { title: "Add  one.txt\n", changed: true } }), { title: "Add one.txt", changed: true });
   assert.equal(lastJobOf({}), null);
   assert.match(undoNote({ title: "Add one.txt", changed: false }), /UNDO: the last job in this chat that changed files was "Add one\.txt"; your last job changed no files, so if the owner asks to undo, ask first which one they mean\./);
@@ -2081,5 +2081,89 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   u = await undo(null, {}, [say("", [call("undo_last_job", {})])]);
   assert.equal(u.r.undoRequest, true);
   // 4. After a key is saved on the card and used: where it is saved and how to remove it.
-  assert.match(CODER_SYSTEM, /After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved for this repo and only sent to that host, and that they can remove it in Environment → Network secrets\./);
+  assert.match(CODER_SYSTEM, /After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment \(every chat using it gets it\) and only sent to that host, and that they can remove it in Environment → Network secrets\./);
+});
+
+test("CD85 (owner: 'make it like claude code') environments: named, Default made for you, picked before a chat's first message, shared by every chat that picks it; old per-repo settings move into one; Coder can propose a new one", async () => {
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const fetchFn = async (u, init = {}) => (String(u) === "https://api.github.com/repos/ana/blog" ? new Response(JSON.stringify({ default_branch: "main", permissions: { push: true } }), { status: 200, headers: { "content-type": "application/json" } }) : gf.fetchFn(u, init));
+  const sent = [];
+  const deps = { fetchFn, authUser: async () => ({ id: "user-envs", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return new Response(JSON.stringify({ ok: true })); } }) };
+  const go = async (path, init = {}) => { const r = await handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps); return { status: r.status, data: await r.json() }; };
+  await connectGithub((p, i) => handleCoder(new Request("https://gofarther.dev/api/coder/" + p, { ...(i || {}), headers: { "content-type": "application/json" } }), env, {}, deps), env, deps);
+  // An old repo's settings (from before environments), sealed where they were.
+  await bucket.put("coder/user-envs/env/ana__shop.json", JSON.stringify({ at: 1, box: await seal(env, { script: "echo old > old.txt", vars: { OLD: "1" }, secrets: [], network: { mode: "full", hosts: [], defaults: true } }) }));
+  // Default is made for you.
+  let l = await go("environments");
+  assert.deepEqual(l.data.environments, [{ id: "default", name: "Default", isDefault: true }]);
+  // A new chat on the old repo: its settings moved into an environment named after it (nothing lost), and the chat uses it.
+  const a = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).data.project;
+  const ea = (await go("projects/" + a.id + "/env")).data;
+  assert.equal(ea.name, "shop"); assert.equal(ea.script, "echo old > old.txt"); assert.deepEqual(ea.vars, ["OLD"]); assert.equal(ea.network.mode, "full");
+  assert.equal(ea.isDefault, false); assert.equal(ea.locked, false);
+  assert.ok(bucket.m.has("coder/user-envs/env/ana__shop.json"), "the old file stays where it was");
+  assert.doesNotMatch(bucket.m.get("coder/user-envs/environments/" + ea.envId + ".json"), /echo old/, "still sealed");
+  // A chat in another repo starts on Default; it can pick the shop environment before its first message: both then share it.
+  const b = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog" }) })).data.project;
+  assert.equal((await go("projects/" + b.id + "/env")).data.name, "Default");
+  assert.equal((await go("projects/" + b.id + "/environment", { method: "POST", body: JSON.stringify({ envId: ea.envId }) })).status, 200);
+  await go("projects/" + b.id + "/env", { method: "POST", body: JSON.stringify({ script: "echo shared > s.txt" }) });
+  assert.equal((await go("projects/" + a.id + "/env")).data.script, "echo shared > s.txt", "one environment, every chat that picks it");
+  await go("projects/" + b.id + "/secret", { method: "POST", body: JSON.stringify({ host: "api.stripe.com", value: "sk_test_SHAREDKEY123", header: "Authorization", prefix: "Bearer" }) });
+  assert.deepEqual((await go("projects/" + a.id + "/env")).data.secrets.map((x) => x.host), ["api.stripe.com"], "a key saved from one chat reaches every chat on that environment (names only)");
+  // The turn gets that environment's settings and its name; then the pick is fixed.
+  await go("projects/" + b.id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  const t = sent.pop();
+  assert.equal(t.setup.script, "echo shared > s.txt"); assert.deepEqual(t.environment, { name: "shop", isDefault: false });
+  assert.equal(t.secrets[0].hosts[0], "api.stripe.com");
+  assert.equal((await go("projects/" + b.id + "/environment", { method: "POST", body: JSON.stringify({ envId: "default" }) })).status, 409, "picked before the first message, like Claude Code");
+  assert.equal((await go("projects/" + b.id + "/env")).data.locked, true);
+  // Your own environments: add one (made for a repo: that repo's next chat starts with it), rename, archive; Default keeps its name and is never archived.
+  const made = await go("environments", { method: "POST", body: JSON.stringify({ name: "testing2", script: "mkdir -p cache", network: { mode: "trusted" }, repos: ["ana/blog"] }) });
+  assert.equal(made.status, 200); const t2 = made.data.environment.id;
+  const c = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog" }) })).data.project;
+  assert.equal(c.envId, t2, "the newest environment for this repo is offered first");
+  assert.equal((await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog", envId: "default" }) })).data.project.envId, "default", "or the one you pick");
+  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "testing2" }) })).data.environment.name, "testing2 2", "names stay unique");
+  assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ name: "blog env" }) })).data.environment.name, "blog env");
+  assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ name: "x" }) })).status, 400);
+  assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ archive: true }) })).status, 400);
+  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "" }) })).status, 400);
+  assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ archive: true }) })).status, 200);
+  l = await go("environments");
+  assert.ok(!l.data.environments.some((x) => x.id === t2), "archived: gone from the list for new chats");
+  assert.equal((await go("projects/" + c.id + "/env")).data.script, "mkdir -p cache", "a chat that uses it keeps working");
+  // An older chat (no environment saved yet) gets its repo's and keeps it.
+  const old = JSON.parse(bucket.m.get("coder/user-envs/" + a.id + "/meta.json")); delete old.envId; bucket.m.set("coder/user-envs/" + a.id + "/meta.json", JSON.stringify(old));
+  assert.equal((await go("projects/" + a.id + "/env")).data.envId, ea.envId);
+  assert.equal(JSON.parse(bucket.m.get("coder/user-envs/" + a.id + "/meta.json")).envId, ea.envId);
+  // CODER: told the chat's environment; on Default, what only this repo needs goes in a new environment (its own card).
+  const { envNameNote } = await import("../container/server.mjs");
+  assert.match(envNameNote({ environment: { name: "Default", isDefault: true } }), /THIS CHAT'S ENVIRONMENT: "Default" \(the Default one, which chats in all the owner's repos use: what only this repo needs goes in a new environment, propose_env kind new_environment\)/);
+  assert.match(envNameNote({ environment: { name: "shop", isDefault: false } }), /"shop" \(picked when this chat started; every chat that picks it shares its settings\)/);
+  assert.equal(envNameNote({}), "");
+  const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  assert.match(CODER_SYSTEM, /THIS CHAT'S ENVIRONMENT \(like Claude Code's: named, picked before the chat's first message, used by every chat that picks it[\s\S]*If it is the Default environment[\s\S]*goes in a NEW environment instead \(kind new_environment, named after the repo\)/);
+  assert.match(JSON.stringify(CODER_TOOLS.find((x) => x.function.name === "propose_env")), /"enum":\["setup_script","allow_host","new_environment"\]/);
+  const ran = [{ role: "assistant", content: "", tool_calls: [{ id: "m1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "mkdir -p cache" }) } }] }, { role: "tool", tool_call_id: "m1", content: "exit code 0\n" }];
+  let n = 0; const seen = []; const ev = [];
+  const turns = [say("", [call("propose_env", { kind: "new_environment", script: "mkdir -p cache", reason: "r" })]), say("", [call("propose_env", { kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." })])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { messages: ran, text: "add a cache folder to the setup" });
+  assert.match(JSON.stringify(seen[1].messages), /give the new environment a name/);
+  const card = ev.find((e) => e.type === "envchange");
+  assert.deepEqual({ ...card, at: 0 }, { at: 0, type: "envchange", kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." });
+  // THE PAGE: the picker under the box before the first message (with Add environment), the window's name and Archive, and the cards.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /S\.project && !S\.project\.turn && S\.envInfo && !S\.running[\s\S]{0,200}<select id="cdEnvSel" aria-label="Environment">[\s\S]{0,300}<option value="__add">\+ Add environment…<\/option>/);
+  assert.match(ui, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/environment', \{ method: 'POST', body: JSON\.stringify\(\{ envId \}\) \}\)/);
+  assert.match(ui, /askText\('Add environment'/);
+  assert.match(ui, /head\('Environment: ' \+ \(e\.name \|\| 'Default'\)\)/);
+  assert.match(ui, /if \(!e\.isDefault && e\.envId\) rows\.unshift\(\['name', 'Name', e\.name \|\| ''\]\);/);
+  assert.match(ui, /Archive this environment/);
+  assert.match(ui, /<b class="cd-secret-t">Create new environment\?<\/b>[\s\S]*<span>Personal<\/span>[\s\S]*<small>Network access<\/small>[\s\S]*<small>Repositories<\/small>[\s\S]*<small>Setup script<\/small>[\s\S]*>Deny<\/button>[\s\S]*>Create environment<\/button>/);
+  assert.match(ui, /call\('\/environments', \{ method: 'POST', body: JSON\.stringify\(\{ name: x\.name, script: x\.script, network: \{ mode: x\.network \|\| 'trusted' \}, repos: \[S\.project\.repo\] \}\) \}\)/);
+  assert.match(ui, /'Update the setup script of ' \+ esc\(envName\) \+ '\?'/);
+  assert.match(ui, /This secret is saved on the environment ' \+ esc\(S\.envInfo \? S\.envInfo\.name : 'of this chat'\)/);
 });

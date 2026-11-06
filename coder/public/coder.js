@@ -119,24 +119,60 @@
       document.addEventListener('keydown', key); ok.focus();
     });
   }
+  // CODER'S OWN BOX WITH A TEXT FIELD (a new environment's name).
+  function askText(title, text, yes, value) {
+    return new Promise((done) => {
+      const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+      const box = document.createElement('div'); box.className = 'cd-sure-box is-text'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+      const h = document.createElement('div'); h.className = 'cd-sure-title'; h.textContent = title;
+      const p = document.createElement('div'); p.className = 'cd-sure-text'; p.textContent = text;
+      const inp = document.createElement('input'); inp.className = 'cd-sure-in'; inp.maxLength = 40; inp.value = value || ''; inp.setAttribute('aria-label', title);
+      const row = document.createElement('div'); row.className = 'cd-sure-row';
+      const no = document.createElement('button'); no.type = 'button'; no.className = 'cd-sure-no'; no.textContent = 'Cancel';
+      const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'cd-sure-yes'; ok.textContent = yes;
+      row.append(no, ok); box.append(h, p, inp, row); wrap.append(box); document.body.append(wrap);
+      const end = (v) => { wrap.remove(); done(v); };
+      no.onclick = () => end(null); ok.onclick = () => end(inp.value.trim() || null);
+      inp.onkeydown = (e) => { if (e.key === 'Enter') ok.click(); if (e.key === 'Escape') end(null); };
+      wrap.onclick = (e) => { if (e.target === wrap) end(null); };
+      inp.focus(); inp.select();
+    });
+  }
   // UNDO THE LAST JOB (owner, 2026-11-05): Coder's own "are you sure?", then the server reverts it.
   // REVIEW (owner, 2026-11-05): the server writes the review request; Coder only reads and reports.
 
   // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): setup script + variables, kept on the server.
   // THE REPO'S ENVIRONMENT (owner, 2026-11-06: "make similar" to Claude Code's
   // "Edit cloud environment"): four rows, each with its own page.
+  // THE CHAT'S ENVIRONMENT (owner, 2026-11-06: environments like Claude Code's):
+  // its name, and the list for the picker under the box before the first message.
+  async function loadEnvInfo() {
+    if (!S.project) return;
+    const id = S.project.id;
+    const r = await call('/projects/' + encodeURIComponent(id) + '/env');
+    if (!S.project || S.project.id !== id || r.status !== 200 || !r.data) return;
+    S.envInfo = { envId: r.data.envId, name: r.data.name || 'Default', isDefault: !!r.data.isDefault, locked: !!r.data.locked, environments: r.data.environments || [] };
+    draw();
+  }
+  async function pickEnv(envId) {
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/environment', { method: 'POST', body: JSON.stringify({ envId }) });
+    if (r.status === 200 && r.data && r.data.project) S.project = r.data.project;
+    else S.error = (r.data && r.data.error) || 'That environment could not be picked.';
+    await loadEnvInfo();
+  }
   async function loadEnv() {
     if (!S.project) return;
     S.env = null; S.envMsg = ''; S.envPage = 'main'; S.envForm = null;
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env');
     S.env = r.status === 200 && r.data ? r.data : { script: '', vars: [], varsText: '', secrets: [], network: { mode: 'full', hosts: [] } };
+    if (S.env.envId && S.envInfo) S.envInfo = { ...S.envInfo, name: S.env.name, environments: S.env.environments || S.envInfo.environments };
     draw();
   }
   async function envPost(body, done) {
     S.envBusy = true; S.envMsg = ''; draw();
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify(body) });
     S.envBusy = false;
-    if (r.status === 200 && r.data) { S.env = r.data; S.envPage = done || 'main'; S.envForm = null; }
+    if (r.status === 200 && r.data) { S.env = r.data; S.envPage = done || 'main'; S.envForm = null; if (S.envInfo && r.data.name) S.envInfo = { ...S.envInfo, name: r.data.name, environments: r.data.environments || S.envInfo.environments }; }
     else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
     draw();
   }
@@ -167,7 +203,14 @@
         ['script', 'Setup script', e.script && e.script.trim() ? e.script.trim().split('\n')[0].slice(0, 60) : 'Not set'],
         ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') : 'None for this repo'],
       ];
-      body = head('Environment for ' + (e.repo || S.project.repo)) + '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>';
+      if (!e.isDefault && e.envId) rows.unshift(['name', 'Name', e.name || '']);
+      body = head('Environment: ' + (e.name || 'Default')) +
+        '<p class="cd-em-help cd-em-top">' + (e.isDefault ? 'The Default environment: chats in all your repos can use it. ' : 'Used by every chat that picks it. ') + (e.locked ? 'This chat picked it before its first message.' : 'This chat can still pick another one under the message box, until its first message.') + '</p>' +
+        '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>' +
+        (!e.isDefault && e.envId ? '<button type="button" class="cd-em-archive" id="envArchive">Archive this environment</button>' : '');
+    } else if (page === 'name') {
+      body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="40" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
+        '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
     } else if (page === 'network') {
       body = head('Network access', 'main') + '<div class="cd-em-opts">' + Object.keys(NET).map((k) => '<button type="button" class="cd-em-opt' + (f.mode === k ? ' on' : '') + '" data-netmode="' + k + '"><b>' + NET[k][0] + '</b><small>' + NET[k][1] + '</small>' + (f.mode === k ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') + '</div>' +
         (f.mode === 'trusted' ? '<p class="cd-em-help">The default list is Claude Code\'s: npm, PyPI, RubyGems, crates.io, Go, Maven, NuGet and other registries, GitHub, GitLab and Bitbucket, Docker and other container registries, and Google Cloud, Azure and AWS.</p>' : '') +
@@ -212,7 +255,7 @@
     const e = S.env || {}; S.envMsg = ''; S.envPage = page;
     S.envForm = page === 'network' ? { mode: (e.network && e.network.mode) || 'trusted', hosts: [...((e.network && e.network.hosts) || [])], defaults: !e.network || e.network.defaults !== false }
       : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[2].map((h) => ({ ...h })), config: {} }
-      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : null;
+      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : null;
     draw();
   }
   async function envYes() {
@@ -220,6 +263,7 @@
     if (page === 'network') return envPost({ network: { mode: f.mode, hosts: f.hosts, defaults: f.defaults } });
     if (page === 'script') return envPost({ script: f.text });
     if (page === 'vars') return envPost({ varsText: f.text });
+    if (page === 'name') return envPost({ name: f.text });
     if (page === 'add') {
       S.envBusy = true; S.envMsg = ''; draw();
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret', { method: 'POST', body: JSON.stringify({ name: f.name, kind: SECRET_TYPES[f.type][1], hosts: f.hosts.split(/[\s,]+/).filter(Boolean), paths: f.paths.split(/[\s,]+/).filter(Boolean), headers: SECRET_TYPES[f.type][1] === 'headers' ? f.headers : [], config: f.config }) });
@@ -246,6 +290,7 @@
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
     S.project = r.data.project; S.events = r.data.events || [];
     S.running = S.project.status === 'running';
+    S.envInfo = null; loadEnvInfo();
     draw(true);
     // A turn still running: its own steps come from the machine, after the saved ones.
     if (S.running) { S.next = 0; startPoll(); }
@@ -325,6 +370,7 @@
 
   // ── DRAWING ───────────────────────────────────────────────────────────────
   const ICON = {
+    cloud: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z"/></svg>',
     globe: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
     lock: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2"/></svg>',
     clip: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
@@ -458,11 +504,23 @@
       else if (e.type === 'envchange') {
         // AN ENVIRONMENT CHANGE CODER PROPOSES (owner, 2026-11-06, like Claude Code): shown exactly, approved here.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        const host = e.kind === 'allow_host';
-        out.push('<div class="cd-secret cd-envchange"><div class="cd-secret-icon">' + (host ? ICON.globe : ICON.term) + '</div><b class="cd-secret-t">' + (host ? 'Allow Coder to reach ' + esc(e.host) + '?' : 'Update this repo\'s setup script?') + '</b>' +
+        const host = e.kind === 'allow_host', made = e.kind === 'new_environment';
+        const envName = S.envInfo ? S.envInfo.name : 'this chat\'s environment';
+        if (made) {
+          // A NEW ENVIRONMENT, LIKE CLAUDE CODE'S "Create new environment?" (owner, 2026-11-06).
+          out.push('<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Create new environment?</b>' +
+            (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+            '<div class="cd-ne"><div class="cd-ne-head"><b>' + esc(e.name) + '</b><span>Personal</span></div>' +
+              '<div class="cd-ne-sec"><small>Network access</small><div><span class="cd-ne-plus">+</span>' + esc((NET[e.network] || NET.trusted)[0]) + '</div></div>' +
+              '<div class="cd-ne-sec"><small>Repositories</small><div><span class="cd-ne-plus">+</span>For <code>' + esc(S.project ? S.project.repo : '') + '</code></div></div>' +
+              '<div class="cd-ne-sec"><small>Setup script</small><pre class="cd-envchange-pre">' + String(e.script || '').split('\n').map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l)).join('\n') + '</pre></div></div>' +
+            '<p class="cd-secret-p">This chat keeps its environment (picked before its first message). New chats of this repo start with the new one.</p>' +
+            (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">Deny</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">Create environment</button></div>' : '') + '</div>');
+        } else
+        out.push('<div class="cd-secret cd-envchange"><div class="cd-secret-icon">' + (host ? ICON.globe : ICON.term) + '</div><b class="cd-secret-t">' + (host ? 'Allow Coder to reach ' + esc(e.host) + '?' : 'Update the setup script of ' + esc(envName) + '?') + '</b>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          (host ? '<p class="cd-secret-p">Adds ' + esc(e.host) + ' to the sites Coder may reach in ' + esc(S.project ? S.project.repo : 'this repo') + '. You can remove it in Environment.</p>'
-            : '<p class="cd-secret-p">The whole new script, run once on Coder\'s machine before it starts (it cannot read your variables or keys):</p><pre class="cd-envchange-pre">' + esc(e.script) + '</pre>') +
+          (host ? '<p class="cd-secret-p">Adds ' + esc(e.host) + ' to the sites Coder may reach in the environment ' + esc(envName) + ', for every chat that uses it. You can remove it in Environment.</p>'
+            : '<p class="cd-secret-p">The whole new script, run on Coder\'s machine before it starts, in every chat that uses ' + esc(envName) + ' (it cannot read your variables or keys):</p><pre class="cd-envchange-pre">' + esc(e.script) + '</pre>') +
           (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">Decline</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">Approve</button></div>' : '') + '</div>');
       }
       else if (e.type === 'secret') {
@@ -471,7 +529,7 @@
         out.push('<div class="cd-secret"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Coder needs a secret for ' + esc(e.host) + '</b>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
           '<p class="cd-secret-how">Sent as <code>' + esc(e.header || 'Authorization') + ': ' + esc(e.prefix == null ? 'Bearer ' : (e.prefix ? e.prefix + ' ' : '')) + '&lt;your key&gt;</code></p>' +
-          '<p class="cd-secret-p">This secret is saved for ' + esc(S.project ? S.project.repo : 'this repo') + '. Coder\'s commands in that repo can use it and reach ' + esc(e.host) + '. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>' +
+          '<p class="cd-secret-p">This secret is saved on the environment ' + esc(S.envInfo ? S.envInfo.name : 'of this chat') + ': every chat that uses it can reach ' + esc(e.host) + ' with it. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>' +
           (live ? '<label class="cd-secret-l" for="cdSecretIn">' + esc(e.name || 'Token') + '</label><input id="cdSecretIn" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">' +
             (S.secretMsg ? '<p class="cd-secret-err">' + esc(S.secretMsg) + '</p>' : '') +
             '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '">Decline</button><button type="button" class="cd-secret-save" data-secret-host="' + esc(e.host) + '" data-secret-header="' + esc(e.header || 'Authorization') + '" data-secret-prefix="' + esc(e.prefix == null ? 'Bearer' : e.prefix) + '" data-secret-name="' + esc(e.name || '') + '" disabled>Save</button></div>'
@@ -636,6 +694,9 @@
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
       '<div class="cd-picks">' +
+        (S.project && !S.project.turn && S.envInfo && !S.running
+          ? '<label class="cd-pick cd-pick-env" title="Environment (picked before the first message)">' + ICON.cloud + '<select id="cdEnvSel" aria-label="Environment">' + S.envInfo.environments.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === S.envInfo.envId ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '<option value="__add">+ Add environment…</option></select></label>'
+          : '') +
         '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
         '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + (EFFORT_NAME[e] || e) + '</option>').join('') + '</select></label>' +
       '</div>' +
@@ -719,11 +780,17 @@
     on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
     on('[data-ask-go]', 'click', () => askSend());
     on('[data-ask-skip]', 'click', () => { S.ask = null; send('I skipped your question. Decide for yourself and go on.'); });
-    on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : 'I declined the new setup script.'); });
+    on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.'); });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];
       if (!x || !S.project) return;
       e.currentTarget.disabled = true;
+      if (x.kind === 'new_environment') {
+        const r = await call('/environments', { method: 'POST', body: JSON.stringify({ name: x.name, script: x.script, network: { mode: x.network || 'trusted' }, repos: [S.project.repo] }) });
+        if (r.status !== 200 || !r.data || !r.data.environment) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be made.'; return draw(); }
+        S.envChangeMsg = '';
+        return send('I created the environment "' + r.data.environment.name + '".');
+      }
       const body = x.kind === 'allow_host' ? { network: { add: [x.host] } } : { script: x.script };
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/env', { method: 'POST', body: JSON.stringify(body) });
       if (r.status !== 200) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
@@ -753,6 +820,24 @@
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
+    on('#cdEnvSel', 'change', async (e) => {
+      const v = e.currentTarget.value;
+      if (v !== '__add') return pickEnv(v);
+      const name = await askText('Add environment', 'Name it after what it is for, like a project. It starts on Trusted network access, with no keys and no setup script.', 'Create', S.project ? S.project.repo.split('/').pop() : '');
+      if (!name) return draw();
+      const r = await call('/environments', { method: 'POST', body: JSON.stringify({ name, repos: [S.project.repo] }) });
+      if (r.status !== 200 || !r.data || !r.data.environment) { S.error = (r.data && r.data.error) || 'The environment could not be made.'; return draw(); }
+      await pickEnv(r.data.environment.id);
+      S.showEnv = true; S.showChanges = false; loadEnv(); draw();
+    });
+    on('#envArchive', 'click', async () => {
+      const e = S.env; if (!e || !e.envId || e.isDefault) return;
+      if (!(await askSure('Archive “' + e.name + '”?', 'It leaves the list for new chats. Chats that already use it keep working.', 'Archive'))) return;
+      const r = await call('/environments/' + encodeURIComponent(e.envId), { method: 'POST', body: JSON.stringify({ archive: true }) });
+      if (r.status !== 200) { S.envMsg = (r.data && r.data.error) || 'It could not be archived.'; return draw(); }
+      S.showEnv = false; await loadEnvInfo(); draw();
+    });
+    on('#envNameIn', 'input', (e) => { if (S.envForm) S.envForm.text = e.currentTarget.value; });
     on('#cdEnv', 'click', () => { S.showEnv = true; S.showChanges = false; loadEnv(); draw(); });
     // THE ENVIRONMENT WINDOW: typing only updates the form (no redraw), buttons move between pages.
     on('#envClose', 'click', () => { S.showEnv = false; draw(); });

@@ -32,6 +32,7 @@ import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { PROJECT_ID } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
+import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV } from "./coder-environments.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -287,6 +288,44 @@ export async function handleCoder(request, env, ctx, deps) {
   // A SLASH COMMAND: { text, project? } → { note?, open?, url?, pick? }.
   // (The slash commands were removed on 2026-11-05, owner: each one already has a button.)
 
+  // ENVIRONMENTS, LIKE CLAUDE CODE'S (owner, 2026-11-06, coder-environments.mjs):
+  // the user's own, named, not tied to repos; Default is made for them.
+  //   GET  /environments                 the list (names only)
+  //   POST /environments { name, script?, network?, repos? }   a new one
+  //   POST /environments/:id { name? | archive? }               rename, archive (never Default)
+  if (parts[0] === "environments") {
+    const list = await listEnvs(bucket, uid);
+    if (parts.length === 1 && request.method === "GET") return json({ ok: true, environments: envListOut(list) });
+    if (request.method !== "POST") return json({ error: "method" }, 405);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (parts.length === 1) {
+      if (list.filter((e) => !e.archived).length >= MAX_ENVS) return json({ error: "at most " + MAX_ENVS + " environments" }, 409);
+      const name = String(body.name || "").trim();
+      if (!ENV_NAME.test(name)) return json({ error: "give it a name (up to 40 characters)" }, 400);
+      const script = typeof body.script === "string" ? body.script.replace(/\r/g, "") : "";
+      if (script.length > 65536) return json({ error: "the setup script is over 64 KB" }, 413);
+      const id = envIdFor(name, list);
+      const e = { id, name: uniqueName(name, list), at: Date.now(), repos: (Array.isArray(body.repos) ? body.repos : []).map(String).filter((r) => REPO.test(r)).slice(0, 20) };
+      if (e.repos.length) e.used = Date.now(); // made for these repos: their next chat starts with it
+      await writeEnvData(env, bucket, uid, id, { script, vars: {}, secrets: [], network: normNetwork(body.network && typeof body.network === "object" ? body.network : null) });
+      list.push(e);
+      await saveEnvList(bucket, uid, list);
+      return json({ ok: true, environment: { id, name: e.name, isDefault: false }, environments: envListOut(list) });
+    }
+    const target = parts.length === 2 ? list.find((e) => e.id === parts[1]) : null;
+    if (!target) return json({ error: "no such environment" }, 404);
+    if (target.id === DEFAULT_ENV && (body.name !== undefined || body.archive !== undefined)) return json({ error: "the Default environment keeps its name and is never archived" }, 400);
+    if (body.name !== undefined) {
+      const n = String(body.name).trim();
+      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 40 characters)" }, 400);
+      target.name = uniqueName(n, list.filter((e) => e !== target));
+    }
+    if (body.archive === true) target.archived = true;
+    if (body.archive === false) delete target.archived;
+    await saveEnvList(bucket, uid, list);
+    return json({ ok: true, environment: { id: target.id, name: target.name, archived: !!target.archived }, environments: envListOut(list) });
+  }
+
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
   if (parts.length === 1) {
     const index = await listChats(bucket, uid);
@@ -307,7 +346,12 @@ export async function handleCoder(request, env, ctx, deps) {
     let id = projectIdFor(repo);
     // Never on top of an existing chat or someone's branch.
     for (let k = 0; k < 5 && ((await bucket.get(keyOf(uid, id, "meta.json"))) || (await bucket.get(branchKey(repo, "coder/" + id)))); k++) id = projectIdFor(repo);
-    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now() };
+    // ITS ENVIRONMENT (like Claude Code, picked before the first message): the one
+    // asked for, else the one its repo's chats use, else Default.
+    const envs = await listEnvs(bucket, uid);
+    const asked = typeof body.envId === "string" ? envs.find((e) => e.id === body.envId && !e.archived) : null;
+    const envId = asked ? asked.id : await envForRepo(bucket, uid, repo, envs);
+    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed
     // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
@@ -345,7 +389,11 @@ export async function handleCoder(request, env, ctx, deps) {
     const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
-    const setup = await readEnv(env, bucket, uid, meta.repo);
+    // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message).
+    const envId = await envIdOf(bucket, uid, meta);
+    const envEntry = (await listEnvs(bucket, uid)).find((e) => e.id === envId) || { id: envId, name: "Default" };
+    const setup = await readEnvData(env, bucket, uid, envId);
+    const environment = { name: envEntry.name, isDefault: envId === DEFAULT_ENV };
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
     if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
     // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
@@ -355,7 +403,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
     let r;
     try {
-    r = await post("/turn", { secrets, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta) });
+    r = await post("/turn", { secrets, project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment });
     } catch (e) {
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
@@ -367,7 +415,8 @@ export async function handleCoder(request, env, ctx, deps) {
       return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + " (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
     }
     // Auto-fix tries in a row; a message from the owner starts the count again.
-    const next = { ...meta, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0 };
+    await markUsed(bucket, uid, envId, meta.repo).catch(() => {});
+    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0 };
     await saveMeta(bucket, uid, next);
     // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
     // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
@@ -449,7 +498,7 @@ export async function handleCoder(request, env, ctx, deps) {
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
-      const envNow = await readEnv(env, bucket, uid, meta.repo);
+      const envNow = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta));
       let jobKeys = [];
       const ho = await bucket.get(keyOf(uid, id, "hide.json"));
       if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, id, "hide.json")); }
@@ -518,12 +567,46 @@ export async function handleCoder(request, env, ctx, deps) {
   // Code's): network access (full / limited / none, plus allowed sites), secrets
   // (never their values), the setup script, and variables in .env form (shown,
   // like Claude Code's: they are not for secrets).
-  const envOut = (e) => ({ ok: true, repo: meta.repo, script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network });
-  const saveEnv = async (e) => bucket.put(envKey(uid, meta.repo), JSON.stringify({ at: Date.now(), box: await seal(env, { script: e.script, vars: e.vars, secrets: e.secrets, network: e.network }) }), { httpMetadata: { contentType: "application/json" } });
-  if (action === "env" && request.method === "GET") return json(envOut(await readEnv(env, bucket, uid, meta.repo)));
+  // (Since 2026-11-06 these are the CHAT'S ENVIRONMENT, like Claude Code's, which
+  // may be used by other chats too; see coder-environments.mjs.)
+  // LIKE CLAUDE CODE: a chat picks its environment before its first message.
+  if (action === "environment" && request.method === "POST") {
+    if (meta.turn > 0) return json({ error: "this chat's environment was picked before its first message; start a new chat to use another one" }, 409);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const e = (await listEnvs(bucket, uid)).find((x) => x.id === body.envId && !x.archived);
+    if (!e) return json({ error: "no such environment" }, 404);
+    const next = { ...meta, envId: e.id };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
+  }
+  let chatEnvId = null;
+  const theEnvId = async () => {
+    if (chatEnvId) return chatEnvId;
+    chatEnvId = await envIdOf(bucket, uid, meta);
+    // An older chat keeps the environment it got from now on.
+    if (meta.envId !== chatEnvId) { meta.envId = chatEnvId; await saveMeta(bucket, uid, meta); }
+    return chatEnvId;
+  };
+  const envOut = async (e) => {
+    const list = await listEnvs(bucket, uid);
+    const id = await theEnvId();
+    const me = list.find((x) => x.id === id) || { id, name: "Default" };
+    return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network };
+  };
+  const readEnv2 = async () => readEnvData(env, bucket, uid, await theEnvId());
+  const saveEnv = async (e) => writeEnvData(env, bucket, uid, await theEnvId(), e);
+  if (action === "env" && request.method === "GET") return json(await envOut(await readEnv2()));
   if (action === "env" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const cur = await readEnv(env, bucket, uid, meta.repo);
+    const cur = await readEnv2();
+    // Its name (never Default's).
+    if (body.name !== undefined) {
+      const id = await theEnvId(), list = await listEnvs(bucket, uid), me = list.find((x) => x.id === id);
+      const n = String(body.name).trim();
+      if (id === DEFAULT_ENV) return json({ error: "the Default environment keeps its name" }, 400);
+      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 40 characters)" }, 400);
+      if (me) { me.name = uniqueName(n, list.filter((x) => x !== me)); await saveEnvList(bucket, uid, list); }
+    }
     if (typeof body.script === "string") { if (body.script.length > 65536) return json({ error: "the setup script is over 64 KB" }, 413); cur.script = body.script; }
     if (typeof body.varsText === "string") {
       if (body.varsText.length > 100000) return json({ error: "that is too long" }, 413);
@@ -550,13 +633,13 @@ export async function handleCoder(request, env, ctx, deps) {
       cur.network = n;
     }
     await saveEnv(cur);
-    return json(envOut(cur));
+    return json(await envOut(cur));
   }
   // A SECRET (owner, 2026-11-06, like Claude Code's "Add secret"): from Coder's
   // card ({ host, value, header?, prefix? }) or the Add secret form ({ name,
   // hosts, paths, headers: [{ name, prefix, value }] }); DELETE ?id= (or ?host=).
   if (action === "secret" && (request.method === "POST" || request.method === "DELETE")) {
-    const cur = await readEnv(env, bucket, uid, meta.repo);
+    const cur = await readEnv2();
     if (request.method === "DELETE") {
       const id = String(url.searchParams.get("id") || url.searchParams.get("host") || "").toLowerCase();
       cur.secrets = cur.secrets.filter((s) => s.id.toLowerCase() !== id && !(s.hosts.length === 1 && s.hosts[0] === id));

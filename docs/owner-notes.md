@@ -4,6 +4,22 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Environments like Claude Code's
+
+- Your word: "make it like claude code", after I checked Claude Code's docs (code.claude.com/docs/en/cloud-environments).
+- **Your own environments.** Environments now belong to you, have names, and aren't tied to repos. Default is made for you.
+  - Each environment holds the network setting, the keys, the setup script and the variables, and they apply to every chat that uses it. A key saved from one chat reaches every chat on that environment.
+- **Picking one.** A chat picks its environment under the message box, before its first message, like Claude Code's picker. "+ Add environment…" makes a new one and opens it.
+  - After the first message the pick is fixed, as in Claude Code's docs. The Environment button then edits that environment.
+  - A repo's next chat starts with the environment used (or made) most recently for that repo.
+- **The Environment window** shows the environment's name, with a Name row to rename it and "Archive this environment". Default can't be renamed or archived.
+  - An archived environment leaves the list, but chats that already use it keep working.
+- **Nothing is lost.** Each repo's settings from before move into an environment named after the repo the first time one of its chats needs them. The old files stay where they were.
+- **Coder's cards.**
+  - Coder knows which environment the chat uses. Its setup-script and "Allow this site?" cards name that environment, and the key card says the key is saved on it.
+  - Like the "testing2" card you saw in Claude Code: when a chat uses Default and something is only for this repo, Coder offers "Create new environment?" (name, network, repository, setup script; Deny / Create environment). This chat keeps its environment, and new chats of this repo start with the new one.
+- Previews checked on the live page with this new page code; live after "merge and deploy".
+
 ## 2026-11-06: Like Claude Code: the question card, undo when it isn't clear, where a saved key lives (2, 3, 4)
 
 - You tested all 18 tools in Claude Code and in Coder, and asked for 2, 3 and 4 of the differences.
