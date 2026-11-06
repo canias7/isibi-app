@@ -71,7 +71,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "ask_user", "todo", "bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "undo_last_job", "ask_user", "todo", "bash", "pull_request"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -89,7 +89,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -1041,8 +1041,7 @@ test("CD43 undo the last job: its commit is reverted and saved to the branch (no
     assert.match(msgs.at(-2).content, /the owner pressed Undo/);
     assert.equal((await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).status, 400, "nothing more to undo");
     const ui = readFileSync(HERE("public/coder.js"), "utf8");
-    assert.match(ui, /Undo last job/);
-    assert.match(ui, /askSure\('Undo the last job\?'/);
+    assert.doesNotMatch(ui, /id="cdUndo"/, "no Undo button now: Coder undoes when asked (owner, 2026-11-06)");
   } finally { await close(); }
 });
 
@@ -1096,7 +1095,7 @@ test("CD46 Review and Security review: the request is written on the server; Cod
   assert.equal(sent[0].shown, "Security review");
   assert.equal((await r.json()).project.title, "Security review");
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /data-review="code"/); assert.match(ui, /data-review="security"/);
+  assert.doesNotMatch(ui, /data-review="code"/, "no Review menu now: Coder reviews when asked (owner, 2026-11-06)");
 });
 
 test("CD47 the repo's environment: setup script runs once per machine (again if changed); the owner's variables reach commands; values are sealed and never shown back", async () => {
@@ -1610,4 +1609,44 @@ test("CD70 live test (2026-11-06): a blocked site never crashes the proxy; tool 
     }
   } finally { await px.close(); }
   assert.match(readFileSync(HERE("container/coder-agent.mjs"), "utf8"), /command: "node --no-warnings " \+ TOOLS_SCRIPT/);
+});
+
+test("CD71 (owner 2026-11-06) review and undo are tools Coder calls itself: review returns the diff and checklist; undo ends the turn and the app reverts the last job", async () => {
+  const runs = []; const events = [];
+  let n = 0; const seen = [];
+  const turns = [say("", [call("review", { kind: "security" })]), say("Nothing serious.", [])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async ({ command }) => { runs.push(command); return { code: 0, output: "diff --git a/x.js b/x.js\n+eval(input)" }; }, emit: (e) => events.push(e) }, { text: "do a security review", base: "main" });
+  assert.match(runs[0], /git --no-pager diff 'origin\/main\.\.\.HEAD'/);
+  const toolMsg = seen[1].messages.find((m) => m.role === "tool");
+  assert.match(toolMsg.content, /^SECURITY REVIEW CHECKLIST[\s\S]*Do NOT change any files[\s\S]*eval\(input\)/);
+  assert.ok(events.some((e) => e.verb === "Security review"));
+  // a bad base name is never put in the command
+  const runs2 = []; let k = 0; const t2 = [say("", [call("review", { kind: "code" })]), say("ok", [])];
+  await runCoder({ send: async () => t2[k++], exec: async ({ command }) => { runs2.push(command); return { code: 0, output: "" }; } }, { text: "review", base: "x'; rm -rf / #" });
+  assert.match(runs2[0], /'origin\/main\.\.\.HEAD'/);
+  // UNDO
+  const ev3 = []; let j = 0; const t3 = [say("", [call("undo_last_job", {}), call("bash", { command: "echo never" })])];
+  const r3 = await runCoder({ send: async () => t3[j++], exec: async () => ({ code: 0, output: "ran" }), emit: (e) => ev3.push(e) }, { text: "undo that" });
+  assert.equal(r3.undoRequest, true);
+  assert.equal(ev3.some((e) => e.type === "result" && e.output === "ran"), false);
+  const ev4 = []; let q = 0; const t4 = [say("", [call("undo_last_job", {})]), say("ok", [])];
+  const r4 = await runCoder({ send: async () => t4[q++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev4.push(e) }, { text: "undo", github: true });
+  assert.equal(r4.undoRequest, undefined, "not from GitHub");
+  const routes = readFileSync(HERE("src/coder-routes.mjs"), "utf8");
+  assert.match(routes, /if \(s\.result\.undoRequest && t\)[\s\S]*Not undone: this job changed files too[\s\S]*post\("\/undo"/);
+});
+
+test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, source marks, code; nothing unsafe gets through", async () => {
+  const src = readFileSync(HERE("public/coder.js"), "utf8");
+  const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const prose = new Function("esc", grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
+  const h = prose("Lead line.\n\n- one `a.js`\n- two **bold**\n\n1. first\n2. second\n\n## Notes\n\nSee [docs](https://x.dev/a) and [[1]](https://y.dev/b), also https://z.dev/c.\n\n```js\nlet a = '<b>';\n```");
+  assert.match(h, /<p>Lead line\.<\/p><ul><li>one <code>a\.js<\/code><\/li><li>two <b>bold<\/b><\/li><\/ul><ol><li>first<\/li><li>second<\/li><\/ol><h4>Notes<\/h4>/);
+  assert.match(h, /<a href="https:\/\/x\.dev\/a" target="_blank" rel="noopener">docs<\/a>/);
+  assert.match(h, /<a class="cd-cite" href="https:\/\/y\.dev\/b"[^>]*>1<\/a>/);
+  assert.match(h, /<a href="https:\/\/z\.dev\/c"[^>]*>https:\/\/z\.dev\/c<\/a>\./, "the full stop is not part of the link");
+  assert.match(h, /<pre class="cd-pre">let a = &#39;&lt;b&gt;&#39;;<\/pre>/);
+  const bad = prose('<img src=x onerror=alert(1)> [x](javascript:alert(1)) [y](https://a.dev/"onmouseover=alert(1))');
+  assert.doesNotMatch(bad, /<img|href="javascript|"onmouseover/);
 });

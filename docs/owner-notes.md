@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Review and Undo are now things Coder does when asked; nicer answers
+
+- The Review menu and the Undo button are gone from the chat's top bar. Instead Coder has two new tools it calls itself: "review" (code or security; it gets the branch's changes plus the checklist and answers with findings, changing nothing) and "undo_last_job" (the app reverts the last job's commit and pushes when the turn ends, like the old button). Just say "review my changes", "do a security review" or "undo that".
+- Answers are formatted: bullet and numbered lists, small headings, bold, `code`, links, and source marks like [[1]] show as small numbered chips.
+- Tested live: the setup-install offer (2) is checked in the next live run.
+
 ## 2026-11-06: Fix: Limited network crashed Coder's machine
 
 - Live test: with Limited on, the first blocked request ("example.com") crashed the whole machine ("Coder's machine restarted"). A connection reset on a blocked site had no error handler. Fixed, plus a safety net so a network error can never stop every job again.

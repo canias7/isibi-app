@@ -25,6 +25,11 @@ import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
 // (as `dev`, in the project), via container/coder-tools.mjs.
+// WHAT A REVIEW LOOKS FOR (moved from the page's Review menu, owner 2026-11-06).
+export const REVIEW_TEXT = {
+  code: "REVIEW CHECKLIST: look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so.",
+  security: "SECURITY REVIEW CHECKLIST: injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so.",
+};
 export const TOOLS_SCRIPT = fileURLToPath(new URL("./coder-tools.mjs", import.meta.url));
 /** The most a Write may hold in one call (it travels as one command argument). */
 export const WRITE_MAX = 1_000_000;
@@ -54,6 +59,8 @@ export const CODER_TOOLS = Object.freeze([
   fn("stop_job", "Stop a background job by its id. Every job is also stopped when your turn ends.", { job: { type: "string" } }, ["job"]),
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved for this repo and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
   fn("propose_env", "Propose a change to this repo's environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys); use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the repo's network list, when a request was blocked by it. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host"] }, script: { type: "string", description: "setup_script: the whole new script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
+  fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
+  fn("undo_last_job", "Undo the last job that changed files in this chat: its commit is reverted on the branch and pushed when your turn ends. Use it only when the owner asks to undo or revert what you did last; do not make other changes in the same turn. Your turn ends here.", {}, []),
   fn("ask_user", "Ask the owner ONE multiple-choice question when you truly cannot choose for them (e.g. which of two designs, whether to delete something). Give 2 to 4 short options. Your turn ends there; their pick comes back as the next message. Do not use it for things you can decide yourself.", { question: { type: "string" }, options: { type: "array", items: { type: "string" } } }, ["question", "options"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   { type: "function", function: {
@@ -125,7 +132,7 @@ export function readCalls(msg) {
  * Answers `{ status, messages, summary, rounds, usage }`, `status` one of
  * `done`, `stopped`, `rounds`, `time`, `send`, `no-tool`. It never throws.
  */
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -141,10 +148,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const usage = [];
   const started = now();
   let rounds = 0;
-  let prRequest = null;
+  let prRequest = null, undoRequest = false;
   // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
   const jobs = new Map();
-  const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map((m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m)), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -225,6 +232,28 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a key first" });
         emit({ type: "secret", host, reason: scrub(String(c.args.reason || "")).trim().slice(0, 300), name: scrub(String(c.args.name || "")).trim().slice(0, 60), header, prefix });
         return end("done", { summary: "asked for a key for " + host });
+      } else if (c.name === "review") {
+        // A REVIEW, CALLED BY CODER ITSELF (owner, 2026-11-06: "tools called by the model, not front-end stuff").
+        const kind = c.args.kind === "security" ? "security" : "code";
+        const b = /^[\w./-]{1,200}$/.test(base) && !base.startsWith("-") ? base : "main";
+        emit({ type: "bash", id: c.id, tool: "review", verb: kind === "security" ? "Security review" : "Reviewed", command: "git diff " + b + "...HEAD" });
+        let r;
+        try { r = await deps.exec({ command: "git --no-pager diff --stat 'origin/" + b + "...HEAD' 2>/dev/null || git --no-pager diff --stat '" + b + "...HEAD'; echo '--- committed changes ---'; git --no-pager diff 'origin/" + b + "...HEAD' 2>/dev/null || git --no-pager diff '" + b + "...HEAD'; echo '--- not saved yet ---'; git --no-pager diff; git status --short", timeoutS: 60, tool: true }); }
+        catch (e) { r = { code: -1, output: String((e && e.message) || e).slice(0, 200) }; }
+        const diff = capOutput(String((r && r.output) || ""));
+        emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: diff.slice(0, 4000) });
+        reply(REVIEW_TEXT[kind] + "\n\n" + (diff.trim() || "(no changes on this branch yet)"));
+      } else if (c.name === "undo_last_job") {
+        // UNDO, CALLED BY CODER ITSELF (owner, 2026-11-06): done by Coder's app when the turn ends.
+        if (github) { reply("error: undo is not available in a job started from GitHub"); continue; }
+        undoRequest = true;
+        reply("the last job will be undone when this turn ends; say so in one line and stop");
+        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked to undo the last job" });
+        emit({ type: "bash", id: c.id, tool: "undo", verb: "Undo", command: "the last job" });
+        emit({ type: "result", id: c.id, code: 0, output: "" });
+        convo.push({ role: "assistant", content: "Undoing the last job." });
+        emit({ type: "text", text: "Undoing the last job." });
+        return end("done", { summary: "undo the last job" });
       } else if (c.name === "propose_env") {
         // AN ENVIRONMENT CHANGE, APPROVED BY THE OWNER ON A CARD (owner, 2026-11-06, like Claude Code).
         if (github) { reply("error: environment changes cannot be proposed in a job started from GitHub; mention it in your answer instead"); continue; }
@@ -281,7 +310,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         prRequest = { title: scrub(title), body: scrub(body) };
         emit({ type: "pr", text: prRequest.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, todo and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

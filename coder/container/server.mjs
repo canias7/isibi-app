@@ -423,7 +423,7 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       },
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
       .then(async (r) => { t.result = { ...r, memory: await readMemory(memFile) }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => {
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.
