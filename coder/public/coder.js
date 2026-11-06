@@ -8,7 +8,8 @@
   const POLL_MS = 1500;
   // THE MODEL LIST AND THE USER'S PICK come from the server
   // (2026-11-05: "put it server side"); the page only shows them.
-  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high'], effort: 'medium' }];
+  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'high' }];
+  const EFFORT_NAME = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high' };
   async function loadSettings() {
     const r = await call('/settings');
     if (r.status === 200 && r.data) {
@@ -544,7 +545,7 @@
       '</form>' +
       '<div class="cd-picks">' +
         '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
-        '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + e[0].toUpperCase() + e.slice(1) + '</option>').join('') + '</select></label>' +
+        '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + (EFFORT_NAME[e] || e) + '</option>').join('') + '</select></label>' +
       '</div>' +
     '</div>';
   }

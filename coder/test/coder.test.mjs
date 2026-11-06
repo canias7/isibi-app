@@ -409,11 +409,12 @@ test("CD15 the page: sign-in then Coder, served by Coder's own Worker with its s
 
 test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as reasoning.effort; anything else falls back to the defaults", async () => {
   const { pickModel, CODER_MODELS, coderSend } = await import("../container/coder-model.mjs");
-  assert.deepEqual(CODER_MODELS.map((m) => [m.id, m.efforts]), [["grok-4.7", ["low", "medium", "high"]]]);
+  assert.deepEqual(CODER_MODELS.map((m) => [m.id, m.efforts]), [["grok-4.7", ["low", "medium", "high", "xhigh"]]]);
   assert.deepEqual(pickModel("grok-4.7", "high"), { model: "grok-4.7", effort: "high" });
-  assert.deepEqual(pickModel("grok-4.7", "max"), { model: "grok-4.7", effort: "medium" }, "an effort it does not take");
+  assert.deepEqual(pickModel("grok-4.7", "xhigh"), { model: "grok-4.7", effort: "xhigh" }, "Extra high (xAI docs)");
+  assert.deepEqual(pickModel("grok-4.7", "max"), { model: "grok-4.7", effort: "high" }, "an effort it does not take: xAI's default");
   assert.deepEqual(pickModel("gpt-9", "low"), { model: "grok-4.7", effort: "low" }, "a model not on the list");
-  assert.deepEqual(pickModel(undefined, undefined), { model: "grok-4.7", effort: "medium" });
+  assert.deepEqual(pickModel(undefined, undefined), { model: "grok-4.7", effort: "high" });
   const sent = [];
   const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }] })); } });
   await send({ model: "grok-4.7", effort: "high", messages: [], tools: [] });
@@ -565,7 +566,7 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   const deps = { authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => null };
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), renv, {}, deps);
   const s0 = await (await go("settings")).json();
-  assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "medium" });
+  assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "high" });
   assert.equal((await go("settings", { method: "POST", body: JSON.stringify({ model: "grok-4.7", effort: "high" }) })).status, 200);
   assert.deepEqual((await (await go("settings")).json()).pick, { model: "grok-4.7", effort: "high" }, "kept on the account");
   assert.equal((await go("command", { method: "POST", body: JSON.stringify({ text: "/new" }) })).status, 404, "no slash commands");
