@@ -1646,6 +1646,8 @@ test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, sou
   assert.match(h, /<a href="https:\/\/x\.dev\/a" target="_blank" rel="noopener">docs<\/a>/);
   assert.match(h, /<a class="cd-cite" href="https:\/\/y\.dev\/b"[^>]*>1<\/a>/);
   assert.match(h, /<a href="https:\/\/z\.dev\/c"[^>]*>https:\/\/z\.dev\/c<\/a>\./, "the full stop is not part of the link");
+  // Live test (2026-11-06): "**curl https://registry.npmjs.org/is-number:** 200" kept its bold.
+  assert.match(prose("**curl https://registry.npmjs.org/is-number:** 200"), /^<p><b>curl <a href="https:\/\/registry\.npmjs\.org\/is-number"[^>]*>https:\/\/registry\.npmjs\.org\/is-number<\/a>:<\/b> 200<\/p>$/);
   assert.match(h, /<pre class="cd-pre">let a = &#39;&lt;b&gt;&#39;;<\/pre>/);
   const bad = prose('<img src=x onerror=alert(1)> [x](javascript:alert(1)) [y](https://a.dev/"onmouseover=alert(1))');
   assert.doesNotMatch(bad, /<img|href="javascript|"onmouseover/);

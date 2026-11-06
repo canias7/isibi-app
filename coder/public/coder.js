@@ -346,7 +346,7 @@
       .replace(/\[\[(\d{1,2})\]\]\((https:\/\/[^\s)]+)\)/g, (_, n, u) => keep('<a class="cd-cite" href="' + u + '" target="_blank" rel="noopener">' + n + '</a>'))
       .replace(/\[([^\]\n]{1,200})\]\((https:\/\/[^\s)]+)\)/g, (_, txt, u) => keep('<a href="' + u + '" target="_blank" rel="noopener">' + txt + '</a>'))
       .replace(/`([^`\n]+)`/g, (_, c) => keep('<code>' + c + '</code>'))
-      .replace(/(https:\/\/[^\s<]+[^\s<.,;:!?)])/g, (u) => keep('<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>'))
+      .replace(/(https:\/\/[^\s<*]+[^\s<.,;:!?)*])/g, (u) => keep('<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>'))
       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
     return h.replace(/\u0000(\d+)\u0000/g, (_, i) => links[Number(i)]);
   }

@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-06: Live checks after the outage fix, and a small display fix
+
+- Live: Coder's machine starts again (a new chat answered "Hi. What do you want to work on?").
+- Live, Trusted network: npm answered 200; example.com was blocked ("CONNECT tunnel failed, response 403"); web_fetch on example.com was blocked by the site list too. The test repo is back to Full.
+- Fixed: a link right before the end of bold text swallowed the closing ** ("**curl https://…:**" showed its asterisks). Links no longer take a * at the end.
+
 ## 2026-11-06: The phone apps, started (iPhone and Android)
 
 - coder/mobile: the phone app (Capacitor), gofarther.dev in its own app like the desktop one, named Go Farther with the GF icon and a plain GF splash screen (ID dev.gofarther.app).
