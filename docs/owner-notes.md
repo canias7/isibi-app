@@ -35,6 +35,7 @@ log (81,000 lines) is in git history.
 - **Costs:**
   - A sleeping chat's machine costs about $0.15 a month per GB of its image on Fly.io. That's about $0.70 a month instead of about $0.25 (my estimate).
   - A brand-new chat's first start will be a bit slower.
+- **The check on GitHub passed** (run 42342573805): both images build, Coder's service starts in both, and every tool works as Coder's own user, Docker included. Things it installs for itself land in its own home. The full image is about 6.9 GB.
 - Tests: CD133 to CD136 (145 in all, all passing, plus the 14 admin-only safety tests).
 
 ## 2026-11-07: A deploy no longer resets the chats' machines for nothing
