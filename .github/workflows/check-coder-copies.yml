@@ -1,0 +1,31 @@
+# CHECK CODER'S SAVED COPIES ON FLY.IO (read-only; live test #25, 2026-11-07: a second
+# new chat did not start from the environment's saved copy). Lists the newest chat
+# disks and each one's copies (snapshots): ids, times, sizes and states only. It
+# changes nothing and prints no key. Runs when this file changes on a branch, or by hand.
+name: check coder copies
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/check-coder-copies.yml"]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      FLY_APP: gofarther-coder-machines
+    steps:
+      - name: The newest chat disks and their copies
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FLY_API_TOKEN:-}" ]; then echo "No FLY_API_TOKEN secret."; exit 0; fi
+          api() { curl -sS --max-time 30 -H "Authorization: Bearer $FLY_API_TOKEN" "https://api.machines.dev/v1/apps/$FLY_APP$1"; }
+          vols=$(api /volumes)
+          echo "Disks in all: $(echo "$vols" | jq 'length')"
+          echo "$vols" | jq -r 'sort_by(.created_at) | reverse | .[0:6][] | "\(.created_at)  \(.id)  \(.name)  \(.size_gb) GB  \(.state)  keeps copies \(.snapshot_retention // "?") days"'
+          for id in $(echo "$vols" | jq -r 'sort_by(.created_at) | reverse | .[0:6][] | .id'); do
+            echo "--- copies of $id"
+            api "/volumes/$id/snapshots" | jq -r 'if type == "array" then (if length == 0 then "  (none)" else .[] | "  \(.created_at)  \(.id)  status \(.status)  size \(.size)  keeps \(.retention_days) days  fields: \(keys | join(","))" end) else "  answer: \(. | tostring | .[0:300])" end'
+          done
