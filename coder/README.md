@@ -19,7 +19,7 @@ code in **each user's own GitHub**.
 | `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
 | `src/coder-cors.mjs` | Only gofarther.dev may call it from another address |
-| `container/` | The container image: the agent loop (one tool: `bash`), the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
+| `container/` | The machine's image (Ubuntu 24.04 with Claude Code's tools; its helpers in `container/tools/`): the agent loop, the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
 | `test/` | `npm test` from this folder |
 
 ## How it works
@@ -89,6 +89,32 @@ its secrets (`XAI_API_KEY`, `CODER_CONTROL_KEY`, from standard input), builds
 the image, sends it to `registry.fly.io`, and gives the Worker the image
 (`CODER_FLY_IMAGE`) and the token. Picking "cloudflare" on the deploy button,
 or removing the secret, goes back to Cloudflare's containers.
+
+**All of Claude Code's tools** (owner, 2026-11-07: "can we install all the
+tools we need?"). The machine is Ubuntu 24.04 on x86_64, like Claude Code's.
+`container/Dockerfile` makes two images: `core`, the default, with what Coder
+itself needs (Cloudflare's backup machines, whose limit is 8 GB an image and
+50 GB in all), and `full` (`--build-arg CODER_IMAGE=full`, Fly.io's machines)
+with the tools Claude Code's machine comes with: Python with uv, poetry,
+pytest, mypy, black, ruff and conan; Node 22 and 24, nvm, npm, yarn, pnpm,
+bun, eslint and prettier; Ruby 3.1, 3.2 and 3.3 with rbenv (built from
+ruby-lang.org's source by `tools/build-ruby`); PHP 8.3 and Composer; Java 21,
+Maven and Gradle; Go; Rust; C and C++ (gcc, clang, cmake, ninja); Docker
+without admin rights (rootless: `tools/docker` starts dev's own engine with
+the first docker command); PostgreSQL 16 and Redis 7, installed and not
+running (`service postgresql start` works for dev: `tools/service` asks sudo,
+which allows exactly those eight commands, `tools/coder-services.sudoers`);
+Chrome for Testing with chromedriver; gh, yq, tmux, vim, nano; and
+`check-tools`. Each download is checked against its maker's sum. Every tool
+belongs to root, and root's PATH holds only root's folders (the setup
+script's apt lines run with `cleanEnv(null, { root: true })`). The AI's
+commands have a home of their own (`cleanEnv`: `/home/dev`, or on Fly.io
+`/data/home` on the chat's kept disk), where what they install for themselves
+and every download cache go, never in a project. On the full image Coder is
+told its tools (`MACHINE_TOOLS`). The deploy builds the full image only when
+that version is not on Fly.io yet, and `.github/workflows/check-coder-image.yml`
+builds both images whenever the machine changes on a branch and tries every
+tool as dev (`test/machine-tools.sh`).
 
 **A job is "running" before the machine is handed it.** The machine sets up
 first (the clone, the setup script), and Cloudflare stops a request whose tab

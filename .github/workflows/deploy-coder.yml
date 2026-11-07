@@ -131,8 +131,16 @@ jobs:
           # git fingerprint of coder/container, so a deploy that changes nothing there leaves
           # every chat's machine as it is (its kept disk, and no setup running again).
           img="registry.fly.io/$FLY_APP:coder-$(git rev-parse HEAD:coder/container | cut -c1-12)"
-          docker build -t "$img" container
-          docker push "$img"
+          # ALL OF CLAUDE CODE'S TOOLS (owner, 2026-11-07): Fly.io's machines get the full image
+          # (Cloudflare's backup machines keep the small one, which wrangler builds below). It
+          # takes a while to build, so a version already sent is not built again.
+          if docker manifest inspect "$img" >/dev/null 2>&1; then
+            echo "Coder's machine $img is already on Fly.io: not built again."
+          else
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+            docker build --build-arg CODER_IMAGE=full -t "$img" container
+            docker push "$img"
+          fi
           echo "image=$img" >> "$GITHUB_OUTPUT"
       - name: "Fly.io: give the Worker the token"
         if: steps.fly.outputs.on == 'true'

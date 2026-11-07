@@ -24,9 +24,9 @@ import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lst
 import { constants } from "node:fs";
 import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
-import { runCoder } from "./coder-agent.mjs";
+import { runCoder, MACHINE_TOOLS } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
@@ -46,11 +46,14 @@ export const SETUP_MAX_S = 300;
 export const SETUP_CACHE_MS = 7 * 24 * 3600 * 1000;
 let bgCount = 0;
 
-/** One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped). */
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null } = {}) {
+/**
+ * One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped).
+ * `home`: the AI's home (the service gives it one; a test may not, and then it is `dir`). `uid: null` runs it as root, with root's own PATH only (cleanEnv).
+ */
+export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false;
-    const p = spawn("bash", ["-c", command], { cwd: dir, env: { ...(extraEnv || {}), ...cleanEnv(dir) }, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : {}) });
+    const p = spawn("bash", ["-c", command], { cwd: dir, env: { ...(extraEnv || {}), ...(uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir)) }, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : {}) });
     const take = (b) => { if (out.length < RAW_OUTPUT_MAX) out += b.toString("utf8"); else cut = true; };
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
@@ -856,15 +859,22 @@ export function gitFrom(body, { via = false, remote = DEFAULT_REMOTE } = {}) {
 // fresh after a restart, so the setup (and its installed packages) runs again.
 export const KEEPALIVE_MS = 15000;
 export const SETUP_ROOT = "/srv/coder-setup";
-export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0 } = {}) {
+export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0, dev = DEV } = {}) {
   if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return {};
-  const d = { root: join(data, "work"), gitRoot: join(data, "git"), memRoot: join(data, "memory"), setupRoot };
+  const d = { root: join(data, "work"), gitRoot: join(data, "git"), memRoot: join(data, "memory"), setupRoot, home: join(data, "home") };
   // Root's own folders (755), like /work and /srv in the image: the AI's user may read them, never swap them.
   for (const p of [data, d.root, d.gitRoot, d.memRoot, d.setupRoot]) {
     mkdirSync(p, { recursive: true, mode: 0o755 });
     if (owner !== null) chownSync(p, owner, owner);
     chmodSync(p, 0o755);
   }
+  // THE AI'S HOME, on the kept disk too (owner, 2026-11-07: "can we install all
+  // the tools we need?"): what its commands install for themselves and their
+  // download caches stay while the machine sleeps, and never go in a project.
+  // Its own folder; only root can make or swap entries in `data` itself.
+  mkdirSync(d.home, { recursive: true, mode: 0o755 });
+  if (dev) chownSync(d.home, dev.uid, dev.gid);
+  chmodSync(d.home, 0o755);
   return d;
 }
 
@@ -1037,7 +1047,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
+export function createApp({ kept = null, gitVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1176,7 +1186,7 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
         }
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, extraEnv: net.limited ? proxyEnv : {} });
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, extraEnv: net.limited ? proxyEnv : {} });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -1206,7 +1216,8 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    // On the full image, Coder knows its machine's tools (2026-11-07).
+    const context = (env.CODER_IMAGE === "full" ? MACHINE_TOOLS + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     const lastSend = async () => { if (sender) await sender.flush(); };
     runCoder({
       send: sendFn,
@@ -1221,7 +1232,7 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
           command = command.replace("@REQUEST", "@" + f);
         }
         // A file or web tool is ended at its time limit, never sent to the background.
-        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
+        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
         if (r && r.background && r.pid) t.bg.add(r.pid);
         return r;
       },
@@ -1367,7 +1378,7 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // nobody caught (in the key/network proxy) used to stop the whole machine.
   process.on("uncaughtException", (e) => { if (e && /^E(CONNRESET|PIPE|CONNREFUSED|TIMEDOUT|HOSTUNREACH|NETUNREACH)$|^ERR_STREAM/.test(String(e.code || ""))) console.error("coder: network error, kept running:", e.code); else { console.error(e); process.exit(1); } });
   // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
-  // On Fly.io, the chat's files live on its kept disk (CODER_DATA).
+  // On Fly.io, the chat's files live on its kept disk (CODER_DATA), the AI's home too; elsewhere its home is /home/dev.
   // Git goes through the Worker with each job's pass (your GitHub login never comes here).
-  http.createServer(createApp({ kept: bootKept(), gitVia: true, liveFetch: (url, init) => fetch(url, init), ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
+  http.createServer(createApp({ kept: bootKept(), gitVia: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }

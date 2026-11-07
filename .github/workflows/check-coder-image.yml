@@ -1,0 +1,57 @@
+name: Check Coder's machine
+
+# CODER'S MACHINE, BUILT AND TRIED BEFORE ANY DEPLOY (owner, 2026-11-07: "can we
+# install all the tools we need?"). Builds the small image (Cloudflare's backup
+# machines) and the full one (Fly.io's machines, with all of Claude Code's
+# tools), starts Coder's service in each, and tries every tool as Coder's own
+# user (coder/test/machine-tools.sh). It deploys nothing and uses no secrets.
+# It runs when Coder's machine changes on a branch, or with its button.
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - "coder/container/**"
+      - "coder/test/machine-tools.sh"
+      - ".github/workflows/check-coder-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room for the full image
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Build the small image (Cloudflare's backup machines)
+        run: docker build -t coder:core coder/container
+
+      - name: Build the full image (Fly.io's machines)
+        run: docker build --build-arg CODER_IMAGE=full -t coder:full coder/container
+
+      - name: Coder's service starts in both
+        run: |
+          for pair in core:8081 full:8082; do
+            img="${pair%:*}" port="${pair#*:}"
+            docker run -d --name "svc-$img" -p "$port:8080" "coder:$img"
+            for i in $(seq 1 30); do curl -fsS "http://localhost:$port/health" && break; sleep 2; done
+            echo
+            curl -fsS "http://localhost:$port/health" | grep -q '"ok":true'
+            docker rm -f "svc-$img" >/dev/null
+          done
+          docker images coder --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+
+      - name: Every tool, as Coder's own user
+        run: |
+          # The runner's Ubuntu stops programs from making their own user namespaces,
+          # which Docker without admin rights needs; Fly.io's machines have no such rule.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          docker run --rm --privileged -v "$PWD/coder/test/machine-tools.sh:/machine-tools.sh:ro" coder:full bash /machine-tools.sh

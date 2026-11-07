@@ -8,7 +8,7 @@ set -euo pipefail
 v="$1" sum="$2"
 mm="${v%.*}"
 cd /tmp
-curl -fsSLO "https://cache.ruby-lang.org/pub/ruby/$mm/ruby-$v.tar.gz"
+curl -fsSLO --retry 5 --retry-delay 3 "https://cache.ruby-lang.org/pub/ruby/$mm/ruby-$v.tar.gz"
 echo "$sum  ruby-$v.tar.gz" | sha256sum -c -
 tar -xzf "ruby-$v.tar.gz"
 cd "ruby-$v"

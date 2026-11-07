@@ -43,11 +43,29 @@ export function commandProblem(command) {
   return "";
 }
 
-/** The environment a command runs with: nothing from the container's own, so no key is ever in reach. */
-export function cleanEnv(home) {
-  return {
-    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    HOME: home || PROJECT_ROOT,
+/** Root's own folders: the only ones on the PATH of a command run as root. */
+export const SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+/** The AI's home on Coder's machine, unless the service is given another (Fly.io: one on the chat's kept disk). */
+export const DEV_HOME = "/home/dev";
+
+/**
+ * The environment a command runs with: nothing from the container's own, so no
+ * key is ever in reach.
+ *
+ * ALL OF CLAUDE CODE'S TOOLS (owner, 2026-11-07: "can we install all the tools
+ * we need?"): the AI's commands find every tool on the machine (Node 22 first,
+ * like Claude Code's machine; Ruby through rbenv; Go; Rust; Java; Chrome;
+ * Docker without admin rights), and what they install for themselves (npm -g,
+ * pip, gem, cargo install, go install) and every download cache go in their
+ * own home, never in the project. The home was the project folder itself, so a
+ * cache could have been saved to the branch.
+ *
+ * A command run as root (`root: true`: the setup script's apt lines) gets
+ * root's own folders only, never a folder the AI's user can write to, where it
+ * could leave a program for root to run.
+ */
+export function cleanEnv(home, { root = false } = {}) {
+  const base = {
     LANG: "C.UTF-8",
     TERM: "dumb",
     CI: "1",
@@ -55,6 +73,24 @@ export function cleanEnv(home) {
     npm_config_update_notifier: "false",
     npm_config_fund: "false",
     npm_config_audit: "false",
+  };
+  if (root) return { PATH: SYSTEM_PATH, HOME: "/root", ...base };
+  const h = home || DEV_HOME;
+  return {
+    PATH: [h + "/.local/bin", h + "/.npm-global/bin", h + "/.cargo/bin", h + "/go/bin", "/opt/rbenv/shims", "/opt/node22/bin", "/opt/cargo/bin", "/usr/local/go/bin", SYSTEM_PATH].join(":"),
+    HOME: h,
+    ...base,
+    npm_config_prefix: h + "/.npm-global",
+    PIP_BREAK_SYSTEM_PACKAGES: "1",
+    RBENV_ROOT: "/opt/rbenv",
+    RUSTUP_HOME: "/opt/rustup",
+    CARGO_HOME: h + "/.cargo",
+    GOPATH: h + "/go",
+    JAVA_HOME: "/usr/lib/jvm/java-21-openjdk-amd64",
+    CHROME_PATH: "/usr/bin/google-chrome",
+    NVM_DIR: h + "/.nvm",
+    XDG_RUNTIME_DIR: h + "/.docker-run",
+    DOCKER_HOST: "unix://" + h + "/.docker-run/docker.sock",
   };
 }
 

@@ -9,12 +9,25 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
-## 2026-11-07: In progress: all of Claude Code's tools on Coder's machine
+## 2026-11-07: All of Claude Code's tools on Coder's machine (on the branch, not deployed yet)
 
 - Your word: "can we install all the tools we need?", about this line of the comparison: Claude Code comes with Python, Node, Ruby, PHP, Java, Go, Rust, C/C++, Docker, PostgreSQL, Redis, Chrome, gh and more.
-- Written so far, on the branch only (not deployed, not yet used by the deploy): a new machine image on Ubuntu 24.04, the same system as Claude Code's machine, with all of those tools. Fly.io's machines get the full image; Cloudflare's backup machines keep a small one.
-- Docker runs without admin rights there, so Coder's commands still never have them. The two databases start with the same commands as on Claude Code's machine.
-- Still to do: test it on a computer, give Coder's commands a home folder of their own (so download caches never land on your branch), tell Coder what is installed, the tests, and the deploy step.
+- **The machine is now Ubuntu 24.04, the same system as Claude Code's machine, with the same tools.**
+  - Python (uv, poetry, pytest, mypy, black, ruff), Node 22 and 24, Ruby 3.1, 3.2 and 3.3, PHP 8.3, Java 21 with Maven and Gradle, Go, Rust, C/C++.
+  - Docker, PostgreSQL 16, Redis 7, Chrome, and gh, yq, tmux, vim, nano.
+  - The same `check-tools` command that lists them all.
+- **Fly.io's machines get the full set; Cloudflare's backup machines keep a small image.** Cloudflare's limit is 8 GB an image and 50 GB in all.
+- **Coder still never has admin rights.**
+  - Docker runs as Coder's own user ("rootless").
+  - The two databases start with the same commands as on Claude Code's machine (`service postgresql start`). Coder may run exactly those through the admin's `sudo`, and nothing else.
+- **Coder's commands have a home folder of their own.** What they install for themselves, and every download cache, go there. Before, the home was the project folder itself, so a cache could have been saved to your branch. On Fly.io the home is on the chat's kept disk, so it survives sleep and new versions.
+- **Coder is told what its machine has,** like a developer who knows their computer.
+- **A deploy builds the big image only when the machine changes.** It takes a while; otherwise a deploy stays as quick as now.
+- **A new check runs on GitHub whenever the machine changes on a branch.** It builds both images and tries every tool as Coder's own user. It deploys nothing and uses no secrets.
+- **Costs:**
+  - A sleeping chat's machine costs about $0.15 a month per GB of its image on Fly.io. That's about $0.70 a month instead of about $0.25 (my estimate).
+  - A brand-new chat's first start will be a bit slower.
+- Tests: CD133 to CD136 (145 in all, all passing, plus the 14 admin-only safety tests).
 
 ## 2026-11-07: A deploy no longer resets the chats' machines for nothing
 

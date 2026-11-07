@@ -87,6 +87,17 @@ export const CODER_TOOLS = Object.freeze([
   } },
 ]);
 
+// THE MACHINE'S TOOLS (owner, 2026-11-07: "can we install all the tools we need?").
+// On the full image (Fly.io's machines, `CODER_IMAGE=full`) Coder is told what is
+// installed and how to use it, like a developer who knows their machine. The
+// small image (Cloudflare's backup machines) says nothing of these.
+export const MACHINE_TOOLS = `THIS MACHINE: Ubuntu 24.04 with the same tools as Claude Code's machine (check-tools lists them with their versions).
+- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 24 is in /opt/node24/bin; any other: . /opt/nvm/nvm.sh && nvm install 20) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (this machine has no GitHub login: public data only), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
+- What you install for yourself (npm install -g, pip install, gem install, cargo install, go install) goes in your home folder, never in the project.
+- PostgreSQL 16 and Redis 7 are installed but not running: start them with service postgresql start and service redis-server start. Connect as yourself, no password: psql -d postgres, createdb myapp, redis-cli.
+- Docker and docker compose work without admin rights: the engine starts with your first docker command.
+- Chrome is /usr/bin/google-chrome ($CHROME_PATH), with chromedriver: run it headless with --headless=new --no-sandbox.`;
+
 export const CODER_SYSTEM = `You are Coder, a software developer working for the owner in your own Linux machine.
 The project lives in the current folder. You work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 

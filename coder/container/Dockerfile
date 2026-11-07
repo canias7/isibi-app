@@ -35,9 +35,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # nodejs.org, checked against its published sums. Coder's own service runs on
 # it, so it belongs to root.
 RUN set -eu; cd /tmp; base=https://nodejs.org/dist/latest-v22.x; \
-    curl -fsSL "$base/SHASUMS256.txt" -o SHASUMS256.txt; \
+    curl -fsSL --retry 5 --retry-delay 3 "$base/SHASUMS256.txt" -o SHASUMS256.txt; \
     f=$(awk '$2 ~ /^node-v[0-9.]+-linux-x64\.tar\.xz$/ {print $2}' SHASUMS256.txt); \
-    curl -fsSLO "$base/$f"; grep " $f\$" SHASUMS256.txt | sha256sum -c -; \
+    curl -fsSLO --retry 5 --retry-delay 3 "$base/$f"; grep " $f\$" SHASUMS256.txt | sha256sum -c -; \
     mkdir -p /opt/node22; tar -xJf "$f" -C /opt/node22 --strip-components=1; rm -f "$f" SHASUMS256.txt
 ENV PATH=/opt/node22/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -99,9 +99,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # and GitHub's gh, from their makers' own package lists. Those lists are taken
 # out again afterwards, so the setup script's `apt-get update` only asks Ubuntu.
 RUN set -eu; install -m 0755 -d /etc/apt/keyrings; \
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; \
+    curl -fsSL --retry 5 --retry-delay 3 https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; \
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list; \
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg; \
+    curl -fsSL --retry 5 --retry-delay 3 https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg; \
     echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras gh; \
@@ -110,11 +110,11 @@ RUN set -eu; install -m 0755 -d /etc/apt/keyrings; \
 # Node 24 beside 22 (Claude Code's machine has both), nvm for any other version
 # (`. /opt/nvm/nvm.sh && nvm install 20`), and the JavaScript tools.
 RUN set -eu; cd /tmp; base=https://nodejs.org/dist/latest-v24.x; \
-    curl -fsSL "$base/SHASUMS256.txt" -o SHASUMS256.txt; \
+    curl -fsSL --retry 5 --retry-delay 3 "$base/SHASUMS256.txt" -o SHASUMS256.txt; \
     f=$(awk '$2 ~ /^node-v[0-9.]+-linux-x64\.tar\.xz$/ {print $2}' SHASUMS256.txt); \
-    curl -fsSLO "$base/$f"; grep " $f\$" SHASUMS256.txt | sha256sum -c -; \
+    curl -fsSLO --retry 5 --retry-delay 3 "$base/$f"; grep " $f\$" SHASUMS256.txt | sha256sum -c -; \
     mkdir -p /opt/node24; tar -xJf "$f" -C /opt/node24 --strip-components=1; rm -f "$f" SHASUMS256.txt; \
-    mkdir -p /opt/nvm; curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/nvm.sh -o /opt/nvm/nvm.sh; \
+    mkdir -p /opt/nvm; curl -fsSL --retry 5 --retry-delay 3 https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/nvm.sh -o /opt/nvm/nvm.sh; \
     npm install -g --no-fund --no-audit yarn pnpm bun eslint prettier && npm cache clean --force
 
 # Python's tools: uv, and pytest and mypy in the system Python (where they see
@@ -125,39 +125,40 @@ RUN set -eu; python3 -m pip install --no-cache-dir --break-system-packages uv py
     done
 
 # Go (the newest, checked against go.dev's sum), and yq built with it.
-RUN set -eu; cd /tmp; j=$(curl -fsSL "https://go.dev/dl/?mode=json"); \
+RUN set -eu; cd /tmp; j=$(curl -fsSL --retry 5 --retry-delay 3 "https://go.dev/dl/?mode=json"); \
     f=$(echo "$j" | jq -r '[.[] | select(.stable)][0].files[] | select(.os=="linux" and .arch=="amd64" and .kind=="archive") | .filename'); \
     s=$(echo "$j" | jq -r --arg f "$f" '[.[] | select(.stable)][0].files[] | select(.filename==$f) | .sha256'); \
-    curl -fsSLO "https://go.dev/dl/$f"; echo "$s  $f" | sha256sum -c -; tar -xzf "$f" -C /usr/local; rm -f "$f"; \
+    curl -fsSLO --retry 5 --retry-delay 3 "https://go.dev/dl/$f"; echo "$s  $f" | sha256sum -c -; tar -xzf "$f" -C /usr/local; rm -f "$f"; \
     GOBIN=/usr/local/bin GOPATH=/tmp/gopath GOCACHE=/tmp/gocache /usr/local/go/bin/go install github.com/mikefarah/yq/v4@latest; \
     rm -rf /tmp/gopath /tmp/gocache
 
 # Rust (stable, with rustfmt and clippy), from rustup's installer checked
 # against its sum. `dev` may add targets and components (/opt/rustup is dev's).
 RUN set -eu; cd /tmp; u=https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init; \
-    curl -fsSLO "$u"; echo "$(curl -fsSL "$u.sha256" | awk '{print $1}')  rustup-init" | sha256sum -c -; chmod +x rustup-init; \
+    curl -fsSLO --retry 5 --retry-delay 3 "$u"; echo "$(curl -fsSL --retry 5 --retry-delay 3 "$u.sha256" | awk '{print $1}')  rustup-init" | sha256sum -c -; chmod +x rustup-init; \
     RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo ./rustup-init -y --no-modify-path --profile minimal --component rustfmt,clippy --default-toolchain stable; \
     rm -f rustup-init; chown -R dev:dev /opt/rustup
 
-# Java's build tools: Maven (checked against Apache's sum) and Gradle (the
-# newest, checked against Gradle's sum).
-RUN set -eu; cd /tmp; mv=3.9.16; a="https://archive.apache.org/dist/maven/maven-3/$mv/binaries/apache-maven-$mv-bin.tar.gz"; \
-    curl -fsSL "$a" -o maven.tar.gz; echo "$(curl -fsSL "$a.sha512" | awk '{print $1}')  maven.tar.gz" | sha512sum -c -; \
+# Java's build tools: Maven 3.9.16 from Maven Central (checked against the sum
+# it publishes beside it, written here) and Gradle (the newest, checked against Gradle's sum).
+RUN set -eu; cd /tmp; mv=3.9.16; a="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$mv/apache-maven-$mv-bin.tar.gz"; \
+    curl -fsSL --retry 5 --retry-delay 3 "$a" -o maven.tar.gz; \
+    echo "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6  maven.tar.gz" | sha512sum -c -; \
     tar -xzf maven.tar.gz -C /opt; ln -s "/opt/apache-maven-$mv" /opt/maven; ln -s /opt/maven/bin/mvn /usr/local/bin/mvn; rm -f maven.tar.gz; \
-    g=$(curl -fsSL https://services.gradle.org/versions/current); gv=$(echo "$g" | jq -r .version); \
-    curl -fsSL "$(echo "$g" | jq -r .downloadUrl)" -o gradle.zip; echo "$(curl -fsSL "$(echo "$g" | jq -r .checksumUrl)")  gradle.zip" | sha256sum -c -; \
+    g=$(curl -fsSL --retry 5 --retry-delay 3 https://services.gradle.org/versions/current); gv=$(echo "$g" | jq -r .version); \
+    curl -fsSL --retry 5 --retry-delay 3 "$(echo "$g" | jq -r .downloadUrl)" -o gradle.zip; echo "$(curl -fsSL --retry 5 --retry-delay 3 "$(echo "$g" | jq -r .checksumUrl)")  gradle.zip" | sha256sum -c -; \
     unzip -q gradle.zip -d /opt; ln -s "/opt/gradle-$gv" /opt/gradle; ln -s /opt/gradle/bin/gradle /usr/local/bin/gradle; rm -f gradle.zip
 
 # PHP's Composer, checked against its sum.
 RUN set -eu; cd /tmp; c=https://getcomposer.org/download/latest-stable/composer.phar; \
-    curl -fsSL "$c" -o composer.phar; curl -fsSL "$c.sha256sum" | sha256sum -c -; \
+    curl -fsSL --retry 5 --retry-delay 3 "$c" -o composer.phar; curl -fsSL --retry 5 --retry-delay 3 "$c.sha256sum" | sha256sum -c -; \
     install -m 0755 composer.phar /usr/local/bin/composer; rm -f composer.phar
 
 # Chrome for Testing and its chromedriver, where Claude Code's machine has
 # Chrome (/usr/bin/google-chrome, also in $CHROME_PATH).
-RUN set -eu; cd /tmp; j=$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json); \
+RUN set -eu; cd /tmp; j=$(curl -fsSL --retry 5 --retry-delay 3 https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json); \
     for p in chrome chromedriver; do \
-      curl -fsSL "$(echo "$j" | jq -r --arg p "$p" '.channels.Stable.downloads[$p][] | select(.platform=="linux64") | .url')" -o "$p.zip"; \
+      curl -fsSL --retry 5 --retry-delay 3 "$(echo "$j" | jq -r --arg p "$p" '.channels.Stable.downloads[$p][] | select(.platform=="linux64") | .url')" -o "$p.zip"; \
       unzip -q "$p.zip" -d /opt/chrome-for-testing; rm -f "$p.zip"; \
     done; \
     ln -s /opt/chrome-for-testing/chrome-linux64/chrome /usr/bin/google-chrome; \

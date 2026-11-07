@@ -1147,7 +1147,9 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     const s1 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123", PATH: "/evil" } });
     assert.equal(s1.events.filter((e) => e.verb === "Ran setup").length, 1, "setup ran");
     const out = s1.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
-    assert.match(out, /set up\nkey=sk-secret-123\npath=\/usr\/local\/sbin/);
+    // A variable named PATH never replaces Coder's: the tools' folders, then the system's (2026-11-07).
+    assert.match(out, /set up\nkey=sk-secret-123\npath=[^\n]*\/opt\/node22\/bin:[^\n]*:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin\n/);
+    assert.doesNotMatch(out, /evil/);
     const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
     assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
     const s3 = await run({ script: "echo changed > ready.txt", vars: {} });
