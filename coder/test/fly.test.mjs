@@ -95,7 +95,13 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
     restart: { policy: "on-failure", max_retries: 3 },
     metadata: { coder: "chat-machine" },
   });
-  assert.equal(JSON.stringify(F.machineConfig(envWith(b, { XAI_API_KEY: "xai-secret" }), "v")).includes("xai-secret"), false, "keys are Fly secrets, never in the machine's settings");
+  assert.equal(JSON.stringify(F.machineConfig(envWith(b, { XAI_API_KEY: "xai-secret" }), "v")).includes("xai-secret"), false, "the AI key is a Fly secret, never in the machine's settings");
+  // ITS LOCK, ALWAYS: the control key (made from CODER_TOKEN_KEY, never that key itself) is in its settings too.
+  const { controlKeySync } = await import("../src/coder-control.mjs");
+  const tk = Buffer.alloc(32, 7).toString("base64");
+  const withKey = F.machineConfig(envWith(b, { CODER_TOKEN_KEY: tk }), "v");
+  assert.equal(withKey.env.CODER_CONTROL_KEY, controlKeySync(tk));
+  assert.equal(JSON.stringify(withKey).includes(tk), false);
 });
 
 test("CD126 a chat's machine on Fly.io: made with its disk on first use, then asked straight through the front door; asleep, it is woken; a new machine version is taken only while asleep; gone, a new one is made; a cut answer is never sent twice", async () => {
@@ -270,6 +276,18 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
     await fetch(base + "/state?project=shop-a1", { headers: { "x-coder-key": CONTROL } });
     assert.ok((await busy()) < 30, "the Worker's request does");
   } finally { await new Promise((ok) => srv.close(ok)); }
+  // ON FLY.IO WITHOUT ITS KEY: nothing but /health (its panel is never open on the internet).
+  const open = http.createServer(createApp({ env: { FLY_MACHINE_ID: "m123" } }));
+  await new Promise((ok) => open.listen(0, "127.0.0.1", ok));
+  try {
+    const ob = "http://127.0.0.1:" + open.address().port;
+    assert.equal((await fetch(ob + "/health")).status, 200);
+    for (const [p, m] of [["/turn", "POST"], ["/state?project=shop-a1", "GET"], ["/busy", "GET"], ["/stop", "POST"]]) {
+      const r = await fetch(ob + p, { method: m, ...(m === "POST" ? { body: "{}" } : {}) });
+      assert.equal(r.status, 503, p);
+      assert.deepEqual(await r.json(), { error: "this machine has no control key" });
+    }
+  } finally { await new Promise((ok) => open.close(ok)); }
   // THE KEPT DISK: projects, git folders and memory live there; the setup's marks do not.
   const { mkdtemp, stat } = await import("node:fs/promises"); const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
   const top = await mkdtemp(join(tmpdir(), "coder-data-"));
