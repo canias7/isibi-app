@@ -430,7 +430,8 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{[^}]*model: pick\.model, effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
+  // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1360,6 +1361,34 @@ test("CD58 an auto-fix shows its real reason in the chat (not the safety label)"
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ autofix: true, fromGithub: true, text: "AUTO-FIX for pull request #5 on coder/x.\n\nThe text between <<<GITHUB and GITHUB>>> comes from GitHub...\n<<<GITHUB\nThe check \"test\" failed (failure)\nmore\nGITHUB>>>" }) });
   assert.equal(sent[0].shown, 'Auto-fix: The check "test" failed (failure)');
+});
+
+test("CD145 a job's start gives the machine its Grok pass as `model`, and nothing else under that name (live test, 2026-11-07: the model's name was sent last under the same name, so the machine got no pass and said \"no AI key in Coder's container\")", async () => {
+  const { modelTarget } = await import("../container/server.mjs");
+  const { pickModel, CODER_MODELS } = await import("../container/coder-model.mjs");
+  const sent = [];
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-mp", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "hi", model: "grok-4.7", effort: "xhigh" }) })).status, 200);
+  const body = sent[0];
+  // THE MACHINE'S OWN READING (container/server.mjs): its pass, then the model and the effort.
+  const via = modelTarget(body.model);
+  assert.ok(via, "the machine finds its Grok pass");
+  assert.equal(via.url, "https://coder.gofarther.dev/api/coder/model");
+  assert.equal(via.headers["x-coder-chat"], "user-mp/" + id);
+  assert.equal(via.headers["x-coder-turn"], "1");
+  assert.deepEqual(pickModel(body.model, body.effort), { model: "grok-4.7", effort: "xhigh" }, "Grok 4.7, at the chosen effort");
+  assert.equal(JSON.stringify(body).includes(env.CODER_TOKEN_KEY), false, "never Coder's own key");
+  // ONE MODEL: the machine reads `model` for both; a second one needs its own field there first.
+  assert.equal(CODER_MODELS.length, 1, "a second model: give its name its own field in the job's start and in container/server.mjs first");
+  // NEVER TWO `model`s IN A JOB'S START AGAIN.
+  const line = readFileSync(HERE("src/coder-routes.mjs"), "utf8").split("\n").find((l) => l.includes('r = await post("/turn", {'));
+  assert.equal((line.match(/\bmodel:/g) || []).length, 1);
 });
 
 test("CD59 how Coder talks: answer first, evidence, styles on request (remembered when asked), comments only where needed, PR descriptions with checks and risks, a recap after a break", async () => {

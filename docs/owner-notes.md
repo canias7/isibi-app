@@ -9,6 +9,19 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: The second test: the start fix worked, and a step 1 slip found (fix on the branch, not deployed yet)
+
+- Your second test comment (08:19:59) got "On it" in 4 seconds. The job started at the next minute's check, and the comment was updated at 08:22. So the start fix works live.
+- **But the job failed:** "The AI could not be reached: no AI key in Coder's container".
+- **Why:** Coder's server sent the machine two things under the same name, `model`: the pass to Grok (step 1), and then the model's name, which replaced the pass. So the machine had no pass, and it no longer has its own key, by design.
+  - The earlier tests checked each part on its own. One test even expected the name to be sent as `model`, so the clash slipped through.
+- **The fix:** only the pass goes as `model`. The machine reads that same field for the model too. Coder has one model (Grok 4.7), so the machine picks it, at the effort you chose.
+  - The fix is only in Coder's server, so the 7 GB machine image doesn't need rebuilding.
+- New test CD145 follows a message from the app all the way to what the machine reads: its Grok pass, then Grok 4.7 at the chosen effort.
+  - It also fails if `model` is ever sent twice again.
+  - It also fails if a second model is added before the model's name gets its own field.
+- 154 tests pass.
+
 ## 2026-11-07: Deployed: bigger machines and the GitHub start fix
 
 - Your word: "ok" (to merge and deploy).

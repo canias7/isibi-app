@@ -181,7 +181,7 @@ test("CD131 for real, with git: the machine fetches and pushes through Coder's W
 test("CD132 wiring: every job, save, Undo and Rewind sends the machine the pass, never the login; the machine uses it only as the real service; a sleeping Fly.io machine keeps its whole disk (and the setup does not run again), and says so", async () => {
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(routes, /token: t\.token/, "the login never goes to the machine");
-  assert.match(routes, /git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), model: pick\.model/, "a job: its new turn's pass");
+  assert.match(routes, /git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), effort: pick\.effort/, "a job: its new turn's pass");
   assert.equal((routes.match(/git: await gitAccess\(env, uid, id, meta\.turn\)/g) || []).length, 4, "the save, Coder's own Undo, the Undo button, Rewind");
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /\} else if \(url\.pathname\.startsWith\(GIT_PATH\)\) \{[\s\S]{0,200}res = await handleGit\(request, env\);/);
