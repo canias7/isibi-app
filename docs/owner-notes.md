@@ -9,6 +9,16 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Merged; the deploy stopped at its safety step (nothing went live)
+
+- Your word: "Ok merge and deploy". Merged to main (b90fe422) and pressed deploy (run 42396319230).
+- **The deploy stopped before building or sending anything,** at its own safety step: the admin sandbox's real test (CD147), run as admin on GitHub's own machine. The sandbox did not start there, but it does on my test machine and inside Coder's image (GitHub's image check, all passed).
+- The sandbox code did not say why. Now it does: the reason goes into the test's message and into the machine's log on Fly.io ("no admin sandbox (…)").
+- GitHub's image check now also runs the deploy's admin tests on GitHub's own machine, first thing. A branch learns about a failure like this in minutes, before any merge.
+- **The reason** (GitHub's check, run 42396802053): "coder-sandbox-init.sh: Permission denied". The sandbox's first step runs as the sandbox's own admin, who outside is an ordinary user. On GitHub's machine Coder's code sits in a folder ordinary users cannot open, so it could not read its own start script. (On Fly.io the code sits where everyone can read it, so only the test was hit.)
+- **Fixed:** the script's text is now handed over directly, never as a file to open. Tried first with the code in a folder only admin can open: it failed the same way, and passes with the fix.
+- Next: GitHub's check again, then deploy again.
+
 ## 2026-11-07: Docker in the admin sandbox, fourth fix: two sites missing from Trusted
 
 - GitHub's check ran again (run 42368272165). Docker's engine reached the gate and began downloading, but the gate refused one site: `production.cloudfront.docker.com`. Docker Hub now keeps its image files there.

@@ -75,6 +75,15 @@ const READY_MS = 20000;
 
 const ok = (r) => !!r && !r.error && r.status === 0;
 const mounted = (p, run = spawnSync) => ok(run("mountpoint", ["-q", p], { stdio: "ignore", timeout: 10000 }));
+/** A mount, with what it said when it failed. */
+const mountIt = (run, args) => run("mount", args, { encoding: "utf8", stdio: ["ignore", "ignore", "pipe"], timeout: 30000 });
+const errOf = (r) => String((r && (String(r.stderr || "").trim() || (r.error && r.error.message))) || "exit " + (r && r.status)).trim().slice(-400);
+
+// WHY THERE IS NO SANDBOX (deploy, 2026-11-07: on GitHub's own machine it did not start, and nothing
+// said why): the last failure's reason, for the service's log and the tests. Empty once one starts.
+let why = "";
+export const sandboxWhy = () => why;
+const fail = (w, answer) => { why = String(w).replace(/\s+/g, " ").trim().slice(0, 800); return answer; };
 
 /**
  * WHERE THE SANDBOX'S SYSTEM COMES FROM: the machine's own root when it is a
@@ -97,23 +106,23 @@ export function sandboxBase({ run = spawnSync, exists = existsSync, env = proces
  * (root's files appear as the sandbox admin's) at SBX_DIR/lower. True when it is there.
  */
 export function makeLower({ base, dir = SBX_DIR, run = spawnSync } = {}) {
-  if (typeof process.getuid === "function" && process.getuid() !== 0) return false;
-  if (!base) return false;
+  if (typeof process.getuid === "function" && process.getuid() !== 0) return fail("not the machine's admin", false);
+  if (!base) return fail("no base for its system", false);
   try {
     mkdirSync(dir, { recursive: true, mode: 0o711 });
     chmodSync(dir, 0o711);
     let src = base;
-    if (!base.startsWith("/dev/") && !statSync(base).isDirectory()) return false;
+    if (!base.startsWith("/dev/") && !statSync(base).isDirectory()) return fail(base + " is not a folder", false);
     if (base.startsWith("/dev/")) {
       src = join(dir, "image");
       mkdirSync(src, { recursive: true, mode: 0o700 });
-      if (!mounted(src, run) && !ok(run("mount", ["-o", "ro", base, src], { stdio: "ignore", timeout: 30000 }))) return false;
+      if (!mounted(src, run)) { const r = mountIt(run, ["-o", "ro", base, src]); if (!ok(r)) return fail("could not open " + base + ": " + errOf(r), false); }
     }
     const lower = join(dir, "lower");
     mkdirSync(lower, { recursive: true, mode: 0o755 });
-    if (!mounted(lower, run) && !ok(run("mount", ["--bind", "-o", "ro,X-mount.idmap=b:0:" + SBX_BASE + ":" + SBX_RANGE, src, lower], { stdio: "ignore", timeout: 30000 }))) return false;
-    return statSync(join(lower, "usr")).uid === SBX_BASE;
-  } catch { return false; }
+    if (!mounted(lower, run)) { const r = mountIt(run, ["--bind", "-o", "ro,X-mount.idmap=b:0:" + SBX_BASE + ":" + SBX_RANGE, src, lower]); if (!ok(r)) return fail("could not show its system through the id map: " + errOf(r), false); }
+    return statSync(join(lower, "usr")).uid === SBX_BASE || fail("its system's files do not show as the sandbox admin's", false);
+  } catch (e) { return fail("its system: " + String((e && e.message) || e), false); }
 }
 
 /**
@@ -165,9 +174,10 @@ function childOf(pid) {
  * { pid, stop() }, or null when it could not be made.
  */
 export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir = SBX_DIR, run = spawnSync, readyMs = READY_MS, sub = devSubIds() } = {}) {
-  if (typeof process.getuid === "function" && process.getuid() !== 0) return null;
+  if (typeof process.getuid === "function" && process.getuid() !== 0) return fail("not the machine's admin", null);
   const lower = join(dir, "lower");
-  if (!upper || !work || !mounted(lower, run)) return null;
+  if (!upper || !work) return fail("no layer of its own", null);
+  if (!mounted(lower, run)) return fail("its system is not shown (makeLower)", null);
   const made = [];
   const unmount = () => { for (const p of made.reverse()) run("umount", ["-l", p], { stdio: "ignore", timeout: 10000 }); made.length = 0; };
   try {
@@ -186,15 +196,19 @@ export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir 
       // `mine`: dev's files on disk are dev's inside, and what dev makes there stays dev's on disk. Only
       // dev (and its Docker's own ids) are mapped, so nothing in it can ever be made as the machine's real admin.
       const opts = b.mine ? ["--bind", "-o", (b.mode === "ro" ? "ro," : "") + idmap] : ["--bind", "-o", b.mode === "rw" ? "rw" : "ro"];
-      if (!ok(run("mount", [...opts, b.src, at], { stdio: "ignore", timeout: 30000 }))) throw new Error("could not show " + b.src);
+      const r = mountIt(run, [...opts, b.src, at]);
+      if (!ok(r)) throw new Error("could not show " + b.src + ": " + errOf(r));
       made.push(at);
       lines.push([at, b.src, b.mode === "rw" ? "rw" : "ro"].join("\t"));
     });
     const root = join(dir, "root");
     mkdirSync(root, { recursive: true, mode: 0o755 });
     chownSync(root, SBX_BASE, SBX_BASE);
+    // ITS FIRST PROCESS'S SCRIPT IS HANDED OVER WHOLE, never as a file to open: it runs as the
+    // sandbox's admin, an ordinary user outside, who may not reach where Coder's code sits (deploy,
+    // 2026-11-07: under GitHub's /home/runner, "coder-sandbox-init.sh: Permission denied").
     const p = spawn("nsenter", ["--net=" + ns, "--", "unshare", "--user", "--map-users=0:" + SBX_BASE + ":" + SBX_RANGE, "--map-groups=0:" + SBX_BASE + ":" + SBX_RANGE,
-      "--setuid", "0", "--setgid", "0", "--mount", "--propagation", "private", "--pid", "--fork", "--kill-child", "--", "/bin/bash", SBX_INIT], {
+      "--setuid", "0", "--setgid", "0", "--mount", "--propagation", "private", "--pid", "--fork", "--kill-child", "--", "/bin/bash", "-c", readFileSync(SBX_INIT, "utf8"), "coder-sandbox-init"], {
       env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", SBX_LOWER: lower, SBX_UPPER: upper, SBX_WORK: work, SBX_ROOT: root, SBX_BINDS: lines.join("\n"), SBX_RESOLV: "/etc/resolv.conf", SBX_HOSTS: "/etc/hosts" },
       stdio: ["ignore", "pipe", "pipe"], detached: true,
     });
@@ -208,7 +222,8 @@ export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir 
       p.stderr.on("data", (b) => { said += b; });
     });
     const pid = up ? childOf(p.pid) : 0;
-    if (!pid) { try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } unmount(); return null; }
+    if (!pid) { try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } unmount(); return fail("its first process " + (up ? "could not be found" : "did not get ready") + ": " + (said.trim().slice(-600) || "(it said nothing)"), null); }
+    why = "";
     p.stdout.destroy(); p.stderr.destroy(); p.unref();
     let stopped = false;
     return {
@@ -224,6 +239,6 @@ export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir 
     };
   } catch (e) {
     unmount();
-    return null;
+    return fail(String((e && e.message) || e), null);
   }
 }

@@ -17,7 +17,7 @@ const want = (what, ok, detail) => { console.log((ok ? "  ok  " : "  NO  ") + wh
 
 const base = S.sandboxBase();
 want("the image as the sandbox's base: " + base, !!base && base.startsWith("/dev/"), base);
-want("its mapped, read-only view", S.makeLower({ base }), "makeLower");
+want("its mapped, read-only view", S.makeLower({ base }), S.sandboxWhy());
 // The chat's kept disk, as on Fly.io: a plain disk folder (a layer cannot sit on the image's own layers).
 const data = "/data";
 for (const p of [data + "/work/shop", data + "/home"]) { mkdirSync(p, { recursive: true }); chownSync(p, 1001, 1001); }
@@ -31,7 +31,7 @@ px.setNetwork({ mode: "trusted" });
 want("the pipe to the gate", await R.roomGate(px.port), "roomGate");
 await R.roomInternet(false);
 const box = await S.startSandbox({ ...up, binds: [{ src: data + "/work", mode: "rw", mine: true }, { src: data + "/home", mode: "rw", mine: true }, { src: "/srv/coder-proxy-check", mode: "ro" }] });
-want("the sandbox started", !!box, "startSandbox");
+want("the sandbox started", !!box, S.sandboxWhy());
 if (!box) process.exit(1);
 const env = { ...px.env(), ...cleanEnv(data + "/home"), CODER_SANDBOX: "1" };
 const sh = (cmd, secs = 400) => new Promise((ok) => {

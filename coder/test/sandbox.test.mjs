@@ -33,7 +33,7 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
   try {
     const base = S.sandboxBase();
     assert.ok(base, "a base for the sandbox's system");
-    assert.equal(S.makeLower({ base, dir }), true, "the base, shown read-only through the id map");
+    assert.equal(S.makeLower({ base, dir }), true, "the base, shown read-only through the id map: " + S.sandboxWhy());
     assert.equal(statSync(join(dir, "lower", "usr")).uid, S.SBX_BASE, "root's files appear as the sandbox admin's");
     const up = S.makeUpper({ data, image: "registry.fly.io/app:coder-aaaa" });
     assert.ok(up && statSync(up.upper).uid === S.SBX_BASE, "its own layer, the sandbox admin's");
@@ -46,7 +46,7 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
     const logs = mkdtempSync("/var/tmp/coder-sbx-logs-"); chmodSync(logs, 0o755); writeFileSync(join(logs, "bg-1.log"), "a log\n");
     const sub = { u: { start: 165536, count: 65536 }, g: { start: 165536, count: 65536 } };
     box = await S.startSandbox({ ...up, ns: NS, dir, sub, binds: [{ src: work, mode: "rw", mine: true }, { src: logs, mode: "ro" }] });
-    assert.ok(box && box.pid > 1, "the sandbox started");
+    assert.ok(box && box.pid > 1, "the sandbox started: " + S.sandboxWhy());
     const sh = (cmd) => inBox(box, proj, cmd);
 
     // ITS dev, WITH SUDO FOR ANYTHING.
@@ -122,6 +122,13 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.equal(at("overlay", false), null);
   assert.equal(at("overlay", false, "/dev/loop7"), "/dev/loop7", "GitHub's machine check names one");
   assert.equal(S.sandboxBase({ env: { CODER_SANDBOX_BASE: "relative/x" }, exists: () => true }), null);
+  // WHY THERE IS NONE (deploy, 2026-11-07: on GitHub's own machine it did not start, and nothing said why).
+  const failing = (cmd, args) => (cmd === "mountpoint" ? { status: 1 } : { status: 32, stderr: "mount: /x: wrong fs type, bad option.\n" });
+  const dirX = mkdtempSync("/tmp/coder-sbx-why-");
+  assert.equal(S.makeLower({ base: "/dev/null", dir: dirX, run: failing }), false);
+  assert.match(S.sandboxWhy(), root ? /^could not open \/dev\/null: mount: \/x: wrong fs type, bad option\.$/ : /^not the machine's admin$/);
+  assert.equal(await S.startSandbox({ upper: "", work: "", dir: dirX, run: failing }), null);
+  assert.match(S.sandboxWhy(), root ? /^no layer of its own$/ : /^not the machine's admin$/);
   // THE FIRST PROCESS: its system (the image under its own layer, renames working), its devices,
   // what it is shown, sudo for anything there only, then in for good.
   const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
@@ -131,6 +138,9 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(init, /pivot_root \. \.coder-outside\ncd \/\numount -l \/\.coder-outside/);
   assert.match(init, /echo ready\nexec sleep infinity\n$/);
   const mod = readFileSync(new URL("../container/coder-sandbox.mjs", import.meta.url), "utf8");
+  // Its script handed over whole: the sandbox's admin may not reach where Coder's code sits (GitHub's /home/runner).
+  assert.match(mod, /"--", "\/bin\/bash", "-c", readFileSync\(SBX_INIT, "utf8"\), "coder-sandbox-init"\]/);
+  assert.ok(Buffer.byteLength(init) < 100_000, "well inside one argument's limit (128 KB)");
   assert.match(mod, /const opts = b\.mine \? \["--bind", "-o", \(b\.mode === "ro" \? "ro," : ""\) \+ idmap\]/, "dev's folders, through mineIdmap");
   // DEV'S FOLDERS: dev, and dev's own extra ids (its Docker's; GitHub's image check: "value too large"
   // without them); never the machine's admin or another user.
