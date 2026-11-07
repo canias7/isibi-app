@@ -199,7 +199,11 @@ export async function gitIn(dir, args, { token = "", headers = [], timeoutS = 18
     p.stderr.on("data", (b) => { out += b; });
     const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, timeoutS * 1000);
     p.on("error", (e) => { clearTimeout(t); done({ code: -1, output: e.message, stdout: "" }); });
-    p.on("close", (code) => { clearTimeout(t); const hide = (s) => { if (token) s = s.split(token).join("[hidden]").split(header).join("[hidden]"); for (const x of extra) s = s.split(x.slice(x.indexOf(": ") + 2)).join("[hidden]"); return s; };
+    // ONLY WHAT IS SECRET IS HIDDEN in git's answer: the token, and the job's pass for the Worker's git address.
+    // (Live test, 2026-11-07: the chat, its job number and the pass's end time were hidden too; a first job's
+    // number, 1, became "[hidden]" in every branch name and commit, and "coder/testingforclaude-c51d" was "missing".)
+    const secrets = extra.filter((x) => /^X-Coder-Git: /.test(x)).map((x) => x.slice(x.indexOf(": ") + 2)).filter((v) => v.length >= 16);
+    p.on("close", (code) => { clearTimeout(t); const hide = (s) => { if (token) s = s.split(token).join("[hidden]").split(header).join("[hidden]"); for (const v of secrets) s = s.split(v).join("[hidden]"); return s; };
       const over = size > RAW_MAX;
       // `stdout`: git's answer alone, without its warnings (used to read state).
       done({ code: over ? -1 : typeof code === "number" ? code : -1, output: hide(over ? "git's answer was too long" : out).slice(0, 4000), stdout: hide(stdout).slice(0, 4000), ...(raw ? { data: Buffer.concat(bytes) } : {}) }); });
