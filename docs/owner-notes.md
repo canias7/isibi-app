@@ -9,6 +9,18 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Bigger machines on Fly.io (on the branch, not deployed yet)
+
+- Your choices: "4 CPUs, 16 GB" and "Grow to 50 GB". For Cloudflare, "it wont be off", so Cloudflare's backup containers stay as they are.
+- **Why:** each chat had 2 of Fly.io's "shared" CPUs and 4 GB. Fly slows a shared CPU to 1/16 of a CPU after a short burst, and a shared machine's disk is 4 times slower. So installs, builds and tests crawled.
+- **Now each chat gets:**
+  - 4 full-speed CPUs and 16 GB of memory, the same as Claude Code's machine;
+  - a work disk that starts at 10 GB and grows by itself, 10 GB at a time when it is 80% full, up to 50 GB.
+- **Cost:** about $0.25 an hour while a chat is working, instead of $0.035. A machine stops after 10 quiet minutes. A sleeping chat's work disk is $0.15 per GB a month, so only chats that use the extra room pay for it.
+- **If Fly.io has no room for the size:** that chat gets the size from before, so it still works. It tries the big size again with Coder's next version.
+- **Chats made before:** they get the new size the next time they wake, never in the middle of a job. Like a new Coder version, this starts the machine's own disk fresh; the chat's files on its work disk stay.
+- Tests: CD143, plus the Fly.io tests updated (152 in all).
+
 ## 2026-11-07: Deployed: all of Claude Code's tools, and steps 1 to 4
 
 - Your word: "merge and deploy". Main 3a9bbb3d, run 42349243500, all steps passing.

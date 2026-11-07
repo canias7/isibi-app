@@ -44,21 +44,53 @@ export function flyOn(env) {
     && /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(String(env.CODER_FLY_APP || "")) && /^registry\.fly\.io\/[a-z0-9][a-z0-9-]*[a-z0-9]:[\w.-]+$/.test(String(env.CODER_FLY_IMAGE || ""));
 }
 
+/**
+ * THE SIZE CHATS HAD BEFORE (2 shared CPUs, 4 GB): what a chat's machine gets when Fly.io
+ * cannot give it the size below (no room on the server that holds its disk), so the chat
+ * still works.
+ */
+export const FLY_SMALL = { cpu_kind: "shared", cpus: 2, memory_mb: 4096 };
+/** The work disk grows by this much each time it is 80% full (up to `diskMax`). */
+export const FLY_DISK_STEP_GB = 10;
+
 /** The machines' size and place (wrangler.jsonc vars; sensible defaults). */
 export function flySettings(env) {
   const num = (v, d, lo, hi) => { const n = Number(v); return Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
+  // THE SIZE (owner, 2026-11-07: "4 CPUs, 16 GB", the size of Claude Code's machine): Fly.io's
+  // "performance" CPUs, which always run at full speed. Its "shared" ones (what chats had before)
+  // are slowed to 1/16 of a CPU each after a short burst, and their disk is 4 times slower.
+  // Fly's rules: shared, up to 8 CPUs with 256 MB to 2 GB each, in steps of 256 MB;
+  // performance, up to 16 CPUs with 2 to 8 GB each, in steps of 2 GB. A size outside them falls back.
+  const kind = String(env.CODER_FLY_CPU_KIND || "") === "shared" ? "shared" : "performance";
+  const per = kind === "shared" ? { most: 8, step: 256, low: 256, high: 2048 } : { most: 16, step: 2048, low: 2048, high: 8192 };
+  const cpus = num(env.CODER_FLY_CPUS, 4, 1, per.most);
+  const mb = Number(env.CODER_FLY_MEMORY_MB);
+  const memory = Number.isInteger(mb) && mb % per.step === 0 && mb >= per.low * cpus && mb <= per.high * cpus ? mb : Math.min(Math.max(16384, per.low * cpus), per.high * cpus);
+  const disk = num(env.CODER_FLY_DISK_GB, 10, 1, 500);
   return {
     app: String(env.CODER_FLY_APP),
     image: String(env.CODER_FLY_IMAGE),
     region: /^[a-z]{3}$/.test(String(env.CODER_FLY_REGION || "")) ? String(env.CODER_FLY_REGION) : "iad",
-    cpus: num(env.CODER_FLY_CPUS, 2, 1, 8),
-    memory: num(env.CODER_FLY_MEMORY_MB, 4096, 1024, 16384),
-    disk: num(env.CODER_FLY_DISK_GB, 10, 1, 100),
+    kind,
+    cpus,
+    memory,
+    disk,
+    // THE WORK DISK GROWS BY ITSELF (owner, 2026-11-07: "Grow to 50 GB"): Fly.io adds 10 GB each
+    // time it is 80% full, up to this. Only a chat that uses the room pays for it.
+    diskMax: num(env.CODER_FLY_DISK_MAX_GB, Math.max(50, disk), disk, 500),
     // THE MACHINE'S OWN DISK MAY GROW TO 20 GB (Fly.io's default is 8; owner, 2026-11-07, all of
     // Claude Code's tools): with the chat's 10 GB disk, 30 GB, like Claude Code's machine. Fly.io
     // bills a sleeping machine's disk by what is used, not by this limit.
     root: num(env.CODER_FLY_ROOT_GB, 20, 8, 50),
   };
+}
+
+/**
+ * WHAT A MACHINE'S SETTINGS ARE MADE FROM, besides its image: when they change (a new size), each
+ * chat's machine gets them the next time it wakes, as with a new image (never under a job).
+ */
+export function flyShape(s) {
+  return [s.kind, s.cpus, s.memory, s.diskMax, s.root].join("/");
 }
 
 /** A chat's machine, disk and record names: the same every time, from the chat's own name. */
@@ -91,17 +123,21 @@ const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
  * starts it fresh. That disk may grow to `root` GB (Fly's `rootfs`, which
  * also keeps it). `bigRoot: false` asks the older way, Fly's default size;
  * `keepRoot: false` leaves it out (if Fly ever refuses them: CONFIG_TRIES).
+ * Its size is `flySettings`' (4 full CPUs, 16 GB); `small` is the size chats
+ * had before (FLY_SMALL). Its work disk grows by itself up to `diskMax` GB;
+ * `grow: false` leaves that out (SIZE_TRIES).
  */
-export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, lock = "" } = {}) {
+export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, lock = "", small = false, grow = true } = {}) {
   const s = flySettings(env);
   return {
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
     env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
-    guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory, ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
+    guest: { ...(small ? FLY_SMALL : { cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }), ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
     ...(keepRoot && bigRoot ? { rootfs: { persist: "restart", size_gb: s.root } } : {}),
-    mounts: [{ volume: volumeId, path: FLY_DATA }],
+    // The chat's work disk, which Fly.io makes bigger by itself when it is 80% full (Fly's auto-extend).
+    mounts: [{ volume: volumeId, path: FLY_DATA, ...(grow && s.diskMax > s.disk ? { extend_threshold_percent: 80, add_size_gb: FLY_DISK_STEP_GB, size_gb_limit: s.diskMax } : {}) }],
     // Only through Fly's front door, on https; Coder starts and stops it itself.
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },
@@ -111,10 +147,21 @@ export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, 
 
 /** The machine's settings, the newest first: if Fly.io refuses one (400 or 422), the next. */
 export const CONFIG_TRIES = [{}, { bigRoot: false }, { keepRoot: false }];
+/**
+ * THE SIZE, THEN THE SIZE BEFORE (owner, 2026-11-07: 4 CPUs, 16 GB): if Fly.io will not make or
+ * update a chat's machine at the size (no room for it on the server that holds the chat's disk,
+ * or any other refusal), it is asked again at the size chats had before, so the chat still works;
+ * last, without the growing disk. Not for a refusal of Coder's own key (401, 403) or a machine
+ * that is gone (404). Answers Fly's answer, with `small` when the size before was used.
+ */
+export const SIZE_TRIES = [{}, { small: true }, { small: true, grow: false }];
 async function withConfig(call) {
-  let r;
-  for (const o of CONFIG_TRIES) { r = await call(o); if (r.status !== 400 && r.status !== 422) break; }
-  return r;
+  let r, used = {};
+  for (const size of SIZE_TRIES) {
+    for (const o of CONFIG_TRIES) { used = { ...o, ...size }; r = await call(used); if (r.status !== 400 && r.status !== 422) break; }
+    if (r.ok || r.status === 401 || r.status === 403 || r.status === 404) break;
+  }
+  return { ...r, small: !!used.small };
 }
 
 /**
@@ -179,16 +226,22 @@ async function untilAnswers(env, id, { fetchFn, sleep, now }, waitMs = FLY_WAKE_
 /** A NEW CHAT'S MACHINE: its kept disk, then the machine on it (Fly starts it). */
 async function makeMachine(env, bucket, names, deps) {
   const s = flySettings(env);
-  const v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk }, ...deps });
+  // ITS DISK GOES ON A SERVER WITH ROOM FOR ITS SIZE (Fly's `compute`: a machine can only run where
+  // its disk is); else on one with room for the size before; else anywhere, as before.
+  let v;
+  for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
+    v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk, ...(compute ? { compute } : {}) }, ...deps });
+    if (v.ok || v.status === 401 || v.status === 403) break;
+  }
   if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io could not make the machine's disk (" + v.status + ")" };
-  // Fly refused the settings (should it not take a bigger or kept disk): made the older way, as before.
+  // Fly refused the settings (should it not take a bigger or kept disk, or the size): made the older way, as before.
   const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
   const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, { ...o, lock }) }, ...deps }));
   if (!m.ok || !m.data || typeof m.data.id !== "string") {
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
   }
-  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, lock: 2, at: deps.now(), used: deps.now(), stopped: false };
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false };
   await writeRec(bucket, names.key, rec);
   await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec };
@@ -196,8 +249,10 @@ async function makeMachine(env, bucket, names, deps) {
 
 /**
  * WAKE A CHAT'S MACHINE. Asleep: started, with Coder's newest machine version
- * if there is one (its disk stays). Awake but silent: given time to answer
- * (never changed under a job). Gone: answers null (a new one is made).
+ * if there is one (its disk stays), or its new size (flyShape). Awake but silent:
+ * given time to answer (never changed under a job). Gone: answers null (a new
+ * one is made). A machine that got the size before (no room for the new one)
+ * keeps it until the next new version: each try would start its own disk fresh.
  */
 async function wakeMachine(env, bucket, names, rec, deps) {
   const s = flySettings(env);
@@ -206,11 +261,12 @@ async function wakeMachine(env, bucket, names, rec, deps) {
   const state = m.data && m.data.state;
   let pulled = false;
   if (state !== "started" && state !== "starting") {
-    if (rec.image !== s.image) {
+    const shape = flyShape(s);
+    if (rec.image !== s.image || rec.shape !== shape) {
       // Updated, it gets its own lock key too (step 2).
       const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
       const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { ...o, lock }) }, ...deps }));
-      if (u.ok) { rec = { ...rec, image: s.image, lock: 2 }; pulled = true; }
+      if (u.ok) { rec = { ...rec, image: s.image, shape, small: u.small, lock: 2 }; pulled = true; }
       else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
     } else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
   }
