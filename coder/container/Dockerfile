@@ -208,9 +208,9 @@ COPY --chmod=0755 tools/docker tools/check-tools tools/sudo /usr/local/bin/
 RUN set -eu; \
     grep -q '^dev:' /etc/subuid || echo 'dev:100000:65536' >> /etc/subuid; \
     grep -q '^dev:' /etc/subgid || echo 'dev:100000:65536' >> /etc/subgid; \
-    # THE ADMIN SANDBOX'S IDS (coder-sandbox.mjs): outside, 200000 and up, a user nobody is.
-    grep -q '^root:200000:' /etc/subuid || echo 'root:200000:196608' >> /etc/subuid; \
-    grep -q '^root:200000:' /etc/subgid || echo 'root:200000:196608' >> /etc/subgid
+    # THE ADMIN SANDBOX'S IDS (coder-sandbox.mjs): outside, 1000000 and up, a user nobody is.
+    grep -q '^root:1000000:' /etc/subuid || echo 'root:1000000:262144' >> /etc/subuid; \
+    grep -q '^root:1000000:' /etc/subgid || echo 'root:1000000:262144' >> /etc/subgid
 
 # ── CODER ITSELF, on core or full ────────────────────────────────────────────
 FROM ${CODER_IMAGE} AS app

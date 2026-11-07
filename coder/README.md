@@ -255,7 +255,7 @@ remove or upgrade any package, change any system file, run any service, use any
 port. `tools/apt-get` (also `apt`) and `tools/service` add the sudo themselves
 there, and `tools/sudo` passes everything to the real sudo (they know the
 sandbox by `/etc/coder-sandbox`, which only it has). It is Linux namespaces: a
-user namespace whose admin is, outside, an ordinary unknown user (ids 200000 and
+user namespace whose admin is, outside, an ordinary unknown user (ids 1000000 and
 up; `/etc/subuid` gives root that range), its own mount and process namespaces,
 and the sealed room's network, which it cannot change or leave (it is owned by
 the machine's admin). Its system is the machine image itself, read-only, shown

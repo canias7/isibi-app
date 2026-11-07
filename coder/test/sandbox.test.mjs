@@ -25,7 +25,7 @@ const inBox = (box, wd, cmd) => new Promise((ok) => {
 
 test("CD147 the admin sandbox, for real: sudo for anything inside (packages, system files, folder renames as dpkg does them), the chat's files stay dev's on disk, the machine's own files are untouched; it cannot change or leave the room, see the machine's processes or folders; a stop ends everything in it; its own layer is kept for the next job", { skip: !ready && process.env.CODER_TESTS_NEED_ROOT !== "1" && "needs root, a user 1001, and ip, nsenter, setpriv, unshare, mountpoint, findmnt, newuidmap, sudo, python3, curl" }, async () => {
   // Root may give the sandbox its ids (the image has this line).
-  for (const f of ["/etc/subuid", "/etc/subgid"]) if (!/^root:200000:196608$/m.test(readFileSync(f, "utf8"))) appendFileSync(f, "root:200000:196608\n");
+  for (const f of ["/etc/subuid", "/etc/subgid"]) if (!/^root:1000000:262144$/m.test(readFileSync(f, "utf8"))) appendFileSync(f, "root:1000000:262144\n");
   const dir = mkdtempSync("/run/coder-sbx-test-"), data = mkdtempSync("/var/tmp/coder-sbx-data-");
   chmodSync(data, 0o755);
   spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
@@ -104,7 +104,10 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
 test("CD148 the service runs the AI's commands and the setup script in the job's admin sandbox when there is one (in the room), stops it with the AI's other commands, and tells Coder it has admin for anything", async () => {
   // HOW A COMMAND ENTERS IT: as its dev, into the folder from inside.
   assert.deepEqual(S.sandboxArgs(42, "/data/work/it's", "ls -la"), ["-t", "42", "--user", "--mount", "--pid", "--net", "--root", "--wd", "-S", "1001", "-G", "1001", "--", "/bin/bash", "-c", "cd -- '/data/work/it'\\''s' || exit 1\nls -la"]);
-  assert.deepEqual([S.SBX_BASE, S.SBX_RANGE, S.SBX_FILES], [200000, 196608, 1001]);
+  assert.deepEqual([S.SBX_BASE, S.SBX_RANGE, S.SBX_FILES], [1000000, 262144, 1001]);
+  // CLEAR OF EVERY OTHER USER'S RANGE IN THE IMAGE, AND dev's DOCKER RANGE FITS INSIDE (GitHub's image check: it did not).
+  assert.ok(S.SBX_BASE >= 231072, "past dev's own range (165536-231071)");
+  assert.ok(231072 <= S.SBX_RANGE, "dev's Docker range, inside the sandbox, is mapped");
   // ITS SYSTEM'S BASE: the machine's root when plain; on Fly.io, the image's own disk; else none.
   const at = (type, vda = true, set = "") => S.sandboxBase({ run: () => ({ status: 0, stdout: type + "\n" }), exists: (p) => (p === "/dev/vda" ? vda : p === set), env: set ? { CODER_SANDBOX_BASE: set } : {} });
   assert.equal(at("ext4"), "/");
@@ -146,7 +149,7 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(tool("sudo"), /\[ -e \/etc\/coder-sandbox \] && exec \/usr\/bin\/sudo "\$@"/);
   // THE IMAGE: the sandbox's ids for root, its files; Fly.io names the version.
   const df = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
-  assert.match(df, /echo 'root:200000:196608' >> \/etc\/subuid/);
+  assert.match(df, /echo 'root:1000000:262144' >> \/etc\/subuid/);
   assert.match(df, /coder-sandbox\.mjs coder-sandbox-init\.sh \.\//);
   assert.match(readFileSync(new URL("../src/coder-fly.mjs", import.meta.url), "utf8"), /env: \{ CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s\.image,/);
 });

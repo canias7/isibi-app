@@ -4,7 +4,7 @@
 // change any system file, run any service, as on Claude Code's machine (apt-get,
 // apt and service need no sudo: tools/apt-get and tools/service add it). They are
 // admin only inside it. Outside, the sandbox's admin is an ordinary, unknown user
-// (ids 200000 and up), so it cannot leave the sealed room (coder-room.mjs), see or
+// (ids 1000000 and up), so it cannot leave the sealed room (coder-room.mjs), see or
 // stop Coder's own service, or read its keys. Claude Code keeps its keys and its
 // network rules outside its machine; on Fly.io they are inside the same machine,
 // so the sandbox keeps them out of reach instead. (Its commands are `dev`, not the
@@ -24,9 +24,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROOM_NS } from "./coder-room.mjs";
 
-/** The sandbox's ids, outside: its admin is 200000; 196608 ids, so Docker's own users fit inside too. */
-export const SBX_BASE = 200000;
-export const SBX_RANGE = 196608;
+/**
+ * The sandbox's ids, outside: its admin is 1000000, clear of every other user's range (the image's
+ * `ubuntu` has 100000-165535, `dev` 165536-231071 for its Docker). 262144 ids, so dev's Docker range
+ * fits inside too (GitHub's image check, 2026-11-07: with 196608, dev's Docker could not map its users).
+ */
+export const SBX_BASE = 1000000;
+export const SBX_RANGE = 262144;
 /** The AI's user (the image's `dev`), on disk and inside: the chat's files keep this owner. */
 export const SBX_FILES = 1001;
 /** Root's folder for the sandbox's mounts (others may only pass through it). */

@@ -9,6 +9,23 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: The admin sandbox in Coder's real image: all passed but Docker; fixed
+
+- GitHub's check (run 42363852080) tried the sandbox in Coder's real image, made into a disk as on Fly.io.
+- **Passed:**
+  - admin through sudo;
+  - `apt-get install` through the network gate;
+  - removing a package from the image;
+  - a system file;
+  - PostgreSQL;
+  - port 80;
+  - every tool;
+  - every wall (no direct internet, only allowed sites, the room unchangeable, nothing of the machine visible);
+  - the machine's own files untouched;
+  - your files staying Coder's user's.
+- **Failed: Docker.** Docker's engine maps its own range of user ids, which in the image is 165536 to 231071. The sandbox only had ids up to 196607 inside, so the system refused.
+- **Fixed:** the sandbox now has 262144 ids, enough for Docker's range, and outside it starts at 1000000, clear of every other user's range. Tests updated; 159 pass. GitHub's check runs again with the push.
+
 ## 2026-11-07: The two small problems, fixed (on the branch, not deployed yet)
 
 - Your word: "fix this".
