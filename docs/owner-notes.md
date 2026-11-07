@@ -16,7 +16,8 @@ log (81,000 lines) is in git history.
 - **On Fly.io:** the app `gofarther-coder-machines` was made, with its internet address and Coder's keys. Coder's machine was built and sent to Fly.io. The site now runs chats' machines on Fly.io (checked in the deploy's log).
 - Also live now: jobs keep going when you close the tab, the machine hold, and the chat saved as it goes.
 - Checked from outside: the site is up with the new page. Coder refuses anyone not signed in, and its saving address refuses a sender without a job's pass.
-- **One more safety step, on the branch:** each Fly.io machine is always given its lock key directly, and a machine without one answers nothing but its health check. Fly.io machines are on the internet, so the key is their only lock; before, it reached them only as a Fly.io secret. This needs one more deploy before the first chat on Fly.io. Tests: 138, all passing, plus the 14 admin-only safety tests.
+- **One more safety step, deployed too:** each Fly.io machine is always given its lock key directly, and a machine without one answers nothing but its health check. Fly.io machines are on the internet, so the key is their only lock; before, it reached them only as a Fly.io secret. Your word: "Merge and deploy". Merged into main (75f65ec8) and deployed (run 42326567782), all steps passing, before the first chat on Fly.io. Tests: 138, plus the 14 admin-only safety tests.
+- Next: your first chat on Fly.io, to try it for real.
 
 ## 2026-11-07: Coder's machines can run on Fly.io (like Claude Code's VMs)
 
