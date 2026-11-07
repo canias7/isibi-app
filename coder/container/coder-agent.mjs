@@ -36,6 +36,8 @@ export const WRITE_MAX = 1_000_000;
 /** Commands that need root, which the setup script's own lines (run as `dev`) never have (live test, 2026-11-06). Plain `apt-get install -y <packages>` lines are the exception: Coder's app does those as root (see splitSetup). */
 export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitude|dpkg|yum|dnf|apk|zypper|pacman)(?=\s|$)/m;
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
+/** The file tools after which the service may add something for that file (afterFile). */
+export const FILE_HOOK_TOOLS = new Set(["read", "edit", "write"]);
 export const RUN_TOOLS = {
   read: { verb: "Read", label: (a) => a.path + (a.offset ? " from line " + a.offset : "") },
   write: { verb: "Wrote", label: (a) => a.path },
@@ -424,7 +426,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         emit({ type: "result", id: c.id, code, output: out });
-        reply(out || "(nothing)");
+        // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
+        let more = "";
+        if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args })) || ""); } catch { more = ""; } }
+        reply((out || "(nothing)") + (more ? "\n\n" + more : ""));
       } else if (c.name === "todo") {
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);
         emit({ type: "todo", items });

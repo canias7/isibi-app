@@ -366,7 +366,7 @@
 
   async function openProject(id) {
     stopPoll();
-    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
+    S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
     S.project = r.data.project; S.events = r.data.events || [];
@@ -455,9 +455,22 @@
 
   async function loadChanges() {
     if (!S.project) return;
+    const id = S.project.id;
     S.changes = null;
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/changes');
-    S.changes = r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data : { files: [], add: 0, del: 0 };
+    // COMPARE AGAINST (like Claude Code's diff view, owner item 4): the base branch unless another is picked.
+    if (!S.compareBranches) loadCompareBranches();
+    const r = await call('/projects/' + encodeURIComponent(id) + '/changes' + (S.compareAgainst ? '?against=' + encodeURIComponent(S.compareAgainst) : ''));
+    if (!S.project || S.project.id !== id) return;
+    S.changes = r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data : { files: [], add: 0, del: 0, error: (r.data && r.data.error) || '' };
+    draw();
+  }
+  async function loadCompareBranches() {
+    if (!S.project) return;
+    const id = S.project.id;
+    S.compareBranches = [];
+    const r = await call('/projects/' + encodeURIComponent(id) + '/branches?all=1');
+    if (!S.project || S.project.id !== id || r.status !== 200 || !r.data) return;
+    S.compareBranches = r.data.branches || [];
     draw();
   }
   async function stop() {
@@ -694,10 +707,17 @@
   // WHAT CODER CHANGED, file by file (from its branch against the main branch).
   function changesHTML() {
     const c = S.changes;
-    if (!c) return '<div class="cd-changes"><span class="cd-spin"></span></div>';
-    if (!c.files.length) return '<div class="cd-changes"><p class="cd-changes-none">No changes yet.</p></div>';
-    return '<div class="cd-changes">' +
-      '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span></div>' +
+    const p = S.project || {};
+    const base = p.base || 'main';
+    const list = [...new Set([base, ...(S.compareBranches || [])])];
+    const pick = S.compareAgainst || base;
+    // COMPARE AGAINST (like Claude Code's diff view): the base branch, or any other of the repo's.
+    const bar = '<div class="cd-compare"><label for="cdCompare">Compare against</label><select id="cdCompare">' +
+      list.map((b) => '<option value="' + esc(b) + '"' + (b === pick ? ' selected' : '') + '>' + esc(b) + (b === base ? ' (base)' : '') + '</option>').join('') + '</select></div>';
+    if (!c) return '<div class="cd-changes">' + bar + '<span class="cd-spin"></span></div>';
+    if (!c.files.length) return '<div class="cd-changes">' + bar + '<p class="cd-changes-none">' + (c.error ? esc(c.error) : pick === base ? 'No changes yet.' : 'No differences from ' + esc(pick) + '.') + '</p></div>';
+    return '<div class="cd-changes">' + bar +
+      '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span>' + (pick !== base ? ' <span class="cd-compare-vs">compared with ' + esc(pick) + '</span>' : '') + '</div>' +
       c.files.map((f) => '<details class="cd-file" data-path="' + esc(f.path) + '"' + (S.openFiles[f.path] ? ' open' : '') + '><summary><code>' + esc(f.path) + '</code><span class="cd-add">+' + f.add + '</span><span class="cd-del">−' + f.del + '</span></summary>' +
         '<pre class="cd-diff">' + diffLines(f) + '</pre></details>').join('') +
     '</div>';
@@ -998,6 +1018,7 @@
     on('[data-unpic]', 'click', (e) => { S.pics.splice(Number(e.currentTarget.dataset.unpic), 1); draw(); });
     on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); pickMention(e.currentTarget.dataset.file); });
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
+    on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
     const form = root.querySelector('#cdForm');

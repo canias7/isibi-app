@@ -792,7 +792,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
     const r = await gh(t.token, "/repos/" + meta.repo + "/branches?per_page=100", { fetchFn });
     if (!r.ok || !Array.isArray(r.data)) return json({ error: "GitHub could not list the branches" }, 502);
-    const names = r.data.map((b) => String((b && b.name) || "")).filter((n) => BRANCH.test(n) && !n.startsWith("coder/"));
+    // `all`: for Compare against, every branch but this chat's own (other chats' too); else none of Coder's.
+    const all = url.searchParams.get("all") === "1";
+    const names = r.data.map((b) => String((b && b.name) || "")).filter((n) => BRANCH.test(n) && (all ? n !== meta.branch : !n.startsWith("coder/")));
     return json({ ok: true, base: meta.base, branches: [...new Set([meta.base, ...names])].slice(0, 100) });
   }
   // SEVERAL REPOSITORIES IN ONE CHAT, like Claude Code (its docs, read 2026-11-06:
@@ -977,11 +979,16 @@ export async function handleCoder(request, env, ctx, deps) {
   if (action === "changes" && request.method === "GET") {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again", connect: true }, 409);
-    const c = await gh(t.token, "/repos/" + meta.repo + "/compare/" + encodeURIComponent(meta.base) + "..." + encodeURIComponent(meta.branch), { fetchFn });
-    if (c.status === 404) return json({ ok: true, files: [], add: 0, del: 0 });
+    // COMPARE AGAINST ANOTHER BRANCH, like Claude Code ("the diff view compares the session's changes
+    // against its base branch by default. To compare against any other branch in the repository, select
+    // Compare against and pick one": its docs, read 2026-11-07; owner, item 4).
+    const against = String(url.searchParams.get("against") || "").trim() || meta.base;
+    if (!BRANCH.test(against) || against.includes("..") || against.startsWith("-") || against.startsWith("/")) return json({ error: "that is not a branch name" }, 400);
+    const c = await gh(t.token, "/repos/" + meta.repo + "/compare/" + encodeURIComponent(against) + "..." + encodeURIComponent(meta.branch), { fetchFn });
+    if (c.status === 404) return json({ ok: true, against, files: [], add: 0, del: 0 });
     if (!c.ok || !c.data) return json({ error: "GitHub could not show the changes" }, 502);
     const files = (Array.isArray(c.data.files) ? c.data.files : []).slice(0, 100).map((f) => ({ path: String(f.filename || ""), add: f.additions | 0, del: f.deletions | 0, patch: typeof f.patch === "string" ? f.patch.slice(0, 20000) : "" }));
-    return json({ ok: true, files, add: files.reduce((n, f) => n + f.add, 0), del: files.reduce((n, f) => n + f.del, 0) });
+    return json({ ok: true, against, files, add: files.reduce((n, f) => n + f.add, 0), del: files.reduce((n, f) => n + f.del, 0) });
   }
 
   // DELETE A CHAT from the list (its branch and pull request stay on GitHub).
