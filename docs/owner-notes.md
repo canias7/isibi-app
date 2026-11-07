@@ -14,6 +14,7 @@ log (81,000 lines) is in git history.
 - Your word: "merge and deploy". Before that deploy: every deploy gave Coder's machine a new version name, even when nothing in the machine had changed. Each chat's machine then started its own disk fresh on its next wake and ran its setup again.
 - Now the name changes only when Coder's machine itself changes (its folder, `coder/container`). A deploy of anything else, like these notes or the website, leaves the machines and their kept disks as they are.
 - This deploy changes the name once, so each chat's machine starts fresh one last time.
+- **Deployed** (your word: "merge and deploy"): main 52dba3d5, run 42336015163, all steps passing. The machine's version is now `coder-2cb107d3b512`, named after its folder. The site and Coder's health check answer, and Coder's git address still refuses a request without a pass.
 
 ## 2026-11-07: Your GitHub login stays off Coder's machines; a sleeping machine keeps what it installed (like Claude Code)
 
