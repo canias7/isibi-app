@@ -9,6 +9,24 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Live test passed: the whole 20 GB system disk, admin rights, the sealed room
+
+- Your comment at 09:41, answered at 09:46:
+  - `df -h / /.fly-upper-layer`: **20 GB** on both. The system disk grew from 7.8 GB to the 20 GB Fly.io gave it.
+  - Coder's service has every admin right (`CapEff 000001ffffffffff`), including the one the grow needs.
+  - `ip -br addr`: only `lo` and `tap0`, so the commands are inside the sealed room (this chat's network is Full).
+- **Now proven live on Fly.io today:**
+  - the tools;
+  - installing a program mid-job;
+  - Grok through Coder's server (no key on the machine);
+  - each machine's own lock key;
+  - 4 CPUs and 15 GB;
+  - a 10 GB work disk;
+  - the 20 GB system disk;
+  - the sealed room, also after a restart;
+  - GitHub jobs that start from the every-minute check.
+- **Not tried live yet:** a chat whose network is Trusted or None, where the room has no internet link of its own. GitHub's check proved it in the real image. To see it live, set testingforclaude's network to Trusted and run the curl again; it should print 000.
+
 ## 2026-11-07: Deployed: the disk grow finds Fly.io's disk
 
 - Your word: "merge and deploy". Main b46f9a3b, run 42359923774, every step passing, the machine image rebuilt.
