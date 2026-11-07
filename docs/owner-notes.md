@@ -9,6 +9,13 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 7: Trusted is now Claude Code's whole list
+
+- Your word: "lets finish off this list". Item 7: the Trusted list was missing the "www." versions of about 30 sites.
+- Compared again, whole, against Claude Code's docs (204 sites): 44 were missing. They were the "www." versions, Claude's own sites (claude.ai, anthropic.com, its API and docs) and three Google Cloud hosts. All are added.
+- Ours also keeps four extra sites Claude Code's list doesn't name: Debian's two package sites, go.dev and sh.rustup.rs.
+- Test CD156 checks Trusted against a copy of Claude Code's list kept in the tests, so a missing site shows up at once.
+
 ## 2026-11-07: Merged; the deploy stopped at its safety step (nothing went live)
 
 - Your word: "Ok merge and deploy". Merged to main (b90fe422) and pressed deploy (run 42396319230).

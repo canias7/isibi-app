@@ -206,3 +206,16 @@ test("CD155 the Trusted list has Docker Hub's both download sites and gcloud.goo
   }
   assert.equal(hostAllowed("evil.cloudfront.net", trusted), false);
 });
+
+test("CD156 Trusted is Claude Code's whole default list (owner, 2026-11-07, item 7: the \"www.\" versions were missing): every entry of its docs' list (test/fixtures/claude-code-trusted.txt, 204 entries) is in ours, and ours adds only four Linux and Go hosts", async () => {
+  const { DEFAULT_HOSTS, hostAllowed, normNetwork } = await import("../container/coder-secrets.mjs");
+  const cc = readFileSync(HERE("test/fixtures/claude-code-trusted.txt"), "utf8").split("\n").filter(Boolean);
+  assert.equal(cc.length, 204);
+  const missing = cc.filter((h) => !DEFAULT_HOSTS.includes(h));
+  assert.deepEqual(missing, [], "missing from Trusted: " + missing.join(" "));
+  assert.deepEqual(DEFAULT_HOSTS.filter((h) => !cc.includes(h)).sort(), ["deb.debian.org", "go.dev", "security.debian.org", "sh.rustup.rs"]);
+  assert.equal(new Set(DEFAULT_HOSTS).size, DEFAULT_HOSTS.length, "no entry twice");
+  const trusted = normNetwork({ mode: "trusted" });
+  for (const h of ["www.github.com", "www.nodejs.org", "www.pypi.org", "www.rust-lang.org", "claude.ai", "api.anthropic.com", "www.anthropic.com"]) assert.equal(hostAllowed(h, trusted), true, h);
+  assert.equal(hostAllowed("www.example.com", trusted), false);
+});
