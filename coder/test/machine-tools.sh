@@ -19,7 +19,7 @@ as_dev() { setpriv --reuid=1001 --regid=1001 --clear-groups env -i $(cat "$envfi
 step() { printf '\n== %s\n' "$1"; as_dev "$2"; }
 
 step "check-tools" 'check-tools'
-step "Python, and pip installing for dev" 'python3 -c "print(\"python ok\")"; pip install --quiet six && python3 -c "import six; print(\"pip ok\")"; uv --version; poetry --version; pytest --version; mypy --version; ruff --version; black --version; conan --version'
+step "Python, and pip installing for dev" 'python3 -c "print(\"python ok\")"; pip install --quiet pyjokes && python3 -c "import pyjokes; print(\"pip ok\")"; uv --version; poetry --version; pytest --version; mypy --version; ruff --version; black --version; conan --version'
 step "Node 22 and 24, npm -g for dev, the JavaScript tools, nvm" 'node -e "console.log(\"node\", process.version)"; /opt/node24/bin/node --version; npm install -g --silent cowsay && cowsay ok | head -n 2; yarn --version; pnpm --version; bun --version; eslint --version; prettier --version; tsc --version; . /opt/nvm/nvm.sh && nvm --version'
 step "Ruby 3.1, 3.2, 3.3, gems for dev" 'ruby -v; RBENV_VERSION=3.1.6 ruby -v; RBENV_VERSION=3.2.6 ruby -v; gem install --no-document rake >/dev/null && rbenv rehash && rake --version; bundle --version'
 step "PHP and Composer" 'php -r "echo \"php ok\n\";"; composer --version'
@@ -35,6 +35,6 @@ step "Playwright with its Chromium, from any folder" 'node -e "require(\"playwri
 step "Debugging tools" 'strace -V | head -n 1; lsof -v 2>&1 | grep -m 1 revision; valgrind --version; command -v nc'
 step "Docker without admin rights" 'docker run --rm hello-world | grep -m 1 "Hello from Docker"; docker compose version'
 step "The rest" 'git --version; git lfs version; gh --version | head -n 1; yq --version; jq --version; rg --version | head -n 1; sqlite3 --version; tmux -V; vim --version | head -n 1; nano --version | head -n 1'
-step "What dev installed for itself is in its home, never a project" 'test -x "$HOME/.npm-global/bin/cowsay"; ls "$HOME"/.local/lib/python3*/site-packages/six.py; test -d "$HOME/.cache/go-build"; echo "dev'"'"'s installs and caches are in its home"'
+step "What dev installed for itself is in its home, never a project" 'test -x "$HOME/.npm-global/bin/cowsay"; ls -d "$HOME"/.local/lib/python3*/site-packages/pyjokes; test -d "$HOME/.cache/go-build"; echo "dev'"'"'s installs and caches are in its home"'
 echo
 echo "ALL TOOLS OK"
