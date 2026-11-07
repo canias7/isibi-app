@@ -13,7 +13,7 @@ log (81,000 lines) is in git history.
 
 - Your word: "ok start", for item 1 of the comparison list (Coder's setup was saved per chat, not per environment).
 - **What it does now, on Fly.io:**
-  - The first chat that runs an environment's setup script, on a fresh disk, has its disk saved by Fly.io right after the setup works. Coder waits a few seconds for that before it starts working.
+  - The first chat that runs an environment's setup script, on a fresh disk, has its disk saved by Fly.io right after the setup works. Coder waits a few seconds for that before it starts working. "Fresh" means no job has worked on that disk yet, so a copy never holds an earlier job's leftovers (chats from before this change count as not fresh).
   - A new chat in the same environment gets its disk made from that saved copy. It skips the setup, and the chat says so: "Setup: this chat started from the environment's saved copy… so the setup script did not run again."
   - The saved copy holds what the setup installed on the system and in Coder's home (packages, caches, Docker images).
   - Every chat still clones its repository fresh. The other chat's files, git folder and memory are removed first.

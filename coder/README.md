@@ -285,7 +285,8 @@ the full image given as a disk, with the real gate (`test/sandbox-check.mjs`).
 like Claude Code's environment cache: "If it completes in under about 5 minutes,
 the filesystem is snapshotted and reused", and "Cloud sessions start from a
 fresh clone of your repository"). On Fly.io, when a chat's setup script runs on
-a fresh disk (no job has worked on it: `.coder-used`), in the admin sandbox (so
+a fresh disk (no job has worked on it: no `.coder-used`, and no project on it
+before the job's clone), in the admin sandbox (so
 all it made is on that disk: the sandbox's layer and dev's home), and works
 within its five minutes, the job waits before Coder starts (`held`): the machine
 writes the copy's note (`.coder-copy.json`: the chat, the setup's fingerprint

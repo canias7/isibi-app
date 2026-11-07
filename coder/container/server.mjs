@@ -1217,8 +1217,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const script0 = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let copied = null;
     try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, dirs: { root, gitRoot, memRoot, home } }); } catch { copied = null; }
-    // FRESH: no job has worked on this disk yet (only then is a copy of it saved).
-    const fresh = !!data && !existsSync(join(data, USED_NOTE));
+    // FRESH: no job has worked on this disk yet (only then is a copy of it saved): never marked so, and
+    // no project on it before this job's clone (a disk from before the mark has its chat's project).
+    const fresh = !!data && !existsSync(join(data, USED_NOTE)) && (await readdir(root).catch(() => [""])).length === 0;
     const dir = join(root, project);
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.

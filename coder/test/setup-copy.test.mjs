@@ -185,6 +185,14 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
       assert.equal(existsSync(join(k.data, k.S.COPY_NOTE)), false, why);
     } finally { await k.close(); }
   }
+  // A DISK FROM BEFORE THE MARK (a chat that has worked already): its project is on it, so it is not fresh.
+  const older = await diskMachine({ holdMs: 60_000 });
+  try {
+    await mkdir(join(older.dirs.root, "shop-hhh1"), { recursive: true });
+    assert.deepEqual(await older.turn("shop-hhh1", { setup: { script }, cache: { make: true } }), { ok: true });
+    assert.equal((await older.done("shop-hhh1")).result.status, "done");
+    assert.equal(existsSync(join(older.data, older.S.COPY_NOTE)), false);
+  } finally { await older.close(); }
   // NO ANSWER FROM THE WORKER: the job goes on by itself after a while.
   const late = await diskMachine({ holdMs: 200 });
   try {
