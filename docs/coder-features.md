@@ -52,7 +52,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
     Who: me. Status: **Passed** (live test, 2026-11-07: `sudo whoami` = root, cowsay installed).
 21. **The sealed network room**: all of Coder's internet goes through the gate that follows your network setting. Who: me. Status: To test.
 22. **A copy of the repository that failed is made again** (the bug the live test found). Who: me.
-    Status: **Passed** (2026-11-07, issue #9: the files and git came back). The test found one leftover, now fixed (live after the next deploy): the setup's own file in that chat was pushed as Coder's work.
+    Status: **Passed** (2026-11-07, issue #9: the files and git came back). The test found one leftover, now fixed (live since the 2026-11-07 deploy): the setup's own file in that chat was pushed as Coder's work.
 
 ## E. Environments
 
@@ -60,7 +60,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 24. **Setup script**: runs on a new machine; system packages install as admin.
     Who: me. Status: **Passed** (live test, 2026-11-07: the script ran).
 25. **The environment's saved copy of its setup**: the next new chat starts from it and skips the setup (item 1 of the list).
-    Test: two new chats in one environment. Who: me. Status: **Failed** (2026-11-07, issues #10 and #11: the second chat started before Fly.io had finished the first chat's copy; Coder tried it anyway and quietly used an empty disk). Fixed: only a finished copy is used, the chat says when a copy can't be used and why, and the copy is of the disk as the setup left it. Test again after the next deploy (one chat makes the copy; once Fly has finished it, a second chat skips the setup).
+    Test: two new chats in one environment. Who: me. Status: **Failed** (2026-11-07, issues #10 and #11: the second chat started before Fly.io had finished the first chat's copy; Coder tried it anyway and quietly used an empty disk). Fixed (live since the 2026-11-07 deploy): only a finished copy is used, the chat says when a copy can't be used and why, and the copy is of the disk as the setup left it. To test again (one chat makes the copy; once Fly has finished it, a second chat skips the setup).
 26. **Network access**: None, Trusted (Claude Code's list, with the "www." sites), Full, or your own allowed sites (item 7).
     Who: me. Status: To test.
 27. **Variables** (settings every command sees). Who: you. Status: To test.
