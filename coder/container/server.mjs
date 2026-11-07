@@ -1201,29 +1201,39 @@ export function setupSha(script, net) {
  * memory) goes: every chat clones its repository fresh. A copy of this same setup
  * (`sha`), made by this Coder version (`image`), under seven days old, answers
  * { at } (the setup need not run). Any other copy (made for an older script, say)
- * is cleared down to a fresh disk: the AI's home and the admin sandbox's layer go
- * too. This chat's own note (its machine stopped while the copy was being saved)
- * only goes. No note: null, nothing touched. Only folders on the kept disk are
- * ever cleared.
+ * is cleared down to a fresh disk, the AI's home and the admin sandbox's layer too,
+ * and answers { why }. THE CHAT'S OWN NOTE STAYS (live test #25, 2026-11-07: Fly.io
+ * saves a disk when it gets to it, so a copy it saves after the job went on must
+ * still say what it is), unless the disk was just made from a copy (`fromCopy`: a
+ * machine of this chat made again). A disk just made from a copy with no note: what
+ * it holds is not known, so it too is cleared down to a fresh disk ({ why }). No
+ * note otherwise: null, nothing touched. Only folders on the kept disk are cleared.
  */
-export async function takeCopy({ data, project, sha, image, dirs = {}, now = Date.now() }) {
+export async function takeCopy({ data, project, sha, image, dirs = {}, now = Date.now(), fromCopy = false }) {
   if (typeof data !== "string" || !data.startsWith("/")) return null;
   const f = join(data, COPY_NOTE);
-  if (!existsSync(f)) return null;
-  let note = null;
-  try { note = JSON.parse(await readFile(f, "utf8")); } catch { note = null; }
-  const mine = note && note.from === project;
   const onDisk = (d) => typeof d === "string" && d.startsWith(data + "/") && resolve(d) === d;
   const clear = async (d) => { if (!onDisk(d)) return; try { for (const n of await readdir(d)) await rm(join(d, n), { recursive: true, force: true }); } catch { /* none */ } };
-  let same = false;
-  if (!mine) {
+  const setupGoes = async () => { await clear(dirs.home); await rm(join(data, ".coder-admin"), { recursive: true, force: true }); };
+  if (!existsSync(f)) {
+    if (!fromCopy) return null;
     for (const d of [dirs.root, dirs.gitRoot, dirs.memRoot]) await clear(d);
-    same = !!note && !!sha && note.sha === sha && note.image === image && Number(note.at) > now - SETUP_CACHE_MS && Number(note.at) <= now + 60000;
-    if (!same) { await clear(dirs.home); await rm(join(data, ".coder-admin"), { recursive: true, force: true }); }
+    await setupGoes();
     await rm(join(data, USED_NOTE), { force: true });
+    return { why: "the copy did not say what it is a copy of" };
   }
+  let note = null;
+  try { note = JSON.parse(await readFile(f, "utf8")); } catch { note = null; }
+  if (note && note.from === project && !fromCopy) return null;
+  for (const d of [dirs.root, dirs.gitRoot, dirs.memRoot]) await clear(d);
+  const why = !note ? "its note could not be read"
+    : !sha || note.sha !== sha ? "it was made for another setup script or network setting"
+    : note.image !== image ? "it was made by an older version of Coder"
+    : !(Number(note.at) > now - SETUP_CACHE_MS && Number(note.at) <= now + 60000) ? "it is over seven days old" : "";
+  if (why) await setupGoes();
+  await rm(join(data, USED_NOTE), { force: true });
   await rm(f, { force: true });
-  return same ? { at: Number(note.at) } : null;
+  return why ? { why } : { at: Number(note.at) };
 }
 
 // ── THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06; the owner: "Do this") ──
@@ -1433,7 +1443,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const binds = [{ src: root, mode: "rw", mine: true }, ...(home ? [{ src: home, mode: "rw", mine: true }] : []), { src: memRoot, mode: "rw", mine: true }, { src: gitRoot, mode: "ro" }, { src: bgRoot, mode: "ro" }, { src: proxyDir, mode: "ro" }];
     return (await startSandbox({ ...up, binds })) || noBox(sandboxWhy());
   };
-  async function startTurn(body) {
+  async function startTurn(body, { copy = "" } = {}) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
     const cur = turns.get(project);
@@ -1451,10 +1461,19 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // A DISK MADE FROM THE ENVIRONMENT'S SAVED COPY: the other chat's files go first (takeCopy).
     const script0 = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let copied = null;
-    try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, dirs: { root, gitRoot, memRoot, home } }); } catch { copied = null; }
+    const copyInfo = String(copy || "");
+    try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, dirs: { root, gitRoot, memRoot, home }, fromCopy: copyInfo === "used" }); } catch { copied = null; }
     // FRESH: no job has worked on this disk yet (only then is a copy of it saved): never marked so, and
     // no project on it before this job's clone (a disk from before the mark has its chat's project).
     const fresh = !!data && !existsSync(join(data, USED_NOTE)) && (await readdir(root).catch(() => [""])).length === 0;
+    // WHY THIS NEW CHAT DID NOT START FROM THE ENVIRONMENT'S SAVED COPY, in the chat (live test #25,
+    // 2026-11-07: it once fell back to an empty disk unseen): Fly.io would not make the disk from it
+    // (Coder's Worker says), the copy was not of this setup, or Fly is still finishing it.
+    if (script0) {
+      if (copyInfo.startsWith("missed: ")) t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat could not start from the environment's saved copy (" + copyInfo.slice(8, 220) + "), so the setup script runs here." });
+      if (copied && copied.why) t.events.push({ at: Date.now(), type: "note", text: "Setup: the environment's saved copy could not be used here (" + copied.why + "), so the setup script runs here." });
+      if (fresh && body.cache && typeof body.cache.note === "string" && body.cache.note.trim()) t.events.push({ at: Date.now(), type: "note", text: body.cache.note.trim().slice(0, 300) });
+    }
     const dir = join(root, project);
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
@@ -1571,7 +1590,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       let [doneSha, doneAt] = (await readFile(mark, "utf8").catch(() => "")).trim().split(" ");
       // FROM THE ENVIRONMENT'S SAVED COPY: the setup ran, and worked, in the chat the copy was made in
       // (its seven days count from then).
-      if (copied && doneSha !== sha) {
+      if (copied && copied.at && doneSha !== sha) {
         await writeFile(mark, sha + " " + copied.at).catch(() => {});
         [doneSha, doneAt] = [sha, String(copied.at)];
         setupCopied = copied;
@@ -1685,10 +1704,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         spawnSync("sync", ["-f", data], { stdio: "ignore", timeout: 60000 });
         let gone = false;
         const timer = setTimeout(() => t.release && t.release(), holdMs);
-        t.release = () => {
+        // The note stays on this disk (takeCopy): Fly.io may save the disk after the job has gone on.
+        t.release = (note) => {
           if (gone) return;
           gone = true; clearTimeout(timer); t.release = null;
-          rm(join(data, COPY_NOTE), { force: true }).catch(() => {}).finally(begin);
+          if (typeof note === "string" && note.trim()) t.events.push({ at: Date.now(), type: "note", text: note.trim().slice(0, 400) });
+          begin();
         };
         return [200, { ok: true, held: true }];
       } catch { /* no copy this time */ }
@@ -1739,7 +1760,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // Asked before this machine is put to sleep (busyState), with how long the Worker has not asked it for anything.
       if (url.pathname === "/busy" && req.method === "GET") return send(200, { ...busyState(turns), idleMs: Math.max(0, Date.now() - lastAsked) });
       lastAsked = Date.now();
-      if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body); return send(st, o); }
+      // x-coder-copy: what became of the environment's saved copy (Coder's Worker sets it, with this machine's key).
+      if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body, { copy: String(req.headers["x-coder-copy"] || "") }); return send(st, o); }
       const project = String(body.project || url.searchParams.get("project") || "");
       if (!PROJECT_ID.test(project)) return send(400, { error: "bad project" });
       const t = turns.get(project);
@@ -1783,7 +1805,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
       // THE ENVIRONMENT'S COPY IS SAVED (or could not be): the job waiting for it goes on.
-      if (url.pathname === "/go" && req.method === "POST") { const was = !!(t && t.release); if (was) t.release(); return send(200, { ok: true, went: was }); }
+      if (url.pathname === "/go" && req.method === "POST") { const was = !!(t && t.release); if (was) t.release(typeof body.note === "string" ? body.note : ""); return send(200, { ok: true, went: was }); }
       // UNDO A JOB (owner, 2026-11-05, "add 2"): its commit is reverted (a new
       // commit that puts the files back) and saved to the branch. Never a force push.
       if (url.pathname === "/undo" && req.method === "POST") {

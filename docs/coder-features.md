@@ -60,7 +60,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 24. **Setup script**: runs on a new machine; system packages install as admin.
     Who: me. Status: **Passed** (live test, 2026-11-07: the script ran).
 25. **The environment's saved copy of its setup**: the next new chat starts from it and skips the setup (item 1 of the list).
-    Test: two new chats in one environment. Who: me. Status: To test.
+    Test: two new chats in one environment. Who: me. Status: **Failed** (2026-11-07, issues #10 and #11: the second chat started before Fly.io had finished the first chat's copy; Coder tried it anyway and quietly used an empty disk). Fixed: only a finished copy is used, the chat says when a copy can't be used and why, and the copy is of the disk as the setup left it. Test again after the next deploy (one chat makes the copy; once Fly has finished it, a second chat skips the setup).
 26. **Network access**: None, Trusted (Claude Code's list, with the "www." sites), Full, or your own allowed sites (item 7).
     Who: me. Status: To test.
 27. **Variables** (settings every command sees). Who: you. Status: To test.
@@ -103,7 +103,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 
 48. Your Grok key never enters Coder's machine; each machine has its own lock; your keys' values are hidden in the chat; the code is never stored with us (only on GitHub and the chat's machine).
 49. The buttons on GitHub: deploy, the machine's image check, the desktop and phone builds, and the old app's cleanup (which needs your word each time).
-50. 200 automatic tests, plus 18 machine-admin tests, run before every deploy.
+50. 201 automatic tests, plus 18 machine-admin tests, run before every deploy.
 
 ---
 

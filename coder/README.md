@@ -333,22 +333,45 @@ within its five minutes, the job waits before Coder starts (`held`): the machine
 writes the copy's note (`.coder-copy.json`: the chat, the setup's fingerprint
 `setupSha` of the script and the network setting, the Coder version) and flushes
 the disk; the Worker has Fly save the disk (`snapshotChat`: kept 8 days,
-`CACHE_KEEP_DAYS`, confirmed in the disk's list) and records it on the
-environment (`coder/<uid>/environments/<id>.cache.json`: Fly's name for the
-copy, its size, region and Coder version, the setup's key `setupKeyOf`), then
-tells the machine to go (`/go`; without an answer it goes on after 2 minutes,
-`HOLD_MS`). A new chat in the environment gets its disk made from the copy
-(`x-coder-from-copy`, only when its machine is made, never sent to a machine;
-at least as big; if Fly cannot, an empty disk as before) when the copy is for
-the same setup script and network setting, Coder version and region, and under
-7 days old (`cacheUsable`). On that disk the machine's first job (`takeCopy`)
+`CACHE_KEEP_DAYS`) and records it on the environment
+(`coder/<uid>/environments/<id>.cache.json`: Fly's name for the copy and its
+disk, its size, region and Coder version, the setup's key `setupKeyOf`, and
+`ready` once Fly has finished it), then tells the machine to go (`/go`, with a
+note the machine puts in the chat; without an answer it goes on after 2
+minutes, `HOLD_MS`).
+
+Fly saves a disk when it gets to it, not when asked (live test #25,
+2026-11-07; its docs: "Scheduled to snapshot volume", and a copy goes "from
+waiting to running to created"; one took over 7 minutes to finish). So the
+Worker waits until Fly lists the copy as `running` (it is saving the disk) or
+`created`, then 10 seconds more (`CACHE_START_MS` 80 seconds at most, within
+the machine's 2 minutes; not started by then: no copy, said in the chat), and
+the copy's note stays on the chat's disk for good, so a copy saved later still
+says what it is. A new chat in the environment gets its disk made from the
+copy only once Fly has finished it (`copyState`, asked at the chat's first
+message until the record says `ready`; Fly refuses an unfinished one). While
+it is being finished (up to `CACHE_PENDING_MS`, 30 minutes), a new chat runs
+the setup itself, says so in the chat, and makes no second copy. The copy must
+be for the same setup script and network setting, Coder version and region,
+under 7 days old, and recorded with its disk (`cacheUsable`; one recorded
+before this fix is not, so it is made again). The new disk (`x-coder-from-copy`,
+only when its machine is made, never sent to a machine; at least as big) is
+used once Fly has restored the copy into it (`restoring`, then `created`; 5
+minutes at most, `FLY_RESTORE_MS`). If Fly cannot make it, restore it, or start
+a machine on it, what was made is removed and an empty disk is made as before;
+the machine's record keeps why (`copyMiss`), and the machine is told
+(`x-coder-copy`: `used`, or `missed: why`, set only by flyBox) and says it in
+the chat. On a disk made from the copy, the machine's first job (`takeCopy`)
 first removes the other chat's own files (its repositories, git folders and
 memory), so every chat clones its repository fresh; a copy of this same setup
 skips the setup (said in the chat, and to Coder, which runs a project's own
 install itself, since what the setup made inside the project folder is not
-there); any other copy is cleared down to a fresh disk and the setup runs. The
-variables and keys never reach the setup, so they are not part of the copy.
-Cloudflare's containers have no saved copies.
+there); any other copy, or one with no note, is cleared down to a fresh disk,
+the setup runs, and the chat says why. The variables and keys never reach the
+setup, so they are not part of the copy. Cloudflare's containers have no
+saved copies. The read-only button `.github/workflows/check-coder-copies.yml`
+lists the newest chat disks, their copies and these records (no account or
+chat ids).
 
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's

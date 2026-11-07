@@ -40,7 +40,7 @@ import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
-import { FROM_COPY, FROM_COPY_GB } from "./coder-fly.mjs";
+import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
@@ -620,7 +620,24 @@ export async function handleCoder(request, env, ctx, deps) {
     const copyOn = typeof deps.snapshot === "function" && typeof deps.cacheUsable === "function" && !!String(setup.script || "").trim();
     const setupKey = copyOn ? await setupKeyOf(setup) : "";
     const copyNow = copyOn ? await readEnvCache(bucket, uid, envId) : null;
-    const useCopy = copyNow && deps.cacheUsable(copyNow, setupKey) ? copyNow : null;
+    // ONLY A COPY FLY.IO HAS FINISHED (live test #25, 2026-11-07: a chat started a minute after the copy
+    // was asked for; Fly takes minutes to finish one, and refused it). A chat's first message asks Fly
+    // about one not yet known to be finished; while it is being finished, this chat runs the setup
+    // itself (said in the chat) and makes no second copy.
+    let useCopy = null, copyWait = "";
+    if (copyNow && deps.cacheUsable(copyNow, setupKey)) {
+      if (copyNow.ready === true) useCopy = copyNow;
+      else if (meta.turn === 0 && typeof deps.copyState === "function") {
+        const st = await deps.copyState(copyNow).catch(() => null);
+        if (st && st.status === "created") {
+          useCopy = { ...copyNow, ready: true, ...(st.retention > 0 ? { retention: st.retention } : {}) };
+          await writeEnvCache(bucket, uid, envId, useCopy).catch(() => {});
+        } else if (!(st && st.status === "gone") && Date.now() - Number(copyNow.at) < CACHE_PENDING_MS) {
+          const mins = Math.max(1, Math.round((Date.now() - Number(copyNow.at)) / 60000));
+          copyWait = "Setup: Fly.io is still finishing the environment's saved copy of the setup (asked for " + mins + " minute" + (mins === 1 ? "" : "s") + " ago), so this chat runs the setup script itself. New chats start from the copy once it is finished.";
+        }
+      }
+    }
     // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
     if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
     // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
@@ -666,7 +683,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -687,7 +704,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (started && started.held === true) {
       const snap = copyOn ? await deps.snapshot(uid + "-" + id).catch(() => null) : null;
       if (snap) await writeEnvCache(bucket, uid, envId, { ...snap, key: setupKey, at: Date.now(), from: id }).catch(() => {});
-      await post("/go", { project: id }).catch(() => {});
+      // Said in the chat by the machine, after its setup (like Claude Code's cache, which is otherwise unseen).
+      const note = !copyOn ? "" : snap ? "Setup: Fly.io " + (snap.ready ? "saved" : "is saving") + " a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it" + (snap.ready ? "" : " once it is finished, in a few minutes,") + " and skip the setup." : "Setup: a copy of the setup's result could not be saved this time (Fly.io did not start saving it in time). The next new chat in this environment runs the setup and tries again.";
+      await post("/go", { project: id, ...(note ? { note } : {}) }).catch(() => {});
     }
     // Auto-fix tries in a row; a message from the owner starts the count again.
     await markUsed(bucket, uid, envId, meta.repo).catch(() => {});

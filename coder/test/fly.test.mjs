@@ -21,8 +21,12 @@ const envWith = (bucket, o = {}) => ({ CODER_MACHINES: "fly", FLY_API_TOKEN: TOK
 /** Fly.io as far as Coder uses it: the Machines API, and the front door to each machine. */
 function fakeFly() {
   // noRoom: no server has room for a machine of Fly's "performance" kind; noRoomDisk: nor for a disk meant for one.
-  // snaps: the disks' saved copies (listed after `snapLag` lookups); badCopy: Fly refuses a disk from a copy; sent: what the machines were sent.
-  const w = { machines: new Map(), volumes: new Map(), api: [], door: [], seq: 0, busy: {}, silent: new Set(), cut: new Set(), limited: 0, failVolume: false, noRoom: false, noRoomDisk: false, keys: [], snaps: new Map(), snapLag: 1, badCopy: false, sent: [] };
+  // snaps: the disks' saved copies (listed after `snapLag` lookups, then "waiting" for `snapWait` and "running" for `snapRun`
+  // more, then "created"; Fly refuses a disk from one not yet created); badCopy: Fly refuses a disk from any copy; restoreFor:
+  // a disk made from a copy is "restoring" for that many lookups (no machine on it meanwhile); noMachineOnCopy: none at all;
+  // sent: the header names the machines were sent; told: what each machine's job start was told of the copy (x-coder-copy).
+  const w = { machines: new Map(), volumes: new Map(), api: [], door: [], seq: 0, busy: {}, silent: new Set(), cut: new Set(), limited: 0, failVolume: false, noRoom: false, noRoomDisk: false, keys: [], snaps: new Map(), snapLag: 1, snapWait: 0, snapRun: 0, badCopy: false, restoreFor: 0, noMachineOnCopy: false, sent: [], told: [] };
+  const snapState = (x) => x.lag > 0 ? "" : x.waiting > 0 ? "waiting" : x.running > 0 ? "running" : "created";
   const J = (o, s = 200, h = {}) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", ...h } });
   const roomless = (cfg) => w.noRoom && cfg && cfg.guest && cfg.guest.cpu_kind === "performance";
   w.fetchFn = async (url, init = {}) => {
@@ -39,10 +43,13 @@ function fakeFly() {
         if (w.failVolume) return J({ error: "no room" }, 422);
         if (w.noRoomDisk && body.compute && body.compute.cpu_kind === "performance") return J({ error: "insufficient resources to place volume" }, 412);
         if (body.snapshot_id && (w.badCopy || !w.snaps.has(body.snapshot_id))) return J({ error: "snapshot not found" }, 404);
-        const id = "vol_" + ++w.seq; w.volumes.set(id, { id, ...body, attached_machine_id: null, created_at: new Date(Date.now() - 2 * 3600e3).toISOString() }); return J(w.volumes.get(id));
+        if (body.snapshot_id && snapState(w.snaps.get(body.snapshot_id)) !== "created") return J({ error: "snapshot " + body.snapshot_id + " is not ready \u2014 try later" }, 422);
+        const id = "vol_" + ++w.seq; w.volumes.set(id, { id, ...body, state: body.snapshot_id && w.restoreFor > 0 ? "restoring" : "created", restoring: body.snapshot_id ? w.restoreFor : 0, attached_machine_id: null, created_at: new Date(Date.now() - 2 * 3600e3).toISOString() }); return J(w.volumes.get(id));
       }
       if (method === "POST" && p === "/machines") {
         if (roomless(body.config)) return J({ error: "insufficient resources available to fulfill request" }, 412);
+        const vol = w.volumes.get(body.config.mounts[0].volume);
+        if (vol && vol.snapshot_id && (w.noMachineOnCopy || vol.state !== "created")) return J({ error: "volume " + vol.id + " didn't reach a mountable state" }, 503);
         const id = "m" + ++w.seq; w.machines.set(id, { id, name: body.name, region: body.region, config: body.config, state: "started", created_at: new Date().toISOString() });
         w.volumes.get(body.config.mounts[0].volume).attached_machine_id = id; return J(w.machines.get(id));
       }
@@ -58,12 +65,24 @@ function fakeFly() {
         if (method === "DELETE") { w.machines.delete(m[1]); for (const v of w.volumes.values()) if (v.attached_machine_id === m[1]) v.attached_machine_id = null; return J({ ok: true }); }
       }
       if (method === "DELETE" && (m = /^\/volumes\/(\w+)$/.exec(p))) { w.volumes.delete(m[1]); return J({ ok: true }); }
+      if (method === "GET" && (m = /^\/volumes\/(\w+)$/.exec(p))) { const v = w.volumes.get(m[1]); if (!v) return J({ error: "not found" }, 404); if (v.restoring > 0 && --v.restoring === 0) v.state = "created"; return J(v); }
       if (method === "PUT" && (m = /^\/volumes\/(\w+)$/.exec(p))) { const v = w.volumes.get(m[1]); if (!v) return J({}, 404); Object.assign(v, body); return J(v); }
       if ((m = /^\/volumes\/(\w+)\/snapshots$/.exec(p))) {
         const v = w.volumes.get(m[1]);
         if (!v) return J({ error: "not found" }, 404);
-        if (method === "POST") { const id = "vs_Snap" + ++w.seq; w.snaps.set(id, { id, volume: m[1], size: 36007729, retention_days: v.snapshot_retention || 5, lag: w.snapLag }); return J({ Msg: { backup: { id: "85999", volume_id: "9151365284627104", state: "prepare", type: "BACKUP_TYPE_ON_DEMAND", graph_id: id } } }); }
-        if (method === "GET") return J([...w.snaps.values()].filter((x) => x.volume === m[1] && x.lag-- <= 0).map((x) => ({ id: x.id, size: x.size, digest: "d", created_at: "2026-11-07T12:00:00+00:00", retention_days: x.retention_days })));
+        if (method === "POST") { const id = "vs_Snap" + ++w.seq; w.snaps.set(id, { id, volume: m[1], size: 36007729, retention_days: v.snapshot_retention || 5, lag: w.snapLag, waiting: w.snapWait, running: w.snapRun }); return J({ Msg: { backup: { id: "85999", volume_id: "9151365284627104", state: "prepare", type: "BACKUP_TYPE_ON_DEMAND", graph_id: id } } }); }
+        if (method === "GET") {
+          // As Fly's list shows them (live, 2026-11-07): an unfinished copy has no date yet and no days kept.
+          const out = [];
+          for (const x of w.snaps.values()) {
+            if (x.volume !== m[1]) continue;
+            const st = snapState(x);
+            if (st === "") { x.lag--; continue; }
+            out.push(st === "created" ? { id: x.id, size: x.size, digest: "d", created_at: "2026-11-07T12:00:00Z", status: "created", retention_days: x.retention_days, volume_size: 10 } : { id: x.id, size: 0, digest: "", created_at: "0001-01-01T00:00:00Z", status: st, volume_size: 10 });
+            if (st === "waiting") x.waiting--; else if (st === "running") x.running--;
+          }
+          return J(out);
+        }
       }
       return J({ error: "unknown " + method + " " + p }, 400);
     }
@@ -74,6 +93,7 @@ function fakeFly() {
       // Fly's own answer: the machine is asleep, gone or not answering.
       if (!x || x.state !== "started" || w.silent.has(id)) return new Response("could not reach the machine", { status: 503 });
       if (u.pathname !== "/health") w.keys.push(h.get("x-coder-key"));
+      if (u.pathname === "/turn") w.told.push(h.get("x-coder-copy"));
       assert.equal(h.get("x-coder-keepalive"), "1", "always asks for the still-working answer");
       if (w.cut.has(id)) return new Response("   {\"coderSta", { status: 200, headers: { "x-coder-machine": "1", "x-coder-keepalive": "1" } });
       let status = 200, body = { ok: true };
@@ -329,10 +349,10 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
 
 test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute Fly step, a removed chat's machine, and the deploy button's Fly.io steps (the token only from GitHub's secrets, never shown)", async () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's");
+  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\), copyState: \(c\) => copyState\(env, c\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's");
   assert.match(worker, /return \{ kind: "cloudflare", sign, container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: async \(\) => \{\} \};/);
   assert.match(worker, /if \(m\.kind === "fly"\) job\(runFlyMachines\(env\)/);
-  assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop, snapshot: m\.snapshot, cacheUsable: m\.cacheUsable \}\);/);
+  assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop, snapshot: m\.snapshot, cacheUsable: m\.cacheUsable, copyState: m\.copyState \}\);/);
   const { controlKeySync } = await import("../src/coder-control.mjs");
   assert.match(controlKeySync("k".repeat(44)), /^[0-9a-f]{32}$/);
   const wr = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
@@ -441,60 +461,119 @@ test("CD143 the size (owner, 2026-11-07: \"4 CPUs, 16 GB\", like Claude Code's m
   assert.deepEqual(w4.api, ["POST /volumes"]);
 });
 
-test("CD151 the environment's saved copy of its setup, on Fly.io (owner, 2026-11-07: \"ok start\"; like Claude Code's cache): a chat's disk is saved, kept 8 days, once Fly lists it; a new chat's disk is made from it, at least as big; Fly refusing that, an empty one as before; the hint never reaches a machine; only a copy of this setup, Coder version and region, under 7 days old (and still kept), is ever used", async () => {
+test("CD151 the environment's saved copy of its setup, on Fly.io (owner, 2026-11-07: \"ok start\"; like Claude Code's cache): a chat's disk is saved, kept 8 days, while its machine waits for Fly to start saving it (live test #25: Fly saves a disk when it gets to it); a new chat's disk is made from a finished copy only, at least as big, once Fly has restored it; Fly refusing, an empty one as before, with why told to the machine; the hint never reaches a machine; only a copy of this setup, Coder version and region, under 7 days old (and still kept), is ever used", async () => {
   const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY });
   const turn = (box, more = {}) => box.fetch(signed(new Request("http://coder/turn", { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify({ project: "p", text: "hi" }) })));
   // A's machine and disk (an ordinary new chat); the disk has grown to 20 GB by itself.
   assert.equal((await turn(F.flyBox(env, "user-1-shop-a1", deps(w)))).status, 200);
+  assert.deepEqual(w.told, [null], "no copy offered: nothing told");
   const [volA] = [...w.volumes.values()];
   volA.size_gb = 20;
-  // SAVED: kept past the seven days, then made, then confirmed in the disk's list (Fly lists it a moment later).
+  // SAVED: kept past the seven days, then asked for; Fly lists it a moment later, "waiting", then "running"
+  // (it is saving the disk now); the machine is let go a little after that. Not yet finished: not ready.
   w.api.length = 0;
-  const snap = await F.snapshotChat(env, "user-1-shop-a1", deps(w));
-  assert.deepEqual(snap, { snapshot: [...w.snaps.keys()][0], size: 20, region: "iad", image: IMG1, retention: 8 });
-  assert.deepEqual(w.api, ["PUT /volumes/" + volA.id, "POST /volumes/" + volA.id + "/snapshots", "GET /volumes/" + volA.id + "/snapshots", "GET /volumes/" + volA.id + "/snapshots"]);
+  w.snapWait = 1; w.snapRun = 2;
+  const slept = [];
+  const snap = await F.snapshotChat(env, "user-1-shop-a1", deps(w, { sleep: async (ms) => { slept.push(ms); } }));
+  const sid = [...w.snaps.keys()][0];
+  assert.deepEqual(snap, { snapshot: sid, volume: volA.id, size: 20, region: "iad", image: IMG1, retention: 0, ready: false });
+  assert.deepEqual(w.api, ["PUT /volumes/" + volA.id, "POST /volumes/" + volA.id + "/snapshots", ...Array(3).fill("GET /volumes/" + volA.id + "/snapshots")], "not listed, waiting, running");
+  assert.deepEqual(slept, [2000, 2000, F.CACHE_SETTLE_MS], "then a little longer, so Fly has the disk as the setup left it");
   assert.equal(volA.snapshot_retention, F.CACHE_KEEP_DAYS);
   assert.equal(F.CACHE_KEEP_DAYS, 8);
-  // Never listed in time: no copy. No such chat, or Fly.io off: none.
+  assert.ok(F.CACHE_START_MS + F.CACHE_SETTLE_MS + 20_000 <= (await import("../container/server.mjs")).HOLD_MS, "all within the machine's own wait");
+  // WHERE IT STANDS (a new chat asks before starting from it): still running; then finished, with Fly's days.
+  assert.deepEqual(await F.copyState(env, snap, deps(w)), { status: "running", retention: 0 });
+  assert.deepEqual(await F.copyState(env, snap, deps(w)), { status: "created", retention: 8 });
+  assert.deepEqual(await F.copyState(env, { ...snap, snapshot: "vs_Gone1234" }, deps(w)), { status: "gone" });
+  assert.equal(await F.copyState(env, { ...snap, volume: "../x" }, deps(w)), null);
+  assert.equal(await F.copyState({ ...env, CODER_MACHINES: "" }, snap, deps(w)), null);
+  // Finished at once: ready, no extra wait. Never started in time: no copy (the machine goes on by itself).
+  w.snapLag = 0; w.snapWait = 0; w.snapRun = 0; slept.length = 0;
+  const quick = await F.snapshotChat(env, "user-1-shop-a1", deps(w, { sleep: async (ms) => { slept.push(ms); } }));
+  assert.deepEqual([quick.ready, quick.retention, slept], [true, 8, []]);
   let clock = 0;
-  w.snapLag = 1000;
+  w.snapWait = 1000;
   assert.equal(await F.snapshotChat(env, "user-1-shop-a1", deps(w, { now: () => clock, sleep: async (ms) => { clock += ms; } })), null);
-  assert.equal(clock >= F.CACHE_WAIT_MS, true, "it waited its minute");
+  assert.ok(clock >= F.CACHE_START_MS && clock < F.CACHE_START_MS + 5000, "it waited its 80 seconds");
   assert.equal(await F.snapshotChat(env, "user-1-nobody", deps(w)), null);
   assert.equal(await F.snapshotChat({ ...env, CODER_MACHINES: "" }, "user-1-shop-a1", deps(w)), null);
+  w.snapWait = 0;
 
-  // B, A NEW CHAT IN THE SAME ENVIRONMENT: its disk from the copy, at least as big as A's was.
+  // A COPY FLY HAS NOT FINISHED (the live test: the second chat came a minute later): Fly refuses it; an empty
+  // disk, as before, and the machine is told why (it says so in the chat).
+  w.snapRun = 50;
+  const pending = await F.snapshotChat(env, "user-1-shop-a1", deps(w));
+  assert.equal(pending.ready, false);
+  const boxE = F.flyBox(env, "user-1-shop-e1", deps(w));
+  assert.equal((await turn(boxE, { [F.FROM_COPY]: pending.snapshot, [F.FROM_COPY_GB]: "20" })).status, 200);
+  const recE = JSON.parse(b.m.get((await F.flyNames("user-1-shop-e1")).key));
+  assert.equal(recE.from, undefined);
+  assert.match(recE.copyMiss, /^Fly\.io would not make a disk from it \(422: snapshot vs_\w+ is not ready try later\)$/, "Fly's own words, plain (its dash dropped)");
+  assert.equal(w.told.at(-1), "missed: " + recE.copyMiss);
+  const ne1 = (await F.flyNames("user-1-shop-e1")).volume;
+  assert.deepEqual([...w.volumes.values()].filter((v) => v.name === ne1).map((v) => v.snapshot_id), [undefined], "its empty disk");
+  w.snapRun = 0;
+
+  // B, A NEW CHAT IN THE SAME ENVIRONMENT: its disk from the finished copy, at least as big as A's was,
+  // and its machine made once Fly has restored the copy into it.
   w.api.length = 0;
+  w.restoreFor = 2;
   const boxB = F.flyBox(env, "user-1-shop-b1", deps(w));
   assert.equal((await turn(boxB, { [F.FROM_COPY]: snap.snapshot, [F.FROM_COPY_GB]: "20" })).status, 200);
   const nb1 = (await F.flyNames("user-1-shop-b1")).volume;
   const volB = [...w.volumes.values()].find((v) => v.name === nb1);
   assert.equal(volB.snapshot_id, snap.snapshot);
   assert.equal(volB.size_gb, 20);
+  assert.deepEqual(w.api.slice(0, 4), ["POST /volumes", "GET /volumes/" + volB.id, "GET /volumes/" + volB.id, "POST /machines"], "restored first, then its machine");
   assert.equal(JSON.parse(b.m.get((await F.flyNames("user-1-shop-b1")).key)).from, snap.snapshot, "its record says where its disk came from");
+  assert.equal(w.told.at(-1), "used", "the machine is told its disk came from the copy");
   for (const sent of w.sent) assert.ok(!sent.includes(F.FROM_COPY) && !sent.includes(F.FROM_COPY_GB), "the hint never reaches a machine");
-  // An awake machine of its own already: the hint changes nothing.
+  // An awake machine of its own already: the hint changes nothing, and nothing is told again.
   w.api.length = 0;
   assert.equal((await turn(boxB, { [F.FROM_COPY]: snap.snapshot, [F.FROM_COPY_GB]: "20" })).status, 200);
   assert.deepEqual(w.api, []);
+  assert.equal(w.told.at(-1), null);
+  // Nobody else can tell a machine about a copy: the Worker's own word only.
+  assert.equal((await turn(boxB, { [F.COPY_INFO]: "used" })).status, 200);
+  assert.equal(w.told.at(-1), null);
+
+  // RESTORED TOO SLOWLY: that disk goes; an empty one, as before; why told.
+  clock = 0;
+  w.restoreFor = 1e9;
+  const slow = { now: () => clock, sleep: async (ms) => { clock += ms; } };
+  assert.equal((await turn(F.flyBox(env, "user-1-shop-f1", deps(w, slow)), { [F.FROM_COPY]: snap.snapshot, [F.FROM_COPY_GB]: "20" })).status, 200);
+  const recF = JSON.parse(b.m.get((await F.flyNames("user-1-shop-f1")).key));
+  assert.match(recF.copyMiss, /^its disk was still being restored \(restoring\) after 5 minutes$/);
+  const nf1 = (await F.flyNames("user-1-shop-f1")).volume;
+  assert.deepEqual([...w.volumes.values()].filter((v) => v.name === nf1).map((v) => v.snapshot_id), [undefined], "only the empty disk is left");
+  w.restoreFor = 0;
+  // NO MACHINE ON IT: that disk goes too; an empty one, as before.
+  w.noMachineOnCopy = true;
+  assert.equal((await turn(F.flyBox(env, "user-1-shop-g1", deps(w)), { [F.FROM_COPY]: snap.snapshot, [F.FROM_COPY_GB]: "20" })).status, 200);
+  const recG = JSON.parse(b.m.get((await F.flyNames("user-1-shop-g1")).key));
+  assert.match(recG.copyMiss, /^Fly\.io could not start a machine on it \(503: volume vol_\w+ didn't reach a mountable state\)$/);
+  const ng1 = (await F.flyNames("user-1-shop-g1")).volume;
+  assert.deepEqual([...w.volumes.values()].filter((v) => v.name === ng1).map((v) => v.snapshot_id), [undefined]);
+  w.noMachineOnCopy = false;
   // FLY REFUSES A DISK FROM THE COPY (gone, say): an empty disk, as before; the chat still starts.
   w.badCopy = true;
-  w.api.length = 0;
   assert.equal((await turn(F.flyBox(env, "user-1-shop-c1", deps(w)), { [F.FROM_COPY]: snap.snapshot, [F.FROM_COPY_GB]: "20" })).status, 200);
   const nc1 = (await F.flyNames("user-1-shop-c1")).volume;
   const volC = [...w.volumes.values()].find((v) => v.name === nc1);
   assert.equal(volC.snapshot_id, undefined);
   assert.equal(volC.size_gb, 10);
-  assert.equal(JSON.parse(b.m.get((await F.flyNames("user-1-shop-c1")).key)).from, undefined);
-  // A made-up name is never sent to Fly.
+  assert.equal(JSON.parse(b.m.get((await F.flyNames("user-1-shop-c1")).key)).copyMiss, "Fly.io would not make a disk from it (404: snapshot not found)");
+  // A made-up name is never sent to Fly, nor told to the machine.
   w.api.length = 0;
   await turn(F.flyBox(env, "user-1-shop-d1", deps(w)), { [F.FROM_COPY]: "../etc", [F.FROM_COPY_GB]: "20" });
   const nd1 = (await F.flyNames("user-1-shop-d1")).volume;
   assert.equal([...w.volumes.values()].find((v) => v.name === nd1).snapshot_id, undefined);
+  assert.equal(w.told.at(-1), null);
 
   // WHICH COPY MAY BE USED.
   const key = "a".repeat(64), now = Date.parse("2026-11-07T12:00:00Z");
-  const c = { snapshot: "vs_Abcd1234", size: 20, region: "iad", image: IMG1, retention: 8, key, at: now - 3600e3 };
+  const c = { snapshot: "vs_Abcd1234", volume: "vol_Abcd1234", size: 20, region: "iad", image: IMG1, retention: 8, key, at: now - 3600e3 };
   assert.equal(F.cacheUsable(env, c, key, now), true);
   assert.equal(F.cacheUsable(env, c, "b".repeat(64), now), false, "another setup script or network setting");
   assert.equal(F.cacheUsable({ ...env, CODER_FLY_IMAGE: IMG2 }, c, key, now), false, "a new Coder version");
@@ -504,6 +583,7 @@ test("CD151 the environment's saved copy of its setup, on Fly.io (owner, 2026-11
   assert.equal(F.cacheUsable(env, { ...c, retention: 5, at: now - 4.6 * 86400e3 }, key, now), false, "no longer kept by Fly (5 days)");
   assert.equal(F.cacheUsable(env, { ...c, retention: 5, at: now - 4.4 * 86400e3 }, key, now), true);
   assert.equal(F.cacheUsable(env, { ...c, snapshot: "../x" }, key, now), false);
+  assert.equal(F.cacheUsable(env, { ...c, volume: undefined }, key, now), false, "a copy recorded before the fix (no disk): one is made again");
   assert.equal(F.cacheUsable(env, { ...c, at: now + 3600e3 }, key, now), false, "from the future");
   assert.equal(F.cacheUsable(env, null, key, now), false);
   assert.equal(F.cacheUsable(env, c, "", now), false);

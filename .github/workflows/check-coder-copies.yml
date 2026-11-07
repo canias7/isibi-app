@@ -49,7 +49,7 @@ jobs:
           while read -r name made; do
             h="${name#coder_}"
             echo "--- machine record of disk $name (made $made)"
-            cf "/coder/fly-machines/$h.json" | safe '{made_from_copy: (.from // "no"), region, image: (.image // "" | tostring | .[-24:]), made: ((.at // 0) / 1000 | floor | todate), stopped}'
+            cf "/coder/fly-machines/$h.json" | safe '{made_from_copy: (.from // "no"), why_not: (.copyMiss // ""), region, image: (.image // "" | tostring | .[-24:]), made: ((.at // 0) / 1000 | floor | todate), stopped}'
           done < newest.txt
           # Each environment's saved-copy record (coder/<account>/environments/<env>.cache.json): account and chat ids hidden.
           echo "--- saved-copy records"
@@ -63,5 +63,5 @@ jobs:
           done
           for k in $keys; do
             echo "  environment ${k##*/}:"
-            cf "/$k" | safe '{snapshot, size, region, image: (.image // "" | tostring | .[-24:]), retention, key: (.key // "" | tostring | .[0:12]), saved: ((.at // 0) / 1000 | floor | todate)}'
+            cf "/$k" | safe '{snapshot, finished: (.ready // false), disk: (.volume // ""), size, region, image: (.image // "" | tostring | .[-24:]), retention, key: (.key // "" | tostring | .[0:12]), saved: ((.at // 0) / 1000 | floor | todate)}'
           done

@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-07: Testing: #25 failed (the setup's saved copy), found why, fixed
+
+- **What I tested:** two new chats in one environment, through your test repository (issues #10 and #11). The second chat should have skipped the setup by starting from the first chat's saved copy. It didn't: the setup ran again.
+- **Why:** I checked Fly.io with a new read-only button (it only lists things). The first chat's copy was saved fine. But Fly takes minutes to finish a copy (the second chat's own copy took over 7 minutes), and the second chat started about a minute after the first. Coder tried the unfinished copy, Fly said no, and Coder quietly made an empty disk instead. Nothing in the chat said so.
+- **A second problem, from Fly's own docs:** Fly saves a disk when it gets to it, not at the moment Coder asks. So a copy could be taken after the first chat's job had moved on, without the marker that says what it is a copy of.
+- **Fixed** (live after the next deploy):
+  - A new chat starts from the copy only once Fly has finished it.
+  - While Fly is still finishing it, the new chat runs the setup itself and says so in the chat. It doesn't make a second copy.
+  - The first chat waits until Fly has actually started saving its disk (usually seconds, at most 80 seconds), then goes on. Its marker stays on its disk for good.
+  - A disk made from the copy is only used once Fly has finished restoring it into the new disk.
+  - When a copy can't be used, the chat now says why (for example "Fly.io would not make a disk from it"), and Coder's records keep the reason.
+  - Copies saved before this fix aren't used; the next new chat makes a fresh one.
+- **To test again after you say "merge and deploy":** one new chat makes the copy; I wait until Fly says it's finished (the read-only button shows it); then a second new chat should skip the setup.
+- Tests: CD151, CD152 and CD153 rewritten for this; CD192 is new (the chat says why a copy was not used). 201 tests pass, plus the 18 machine-admin tests (they run on GitHub with this push).
+
 ## 2026-11-07: Testing: #22 passed, and one leftover fixed
 
 - **#22 passed:** your broken test chat (issue #9) repaired itself after the deploy. Its files and git came back, on Coder's own branch.
