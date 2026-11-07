@@ -14,7 +14,7 @@ import { runMentionJobs, installationToken } from "./src/coder-mentions.mjs";
 import { runReviewJobs } from "./src/coder-review.mjs";
 import { runWatchedJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
 import { controlKeySync } from "./src/coder-control.mjs";
-import { flyOn, flyBox, runFlyMachines, dropFlyMachine, snapshotChat, cacheUsable } from "./src/coder-fly.mjs";
+import { flyOn, flyBox, runFlyMachines, dropFlyMachine, snapshotChat, cacheUsable, copyState } from "./src/coder-fly.mjs";
 
 /**
  * CODER'S CONTAINER: a developer machine (Node, Python, git, build tools), one
@@ -64,7 +64,7 @@ export function machinesFor(env) {
   const sign = (req) => { const r = new Request(req); if (key) r.headers.set("x-coder-key", key); return r; };
   // On Fly.io each machine has its own lock key (step 2, 2026-11-07): flyBox adds it, per machine.
   // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (2026-11-07, like Claude Code's cache): Fly.io only.
-  if (flyOn(env)) return { kind: "fly", sign, container: (name) => { const box = flyBox(env, name); return { fetch: (req) => box.fetch(req) }; }, drop: (name) => dropFlyMachine(env, name), snapshot: (name) => snapshotChat(env, name), cacheUsable: (c, key) => cacheUsable(env, c, key) };
+  if (flyOn(env)) return { kind: "fly", sign, container: (name) => { const box = flyBox(env, name); return { fetch: (req) => box.fetch(req) }; }, drop: (name) => dropFlyMachine(env, name), snapshot: (name) => snapshotChat(env, name), cacheUsable: (c, key) => cacheUsable(env, c, key), copyState: (c) => copyState(env, c) };
   return { kind: "cloudflare", sign, container: (name) => { const box = getContainer(env.CODER_CONTAINER, name); return { fetch: (req) => box.fetch(sign(req)) }; }, drop: async () => {} };
 }
 
@@ -76,7 +76,7 @@ export default {
   async scheduled(event, env, ctx) {
     if (env.CODER_ON !== "on") return;
     const m = machinesFor(env);
-    const coder = (req, who) => handleCoder(req, env, ctx, { authUser: async () => who, container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable });
+    const coder = (req, who) => handleCoder(req, env, ctx, { authUser: async () => who, container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable, copyState: m.copyState });
     const work = [];
     const job = (p) => { work.push(p); ctx.waitUntil(p); };
     job(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
@@ -110,7 +110,7 @@ export default {
       res = await handleLive(request, env, { waitUntil: (p) => ctx.waitUntil(p) });
     } else if (url.pathname.startsWith("/api/coder/")) {
       const m = machinesFor(env);
-      res = await handleCoder(request, env, ctx, { authUser: (r) => authUser(r, env), container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable });
+      res = await handleCoder(request, env, ctx, { authUser: (r) => authUser(r, env), container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable, copyState: m.copyState });
     } else if (url.pathname === "/health") {
       res = Response.json({ ok: true, service: "coder", on: env.CODER_ON === "on" });
     } else if (env.ASSETS && (request.method === "GET" || request.method === "HEAD")) {

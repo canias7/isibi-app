@@ -11,6 +11,34 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-07: Testing: #25 failed (the setup's saved copy), found why, fixed
+
+- **What I tested:** two new chats in one environment, through your test repository (issues #10 and #11). The second chat should have skipped the setup by starting from the first chat's saved copy. It didn't: the setup ran again.
+- **Why:** I checked Fly.io with a new read-only button (it only lists things). The first chat's copy was saved fine. But Fly takes minutes to finish a copy (the second chat's own copy took over 7 minutes), and the second chat started about a minute after the first. Coder tried the unfinished copy, Fly said no, and Coder quietly made an empty disk instead. Nothing in the chat said so.
+- **A second problem, from Fly's own docs:** Fly saves a disk when it gets to it, not at the moment Coder asks. So a copy could be taken after the first chat's job had moved on, without the marker that says what it is a copy of.
+- **Fixed** (live after the next deploy):
+  - A new chat starts from the copy only once Fly has finished it.
+  - While Fly is still finishing it, the new chat runs the setup itself and says so in the chat. It doesn't make a second copy.
+  - The first chat waits until Fly has actually started saving its disk (usually seconds, at most 80 seconds), then goes on. Its marker stays on its disk for good.
+  - A disk made from the copy is only used once Fly has finished restoring it into the new disk.
+  - When a copy can't be used, the chat now says why (for example "Fly.io would not make a disk from it"), and Coder's records keep the reason.
+  - Copies saved before this fix aren't used; the next new chat makes a fresh one.
+- **To test again after you say "merge and deploy":** one new chat makes the copy; I wait until Fly says it's finished (the read-only button shows it); then a second new chat should skip the setup.
+- Tests: CD151, CD152 and CD153 rewritten for this; CD192 is new (the chat says why a copy was not used). 201 tests pass, plus the 18 machine-admin tests (they run on GitHub with this push).
+
+## 2026-11-07: Testing: #22 passed, and one leftover fixed
+
+- **#22 passed:** your broken test chat (issue #9) repaired itself after the deploy. Its files and git came back, on Coder's own branch.
+- **What the test found:** that chat's setup had made a file (`setup-ran.txt`) while it was broken. Coder keeps a list of files the setup made, so they're never saved as its work. That list was inside the broken git folder, which the repair cleared, so the file got pushed to Coder's branch once.
+- **Fixed** (live after the next deploy): the list is now kept when a broken git folder is cleared. Only chats broken by the old bug could hit this. The test for it fails on the live version and passes now.
+- The test branch `coder/testingforclaude-1jpc6lty` on your test repository has that one extra file. It's harmless test data; delete the branch on GitHub whenever you like.
+- Tests: CD175 extended. 200 tests pass, plus the 18 machine-admin tests.
+
+## 2026-11-07: Merged and deployed; the full list of everything Coder has
+
+- You said "merge and deploy": items 3, 9, 2, 6, 5, 11 and 8, and the fix for the half-made copy, are merged into main and deploying.
+- **The full list** is in [`docs/coder-features.md`](coder-features.md): 50 things, numbered, each with how we test it, who tests it (me through GitHub, or you on your screen) and where it stands. We test them one by one from there.
+
 ## 2026-11-07: Notifications in the desktop app too; the auto-fix screenshot
 
 - **Desktop app:** its window can't get web notifications. Instead, while the app is open (minimized is fine), it watches your chats itself and shows the same notifications with the same two switches. Turn it on in the app: the gear, Notifications, "Turn on in this app".

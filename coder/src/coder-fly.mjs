@@ -178,9 +178,11 @@ export async function machineLock(env, machine, rec) {
 /** The message route's hint for a new chat's disk (the environment's saved copy): for flyBox only, never sent on. */
 export const FROM_COPY = "x-coder-from-copy";
 export const FROM_COPY_GB = "x-coder-from-copy-gb";
+/** What became of that copy, told to the new machine with its first job (flyBox only sets it): "used", or "missed: why". */
+export const COPY_INFO = "x-coder-copy";
 async function locked(env, machine, rec, req) {
   const r = new Request(req.url, { method: req.method, headers: req.headers });
-  r.headers.delete(FROM_COPY); r.headers.delete(FROM_COPY_GB);
+  r.headers.delete(FROM_COPY); r.headers.delete(FROM_COPY_GB); r.headers.delete(COPY_INFO);
   const k = await machineLock(env, machine, rec);
   if (k) r.headers.set("x-coder-key", k); else r.headers.delete("x-coder-key");
   return r;
@@ -239,13 +241,32 @@ async function untilAnswers(env, id, { fetchFn, sleep, now }, waitMs = FLY_WAKE_
 export const CACHE_MS = 7 * 24 * 60 * 60 * 1000;
 /** Days Fly.io keeps the copy (its default is 5): past the seven. */
 export const CACHE_KEEP_DAYS = 8;
-/** How long Fly.io has to list a new copy (it makes one "in a few moments"). */
-export const CACHE_WAIT_MS = 60 * 1000;
+// FLY.IO SAVES A DISK WHEN IT GETS TO IT (live test #25, 2026-11-07: its docs, "Scheduled to snapshot
+// volume", and "the state of the new snapshot will go from waiting to running to created"; a copy took
+// minutes to finish). The chat's machine waits (container/server.mjs, up to 2 minutes) until Fly has
+// started saving its disk, and CACHE_SETTLE_MS more, so the copy is of the disk as the setup left it.
+/** How long the Worker waits for Fly.io to start saving the disk (within the machine's 2-minute wait). */
+export const CACHE_START_MS = 80 * 1000;
+/** Once Fly.io says it is saving the disk: this much longer before the job goes on. */
+export const CACHE_SETTLE_MS = 10 * 1000;
+/** A copy Fly.io is still finishing this long after it was asked for is no longer waited for: a new chat may make another. */
+export const CACHE_PENDING_MS = 30 * 60 * 1000;
+/** How long a disk made from a copy may take to be restored (Fly: "restoring", then "created") before an empty one is made instead. */
+export const FLY_RESTORE_MS = 5 * 60 * 1000;
 const SNAP_ID = /^vs_\w{4,80}$/;
+const VOL_ID = /^vol_\w{1,80}$/;
+/** A copy's state in Fly's list: its own word, else finished once it has a real date (an unfinished one's is 0001-01-01). */
+const snapStatus = (x) => String((x && x.status) || (Date.parse(String((x && x.created_at) || "")) > Date.parse("2000-01-01") ? "created" : "running"));
+/** Fly's answer, short and plain, for a note in the chat. */
+export const flyWhy = (r) => (String((r && r.status) || "no answer") + (r && r.data && r.data.error ? ": " + String(r.data.error) : "")).replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
 
-/** May a new chat start from this copy? Made for this setup, by this Coder version, in this region, not too old, still kept by Fly. */
+/**
+ * May a new chat start from this copy? Made for this setup, by this Coder version, in this region, not too old,
+ * still kept by Fly, and known by its disk (a copy recorded before 2026-11-07's fix is not: one is made again).
+ * Whether Fly.io has finished it is asked separately (copyState).
+ */
 export function cacheUsable(env, c, key, now = Date.now()) {
-  if (!c || !SNAP_ID.test(String(c.snapshot)) || !key || c.key !== key) return false;
+  if (!c || !SNAP_ID.test(String(c.snapshot)) || !VOL_ID.test(String(c.volume)) || !key || c.key !== key) return false;
   const s = flySettings(env);
   if (c.image !== s.image || c.region !== s.region) return false;
   const age = now - Number(c.at);
@@ -254,15 +275,17 @@ export function cacheUsable(env, c, key, now = Date.now()) {
 }
 
 /**
- * SAVE A COPY OF A CHAT'S KEPT DISK (a Fly.io snapshot, kept CACHE_KEEP_DAYS days).
- * Answers { snapshot, size, region, image, retention } once Fly lists it; else null.
+ * SAVE A COPY OF A CHAT'S KEPT DISK (a Fly.io snapshot, kept CACHE_KEEP_DAYS days), while its machine
+ * waits: answers once Fly.io has started saving it (running) or finished (created), CACHE_SETTLE_MS
+ * later when only started: { snapshot, volume, size, region, image, retention, ready } (`ready`:
+ * finished; until then no chat can start from it: Fly refuses). Null when Fly did not start in time.
  */
 export async function snapshotChat(env, name, deps0 = {}) {
   if (!flyOn(env)) return null;
   const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now };
   const s = flySettings(env);
   const rec = await readRec(env.CODER_BUCKET, (await flyNames(name)).key);
-  if (!rec || typeof rec.volume !== "string") return null;
+  if (!rec || !VOL_ID.test(String(rec.volume))) return null;
   const path = "/apps/" + s.app + "/volumes/" + rec.volume;
   // Kept past the seven days (this disk's later daily copies too; Fly's default is 5 days).
   const v = await flyApi(env, path, { method: "PUT", body: { snapshot_retention: CACHE_KEEP_DAYS }, ...deps });
@@ -271,33 +294,49 @@ export async function snapshotChat(env, name, deps0 = {}) {
   const id = b ? String(b.graph_id || "") : "";
   if (!SNAP_ID.test(id)) return null;
   // "Wait a few moments for the snapshot to get created and then get the list of snapshots to confirm."
-  const until = deps.now() + CACHE_WAIT_MS;
+  const until = deps.now() + CACHE_START_MS;
   for (;;) {
     const l = await flyApi(env, path + "/snapshots", deps);
     const hit = l.ok && Array.isArray(l.data) ? l.data.find((x) => x && x.id === id) : null;
-    if (hit) return { snapshot: id, size: Number(v.ok && v.data && v.data.size_gb) || s.disk, region: rec.region || s.region, image: rec.image, retention: Number(hit.retention_days) || 0 };
+    const st = hit ? snapStatus(hit) : "";
+    if (st === "running" || st === "created") {
+      if (st === "running") await deps.sleep(CACHE_SETTLE_MS);
+      return { snapshot: id, volume: rec.volume, size: Number(v.ok && v.data && v.data.size_gb) || s.disk, region: rec.region || s.region, image: rec.image, retention: Number(hit.retention_days) || 0, ready: st === "created" };
+    }
     if (deps.now() >= until) return null;
     await deps.sleep(2000);
   }
 }
 
+/** WHERE A SAVED COPY STANDS on Fly.io: { status } ("created": finished; "running", "waiting"), { status: "gone" } when its disk's list lacks it, or null (no answer). */
+export async function copyState(env, c, deps0 = {}) {
+  if (!flyOn(env) || !c || !SNAP_ID.test(String(c.snapshot)) || !VOL_ID.test(String(c.volume))) return null;
+  const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now };
+  const l = await flyApi(env, "/apps/" + flySettings(env).app + "/volumes/" + c.volume + "/snapshots", deps);
+  if (!l.ok || !Array.isArray(l.data)) return null;
+  const hit = l.data.find((x) => x && x.id === c.snapshot);
+  return hit ? { status: snapStatus(hit), retention: Number(hit.retention_days) || 0 } : { status: "gone" };
+}
+
 /**
  * A NEW CHAT'S MACHINE: its kept disk, then the machine on it (Fly starts it).
- * `from` (the environment's saved copy): the disk is made from it, at least as big
- * (Fly: "a new volume of equal or greater size"); if Fly cannot, an empty one, as before.
+ * `from` (the environment's saved copy): the disk is made from it (machineFromCopy);
+ * if that cannot be done, an empty one, as before, with why (`copyMiss`, said in the chat).
  */
 async function makeMachine(env, bucket, names, deps, from = null) {
   const s = flySettings(env);
+  let copyMiss = "";
+  if (from && SNAP_ID.test(String(from.snapshot))) {
+    const got = await machineFromCopy(env, bucket, names, deps, from);
+    if (got.rec) return got;
+    copyMiss = got.why;
+  }
   // ITS DISK GOES ON A SERVER WITH ROOM FOR ITS SIZE (Fly's `compute`: a machine can only run where
   // its disk is); else on one with room for the size before; else anywhere, as before.
-  let v, copied = "";
-  const copy = from && SNAP_ID.test(String(from.snapshot)) ? { snapshot_id: String(from.snapshot), size_gb: Math.min(500, Math.max(s.disk, Math.ceil(Number(from.size) || 0))) } : null;
-  for (const c of copy ? [copy, null] : [null]) {
-    for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
-      v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk, ...(compute ? { compute } : {}), ...(c || {}) }, ...deps });
-      if (v.ok || v.status === 401 || v.status === 403) break;
-    }
-    if (v.ok || v.status === 401 || v.status === 403) { copied = v.ok && c ? c.snapshot_id : ""; break; }
+  let v;
+  for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
+    v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk, ...(compute ? { compute } : {}) }, ...deps });
+    if (v.ok || v.status === 401 || v.status === 403) break;
   }
   if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io could not make the machine's disk (" + v.status + ")" };
   // Fly refused the settings (should it not take a bigger or kept disk, or the size): made the older way, as before.
@@ -307,7 +346,41 @@ async function makeMachine(env, bucket, names, deps, from = null) {
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
   }
-  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, ...(copied ? { from: copied } : {}) };
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, ...(copyMiss ? { copyMiss } : {}) };
+  await writeRec(bucket, names.key, rec);
+  await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
+  return { rec, ...(copyMiss ? { copyMiss } : {}) };
+}
+
+/**
+ * A NEW CHAT'S DISK MADE FROM THE ENVIRONMENT'S SAVED COPY, at least as big (Fly: "a new volume of equal
+ * or greater size"), then its machine once Fly has restored the copy into it ("restoring", then
+ * "created"). Answers { rec }, or { why } with what was made removed again (live test #25, 2026-11-07:
+ * Fly's refusal was once passed over in silence).
+ */
+async function machineFromCopy(env, bucket, names, deps, from) {
+  const s = flySettings(env);
+  const copy = { snapshot_id: String(from.snapshot), size_gb: Math.min(500, Math.max(s.disk, Math.ceil(Number(from.size) || 0))) };
+  let v;
+  for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
+    v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, ...(compute ? { compute } : {}), ...copy }, ...deps });
+    if (v.ok || v.status === 401 || v.status === 403) break;
+  }
+  if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io would not make a disk from it (" + flyWhy(v) + ")" };
+  const vol = v.data.id;
+  const drop = () => flyApi(env, "/apps/" + s.app + "/volumes/" + vol, { method: "DELETE", ...deps });
+  const until = deps.now() + FLY_RESTORE_MS;
+  for (let state = String(v.data.state || "created"); state !== "created"; ) {
+    if (deps.now() >= until) { await drop(); return { why: "its disk was still being restored (" + state.slice(0, 30) + ") after " + Math.round(FLY_RESTORE_MS / 60000) + " minutes" }; }
+    await deps.sleep(2000);
+    const g = await flyApi(env, "/apps/" + s.app + "/volumes/" + vol, deps);
+    if (g.status === 404) return { why: "its disk went while being restored" };
+    if (g.ok && g.data) state = String(g.data.state || "created");
+  }
+  const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
+  const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, vol, { ...o, lock }) }, ...deps }));
+  if (!m.ok || !m.data || typeof m.data.id !== "string") { await drop(); return { why: "Fly.io could not start a machine on it (" + flyWhy(m) + ")" }; }
+  const rec = { id: m.data.id, volume: vol, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, from: copy.snapshot_id };
   await writeRec(bucket, names.key, rec);
   await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec };
@@ -361,6 +434,7 @@ export function flyBox(env, name, deps0 = {}) {
         if (r) return r;
       }
       if (rec) rec = await wakeMachine(env, bucket, names, rec, deps);
+      let copy = "";
       if (!rec) {
         // ONLY A JOB'S START, OR AN UNDO (which needs the repo), MAKES A MACHINE.
         // Anything else (the every-minute check asking about a job whose machine
@@ -368,12 +442,16 @@ export function flyBox(env, name, deps0 = {}) {
         const u = new URL(req.url);
         if (!(req.method === "POST" && (u.pathname === "/turn" || u.pathname === "/undo"))) return json({ error: "This chat has no machine on Fly.io yet." }, 503);
         // A new chat in an environment with a saved copy: its disk from the copy (the message route's hint).
-        const from = u.pathname === "/turn" ? { snapshot: req.headers.get(FROM_COPY) || "", size: Number(req.headers.get(FROM_COPY_GB)) || 0 } : null;
-        const made = await makeMachine(env, bucket, names, deps, from && from.snapshot ? from : null);
+        const from = u.pathname === "/turn" && SNAP_ID.test(String(req.headers.get(FROM_COPY) || "")) ? { snapshot: req.headers.get(FROM_COPY), size: Number(req.headers.get(FROM_COPY_GB)) || 0 } : null;
+        const made = await makeMachine(env, bucket, names, deps, from);
         if (!made.rec) return json({ error: made.why }, 503);
         rec = made.rec;
+        // The machine says in the chat what became of the copy (used, or why not).
+        if (from) copy = rec.from ? "used" : "missed: " + (made.copyMiss || "no reason given");
       }
-      const r = await viaFly(env, rec.id, await locked(env, names.machine, rec, req), body, deps.fetchFn);
+      const fwd = await locked(env, names.machine, rec, req);
+      if (copy) fwd.headers.set(COPY_INFO, copy.replace(/[^\x20-\x7e]/g, " ").slice(0, 220));
+      const r = await viaFly(env, rec.id, fwd, body, deps.fetchFn);
       return r || json({ error: "Coder's machine on Fly.io did not answer. Try again in a minute." }, 503);
     },
   };

@@ -1,0 +1,67 @@
+# CHECK CODER'S SAVED COPIES ON FLY.IO (read-only; live test #25, 2026-11-07: a second
+# new chat did not start from the environment's saved copy). Lists the newest chat
+# disks and each one's copies (snapshots): ids, times, sizes and states only; then
+# what Coder's Worker recorded: each newest disk's machine record (was it made from
+# a copy?) and each environment's saved-copy record (no account or chat ids shown).
+# It changes nothing and prints no key. Runs when this file changes on a branch, or by hand.
+name: check coder copies
+on:
+  workflow_dispatch:
+  push:
+    paths: [".github/workflows/check-coder-copies.yml"]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      FLY_APP: gofarther-coder-machines
+    steps:
+      - name: The newest chat disks and their copies
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FLY_API_TOKEN:-}" ]; then echo "No FLY_API_TOKEN secret."; exit 0; fi
+          api() { curl -sS --max-time 30 -H "Authorization: Bearer $FLY_API_TOKEN" "https://api.machines.dev/v1/apps/$FLY_APP$1"; }
+          vols=$(api /volumes)
+          echo "Disks in all: $(echo "$vols" | jq 'length')"
+          echo "$vols" | jq -r 'sort_by(.created_at) | reverse | .[0:6][] | "\(.created_at)  \(.id)  \(.name)  \(.size_gb) GB  \(.state)  keeps copies \(.snapshot_retention // "?") days"'
+          echo "Everything Fly keeps about the newest disk (no keys are in it):"
+          echo "$vols" | jq 'sort_by(.created_at) | reverse | .[0]'
+          for id in $(echo "$vols" | jq -r 'sort_by(.created_at) | reverse | .[0:6][] | .id'); do
+            echo "--- copies of $id"
+            api "/volumes/$id/snapshots" | jq -r 'if type == "array" then (if length == 0 then "  (none)" else .[] | "  \(.created_at)  \(.id)  status \(.status)  size \(.size)  keeps \(.retention_days) days  digest \(.digest // "" | tostring | .[0:24])" end) else "  answer: \(. | tostring | .[0:300])" end'
+          done
+          echo "$vols" | jq -r 'sort_by(.created_at) | reverse | .[0:3][] | "\(.name) \(.created_at)"' > newest.txt
+      - name: What Coder's Worker recorded
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ ! -s newest.txt ]; then echo "Nothing to read."; exit 0; fi
+          B="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/gofarther-coder/objects"
+          cf() { curl -sS --max-time 30 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$B$1"; }
+          # Cloudflare answers an object's own text, or { success: false, errors } when it cannot.
+          safe() { jq -c "if type == \"object\" and has(\"success\") and (.success | not) then {cannot: (.errors | tostring | .[0:200])} else ($1) end" 2>/dev/null || echo "  (not readable)"; }
+          # A chat's machine record is named like its disk (coder_<h> -> coder/fly-machines/<h>.json).
+          while read -r name made; do
+            h="${name#coder_}"
+            echo "--- machine record of disk $name (made $made)"
+            cf "/coder/fly-machines/$h.json" | safe '{made_from_copy: (.from // "no"), why_not: (.copyMiss // ""), region, image: (.image // "" | tostring | .[-24:]), made: ((.at // 0) / 1000 | floor | todate), stopped}'
+          done < newest.txt
+          # Each environment's saved-copy record (coder/<account>/environments/<env>.cache.json): account and chat ids hidden.
+          echo "--- saved-copy records"
+          keys=""; cursor=""
+          for page in $(seq 1 30); do
+            l=$(cf "?prefix=coder/&per_page=1000${cursor:+&cursor=$cursor}")
+            if [ "$page" = 1 ]; then echo "$l" | jq -r '"  listing: success \(.success) \(if .success then "" else (.errors | tostring | .[0:200]) end)"'; fi
+            keys="$keys $(echo "$l" | jq -r '.result[]?.key | select(test("/environments/[^/]+[.]cache[.]json$"))')"
+            cursor=$(echo "$l" | jq -r '.result_info.cursor // empty')
+            [ "$(echo "$l" | jq -r '.result_info.is_truncated // false')" = "true" ] && [ -n "$cursor" ] || break
+          done
+          for k in $keys; do
+            echo "  environment ${k##*/}:"
+            cf "/$k" | safe '{snapshot, finished: (.ready // false), disk: (.volume // ""), size, region, image: (.image // "" | tostring | .[-24:]), retention, key: (.key // "" | tostring | .[0:12]), saved: ((.at // 0) / 1000 | floor | todate)}'
+          done

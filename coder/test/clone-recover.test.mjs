@@ -27,7 +27,7 @@ async function fakeGithub() {
 
 test("CD175 a first clone that fails leaves no git folder behind; a half-made one from before (git's folder made, nothing fetched) is cleared and cloned again, keeping what the setup made; a finished clone whose pointer went gets it back, its work kept", async () => {
   const { prepareRepo, gitDirFor } = await import("../container/server.mjs");
-  const { remote } = await fakeGithub();
+  const { remote, bare } = await fakeGithub();
   const root = await mkdtemp(join(tmpdir(), "coder-root-")), gitRoot = await mkdtemp(join(tmpdir(), "coder-git-"));
   const dir = join(root, "shop-a1b2"), gd = gitDirFor(dir, gitRoot);
   const prep = (base = "main") => prepareRepo({ dir, repo: "ana/shop", base, branch: "coder/shop-a1b2", token: "", remote, gitRoot, root });
@@ -46,12 +46,21 @@ test("CD175 a first clone that fails leaves no git folder behind; a half-made on
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "setup-ran.txt"), "setup ok\n");
   execFileSync("git", ["init", "-q", "-b", "main", "--bare", gd]);
+  // The setup ran on it, and what it made was put on the list of files to leave out (ignoreNew).
+  await writeFile(join(gd, "info", "exclude"), "# made by the setup script (Coder)\n/setup-ran.txt\n");
   const again = await prep();
   assert.equal(again.ok, true, again.why);
   assert.equal(await readFile(join(dir, "README.md"), "utf8"), "# shop\n", "the repository's files are there");
   assert.equal(await readFile(join(dir, ".git"), "utf8"), "gitdir: " + gd + "\n", "and git's pointer");
   assert.equal(await readFile(join(dir, "setup-ran.txt"), "utf8"), "setup ok\n", "what the setup made is kept");
   assert.equal(git(dir, "rev-parse", "--abbrev-ref", "HEAD").trim(), "coder/shop-a1b2", "on the chat's branch");
+  // ...and the setup's file stays off the branch (live test, 2026-11-07: it was pushed as Coder's work).
+  assert.match(await readFile(join(gd, "info", "exclude"), "utf8"), /^\/setup-ran\.txt$/m, "the list of what the setup made is kept");
+  const { pushRepo } = await import("../container/server.mjs");
+  await writeFile(join(dir, "fix.js"), "x\n");
+  assert.equal((await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-a1b2", token: "", message: "Coder's change", remote, gitRoot, root })).ok, true);
+  const pushed = execFileSync("git", ["--git-dir=" + bare, "ls-tree", "-r", "--name-only", "coder/shop-a1b2"]).toString().trim().split("\n");
+  assert.deepEqual(pushed.sort(), ["README.md", "fix.js"], "Coder's own file is saved, the setup's is not");
 
   // A FINISHED CLONE whose pointer was removed (the AI's commands own the work tree): put back, nothing lost.
   git(dir, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "--allow-empty", "-m", "local work");
