@@ -23,7 +23,7 @@ log (81,000 lines) is in git history.
 - Your word: "ok", to the plan: 1. the Grok key out of the machine, 2. each machine its own lock key, 3. a sealed room for Coder's commands whose only door to the internet is Coder's gate (this makes your network setting a real wall on Fly.io), 4. the master key inside that room, like Claude Code.
 - **Found while checking:** Fly.io's machines lack the kernel piece Coder's firewall rule needs (a Fly.io forum thread from 2026-10-12). So on Fly.io your network setting (None, Trusted, Custom) is probably a guard that ordinary tools follow, not a wall. Your GitHub login and saved keys are not affected: they are added outside the machine. Step 3 fixes this. The test comment you were given will show it for sure.
 - **Step 1, done:** each job gets a short pass for its AI calls, for one chat, one message and 3 hours. The machine sends every Grok call to Coder's server with it. The server checks the pass, allows only Coder's own model, and adds your key. Fly.io's machines and Cloudflare's backup machines are no longer given the key, and the deploy removes the copy Fly.io has.
-- Tests: CD137 and CD138 (147 in all, all passing, plus the 14 admin-only safety tests).
+- Tests: CD137 and CD138 (147 in all, all passing, plus the 14 admin-only safety tests). The machine check on GitHub passed again with this change (run 42345836203).
 
 ## 2026-11-07: All of Claude Code's tools on Coder's machine (on the branch, not deployed yet)
 
