@@ -62,6 +62,20 @@ show redis redis-server --version
 section "Browser"
 show chrome google-chrome --version
 show chromedriver chromedriver --version
+section "Media and documents"
+show ffmpeg sh -c 'ffmpeg -version | head -n 1'
+show imagemagick sh -c 'convert -version | head -n 1'
+show pdftotext sh -c 'pdftotext -v 2>&1 | head -n 1'
+show pandoc sh -c 'pandoc --version | head -n 1'
+show "python libraries" python3 -c 'import numpy, pandas, openpyxl, docx, pptx, pypdf, pdfplumber, reportlab, markitdown, requests, PIL; print("numpy pandas openpyxl docx pptx pypdf pdfplumber reportlab markitdown requests pillow")'
+section "Browser automation"
+show playwright playwright --version
+show xvfb-run sh -c 'command -v xvfb-run'
+section "Debugging"
+show strace sh -c 'strace -V | head -n 1'
+show lsof sh -c 'lsof -v 2>&1 | grep -m 1 revision'
+show valgrind valgrind --version
+show netcat sh -c 'command -v nc'
 section "Other"
 show git git --version
 show git-lfs git lfs version

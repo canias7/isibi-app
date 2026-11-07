@@ -105,7 +105,12 @@ the first docker command); PostgreSQL 16 and Redis 7, installed and not
 running (`service postgresql start` works for dev: `tools/service` asks sudo,
 which allows exactly those eight commands, `tools/coder-services.sudoers`);
 Chrome for Testing with chromedriver; gh, yq, tmux, vim, nano; and
-`check-tools`. Each download is checked against its maker's sum. Every tool
+`check-tools`. And what Claude Code's machine itself has beyond its docs' list:
+ffmpeg, ImageMagick, pdftotext, pandoc, strace, lsof, valgrind, netcat,
+xvfb-run, Python's document and data libraries (numpy, pandas, openpyxl,
+python-docx, python-pptx, pypdf, pdfplumber, reportlab, markitdown, requests,
+pillow), and Playwright with its own Chromium (`require("playwright")` works
+from any folder: `NODE_PATH`, `PLAYWRIGHT_BROWSERS_PATH`). Each download is checked against its maker's sum. Every tool
 belongs to root, and root's PATH holds only root's folders (the setup
 script's apt lines run with `cleanEnv(null, { root: true })`). The AI's
 commands have a home of their own (`cleanEnv`: `/home/dev`, or on Fly.io

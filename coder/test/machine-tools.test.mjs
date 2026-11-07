@@ -32,6 +32,8 @@ test("CD133 the AI's commands find every tool and keep what they install in thei
   assert.equal(dev.PIP_BREAK_SYSTEM_PACKAGES, "1", "pip installs for the user (its home), not the system");
   assert.equal(dev.RBENV_ROOT, "/opt/rbenv");
   assert.equal(dev.CHROME_PATH, "/usr/bin/google-chrome", "like Claude Code's machine");
+  assert.equal(dev.PLAYWRIGHT_BROWSERS_PATH, "/opt/pw-browsers");
+  assert.equal(dev.NODE_PATH, "/opt/node22/lib/node_modules", "require(\"playwright\") from any folder");
   assert.equal(dev.DOCKER_HOST, "unix:///data/home/.docker-run/docker.sock", "dev's own Docker engine");
   assert.equal(cleanEnv().HOME, DEV_HOME);
   assert.equal(DEV_HOME, "/home/dev");
@@ -84,7 +86,9 @@ test("CD134 the image: Ubuntu 24.04 like Claude Code's machine; the small one by
     go: /go\.dev\/dl\/\?mode=json/, rust: /rustup-init -y --no-modify-path --profile minimal --component rustfmt,clippy/,
     "c/c++": /clang cmake ninja-build/, docker: /docker-ce docker-ce-cli containerd\.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras gh/,
     postgresql: /postgresql postgresql-contrib redis-server/, chrome: /chrome-for-testing\/last-known-good-versions-with-downloads\.json/,
-    yq: /mikefarah\/yq\/v4/, everyday: /git-lfs tmux vim nano/, "check-tools": /tools\/docker tools\/check-tools \/usr\/local\/bin\//,
+    yq: /mikefarah\/yq\/v4/, everyday: /git-lfs tmux vim nano/,
+    extras: /ffmpeg imagemagick poppler-utils pandoc strace lsof valgrind netcat-openbsd xvfb/, "python libraries": /numpy pandas openpyxl python-docx python-pptx pypdf pdfplumber reportlab markitdown requests pillow/,
+    playwright: /npm install -g --no-fund --no-audit playwright && npm cache clean --force; \\\n\s+PLAYWRIGHT_BROWSERS_PATH=\/opt\/pw-browsers playwright install --with-deps chromium/, "check-tools": /tools\/docker tools\/check-tools \/usr\/local\/bin\//,
   };
   for (const [what, re] of Object.entries(want)) assert.match(what === "ruby" || what === "node 22" ? D : full, re, what);
   // Each download is checked against its maker's sum (Chrome's has none published).
@@ -149,8 +153,8 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   const T = read("test/machine-tools.sh");
   assert.match(T, /const \{ cleanEnv \} = await import\('\/app\/coder-checks\.mjs'\);/);
   assert.match(T, /setpriv --reuid=1001 --regid=1001 --clear-groups env -i/);
-  for (const s of ["Ruby 3.1, 3.2, 3.3", "Docker without admin rights", "PostgreSQL and Redis", "Chrome and chromedriver", "sudo allows the databases and nothing else", "Java, Maven, Gradle", "Rust", "Go"]) assert.ok(T.includes(s), s);
+  for (const s of ["Ruby 3.1, 3.2, 3.3", "Media and documents", "Playwright with its Chromium, from any folder", "Debugging tools", "Docker without admin rights", "PostgreSQL and Redis", "Chrome and chromedriver", "sudo allows the databases and nothing else", "Java, Maven, Gradle", "Rust", "Go"]) assert.ok(T.includes(s), s);
   // CODER KNOWS ITS TOOLS on the full image.
-  for (const w of ["Ubuntu 24.04", "check-tools", "Python 3.12", "uv", "poetry", "pytest", "Node 22", "/opt/node24/bin", "nvm install", "yarn", "pnpm", "bun", "Ruby 3.3", "rbenv local", "PHP 8.3", "Composer", "Java 21", "Maven", "Gradle", "Go.", "Rust", "clippy", "clang", "cmake", "gh (this machine has no GitHub login", "yq", "service postgresql start", "service redis-server start", "psql -d postgres", "Docker and docker compose work without admin rights", "/usr/bin/google-chrome", "--no-sandbox", "your home folder, never in the project"]) assert.ok(MACHINE_TOOLS.includes(w), w);
+  for (const w of ["Ubuntu 24.04", "check-tools", "Python 3.12", "uv", "poetry", "pytest", "Node 22", "/opt/node24/bin", "nvm install", "yarn", "pnpm", "bun", "Ruby 3.3", "rbenv local", "PHP 8.3", "Composer", "Java 21", "Maven", "Gradle", "Go.", "Rust", "clippy", "clang", "cmake", "gh (this machine has no GitHub login", "yq", "service postgresql start", "service redis-server start", "psql -d postgres", "Docker and docker compose work without admin rights", "/usr/bin/google-chrome", "--no-sandbox", "your home folder, never in the project", "Playwright", "require(\"playwright\")", "ffmpeg", "ImageMagick", "pdftotext", "pandoc", "pandas", "python-docx", "markitdown", "strace", "valgrind"]) assert.ok(MACHINE_TOOLS.includes(w), w);
   assert.match(read("container/server.mjs"), /const context = \(env\.CODER_IMAGE === "full" \? MACHINE_TOOLS \+ "\\n\\n" : ""\) \+ style \+ /);
 });

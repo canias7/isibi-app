@@ -16,6 +16,12 @@ log (81,000 lines) is in git history.
   - Python (uv, poetry, pytest, mypy, black, ruff), Node 22 and 24, Ruby 3.1, 3.2 and 3.3, PHP 8.3, Java 21 with Maven and Gradle, Go, Rust, C/C++.
   - Docker, PostgreSQL 16, Redis 7, Chrome, and gh, yq, tmux, vim, nano.
   - The same `check-tools` command that lists them all.
+- **Plus what Claude Code's real machine has beyond its docs** (your word: "ok", after "anymore tools missing?"):
+  - ffmpeg (video and audio), ImageMagick (images), pdftotext, pandoc.
+  - Python's document and data libraries (Excel, Word, PowerPoint, PDF, numpy, pandas).
+  - Playwright with its own browser, for scripted browser tests and screenshots.
+  - Debugging tools: strace, lsof, valgrind, netcat.
+  - Left out on purpose: Google Cloud's tools (useless without a Google login on the machine) and Nix (rarely needed). LibreOffice depends on the image's size (Fly.io's limit is 8 GB).
 - **Fly.io's machines get the full set; Cloudflare's backup machines keep a small image.** Cloudflare's limit is 8 GB an image and 50 GB in all.
 - **Coder still never has admin rights.**
   - Docker runs as Coder's own user ("rootless").

@@ -165,6 +165,19 @@ RUN set -eu; cd /tmp; j=$(curl -fsSL --retry 5 --retry-delay 3 https://googlechr
     ln -s /opt/chrome-for-testing/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
 ENV CHROME_PATH=/usr/bin/google-chrome
 
+# WHAT CLAUDE CODE'S MACHINE ALSO HAS beyond its docs' list (its machine itself,
+# read 2026-11-07; owner: "anymore tools missing?", then "ok"): media and
+# documents (ffmpeg, ImageMagick, pdftotext, pandoc), debugging (strace, lsof,
+# valgrind, netcat), a virtual screen for browsers (xvfb-run), Python's document
+# and data libraries, and Playwright with its own Chromium, which any script can
+# require (NODE_PATH and PLAYWRIGHT_BROWSERS_PATH, in cleanEnv).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg imagemagick poppler-utils pandoc strace lsof valgrind netcat-openbsd xvfb
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+    numpy pandas openpyxl python-docx python-pptx pypdf pdfplumber reportlab markitdown requests pillow
+RUN set -eu; npm install -g --no-fund --no-audit playwright && npm cache clean --force; \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers playwright install --with-deps chromium
+
 # The Rubies built above, chosen with rbenv like on Claude Code's machine (3.3
 # unless a project says otherwise). They are dev's, so `gem install` works.
 COPY --from=ruby31 /opt/ruby-3.1.6 /opt/ruby-3.1.6

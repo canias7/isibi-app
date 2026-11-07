@@ -88,6 +88,9 @@ export function cleanEnv(home, { root = false } = {}) {
     GOPATH: h + "/go",
     JAVA_HOME: "/usr/lib/jvm/java-21-openjdk-amd64",
     CHROME_PATH: "/usr/bin/google-chrome",
+    // require("playwright") from any folder, with the browsers the image installed (like Claude Code's machine).
+    NODE_PATH: "/opt/node22/lib/node_modules",
+    PLAYWRIGHT_BROWSERS_PATH: "/opt/pw-browsers",
     NVM_DIR: h + "/.nvm",
     XDG_RUNTIME_DIR: h + "/.docker-run",
     DOCKER_HOST: "unix://" + h + "/.docker-run/docker.sock",
