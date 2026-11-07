@@ -20,6 +20,8 @@ log (81,000 lines) is in git history.
 - **Live test on Fly.io (2026-11-07):** you wrote "@coder say hi and list the files in this repo" on canias7/testingforclaude issue #2 at 02:21:35. Coder said "On it" 4 seconds later, made the chat's machine and disk on Fly.io, ran the job, and answered at 02:23:55, about 2 minutes 20 seconds in all, including making the machine: "Done. Hi @canias7. Files in this repo: README.md, notes.md, setup-ran.txt."
   - Checked from outside through Fly.io's front door: the machine answers as Coder's own, in Fly.io's Virginia region (iad). A request without Coder's key is refused ("not allowed"), so the lock works.
   - **It went to sleep by itself at 02:34:54**, about 11 minutes after the job ended (10 quiet minutes, then the every-minute check). Asleep, it costs only its disk.
+  - **It woke up for the next message:** your second comment at 02:46:13 woke the sleeping machine. Coder answered at 02:47:58, about 1 minute 45 seconds in all, faster than the first job: "This repo currently has README.md, notes.md, and setup-ran.txt." The machine answers again on Fly.io's front door.
+  - So it behaves like Claude Code's machines: one machine per chat, asleep when quiet, woken by your next message with its disk kept.
 
 ## 2026-11-07: Coder's machines can run on Fly.io (like Claude Code's VMs)
 
