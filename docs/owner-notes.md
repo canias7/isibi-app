@@ -23,6 +23,7 @@ log (81,000 lines) is in git history.
   - CD146 covers the disk.
   - 155 in all pass.
 - This changes the machine image, so the deploy rebuilds it (about 13 minutes). Each chat's machine then gets it the next time it wakes.
+- **GitHub's machine check passed** (run 42356997602, in Coder's real image). Every tool works, and the room is sealed for Trusted, None and Full. After a restart that left only the room's name, the room was made again: no direct internet, and npm reachable through the gate.
 
 ## 2026-11-07: The third test: almost everything works live; the sealed room is not in use
 
