@@ -9,6 +9,26 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 8: notifications like Claude Code's (and what the app stores need)
+
+- Item 8: the apps weren't in the stores, and Coder sent no phone notifications.
+- **Notifications, now like Claude Code's:**
+  - **Turn them on per device:** the gear at the bottom left, then Notifications, then "Turn on for this device".
+  - **Two switches, as in Claude Code:**
+    - "Push when Coder decides": a job of 3 minutes or more finished, or you asked ("notify me when the tests finish").
+    - "Push when actions are required": Coder asks you something, needs a key, or proposes an environment change.
+  - **Never about a chat you're looking at.**
+  - **Tapping a notification opens that chat.** "Send a test" checks a device.
+  - **Where it works:** browsers on computers and Android phones. On iPhone, add gofarther.dev to the Home Screen first (in Safari: Share, then Add to Home Screen), then turn it on from there.
+  - **Private and safe:** sent only to the browsers' own notification services, encrypted for each device.
+- **The app stores (not done; it needs you):**
+  - **Apple's App Store** needs your own Apple Developer account ($99 a year).
+  - **Google Play** needs your own Google Play Console account ($25 once).
+  - Each also needs a store page (name, screenshots, a privacy policy) and their review.
+  - When you have the accounts, I can set up the builds for them. Until then, the build buttons make the Android `.apk` and the desktop apps.
+  - Notifications inside those apps would also need the stores' own push setups (Firebase for Android, Apple's for iPhone). Until then, use gofarther.dev from the Home Screen or a browser for notifications.
+- Tests: CD187-CD190 (the encryption matches the standard's own example). 199 tests pass.
+
 ## 2026-11-07: Item 11: Code review like Claude Code's
 
 - Item 11: Coder had no automatic review of pull requests.

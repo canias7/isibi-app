@@ -314,7 +314,7 @@ test("CD108 keys are added outside the machine, like Claude Code: the Worker add
   // The machine gets where keys apply, never their values; the Worker answers at /api/coder/egress before any sign-in.
   assert.deepEqual(E.machineKeyRules([{ kind: "headers", hosts: ["a.com"], paths: [], headers: [{ name: "Authorization", value: "zzzzzzzz" }] }]), [{ kind: "headers", hosts: ["a.com"], paths: [], egress: true }]);
   const { readFileSync } = await import("node:fs");
-  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /\} else if \(url\.pathname === EGRESS_PATH\) \{[\s\S]{0,200}res = await handleEgress\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\(GIT_PATH\)\) \{[\s\S]{0,200}res = await handleGit\(request, env\);\n\s+\} else if \(url\.pathname === MODEL_PATH\) \{[\s\S]{0,200}res = await handleModel\(request, env\);\n\s+\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\)/);
+  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /\} else if \(url\.pathname === EGRESS_PATH\) \{[\s\S]{0,200}res = await handleEgress\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\(GIT_PATH\)\) \{[\s\S]{0,200}res = await handleGit\(request, env\);\n\s+\} else if \(url\.pathname === MODEL_PATH\) \{[\s\S]{0,200}res = await handleModel\(request, env\);\n\s+\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env, \{ waitUntil: \(p\) => ctx\.waitUntil\(p\) \}\);\n\s+\} else if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\)/);
 });
 
 test("CD109 the Worker's signing gives exactly what the machine's did (AWS, Google Cloud, body keys)", async () => {

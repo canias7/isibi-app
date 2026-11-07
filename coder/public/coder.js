@@ -91,6 +91,10 @@
     if (!g.data.connected) { S.phase = 'connect'; return draw(); }
     const p = await call('/projects');
     S.projects = (p.data && p.data.projects) || [];
+    // A NOTIFICATION'S CHAT (owner item 8): /?chat=<id> opens it.
+    const want = new URLSearchParams(location.search).get('chat');
+    if (want) { try { history.replaceState(history.state, '', location.pathname); } catch (e) {} }
+    if (want && S.projects.some((x) => x.id === want)) return openProject(want);
     if (S.projects.length) return openProject(S.projects[0].id);
     return showPicker('new');
   }
@@ -174,6 +178,69 @@
       document.addEventListener('keydown', key); ok.focus();
     });
   }
+  // NOTIFICATIONS ON THIS DEVICE (owner item 8, like Claude Code's: "Push when Claude decides" and "Push when
+  // actions required", none while you are looking at the chat). Web Push: the browser's own push service.
+  const canPush = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const keyBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+  async function deviceSub() {
+    if (!canPush()) return null;
+    try { const reg = await navigator.serviceWorker.getRegistration('/'); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
+  }
+  async function showNotifications() {
+    const r = await call('/push');
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Notifications could not be opened.'; return draw(); }
+    const info = r.data;
+    let sub = await deviceSub();
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-notify'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Notifications');
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    let note = '';
+    const paint = () => {
+      const blocked = canPush() && Notification.permission === 'denied';
+      box.innerHTML = '<div class="cd-sure-title">Notifications</div>' +
+        '<div class="cd-sure-text">Like Claude Code’s: Coder tells you when a long job finishes or when you asked it to, and when it needs your answer. Never about a chat you’re looking at.</div>' +
+        '<div class="cd-notify-device">' + (!canPush() ? '<span>This browser can’t get notifications. On iPhone, add gofarther.dev to your Home Screen (Share, then Add to Home Screen) and open it from there.</span>'
+          : blocked ? '<span>Notifications are blocked for gofarther.dev in this browser’s settings.</span>'
+          : sub ? '<span class="cd-notify-on">On for this device</span><button type="button" id="cdNotifyOff">Turn off here</button>'
+          : '<button type="button" class="cd-notify-go" id="cdNotifyOn">Turn on for this device</button>') + '</div>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushDecides"' + (info.decides ? ' checked' : '') + '><span><b>Push when Coder decides</b><br>A long job finished, or you asked to be told (“notify me when the tests finish”).</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushActions"' + (info.actions ? ' checked' : '') + '><span><b>Push when actions are required</b><br>Coder asks you something, or needs a key or your approval.</span></label>' +
+        (note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
+        '<div class="cd-sure-row">' + (info.devices ? '<button type="button" id="cdPushTest">Send a test</button>' : '') + '<button type="button" class="cd-notify-done" id="cdNotifyDone">Done</button></div>';
+      const $ = (id) => box.querySelector('#' + id);
+      $('cdNotifyDone').onclick = close;
+      const sw = async (field, el) => { const x = await call('/push/settings', { method: 'POST', body: JSON.stringify({ [field]: el.checked }) }); if (x.status === 200) info[field] = el.checked; else { el.checked = !el.checked; note = (x.data && x.data.error) || 'Not saved.'; paint(); } };
+      $('cdPushDecides').onchange = (e) => sw('decides', e.currentTarget);
+      $('cdPushActions').onchange = (e) => sw('actions', e.currentTarget);
+      if ($('cdPushTest')) $('cdPushTest').onclick = async () => { const x = await call('/push/test', { method: 'POST', body: '{}' }); note = x.status === 200 && x.data.sent ? 'Sent. It should arrive in a few seconds.' : 'Nothing was sent: no device took it.'; paint(); };
+      if ($('cdNotifyOn')) $('cdNotifyOn').onclick = async () => {
+        try {
+          if ((await Notification.requestPermission()) !== 'granted') { note = 'Notifications were not allowed.'; return paint(); }
+          const reg = await navigator.serviceWorker.register('/sw.js');
+          await navigator.serviceWorker.ready;
+          sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(info.key) });
+          const j = sub.toJSON();
+          const x = await call('/push/subscribe', { method: 'POST', body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys }) });
+          if (x.status !== 200) { note = (x.data && x.data.error) || 'This device could not be added.'; await sub.unsubscribe().catch(() => {}); sub = null; }
+          else { info.devices = x.data.devices; note = 'On. Coder will notify this device.'; }
+        } catch (e) { note = 'This device could not be added: ' + String((e && e.message) || e).slice(0, 120); }
+        paint();
+      };
+      if ($('cdNotifyOff')) $('cdNotifyOff').onclick = async () => {
+        const endpoint = sub ? sub.endpoint : '';
+        try { if (sub) await sub.unsubscribe(); } catch (e) {}
+        const x = await call('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
+        if (x.status === 200) info.devices = x.data.devices;
+        sub = null; note = 'Off for this device.'; paint();
+      };
+    };
+    paint();
+  }
+
   // CODER'S OWN BOX WITH SEVERAL CHOICES (Rewind's three, like Claude Code's).
   function askPick(title, text, choices) {
     return new Promise((done) => {
@@ -468,7 +535,9 @@
     S.poll = 0;
     if (!S.project || !S.running) return;
     const id = S.project.id;
-    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next);
+    // Looking at this chat (visible and focused): no notification about it (owner item 8, like Claude Code).
+    const seen = document.visibilityState === 'visible' && document.hasFocus() ? '&seen=1' : '';
+    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen);
     if (!S.project || S.project.id !== id) return;
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {
@@ -707,6 +776,7 @@
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
       else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
+      else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();
     if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
@@ -1136,6 +1206,7 @@
       if (side) S.side = side;
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
       if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu) { S.reviewMenu = false; draw(); } }); }
+      if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');

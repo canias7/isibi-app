@@ -90,6 +90,13 @@ export const CODER_TOOLS = Object.freeze([
     description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository.",
     parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
   } },
+  // A NOTIFICATION ON THE OWNER'S PHONE OR COMPUTER (owner item 8, like Claude Code's pushes: "You can also
+  // request a push in your prompt, such as notify me when the tests finish").
+  { type: "function", function: {
+    name: "notify",
+    description: "Send the owner a notification on their phone or computer (where they turned notifications on). Use it when the owner asked to be told about something (\"notify me when the tests finish\"), at that moment, or for news they would want while away during a long job. Not for the end of your answer: Coder's app tells them when a long job finishes. One short sentence; at most 3 a job.",
+    parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+  } },
   // AUTO-FIX, LIKE CLAUDE CODE'S (owner item 2; its docs: "paste the PR URL into a session and tell Claude
   // to auto-fix it", "tell Claude to stop watching the PR").
   { type: "function", function: {
@@ -240,7 +247,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const usage = [];
   const started = now();
   let rounds = 0;
-  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null;
+  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
@@ -480,6 +487,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reviewPost = { summary: scrub(String(c.args.summary || "").trim()).slice(0, 4000), comments: list };
         emit({ type: "pr", text: "Review for the pull request: " + list.length + " comment" + (list.length > 1 ? "s" : "") });
         reply("ok: the " + list.length + " comment" + (list.length > 1 ? "s are" : " is") + " posted on the pull request when your turn ends (if the chat has one). Finish by telling the owner what you found.");
+      } else if (c.name === "notify") {
+        const message = scrub(String(c.args.message || "")).replace(/\s+/g, " ").trim().slice(0, 200);
+        if (!message) { reply("error: write the message"); continue; }
+        if (notified >= 3) { reply("error: at most 3 notifications a job"); continue; }
+        notified++;
+        emit({ type: "notify", text: message });
+        reply("ok: sent to the owner's devices that have notifications on.");
       } else if (c.name === "auto_fix") {
         // From GitHub (strangers can write there) the owner's settings are never changed.
         if (github) { reply("error: auto-fix is turned on or off from the chat on gofarther.dev, not from GitHub; tell the owner in your answer"); continue; }
@@ -508,7 +522,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

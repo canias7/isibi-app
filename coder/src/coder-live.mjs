@@ -18,6 +18,7 @@
 // needs more than a few dozen objects, read or deleted at once.
 
 import { seal, unseal } from "./coder-github.mjs";
+import { pushesFor, notifyOwner } from "./coder-push.mjs";
 
 export const LIVE_PATH = "/api/coder/live";
 /** One sending at most (the machine sends fewer steps when it is refused as too large). */
@@ -61,7 +62,7 @@ const putBox = async (env, bucket, key, value) => bucket.put(key, JSON.stringify
  * answer's `have` says where the next sending starts. 403: not this job's
  * pass; 409: that job is not running (the machine stops sending after a few).
  */
-export async function handleLive(request, env) {
+export async function handleLive(request, env, { fetchFn = fetch, waitUntil = null, now = Date.now() } = {}) {
   if (request.method !== "POST") return text("method", 405);
   const bucket = env && env.CODER_BUCKET;
   if (!bucket) return text("storage is not available", 503);
@@ -92,6 +93,15 @@ export async function handleLive(request, env) {
     // A gap (a part sent before the one it follows): the machine is told where to start again.
     if (from - start > known.length) return Response.json({ ok: true, have: start + known.length });
     await putBox(env, bucket, key, { start, events: known.slice(0, from - start).concat(take) });
+    // NOTIFICATIONS (owner item 8, like Claude Code's): what is new in this sending (never a step sent again)
+    // may be pushed to the owner's devices: Coder's own notify, its question, a key or an approval it needs,
+    // the end of a long job.
+    const fresh = take.slice(Math.max(0, start + known.length - from));
+    const list = fresh.length ? pushesFor(fresh, meta, now) : [];
+    if (list.length) {
+      const work = (async () => { for (const p of list) await notifyOwner(env, uid, { ...p, chat: id }, { fetchFn, now }).catch(() => null); })();
+      if (typeof waitUntil === "function") waitUntil(work); else await work;
+    }
   }
   if (Array.isArray(body.messages)) await putBox(env, bucket, convoKey(uid, id, turn), body.messages.filter((x) => x && typeof x === "object"));
   return Response.json({ ok: true, have: from + take.length });

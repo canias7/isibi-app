@@ -22,6 +22,8 @@
 //   GET  /api/coder/github/repos                 the repositories they let Coder use
 //   GET  /api/coder/review/settings              Code Review, per repository (owner item 11)
 //   POST /api/coder/review/settings              { repo, runs: off|push|open|manual, level: quick|standard|deep }
+//   GET  /api/coder/push                         notifications: Coder's push key, the two switches, devices (item 8)
+//   POST /api/coder/push/(subscribe|unsubscribe|settings|test)
 //   POST /api/coder/github/disconnect
 //   GET  /api/coder/projects                     their projects
 //   POST /api/coder/projects    { repo, base? }  a project for one of their repositories
@@ -36,6 +38,7 @@ import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
+import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
@@ -423,6 +426,37 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, repo: name, runs, level });
   }
 
+  // NOTIFICATIONS (owner item 8, like Claude Code's "Push when Claude decides" and "Push when actions
+  // required"): this account's devices (each a browser's push subscription, kept sealed) and its two switches.
+  if (parts[0] === "push") {
+    const cfg = await readPush(env, bucket, uid);
+    if (parts.length === 1 && request.method === "GET") return json({ ok: true, key: (await vapidKeys(env, bucket)).publicKey, decides: cfg.decides, actions: cfg.actions, devices: cfg.subs.length });
+    if (request.method !== "POST") return json({ error: "method" }, 405);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (parts[1] === "subscribe") {
+      const s = cleanSub(body);
+      if (!s) return json({ error: "that is not a browser's push address" }, 400);
+      const subs = [...cfg.subs.filter((x) => x.endpoint !== s.endpoint), { ...s, at: Date.now() }].slice(-MAX_DEVICES);
+      await writePush(env, bucket, uid, { ...cfg, subs });
+      return json({ ok: true, devices: subs.length });
+    }
+    if (parts[1] === "unsubscribe") {
+      const subs = cfg.subs.filter((x) => x.endpoint !== String(body.endpoint || ""));
+      await writePush(env, bucket, uid, { ...cfg, subs });
+      return json({ ok: true, devices: subs.length });
+    }
+    if (parts[1] === "settings") {
+      const next = { ...cfg, ...(typeof body.decides === "boolean" ? { decides: body.decides } : {}), ...(typeof body.actions === "boolean" ? { actions: body.actions } : {}) };
+      await writePush(env, bucket, uid, next);
+      return json({ ok: true, decides: next.decides, actions: next.actions });
+    }
+    if (parts[1] === "test") {
+      const r = await notifyOwner(env, uid, { kind: "decides", title: "Coder", body: "Notifications are on for this device." }, { fetchFn, force: true });
+      return json({ ok: true, sent: r.sent, ...(r.why ? { why: r.why } : {}) });
+    }
+    return json({ error: "not found" }, 404);
+  }
+
   // THE MODEL LIST AND THE USER'S PICK (kept on their account).
   if (parts[0] === "settings") {
     const saved = await getJson(bucket, settingsKey(uid), {});
@@ -662,6 +696,11 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   if (action === "state" && request.method === "GET") {
+    // THE OWNER IS LOOKING AT THIS CHAT (its page visible and focused): no push about it for a while (item 8).
+    if (url.searchParams.get("seen") === "1") {
+      const was = await getJson(bucket, seenKey(uid), null);
+      if (!was || was.id !== id || Date.now() - Number(was.at) > 15_000) await putJson(bucket, seenKey(uid), { id, at: Date.now() }).catch(() => {});
+    }
     const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
     let s = null;
     try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }

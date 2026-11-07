@@ -262,7 +262,7 @@ test("CD122 a job saved as usual leaves nothing behind; Stop with the machine go
   assert.deepEqual(liveKeys(c.bucket), []);
   // Wiring: the Worker's address for it, the page after Stop.
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env\);/);
+  assert.match(worker, /\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env, \{ waitUntil: \(p\) => ctx\.waitUntil\(p\) \}\);/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /if \(r\.status === 200 && r\.data && r\.data\.reload && S\.project && S\.project\.id === id\) \{ stopPoll\(\); S\.running = false; return reloadChat\(id\); \}/);
 });

@@ -107,7 +107,7 @@ export default {
       res = await handleModel(request, env);
     } else if (url.pathname === LIVE_PATH) {
       // THE CHAT SAVED AS IT GOES (2026-11-06, like Claude Code): a job's own pass, not a user.
-      res = await handleLive(request, env);
+      res = await handleLive(request, env, { waitUntil: (p) => ctx.waitUntil(p) });
     } else if (url.pathname.startsWith("/api/coder/")) {
       const m = machinesFor(env);
       res = await handleCoder(request, env, ctx, { authUser: (r) => authUser(r, env), container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable });

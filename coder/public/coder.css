@@ -431,3 +431,14 @@
 .cd-review label { display: flex; align-items: center; gap: 6px; }
 .cd-review select { font: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid #ddd8d0; border-radius: 8px; background: #fff; color: #1f2937; }
 .cd-review-note code { font-size: 12px; background: #f1eee9; border-radius: 4px; padding: 1px 4px; }
+/* NOTIFICATIONS (owner item 8): the panel from the account menu. */
+.cd-notify { max-width: 440px; }
+.cd-notify-device { margin: 14px 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: #4b5563; }
+.cd-notify-device button { font: inherit; font-size: 14px; border-radius: 10px; padding: 8px 14px; cursor: pointer; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; }
+.cd-notify-device .cd-notify-go { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cd-notify-on { color: #166534; font-weight: 600; }
+.cd-notify-sw { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; font-size: 13px; color: #6b6a68; line-height: 1.4; cursor: pointer; }
+.cd-notify-sw b { color: #1f1e1d; font-weight: 600; }
+.cd-notify-sw input { margin-top: 3px; }
+.cd-notify-note { margin-top: 10px; font-size: 13px; color: #1f1e1d; }
+.cd-sure-row .cd-notify-done { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }

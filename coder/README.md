@@ -415,6 +415,24 @@ code only (the code ones only when a later job changed files), Summarize from
 here and Summarize up to here (each with an optional focus); after the chat
 goes back, the message returns to the box. Rewind's points inside a summary go.
 
+**Notifications, like Claude Code's** (owner, 2026-11-07, item 8; its mobile and
+Remote Control docs; `src/coder-push.mjs`). Web Push from the Worker: Coder's
+own key (VAPID, RFC 8292, made once and kept sealed), each message encrypted for
+its device (RFC 8291, checked against the RFC's own example), sent only to a
+browser's push service (Google's, Mozilla's, Apple's, Microsoft's). The account
+menu's **Notifications** panel turns them on for a device (the page's service
+worker, `public/sw.js`, shows a push and opens its chat; it caches nothing) and
+holds Claude Code's two switches: **Push when Coder decides** (Coder's `notify`
+tool, for "notify me when the tests finish", at most 3 a job; and the end of a
+job of 3 minutes or more) and **Push when actions are required** (its question,
+a key it needs, an environment change it proposes). They go out as the job's
+steps reach the Worker (`handleLive`), each step once, never about a chat the
+owner is looking at (the page's polls say so while visible and focused). A
+device its push service says is gone is forgotten. Works in browsers on
+computers and Android, and on iPhone from the Home Screen (iOS 16.4 or later);
+the Electron and Capacitor apps have no Web Push (native push would need the
+owner's Firebase and Apple accounts).
+
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 
