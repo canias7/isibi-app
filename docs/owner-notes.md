@@ -37,6 +37,11 @@ log (81,000 lines) is in git history.
   - Full access turns the room's link on, and off again.
 - The deploy now runs that test as admin. The GitHub machine check also tries the room in Coder's real image, with the real gate and real websites, for each setting: None, Trusted and Full.
 - Tests: CD140 and CD141 (150 in all, plus 16 admin-only).
+- **The GitHub machine check passed** (run 42347544465), in Coder's real image with the real gate and real websites:
+  - Trusted: going straight to the internet is blocked, a site not allowed is refused, npm is reached.
+  - None: going straight to the internet is blocked, a site not allowed is refused, npm is refused too.
+  - Full: the room's own link is up and reaches the internet, and switching back takes it away.
+  - "THE ROOM: SEALED".
 
 ## 2026-11-07: Step 2 of 4: each chat's machine has its own lock key (on the branch, not deployed yet)
 
