@@ -19,6 +19,7 @@ log (81,000 lines) is in git history.
 - **One more safety step, deployed too:** each Fly.io machine is always given its lock key directly, and a machine without one answers nothing but its health check. Fly.io machines are on the internet, so the key is their only lock; before, it reached them only as a Fly.io secret. Your word: "Merge and deploy". Merged into main (75f65ec8) and deployed (run 42326567782), all steps passing, before the first chat on Fly.io. Tests: 138, plus the 14 admin-only safety tests.
 - **Live test on Fly.io (2026-11-07):** you wrote "@coder say hi and list the files in this repo" on canias7/testingforclaude issue #2 at 02:21:35. Coder said "On it" 4 seconds later, made the chat's machine and disk on Fly.io, ran the job, and answered at 02:23:55, about 2 minutes 20 seconds in all, including making the machine: "Done. Hi @canias7. Files in this repo: README.md, notes.md, setup-ran.txt."
   - Checked from outside through Fly.io's front door: the machine answers as Coder's own, in Fly.io's Virginia region (iad). A request without Coder's key is refused ("not allowed"), so the lock works.
+  - **It went to sleep by itself at 02:34:54**, about 11 minutes after the job ended (10 quiet minutes, then the every-minute check). Asleep, it costs only its disk.
 
 ## 2026-11-07: Coder's machines can run on Fly.io (like Claude Code's VMs)
 
