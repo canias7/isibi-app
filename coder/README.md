@@ -19,7 +19,7 @@ code in **each user's own GitHub**.
 | `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
 | `src/coder-cors.mjs` | Only gofarther.dev may call it from another address |
-| `container/` | The container image: the agent loop (one tool: `bash`), the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
+| `container/` | The machine's image (Ubuntu 24.04 with Claude Code's tools; its helpers in `container/tools/`): the agent loop, the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
 | `test/` | `npm test` from this folder |
 
 ## How it works
@@ -80,15 +80,53 @@ working, or waiting to be saved, keeps one on); machines unused for 30 days
 are removed with their disks; machines or disks no chat knows are removed
 after an hour. The setup script's marks stay on the machine's own disk, so a
 restarted machine runs the setup again, unless its whole disk was kept: the
-machines ask Fly for that (`persist_rootfs` "restart"; made without it if Fly
-refuses it), so a sleeping machine wakes with what was installed and the setup
+machines ask Fly for that, and for a disk of up to 20 GB, 30 with the chat's
+kept one, like Claude Code's machine (`rootfs` { persist "restart", size_gb
+20 }; if Fly refuses it, the older `persist_rootfs` "restart" at Fly's default
+8 GB, then neither: `CONFIG_TRIES`; Fly bills a sleeping machine's disk by
+what is used), so a sleeping machine wakes with what was installed and the setup
 does not run again, like Claude Code. A new Coder version still starts the
 machine's own disk fresh. `/health` says whether it was kept (`kept`). The deploy makes the Fly app once
 (`gofarther-coder-machines`, org `personal`, region `iad`), its addresses, and
-its secrets (`XAI_API_KEY`, `CODER_CONTROL_KEY`, from standard input), builds
+no secrets on Fly.io itself (it takes away the old shared `XAI_API_KEY` and
+`CODER_CONTROL_KEY`: the Grok key stays on the Worker, and each machine's own
+lock key, `controlKeyFor` its Fly name in `src/coder-control.mjs`, is in its
+own settings; a machine from before keeps the shared one, `rec.lock`, until
+its next update), builds
 the image, sends it to `registry.fly.io`, and gives the Worker the image
 (`CODER_FLY_IMAGE`) and the token. Picking "cloudflare" on the deploy button,
 or removing the secret, goes back to Cloudflare's containers.
+
+**All of Claude Code's tools** (owner, 2026-11-07: "can we install all the
+tools we need?"). The machine is Ubuntu 24.04 on x86_64, like Claude Code's.
+`container/Dockerfile` makes two images: `core`, the default, with what Coder
+itself needs (Cloudflare's backup machines, whose limit is 8 GB an image and
+50 GB in all), and `full` (`--build-arg CODER_IMAGE=full`, Fly.io's machines)
+with the tools Claude Code's machine comes with: Python with uv, poetry,
+pytest, mypy, black, ruff and conan; Node 22 and 24, nvm, npm, yarn, pnpm,
+bun, eslint and prettier; Ruby 3.1, 3.2 and 3.3 with rbenv (built from
+ruby-lang.org's source by `tools/build-ruby`); PHP 8.3 and Composer; Java 21,
+Maven and Gradle; Go; Rust; C and C++ (gcc, clang, cmake, ninja); Docker
+without admin rights (rootless: `tools/docker` starts dev's own engine with
+the first docker command); PostgreSQL 16 and Redis 7, installed and not
+running (`service postgresql start` works for dev: `tools/service` asks sudo,
+which allows exactly those eight commands, `tools/coder-services.sudoers`);
+Chrome for Testing with chromedriver; gh, yq, tmux, vim, nano; and
+`check-tools`. And what Claude Code's machine itself has beyond its docs' list:
+ffmpeg, ImageMagick, pdftotext, pandoc, strace, lsof, valgrind, netcat,
+xvfb-run, Python's document and data libraries (numpy, pandas, openpyxl,
+python-docx, python-pptx, pypdf, pdfplumber, reportlab, markitdown, requests,
+pillow), and Playwright with its own Chromium (`require("playwright")` works
+from any folder: `NODE_PATH`, `PLAYWRIGHT_BROWSERS_PATH`). Each download is checked against its maker's sum. Every tool
+belongs to root, and root's PATH holds only root's folders (the setup
+script's apt lines run with `cleanEnv(null, { root: true })`). The AI's
+commands have a home of their own (`cleanEnv`: `/home/dev`, or on Fly.io
+`/data/home` on the chat's kept disk), where what they install for themselves
+and every download cache go, never in a project. On the full image Coder is
+told its tools (`MACHINE_TOOLS`). The deploy builds the full image only when
+that version is not on Fly.io yet, and `.github/workflows/check-coder-image.yml`
+builds both images whenever the machine changes on a branch and tries every
+tool as dev (`test/machine-tools.sh`).
 
 **A job is "running" before the machine is handed it.** The machine sets up
 first (the clone, the setup script), and Cloudflare stops a request whose tab
@@ -136,6 +174,47 @@ first main; no tags (like Claude Code's proxy, which "rejects branch deletions
 and pushes of anything other than a branch"). Every command the AI runs is
 started as the unprivileged `dev` user, with no secrets in its environment.
 A test's machine (no `gitVia`) still uses its own remote.
+
+**Your Grok key never enters Coder's machine either** (owner, 2026-11-07,
+step 1 of: the Grok key out, each machine its own lock key, a sealed network
+room, the master key inside it). Each job is given a short pass for its AI calls
+(`modelAccess` in `src/coder-model-gate.mjs`: one chat, one turn, 3 hours); the
+machine's `coderSend` posts each call to the Worker's `/api/coder/model` with it
+(`modelTarget` in `container/server.mjs`), and the Worker checks the pass and
+the chat's current turn, allows only Coder's own models, adds `XAI_API_KEY` and
+passes the call to xAI. Neither Fly.io's machines (the deploy takes the old
+Fly secret away) nor Cloudflare's backup machines are given the key.
+
+**The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
+setting). Coder's old wall was a firewall rule matched by user (iptables'
+owner match), which Fly.io's machines lack, so there the network setting was a
+guard for tools that use the proxy, not a wall. Now the real service runs the
+AI's commands in a network of their own (`container/coder-room.mjs`, a Linux
+network namespace the service owns; `execIn`'s `room`): started by the service
+(`nsenter`) and made the AI's user (`setpriv`) before the command runs. The
+room's only ways out are a relay where the commands are told the gate is
+(`coder-room-forward.mjs`, root's, on 127.0.0.1:<port>), which passes to the
+gate through a socket only root can open, and, with Full access only, the
+room's own user-mode internet link (`slirp4netns`). The AI has no rights over
+the room's network, and a change of setting mid-job reaches the room at once.
+A machine that cannot have the room runs commands as before, and Coder is told
+the list is then only a guard. `test/room.test.mjs` tries the room for real as
+root (the deploy runs it), and the GitHub machine check tries it in the full
+image with the real gate and real websites (`test/room-check.mjs`).
+
+**The master key's jobs** (owner, 2026-11-07, step 4). Coder's commands install
+any Ubuntu package mid-job (`apt-get install`, `apt install`, `sudo apt-get
+install`) and run any installed service (`service NAME start`), as on Claude
+Code's machine, and use ports 80 and 443 in their room (the room's own
+`ip_unprivileged_port_start`). sudo lets `dev` run one program as root,
+`container/tools/coder-admin` (`tools/coder-admin.sudoers`), which checks each
+request (package names only, never an apt option; a service that is installed;
+start, stop, restart, reload, status) and does nothing else; with a limited
+network its apt goes through the gate (`gateForApt`, `/run/coder-gate/apt-proxy`).
+`tools/apt-get` (also `apt`), `tools/service` and `tools/sudo` pass only those
+jobs on, and refuse the rest plainly. The whole master key (editing system
+files, any `sudo`) would need a full container system with the machine's disk
+mirrored for it; not done.
 
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's

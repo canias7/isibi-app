@@ -7,7 +7,8 @@ import { readFileSync } from "node:fs";
 import http from "node:http";
 
 const F = await import("../src/coder-fly.mjs");
-const APP = "gofarther-coder-machines", TOKEN = "fly-token-0123456789", CONTROL = "c".repeat(32);
+const APP = "gofarther-coder-machines", TOKEN = "fly-token-0123456789", CONTROL = "c".repeat(32), TKEY = "t".repeat(44);
+const { controlKeySync, controlKeyFor } = await import("../src/coder-control.mjs");
 const IMG1 = "registry.fly.io/" + APP + ":coder-aaaaaaaaaaaa", IMG2 = "registry.fly.io/" + APP + ":coder-bbbbbbbbbbbb";
 
 function fakeBucket() {
@@ -83,19 +84,21 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
   assert.deepEqual(a, a2, "the same chat, the same names");
   assert.notEqual(a.machine, c.machine);
   assert.match(a.machine, /^coder-[0-9a-f]{20}$/); assert.match(a.volume, /^coder_[0-9a-f]{20}$/); assert.match(a.key, /^coder\/fly-machines\/[0-9a-f]{20}\.json$/);
-  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", cpus: 2, memory: 4096, disk: 10 });
-  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20" })), { app: APP, image: IMG1, region: "ams", cpus: 4, memory: 8192, disk: 20 });
+  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", cpus: 2, memory: 4096, disk: 10, root: 20 });
+  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, region: "ams", cpus: 4, memory: 8192, disk: 20, root: 30 });
+  assert.equal(F.flySettings(envWith(b, { CODER_FLY_ROOT_GB: "99" })).root, 20, "Fly allows at most 50");
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_CPUS: "99", CODER_FLY_REGION: "x" })).cpus, 2, "nonsense falls back");
   assert.deepEqual(F.machineConfig(envWith(b, { CODER_MODEL: "default" }), "vol_9"), {
     image: IMG1,
     env: { CODER_DATA: "/data", CODER_MODEL: "default" },
-    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096, persist_rootfs: "restart" },
+    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 },
+    rootfs: { persist: "restart", size_gb: 20 },
     mounts: [{ volume: "vol_9", path: "/data" }],
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },
     metadata: { coder: "chat-machine" },
   });
-  assert.equal(JSON.stringify(F.machineConfig(envWith(b, { XAI_API_KEY: "xai-secret" }), "v")).includes("xai-secret"), false, "the AI key is a Fly secret, never in the machine's settings");
+  assert.equal(JSON.stringify(F.machineConfig(envWith(b, { XAI_API_KEY: "xai-secret" }), "v")).includes("xai-secret"), false, "the AI key is never in the machine's settings (it stays on the Worker)");
   // ITS LOCK, ALWAYS: the control key (made from CODER_TOKEN_KEY, never that key itself) is in its settings too.
   const { controlKeySync } = await import("../src/coder-control.mjs");
   const tk = Buffer.alloc(32, 7).toString("base64");
@@ -105,9 +108,10 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
 });
 
 test("CD126 a chat's machine on Fly.io: made with its disk on first use, then asked straight through the front door; asleep, it is woken; a new machine version is taken only while asleep; gone, a new one is made; a cut answer is never sent twice", async () => {
-  const b = fakeBucket(), w = fakeFly(), env = envWith(b);
+  const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY });
   const box = F.flyBox(env, "user-1-shop-a1", deps(w));
   const names = await F.flyNames("user-1-shop-a1");
+  const own = await controlKeyFor(TKEY, names.machine);
   // FIRST USE: its disk, then the machine on it; once it answers, the request.
   const r1 = await box.fetch(signed(new Request("http://coder/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-a1", text: "hi" }) })));
   assert.equal(r1.status, 200);
@@ -116,11 +120,12 @@ test("CD126 a chat's machine on Fly.io: made with its disk on first use, then as
   const [vol] = [...w.volumes.values()], [mach] = [...w.machines.values()];
   assert.deepEqual({ name: vol.name, region: vol.region, size_gb: vol.size_gb }, { name: names.volume, region: "iad", size_gb: 10 });
   assert.equal(mach.name, names.machine);
-  assert.deepEqual(mach.config, F.machineConfig(env, vol.id));
+  assert.deepEqual(mach.config, F.machineConfig(env, vol.id, { lock: own }), "made with its own lock key (step 2)");
+  assert.equal(mach.config.env.CODER_CONTROL_KEY, own);
   assert.deepEqual(w.door, ["/health", "/turn"]);
-  assert.deepEqual(w.keys, [CONTROL], "the machine's control key goes along");
+  assert.deepEqual(w.keys, [own], "its own lock key goes along, never the one the caller sent");
   const rec = JSON.parse(b.m.get(names.key));
-  assert.deepEqual({ id: rec.id, volume: rec.volume, image: rec.image, stopped: rec.stopped }, { id: mach.id, volume: vol.id, image: IMG1, stopped: false });
+  assert.deepEqual({ id: rec.id, volume: rec.volume, image: rec.image, stopped: rec.stopped, lock: rec.lock }, { id: mach.id, volume: vol.id, image: IMG1, stopped: false, lock: 2 });
   // AWAKE: straight through, no Fly API call. Its real status comes through.
   w.api.length = 0; w.door.length = 0;
   const r2 = await box.fetch(signed(new Request("http://coder/claim", { method: "POST", body: "{}" })));
@@ -134,7 +139,7 @@ test("CD126 a chat's machine on Fly.io: made with its disk on first use, then as
   assert.deepEqual(w.door, ["/health", "/state"], "not asked while asleep");
   assert.equal(JSON.parse(b.m.get(names.key)).stopped, false);
   // A NEW VERSION OF CODER'S MACHINE (after a deploy), while it is awake: not changed under a job.
-  const env2 = envWith(b, { CODER_FLY_IMAGE: IMG2 });
+  const env2 = envWith(b, { CODER_FLY_IMAGE: IMG2, CODER_TOKEN_KEY: TKEY });
   const box2 = F.flyBox(env2, "user-1-shop-a1", deps(w));
   w.api.length = 0;
   await box2.fetch(signed(new Request("http://coder/state?project=shop-a1")));
@@ -148,6 +153,9 @@ test("CD126 a chat's machine on Fly.io: made with its disk on first use, then as
   assert.equal(mach.config.image, IMG2);
   assert.deepEqual(mach.config.mounts, [{ volume: vol.id, path: "/data" }], "the same disk");
   assert.equal(JSON.parse(b.m.get(names.key)).image, IMG2);
+  // A MACHINE FROM BEFORE (the shared lock key) gets its own at this update, and is asked with it from then on (step 2).
+  assert.equal(mach.config.env.CODER_CONTROL_KEY, own);
+  assert.equal(JSON.parse(b.m.get(names.key)).lock, 2);
   // STOPPED BY SOMEONE ELSE (the record says awake): the front door's own answer means "wake it".
   mach.state = "stopped";
   w.door.length = 0;
@@ -187,7 +195,7 @@ test("CD126 a chat's machine on Fly.io: made with its disk on first use, then as
 });
 
 test("CD127 every minute on Fly.io: an awake machine with nothing to do for 10 minutes is stopped (a job working or waiting to be saved keeps it on); unused for 30 days, it is removed with its disk; machines and disks no chat knows are removed once an hour old", async () => {
-  const b = fakeBucket(), w = fakeFly(), env = envWith(b);
+  const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY });
   const now = Date.parse("2026-11-07T12:05:00Z");
   const make = async (chat, state, rec = {}) => {
     const n = await F.flyNames(chat), vid = "vol_" + chat, id = "m_" + chat.replace(/\W/g, "");
@@ -200,6 +208,7 @@ test("CD127 every minute on Fly.io: an awake machine with nothing to do for 10 m
   const working = await make("working", "started"); w.busy[working.id] = { busy: true, working: 1, unsaved: 0, workingMs: 5 * 60e3, unsavedMs: 0, idleMs: 20 * 60e3 };
   const unsaved = await make("unsaved", "started"); w.busy[unsaved.id] = { busy: true, working: 0, unsaved: 1, workingMs: 0, unsavedMs: 60e3, idleMs: 20 * 60e3 };
   const recent = await make("recent", "started"); w.busy[recent.id] = { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, idleMs: 2 * 60e3 };
+  const modern = await make("modern", "started", { lock: 2 }); w.busy[modern.id] = { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, idleMs: 60e3 };
   const waking = await make("waking", "started", { used: now - 60e3 }); w.silent.add(waking.id);
   const silent = await make("silent", "started", { used: now - 20 * 60e3 }); w.silent.add(silent.id);
   const old = await make("old", "stopped", { used: now - 31 * 86400e3 });
@@ -209,9 +218,8 @@ test("CD127 every minute on Fly.io: an awake machine with nothing to do for 10 m
   w.volumes.set("vol_orphan", { id: "vol_orphan", name: "coder_" + "a".repeat(20), attached_machine_id: "m_orphan", created_at: new Date(now - 2 * 3600e3).toISOString() });
   w.machines.set("m_new", { id: "m_new", name: "coder-" + "b".repeat(20), state: "started", config: { mounts: [] }, created_at: new Date(now - 60e3).toISOString() });
   w.machines.set("m_other", { id: "m_other", name: "someone-elses", state: "started", created_at: new Date(now - 86400e3).toISOString() });
-  const sent = [];
-  const out = await F.runFlyMachines(env, { ...deps(w), sign: (r) => { sent.push(r.url); return signed(r); } }, now);
-  assert.deepEqual(out, { checked: 6, stopped: 2, removed: 2 });
+  const out = await F.runFlyMachines(env, deps(w), now);
+  assert.deepEqual(out, { checked: 7, stopped: 2, removed: 2 });
   const st = (x) => (w.machines.get(x.id) || { state: "removed" }).state;
   assert.deepEqual([idle, working, unsaved, recent, waking, silent].map(st), ["stopped", "started", "started", "started", "started", "stopped"]);
   assert.equal(JSON.parse(b.m.get(idle.n.key)).stopped, true, "the record knows it is asleep");
@@ -219,14 +227,17 @@ test("CD127 every minute on Fly.io: an awake machine with nothing to do for 10 m
   assert.equal(st(keep), "stopped", "2 days unused: kept");
   assert.equal(w.machines.has("m_orphan"), false); assert.equal(w.volumes.has("vol_orphan"), false);
   assert.equal(w.machines.has("m_new"), true, "still being made"); assert.equal(w.machines.has("m_other"), true, "not Coder's");
-  assert.ok(sent.every((u) => u === "http://coder/busy"));
-  assert.ok(w.keys.every((k) => k === CONTROL), "each /busy carries the control key");
+  assert.ok(w.door.every((u) => u === "/busy"));
+  // EACH MACHINE'S OWN LOCK KEY (step 2): its own once it has one; the old shared one for a machine from before.
+  const legacy = controlKeySync(TKEY), mine = await controlKeyFor(TKEY, modern.n.machine);
+  assert.deepEqual([...w.keys].sort(), [legacy, legacy, legacy, legacy, mine].sort(), "each /busy carries that machine's key");
+  assert.notEqual(mine, legacy);
   // ONCE AN HOUR (minute 17): kept disks no machine uses, once an hour old.
   w.volumes.set("vol_loose", { id: "vol_loose", name: "coder_" + "c".repeat(20), attached_machine_id: null, created_at: new Date(now - 3 * 3600e3).toISOString() });
   w.volumes.set("vol_fresh", { id: "vol_fresh", name: "coder_" + "d".repeat(20), attached_machine_id: null, created_at: new Date(now - 60e3).toISOString() });
-  await F.runFlyMachines(env, { ...deps(w), sign: signed }, now);
+  await F.runFlyMachines(env, deps(w), now);
   assert.equal(w.volumes.has("vol_loose"), true, "only at minute 17");
-  await F.runFlyMachines(env, { ...deps(w), sign: signed }, Date.parse("2026-11-07T13:17:00Z"));
+  await F.runFlyMachines(env, deps(w), Date.parse("2026-11-07T13:17:00Z"));
   assert.equal(w.volumes.has("vol_loose"), false);
   assert.equal(w.volumes.has("vol_fresh"), false, "an hour later it is old too");
   assert.equal(w.volumes.has(keep.vid), true, "a chat's own disk stays");
@@ -292,7 +303,8 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
   const { mkdtemp, stat } = await import("node:fs/promises"); const { tmpdir } = await import("node:os"); const { join } = await import("node:path");
   const top = await mkdtemp(join(tmpdir(), "coder-data-"));
   const d = dataDirs(join(top, "data"), { setupRoot: join(top, "setup"), owner: null });
-  assert.deepEqual(d, { root: join(top, "data", "work"), gitRoot: join(top, "data", "git"), memRoot: join(top, "data", "memory"), setupRoot: join(top, "setup") });
+  // The AI's home is on the kept disk too (2026-11-07): what it installs for itself and its caches stay, never in a project.
+  assert.deepEqual(d, { root: join(top, "data", "work"), gitRoot: join(top, "data", "git"), memRoot: join(top, "data", "memory"), setupRoot: join(top, "setup"), home: join(top, "data", "home") });
   for (const p of Object.values(d)) assert.equal((await stat(p)).mode & 0o777, 0o755);
   for (const bad of [undefined, "", "data", "/data/../etc", "/da ta"]) assert.deepEqual(dataDirs(bad), {}, String(bad));
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
@@ -303,9 +315,9 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
 
 test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute Fly step, a removed chat's machine, and the deploy button's Fly.io steps (the token only from GitHub's secrets, never shown)", async () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\) \};/);
+  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key");
   assert.match(worker, /return \{ kind: "cloudflare", sign, container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: async \(\) => \{\} \};/);
-  assert.match(worker, /if \(m\.kind === "fly"\) ctx\.waitUntil\(runFlyMachines\(env, \{ sign: m\.sign \}\)/);
+  assert.match(worker, /if \(m\.kind === "fly"\) ctx\.waitUntil\(runFlyMachines\(env\)/);
   assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop \}\);/);
   const { controlKeySync } = await import("../src/coder-control.mjs");
   assert.match(controlKeySync("k".repeat(44)), /^[0-9a-f]{32}$/);
@@ -327,9 +339,13 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   }
   assert.match(y, /FLY_API_TOKEN: \$\{\{ secrets\.FLY_API_TOKEN \}\}/);
   assert.doesNotMatch(y, /echo (?!"::add-mask::)[^\n]*\$\{?(FLY_API_TOKEN|XAI_API_KEY|ck)\b/, "never shown (only masked)");
-  assert.match(y, /echo "::add-mask::\$ck"/);
-  assert.match(y, /printf 'XAI_API_KEY=%s\\nCODER_CONTROL_KEY=%s\\n' "\$XAI_API_KEY" "\$ck" \| flyctl secrets import -a "\$FLY_APP" --stage/, "keys from standard input, not a command line");
-  assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)"\n\s+docker build -t "\$img" container\n\s+docker push "\$img"/, "named after the machine's own folder: a deploy that does not change it leaves the machines as they are");
+  // NO KEYS ON FLY.IO ITSELF (2026-11-07): the Grok key stays on the Worker, each machine's lock key is in its own
+  // settings; the shared copies Fly.io held are taken away, and none is given again.
+  assert.doesNotMatch(y, /flyctl secrets import/);
+  assert.match(y, /for k in XAI_API_KEY CODER_CONTROL_KEY; do\n[\s\S]{0,240}flyctl secrets unset "\$k" -a "\$FLY_APP" --stage/);
+  assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)"\n/, "named after the machine's own folder: a deploy that does not change it leaves the machines as they are");
+  // ALL OF CLAUDE CODE'S TOOLS (2026-11-07): Fly.io's machines get the full image, built only when that version is not there yet.
+  assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n\s+docker build --build-arg CODER_IMAGE=full -t "\$img" container\n\s+docker push "\$img"\n\s+fi\n/);
   // The name is the same as long as coder/container is (a change elsewhere, like the notes, keeps it).
   const { execFileSync } = await import("node:child_process");
   const tree = (rev) => execFileSync("git", ["rev-parse", rev + ":coder/container"], { cwd: new URL("../..", import.meta.url).pathname }).toString().trim();

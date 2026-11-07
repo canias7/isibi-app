@@ -24,10 +24,11 @@ import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lst
 import { constants } from "node:fs";
 import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
-import { runCoder } from "./coder-agent.mjs";
+import { runCoder, MACHINE_TOOLS } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
+import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt } from "./coder-room.mjs";
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
@@ -46,11 +47,20 @@ export const SETUP_MAX_S = 300;
 export const SETUP_CACHE_MS = 7 * 24 * 3600 * 1000;
 let bgCount = 0;
 
-/** One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped). */
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null } = {}) {
+/**
+ * One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped).
+ * `home`: the AI's home (the service gives it one; a test may not, and then it is `dir`). `uid: null` runs it as root, with root's own PATH only (cleanEnv).
+ * `room`: in the sealed room (coder-room.mjs), as the AI's user, whose only ways out are Coder's gate and, with Full access, the room's own link.
+ */
+export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false;
-    const p = spawn("bash", ["-c", command], { cwd: dir, env: { ...(extraEnv || {}), ...cleanEnv(dir) }, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : {}) });
+    const env = { ...(extraEnv || {}), ...(uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir)) };
+    const g = Number.isInteger(gid) ? gid : uid;
+    // In the room: started by this service (root) in the room's network, then made the AI's user (setpriv) before the command runs.
+    const p = room && Number.isInteger(uid)
+      ? spawn("nsenter", roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      : spawn("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
     const take = (b) => { if (out.length < RAW_OUTPUT_MAX) out += b.toString("utf8"); else cut = true; };
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
@@ -856,15 +866,22 @@ export function gitFrom(body, { via = false, remote = DEFAULT_REMOTE } = {}) {
 // fresh after a restart, so the setup (and its installed packages) runs again.
 export const KEEPALIVE_MS = 15000;
 export const SETUP_ROOT = "/srv/coder-setup";
-export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0 } = {}) {
+export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0, dev = DEV } = {}) {
   if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return {};
-  const d = { root: join(data, "work"), gitRoot: join(data, "git"), memRoot: join(data, "memory"), setupRoot };
+  const d = { root: join(data, "work"), gitRoot: join(data, "git"), memRoot: join(data, "memory"), setupRoot, home: join(data, "home") };
   // Root's own folders (755), like /work and /srv in the image: the AI's user may read them, never swap them.
   for (const p of [data, d.root, d.gitRoot, d.memRoot, d.setupRoot]) {
     mkdirSync(p, { recursive: true, mode: 0o755 });
     if (owner !== null) chownSync(p, owner, owner);
     chmodSync(p, 0o755);
   }
+  // THE AI'S HOME, on the kept disk too (owner, 2026-11-07: "can we install all
+  // the tools we need?"): what its commands install for themselves and their
+  // download caches stay while the machine sleeps, and never go in a project.
+  // Its own folder; only root can make or swap entries in `data` itself.
+  mkdirSync(d.home, { recursive: true, mode: 0o755 });
+  if (dev) chownSync(d.home, dev.uid, dev.gid);
+  chmodSync(d.home, 0o755);
   return d;
 }
 
@@ -893,6 +910,21 @@ export const LIVE_BATCH = 200;
 /** Refused this many times in a row as "not running": the Worker has ended the job, so sending stops. */
 export const LIVE_REFUSALS = 20;
 const LIVE_WAIT_MS = 10_000;
+
+/**
+ * WHERE THIS JOB'S AI CALLS GO (owner, 2026-11-07: the Grok key out of the
+ * machine): Coder's Worker, with the job's pass as headers; null when the
+ * Worker sent no valid one. coderSend adds no key then: the Worker does.
+ */
+export function modelTarget(x) {
+  if (!x || typeof x !== "object") return null;
+  let u;
+  try { u = new URL(String(x.url || "")); } catch { return null; }
+  if (u.protocol !== "https:" || u.username || u.password) return null;
+  const chat = String(x.chat || ""), turn = Number(x.turn), until = String(x.until || ""), pass = String(x.pass || "");
+  if (!/^[\w-]{1,100}\/[a-z0-9][a-z0-9-]{2,40}$/.test(chat) || !Number.isInteger(turn) || turn < 1 || !/^\d{13}$/.test(until) || !/^[\w-]{20,200}$/.test(pass)) return null;
+  return { url: u.href, headers: { "x-coder-chat": chat, "x-coder-turn": String(turn), "x-coder-until": until, "x-coder-model": pass } };
+}
 
 /** Where this job's steps go, when the Worker sent a valid one: an https address, the chat, the turn and the pass. */
 export function liveTarget(x) {
@@ -1037,7 +1069,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1045,6 +1077,14 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
   let proxyP = null;
   let fwOn = false;
   const proxyFor = () => (proxyP ||= startProxy({ dir: proxyDir, ...proxyOpts }).catch((e) => { proxyP = null; throw e; }));
+  // THE SEALED ROOM (owner, 2026-11-07, step 3): the real service's commands run
+  // in a network of their own whose only ways out are the gate (when it runs)
+  // and, with Full access, the room's own internet link. False (commands as
+  // before) when this machine cannot have the room.
+  const enterRoom = async (px, limited) => {
+    if (!room || !Number.isInteger(RUN_UID) || !makeRoom()) return false;
+    try { return (!px || await roomGate(px.port)) && await roomInternet(!limited); } catch { return false; }
+  };
   async function startTurn(body) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
@@ -1118,7 +1158,8 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
     const secretList = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && ((Array.isArray(s.hosts) && s.hosts.some(okPattern)) || okHost(s.host))).slice(0, 20);
     const nn = normNetwork(body.setup && body.setup.network);
     const net = { ...nn, limited: nn.mode !== "full" };
-    let secretHosts = [], proxyEnv = {}, px = null, netNote = "";
+    let secretHosts = [], proxyEnv = {}, px = null, netNote = "", walled = false;
+    t.room = false;
     if (secretList.length || net.limited) {
       try {
         px = await proxyFor();
@@ -1129,14 +1170,20 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
         Object.assign(extraEnv, proxyEnv);
         if (net.limited) {
           fwOn = firewall(true, RUN_UID);
+          // A WALL, NOT A GUARD (step 3): in the sealed room the gate is the only way out.
+          t.room = walled = await enterRoom(px, true);
           netNote = (net.mode === "none"
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
-            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
     }
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); } catch { /* not started */ } }
+    // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
+    if (!net.limited) t.room = await enterRoom(px, false);
+    // The master key's package installs (step 4) go through the gate when the network is limited.
+    if (room) gateForApt(net.limited && px ? "http://127.0.0.1:" + px.port : "");
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
     let setupFailed = null, setupRan = false;
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
@@ -1176,7 +1223,7 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
         }
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, extraEnv: net.limited ? proxyEnv : {} });
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, extraEnv: net.limited ? proxyEnv : {} });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -1206,10 +1253,13 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
     // not mixed into the memory notes): the memory's "Style:" lines, given first.
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-    const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    // On the full image, Coder knows its machine's tools (2026-11-07).
+    const context = (env.CODER_IMAGE === "full" ? MACHINE_TOOLS + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     const lastSend = async () => { if (sender) await sender.flush(); };
+    // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
+    const via = modelVia && !send ? modelTarget(body.model) : null;
     runCoder({
-      send: sendFn,
+      send: via ? coderSend(env, { via }) : sendFn,
       // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
       watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
       exec: async ({ command, timeoutS, tool, payload }) => {
@@ -1221,7 +1271,7 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
           command = command.replace("@REQUEST", "@" + f);
         }
         // A file or web tool is ended at its time limit, never sent to the background.
-        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
+        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
         if (r && r.background && r.pid) t.bg.add(r.pid);
         return r;
       },
@@ -1303,6 +1353,12 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
           }
           if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
           if (!list.length && !net.limited && proxyP) { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); }
+          // The room follows at once: its internet link only with Full access, the pipe to the gate whenever the gate runs.
+          if (room && Number.isInteger(RUN_UID)) {
+            const gate = list.length || net.limited ? await proxyFor() : null;
+            t.room = await enterRoom(gate, net.limited);
+            gateForApt(net.limited && gate ? "http://127.0.0.1:" + gate.port : "");
+          }
         } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
         t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Trusted", full: "Full", custom: "Custom" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
         return send(200, { ok: true, applied: true });
@@ -1367,7 +1423,7 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // nobody caught (in the key/network proxy) used to stop the whole machine.
   process.on("uncaughtException", (e) => { if (e && /^E(CONNRESET|PIPE|CONNREFUSED|TIMEDOUT|HOSTUNREACH|NETUNREACH)$|^ERR_STREAM/.test(String(e.code || ""))) console.error("coder: network error, kept running:", e.code); else { console.error(e); process.exit(1); } });
   // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
-  // On Fly.io, the chat's files live on its kept disk (CODER_DATA).
+  // On Fly.io, the chat's files live on its kept disk (CODER_DATA), the AI's home too; elsewhere its home is /home/dev.
   // Git goes through the Worker with each job's pass (your GitHub login never comes here).
-  http.createServer(createApp({ kept: bootKept(), gitVia: true, liveFetch: (url, init) => fetch(url, init), ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
+  http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }

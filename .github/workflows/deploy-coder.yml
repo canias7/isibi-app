@@ -74,7 +74,7 @@ jobs:
       # the step above skips them. GitHub's machines allow sudo. These tests never
       # stop the processes of user 1001 (this machine's own runner user).
       - name: Run Coder's root-only safety tests (as root)
-        run: sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs
+        run: sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs test/room.test.mjs
       - name: Make the token key
         env:
           SEED: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}
@@ -107,7 +107,6 @@ jobs:
         if: steps.fly.outputs.on == 'true'
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
         run: |
           if ! flyctl apps list --json | jq -e --arg a "$FLY_APP" 'map(.Name // .name) | index($a) != null' >/dev/null; then
             flyctl apps create "$FLY_APP" --org "$FLY_ORG"
@@ -116,10 +115,15 @@ jobs:
             flyctl ips allocate-v6 -a "$FLY_APP"
             flyctl ips allocate-v4 --shared -a "$FLY_APP"
           fi
-          # The machines' keys go in as Fly secrets (from standard input, never on a command line or in the log).
-          ck=$(node --input-type=module -e "import { controlKeySync } from './src/coder-control.mjs'; process.stdout.write(controlKeySync(process.env.CODER_TOKEN_KEY))")
-          echo "::add-mask::$ck"
-          printf 'XAI_API_KEY=%s\nCODER_CONTROL_KEY=%s\n' "$XAI_API_KEY" "$ck" | flyctl secrets import -a "$FLY_APP" --stage
+          # NO KEYS ON FLY.IO ITSELF (2026-11-07). Your Grok key stays on Coder's Worker (the machines'
+          # AI calls go through it), and each machine's own lock key is in its own settings (made by
+          # the Worker from CODER_TOKEN_KEY and the machine's name). The shared copies Fly.io held are
+          # taken away (each machine loses them at its next update).
+          for k in XAI_API_KEY CODER_CONTROL_KEY; do
+            if flyctl secrets list -a "$FLY_APP" --json | jq -e --arg k "$k" 'map(.Name // .name) | index($k) != null' >/dev/null; then
+              flyctl secrets unset "$k" -a "$FLY_APP" --stage
+            fi
+          done
       - name: "Fly.io: build Coder's machine and send it"
         id: flyimage
         if: steps.fly.outputs.on == 'true'
@@ -131,8 +135,16 @@ jobs:
           # git fingerprint of coder/container, so a deploy that changes nothing there leaves
           # every chat's machine as it is (its kept disk, and no setup running again).
           img="registry.fly.io/$FLY_APP:coder-$(git rev-parse HEAD:coder/container | cut -c1-12)"
-          docker build -t "$img" container
-          docker push "$img"
+          # ALL OF CLAUDE CODE'S TOOLS (owner, 2026-11-07): Fly.io's machines get the full image
+          # (Cloudflare's backup machines keep the small one, which wrangler builds below). It
+          # takes a while to build, so a version already sent is not built again.
+          if docker manifest inspect "$img" >/dev/null 2>&1; then
+            echo "Coder's machine $img is already on Fly.io: not built again."
+          else
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+            docker build --build-arg CODER_IMAGE=full -t "$img" container
+            docker push "$img"
+          fi
           echo "image=$img" >> "$GITHUB_OUTPUT"
       - name: "Fly.io: give the Worker the token"
         if: steps.fly.outputs.on == 'true'

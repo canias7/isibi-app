@@ -24,8 +24,9 @@ const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: a
 
 // ── THE CHECKS ───────────────────────────────────────────────────────────────
 test("CD1 dangerous commands are refused with the reason; ordinary ones run", () => {
-  for (const c of ["rm -rf /", "rm -rf ~", "rm -rf ../other", ":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "sudo apt install x", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
-  for (const c of ["ls -la", "rm -rf node_modules", "cat src/App.jsx", "npm test", "grep -rn useState src", "rm -rf ./dist"]) assert.equal(commandProblem(c), "", c);
+  for (const c of ["rm -rf /", "rm -rf ~", "rm -rf ../other", ":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
+  // `sudo` reaches only the master key's checked jobs (step 4, 2026-11-07): the machine's own sudo command checks it.
+  for (const c of ["ls -la", "rm -rf node_modules", "cat src/App.jsx", "npm test", "grep -rn useState src", "rm -rf ./dist", "sudo apt-get install -y jq"]) assert.equal(commandProblem(c), "", c);
   assert.match(commandProblem(""), /empty/);
   assert.match(commandProblem("x".repeat(9000)), /over 8000/);
 });
@@ -1147,7 +1148,9 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     const s1 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123", PATH: "/evil" } });
     assert.equal(s1.events.filter((e) => e.verb === "Ran setup").length, 1, "setup ran");
     const out = s1.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
-    assert.match(out, /set up\nkey=sk-secret-123\npath=\/usr\/local\/sbin/);
+    // A variable named PATH never replaces Coder's: the tools' folders, then the system's (2026-11-07).
+    assert.match(out, /set up\nkey=sk-secret-123\npath=[^\n]*\/opt\/node22\/bin:[^\n]*:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin\n/);
+    assert.doesNotMatch(out, /evil/);
     const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
     assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
     const s3 = await run({ script: "echo changed > ready.txt", vars: {} });

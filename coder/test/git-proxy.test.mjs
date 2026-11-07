@@ -196,24 +196,30 @@ test("CD132 wiring: every job, save, Undo and Rewind sends the machine the pass,
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.equal((server.match(/\.\.\.gitFrom\(body, \{ via: gitVia, remote \}\)/g) || []).length, 6, "the job's repository and its others, Undo, and the save");
   assert.doesNotMatch(server.replace(/export function gitFrom[\s\S]*?\n\}\n/, ""), /body\.token/, "no other use of a token from the Worker");
-  // THE WHOLE DISK KEPT WHILE ASLEEP (Fly's persist_rootfs "restart"); without it if Fly ever refuses it.
+  // THE WHOLE DISK KEPT WHILE ASLEEP, and up to 20 GB (Fly's rootfs, 2026-11-07); the older way (persist_rootfs,
+  // Fly's default size), then without it, if Fly ever refuses them.
   const F = await import("../src/coder-fly.mjs");
   const env = { CODER_MACHINES: "fly", FLY_API_TOKEN: "fly-token-0123456789", CODER_FLY_APP: "gofarther-coder-machines", CODER_FLY_IMAGE: "registry.fly.io/gofarther-coder-machines:coder-aaaaaaaaaaaa", CODER_BUCKET: fakeBucket() };
-  assert.equal(F.machineConfig(env, "v").guest.persist_rootfs, "restart");
+  assert.deepEqual(F.machineConfig(env, "v").rootfs, { persist: "restart", size_gb: 20 });
+  assert.equal("persist_rootfs" in F.machineConfig(env, "v").guest, false);
+  assert.equal(F.machineConfig(env, "v", { bigRoot: false }).guest.persist_rootfs, "restart");
+  assert.equal("rootfs" in F.machineConfig(env, "v", { bigRoot: false }), false);
   assert.equal("persist_rootfs" in F.machineConfig(env, "v", { keepRoot: false }).guest, false);
+  assert.equal("rootfs" in F.machineConfig(env, "v", { keepRoot: false }), false);
+  assert.deepEqual(F.CONFIG_TRIES, [{}, { bigRoot: false }, { keepRoot: false }]);
   const tried = [];
   const fetchFn = async (url, init = {}) => {
     const u = new URL(String(url));
     if (u.host === "api.machines.dev") {
       const body = init.body ? JSON.parse(init.body) : null;
       if (init.method === "POST" && u.pathname.endsWith("/volumes")) return Response.json({ id: "vol_1" });
-      if (init.method === "POST" && u.pathname.endsWith("/machines")) { tried.push(body.config.guest.persist_rootfs || "none"); return body.config.guest.persist_rootfs ? Response.json({ error: "unknown field" }, { status: 422 }) : Response.json({ id: "m1" }); }
+      if (init.method === "POST" && u.pathname.endsWith("/machines")) { const kind = body.config.rootfs ? "rootfs" : body.config.guest.persist_rootfs ? "restart" : "none"; tried.push(kind); return kind !== "none" ? Response.json({ error: "unknown field" }, { status: 422 }) : Response.json({ id: "m1" }); }
     }
     return new Response("{\"coderStatus\":200,\"body\":{\"ok\":true}}", { status: 200, headers: { "x-coder-machine": "1", "x-coder-keepalive": "1" } });
   };
   const r = await F.flyBox(env, "user-1-shop-k1", { fetchFn, sleep: async () => {} }).fetch(new Request("http://coder/turn", { method: "POST", body: "{}" }));
   assert.equal(r.status, 200);
-  assert.deepEqual(tried, ["restart", "none"], "refused once: made without it");
+  assert.deepEqual(tried, ["rootfs", "restart", "none"], "refused twice: made the older way, then without it");
   // THE MACHINE SAYS WHETHER ITS DISK WAS KEPT: a mark from its last start.
   const d = await mkdtemp(join(tmpdir(), "coder-boot-"));
   assert.equal(bootKept(d), false, "a fresh disk");

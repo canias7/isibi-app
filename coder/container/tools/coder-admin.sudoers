@@ -1,0 +1,4 @@
+# Coder's commands (the `dev` user) may run one program as root: the checked
+# one that installs Ubuntu packages and runs installed services (tools/coder-admin).
+# Nothing else (owner, 2026-11-07; step 4: the master key's jobs).
+dev ALL=(root) NOPASSWD: /usr/local/sbin/coder-admin

@@ -9,11 +9,104 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Before deploying: the first start after the deploy is given time to fetch the big image
+
+- Your word: "merge and deploy".
+- Coder gave a machine 60 seconds to answer. A machine being made or updated first fetches the new image, about 6.9 GB, which can take longer. So the first chat after the deploy could have failed with "did not answer".
+- Now a machine being made or updated gets 5 minutes, and a plain wake still gets 1 minute. A job counts as lost only after 8 minutes, so a start is never given up on while its machine may still be fetching.
+- Test: CD142 (151 in all, plus 16 admin-only).
+
+## 2026-11-07: Step 4 of 4: the master key's everyday jobs (on the branch, not deployed yet)
+
+- Your word: "ok go with the rest".
+- **What Coder can do now, mid-job, like Claude Code:**
+  - install any Ubuntu system program (`apt-get install`, also written `sudo apt-get install`), with no setup-script card and no restart;
+  - start, stop and restart any installed service;
+  - use ports 80 and 443 inside its own room.
+- **How:** Coder's commands may run exactly one program as admin. It checks every request:
+  - only package names, never an apt option (some apt options would run any command as admin);
+  - only installed services, and only start, stop, restart, reload or status.
+  - Anything else is refused with a plain message.
+- With a limited network, its downloads go through Coder's gate too, so your setting holds.
+- **Honest limit:** this is not the whole master key. Editing system files, or any other admin command, would need a full container system with the machine's disk mirrored for it. That's a multi-day job with real risk, so it's not done. Removing packages is also refused: removing something like git would quietly break how Coder saves your work.
+- Tests: the GitHub machine check installs a program as Coder's own user, starts Redis, serves on port 80 in the room, and checks that `sudo bash`, `apt-get remove`, a trick apt option and a sneaky service name are all refused (150 tests in all, plus 16 admin-only).
+- **The GitHub machine check passed** (run 42348124083):
+  - As Coder's own user, `apt-get install figlet` and `sudo apt-get install` installed and ran it.
+  - `sudo service redis-server start` started Redis (it answered PONG) and it stopped again.
+  - Everything else was refused.
+  - A server on port 80 worked in the room.
+  - The room stayed sealed for every network setting.
+
+## 2026-11-07: Step 3 of 4: the sealed room, so your network setting is a real wall (on the branch, not deployed yet)
+
+- Your word: "ok go with the rest".
+- **Why:** on Fly.io, Coder's old wall (a firewall rule matched by user) cannot work: Fly.io's machines lack the kernel piece it needs. So the network setting was a guard that ordinary tools follow, not a wall.
+- **Now Coder's commands run in a sealed room:** a network of their own, owned by Coder's program, with only one way out: a pipe to Coder's gate, which checks your network setting. With Full access, the room also gets its own internet link. The AI has no rights over the room's network, so it cannot open another way out. A change of setting reaches the room at once.
+- If a machine can't make the room, commands run as before, and Coder is told the list is then only a guard.
+- **Tried for real here, as admin:**
+  - The pipe to the gate works.
+  - Everything else is sealed: the machine's other services, the internet over IPv4 and IPv6, direct website requests.
+  - Every attempt by an ordinary user to change the room's network is refused, including slipping into the machine's own network.
+  - Full access turns the room's link on, and off again.
+- The deploy now runs that test as admin. The GitHub machine check also tries the room in Coder's real image, with the real gate and real websites, for each setting: None, Trusted and Full.
+- Tests: CD140 and CD141 (150 in all, plus 16 admin-only).
+- **The GitHub machine check passed** (run 42347544465), in Coder's real image with the real gate and real websites:
+  - Trusted: going straight to the internet is blocked, a site not allowed is refused, npm is reached.
+  - None: going straight to the internet is blocked, a site not allowed is refused, npm is refused too.
+  - Full: the room's own link is up and reaches the internet, and switching back takes it away.
+  - "THE ROOM: SEALED".
+
+## 2026-11-07: Step 2 of 4: each chat's machine has its own lock key (on the branch, not deployed yet)
+
+- Before: one lock key opened every chat's machine's controls. On Fly.io a machine can be reached from the internet, so a chat that ever read its own key could have worked another chat's machine.
+- Now each Fly.io machine's key is a strong code made from Coder's secret and that machine's own name. Knowing one machine's key gives nothing for another's.
+- Machines made before this keep the old key until their next update, so a deploy never locks out a job that is running.
+- Fly.io itself no longer keeps any of Coder's keys: the deploy removes the shared copies.
+- Cloudflare's backup machines keep the old key: they cannot be reached from outside.
+- Tests: CD139, and the Fly.io tests now check that each machine gets its own key (148 in all, all passing).
+
+## 2026-11-07: Step 1 of 4: your Grok key never goes to Coder's machine (on the branch, not deployed yet)
+
+- Your word: "ok", to the plan: 1. the Grok key out of the machine, 2. each machine its own lock key, 3. a sealed room for Coder's commands whose only door to the internet is Coder's gate (this makes your network setting a real wall on Fly.io), 4. the master key inside that room, like Claude Code.
+- **Found while checking:** Fly.io's machines lack the kernel piece Coder's firewall rule needs (a Fly.io forum thread from 2026-10-12). So on Fly.io your network setting (None, Trusted, Custom) is probably a guard that ordinary tools follow, not a wall. Your GitHub login and saved keys are not affected: they are added outside the machine. Step 3 fixes this. The test comment you were given will show it for sure.
+- **Step 1, done:** each job gets a short pass for its AI calls, for one chat, one message and 3 hours. The machine sends every Grok call to Coder's server with it. The server checks the pass, allows only Coder's own model, and adds your key. Fly.io's machines and Cloudflare's backup machines are no longer given the key, and the deploy removes the copy Fly.io has.
+- Tests: CD137 and CD138 (147 in all, all passing, plus the 14 admin-only safety tests). The machine check on GitHub passed again with this change (run 42345836203).
+
+## 2026-11-07: All of Claude Code's tools on Coder's machine (on the branch, not deployed yet)
+
+- Your word: "can we install all the tools we need?", about this line of the comparison: Claude Code comes with Python, Node, Ruby, PHP, Java, Go, Rust, C/C++, Docker, PostgreSQL, Redis, Chrome, gh and more.
+- **The machine is now Ubuntu 24.04, the same system as Claude Code's machine, with the same tools.**
+  - Python (uv, poetry, pytest, mypy, black, ruff), Node 22 and 24, Ruby 3.1, 3.2 and 3.3, PHP 8.3, Java 21 with Maven and Gradle, Go, Rust, C/C++.
+  - Docker, PostgreSQL 16, Redis 7, Chrome, and gh, yq, tmux, vim, nano.
+  - The same `check-tools` command that lists them all.
+- **Plus what Claude Code's real machine has beyond its docs** (your word: "ok", after "anymore tools missing?"):
+  - ffmpeg (video and audio), ImageMagick (images), pdftotext, pandoc.
+  - Python's document and data libraries (Excel, Word, PowerPoint, PDF, numpy, pandas).
+  - Playwright with its own browser, for scripted browser tests and screenshots.
+  - Debugging tools: strace, lsof, valgrind, netcat.
+  - Left out on purpose: Google Cloud's tools (useless without a Google login on the machine), Nix (rarely needed), and LibreOffice: the full image is about 5.2 GB without these extras and about 6.7 GB with them, and LibreOffice would bring it near Fly.io's 8 GB limit, leaving too little room for what chats install.
+- **The machine's own disk may now grow to 20 GB** (Fly.io's default is 8 GB, and the full image alone is about 6.9 GB). With the chat's 10 GB disk that is 30 GB, the same as Claude Code's machine. Fly.io bills a sleeping machine's disk only by what is used, so this costs nothing unless it is used. If Fly.io ever refuses the setting, the machine is made as today.
+- **The first check on GitHub** (before the extras): every tool worked as Coder's own user except Docker running a container, because on the test machine Coder's home sat on the image's layered disk. On Fly.io it sits on the chat's own plain disk, so the test now does the same.
+- **Fly.io's machines get the full set; Cloudflare's backup machines keep a small image.** Cloudflare's limit is 8 GB an image and 50 GB in all.
+- **Coder still never has admin rights.**
+  - Docker runs as Coder's own user ("rootless").
+  - The two databases start with the same commands as on Claude Code's machine (`service postgresql start`). Coder may run exactly those through the admin's `sudo`, and nothing else.
+- **Coder's commands have a home folder of their own.** What they install for themselves, and every download cache, go there. Before, the home was the project folder itself, so a cache could have been saved to your branch. On Fly.io the home is on the chat's kept disk, so it survives sleep and new versions.
+- **Coder is told what its machine has,** like a developer who knows their computer.
+- **A deploy builds the big image only when the machine changes.** It takes a while; otherwise a deploy stays as quick as now.
+- **A new check runs on GitHub whenever the machine changes on a branch.** It builds both images and tries every tool as Coder's own user. It deploys nothing and uses no secrets.
+- **Costs:**
+  - A sleeping chat's machine costs about $0.15 a month per GB of its image on Fly.io. That's about $0.70 a month instead of about $0.25 (my estimate).
+  - A brand-new chat's first start will be a bit slower.
+- **The check on GitHub passed** (run 42342573805): both images build, Coder's service starts in both, and every tool works as Coder's own user, Docker included. Things it installs for itself land in its own home. The full image is about 6.9 GB.
+- Tests: CD133 to CD136 (145 in all, all passing, plus the 14 admin-only safety tests).
+
 ## 2026-11-07: A deploy no longer resets the chats' machines for nothing
 
 - Your word: "merge and deploy". Before that deploy: every deploy gave Coder's machine a new version name, even when nothing in the machine had changed. Each chat's machine then started its own disk fresh on its next wake and ran its setup again.
 - Now the name changes only when Coder's machine itself changes (its folder, `coder/container`). A deploy of anything else, like these notes or the website, leaves the machines and their kept disks as they are.
 - This deploy changes the name once, so each chat's machine starts fresh one last time.
+- **Deployed** (your word: "merge and deploy"): main 52dba3d5, run 42336015163, all steps passing. The machine's version is now `coder-2cb107d3b512`, named after its folder. The site and Coder's health check answer, and Coder's git address still refuses a request without a pass.
 
 ## 2026-11-07: Your GitHub login stays off Coder's machines; a sleeping machine keeps what it installed (like Claude Code)
 

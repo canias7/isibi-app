@@ -1,0 +1,10 @@
+#!/bin/sh
+# SERVICES START AS ON CLAUDE CODE'S MACHINE (owner, 2026-11-07; step 4: the
+# master key's jobs). There every command runs as admin: `service postgresql
+# start`. Coder's commands run as `dev`, so this asks sudo for the one checked
+# program that may do it as root (tools/coder-admin): any installed service, and
+# only start, stop, restart, reload or status. Root's own calls go straight through.
+if [ "$(id -u)" != 0 ] && [ "$#" -eq 2 ]; then
+  exec /usr/bin/sudo -n /usr/local/sbin/coder-admin service "$1" "$2"
+fi
+exec /usr/sbin/service "$@"

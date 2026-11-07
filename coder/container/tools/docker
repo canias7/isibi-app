@@ -1,0 +1,40 @@
+#!/bin/bash
+# DOCKER FOR CODER'S COMMANDS (owner, 2026-11-07: "can we install all the tools
+# we need?"). Claude Code's machine has Docker and runs it as its admin. Coder's
+# commands never have admin rights (a Docker that admin runs would hand them
+# admin rights), so here Docker is "rootless": its engine runs as the same
+# ordinary user, `dev`, keeps its files in dev's home, and is started here the
+# first time a docker command needs it. Like on Claude Code's machine, nothing
+# keeps running between jobs: run `docker compose up` again in a new job.
+real=/usr/bin/docker
+[ "$(id -u)" = 0 ] && exec "$real" "$@"
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$HOME/.docker-run}"
+export DOCKER_HOST="${DOCKER_HOST:-unix://$XDG_RUNTIME_DIR/docker.sock}"
+sock="${DOCKER_HOST#unix://}"
+log="$HOME/.docker-rootless.log"
+
+up() { [ -S "$sock" ] && "$real" info >/dev/null 2>&1; }
+
+if ! up; then
+  mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+  # What an engine stopped at the end of the last job left behind.
+  rm -rf "$sock" "$XDG_RUNTIME_DIR/docker.pid" "$XDG_RUNTIME_DIR/dockerd-rootless" 2>/dev/null
+  (
+    # The engine's own downloads (images) go through Coder's proxy when the
+    # network is limited. Inside the engine's network, this machine is 10.0.2.2.
+    if [ -n "${HTTPS_PROXY:-}${HTTP_PROXY:-}" ]; then
+      export DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=false
+      export HTTPS_PROXY="${HTTPS_PROXY//127.0.0.1/10.0.2.2}" HTTP_PROXY="${HTTP_PROXY//127.0.0.1/10.0.2.2}"
+      export https_proxy="$HTTPS_PROXY" http_proxy="$HTTP_PROXY"
+    fi
+    exec nohup dockerd-rootless.sh >"$log" 2>&1
+  ) &
+  for _ in $(seq 1 120); do up && break; sleep 0.5; done
+  if ! up; then
+    echo "docker: the engine did not start. The end of its log ($log):" >&2
+    tail -n 15 "$log" >&2
+    exit 1
+  fi
+fi
+exec "$real" "$@"

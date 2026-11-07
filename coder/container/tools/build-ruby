@@ -1,0 +1,20 @@
+#!/bin/bash
+# ONE RUBY FOR CODER'S MACHINE (owner, 2026-11-07: "can we install all the tools
+# we need?"): built from ruby-lang.org's source into /opt/ruby-<version>, where
+# Claude Code's machine keeps its Rubies. The source is checked against the sum
+# ruby-lang.org publishes (https://cache.ruby-lang.org/pub/ruby/index.txt).
+#   build-ruby 3.3.6 <sha256 of ruby-3.3.6.tar.gz>
+set -euo pipefail
+v="$1" sum="$2"
+mm="${v%.*}"
+cd /tmp
+curl -fsSLO --retry 5 --retry-delay 3 "https://cache.ruby-lang.org/pub/ruby/$mm/ruby-$v.tar.gz"
+echo "$sum  ruby-$v.tar.gz" | sha256sum -c -
+tar -xzf "ruby-$v.tar.gz"
+cd "ruby-$v"
+./configure --prefix="/opt/ruby-$v" --enable-shared --disable-install-doc >/dev/null
+make -j"$(nproc)" >/dev/null
+make install >/dev/null
+cd /tmp
+rm -rf "ruby-$v" "ruby-$v.tar.gz"
+"/opt/ruby-$v/bin/ruby" -v

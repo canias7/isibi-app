@@ -17,7 +17,7 @@
 // Cloudflare's containers stay as the fallback: CODER_MACHINES "fly" switches.
 
 import { holdDecision } from "./coder-watch.mjs";
-import { controlKeySync } from "./coder-control.mjs";
+import { controlKeySync, controlKeyFor } from "./coder-control.mjs";
 
 export const FLY_API = "https://api.machines.dev/v1";
 /** Where the chat's kept disk is on its machine (the machine's CODER_DATA). */
@@ -28,6 +28,12 @@ export const FLY_IDLE_MS = 10 * 60 * 1000;
 export const FLY_RECLAIM_MS = 30 * 24 * 60 * 60 * 1000;
 /** How long a waking machine has to answer. */
 export const FLY_WAKE_MS = 60 * 1000;
+/**
+ * How long a machine being made or updated has to answer: Fly.io first fetches
+ * Coder's image, which with all of Claude Code's tools is about 6.9 GB (owner,
+ * 2026-11-07). A plain wake keeps FLY_WAKE_MS.
+ */
+export const FLY_PULL_MS = 5 * 60 * 1000;
 /** A machine or disk no chat knows is removed once it is this old (it may still be being made). */
 export const FLY_ORPHAN_MS = 60 * 60 * 1000;
 const RECORDS = "coder/fly-machines/";
@@ -48,6 +54,10 @@ export function flySettings(env) {
     cpus: num(env.CODER_FLY_CPUS, 2, 1, 8),
     memory: num(env.CODER_FLY_MEMORY_MB, 4096, 1024, 16384),
     disk: num(env.CODER_FLY_DISK_GB, 10, 1, 100),
+    // THE MACHINE'S OWN DISK MAY GROW TO 20 GB (Fly.io's default is 8; owner, 2026-11-07, all of
+    // Claude Code's tools): with the chat's 10 GB disk, 30 GB, like Claude Code's machine. Fly.io
+    // bills a sleeping machine's disk by what is used, not by this limit.
+    root: num(env.CODER_FLY_ROOT_GB, 20, 8, 50),
   };
 }
 
@@ -78,22 +88,50 @@ const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
  * "Do 1 and 3"; like Claude Code, where a paused VM keeps what was installed and
  * the setup does not run again): Fly's persist_rootfs "restart" keeps the
  * machine's own disk across restarts, and a new Coder version (an update) still
- * starts it fresh. `keepRoot: false` leaves it out (if Fly ever refuses it).
+ * starts it fresh. That disk may grow to `root` GB (Fly's `rootfs`, which
+ * also keeps it). `bigRoot: false` asks the older way, Fly's default size;
+ * `keepRoot: false` leaves it out (if Fly ever refuses them: CONFIG_TRIES).
  */
-export function machineConfig(env, volumeId, { keepRoot = true } = {}) {
+export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, lock = "" } = {}) {
   const s = flySettings(env);
   return {
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
-    env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
-    guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory, ...(keepRoot ? { persist_rootfs: "restart" } : {}) },
+    env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
+    guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory, ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
+    ...(keepRoot && bigRoot ? { rootfs: { persist: "restart", size_gb: s.root } } : {}),
     mounts: [{ volume: volumeId, path: FLY_DATA }],
     // Only through Fly's front door, on https; Coder starts and stops it itself.
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },
     metadata: { coder: "chat-machine" },
   };
+}
+
+/** The machine's settings, the newest first: if Fly.io refuses one (400 or 422), the next. */
+export const CONFIG_TRIES = [{}, { bigRoot: false }, { keepRoot: false }];
+async function withConfig(call) {
+  let r;
+  for (const o of CONFIG_TRIES) { r = await call(o); if (r.status !== 400 && r.status !== 422) break; }
+  return r;
+}
+
+/**
+ * THE LOCK KEY OF ONE CHAT'S MACHINE (step 2): its own (`controlKeyFor` its Fly
+ * name) once it was made or updated with it (`rec.lock` 2), else the old shared
+ * one, which a machine from before keeps until its next update.
+ */
+export async function machineLock(env, machine, rec) {
+  if (!env.CODER_TOKEN_KEY) return "";
+  return rec && rec.lock === 2 ? controlKeyFor(env.CODER_TOKEN_KEY, machine) : controlKeySync(env.CODER_TOKEN_KEY);
+}
+/** The request with this machine's own lock key (never another's). */
+async function locked(env, machine, rec, req) {
+  const r = new Request(req.url, { method: req.method, headers: req.headers });
+  const k = await machineLock(env, machine, rec);
+  if (k) r.headers.set("x-coder-key", k); else r.headers.delete("x-coder-key");
+  return r;
 }
 
 async function readRec(bucket, key) {
@@ -128,8 +166,8 @@ export async function viaFly(env, machineId, req, body, fetchFn = fetch) {
 }
 
 /** Until the machine answers (a stopped Fly machine starts "well under a second"; Coder's service then starts). */
-async function untilAnswers(env, id, { fetchFn, sleep, now }) {
-  const until = now() + FLY_WAKE_MS;
+async function untilAnswers(env, id, { fetchFn, sleep, now }, waitMs = FLY_WAKE_MS) {
+  const until = now() + waitMs;
   while (now() < until) {
     const h = await viaFly(env, id, new Request("http://coder/health"), undefined, fetchFn);
     if (h && h.ok) return true;
@@ -143,16 +181,16 @@ async function makeMachine(env, bucket, names, deps) {
   const s = flySettings(env);
   const v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk }, ...deps });
   if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io could not make the machine's disk (" + v.status + ")" };
-  let m = await flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id) }, ...deps });
-  // Fly refused the settings (should it not take a kept disk): made without it, as before.
-  if (m.status === 400 || m.status === 422) m = await flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, { keepRoot: false }) }, ...deps });
+  // Fly refused the settings (should it not take a bigger or kept disk): made the older way, as before.
+  const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
+  const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, { ...o, lock }) }, ...deps }));
   if (!m.ok || !m.data || typeof m.data.id !== "string") {
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
   }
-  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, at: deps.now(), used: deps.now(), stopped: false };
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, lock: 2, at: deps.now(), used: deps.now(), stopped: false };
   await writeRec(bucket, names.key, rec);
-  await untilAnswers(env, rec.id, deps);
+  await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec };
 }
 
@@ -166,17 +204,19 @@ async function wakeMachine(env, bucket, names, rec, deps) {
   const m = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, deps);
   if (m.status === 404) { await bucket.delete(names.key); return null; }
   const state = m.data && m.data.state;
+  let pulled = false;
   if (state !== "started" && state !== "starting") {
     if (rec.image !== s.image) {
-      let u = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume) }, ...deps });
-      if (u.status === 400 || u.status === 422) u = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { keepRoot: false }) }, ...deps });
-      if (u.ok) rec = { ...rec, image: s.image };
+      // Updated, it gets its own lock key too (step 2).
+      const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
+      const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { ...o, lock }) }, ...deps }));
+      if (u.ok) { rec = { ...rec, image: s.image, lock: 2 }; pulled = true; }
       else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
     } else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
   }
   rec = { ...rec, stopped: false, used: deps.now() };
   await writeRec(bucket, names.key, rec);
-  await untilAnswers(env, rec.id, deps);
+  await untilAnswers(env, rec.id, deps, pulled ? FLY_PULL_MS : FLY_WAKE_MS);
   return rec;
 }
 
@@ -195,7 +235,7 @@ export function flyBox(env, name, deps0 = {}) {
       const names = await flyNames(name);
       let rec = await readRec(bucket, names.key);
       if (rec && !rec.stopped) {
-        const r = await viaFly(env, rec.id, req, body, deps.fetchFn);
+        const r = await viaFly(env, rec.id, await locked(env, names.machine, rec, req), body, deps.fetchFn);
         if (r) return r;
       }
       if (rec) rec = await wakeMachine(env, bucket, names, rec, deps);
@@ -209,7 +249,7 @@ export function flyBox(env, name, deps0 = {}) {
         if (!made.rec) return json({ error: made.why }, 503);
         rec = made.rec;
       }
-      const r = await viaFly(env, rec.id, req, body, deps.fetchFn);
+      const r = await viaFly(env, rec.id, await locked(env, names.machine, rec, req), body, deps.fetchFn);
       return r || json({ error: "Coder's machine on Fly.io did not answer. Try again in a minute." }, 503);
     },
   };
@@ -250,13 +290,12 @@ export function shouldStop(busy, rec, now) {
  * it has work, and stopped when it has none for 10 minutes; a stopped one
  * unused for 30 days is removed with its disk; a machine no chat knows is
  * removed once it is an hour old. Once an hour, disks no machine uses go too.
- * `deps.sign(Request)` adds the machine's control key.
+ * Each machine is asked with its own lock key (machineLock).
  */
 export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
   const out = { checked: 0, stopped: 0, removed: 0 };
   if (!flyOn(env)) return out;
   const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: () => now };
-  const sign = deps0.sign || ((r) => r);
   const s = flySettings(env), bucket = env.CODER_BUCKET;
   const list = await flyApi(env, "/apps/" + s.app + "/machines", deps);
   if (!list.ok || !Array.isArray(list.data)) return out;
@@ -276,7 +315,7 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
     known.add(rec.volume);
     if (m.state === "started") {
       out.checked++;
-      const r = await viaFly(env, m.id, sign(new Request("http://coder/busy")), undefined, deps.fetchFn);
+      const r = await viaFly(env, m.id, await locked(env, m.name, rec, new Request("http://coder/busy")), undefined, deps.fetchFn);
       const busy = r && r.ok ? await r.json().catch(() => null) : null;
       if (shouldStop(busy, rec, now)) {
         const st = await flyApi(env, "/apps/" + s.app + "/machines/" + m.id + "/stop", { method: "POST", ...deps });
