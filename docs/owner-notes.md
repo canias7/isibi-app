@@ -9,6 +9,12 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: A deploy no longer resets the chats' machines for nothing
+
+- Your word: "merge and deploy". Before that deploy: every deploy gave Coder's machine a new version name, even when nothing in the machine had changed. Each chat's machine then started its own disk fresh on its next wake and ran its setup again.
+- Now the name changes only when Coder's machine itself changes (its folder, `coder/container`). A deploy of anything else, like these notes or the website, leaves the machines and their kept disks as they are.
+- This deploy changes the name once, so each chat's machine starts fresh one last time.
+
 ## 2026-11-07: Your GitHub login stays off Coder's machines; a sleeping machine keeps what it installed (like Claude Code)
 
 - Your word: "Do 1 and 3", from the comparison with Claude Code.
@@ -20,7 +26,10 @@ log (81,000 lines) is in git history.
 - **3. A sleeping machine keeps its whole disk**, so what the setup installed is still there and the setup doesn't run again, like Claude Code. This uses Fly.io's own setting for it. If Fly.io ever refuses the setting, the machine is made without it and the setup runs again, as before.
   - A new Coder version still starts the machine fresh, as Claude Code does after its cache expires.
   - The machine now reports whether its disk was kept, so I can check it live.
-- Tests: CD130 to CD132. 141 in all, all passing, plus the 14 admin-only safety tests. On the branch, not deployed.
+- Tests: CD130 to CD132. 141 in all, all passing, plus the 14 admin-only safety tests.
+- **Deployed** (your word: "Merge and deploy"): main df610f55, run 42333195974, all steps passing. Coder's git address refuses a request without a pass.
+- **Live test 1, saving through Coder's server:** you wrote `@coder add a line saying "fly test" to notes.md` on testingforclaude issue #2 at 03:30:22. The machine woke with the new version, and the commit "Added `fly test` to `notes.md`" was on the chat's branch at 03:30:57. That could only have gone through Coder's server, because the machine no longer has your login. The machine reported `"kept": false`, as expected the first time after a new version.
+- **Live test 2, the kept disk:** the machine went to sleep by itself at 03:42:47. Your next comment at 03:44:37 woke it, and it reported `"kept": true`: its whole disk was kept while it slept, so the setup didn't run again, like Claude Code. Coder answered at 03:45:57, about 1 minute 20 seconds, the fastest yet. Before this change a woken machine took about 1 minute 45 seconds, and the first job on a new machine about 2 minutes 20 seconds.
 
 ## 2026-11-07: Deployed: Coder's machines on Fly.io, and the chat saved as it goes
 
