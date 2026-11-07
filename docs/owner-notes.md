@@ -9,6 +9,20 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Step 3 of 4: the sealed room, so your network setting is a real wall (on the branch, not deployed yet)
+
+- Your word: "ok go with the rest".
+- **Why:** on Fly.io, Coder's old wall (a firewall rule matched by user) cannot work: Fly.io's machines lack the kernel piece it needs. So the network setting was a guard that ordinary tools follow, not a wall.
+- **Now Coder's commands run in a sealed room:** a network of their own, owned by Coder's program, with only one way out: a pipe to Coder's gate, which checks your network setting. With Full access, the room also gets its own internet link. The AI has no rights over the room's network, so it cannot open another way out. A change of setting reaches the room at once.
+- If a machine can't make the room, commands run as before, and Coder is told the list is then only a guard.
+- **Tried for real here, as admin:**
+  - The pipe to the gate works.
+  - Everything else is sealed: the machine's other services, the internet over IPv4 and IPv6, direct website requests.
+  - Every attempt by an ordinary user to change the room's network is refused, including slipping into the machine's own network.
+  - Full access turns the room's link on, and off again.
+- The deploy now runs that test as admin. The GitHub machine check also tries the room in Coder's real image, with the real gate and real websites, for each setting: None, Trusted and Full.
+- Tests: CD140 and CD141 (150 in all, plus 16 admin-only).
+
 ## 2026-11-07: Step 2 of 4: each chat's machine has its own lock key (on the branch, not deployed yet)
 
 - Before: one lock key opened every chat's machine's controls. On Fly.io a machine can be reached from the internet, so a chat that ever read its own key could have worked another chat's machine.

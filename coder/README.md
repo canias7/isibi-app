@@ -185,6 +185,23 @@ the chat's current turn, allows only Coder's own models, adds `XAI_API_KEY` and
 passes the call to xAI. Neither Fly.io's machines (the deploy takes the old
 Fly secret away) nor Cloudflare's backup machines are given the key.
 
+**The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
+setting). Coder's old wall was a firewall rule matched by user (iptables'
+owner match), which Fly.io's machines lack, so there the network setting was a
+guard for tools that use the proxy, not a wall. Now the real service runs the
+AI's commands in a network of their own (`container/coder-room.mjs`, a Linux
+network namespace the service owns; `execIn`'s `room`): started by the service
+(`nsenter`) and made the AI's user (`setpriv`) before the command runs. The
+room's only ways out are a relay where the commands are told the gate is
+(`coder-room-forward.mjs`, root's, on 127.0.0.1:<port>), which passes to the
+gate through a socket only root can open, and, with Full access only, the
+room's own user-mode internet link (`slirp4netns`). The AI has no rights over
+the room's network, and a change of setting mid-job reaches the room at once.
+A machine that cannot have the room runs commands as before, and Coder is told
+the list is then only a guard. `test/room.test.mjs` tries the room for real as
+root (the deploy runs it), and the GitHub machine check tries it in the full
+image with the real gate and real websites (`test/room-check.mjs`).
+
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's
 folder and hands only that folder to `dev`, and refuses to work in a project

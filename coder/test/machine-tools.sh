@@ -36,5 +36,8 @@ step "Debugging tools" 'strace -V | head -n 1; lsof -v 2>&1 | grep -m 1 revision
 step "Docker without admin rights" 'docker run --rm hello-world | grep -m 1 "Hello from Docker"; docker compose version'
 step "The rest" 'git --version; git lfs version; gh --version | head -n 1; yq --version; jq --version; rg --version | head -n 1; sqlite3 --version; tmux -V; vim --version | head -n 1; nano --version | head -n 1'
 step "What dev installed for itself is in its home, never a project" 'test -x "$HOME/.npm-global/bin/cowsay"; ls -d "$HOME"/.local/lib/python3*/site-packages/pyjokes; test -d "$HOME/.cache/go-build"; echo "dev'"'"'s installs and caches are in its home"'
+# THE SEALED ROOM (step 3): the way Coder runs the AI's commands, with the real gate and real websites.
+printf '\n== The sealed room, with the real gate\n'
+node /coder-test/room-check.mjs
 echo
 echo "ALL TOOLS OK"

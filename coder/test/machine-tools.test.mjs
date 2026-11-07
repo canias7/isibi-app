@@ -54,7 +54,7 @@ test("CD133 the AI's commands find every tool and keep what they install in thei
   assert.equal(inTest.output, dir, "a machine made in a test, given no home, keeps the project folder; extraEnv never replaces PATH or HOME");
   // The service gives the AI its home: /home/dev, or on Fly.io one on the chat's kept disk.
   const server = read("container/server.mjs");
-  assert.match(server, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\) \}\)/);
+  assert.match(server, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\) \}\)/);
   assert.match(server, /const u = await execIn\(dir, userPart, left, \{ bgDir, kill: true, home, /, "the setup script's own part");
   assert.match(server, /const r = await execIn\(dir, command, timeoutS, \{ bgDir, kill: !!tool, home, /, "every command and tool");
   assert.match(server, /const aptRun = apt \|\| \(\(dir, command, timeoutS, o\) => execIn\(dir, command, timeoutS, \{ \.\.\.o, uid: null, gid: null,/);
@@ -146,7 +146,9 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   assert.match(C, /branches-ignore: \[main\]\n\s+paths:\n\s+- "coder\/container\/\*\*"/);
   assert.match(C, /docker build -t coder:core coder\/container/);
   assert.match(C, /docker build --build-arg CODER_IMAGE=full -t coder:full coder\/container/);
-  assert.match(C, /docker run --rm --privileged -v \/tmp\/dev-home:\/home\/dev -v "\$PWD\/coder\/test\/machine-tools\.sh:\/machine-tools\.sh:ro" coder:full bash \/machine-tools\.sh/, "dev's home on a plain disk, as on Fly.io");
+  assert.match(C, /docker run --rm --privileged -v \/tmp\/dev-home:\/home\/dev -v "\$PWD\/coder\/test:\/coder-test:ro" coder:full bash \/coder-test\/machine-tools\.sh/, "dev's home on a plain disk, as on Fly.io");
+  assert.match(read("test/machine-tools.sh"), /node \/coder-test\/room-check\.mjs/, "the sealed room, with the real gate (step 3)");
+  assert.match(read("../.github/workflows/deploy-coder.yml"), /node --test test\/root-safety\.test\.mjs test\/room\.test\.mjs/, "the deploy runs the room's root-only test");
   assert.doesNotMatch(C, /\$\{\{\s*secrets\./, "it uses no secrets");
   assert.match(C, /permissions:\n\s+contents: read/);
   // The tools are tried with the very environment the service gives the AI's commands.

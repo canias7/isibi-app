@@ -74,7 +74,7 @@ jobs:
       # the step above skips them. GitHub's machines allow sudo. These tests never
       # stop the processes of user 1001 (this machine's own runner user).
       - name: Run Coder's root-only safety tests (as root)
-        run: sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs
+        run: sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs test/room.test.mjs
       - name: Make the token key
         env:
           SEED: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}

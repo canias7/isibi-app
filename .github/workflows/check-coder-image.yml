@@ -13,6 +13,7 @@ on:
     paths:
       - "coder/container/**"
       - "coder/test/machine-tools.sh"
+      - "coder/test/room-check.mjs"
       - ".github/workflows/check-coder-image.yml"
   workflow_dispatch:
 
@@ -57,4 +58,4 @@ jobs:
           # Coder's home on a plain disk folder, as on Fly.io (/data/home, the chat's own disk):
           # Docker's engine cannot stack its layers on the image's own layered disk.
           sudo mkdir -p /tmp/dev-home && sudo chown 1001:1001 /tmp/dev-home
-          docker run --rm --privileged -v /tmp/dev-home:/home/dev -v "$PWD/coder/test/machine-tools.sh:/machine-tools.sh:ro" coder:full bash /machine-tools.sh
+          docker run --rm --privileged -v /tmp/dev-home:/home/dev -v "$PWD/coder/test:/coder-test:ro" coder:full bash /coder-test/machine-tools.sh

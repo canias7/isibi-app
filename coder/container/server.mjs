@@ -28,6 +28,7 @@ import { runCoder, MACHINE_TOOLS } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
+import { makeRoom, roomArgs, roomGate, roomInternet } from "./coder-room.mjs";
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
@@ -49,11 +50,17 @@ let bgCount = 0;
 /**
  * One command in `dir`, with a bare environment and a time limit. At the limit it moves to the background (or, with `kill`, its process group is stopped).
  * `home`: the AI's home (the service gives it one; a test may not, and then it is `dir`). `uid: null` runs it as root, with root's own PATH only (cleanEnv).
+ * `room`: in the sealed room (coder-room.mjs), as the AI's user, whose only ways out are Coder's gate and, with Full access, the room's own link.
  */
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null } = {}) {
+export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false;
-    const p = spawn("bash", ["-c", command], { cwd: dir, env: { ...(extraEnv || {}), ...(uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir)) }, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : {}) });
+    const env = { ...(extraEnv || {}), ...(uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir)) };
+    const g = Number.isInteger(gid) ? gid : uid;
+    // In the room: started by this service (root) in the room's network, then made the AI's user (setpriv) before the command runs.
+    const p = room && Number.isInteger(uid)
+      ? spawn("nsenter", roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      : spawn("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
     const take = (b) => { if (out.length < RAW_OUTPUT_MAX) out += b.toString("utf8"); else cut = true; };
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
@@ -1062,7 +1069,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1070,6 +1077,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   let proxyP = null;
   let fwOn = false;
   const proxyFor = () => (proxyP ||= startProxy({ dir: proxyDir, ...proxyOpts }).catch((e) => { proxyP = null; throw e; }));
+  // THE SEALED ROOM (owner, 2026-11-07, step 3): the real service's commands run
+  // in a network of their own whose only ways out are the gate (when it runs)
+  // and, with Full access, the room's own internet link. False (commands as
+  // before) when this machine cannot have the room.
+  const enterRoom = async (px, limited) => {
+    if (!room || !Number.isInteger(RUN_UID) || !makeRoom()) return false;
+    try { return (!px || await roomGate(px.port)) && await roomInternet(!limited); } catch { return false; }
+  };
   async function startTurn(body) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
@@ -1143,7 +1158,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const secretList = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && ((Array.isArray(s.hosts) && s.hosts.some(okPattern)) || okHost(s.host))).slice(0, 20);
     const nn = normNetwork(body.setup && body.setup.network);
     const net = { ...nn, limited: nn.mode !== "full" };
-    let secretHosts = [], proxyEnv = {}, px = null, netNote = "";
+    let secretHosts = [], proxyEnv = {}, px = null, netNote = "", walled = false;
+    t.room = false;
     if (secretList.length || net.limited) {
       try {
         px = await proxyFor();
@@ -1154,14 +1170,18 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         Object.assign(extraEnv, proxyEnv);
         if (net.limited) {
           fwOn = firewall(true, RUN_UID);
+          // A WALL, NOT A GUARD (step 3): in the sealed room the gate is the only way out.
+          t.room = walled = await enterRoom(px, true);
           netNote = (net.mode === "none"
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
-            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
     }
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); } catch { /* not started */ } }
+    // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
+    if (!net.limited) t.room = await enterRoom(px, false);
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
     let setupFailed = null, setupRan = false;
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
@@ -1201,7 +1221,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         }
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, extraEnv: net.limited ? proxyEnv : {} });
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, extraEnv: net.limited ? proxyEnv : {} });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -1249,7 +1269,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           command = command.replace("@REQUEST", "@" + f);
         }
         // A file or web tool is ended at its time limit, never sent to the background.
-        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
+        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
         if (r && r.background && r.pid) t.bg.add(r.pid);
         return r;
       },
@@ -1331,6 +1351,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
           if (!list.length && !net.limited && proxyP) { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); }
+          // The room follows at once: its internet link only with Full access, the pipe to the gate whenever the gate runs.
+          if (room && Number.isInteger(RUN_UID)) t.room = await enterRoom(list.length || net.limited ? await proxyFor() : null, net.limited);
         } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
         t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Trusted", full: "Full", custom: "Custom" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
         return send(200, { ok: true, applied: true });
@@ -1397,5 +1419,5 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
   // On Fly.io, the chat's files live on its kept disk (CODER_DATA), the AI's home too; elsewhere its home is /home/dev.
   // Git goes through the Worker with each job's pass (your GitHub login never comes here).
-  http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
+  http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }
