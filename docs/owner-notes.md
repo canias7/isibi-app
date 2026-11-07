@@ -11,6 +11,11 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-07: Merged and deployed: the saved-copy fix (#25) and the kept leave-out list (#22)
+
+- You said "merge and deploy first": both fixes are live on gofarther.dev. The deploy's tests and GitHub's check of Coder's machine both passed.
+- Next: you want to test everything a different way; you'll say how.
+
 ## 2026-11-07: Testing: #25 failed (the setup's saved copy), found why, fixed
 
 - **What I tested:** two new chats in one environment, through your test repository (issues #10 and #11). The second chat should have skipped the setup by starting from the first chat's saved copy. It didn't: the setup ran again.
