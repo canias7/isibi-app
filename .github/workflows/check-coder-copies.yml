@@ -25,6 +25,8 @@ jobs:
           vols=$(api /volumes)
           echo "Disks in all: $(echo "$vols" | jq 'length')"
           echo "$vols" | jq -r 'sort_by(.created_at) | reverse | .[0:6][] | "\(.created_at)  \(.id)  \(.name)  \(.size_gb) GB  \(.state)  keeps copies \(.snapshot_retention // "?") days"'
+          echo "Everything Fly keeps about the newest disk (no keys are in it):"
+          echo "$vols" | jq 'sort_by(.created_at) | reverse | .[0]'
           for id in $(echo "$vols" | jq -r 'sort_by(.created_at) | reverse | .[0:6][] | .id'); do
             echo "--- copies of $id"
             api "/volumes/$id/snapshots" | jq -r 'if type == "array" then (if length == 0 then "  (none)" else .[] | "  \(.created_at)  \(.id)  status \(.status)  size \(.size)  keeps \(.retention_days) days  fields: \(keys | join(","))" end) else "  answer: \(. | tostring | .[0:300])" end'
