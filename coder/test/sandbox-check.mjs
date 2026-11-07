@@ -23,6 +23,8 @@ const data = "/data";
 for (const p of [data + "/work/shop", data + "/home"]) { mkdirSync(p, { recursive: true }); chownSync(p, 1001, 1001); }
 const up = S.makeUpper({ data, image: "check" });
 want("its own layer, on the kept disk", !!up, "makeUpper");
+const sub = S.devSubIds();
+want("dev's own extra ids (its Docker's) fit inside the sandbox's: " + JSON.stringify(sub), !!(sub.u && sub.g), "devSubIds");
 want("the room", R.makeRoom(), "makeRoom");
 const px = await startProxy({ dir: "/srv/coder-proxy-check" });
 px.setNetwork({ mode: "trusted" });

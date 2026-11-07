@@ -1,10 +1,11 @@
 #!/bin/bash
 # DOCKER FOR CODER'S COMMANDS (owner, 2026-11-07: "can we install all the tools
-# we need?"). Claude Code's machine has Docker and runs it as its admin. Coder's
-# commands never have admin rights (a Docker that admin runs would hand them
-# admin rights), so here Docker is "rootless": its engine runs as the same
-# ordinary user, `dev`, keeps its files in dev's home, and is started here the
-# first time a docker command needs it. Like on Claude Code's machine, nothing
+# we need?"). Claude Code's machine has Docker and runs it as its admin. Here
+# Docker is "rootless": its engine runs as the ordinary user `dev`, keeps its
+# files in dev's home, and is started here the first time a docker command needs
+# it. (Without the admin sandbox, Coder's commands have no admin rights; in it,
+# the network is the sealed room, which even its admin cannot change, so the
+# engine makes a network of its own.) Like on Claude Code's machine, nothing
 # keeps running between jobs: run `docker compose up` again in a new job.
 real=/usr/bin/docker
 [ "$(id -u)" = 0 ] && exec "$real" "$@"

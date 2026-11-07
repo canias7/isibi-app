@@ -33,6 +33,41 @@ export const SBX_BASE = 1000000;
 export const SBX_RANGE = 262144;
 /** The AI's user (the image's `dev`), on disk and inside: the chat's files keep this owner. */
 export const SBX_FILES = 1001;
+
+/**
+ * DEV'S OWN EXTRA IDS (/etc/subuid and /etc/subgid; 165536-231071 in the image): the
+ * ids its Docker engine gives the users in its containers. Dev's folders show them as
+ * well, so Docker can keep its images and containers there (GitHub's image check,
+ * 2026-11-07: without them its engine could not even make its socket, "value too
+ * large"). Only a range inside the sandbox's own ids and above dev is used: the
+ * machine's admin (0) is never one of them.
+ */
+export function devSubIds({ read = (f) => readFileSync(f, "utf8") } = {}) {
+  const one = (file) => {
+    let text = "";
+    try { text = String(read(file)); } catch { return null; }
+    for (const line of text.split("\n")) {
+      const [who, s, n] = line.trim().split(":");
+      if (who !== "dev" && who !== String(SBX_FILES)) continue;
+      const r = { start: Number(s), count: Number(n) };
+      if (fits(r)) return r;
+    }
+    return null;
+  };
+  return { u: one("/etc/subuid"), g: one("/etc/subgid") };
+}
+const fits = (r) => !!r && Number.isInteger(r.start) && Number.isInteger(r.count) && r.count > 0 && r.start > SBX_FILES && r.start + r.count <= SBX_RANGE;
+
+/**
+ * HOW DEV'S OWN FOLDERS ARE SHOWN (the chat's files, dev's home): dev as dev, and dev's
+ * extra ids as themselves; nothing else, so nothing in them can be made as the
+ * machine's admin, or as any other user of the machine.
+ */
+export function mineIdmap(sub = devSubIds()) {
+  const maps = ["b:" + SBX_FILES + ":" + (SBX_BASE + SBX_FILES) + ":1"];
+  for (const t of ["u", "g"]) if (sub && fits(sub[t])) maps.push(t + ":" + sub[t].start + ":" + (SBX_BASE + sub[t].start) + ":" + sub[t].count);
+  return "X-mount.idmap=" + maps.join(" ");
+}
 /** Root's folder for the sandbox's mounts (others may only pass through it). */
 export const SBX_DIR = "/run/coder-sbx";
 export const SBX_INIT = fileURLToPath(new URL("./coder-sandbox-init.sh", import.meta.url));
@@ -129,7 +164,7 @@ function childOf(pid) {
  * (the chat's files, dev's home), dev's inside and on disk. Answers
  * { pid, stop() }, or null when it could not be made.
  */
-export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir = SBX_DIR, run = spawnSync, readyMs = READY_MS } = {}) {
+export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir = SBX_DIR, run = spawnSync, readyMs = READY_MS, sub = devSubIds() } = {}) {
   if (typeof process.getuid === "function" && process.getuid() !== 0) return null;
   const lower = join(dir, "lower");
   if (!upper || !work || !mounted(lower, run)) return null;
@@ -142,14 +177,15 @@ export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir 
     mkdirSync(job, { recursive: true, mode: 0o711 });
     chmodSync(job, 0o711);
     const lines = [];
+    const idmap = mineIdmap(sub);
     binds.forEach((b, i) => {
       if (!b || typeof b.src !== "string" || !/^\/[\w./-]+$/.test(b.src) || !existsSync(b.src)) return;
       const at = join(job, String(i));
       mkdirSync(at, { recursive: true, mode: 0o755 });
       if (mounted(at, run)) run("umount", ["-l", at], { stdio: "ignore", timeout: 10000 });
       // `mine`: dev's files on disk are dev's inside, and what dev makes there stays dev's on disk. Only
-      // dev is mapped, so nothing in it can ever be made as the machine's real admin.
-      const opts = b.mine ? ["--bind", "-o", (b.mode === "ro" ? "ro," : "") + "X-mount.idmap=b:" + SBX_FILES + ":" + (SBX_BASE + SBX_FILES) + ":1"] : ["--bind", "-o", b.mode === "rw" ? "rw" : "ro"];
+      // dev (and its Docker's own ids) are mapped, so nothing in it can ever be made as the machine's real admin.
+      const opts = b.mine ? ["--bind", "-o", (b.mode === "ro" ? "ro," : "") + idmap] : ["--bind", "-o", b.mode === "rw" ? "rw" : "ro"];
       if (!ok(run("mount", [...opts, b.src, at], { stdio: "ignore", timeout: 30000 }))) throw new Error("could not show " + b.src);
       made.push(at);
       lines.push([at, b.src, b.mode === "rw" ? "rw" : "ro"].join("\t"));

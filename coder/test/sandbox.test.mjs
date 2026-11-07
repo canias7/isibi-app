@@ -44,7 +44,8 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
     chownSync(proj, 1001, 1001);
     writeFileSync(join(proj, "old.txt"), "dev's file\n"); chownSync(join(proj, "old.txt"), 1001, 1001);
     const logs = mkdtempSync("/var/tmp/coder-sbx-logs-"); chmodSync(logs, 0o755); writeFileSync(join(logs, "bg-1.log"), "a log\n");
-    box = await S.startSandbox({ ...up, ns: NS, dir, binds: [{ src: work, mode: "rw", mine: true }, { src: logs, mode: "ro" }] });
+    const sub = { u: { start: 165536, count: 65536 }, g: { start: 165536, count: 65536 } };
+    box = await S.startSandbox({ ...up, ns: NS, dir, sub, binds: [{ src: work, mode: "rw", mine: true }, { src: logs, mode: "ro" }] });
     assert.ok(box && box.pid > 1, "the sandbox started");
     const sh = (cmd) => inBox(box, proj, cmd);
 
@@ -63,6 +64,12 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
     assert.equal(statSync(join(proj, "new.txt")).uid, 1001);
     assert.notEqual((await sh("sudo -n touch made-by-admin.txt")).code, 0, "admin cannot make a file there (it would not be dev's)");
     assert.equal(existsSync(join(proj, "made-by-admin.txt")), false);
+    // Dev's own extra ids (its Docker's containers' users) can own files there, and are the same ids on disk; no other can.
+    assert.equal((await sh("sudo -n chown 166000:166000 new.txt && stat -c %u:%g new.txt")).out, "166000:166000");
+    assert.equal(statSync(join(proj, "new.txt")).uid, 166000, "on disk too");
+    for (const who of ["0", "5000", "1000", "231072"]) assert.notEqual((await sh("sudo -n chown " + who + " old.txt")).code, 0, "never " + who);
+    assert.equal(statSync(join(proj, "old.txt")).uid, 1001);
+    await sh("sudo -n chown 1001:1001 new.txt");
     // Read-only views stay read-only.
     assert.equal((await sh("cat " + join(logs, "bg-1.log"))).out, "a log");
     assert.notEqual((await sh("sudo -n sh -c 'echo x >> " + join(logs, "bg-1.log") + "'")).code, 0);
@@ -124,7 +131,20 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(init, /pivot_root \. \.coder-outside\ncd \/\numount -l \/\.coder-outside/);
   assert.match(init, /echo ready\nexec sleep infinity\n$/);
   const mod = readFileSync(new URL("../container/coder-sandbox.mjs", import.meta.url), "utf8");
-  assert.match(mod, /"X-mount\.idmap=b:" \+ SBX_FILES \+ ":" \+ \(SBX_BASE \+ SBX_FILES\) \+ ":1"/, "dev's files: only dev is mapped, never the machine's admin");
+  assert.match(mod, /const opts = b\.mine \? \["--bind", "-o", \(b\.mode === "ro" \? "ro," : ""\) \+ idmap\]/, "dev's folders, through mineIdmap");
+  // DEV'S FOLDERS: dev, and dev's own extra ids (its Docker's; GitHub's image check: "value too large"
+  // without them); never the machine's admin or another user.
+  const img = { u: { start: 165536, count: 65536 }, g: { start: 165536, count: 65536 } };
+  assert.equal(S.mineIdmap(img), "X-mount.idmap=b:1001:1001001:1 u:165536:1165536:65536 g:165536:1165536:65536");
+  assert.equal(S.mineIdmap({ u: null, g: null }), "X-mount.idmap=b:1001:1001001:1", "only dev, when dev has none");
+  for (const bad of [{ start: 0, count: 65536 }, { start: 1, count: 2000 }, { start: 1001, count: 1 }, { start: 200000, count: 65536 }, { start: 165536, count: 0 }, { start: "x", count: 5 }]) {
+    assert.equal(S.mineIdmap({ u: bad, g: bad }), "X-mount.idmap=b:1001:1001001:1", JSON.stringify(bad) + " is never mapped");
+  }
+  // Read from the image's own lists, by name or by number; another user's lines are not dev's.
+  const lists = { "/etc/subuid": "ubuntu:100000:65536\nroot:1000000:262144\ndev:165536:65536\n", "/etc/subgid": "ubuntu:100000:65536\n1001:165536:65536\n" };
+  assert.deepEqual(S.devSubIds({ read: (f) => lists[f] }), img);
+  assert.deepEqual(S.devSubIds({ read: () => "ubuntu:100000:65536\ndev:396608:65536\n" }), { u: null, g: null }, "a range past the sandbox's own ids is not used");
+  assert.deepEqual(S.devSubIds({ read: () => { throw new Error("none"); } }), { u: null, g: null });
   assert.match(mod, /"ro,X-mount\.idmap=b:0:" \+ SBX_BASE \+ ":" \+ SBX_RANGE/, "the base: read-only");
   // THE SERVICE.
   const s = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");

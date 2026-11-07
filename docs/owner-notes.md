@@ -9,6 +9,15 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Docker in the admin sandbox, second fix
+
+- GitHub's check ran again (run 42365082752). The id fix worked: Docker's engine got further. It then stopped because it could not make its own files in your chat's home folder ("value too large").
+- **Why:** inside the sandbox, your folders only showed Coder's own user. Docker gives the users in its containers ids of their own (165536 to 231071), and those were not shown.
+- **Fixed:** your folders in the sandbox now also show those Docker ids, the same ids as on disk. They still never show the machine's admin or any other user, so nothing in your folders can be made as admin.
+- **Tried for real before pushing:** on my own test machine, Docker failed the same way without the fix. With it, Docker started in the sandbox and ran a container.
+- Tests: CD148 checks which ids are shown and which never are. CD147 (the real one, as admin) checks that a Docker id can own a file in your folder, and that admin, user 1000 and others cannot. GitHub's check also confirms the image's Docker ids fit.
+- 159 tests pass. GitHub's check runs again with the push.
+
 ## 2026-11-07: The admin sandbox in Coder's real image: all passed but Docker; fixed
 
 - GitHub's check (run 42363852080) tried the sandbox in Coder's real image, made into a disk as on Fly.io.
