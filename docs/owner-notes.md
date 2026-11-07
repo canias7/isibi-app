@@ -9,6 +9,21 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Step 4 of 4: the master key's everyday jobs (on the branch, not deployed yet)
+
+- Your word: "ok go with the rest".
+- **What Coder can do now, mid-job, like Claude Code:**
+  - install any Ubuntu system program (`apt-get install`, also written `sudo apt-get install`), with no setup-script card and no restart;
+  - start, stop and restart any installed service;
+  - use ports 80 and 443 inside its own room.
+- **How:** Coder's commands may run exactly one program as admin. It checks every request:
+  - only package names, never an apt option (some apt options would run any command as admin);
+  - only installed services, and only start, stop, restart, reload or status.
+  - Anything else is refused with a plain message.
+- With a limited network, its downloads go through Coder's gate too, so your setting holds.
+- **Honest limit:** this is not the whole master key. Editing system files, or any other admin command, would need a full container system with the machine's disk mirrored for it. That's a multi-day job with real risk, so it's not done. Removing packages is also refused: removing something like git would quietly break how Coder saves your work.
+- Tests: the GitHub machine check installs a program as Coder's own user, starts Redis, serves on port 80 in the room, and checks that `sudo bash`, `apt-get remove`, a trick apt option and a sneaky service name are all refused (150 tests in all, plus 16 admin-only).
+
 ## 2026-11-07: Step 3 of 4: the sealed room, so your network setting is a real wall (on the branch, not deployed yet)
 
 - Your word: "ok go with the rest".

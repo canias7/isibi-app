@@ -31,7 +31,8 @@ const REFUSED = [
   [/\/proc\/[0-9a-z]+\/environ\b/, "it reads another process's secrets"],
   [/\bkill\s+-9\s+1\b|\bkill\s+(-[A-Z0-9]+\s+)?-1\b|\bpkill\s+(-[a-z0-9]+\s+)*node\b/, "it would stop Coder itself"],
   [/\b(chmod|chown)\s+(-R\s+)?[^ ]*\s+\/(\s|$)/, "it changes the whole machine's permissions"],
-  [/\b(sudo|su)\s/, "commands already run with the rights they need"],
+  // `sudo` reaches only the master key's checked jobs (step 4, tools/sudo); `su` stays refused.
+  [/\bsu\s/, "commands already run with the rights they need"],
 ];
 
 /** Why this command may not run ("" when it may). */

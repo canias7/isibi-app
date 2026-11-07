@@ -40,6 +40,10 @@ for (const mode of ["trusted", "none"]) {
   else want("with None, even npm is refused", npm.code !== 0 && npm.out !== "200", npm.out);
 }
 
+console.log("\n== Ports 80 and 443 in the room (step 4)");
+const port80 = await inRoom("python3 -m http.server 80 --bind 127.0.0.1 >/dev/null 2>&1 & sleep 1.5; curl -sS -m 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:80/; kill %1", env);
+want("a server on port 80, as Coder's own user, in the room", port80.out === "200", port80.out);
+
 console.log("\n== Network: full");
 px.setNetwork({ mode: "full" });
 want("the room's own internet link is up", await R.roomInternet(true), "slirp4netns");

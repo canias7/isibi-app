@@ -88,7 +88,7 @@ test("CD134 the image: Ubuntu 24.04 like Claude Code's machine; the small one by
     postgresql: /postgresql postgresql-contrib redis-server/, chrome: /chrome-for-testing\/last-known-good-versions-with-downloads\.json/,
     yq: /mikefarah\/yq\/v4/, everyday: /git-lfs tmux vim nano/,
     extras: /ffmpeg imagemagick poppler-utils pandoc strace lsof valgrind netcat-openbsd xvfb/, "python libraries": /numpy pandas openpyxl python-docx python-pptx pypdf pdfplumber reportlab markitdown requests pillow/,
-    playwright: /npm install -g --no-fund --no-audit playwright && npm cache clean --force; \\\n\s+PLAYWRIGHT_BROWSERS_PATH=\/opt\/pw-browsers playwright install --with-deps chromium/, "check-tools": /tools\/docker tools\/check-tools \/usr\/local\/bin\//,
+    playwright: /npm install -g --no-fund --no-audit playwright && npm cache clean --force; \\\n\s+PLAYWRIGHT_BROWSERS_PATH=\/opt\/pw-browsers playwright install --with-deps chromium/, "check-tools": /tools\/docker tools\/check-tools tools\/sudo \/usr\/local\/bin\//,
   };
   for (const [what, re] of Object.entries(want)) assert.match(what === "ruby" || what === "node 22" ? D : full, re, what);
   // Each download is checked against its maker's sum (Chrome's has none published).
@@ -107,26 +107,37 @@ test("CD134 the image: Ubuntu 24.04 like Claude Code's machine; the small one by
   assert.match(D, /rm -f \/etc\/apt\/sources\.list\.d\/docker\.list \/etc\/apt\/sources\.list\.d\/github-cli\.list; apt-get update/);
 });
 
-test("CD135 the databases start as on Claude Code's machine (`service postgresql start`), and sudo allows exactly that; Docker runs without admin rights", async () => {
-  const sudoers = read("container/tools/coder-services.sudoers").split("\n").filter((l) => l && !l.startsWith("#"));
-  assert.equal(sudoers.length, 1);
-  const allowed = sudoers[0].replace(/^dev ALL=\(root\) NOPASSWD: /, "").split(", ");
-  const want = ["postgresql", "redis-server"].flatMap((s) => ["start", "stop", "restart", "status"].map((a) => "/usr/sbin/service " + s + " " + a));
-  assert.deepEqual(allowed, want, "these eight commands, nothing else, no wildcards");
-  assert.doesNotMatch(sudoers[0], /\*|ALL\s*$|!/);
+test("CD135 the master key's jobs (step 4): sudo lets Coder's commands run one checked program as root, which installs Ubuntu packages and runs installed services, and refuses everything else; the databases start as on Claude Code's machine; Docker runs without admin rights", async () => {
+  const sudoers = read("container/tools/coder-admin.sudoers").split("\n").filter((l) => l && !l.startsWith("#"));
+  assert.deepEqual(sudoers, ["dev ALL=(root) NOPASSWD: /usr/local/sbin/coder-admin"], "one program, nothing else");
   const D = read("container/Dockerfile");
-  assert.match(D, /COPY --chmod=0440 tools\/coder-services\.sudoers \/etc\/sudoers\.d\/coder-services\nRUN set -eu; visudo -cf \/etc\/sudoers\.d\/coder-services;/);
+  assert.match(D, /COPY --chmod=0755 tools\/service tools\/coder-admin tools\/apt-get \/usr\/local\/sbin\/\nCOPY --chmod=0440 tools\/coder-admin\.sudoers \/etc\/sudoers\.d\/coder-admin\nRUN set -eu; visudo -cf \/etc\/sudoers\.d\/coder-admin; cp -p \/usr\/local\/sbin\/apt-get \/usr\/local\/sbin\/apt;/);
   assert.match(D, /printf 'local all all trust\\nhost all all 127\.0\.0\.1\/32 trust\\nhost all all ::1\/128 trust\\n' > \/etc\/postgresql\/16\/main\/pg_hba\.conf/);
   assert.match(D, /su postgres -c "createuser --superuser dev"/);
-  // The `service` command asks sudo for those eight only (tried with a stand-in sudo).
+  // THE CHECKED PROGRAM refuses, before apt or service is ever asked: not a package, an apt option that runs
+  // commands, no package, a service name that is a path, an unknown action, a service not installed, any other job.
+  const admin = HERE("container/tools/coder-admin").pathname;
+  const refused = (...args) => { try { execFileSync("bash", [admin, ...args], { stdio: "pipe", env: { PATH: "/usr/bin:/bin" } }); return false; } catch (e) { return e.status === 2; } };
+  for (const args of [["install", "../evil"], ["install", "-oAPT::Update::Pre-Invoke::=touch /tmp/x"], ["install", "-o", "Dpkg::Options::=--force-all", "jq"], ["install"], ["install", "-y"], ["install", "Jq;id"],
+    ["service", "../../bin/sh", "start"], ["service", "postgresql", "explode"], ["service", "no-such-service-here", "start"], ["remove", "git"], ["bash"], [], ["purge", "sudo"]]) assert.equal(refused(...args), true, JSON.stringify(args));
+  const A = read("container/tools/coder-admin");
+  assert.match(A, /^export PATH=\/usr\/sbin:\/usr\/bin:\/sbin:\/bin /m, "its own PATH, never the caller's");
+  assert.match(A, /exec apt-get "\$\{apt_opts\[@\]\}" install -y --no-install-recommends "\$\{pkgs\[@\]\}"/);
+  assert.match(A, /if \[\[ "\$proxy" =~ \^http:\/\/127\\\.0\\\.0\\\.1:\[0-9\]\{1,5\}\$ \]\]; then apt_opts=/, "apt through the gate when the network is limited");
+  // THE COMMANDS CODER TYPES pass only those jobs on (and as root, go straight to the real ones).
+  const S = read("container/tools/service"), G = read("container/tools/apt-get"), U = read("container/tools/sudo");
+  assert.match(S, /exec \/usr\/bin\/sudo -n \/usr\/local\/sbin\/coder-admin service "\$1" "\$2"/);
+  assert.match(G, /install\|update\)[\s\S]*exec \/usr\/bin\/sudo -n \/usr\/local\/sbin\/coder-admin "\$sub" "\$\{args\[@\]\}"/);
+  assert.match(G, /remove\|purge\|autoremove\|upgrade\|full-upgrade\|dist-upgrade/);
+  assert.match(U, /\[ "\$\(id -u\)" = 0 \] && exec \/usr\/bin\/sudo "\$@"/);
+  assert.match(U, /apt-get\|apt\|\/usr\/bin\/apt-get\|\/usr\/bin\/apt\) n=\$\(basename "\$1"\); shift; exec "\/usr\/local\/sbin\/\$n" "\$@"/);
   if (process.getuid() !== 0) {
-    const dir = await mkdtemp(join(tmpdir(), "coder-svc-"));
-    const log = join(dir, "sudo.log");
-    await writeFile(join(dir, "sudo"), "#!/bin/sh\necho \"$*\" >> " + log + "\n");
-    await chmod(join(dir, "sudo"), 0o755);
-    const run = (...args) => { try { execFileSync("sh", [HERE("container/tools/service").pathname, ...args], { env: { PATH: dir + ":/usr/bin:/bin" }, stdio: "ignore" }); } catch { /* the real service is not here */ } };
-    run("postgresql", "start"); run("redis-server", "status"); run("postgresql", "reload"); run("ssh", "start"); run("postgresql", "start", "--now");
-    assert.equal(await readFile(log, "utf8"), "-n /usr/sbin/service postgresql start\n-n /usr/sbin/service redis-server status\n");
+    // As an ordinary user (never as root here: these would then be real): refused before anything runs.
+    const no = (file, ...args) => { try { execFileSync("bash", [HERE("container/tools/" + file).pathname, ...args], { stdio: "pipe" }); return false; } catch (e) { return e.status === 2; } };
+    assert.equal(no("sudo", "bash", "-c", "id"), true, "sudo bash");
+    assert.equal(no("sudo", "-u", "postgres", "psql"), true, "sudo -u");
+    assert.equal(no("apt-get", "remove", "git"), true, "apt-get remove");
+    assert.equal(no("apt-get", "-y", "dist-upgrade"), true, "apt-get dist-upgrade");
   }
   // DOCKER: dev's own engine, started by the docker command; never admin's.
   const W = read("container/tools/docker");
@@ -155,7 +166,7 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   const T = read("test/machine-tools.sh");
   assert.match(T, /const \{ cleanEnv \} = await import\('\/app\/coder-checks\.mjs'\);/);
   assert.match(T, /setpriv --reuid=1001 --regid=1001 --clear-groups env -i/);
-  for (const s of ["Ruby 3.1, 3.2, 3.3", "Media and documents", "Playwright with its Chromium, from any folder", "Debugging tools", "Docker without admin rights", "PostgreSQL and Redis", "Chrome and chromedriver", "sudo allows the databases and nothing else", "Java, Maven, Gradle", "Rust", "Go"]) assert.ok(T.includes(s), s);
+  for (const s of ["Ruby 3.1, 3.2, 3.3", "Media and documents", "Playwright with its Chromium, from any folder", "Debugging tools", "Docker without admin rights", "PostgreSQL and Redis", "Chrome and chromedriver", "The master key's jobs (step 4)", "...and nothing else", "Java, Maven, Gradle", "Rust", "Go"]) assert.ok(T.includes(s), s);
   // CODER KNOWS ITS TOOLS on the full image.
   for (const w of ["Ubuntu 24.04", "check-tools", "Python 3.12", "uv", "poetry", "pytest", "Node 22", "/opt/node24/bin", "nvm install", "yarn", "pnpm", "bun", "Ruby 3.3", "rbenv local", "PHP 8.3", "Composer", "Java 21", "Maven", "Gradle", "Go.", "Rust", "clippy", "clang", "cmake", "gh (this machine has no GitHub login", "yq", "service postgresql start", "service redis-server start", "psql -d postgres", "Docker and docker compose work without admin rights", "/usr/bin/google-chrome", "--no-sandbox", "your home folder, never in the project", "Playwright", "require(\"playwright\")", "ffmpeg", "ImageMagick", "pdftotext", "pandoc", "pandas", "python-docx", "markitdown", "strace", "valgrind"]) assert.ok(MACHINE_TOOLS.includes(w), w);
   assert.match(read("container/server.mjs"), /const context = \(env\.CODER_IMAGE === "full" \? MACHINE_TOOLS \+ "\\n\\n" : ""\) \+ style \+ /);

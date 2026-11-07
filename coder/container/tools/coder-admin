@@ -1,0 +1,52 @@
+#!/bin/bash
+# THE MASTER KEY'S JOBS CODER MAY DO (owner, 2026-11-07, step 4 of: the Grok key
+# out, each machine its own lock key, a sealed room, the master key inside it).
+# Coder's commands run as `dev`; sudo lets `dev` run this one program as root
+# (/etc/sudoers.d/coder-admin), and it does only these jobs, each checked:
+#   coder-admin install [-y] [--no-install-recommends] PACKAGE[=VERSION]...   Ubuntu's packages
+#   coder-admin update                                                         the package lists
+#   coder-admin service NAME start|stop|restart|reload|status                  an installed service
+# The packages come only from Ubuntu's own lists, like the setup script's apt
+# lines (which Coder's service already runs as root). With a limited network,
+# apt goes through Coder's gate (the address the service writes in
+# /run/coder-gate/apt-proxy), so the network setting holds for it too.
+# The commands that call it: tools/apt-get (apt-get and apt), tools/service, tools/sudo.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8 DEBIAN_FRONTEND=noninteractive
+say() { echo "coder: $*" >&2; }
+what="${1:-}"
+[ "$#" -gt 0 ] && shift
+
+pkg_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9+.-]{0,99}(=[A-Za-z0-9.+~:-]{1,100})?$ ]]; }
+apt_opts=()
+proxy=$(cat /run/coder-gate/apt-proxy 2>/dev/null || true)
+if [[ "$proxy" =~ ^http://127\.0\.0\.1:[0-9]{1,5}$ ]]; then apt_opts=(-o "Acquire::http::Proxy=$proxy" -o "Acquire::https::Proxy=$proxy"); fi
+
+case "$what" in
+  install)
+    pkgs=()
+    for p in "$@"; do
+      case "$p" in -y|--yes|--no-install-recommends|-q|-qq|--quiet|--assume-yes) continue ;; esac
+      if ! pkg_ok "$p"; then say "not a package name: $p"; exit 2; fi
+      pkgs+=("$p")
+    done
+    if [ "${#pkgs[@]}" -eq 0 ]; then say "which package?"; exit 2; fi
+    # Fresh lists first (the image's may be days old), as the setup script does.
+    apt-get "${apt_opts[@]}" update -qq || say "the package lists could not all be updated; trying with what is here"
+    exec apt-get "${apt_opts[@]}" install -y --no-install-recommends "${pkgs[@]}"
+    ;;
+  update)
+    exec apt-get "${apt_opts[@]}" update
+    ;;
+  service)
+    svc="${1:-}" act="${2:-}"
+    if ! [[ "$svc" =~ ^[a-z0-9][a-z0-9.+_@-]{0,99}$ ]]; then say "not a service name: $svc"; exit 2; fi
+    case "$act" in start|stop|restart|reload|status) ;; *) say "a service can be: start, stop, restart, reload, status"; exit 2 ;; esac
+    if ! [ -x "/etc/init.d/$svc" ]; then say "no service named $svc is installed"; exit 2; fi
+    exec /usr/sbin/service "$svc" "$act"
+    ;;
+  *)
+    say "on Coder's machine the master key installs Ubuntu packages (apt-get install NAME) and runs installed services (service NAME start); nothing else (removing packages could break how Coder saves your work)"
+    exit 2
+    ;;
+esac

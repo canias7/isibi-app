@@ -202,6 +202,20 @@ the list is then only a guard. `test/room.test.mjs` tries the room for real as
 root (the deploy runs it), and the GitHub machine check tries it in the full
 image with the real gate and real websites (`test/room-check.mjs`).
 
+**The master key's jobs** (owner, 2026-11-07, step 4). Coder's commands install
+any Ubuntu package mid-job (`apt-get install`, `apt install`, `sudo apt-get
+install`) and run any installed service (`service NAME start`), as on Claude
+Code's machine, and use ports 80 and 443 in their room (the room's own
+`ip_unprivileged_port_start`). sudo lets `dev` run one program as root,
+`container/tools/coder-admin` (`tools/coder-admin.sudoers`), which checks each
+request (package names only, never an apt option; a service that is installed;
+start, stop, restart, reload, status) and does nothing else; with a limited
+network its apt goes through the gate (`gateForApt`, `/run/coder-gate/apt-proxy`).
+`tools/apt-get` (also `apt`), `tools/service` and `tools/sudo` pass only those
+jobs on, and refuse the rest plainly. The whole master key (editing system
+files, any `sudo`) would need a full container system with the machine's disk
+mirrored for it; not done.
+
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's
 folder and hands only that folder to `dev`, and refuses to work in a project

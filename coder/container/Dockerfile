@@ -187,20 +187,24 @@ RUN set -eu; mkdir -p /opt/rbenv/versions; for v in 3.1.6 3.2.6 3.3.6; do ln -s 
     echo 3.3.6 > /opt/rbenv/version; RBENV_ROOT=/opt/rbenv rbenv rehash; \
     chown -R dev:dev /opt/rbenv /opt/ruby-3.1.6 /opt/ruby-3.2.6 /opt/ruby-3.3.6
 
-# The databases, installed and not running, as on Claude Code's machine.
-# PostgreSQL lets this machine's own users in without a password, and `dev`
-# may make databases. Coder's commands start them with `service postgresql
-# start` and `service redis-server start` (tools/service, through sudo, which
-# allows exactly that: tools/coder-services.sudoers).
-COPY --chmod=0755 tools/service /usr/local/sbin/service
-COPY --chmod=0440 tools/coder-services.sudoers /etc/sudoers.d/coder-services
-RUN set -eu; visudo -cf /etc/sudoers.d/coder-services; \
+# THE MASTER KEY'S JOBS (owner, 2026-11-07, step 4): Coder's commands install
+# Ubuntu packages mid-job (`apt-get install`, `apt install`, `sudo apt-get
+# install`) and run any installed service (`service NAME start`), as on Claude
+# Code's machine. sudo lets `dev` run one program as root, tools/coder-admin,
+# which checks each request and does nothing else (tools/coder-admin.sudoers);
+# tools/apt-get (also `apt`), tools/service and tools/sudo pass those jobs to it.
+# The databases are installed and not running, as on Claude Code's machine;
+# PostgreSQL lets this machine's own users in without a password, and `dev` may
+# make databases.
+COPY --chmod=0755 tools/service tools/coder-admin tools/apt-get /usr/local/sbin/
+COPY --chmod=0440 tools/coder-admin.sudoers /etc/sudoers.d/coder-admin
+RUN set -eu; visudo -cf /etc/sudoers.d/coder-admin; cp -p /usr/local/sbin/apt-get /usr/local/sbin/apt; \
     printf 'local all all trust\nhost all all 127.0.0.1/32 trust\nhost all all ::1/128 trust\n' > /etc/postgresql/16/main/pg_hba.conf; \
     /usr/sbin/service postgresql start; su postgres -c "createuser --superuser dev"; /usr/sbin/service postgresql stop
 
 # Docker without admin rights: dev's own range of user ids for the engine's
 # containers, and the `docker` command that starts dev's engine when needed.
-COPY --chmod=0755 tools/docker tools/check-tools /usr/local/bin/
+COPY --chmod=0755 tools/docker tools/check-tools tools/sudo /usr/local/bin/
 RUN set -eu; \
     grep -q '^dev:' /etc/subuid || echo 'dev:100000:65536' >> /etc/subuid; \
     grep -q '^dev:' /etc/subgid || echo 'dev:100000:65536' >> /etc/subgid

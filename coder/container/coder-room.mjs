@@ -19,7 +19,7 @@
 // Like Claude Code, where every request leaves the session's VM through
 // Anthropic's proxy, outside the session's reach.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, chmodSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, chmodSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
 
@@ -40,7 +40,25 @@ export function makeRoom({ ns = ROOM_NS, name = ROOM } = {}) {
   const ip = (args) => spawnSync("ip", args, { stdio: "ignore", timeout: 10000 }).status === 0;
   if (!ip(["netns", "add", name])) return false;
   if (!ip(["-n", name, "link", "set", "lo", "up"])) { ip(["netns", "del", name]); return false; }
+  // PORTS 80 AND 443 IN THE ROOM (step 4, the master key's jobs): any port may be
+  // used inside the room (this setting is the room's own, not the machine's).
+  spawnSync("nsenter", ["--net=" + ns, "--", "sysctl", "-qw", "net.ipv4.ip_unprivileged_port_start=0"], { stdio: "ignore", timeout: 10000 });
   return existsSync(ns);
+}
+
+/**
+ * WHERE apt GOES (step 4): with a limited network, the master key's package
+ * installs (tools/coder-admin, as root) go through the gate too; the service
+ * writes its address here, and takes it away for Full access.
+ */
+export function gateForApt(address, { dir = GATE_DIR } = {}) {
+  const f = dir + "/apt-proxy";
+  try {
+    if (!address) { rmSync(f, { force: true }); return; }
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmodSync(dir, 0o700);
+    writeFileSync(f, String(address), { mode: 0o600 });
+  } catch { /* a test, or a machine without /run: apt goes as it can */ }
 }
 
 /** `nsenter`'s arguments to run `command` in the room as the AI's user (who has no rights over the room's network). */

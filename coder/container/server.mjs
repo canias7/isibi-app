@@ -28,7 +28,7 @@ import { runCoder, MACHINE_TOOLS } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
-import { makeRoom, roomArgs, roomGate, roomInternet } from "./coder-room.mjs";
+import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt } from "./coder-room.mjs";
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
@@ -1182,6 +1182,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (!secretList.length && !net.limited && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
     if (!net.limited) t.room = await enterRoom(px, false);
+    // The master key's package installs (step 4) go through the gate when the network is limited.
+    if (room) gateForApt(net.limited && px ? "http://127.0.0.1:" + px.port : "");
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
     let setupFailed = null, setupRan = false;
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
@@ -1352,7 +1354,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
           if (!list.length && !net.limited && proxyP) { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); }
           // The room follows at once: its internet link only with Full access, the pipe to the gate whenever the gate runs.
-          if (room && Number.isInteger(RUN_UID)) t.room = await enterRoom(list.length || net.limited ? await proxyFor() : null, net.limited);
+          if (room && Number.isInteger(RUN_UID)) {
+            const gate = list.length || net.limited ? await proxyFor() : null;
+            t.room = await enterRoom(gate, net.limited);
+            gateForApt(net.limited && gate ? "http://127.0.0.1:" + gate.port : "");
+          }
         } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
         t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Trusted", full: "Full", custom: "Custom" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
         return send(200, { ok: true, applied: true });

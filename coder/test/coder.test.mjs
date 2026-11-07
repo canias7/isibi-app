@@ -24,8 +24,9 @@ const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: a
 
 // ── THE CHECKS ───────────────────────────────────────────────────────────────
 test("CD1 dangerous commands are refused with the reason; ordinary ones run", () => {
-  for (const c of ["rm -rf /", "rm -rf ~", "rm -rf ../other", ":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "sudo apt install x", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
-  for (const c of ["ls -la", "rm -rf node_modules", "cat src/App.jsx", "npm test", "grep -rn useState src", "rm -rf ./dist"]) assert.equal(commandProblem(c), "", c);
+  for (const c of ["rm -rf /", "rm -rf ~", "rm -rf ../other", ":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
+  // `sudo` reaches only the master key's checked jobs (step 4, 2026-11-07): the machine's own sudo command checks it.
+  for (const c of ["ls -la", "rm -rf node_modules", "cat src/App.jsx", "npm test", "grep -rn useState src", "rm -rf ./dist", "sudo apt-get install -y jq"]) assert.equal(commandProblem(c), "", c);
   assert.match(commandProblem(""), /empty/);
   assert.match(commandProblem("x".repeat(9000)), /over 8000/);
 });

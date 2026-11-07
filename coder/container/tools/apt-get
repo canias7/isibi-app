@@ -1,0 +1,29 @@
+#!/bin/bash
+# INSTALLING UBUNTU PACKAGES MID-JOB (owner, 2026-11-07; step 4: the master
+# key's jobs), as on Claude Code's machine, where every command runs as admin.
+# Installed as both `apt-get` and `apt` (in /usr/local/sbin, before the real
+# ones). For Coder's commands (`dev`): `install` and `update` go to the one
+# checked program that may do them as root (tools/coder-admin, through sudo);
+# reading commands (search, show, list, policy...) run as they are. Root's own
+# calls (the setup script's apt lines) go straight to the real one.
+name=$(basename "$0")
+real=/usr/bin/$name
+[ "$(id -u)" = 0 ] && exec "$real" "$@"
+sub=""
+for a in "$@"; do case "$a" in -*) ;; *) sub=$a; break ;; esac; done
+case "$sub" in
+  install|update)
+    args=()
+    seen=0
+    for a in "$@"; do
+      if [ "$seen" = 0 ] && [ "$a" = "$sub" ]; then seen=1; continue; fi
+      args+=("$a")
+    done
+    exec /usr/bin/sudo -n /usr/local/sbin/coder-admin "$sub" "${args[@]}"
+    ;;
+  remove|purge|autoremove|upgrade|full-upgrade|dist-upgrade|edit-sources|clean|autoclean|build-dep|source)
+    echo "coder: '$name $sub' needs the master key, which on Coder's machine installs packages and runs services, nothing else" >&2
+    exit 2
+    ;;
+esac
+exec "$real" "$@"

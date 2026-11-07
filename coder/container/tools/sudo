@@ -1,0 +1,20 @@
+#!/bin/bash
+# `sudo` ON CODER'S MACHINE (owner, 2026-11-07; step 4: the master key's jobs).
+# Install steps often say `sudo apt-get install ...` or `sudo service ... start`:
+# for Coder's commands those go to the commands that do them with the master key
+# (tools/apt-get, tools/service, each through the one checked program). Anything
+# else is refused, said plainly. Root's own calls go to the real sudo.
+[ "$(id -u)" = 0 ] && exec /usr/bin/sudo "$@"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -n|-E|-H|-S|-k|--non-interactive|--preserve-env|--preserve-env=*|--set-home|--) shift ;;
+    -*) echo "coder: sudo $1 is not available on Coder's machine" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+case "${1:-}" in
+  apt-get|apt|/usr/bin/apt-get|/usr/bin/apt) n=$(basename "$1"); shift; exec "/usr/local/sbin/$n" "$@" ;;
+  service|/usr/sbin/service) shift; exec /usr/local/sbin/service "$@" ;;
+esac
+echo "coder: on Coder's machine the master key installs packages (sudo apt-get install NAME) and runs services (sudo service NAME start); nothing else. For PostgreSQL as its admin: psql -U postgres" >&2
+exit 2
