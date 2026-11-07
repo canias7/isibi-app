@@ -9,7 +9,26 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
-## 2026-11-07: The sealed room after a restart, and the whole 20 GB system disk (on the branch, not deployed yet)
+## 2026-11-07: The fifth test: the sealed room works live; the disk grow missed its disk (fix on the branch, not deployed yet)
+
+- Your comment at 09:17 was answered at 09:21, after the new image's first download.
+- **The room works on Fly.io now:**
+  - Coder's commands see only their own loopback and `tap0`, not the machine's `eth0`.
+  - The room is real (`nsfs`).
+  - `tap0` is the room's own internet link, which Coder only adds for the **Full** network setting. So this chat's environment is set to Full, and the direct request's 200 is right.
+  - Under Trusted or None there is no `tap0` (GitHub's check showed 000 in the real image). To see it live, set testingforclaude's network to Trusted.
+- **The disk still showed 7.8 GB.** Your next comment (09:24) showed why: Fly.io names that disk `/dev/vdb[/upper]` (a folder on the disk), and Coder's start-up step expected exactly `/dev/vdb`. It took that for "no disk to grow" and did nothing. The disk is 20 GB, ext4, and resize2fs is installed.
+- **The fix:** read the disk's name without the folder (`findmnt --nofsroot`, and anything in brackets dropped), and write what it did in the machine's log.
+  - Tried here on a test disk mounted the same way. This sandbox refuses the grow itself because it lacks one admin right, `CAP_SYS_RESOURCE`, which Fly.io's machines should have. The next test checks that right on the machine too.
+- Test: CD146 now uses Fly.io's own way of naming the disk. 155 pass.
+
+## 2026-11-07: Deployed: the sealed room after a restart, and the whole 20 GB system disk
+
+- Your word: "merge and deploy". Main 1056ea0c, run 42357874840, every step passing, the machine image rebuilt and sent to Fly.io.
+- **Live checks:** the site answers, the app refuses anyone not signed in, and the Grok address refuses a request with no pass.
+- **Next:** your test comment. The first start fetches the new image, so it may take a few minutes.
+
+## 2026-11-07: The sealed room after a restart, and the whole 20 GB system disk (now deployed)
 
 - Your fourth comment (08:42) confirmed both causes:
   - `/run/netns/coder-room` was a plain file left on the kept disk, made at 08:21. The machine had restarted at 08:33, so the room was gone. No gate relay was running.
