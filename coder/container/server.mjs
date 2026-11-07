@@ -30,7 +30,7 @@ import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt } from "./coder-room.mjs";
-import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs } from "./coder-sandbox.mjs";
+import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy } from "./coder-sandbox.mjs";
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
@@ -1188,15 +1188,17 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // machine image under its own layer on the chat's kept disk (`data`, one per Coder version `image`),
   // with the chat's files and dev's home as dev's, and, read-only, the git folders, the background logs
   // and the gate's certificates. Null (commands as before) when this machine cannot have one.
-  let lowerOk = null;
+  let lowerOk = null, saidWhy = "";
+  // Without one, why goes in the machine's log (once for each reason; Fly.io keeps the log).
+  const noBox = (w) => { if (w && w !== saidWhy) { saidWhy = w; console.log("coder: no admin sandbox (" + w + "); commands run as before"); } return null; };
   const openBox = async () => {
     if (!sandbox || !data) return null;
     if (lowerOk === null) lowerOk = makeLower({ base: sandboxBase() });
-    if (!lowerOk) return null;
+    if (!lowerOk) return noBox(sandboxWhy() || "no base for its system");
     const up = makeUpper({ data, image });
-    if (!up) return null;
+    if (!up) return noBox("no layer of its own on the kept disk");
     const binds = [{ src: root, mode: "rw", mine: true }, ...(home ? [{ src: home, mode: "rw", mine: true }] : []), { src: memRoot, mode: "rw", mine: true }, { src: gitRoot, mode: "ro" }, { src: bgRoot, mode: "ro" }, { src: proxyDir, mode: "ro" }];
-    return startSandbox({ ...up, binds });
+    return (await startSandbox({ ...up, binds })) || noBox(sandboxWhy());
   };
   async function startTurn(body) {
     const project = String(body.project || "");

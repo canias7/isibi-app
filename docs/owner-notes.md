@@ -9,6 +9,14 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Merged; the deploy stopped at its safety step (nothing went live)
+
+- Your word: "Ok merge and deploy". Merged to main (b90fe422) and pressed deploy (run 42396319230).
+- **The deploy stopped before building or sending anything,** at its own safety step: the admin sandbox's real test (CD147), run as admin on GitHub's own machine. The sandbox did not start there, but it does on my test machine and inside Coder's image (GitHub's image check, all passed).
+- The sandbox code did not say why. Now it does: the reason goes into the test's message and into the machine's log on Fly.io ("no admin sandbox (…)").
+- GitHub's image check now also runs the deploy's admin tests on GitHub's own machine, first thing. A branch learns about a failure like this in minutes, before any merge.
+- Next: read the reason from that check, fix it, then deploy again.
+
 ## 2026-11-07: Docker in the admin sandbox, fourth fix: two sites missing from Trusted
 
 - GitHub's check ran again (run 42368272165). Docker's engine reached the gate and began downloading, but the gate refused one site: `production.cloudfront.docker.com`. Docker Hub now keeps its image files there.

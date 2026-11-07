@@ -15,6 +15,9 @@ on:
       - "coder/test/machine-tools.sh"
       - "coder/test/room-check.mjs"
       - "coder/test/sandbox-check.mjs"
+      - "coder/test/sandbox.test.mjs"
+      - "coder/test/room.test.mjs"
+      - "coder/test/root-safety.test.mjs"
       - ".github/workflows/check-coder-image.yml"
   workflow_dispatch:
 
@@ -27,6 +30,19 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # THE DEPLOY'S ADMIN TESTS, ON GITHUB'S OWN MACHINE, AS THE DEPLOY RUNS THEM (deploy,
+      # 2026-11-07: the admin sandbox passed in Coder's image below but not there, which only
+      # the deploy found). First, so a branch learns it in minutes, before any merge.
+      - name: The deploy's admin tests, on GitHub's own machine (as root)
+        working-directory: coder
+        run: |
+          npm ci --no-audit --no-fund
+          command -v newuidmap >/dev/null || sudo apt-get install -y -qq uidmap >/dev/null
+          sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs test/room.test.mjs test/sandbox.test.mjs
 
       - name: Make room for the full image
         run: |
