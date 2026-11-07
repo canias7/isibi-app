@@ -30,3 +30,16 @@ test("CD139 each machine's lock key is an HMAC of its own Fly name under Coder's
   assert.equal(cfg.env.CODER_CONTROL_KEY, ka);
   assert.equal(JSON.stringify(cfg).includes(TKEY), false, "never Coder's secret itself");
 });
+
+test("CD142 a machine being made or updated (which first fetches Coder's 6.9 GB image) is given 5 minutes to answer; a plain wake 1 minute; a job counts as lost only after 8", async () => {
+  const { readFileSync } = await import("node:fs");
+  const R = await import("../src/coder-routes.mjs");
+  assert.equal(F.FLY_WAKE_MS, 60 * 1000);
+  assert.equal(F.FLY_PULL_MS, 5 * 60 * 1000);
+  assert.equal(R.START_GRACE_MS, 8 * 60 * 1000);
+  assert.ok(R.START_GRACE_MS > F.FLY_PULL_MS, "a start is never counted lost while its machine may still be fetching the image");
+  const src = readFileSync(new URL("../src/coder-fly.mjs", import.meta.url), "utf8");
+  assert.match(src, /await writeRec\(bucket, names\.key, rec\);\n\s+await untilAnswers\(env, rec\.id, deps, FLY_PULL_MS\);\n\s+return \{ rec \};/, "a new machine");
+  assert.match(src, /if \(u\.ok\) \{ rec = \{ \.\.\.rec, image: s\.image, lock: 2 \}; pulled = true; \}/);
+  assert.match(src, /await untilAnswers\(env, rec\.id, deps, pulled \? FLY_PULL_MS : FLY_WAKE_MS\);/, "an updated one; a plain wake as before");
+});

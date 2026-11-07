@@ -241,7 +241,7 @@ test("CD123 closing the tab while the machine sets up (clone, setup script) lose
   assert.equal(JSON.parse(bucket.m.get(mk)).status, "running");
   await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), at: Date.now() - R.START_GRACE_MS - 1000 }));
   assert.equal((await (await go("projects/" + id + "/state?since=0")).json()).running, false, "after 3 minutes it is");
-  assert.equal(R.START_GRACE_MS, 3 * 60 * 1000);
+  assert.equal(R.START_GRACE_MS, 8 * 60 * 1000, "8 minutes: a new or updated machine first fetches Coder's image (up to 5 minutes, FLY_PULL_MS)");
   // STOP PRESSED WHILE THE MACHINE SET UP: the chat is freed, and the machine is told to stop the job it then started.
   answer = async () => { await go("projects/" + id + "/stop", { method: "POST", body: "{}" }); return Response.json({ ok: true }); };
   seen.length = 0;

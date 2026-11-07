@@ -28,6 +28,12 @@ export const FLY_IDLE_MS = 10 * 60 * 1000;
 export const FLY_RECLAIM_MS = 30 * 24 * 60 * 60 * 1000;
 /** How long a waking machine has to answer. */
 export const FLY_WAKE_MS = 60 * 1000;
+/**
+ * How long a machine being made or updated has to answer: Fly.io first fetches
+ * Coder's image, which with all of Claude Code's tools is about 6.9 GB (owner,
+ * 2026-11-07). A plain wake keeps FLY_WAKE_MS.
+ */
+export const FLY_PULL_MS = 5 * 60 * 1000;
 /** A machine or disk no chat knows is removed once it is this old (it may still be being made). */
 export const FLY_ORPHAN_MS = 60 * 60 * 1000;
 const RECORDS = "coder/fly-machines/";
@@ -160,8 +166,8 @@ export async function viaFly(env, machineId, req, body, fetchFn = fetch) {
 }
 
 /** Until the machine answers (a stopped Fly machine starts "well under a second"; Coder's service then starts). */
-async function untilAnswers(env, id, { fetchFn, sleep, now }) {
-  const until = now() + FLY_WAKE_MS;
+async function untilAnswers(env, id, { fetchFn, sleep, now }, waitMs = FLY_WAKE_MS) {
+  const until = now() + waitMs;
   while (now() < until) {
     const h = await viaFly(env, id, new Request("http://coder/health"), undefined, fetchFn);
     if (h && h.ok) return true;
@@ -184,7 +190,7 @@ async function makeMachine(env, bucket, names, deps) {
   }
   const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, lock: 2, at: deps.now(), used: deps.now(), stopped: false };
   await writeRec(bucket, names.key, rec);
-  await untilAnswers(env, rec.id, deps);
+  await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec };
 }
 
@@ -198,18 +204,19 @@ async function wakeMachine(env, bucket, names, rec, deps) {
   const m = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, deps);
   if (m.status === 404) { await bucket.delete(names.key); return null; }
   const state = m.data && m.data.state;
+  let pulled = false;
   if (state !== "started" && state !== "starting") {
     if (rec.image !== s.image) {
       // Updated, it gets its own lock key too (step 2).
       const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
       const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { ...o, lock }) }, ...deps }));
-      if (u.ok) rec = { ...rec, image: s.image, lock: 2 };
+      if (u.ok) { rec = { ...rec, image: s.image, lock: 2 }; pulled = true; }
       else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
     } else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
   }
   rec = { ...rec, stopped: false, used: deps.now() };
   await writeRec(bucket, names.key, rec);
-  await untilAnswers(env, rec.id, deps);
+  await untilAnswers(env, rec.id, deps, pulled ? FLY_PULL_MS : FLY_WAKE_MS);
   return rec;
 }
 

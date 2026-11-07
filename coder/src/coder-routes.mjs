@@ -209,8 +209,11 @@ export async function listChats(bucket, uid) {
 }
 /** How long a chat may say "working" with no machine answering before it is freed. */
 export const STALE_MS = 15 * 60 * 1000;
-/** A job is marked running before its machine is handed it; for this long, a machine without it is still waking up, not lost. */
-export const START_GRACE_MS = 3 * 60 * 1000;
+/**
+ * A job is marked running before its machine is handed it; for this long, a machine without it is still waking up, not lost.
+ * 8 minutes: a machine being made or updated first fetches Coder's image (up to FLY_PULL_MS, 5 minutes), then sets up.
+ */
+export const START_GRACE_MS = 8 * 60 * 1000;
 /** How much conversation Coder keeps (the audit): the oldest is dropped first, starting again at a message from the user. */
 export const HISTORY_MAX = 400 * 1024;
 export function capHistory(messages, max = HISTORY_MAX) {

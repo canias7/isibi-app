@@ -9,6 +9,13 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Before deploying: the first start after the deploy is given time to fetch the big image
+
+- Your word: "merge and deploy".
+- Coder gave a machine 60 seconds to answer. A machine being made or updated first fetches the new image, about 6.9 GB, which can take longer. So the first chat after the deploy could have failed with "did not answer".
+- Now a machine being made or updated gets 5 minutes, and a plain wake still gets 1 minute. A job counts as lost only after 8 minutes, so a start is never given up on while its machine may still be fetching.
+- Test: CD142 (151 in all, plus 16 admin-only).
+
 ## 2026-11-07: Step 4 of 4: the master key's everyday jobs (on the branch, not deployed yet)
 
 - Your word: "ok go with the rest".
