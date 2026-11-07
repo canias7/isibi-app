@@ -196,3 +196,13 @@ test("CD154 the docker command sends its engine's downloads to Coder's gate wher
   // No gate (Full access): nothing set.
   assert.equal(run(today, {}), "|||", "no gate, no change");
 });
+
+test("CD155 the Trusted list has Docker Hub's both download sites and gcloud.google.com, as Claude Code's does (GitHub's image check, 2026-11-07: Docker's image files now come from production.cloudfront.docker.com, which the gate refused)", async () => {
+  const { hostAllowed, normNetwork, DEFAULT_HOSTS } = await import("../container/coder-secrets.mjs");
+  const trusted = normNetwork({ mode: "trusted" });
+  for (const h of ["registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com", "production.cloudfront.docker.com", "gcloud.google.com"]) {
+    assert.ok(DEFAULT_HOSTS.includes(h), h);
+    assert.equal(hostAllowed(h, trusted), true, h + " through the gate");
+  }
+  assert.equal(hostAllowed("evil.cloudfront.net", trusted), false);
+});

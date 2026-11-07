@@ -34,9 +34,9 @@ export const DEFAULT_HOSTS = [
   // version control
   "github.com", "api.github.com", "npm.pkg.github.com", "raw.githubusercontent.com", "pkg-npm.githubusercontent.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com", "codeload.github.com", "avatars.githubusercontent.com", "camo.githubusercontent.com", "gist.github.com", "gitlab.com", "registry.gitlab.com", "bitbucket.org", "api.bitbucket.org",
   // container registries
-  "registry-1.docker.io", "auth.docker.io", "index.docker.io", "hub.docker.com", "download.docker.com", "www.docker.com", "production.cloudflare.docker.com", "gcr.io", "*.gcr.io", "ghcr.io", "mcr.microsoft.com", "*.data.mcr.microsoft.com", "public.ecr.aws",
+  "registry-1.docker.io", "auth.docker.io", "index.docker.io", "hub.docker.com", "download.docker.com", "www.docker.com", "production.cloudflare.docker.com", "production.cloudfront.docker.com", "gcr.io", "*.gcr.io", "ghcr.io", "mcr.microsoft.com", "*.data.mcr.microsoft.com", "public.ecr.aws",
   // cloud platforms
-  "cloud.google.com", "accounts.google.com", "*.googleapis.com", "azure.com", "portal.azure.com", "microsoft.com", "www.microsoft.com", "*.microsoftonline.com", "packages.microsoft.com", "dotnet.microsoft.com", "dot.net", "visualstudio.com", "dev.azure.com", "*.amazonaws.com", "*.api.aws", "oracle.com", "www.oracle.com", "java.com", "java.net", "download.oracle.com", "yum.oracle.com", "*.r2.cloudflarestorage.com",
+  "cloud.google.com", "gcloud.google.com", "accounts.google.com", "*.googleapis.com", "azure.com", "portal.azure.com", "microsoft.com", "www.microsoft.com", "*.microsoftonline.com", "packages.microsoft.com", "dotnet.microsoft.com", "dot.net", "visualstudio.com", "dev.azure.com", "*.amazonaws.com", "*.api.aws", "oracle.com", "www.oracle.com", "java.com", "java.net", "download.oracle.com", "yum.oracle.com", "*.r2.cloudflarestorage.com",
   // JavaScript
   "registry.npmjs.org", "npmjs.com", "www.npmjs.com", "npmjs.org", "yarnpkg.com", "registry.yarnpkg.com", "jsr.io", "npm.jsr.io",
   // Python

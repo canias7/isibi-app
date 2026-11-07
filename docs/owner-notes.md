@@ -9,6 +9,13 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Docker in the admin sandbox, fourth fix: two sites missing from Trusted
+
+- GitHub's check ran again (run 42368272165). Docker's engine reached the gate and began downloading, but the gate refused one site: `production.cloudfront.docker.com`. Docker Hub now keeps its image files there.
+- Claude Code's default list has that site, and also `gcloud.google.com`. Ours didn't: two sites were missed when the list was copied on 2026-11-06. Both are added now. Test CD155 checks them.
+- Comparing the two lists again found 42 differences in all. Besides these two, they are the "www." versions of about 30 sites (your item 6 on the list) and Claude's own sites (claude.ai, anthropic.com, its API and docs). Those wait for item 6, as you asked to go one by one.
+- GitHub's check runs again with the push.
+
 ## 2026-11-07: The setup's saved copy, per environment (like Claude Code's cache)
 
 - Your word: "ok start", for item 1 of the comparison list (Coder's setup was saved per chat, not per environment).
