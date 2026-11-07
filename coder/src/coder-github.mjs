@@ -142,7 +142,10 @@ export async function gh(token, path, { method = "GET", body = null, fetchFn = f
   return { ok: r.ok, status: r.status, data: j };
 }
 
-/** The repositories this user let Coder use (through the app's installations): `[{ repo, branch, private }]`. */
+/**
+ * The repositories this user let Coder use (through the app's installations): `[{ repo, branch, private,
+ * readOnly? }]`. `readOnly`: GitHub says this user may read it but not push to it (owner item 5).
+ */
 export async function listRepos(token, fetchFn = fetch) {
   const inst = await gh(token, "/user/installations?per_page=100", { fetchFn });
   if (!inst.ok) throw new Error("GitHub would not list the installations: " + inst.status);
@@ -150,9 +153,39 @@ export async function listRepos(token, fetchFn = fetch) {
   for (const i of (inst.data && inst.data.installations) || []) {
     const r = await gh(token, "/user/installations/" + i.id + "/repositories?per_page=100", { fetchFn });
     if (!r.ok) continue;
-    for (const x of (r.data && r.data.repositories) || []) out.push({ repo: x.full_name, branch: x.default_branch || "main", private: !!x.private });
+    for (const x of (r.data && r.data.repositories) || []) out.push({ repo: x.full_name, branch: x.default_branch || "main", private: !!x.private, ...(x.permissions && x.permissions.push === false ? { readOnly: true } : {}) });
   }
   return out;
+}
+
+/** GitHub's API with no login: what anyone may read (a public repository). */
+export async function ghPublic(path, { fetchFn = fetch } = {}) {
+  const r = await fetchFn(GITHUB_API + path, { headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "gofarther-coder" } });
+  const j = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, data: j };
+}
+
+/**
+ * A READ, AS THE USER, OR AS ANYONE FOR A PUBLIC REPOSITORY (owner item 5, like Claude Code: "a session can
+ * clone any public repository"): GitHub may keep a public repository the app is not installed on from the
+ * user's login; then it is read with no login at all.
+ */
+export async function ghRead(token, path, { fetchFn = fetch } = {}) {
+  const r = await gh(token, path, { fetchFn });
+  if (r.ok || ![401, 403, 404].includes(r.status)) return r;
+  const p = await ghPublic(path, { fetchFn });
+  return p.ok ? p : r;
+}
+
+/**
+ * WHAT THIS USER MAY DO WITH A REPOSITORY (owner item 5): `{ ok, data, readOnly }`. Like Claude Code, any
+ * public repository, and any other GitHub shows them, can be worked on; only one they may push to gets
+ * Coder's work sent back (its branch, pull requests). `ok: false`: GitHub shows them no such repository.
+ */
+export async function repoAccess(token, repo, { fetchFn = fetch } = {}) {
+  const r = await ghRead(token, "/repos/" + repo, { fetchFn });
+  if (!r.ok || !r.data || typeof r.data !== "object") return { ok: false, status: r.status };
+  return { ok: true, data: r.data, readOnly: !(r.data.permissions && r.data.permissions.push === true) };
 }
 
 /** The pull request for `head` into `base`: opened, or the one already open. `{ url, number }` or null. */

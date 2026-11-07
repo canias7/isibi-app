@@ -26,7 +26,8 @@ function createWindow() {
     minWidth: 380, minHeight: 520,
     title: "Go Farther", backgroundColor: "#faf9f7", show: false,
     autoHideMenuBar: process.platform !== "darwin",
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
+    // backgroundThrottling off: a minimized window still watches the chats for Coder's notifications (owner item 8).
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true, backgroundThrottling: false },
   });
   win.once("ready-to-show", () => { if (st.maximized) win.maximize(); win.show(); });
   win.on("close", () => { try { fs.writeFileSync(stateFile(), JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() })); } catch { /* not saved */ } });

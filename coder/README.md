@@ -196,6 +196,47 @@ and pushes of anything other than a branch"). Every command the AI runs is
 started as the unprivileged `dev` user, with no secrets in its environment.
 A test's machine (no `gitVia`) still uses its own remote.
 
+**A clone that did not finish is made again** (live test, 2026-11-07). A first
+clone that fails removes its git folder, so the next job clones afresh. A git
+folder with no commit (left by an older version, whose failed clone kept it)
+is cleared and the repository cloned again, keeping what the setup made in the
+project folder; a finished clone whose `.git` pointer was removed gets it back.
+Before this, such a chat's commands found an empty folder with no git at all.
+
+**`gh` uses your GitHub login, outside the machine too** (owner, 2026-11-07,
+item 6; like Claude Code's GitHub proxy, whose docs say `gh`'s requests "under
+the proxy-injected placeholder go out with your real credentials substituted").
+In a chat on a GitHub repository, the machine's gate sends `api.github.com` to
+the Worker with the job's pass (whatever the network setting), and the Worker
+puts the owner's login in (`githubApi` in `src/coder-egress.mjs`): only for the
+chat's own repositories, as `/repos/OWNER/REPO/...` (anything else: "GitHub
+access to ... is not enabled for this session"); GitHub's GraphQL, which
+`gh pr` and `gh issue` use, is refused with Claude Code's message naming
+`gh api repos/{owner}/{repo}/...`; a job started from GitHub may only read. The
+commands see `GH_TOKEN` and `GITHUB_TOKEN` as `proxy-injected`, as on Claude
+Code's machine, unless the owner set their own in the environment's variables.
+
+**Read-only repositories** (owner, 2026-11-07, item 5; like Claude Code, whose
+docs say "a session can clone any public repository" and pushes back "only when
+your GitHub connection has push access"). A chat opens on any repository GitHub
+shows the owner (`repoAccess` in `src/coder-github.mjs`): the picker's list, or
+any public repository typed as `owner/name` or its address. A public repository
+GitHub keeps from the owner's login (Coder's app is not on it) is read with no
+login at all, by the Worker and by its git address. One the owner cannot push to
+is **read-only** (`meta.readOnly`; also a chat's other repositories, one by one):
+- each job's work is committed on the chat's branch **on Coder's machine** and
+  never pushed (`pushRepo` with `noPush`); the chat says "Kept on Coder's machine";
+- **See changes** comes from the machine's own git (`localChanges`, the same
+  compare as GitHub's, against the base or any branch, fetched when needed), and
+  **Download patch** gives the commits as one file `git am` applies
+  (`localPatch`, `GET projects/:id/patch`, saved through the page's one door);
+- no pull request (no buttons; the Worker and Coder's `pull_request` tool
+  refuse), no auto-fix, and no branch for GitHub's news; Undo and Rewind stay
+  on the machine;
+- Coder is told (`readOnlyNote`), and `gh` may only read there.
+A job started by @coder on GitHub still needs push access (`needPush`), like
+Claude Code's GitHub app ("the triggering user must have write access").
+
 **Your Grok key never enters Coder's machine either** (owner, 2026-11-07,
 step 1 of: the Grok key out, each machine its own lock key, a sealed network
 room, the master key inside it). Each job is given a short pass for its AI calls
@@ -356,6 +397,46 @@ says why it is safe; nothing is blocked. A repo adds its own rules in
 to 1 KB; 50 at most). Claude Code's two model-backed reviews (at the end of each
 turn, and on each commit) are not built: they cost model calls.
 
+**Long chats are summarized, not cut** (owner, 2026-11-07, items 3 and 9; like
+Claude Code's auto-compact, `/compact` and Rewind's summaries:
+`container/coder-compact.mjs`, `src/coder-summary.mjs`). Coder's own model
+writes each summary from a plain-text copy of that part of the conversation
+(tool answers cut short; no secrets kept); it stands in for those messages in
+what Coder reads (`messages.json`), while the chat (`events.json`) keeps every
+message, with a note where the summary stands. Before a job, a saved
+conversation past 300 KB has its older jobs summarized (the owner's newest
+three messages stay whole); if no summary can be made, the oldest part is cut
+as before. Within a job, past 450 KB, the job summarizes its own older steps
+(never between a tool's call and its answer, and never the saved history
+before the job), its newest eight rounds whole, at most three times a job.
+`/compact [what to keep]` makes the whole conversation one summary and starts
+no job. Rewind offers Claude Code's choices: Restore code and chat, chat only,
+code only (the code ones only when a later job changed files), Summarize from
+here and Summarize up to here (each with an optional focus); after the chat
+goes back, the message returns to the box. Rewind's points inside a summary go.
+
+**Notifications, like Claude Code's** (owner, 2026-11-07, item 8; its mobile and
+Remote Control docs; `src/coder-push.mjs`). Web Push from the Worker: Coder's
+own key (VAPID, RFC 8292, made once and kept sealed), each message encrypted for
+its device (RFC 8291, checked against the RFC's own example), sent only to a
+browser's push service (Google's, Mozilla's, Apple's, Microsoft's). The account
+menu's **Notifications** panel turns them on for a device (the page's service
+worker, `public/sw.js`, shows a push and opens its chat; it caches nothing) and
+holds Claude Code's two switches: **Push when Coder decides** (Coder's `notify`
+tool, for "notify me when the tests finish", at most 3 a job; and the end of a
+job of 3 minutes or more) and **Push when actions are required** (its question,
+a key it needs, an environment change it proposes). They go out as the job's
+steps reach the Worker (`handleLive`), each step once, never about a chat the
+owner is looking at (the page's polls say so while visible and focused). A
+device its push service says is gone is forgotten. Works in browsers on
+computers and Android, and on iPhone from the Home Screen (iOS 16.4 or later).
+The desktop app's window has no Web Push: while the app is open (minimized too;
+its background throttling is off) the page watches the chats itself and shows
+the same notifications with the same switches (the chat list's `waiting`, what
+a job left for the owner, and `ran`, how long it took), turned on per app. The
+phone app (Capacitor) has none yet: native push needs the owner's Firebase and
+Apple accounts.
+
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 
@@ -378,6 +459,56 @@ was cut off (Cloudflare gives it 15 minutes, `START_STALE_MS`), the job goes on
 when its message went in, and otherwise Coder says on GitHub that starting took
 too long. Live test, 2026-11-07: before this, a job whose start took minutes
 had no record, so its "On it" comment never changed.
+
+**Auto-fix, like Claude Code's** (owner, 2026-11-07, item 2; its docs: "turn on
+Auto-fix", "paste the PR URL into a session and tell Claude to auto-fix it",
+"tell Claude to stop watching the PR"). Off until turned on for a pull request:
+with the chat's Auto-fix button, or by asking Coder in the chat (its `auto_fix`
+tool; never from a job GitHub started), for any open pull request of the chat's
+repository (never a fork's, whose branch cannot be pushed to, nor one another
+chat has): the chat then works on that pull request's branch (`autofixFor`,
+applied when the turn ends; its branch is recorded, `branchKey`). With it on, a
+failed check on the pull request's newest commit, or the owner's review, starts
+a job in its chat (up to 3 in a row without the owner writing). Nothing is
+posted on the pull request: Coder explains in the chat, asks first when a
+comment is unclear, and, for a review comment, may answer in that comment's
+thread (`reply_review`, only that thread), posted at the job's end as the owner
+and marked "— Coder (gofarther.dev), for @owner". Like Claude Code's, it cannot
+react to a merge conflict (GitHub sends no news when the base branch moves).
+
+**Code review, like Claude Code's** (owner, 2026-11-07, item 11; its Code Review
+docs; `src/coder-review.mjs`). Off until the owner turns it on for a repository
+they can push to, where Coder's app is installed (Repositories screen,
+`POST /review/settings`). Its **Review runs**, as Claude Code's: After every
+push, Once after PR creation (opened, reopened, ready for review), or Manual;
+and a **level**: Quick (one finder, low effort), Standard (two finders and a
+check) or Deep (three finders, a check, high effort). Automatic reviews skip
+drafts and forks, with a tip where none starts. **Comment commands**, at the
+very start of a new top-level comment on a pull request, from a Coder user with
+write access (checked with GitHub; strangers get no answer): `@coder review`
+(or `once`), `@coder review always` (also reviews each push), `@coder review
+stop` / `off` / `pause`; they never start a plain @coder job. A review is
+queued with a **Coder Review** check run ("Code review queued..."), one per pull
+request, and run by the every-minute check on the Worker, read-only, never
+building or running the code: **find** (finders with different lenses, at
+once), **verify** (a check that drops false positives), **rank** (deduplicated,
+by severity, at most 25 and 10 nits), **post**: one review (`COMMENT`, never an
+approval) with an inline comment for each finding on a line of the diff (🔴
+Important, 🟡 Nit, 🟣 Pre-existing, with "Why this was flagged"), the rest in
+its summary and as the check run's annotations; the check run concludes
+neutral, its details a table ending with `<!-- coder-review-severity: {...} -->`;
+no findings: a note. It reads `REVIEW.md` from the base branch only (its `@file`
+lines beside it, at most 8; a skill's `SKILL.md`; a subfolder's own, never in a
+test, example, generated or vendored folder) and `CODER.md` (or `AGENTS.md`)
+at the root and in each changed file's folders. The pull request's text and
+code are data. **A later review on a push** covers what changed since the
+last one, posts no nits or pre-existing findings (and says how many), resolves
+the threads of findings it judges fixed (GitHub's GraphQL, as the app), and
+answers a person's reply once; a push that changes no lines keeps the earlier
+result ("skipped — no new changes", or "not repeated — earlier findings still
+open"). Needs, in the app's GitHub settings: **Pull request** events (for
+automatic reviews) and **Checks: read and write** (for the check run); without
+them, comment commands and the review itself still work.
 
 ## Deploy
 

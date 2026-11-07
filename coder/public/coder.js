@@ -61,6 +61,8 @@
     try {
       r = await fetch(API + path, { ...(init || {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(init && init.body ? { 'content-type': 'application/json' } : {}) } });
     } catch (e) { return { status: 0, data: { error: 'Coder could not be reached. Check your connection.' } }; }
+    // A FILE TO SAVE (a read-only chat's patch, owner item 5): handed back whole when it came.
+    if (r.ok && typeof (init || {}).file === 'string') return { status: r.status, data: {}, blob: await r.blob(), name: (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || init.file };
     const data = await r.json().catch(() => ({}));
     if (r.status === 401 && (data.signin === true || data.error === 'sign in first')) {
       if (data.signin !== true && !again) {
@@ -89,6 +91,11 @@
     if (!g.data.connected) { S.phase = 'connect'; return draw(); }
     const p = await call('/projects');
     S.projects = (p.data && p.data.projects) || [];
+    if (DESKTOP_APP) startDesktopWatch();
+    // A NOTIFICATION'S CHAT (owner item 8): /?chat=<id> opens it.
+    const want = new URLSearchParams(location.search).get('chat');
+    if (want) { try { history.replaceState(history.state, '', location.pathname); } catch (e) {} }
+    if (want && S.projects.some((x) => x.id === want)) return openProject(want);
     if (S.projects.length) return openProject(S.projects[0].id);
     return showPicker('new');
   }
@@ -99,6 +106,20 @@
     if (r.data && r.data.connect) { S.phase = 'connect'; return draw(); }
     S.repos = (r.data && r.data.repos) || [];
     if (r.data && r.data.install && S.github) S.github.install = r.data.install;
+    // CODE REVIEW, PER REPOSITORY (owner item 11, like Claude Code's "Review runs"): on the Repositories screen.
+    if (S.pickMode === 'repos') { const rs = await call('/review/settings'); S.reviews = (rs.data && rs.data.repos) || {}; }
+    draw();
+  }
+
+  // CODE REVIEW ON OR OFF FOR A REPOSITORY, and its level (owner item 11).
+  async function saveReview(repo, change) {
+    const cur = (S.reviews || {})[repo] || { runs: 'off', level: 'standard' };
+    const next = { runs: cur.runs, level: cur.level || 'standard', ...change };
+    const r = await call('/review/settings', { method: 'POST', body: JSON.stringify({ repo, runs: next.runs, level: next.level }) });
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Code review could not be changed.'; return draw(); }
+    S.reviews = { ...(S.reviews || {}) };
+    if (next.runs === 'off') delete S.reviews[repo]; else S.reviews[repo] = { runs: next.runs, level: next.level };
+    S.error = '';
     draw();
   }
 
@@ -115,8 +136,25 @@
     openProject(r.data.project.id);
   }
 
+  // A REPOSITORY'S NAME from what was typed: owner/name, or its GitHub address (owner item 5).
+  function repoName(v) {
+    const t = String(v || '').trim();
+    const m = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?(?:[\/?#].*)?$/.exec(t) || /^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?$/.exec(t);
+    return m ? m[1] + '/' + m[2] : '';
+  }
+  // A READ-ONLY CHAT'S WORK AS A PATCH FILE (owner item 5): from Coder's machine, the only place it is.
+  async function downloadPatch() {
+    if (!S.project) return;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/patch', { file: 'coder.patch' });
+    if (!r.blob) { S.error = (r.data && r.data.error) || 'The patch could not be made.'; return draw(); }
+    // As a data: address, like the pictures (the page's rules block blob: ones).
+    const href = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(r.blob); });
+    if (!href) { S.error = 'The patch could not be saved.'; return draw(); }
+    const a = document.createElement('a'); a.href = href; a.download = r.name; document.body.appendChild(a); a.click(); a.remove();
+  }
+
   // THE CHAT LIST (each chat its own session): what the sidebar shows.
-  const entryOf = (m) => ({ id: m.id, repo: m.repo, title: m.title || '', status: m.status || 'idle', pr: m.pr ? (m.pr.number || m.pr) : null, at: m.at });
+  const entryOf = (m) => ({ id: m.id, repo: m.repo, title: m.title || '', status: m.status || 'idle', pr: m.pr ? (m.pr.number || m.pr) : null, at: m.at, waiting: m.waiting || null, ran: Number(m.ran) || 0 });
   function syncEntry() {
     if (!S.project) return;
     const e = entryOf(S.project);
@@ -141,6 +179,125 @@
       document.addEventListener('keydown', key); ok.focus();
     });
   }
+  // NOTIFICATIONS ON THIS DEVICE (owner item 8, like Claude Code's: "Push when Claude decides" and "Push when
+  // actions required", none while you are looking at the chat). Web Push: the browser's own push service.
+  const canPush = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const keyBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+  async function deviceSub() {
+    if (!canPush()) return null;
+    try { const reg = await navigator.serviceWorker.getRegistration('/'); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
+  }
+  async function showNotifications() {
+    const r = await call('/push');
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Notifications could not be opened.'; return draw(); }
+    const info = r.data;
+    let sub = await deviceSub();
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-notify'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Notifications');
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    let note = '';
+    const paint = () => {
+      const blocked = canPush() && Notification.permission === 'denied';
+      const local = DESKTOP_APP && 'Notification' in window;
+      const localOn = local && Notification.permission === 'granted' && localNotifyOn();
+      box.innerHTML = '<div class="cd-sure-title">Notifications</div>' +
+        '<div class="cd-sure-text">Like Claude Code’s: Coder tells you when a long job finishes or when you asked it to, and when it needs your answer. Never about a chat you’re looking at.</div>' +
+        '<div class="cd-notify-device">' + (local ? (localOn ? '<span class="cd-notify-on">On in this app</span><button type="button" id="cdLocalOff">Turn off here</button><span class="cd-notify-hint">The desktop app shows them while it’s open (minimized is fine).</span>' : '<button type="button" class="cd-notify-go" id="cdLocalOn">Turn on in this app</button><span class="cd-notify-hint">The desktop app shows them while it’s open (minimized is fine).</span>')
+          : !canPush() ? '<span>This browser can’t get notifications. On iPhone, add gofarther.dev to your Home Screen (Share, then Add to Home Screen) and open it from there.</span>'
+          : blocked ? '<span>Notifications are blocked for gofarther.dev in this browser’s settings.</span>'
+          : sub ? '<span class="cd-notify-on">On for this device</span><button type="button" id="cdNotifyOff">Turn off here</button>'
+          : '<button type="button" class="cd-notify-go" id="cdNotifyOn">Turn on for this device</button>') + '</div>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushDecides"' + (info.decides ? ' checked' : '') + '><span><b>Push when Coder decides</b><br>A long job finished, or you asked to be told (“notify me when the tests finish”).</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushActions"' + (info.actions ? ' checked' : '') + '><span><b>Push when actions are required</b><br>Coder asks you something, or needs a key or your approval.</span></label>' +
+        (note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
+        '<div class="cd-sure-row">' + (info.devices || localOn ? '<button type="button" id="cdPushTest">Send a test</button>' : '') + '<button type="button" class="cd-notify-done" id="cdNotifyDone">Done</button></div>';
+      const $ = (id) => box.querySelector('#' + id);
+      $('cdNotifyDone').onclick = close;
+      const sw = async (field, el) => { const x = await call('/push/settings', { method: 'POST', body: JSON.stringify({ [field]: el.checked }) }); if (x.status === 200) { info[field] = el.checked; S.pushInfo = info; } else { el.checked = !el.checked; note = (x.data && x.data.error) || 'Not saved.'; paint(); } };
+      $('cdPushDecides').onchange = (e) => sw('decides', e.currentTarget);
+      $('cdPushActions').onchange = (e) => sw('actions', e.currentTarget);
+      if ($('cdPushTest')) $('cdPushTest').onclick = async () => {
+        // In the desktop app, a test shows here too; the server's goes to the devices turned on elsewhere.
+        if (localOn) showLocal({ id: '', title: 'Coder', body: 'Notifications are on in this app.' });
+        const x = info.devices ? await call('/push/test', { method: 'POST', body: '{}' }) : null;
+        note = localOn || (x && x.status === 200 && x.data.sent) ? 'Sent. It should arrive in a few seconds.' : 'Nothing was sent: no device took it.';
+        paint();
+      };
+      if ($('cdNotifyOn')) $('cdNotifyOn').onclick = async () => {
+        try {
+          if ((await Notification.requestPermission()) !== 'granted') { note = 'Notifications were not allowed.'; return paint(); }
+          const reg = await navigator.serviceWorker.register('/sw.js');
+          await navigator.serviceWorker.ready;
+          sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(info.key) });
+          const j = sub.toJSON();
+          const x = await call('/push/subscribe', { method: 'POST', body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys }) });
+          if (x.status !== 200) { note = (x.data && x.data.error) || 'This device could not be added.'; await sub.unsubscribe().catch(() => {}); sub = null; }
+          else { info.devices = x.data.devices; note = 'On. Coder will notify this device.'; }
+        } catch (e) { note = 'This device could not be added: ' + String((e && e.message) || e).slice(0, 120); }
+        paint();
+      };
+      if ($('cdLocalOn')) $('cdLocalOn').onclick = async () => {
+        if ((await Notification.requestPermission()) !== 'granted') { note = 'Notifications were not allowed.'; return paint(); }
+        setLocalNotify(true); S.pushInfo = info; startDesktopWatch(); note = 'On. This app will show Coder’s notifications while it’s open.'; paint();
+      };
+      if ($('cdLocalOff')) $('cdLocalOff').onclick = () => { setLocalNotify(false); stopDesktopWatch(); note = 'Off in this app.'; paint(); };
+      if ($('cdNotifyOff')) $('cdNotifyOff').onclick = async () => {
+        const endpoint = sub ? sub.endpoint : '';
+        try { if (sub) await sub.unsubscribe(); } catch (e) {}
+        const x = await call('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
+        if (x.status === 200) info.devices = x.data.devices;
+        sub = null; note = 'Off for this device.'; paint();
+      };
+    };
+    paint();
+  }
+
+  // THE DESKTOP APP'S NOTIFICATIONS (owner item 8): its window has no web push, so while the app is open (a
+  // minimized window too) it watches the chats itself and shows the same notifications, with the same two
+  // switches: a long job finished, a job waiting for the owner, Coder's own notify in the open chat.
+  const DESKTOP_APP = /GoFartherDesktop\//.test(navigator.userAgent);
+  const localNotifyOn = () => { try { return localStorage.getItem('gf_local_notify') === '1'; } catch (e) { return false; } };
+  const setLocalNotify = (on) => { try { if (on) localStorage.setItem('gf_local_notify', '1'); else localStorage.removeItem('gf_local_notify'); } catch (e) {} };
+  /** What changed between two looks at the chat list that is worth a notification. */
+  function desktopNews(before, now, o) {
+    const out = [];
+    for (const c of now || []) {
+      const b = (before || []).find((x) => x.id === c.id);
+      if (!b || b.status !== 'running' || c.status === 'running') continue;
+      if (o.openId === c.id && o.focused) continue;
+      const name = c.title || c.repo;
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : 'Coder asked you something.' }); }
+      else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
+    }
+    return out;
+  }
+  function showLocal(n) {
+    try {
+      const x = new Notification(n.title, { body: n.body || '', tag: n.id, icon: '/icons/icon-192.png' });
+      x.onclick = () => { try { window.focus(); } catch (e) {} x.close(); if (n.id && (!S.project || S.project.id !== n.id)) openProject(n.id); };
+    } catch (e) {}
+  }
+  function stopDesktopWatch() { if (S.deskWatch) clearInterval(S.deskWatch); S.deskWatch = 0; }
+  async function startDesktopWatch() {
+    stopDesktopWatch();
+    if (!DESKTOP_APP || !('Notification' in window) || Notification.permission !== 'granted' || !localNotifyOn()) return;
+    if (!S.pushInfo) { const r = await call('/push'); if (r.status === 200) S.pushInfo = r.data; }
+    let seen = S.projects.slice();
+    S.deskWatch = setInterval(async () => {
+      if (!seen.some((c) => c.status === 'running')) { seen = S.projects.slice(); if (!seen.some((c) => c.status === 'running')) return; }
+      const r = await call('/projects');
+      if (r.status !== 200) return;
+      const now = (r.data.projects || []).map(entryOf);
+      const info = S.pushInfo || { decides: true, actions: true };
+      for (const n of desktopNews(seen, now, { decides: info.decides !== false, actions: info.actions !== false, openId: S.project && S.project.id, focused: document.hasFocus() })) showLocal(n);
+      seen = now;
+    }, 30000);
+  }
+
   // CODER'S OWN BOX WITH SEVERAL CHOICES (Rewind's three, like Claude Code's).
   function askPick(title, text, choices) {
     return new Promise((done) => {
@@ -160,29 +317,49 @@
   }
   // REWIND (like Claude Code's /rewind, 2026-11-06): back to before one of your messages.
   async function rewind(turn) {
-    const pick = await askPick('Rewind to before this message?', 'Coder goes back to how things were before you sent it. Code changes are undone with new commits on the branch, never deleted from GitHub.',
-      [['both', 'Restore code and chat'], ['chat', 'Restore chat only'], ['code', 'Restore code only']]);
+    if (!S.project) return;
+    // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
+    // later job changed files; Summarize from here / up to here; the message back in the box after the chat goes back.
+    const mark = (S.project.marks || []).find((m) => m.turn === turn);
+    const said = mark && S.events[mark.ev] && S.events[mark.ev].type === 'user' ? String(S.events[mark.ev].text || '') : '';
+    const changed = (S.project.commits || []).some((c) => Number(c.turn) >= turn);
+    const first = !(S.project.marks || []).some((m) => m.turn < turn);
+    const choices = [...(changed ? [['both', 'Restore code and chat']] : []), ['chat', changed ? 'Restore chat only' : 'Restore chat'], ...(changed ? [['code', 'Restore code only']] : []),
+      ['sumfrom', 'Summarize from here'], ...(first ? [] : [['sumupto', 'Summarize up to here']])];
+    const pick = await askPick('Rewind to this message?', (changed ? 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits on the branch, never deleted from GitHub. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
     if (!pick || !S.project) return;
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify({ turn, code: pick !== 'chat', chat: pick !== 'code' }) });
+    let body;
+    if (pick === 'sumfrom' || pick === 'sumupto') {
+      const focus = await askText('Summarize ' + (pick === 'sumfrom' ? 'from here' : 'up to here'), 'Anything the summary should keep? (Optional: leave it empty for a general summary.)', 'Summarize', '', { optional: true, max: 300 });
+      if (focus === null || !S.project) return;
+      body = { turn, summarize: pick === 'sumfrom' ? 'from' : 'upto', focus };
+    } else body = { turn, code: pick !== 'chat', chat: pick !== 'code' };
+    S.error = ''; S.rewinding = true; draw();
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify(body) });
+    S.rewinding = false;
     if (r.data && r.data.project) S.project = r.data.project;
-    if (r.status === 200 && r.data) { S.events = r.data.events || S.events; S.error = ''; }
-    else S.error = (r.data && r.data.error) || 'Could not rewind.';
+    if (r.status === 200 && r.data) {
+      S.events = r.data.events || S.events; S.error = '';
+      // The message comes back to the box, to send again or change (like Claude Code).
+      if ((pick === 'both' || pick === 'chat' || pick === 'sumfrom') && said && !S.draft) S.draft = said;
+    } else S.error = (r.data && r.data.error) || 'Could not rewind.';
     syncEntry(); draw();
   }
   // CODER'S OWN BOX WITH A TEXT FIELD (a new environment's name).
-  function askText(title, text, yes, value) {
+  // `o.optional`: an empty answer is an answer (""), not a Cancel; `o.max`: the longest answer.
+  function askText(title, text, yes, value, o = {}) {
     return new Promise((done) => {
       const wrap = document.createElement('div'); wrap.className = 'cd-sure';
       const box = document.createElement('div'); box.className = 'cd-sure-box is-text'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
       const h = document.createElement('div'); h.className = 'cd-sure-title'; h.textContent = title;
       const p = document.createElement('div'); p.className = 'cd-sure-text'; p.textContent = text;
-      const inp = document.createElement('input'); inp.className = 'cd-sure-in'; inp.maxLength = 40; inp.value = value || ''; inp.setAttribute('aria-label', title);
+      const inp = document.createElement('input'); inp.className = 'cd-sure-in'; inp.maxLength = o.max || 40; inp.value = value || ''; inp.setAttribute('aria-label', title);
       const row = document.createElement('div'); row.className = 'cd-sure-row';
       const no = document.createElement('button'); no.type = 'button'; no.className = 'cd-sure-no'; no.textContent = 'Cancel';
       const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'cd-sure-yes'; ok.textContent = yes;
       row.append(no, ok); box.append(h, p, inp, row); wrap.append(box); document.body.append(wrap);
       const end = (v) => { wrap.remove(); done(v); };
-      no.onclick = () => end(null); ok.onclick = () => end(inp.value.trim() || null);
+      no.onclick = () => end(null); ok.onclick = () => end(inp.value.trim() || (o.optional ? '' : null));
       inp.onkeydown = (e) => { if (e.key === 'Enter') ok.click(); if (e.key === 'Escape') end(null); };
       wrap.onclick = (e) => { if (e.target === wrap) end(null); };
       inp.focus(); inp.select();
@@ -402,6 +579,8 @@
       if (r.data && r.data.connect) S.phase = 'connect';
       return draw();
     }
+    // /compact (like Claude Code's): the summary is made; no job runs.
+    if (r.data.compacted) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); syncEntry(); return draw(true); }
     S.project = r.data.project; S.running = true; syncEntry();
     S.next = 0;
     startPoll(); draw(true);
@@ -413,7 +592,9 @@
     S.poll = 0;
     if (!S.project || !S.running) return;
     const id = S.project.id;
-    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next);
+    // Looking at this chat (visible and focused): no notification about it (owner item 8, like Claude Code).
+    const seen = document.visibilityState === 'visible' && document.hasFocus() ? '&seen=1' : '';
+    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen);
     if (!S.project || S.project.id !== id) return;
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {
@@ -433,6 +614,15 @@
         return true;
       });
       if (fresh.length) S.events = S.events.concat(fresh);
+      // THE DESKTOP APP, its window not in front: Coder's own notify, or a question, in this chat (owner item 8).
+      if (DESKTOP_APP && localNotifyOn() && !document.hasFocus() && 'Notification' in window && Notification.permission === 'granted') {
+        const info = S.pushInfo || { decides: true, actions: true };
+        const name = S.project.title || S.project.repo;
+        for (const e of fresh) {
+          if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
+          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: e.text || e.reason || '' });
+        }
+      }
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
       S.running = !!r.data.running;
@@ -652,6 +842,7 @@
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
       else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
+      else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();
     if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
@@ -667,11 +858,13 @@
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b><span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
-      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === false ? '' : ' on') + '" id="cdAutofix" title="When a check fails or you review the pull request, Coder fixes it (up to 3 tries in a row)">Auto-fix: ' + (p.autofix === false ? 'Off' : 'On') + '</button>' : '') +
+      // A READ-ONLY REPOSITORY (owner item 5, like Claude Code: any public repository can be worked on).
+      (p && p.readOnly ? '<span class="cd-ro" title="You can read this repository on GitHub but not push to it, so Coder keeps its work on its machine (See changes shows it, and downloads it as a patch file).">Read-only</span>' : '') +
+      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === true ? ' on' : '') + '" id="cdAutofix" title="Like Claude Code\'s auto-fix: when one of its checks fails or you review it, Coder fixes it in this chat (up to 3 tries in a row). Off until you turn it on.">Auto-fix: ' + (p.autofix === true ? 'On' : 'Off') + '</button>' : '') +
       // CREATE PR / CREATE DRAFT PR, like Claude Code's buttons (owner, 2026-11-06:
       // "Finish all this"): once the branch has work and no pull request yet.
       // Coder writes the title and description from the changes.
-      (p && !(p.pr && p.pr.url) && Array.isArray(p.commits) && p.commits.length ? '<button type="button" class="cd-hbtn" id="cdMakePr"' + (S.running || S.sending ? ' disabled' : '') + '>Create PR</button><button type="button" class="cd-hbtn" id="cdMakeDraft"' + (S.running || S.sending ? ' disabled' : '') + '>Create draft PR</button>' : '') +
+      (p && !p.readOnly && !(p.pr && p.pr.url) && Array.isArray(p.commits) && p.commits.length ? '<button type="button" class="cd-hbtn" id="cdMakePr"' + (S.running || S.sending ? ' disabled' : '') + '>Create PR</button><button type="button" class="cd-hbtn" id="cdMakeDraft"' + (S.running || S.sending ? ' disabled' : '') + '>Create draft PR</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
@@ -717,7 +910,8 @@
     if (!c) return '<div class="cd-changes">' + bar + '<span class="cd-spin"></span></div>';
     if (!c.files.length) return '<div class="cd-changes">' + bar + '<p class="cd-changes-none">' + (c.error ? esc(c.error) : pick === base ? 'No changes yet.' : 'No differences from ' + esc(pick) + '.') + '</p></div>';
     return '<div class="cd-changes">' + bar +
-      '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span>' + (pick !== base ? ' <span class="cd-compare-vs">compared with ' + esc(pick) + '</span>' : '') + '</div>' +
+      '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span>' + (pick !== base ? ' <span class="cd-compare-vs">compared with ' + esc(pick) + '</span>' : '') +
+        (p.readOnly ? ' <button type="button" class="cd-hbtn cd-patch" id="cdPatch" title="This chat\'s work, from Coder\'s machine, as one patch file (git am applies it)">Download patch</button>' : '') + '</div>' +
       c.files.map((f) => '<details class="cd-file" data-path="' + esc(f.path) + '"' + (S.openFiles[f.path] ? ' open' : '') + '><summary><code>' + esc(f.path) + '</code><span class="cd-add">+' + f.add + '</span><span class="cd-del">−' + f.del + '</span></summary>' +
         '<pre class="cd-diff">' + diffLines(f) + '</pre></details>').join('') +
     '</div>';
@@ -851,12 +1045,27 @@
       (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     if (S.phase === 'pick') {
       const install = S.github && S.github.install;
+      const repoBtn = (r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.readOnly ? '<em title="You can read it but not push to it">read-only</em>' : '') + (r.private ? '<em>private</em>' : '') + '</button>';
+      // ON THE REPOSITORIES SCREEN: each repository you can push to has its Code review setting (owner item 11).
+      const RUNS = [['off', 'Off'], ['push', 'After every push'], ['open', 'Once after PR creation'], ['manual', 'Manual (@coder review)']];
+      const LEVELS = [['quick', 'Quick'], ['standard', 'Standard'], ['deep', 'Deep']];
+      const opts = (list, cur) => list.map(([v, l]) => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + l + '</option>').join('');
+      const reviewRow = (r) => {
+        const cur = (S.reviews || {})[r.repo] || null;
+        return '<div class="cd-repo-row">' + repoBtn(r) + (r.readOnly ? '' : '<div class="cd-review"><label>Code review <select data-review-runs="' + esc(r.repo) + '">' + opts(RUNS, cur ? cur.runs : 'off') + '</select></label>' +
+          (cur ? '<select data-review-level="' + esc(r.repo) + '" aria-label="Review level for ' + esc(r.repo) + '">' + opts(LEVELS, cur.level || 'standard') + '</select>' : '') + '</div>') + '</div>';
+      };
       const list = S.repos === null ? '<span class="cd-spin cd-spin-lg"></span>'
-        : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.private ? '<em>private</em>' : '') + '</button>').join('') + '</div>'
+        : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => (S.pickMode === 'repos' ? reviewRow(r) : repoBtn(r))).join('') + '</div>'
         : '<p class="cd-sub">Coder can’t see any repositories yet.</p>';
+      // ANY PUBLIC REPOSITORY (owner item 5, like Claude Code: "a session can clone any public repository").
+      const open = '<form class="cd-open" id="cdOpenForm"><label for="cdOpenRepo">Or open any public repository</label>' +
+        '<div class="cd-open-row"><input id="cdOpenRepo" placeholder="owner/name or its GitHub address" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"><button type="submit" class="cd-btn-2">Open</button></div>' +
+        '<p class="cd-open-note">One you can’t push to is read-only: Coder keeps its work on its machine, and you download it as a patch.</p></form>';
       return centerHTML('<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
-        list +
+        (S.pickMode === 'repos' ? '<p class="cd-sub cd-review-note">Turn on <b>Code review</b> for a repository and Coder reviews its pull requests, posting what it finds on them. It never approves or blocks one. Anyone with write access can also comment <code>@coder review</code>.</p>' : '') +
+        list + open +
         (install ? '<a class="cd-btn-2" href="' + esc(install) + '" target="_blank" rel="noopener">Add repositories on GitHub</a>' : '') +
         (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     }
@@ -893,6 +1102,15 @@
     on('#cdRetry', 'click', load);
     on('#cdConnect', 'click', connect);
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
+    on('#cdOpenForm', 'submit', (e) => {
+      e.preventDefault();
+      const repo = repoName(root.querySelector('#cdOpenRepo').value);
+      if (!repo) { S.error = 'Write it as owner/name, or paste its GitHub address.'; return draw(); }
+      S.error = ''; addProject(repo);
+    });
+    on('#cdPatch', 'click', downloadPatch);
+    on('[data-review-runs]', 'change', (e) => saveReview(e.currentTarget.dataset.reviewRuns, { runs: e.currentTarget.value }));
+    on('[data-review-level]', 'change', (e) => saveReview(e.currentTarget.dataset.reviewLevel, { level: e.currentTarget.value }));
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     // THE QUESTION CARD: the choice lives in S.ask; Submit sends it as your answer.
@@ -956,7 +1174,7 @@
     on('[data-rewind]', 'click', (e) => rewind(Number(e.currentTarget.dataset.rewind)));
     on('#cdMakePr', 'click', () => send(PR_ASK));
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
-    on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
+    on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix !== true }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
     on('#cdBaseSel', 'change', (e) => pickBase(e.currentTarget.value));
     on('#cdAddRepo', 'change', (e) => { const v = e.currentTarget.value; if (v) changeRepos(v, true); });
     on('[data-unrepo]', 'click', (e) => changeRepos(e.currentTarget.dataset.unrepo, false));
@@ -1054,6 +1272,7 @@
       if (side) S.side = side;
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
       if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu) { S.reviewMenu = false; draw(); } }); }
+      if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');

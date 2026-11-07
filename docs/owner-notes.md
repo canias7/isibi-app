@@ -8,6 +8,107 @@ log (81,000 lines) is in git history.
 
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
+- Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
+- Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
+
+## 2026-11-07: Notifications in the desktop app too; the auto-fix screenshot
+
+- **Desktop app:** its window can't get web notifications. Instead, while the app is open (minimized is fine), it watches your chats itself and shows the same notifications with the same two switches. Turn it on in the app: the gear, Notifications, "Turn on in this app".
+- **Phone app** (the one from the build button): still none. That needs Firebase and Apple's push, which need your accounts. Until then, notifications on a phone come from gofarther.dev on the Home Screen.
+- **Item 2's screenshot**, owed from before, was shown in the chat: auto-fix now starts "Off" on a pull request.
+- Tests: CD191. 200 tests pass.
+
+## 2026-11-07: Item 8: notifications like Claude Code's (and what the app stores need)
+
+- Item 8: the apps weren't in the stores, and Coder sent no phone notifications.
+- **Notifications, now like Claude Code's:**
+  - **Turn them on per device:** the gear at the bottom left, then Notifications, then "Turn on for this device".
+  - **Two switches, as in Claude Code:**
+    - "Push when Coder decides": a job of 3 minutes or more finished, or you asked ("notify me when the tests finish").
+    - "Push when actions are required": Coder asks you something, needs a key, or proposes an environment change.
+  - **Never about a chat you're looking at.**
+  - **Tapping a notification opens that chat.** "Send a test" checks a device.
+  - **Where it works:** browsers on computers and Android phones. On iPhone, add gofarther.dev to the Home Screen first (in Safari: Share, then Add to Home Screen), then turn it on from there.
+  - **Private and safe:** sent only to the browsers' own notification services, encrypted for each device.
+- **The app stores (not done; it needs you):**
+  - **Apple's App Store** needs your own Apple Developer account ($99 a year).
+  - **Google Play** needs your own Google Play Console account ($25 once).
+  - Each also needs a store page (name, screenshots, a privacy policy) and their review.
+  - When you have the accounts, I can set up the builds for them. Until then, the build buttons make the Android `.apk` and the desktop apps.
+  - Notifications inside those apps would also need the stores' own push setups (Firebase for Android, Apple's for iPhone). Until then, use gofarther.dev from the Home Screen or a browser for notifications.
+- Tests: CD187-CD190 (the encryption matches the standard's own example). 199 tests pass.
+
+## 2026-11-07: Item 11: Code review like Claude Code's
+
+- Item 11: Coder had no automatic review of pull requests.
+- **Now, like Claude Code's Code Review:**
+  - **Turn it on per repository** on the Repositories screen. Pick when reviews run: After every push, Once after PR creation, or Manual (only when someone comments `@coder review`). Then pick a level: Quick, Standard or Deep. **Off by default**, since every review spends Grok calls.
+  - **Comment commands** on a pull request: `@coder review` (one review), `@coder review always` (also review each push), `@coder review stop`. Only Coder users with write access; strangers get no answer, and people without write access get a short note.
+  - **What it posts:** comments on the lines concerned, marked 🔴 Important, 🟡 Nit or 🟣 Pre-existing, each with "Why this was flagged". Also a summary, and a "Coder Review" check that never fails the pull request. It never approves or blocks.
+  - **How it reviews:** several passes look for different kinds of bugs, a second check drops false alarms, then the findings are ranked. It only reads the code; it never runs it.
+  - **Your rules:** a `REVIEW.md` in the repository (read from the main branch, never from the pull request itself) and `CODER.md`.
+  - **Later pushes:** reviews only what changed, marks fixed findings resolved, and skips if nothing really changed.
+  - Drafts and pull requests from forks are skipped unless someone asks with a comment.
+- **Waiting on you (later, when you want automatic reviews):** in GitHub, the gofarther-coder app's settings need two things: the "Pull request" events ticked, and "Checks" set to read and write. Without them, `@coder review` comments still work, just with no check on the pull request.
+- Tests: CD182-CD186. 195 tests pass.
+
+## 2026-11-07: Item 5: read-only repositories, and a fix found by the live test
+
+- Item 5: Coder only opened repositories it could write to.
+- **Now, like Claude Code ("a session can clone any public repository"):**
+  - **Open any repository you can read.** Pick one from the list (repositories you can only read are marked "read-only"), or type any public one as `owner/name` or paste its GitHub address.
+  - **Where you can't push, the chat is read-only.** Coder works as usual, but its work is saved on Coder's machine instead of GitHub. The chat says so, and the header shows a "Read-only" label.
+  - **See changes** shows that work. A new **Download patch** button gives it to you as one file, which `git am` applies to your own copy.
+  - **No pull request buttons, and no auto-fix there.** Claude Code can't push back without push access either. Undo and Rewind still work, on the machine.
+  - **Coder is told** the repository is read-only, and `gh` may only read it, so nothing is written there in your name.
+  - **@coder on GitHub still needs push access,** like Claude Code's GitHub app ("the triggering user must have write access").
+- **The live test found a separate bug, now fixed.** Your test chat's first try failed partway through copying the repository (the git bug fixed earlier today). After that, every new job thought the copy was finished, so Coder saw an empty folder: no files, no git.
+  - **Fix:** a copy that fails leaves nothing behind, and a half-made one from before is cleared and copied again.
+  - That test chat will repair itself on its next message once this is live.
+  - The live test also confirmed the admin sandbox works on Fly.io: `sudo` gives admin, `apt-get install` works, and the setup script ran.
+- Tests: CD175 (the copy fix; it fails on the old code), CD176-CD181 (read-only repositories). Eight older tests were updated for the new behaviour. 190 tests pass, plus the 18 machine-admin tests.
+
+## 2026-11-07: Item 6: gh works, with your GitHub login kept outside the machine
+
+- Item 6: GitHub's `gh` tool was installed on Coder's machine but not logged in.
+- **Now, like Claude Code's:**
+  - **Your login stays on Coder's server.** When Coder runs `gh` in a chat on a GitHub repository, the request goes through Coder's network gate to Coder's server, which adds your GitHub login there. It never reaches the machine, so nothing Coder runs can read it.
+  - **Only the chat's own repositories.** Anything else is refused with Claude Code's message ("GitHub access to … is not enabled for this session").
+  - **`gh pr` and `gh issue` are refused,** as in Claude Code: they use GitHub's GraphQL. The message points to the REST form (`gh api repos/OWNER/REPO/pulls`), which works, and Coder is told so.
+  - **The network setting doesn't block it** (even None), as in Claude Code, because it goes to Coder's server, not the internet.
+  - **A job started from a GitHub comment can only read** through `gh`, since strangers can write the text that starts it.
+  - **On the machine, `GH_TOKEN` reads `proxy-injected`,** like Claude Code's placeholder. A GH_TOKEN or GITHUB_TOKEN you set yourself in the environment's variables passes through instead.
+- Tests: CD172 (the gate), CD173 (the server: only the chat's repositories, GraphQL refused, read-only from GitHub), CD174 (the machine). 183 tests pass.
+
+## 2026-11-07: Item 2: auto-fix like Claude Code's
+
+- Item 2: auto-fix was always on, worked only on Coder's own pull requests, and didn't answer on GitHub.
+- **Now, as in Claude Code's docs:**
+  - **Off until you turn it on** for a pull request: the Auto-fix button in the chat, or ask Coder ("watch this PR and fix any CI failures or review comments", "stop watching it").
+  - **Any open pull request of the chat's repository**, not only Coder's. The chat then works on that pull request's branch. Not a fork's (its branch can't be pushed to, so Claude Code can't either), and not one another chat already watches.
+  - **What starts a fix:** a check failing on the pull request's newest commit (whoever made it), or your review.
+  - **Coder explains in the chat**, as Claude Code does. No "Coder is working on it" comments on the pull request any more.
+  - **For a review comment,** Coder may answer in that comment's thread on GitHub: as you, marked "— Coder (gofarther.dev), for @you". Only in that one thread.
+  - **When a comment is unclear,** or the change would be large, Coder asks you first.
+- **Same limits as Claude Code:** it can't react to merge conflicts, because GitHub sends no news when the base branch moves. At most 3 tries in a row without you writing in the chat.
+- **Change:** chats that had auto-fix on by default now have it off, until you press the button.
+- Tests: CD48 updated, CD169-CD171 new. 180 tests pass.
+
+## 2026-11-07: Items 3 and 9: long chats summarized, not cut; Rewind can summarize
+
+- Item 3: in a long chat Coder dropped the oldest part. Claude Code summarizes it.
+- Item 9: Rewind could not summarize. (Its three restore choices, code and chat, chat only and code only, were already there from an earlier session; the list was out of date on that point.)
+- **Now, like Claude Code:**
+  - **Before a job,** a chat that has grown large has its older jobs turned into one summary for Coder. Your newest three messages stay whole.
+  - **During a very long job,** Coder summarizes its own earlier steps to make room, and keeps its newest steps whole (Claude Code's "auto-compact").
+  - **`/compact`** in the chat turns the whole conversation into a summary without starting a job. You can add what to keep: `/compact keep the API notes`.
+  - **Rewind** has two new choices: "Summarize from here" and "Summarize up to here". Each asks what the summary should keep (optional).
+  - **Rewind's code choices** show only when a later job changed files.
+  - **After the chat goes back,** your message returns to the box, to send again or change.
+- The chat on your page still shows every message. A note marks where a summary stands in. Only what Coder reads is shortened.
+- Each summary is one Grok call (extra AI use, like Claude Code's). If a summary can't be made, nothing changes, and before a job the old cut is still the fallback.
+- Pictures of the new Rewind menu were made on a local copy of the page with made-up data.
+- Tests: CD165-CD168; CD105 updated. 177 tests pass.
 
 ## 2026-11-07: Item 4: "Compare against" another branch in See changes
 

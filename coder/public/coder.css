@@ -415,3 +415,31 @@
 .cd-pick-repo select { max-width: 150px; text-overflow: ellipsis; }
 .cd-repo-chip { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 2px 4px 2px 9px; border: 1px solid #e5e3dd; border-radius: 999px; font-size: 12px; color: #4b5563; background: #fff; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-repo-chip button { font: inherit; border: 0; background: none; color: #6b7280; cursor: pointer; padding: 0 4px; }
+/* A READ-ONLY REPOSITORY (owner item 5): its label, the box to open any public repository, the patch download. */
+.cd-ro { display: inline-flex; align-items: center; font-size: 11px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.cd-open { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 440px; margin: 4px 0 2px; text-align: left; }
+.cd-open label { font-size: 13px; color: #4b5563; }
+.cd-open-row { display: flex; gap: 8px; }
+.cd-open-row input { flex: 1; min-width: 0; border: 1px solid #ddd8d0; border-radius: 10px; padding: 9px 12px; font: 14px Inter, system-ui, sans-serif; color: #0d1b2a; background: #fff; }
+.cd-open-row input:focus { outline: none; border-color: #0d1b2a; }
+.cd-open-note { margin: 0; font-size: 12px; color: #6b7280; }
+.cd-patch { margin-left: 8px; }
+/* CODE REVIEW, PER REPOSITORY (owner item 11): on the Repositories screen. */
+.cd-repo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.cd-repo-row .cd-repo { flex: 1 1 260px; min-width: 0; }
+.cd-review { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #4b5563; }
+.cd-review label { display: flex; align-items: center; gap: 6px; }
+.cd-review select { font: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid #ddd8d0; border-radius: 8px; background: #fff; color: #1f2937; }
+.cd-review-note code { font-size: 12px; background: #f1eee9; border-radius: 4px; padding: 1px 4px; }
+/* NOTIFICATIONS (owner item 8): the panel from the account menu. */
+.cd-notify { max-width: 440px; }
+.cd-notify-device { margin: 14px 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: #4b5563; }
+.cd-notify-device button { font: inherit; font-size: 14px; border-radius: 10px; padding: 8px 14px; cursor: pointer; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; }
+.cd-notify-device .cd-notify-go { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cd-notify-on { color: #166534; font-weight: 600; }
+.cd-notify-sw { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; font-size: 13px; color: #6b6a68; line-height: 1.4; cursor: pointer; }
+.cd-notify-sw b { color: #1f1e1d; font-weight: 600; }
+.cd-notify-sw input { margin-top: 3px; }
+.cd-notify-note { margin-top: 10px; font-size: 13px; color: #1f1e1d; }
+.cd-sure-row .cd-notify-done { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cd-notify-hint { flex-basis: 100%; font-size: 12px; color: #6b7280; }

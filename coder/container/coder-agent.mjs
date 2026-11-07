@@ -18,6 +18,7 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
+import { summaryRequest, summaryMessage, cutPoint } from "./coder-compact.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
@@ -36,6 +37,8 @@ export const WRITE_MAX = 1_000_000;
 /** Commands that need root, which the setup script's own lines (run as `dev`) never have (live test, 2026-11-06). Plain `apt-get install -y <packages>` lines are the exception: Coder's app does those as root (see splitSetup). */
 export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitude|dpkg|yum|dnf|apk|zypper|pacman)(?=\s|$)/m;
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
+/** A job's conversation past this many characters has its older steps summarized (owner item 3). */
+export const COMPACT_AT = 450_000;
 /** The file tools after which the service may add something for that file (afterFile). */
 export const FILE_HOOK_TOOLS = new Set(["read", "edit", "write"]);
 export const RUN_TOOLS = {
@@ -87,6 +90,25 @@ export const CODER_TOOLS = Object.freeze([
     description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository.",
     parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
   } },
+  // A NOTIFICATION ON THE OWNER'S PHONE OR COMPUTER (owner item 8, like Claude Code's pushes: "You can also
+  // request a push in your prompt, such as notify me when the tests finish").
+  { type: "function", function: {
+    name: "notify",
+    description: "Send the owner a notification on their phone or computer (where they turned notifications on). Use it when the owner asked to be told about something (\"notify me when the tests finish\"), at that moment, or for news they would want while away during a long job. Not for the end of your answer: Coder's app tells them when a long job finishes. One short sentence; at most 3 a job.",
+    parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+  } },
+  // AUTO-FIX, LIKE CLAUDE CODE'S (owner item 2; its docs: "paste the PR URL into a session and tell Claude
+  // to auto-fix it", "tell Claude to stop watching the PR").
+  { type: "function", function: {
+    name: "auto_fix",
+    description: "Turn auto-fix on (or off) for a pull request, ONLY when the owner asks (\"watch this PR and fix any CI failures or review comments\", \"auto-fix PR 12\", \"stop watching it\"). Give its address or number; it must be in this chat's repository (a fork's cannot be watched). With it on, when one of its checks fails or the owner reviews it, a new job in this chat fixes it on that pull request's branch (this chat then works on that branch). It takes effect when your turn ends.",
+    parameters: { type: "object", properties: { pr: { type: "string" }, on: { type: "boolean" } }, required: ["pr"] },
+  } },
+  { type: "function", function: {
+    name: "reply_review",
+    description: "In an auto-fix job started by a review comment, answer in that comment's thread on GitHub, once you have resolved it: one or two sentences on what you changed, or why nothing needed to change. It is posted as the owner, marked as written by Coder, when your turn ends. Only the comment this job was started for.",
+    parameters: { type: "object", properties: { comment_id: { type: "integer" }, body: { type: "string" } }, required: ["comment_id", "body"] },
+  } },
 ]);
 
 // THE MACHINE'S TOOLS (owner, 2026-11-07: "can we install all the tools we need?").
@@ -94,7 +116,7 @@ export const CODER_TOOLS = Object.freeze([
 // installed and how to use it, like a developer who knows their machine. The
 // small image (Cloudflare's backup machines) says nothing of these.
 export const MACHINE_TOOLS = `THIS MACHINE: Ubuntu 24.04 with the same tools as Claude Code's machine (check-tools lists them with their versions).
-- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 24 is in /opt/node24/bin; any other: . /opt/nvm/nvm.sh && nvm install 20) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (this machine has no GitHub login: public data only), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
+- Python 3.12 with pip, uv, poetry, pytest, mypy, black, ruff, conan. Node 22 (Node 24 is in /opt/node24/bin; any other: . /opt/nvm/nvm.sh && nvm install 20) with npm, yarn, pnpm, bun, eslint, prettier, TypeScript. Ruby 3.3 through rbenv (also 3.1.6 and 3.2.6: rbenv local 3.2.6), with gem and bundler. PHP 8.3 with Composer. Java 21 with Maven and Gradle. Go. Rust with cargo, rustfmt and clippy. C and C++: gcc, clang, cmake, ninja. git, git-lfs, gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only, like Claude Code's: gh api repos/OWNER/REPO/... and other REST calls work; gh pr and gh issue use GitHub's GraphQL, which is refused, so use gh api repos/OWNER/REPO/pulls and .../issues instead), jq, yq, ripgrep, sqlite3, tmux, vim, nano.
 - What you install for yourself (npm install -g, pip install, gem install, cargo install, go install) goes in your home folder, never in the project.
 - PostgreSQL 16 and Redis 7 are installed but not running: start them with service postgresql start and service redis-server start. Connect as yourself, no password: psql -d postgres, createdb myapp, redis-cli.
 - The master key's jobs are yours: install any Ubuntu package yourself, mid-job (apt-get install -y NAME, or sudo apt-get install -y NAME), and start, stop or restart any installed service (service NAME start). Ports 80 and 443 work. Nothing else needs it here: everything else runs as you.
@@ -205,11 +227,15 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", setupScript = "", setupFailed = null, lastJob = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   const convo = Array.isArray(messages) ? messages.slice() : [];
+  // WHERE THIS JOB BEGINS: what is before it is the chat's saved history (the Worker summarizes that
+  // between jobs); this job may summarize only its own steps, after the owner's message (compactJob).
+  const jobStart = convo.length;
+  let compactions = 0;
   // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
   // history keeps a note in their place (so it stays small).
   const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
@@ -221,7 +247,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const usage = [];
   const started = now();
   let rounds = 0;
-  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [];
+  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
+  const reviewReplies = [];
+  // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
+  const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
   // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
   // reminded once, before it finishes, to offer them for the setup script.
   const installs = new Set(); let nudged = false;
@@ -237,13 +266,28 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m);
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(noPics)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(noPics), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(noPics), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
     if (rounds >= maxRounds) { emit({ type: "error", text: "Coder reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
     if (now() - started > maxMs) { emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
     rounds++;
+    // A LONG JOB IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact "when the context
+    // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
+    const room = deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT;
+    if (room && compactions < 3 && JSON.stringify(convo).length > room) {
+      const cutAt = cutPoint(convo, jobStart + 1, 8);
+      if (cutAt > 0) {
+        let text = "";
+        try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt)), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
+        if (text) {
+          convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room"));
+          compactions++;
+          emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows them all." });
+        }
+      }
+    }
     let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
@@ -443,6 +487,29 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reviewPost = { summary: scrub(String(c.args.summary || "").trim()).slice(0, 4000), comments: list };
         emit({ type: "pr", text: "Review for the pull request: " + list.length + " comment" + (list.length > 1 ? "s" : "") });
         reply("ok: the " + list.length + " comment" + (list.length > 1 ? "s are" : " is") + " posted on the pull request when your turn ends (if the chat has one). Finish by telling the owner what you found.");
+      } else if (c.name === "notify") {
+        const message = scrub(String(c.args.message || "")).replace(/\s+/g, " ").trim().slice(0, 200);
+        if (!message) { reply("error: write the message"); continue; }
+        if (notified >= 3) { reply("error: at most 3 notifications a job"); continue; }
+        notified++;
+        emit({ type: "notify", text: message });
+        reply("ok: sent to the owner's devices that have notifications on.");
+      } else if (c.name === "auto_fix") {
+        // From GitHub (strangers can write there) the owner's settings are never changed.
+        if (github) { reply("error: auto-fix is turned on or off from the chat on gofarther.dev, not from GitHub; tell the owner in your answer"); continue; }
+        if (readOnly && readOnly.main === true && c.args.on !== false) { reply("error: the owner can read this repository but not push to it, so Coder could not push a fix; tell the owner"); continue; }
+        const pr = String(c.args.pr || "").trim().slice(0, 300);
+        if (!pr) { reply("error: give the pull request's address or number"); continue; }
+        autofixRequest = { pr, on: c.args.on !== false };
+        emit({ type: "pr", text: "Auto-fix " + (autofixRequest.on ? "on" : "off") + " for " + pr });
+        reply("ok: auto-fix is turned " + (autofixRequest.on ? "on" : "off") + " for that pull request when your turn ends (the chat says whether it worked). Finish by telling the owner.");
+      } else if (c.name === "reply_review") {
+        const cid = Number(c.args.comment_id), body = scrub(String(c.args.body || "").trim()).slice(0, 2000);
+        if (!replyIds.includes(cid)) { reply("error: only the review comment this auto-fix job was started for can be answered" + (replyIds.length ? " (" + replyIds.join(", ") + ")" : " (none in this job)")); continue; }
+        if (!body) { reply("error: write the answer"); continue; }
+        if (reviewReplies.length < 10) reviewReplies.push({ id: cid, body });
+        emit({ type: "pr", text: "Answer for review comment " + cid + " on GitHub" });
+        reply("ok: posted in that comment's thread on GitHub when your turn ends.");
       } else if (c.name === "pull_request") {
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);
@@ -450,10 +517,12 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const one = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}) };
         // One of the chat's other repositories (2026-11-06): its own pull request.
         const repo = typeof c.args.repo === "string" && /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(c.args.repo.trim()) ? c.args.repo.trim() : "";
+        // A REPOSITORY THE OWNER CAN ONLY READ (owner item 5): no pull request can be opened there.
+        if (readOnly && (repo ? Array.isArray(readOnly.extra) && readOnly.extra.includes(repo.toLowerCase()) : readOnly.main === true)) { reply("error: the owner can read " + (repo || "this repository") + " but not push to it, so no pull request can be opened; your changes stay on this machine (the owner sees them with See changes). Tell the owner."); continue; }
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words)");
     }
   }
 }

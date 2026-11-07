@@ -183,6 +183,6 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   // THE IMAGE: the sandbox's ids for root, its files; Fly.io names the version.
   const df = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
   assert.match(df, /echo 'root:1000000:262144' >> \/etc\/subuid/);
-  assert.match(df, /coder-sandbox\.mjs coder-sandbox-init\.sh coder-globs\.mjs coder-security\.mjs \.\//);
+  assert.match(df, /coder-sandbox\.mjs coder-sandbox-init\.sh coder-globs\.mjs coder-security\.mjs coder-compact\.mjs \.\//);
   assert.match(readFileSync(new URL("../src/coder-fly.mjs", import.meta.url), "utf8"), /env: \{ CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s\.image,/);
 });

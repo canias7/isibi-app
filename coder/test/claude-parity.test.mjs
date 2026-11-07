@@ -41,7 +41,7 @@ test("CD100 GitHub like Claude Code: strangers get no reply and cost one search 
   const r = await M.startAutofix({ CODER_USERS: "me@x.y", CODER_BUCKET: b2 }, { coder, fetchFn }, { kind: "review", repo: "ana/shop", branch: "coder/shop-1", number: 3, login: "ana", text: "Maybe rename this?", installation: 7 });
   assert.equal(r.ok, true);
   await M.runMentionJobs({ CODER_USERS: "me@x.y", CODER_BUCKET: b2 }, { coder, fetchFn });
-  assert.match(sent[0].text, /If it is unclear what the reviewer wants, change nothing: ask the owner with ask_user/);
+  assert.match(sent[0].text, /If it is unclear what the reviewer wants, or the change would be large, change nothing: ask the owner with ask_user/);
 
   // A question from a GitHub job shows its choices (the new card's options are objects).
   const t = M.finalText({ login: "ana", repo: "ana/shop" }, { branch: "coder/shop-1", base: "main" }, [
@@ -70,7 +70,7 @@ test("CD101 Create PR and Create draft PR, like Claude Code: buttons in the chat
   // The page: the two buttons appear once the branch has work and no pull request, and are off while Coder works.
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /p && !\(p\.pr && p\.pr\.url\) && Array\.isArray\(p\.commits\) && p\.commits\.length \? '<button type="button" class="cd-hbtn" id="cdMakePr"' \+ \(S\.running \|\| S\.sending \? ' disabled' : ''\) \+ '>Create PR<\/button><button type="button" class="cd-hbtn" id="cdMakeDraft"/);
+  assert.match(page, /p && !p\.readOnly && !\(p\.pr && p\.pr\.url\) && Array\.isArray\(p\.commits\) && p\.commits\.length \? '<button type="button" class="cd-hbtn" id="cdMakePr"' \+ \(S\.running \|\| S\.sending \? ' disabled' : ''\) \+ '>Create PR<\/button><button type="button" class="cd-hbtn" id="cdMakeDraft"/);
   assert.match(page, /on\('#cdMakePr', 'click', \(\) => send\(PR_ASK\)\);\n\s+on\('#cdMakeDraft', 'click', \(\) => send\(PR_ASK_DRAFT\)\);/);
   assert.match(page, /const PR_ASK_DRAFT = 'Create a draft pull request for this branch\./);
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
@@ -230,7 +230,7 @@ test("CD105 Rewind, like Claude Code's: back to before one of your messages — 
   assert.match(routes, /\{ turn: meta\.turn \+ 1, ev: evCount, msg: Array\.isArray\(messages\) \? messages\.length : 0 \}/);
   assert.match(routes, /\.map\(\(m\) => \(\{ \.\.\.m, msg: m\.msg - dropM, ev: m\.ev - dropE \}\)\)\.filter\(\(m\) => m\.msg >= 0 && m\.ev >= 0\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /\[\['both', 'Restore code and chat'\], \['chat', 'Restore chat only'\], \['code', 'Restore code only'\]\]/);
+  assert.match(page, /\[\.\.\.\(changed \? \[\['both', 'Restore code and chat'\]\] : \[\]\), \['chat', changed \? 'Restore chat only' : 'Restore chat'\], \.\.\.\(changed \? \[\['code', 'Restore code only'\]\] : \[\]\),/);
   assert.match(page, /on\('\[data-rewind\]', 'click', \(e\) => rewind\(Number\(e\.currentTarget\.dataset\.rewind\)\)\);/);
 });
 
@@ -314,7 +314,7 @@ test("CD108 keys are added outside the machine, like Claude Code: the Worker add
   // The machine gets where keys apply, never their values; the Worker answers at /api/coder/egress before any sign-in.
   assert.deepEqual(E.machineKeyRules([{ kind: "headers", hosts: ["a.com"], paths: [], headers: [{ name: "Authorization", value: "zzzzzzzz" }] }]), [{ kind: "headers", hosts: ["a.com"], paths: [], egress: true }]);
   const { readFileSync } = await import("node:fs");
-  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /\} else if \(url\.pathname === EGRESS_PATH\) \{[\s\S]{0,200}res = await handleEgress\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\(GIT_PATH\)\) \{[\s\S]{0,200}res = await handleGit\(request, env\);\n\s+\} else if \(url\.pathname === MODEL_PATH\) \{[\s\S]{0,200}res = await handleModel\(request, env\);\n\s+\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\)/);
+  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /\} else if \(url\.pathname === EGRESS_PATH\) \{[\s\S]{0,200}res = await handleEgress\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\(GIT_PATH\)\) \{[\s\S]{0,200}res = await handleGit\(request, env\);\n\s+\} else if \(url\.pathname === MODEL_PATH\) \{[\s\S]{0,200}res = await handleModel\(request, env\);\n\s+\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env, \{ waitUntil: \(p\) => ctx\.waitUntil\(p\) \}\);\n\s+\} else if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\)/);
 });
 
 test("CD109 the Worker's signing gives exactly what the machine's did (AWS, Google Cloud, body keys)", async () => {
@@ -388,7 +388,11 @@ test("CD111 several repositories in one chat, like Claude Code: up to 3 more, ad
   assert.deepEqual(one.project.repos, [{ repo: "ana/api", base: "develop" }], "with its own main branch");
   assert.equal((await add("ana/api")).status, 400, "not twice");
   assert.equal((await add("ana/shop")).status, 400, "not the chat's own repository");
-  assert.equal((await add("ana/ro")).status, 403, "only one Coder may write to");
+  // One the owner can only read (owner item 5, like Claude Code): added, read-only.
+  const ro = await add("ana/ro");
+  assert.equal(ro.status, 200);
+  assert.deepEqual((await ro.json()).project.repos.find((r) => r.repo === "ana/ro"), { repo: "ana/ro", base: "main", readOnly: true });
+  await go("projects/" + id + "/repos?repo=ana%2Fro", { method: "DELETE" });
   await add("ana/w1"); await add("ana/w2");
   assert.equal((await add("ana/w3")).status, 400, "at most 3 more");
   const less = await (await go("projects/" + id + "/repos?repo=ana%2Fw2", { method: "DELETE" })).json();
@@ -421,7 +425,7 @@ test("CD111 several repositories in one chat, like Claude Code: up to 3 more, ad
   const { readFileSync } = await import("node:fs");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), extra: extraFor\(meta\),/);
-  assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, git: await gitAccess\(env, uid, id, meta\.turn\), message: commitTitle\(s\.result\.summary\), extra: extraFor\(meta\) \}\)/);
+  assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, git: await gitAccess\(env, uid, id, meta\.turn\), message: commitTitle\(s\.result\.summary\), extra: extraFor\(meta\), \.\.\.\(meta\.readOnly \? \{ noPush: true \} : \{\}\) \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /on\('#cdAddRepo', 'change', \(e\) => \{ const v = e\.currentTarget\.value; if \(v\) changeRepos\(v, true\); \}\);/);
   assert.match(page, /data-unrepo="' \+ esc\(x\.repo\)/);

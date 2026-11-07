@@ -72,7 +72,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -90,7 +90,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -290,13 +290,18 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
   } finally { await close(); }
 });
 
-test("CD10b a repository Coder cannot write to is refused; GitHub's pieces: signed state, sealed token, refresh", async () => {
+test("CD10b a repository Coder cannot write to opens READ-ONLY (owner item 5, like Claude Code: any repository you can read), and is refused for a job from GitHub (needPush); GitHub's pieces: signed state, sealed token, refresh", async () => {
   const bucket = fakeBucket();
   const env = { ...GH_ENV, CODER_BUCKET: bucket };
   const ghFake = fakeGithub({ canPush: false });
   await saveConnection(env, bucket, "u1", { access: "ghu_x", refresh: "ghr_x", expires: Date.now() + 3600e3, refreshExpires: Date.now() + 1e9 }, "ana");
-  const r = await handleCoder(new Request("https://c/api/coder/projects", { method: "POST", headers: { Authorization: "Bearer ok" }, body: JSON.stringify({ repo: "ana/shop" }) }), env, {}, { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => null });
-  assert.equal(r.status, 403);
+  const open = (body) => handleCoder(new Request("https://c/api/coder/projects", { method: "POST", headers: { Authorization: "Bearer ok" }, body: JSON.stringify(body) }), env, {}, { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => null });
+  const r = await open({ repo: "ana/shop" });
+  assert.equal(r.status, 200);
+  const made = (await r.json()).project;
+  assert.equal(made.readOnly, true, "a chat on it is read-only");
+  assert.equal(bucket.m.has("coder/github-branches/" + "ana__shop__" + made.branch.replace(/\//g, "__") + ".json"), false, "its branch is never GitHub's to report on");
+  assert.equal((await open({ repo: "ana/shop", needPush: true })).status, 403, "a job from GitHub needs push access, like Claude Code's GitHub app");
   const T = 1762300000000;
   const state = await makeState(env, "u1", T);
   assert.equal(await readState(env, state, T + 1000), "u1");
@@ -431,7 +436,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \} \}, useCopy \? /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -547,7 +552,8 @@ test("CD21 the screen asks the server: the commands, the model list and pick, an
   assert.doesNotMatch(ui, /slash|runCommand|\/command/, "the slash commands were removed (each has a button)");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   assert.doesNotMatch(ui, /Comments on the changes:/, "the server writes the comments in, not the page");
-  assert.doesNotMatch(ui, /localStorage/, "the pick is kept on the account");
+  // The pick is kept on the account; only the desktop app's own notifications switch (owner item 8) is kept on the device.
+  assert.doesNotMatch(ui.replace(/  const localNotifyOn = [^\n]*\n  const setLocalNotify = [^\n]*\n/, ""), /localStorage/, "the pick is kept on the account");
   assert.match(ui, /r\.background \? 'bg'/);
 });
 
@@ -1218,14 +1224,14 @@ test("CD149 the whole setup script runs, up to the 64 KB Environment takes (live
   assert.doesNotMatch(server, /\.slice\(0, 20000\) : "";/);
 });
 
-test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pull request starts a fix in that chat; others, bots and loops are refused", async () => {
+test("CD48 auto-fix (like Claude Code's, owner item 2): off until turned on; a failed check on the pull request's newest commit, or the owner's review, on a watched pull request (Coder's or any of the repository's) starts a fix in its chat, posting nothing on GitHub; a review comment's job may answer in its thread; others, bots and loops are refused", async () => {
   const M = await import("../src/coder-mentions.mjs");
   const base = { repository: { full_name: "canias7/shop", id: 1 }, installation: { id: 77 } };
   const check = (conclusion, ref = "coder/shop-ab12", headRepo = 1) => ({ ...base, action: "completed", check_run: { id: 555, name: "test", conclusion, head_sha: "abc123", app: { slug: "github-actions" }, output: { title: "2 tests failed", summary: "cart.test.js" }, pull_requests: [{ number: 9, head: { ref, repo: { id: headRepo } }, base: { repo: { id: 1 } } }] } });
   assert.equal(M.readAutofix("check_run", check("failure", "coder/shop-ab12", 999)), null, "a fork's branch named like Coder's");
   assert.equal(M.readAutofix("check_run", { ...check("failure"), check_run: { ...check("failure").check_run, pull_requests: [], check_suite: { head_branch: "coder/shop-ab12" } } }), null, "no fall back to the branch name alone");
   assert.equal(M.readAutofix("check_run", check("success")), null);
-  assert.equal(M.readAutofix("check_run", check("failure", "feature/x")), null, "only Coder's branches");
+  assert.equal(M.readAutofix("check_run", check("failure", "feature/x")).branch, "feature/x", "any of the repository's branches (its chat is found by its branch)");
   const f = M.readAutofix("check_run", check("failure"));
   assert.deepEqual([f.kind, f.branch, f.number, f.checkId], ["check", "coder/shop-ab12", 9, 555]);
   assert.match(f.text, /The check "test" failed \(failure\): 2 tests failed\ncart\.test\.js/);
@@ -1241,11 +1247,13 @@ test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pu
   await bucket.put("coder/u1/profile.json", JSON.stringify({ email: "me@x.y" }));
   await bucket.put("coder/u1/github.json", JSON.stringify({ login: "canias7" }));
   const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket };
-  let meta = { id: "shop-ab12", status: "idle", autofixTries: 0, commits: [{ sha: "abc123" }] };
+  let meta = { id: "shop-ab12", status: "idle", autofixTries: 0, commits: [{ sha: "abc123" }], autofix: true };
   const sent = [];
   const coder = async (req) => { const u = new URL(req.url); if (req.method === "POST") { sent.push(await req.json()); meta = { ...meta, autofixTries: meta.autofixTries + 1 }; return Response.json({ ok: true }); } return Response.json({ ok: true, project: meta }); };
-  const fetchFn = async () => new Response("{}", { status: 404 });
+  const posted = [];
+  const fetchFn = async (url, init = {}) => { if (String(init.method || "GET") !== "GET") posted.push(String(url)); return new Response("{}", { status: 404 }); };
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).ok, true);
+  assert.deepEqual(posted, [], "nothing posted on the pull request (Claude Code explains in the session)");
   assert.equal(sent.length, 0, "started by the minute check, not while answering GitHub");
   assert.equal((await M.runMentionJobs(env, { coder, fetchFn })).started, 1);
   assert.match(sent[0].text, /^AUTO-FIX for pull request #9 on coder\/shop-ab12\.\n\nThe text between <<<GITHUB[\s\S]*<<<GITHUB\nThe check "test" failed/);
@@ -1254,12 +1262,30 @@ test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pu
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("pull_request_review", review("stranger")))).why, "reviewer is not the owner");
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("pull_request_review", review("Canias7")))).ok, true, "the owner's review");
   meta.autofixTries = 0; meta.commits = [{ sha: "other999" }];
-  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "not Coder's latest commit");
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "not the pull request's newest commit");
   meta.commits = [{ sha: "abc123" }];
   meta.autofixTries = M.AUTOFIX_MAX;
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "too many tries", "never loops forever");
   meta = { ...meta, autofixTries: 0, autofix: false };
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "auto-fix off");
+  meta = { ...meta, autofix: undefined };
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "auto-fix off", "off until turned on");
+  // A WATCHED PULL REQUEST ON ANOTHER BRANCH; one nobody watches goes no further.
+  meta = { ...meta, autofix: true, autofixTries: 0 };
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("check_run", check("failure", "feature/x")))).why, "not a Coder branch");
+  await bucket.put(M.branchKey("canias7/shop", "feature/x"), JSON.stringify({ uid: "u1", id: "shop-ab12" }));
+  assert.equal((await M.startAutofix(env, { coder, fetchFn }, M.readAutofix("check_run", check("failure", "feature/x")))).ok, true);
+  // A REVIEW COMMENT: its job may answer in its thread (and only there).
+  const rc = { ...base, action: "created", sender: { login: "canias7", type: "User" }, comment: { id: 4242, body: "Use a const here", path: "src/a.js", line: 3 }, pull_request: { number: 9, head: { ref: "coder/shop-ab12", repo: { id: 1 } } } };
+  const fc = M.readAutofix("pull_request_review_comment", rc);
+  assert.equal(fc.commentId, 4242);
+  for (const k of [...bucket.m.keys()]) if (k.startsWith("coder/github-jobs/")) bucket.m.delete(k); // the earlier starts, done with
+  sent.length = 0; meta.autofixTries = 0;
+  await M.startAutofix(env, { coder, fetchFn }, fc);
+  await M.runMentionJobs(env, { coder, fetchFn });
+  const lastStart = sent[sent.length - 1];
+  assert.deepEqual(lastStart.replyTo, { pr: 9, ids: [4242] });
+  assert.match(lastStart.text, /This is review comment 4242: once you have resolved it, you may answer in its thread on GitHub with reply_review/);
   meta = { ...meta, autofix: true, status: "running" };
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).why, "busy");
 });
@@ -1303,7 +1329,7 @@ test("CD51 auto-fix finds chats made before branches were recorded", async () =>
   await bucket.put("coder/u2/github.json", JSON.stringify({ login: "canias7" }));
   const env = { CODER_USERS: "me@x.y", CODER_BUCKET: bucket };
   const sent = [];
-  const coder = async (req) => { if (req.method === "POST") { sent.push(new URL(req.url).pathname); return Response.json({ ok: true }); } return Response.json({ ok: true, project: { id: "shop-old1", status: "idle" } }); };
+  const coder = async (req) => { if (req.method === "POST") { sent.push(new URL(req.url).pathname); return Response.json({ ok: true }); } return Response.json({ ok: true, project: { id: "shop-old1", status: "idle", autofix: true } }); };
   const r = await M.startAutofix(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) }, { kind: "review", repo: "canias7/shop", branch: "coder/shop-old1", number: 3, installation: 1, login: "canias7", text: "rename it" });
   assert.equal(r.ok, true, r.why);
   await M.runMentionJobs(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) });
@@ -1744,7 +1770,7 @@ test("CD71 (owner 2026-11-06) review and undo are tools Coder calls itself: revi
   const r4 = await runCoder({ send: async () => t4[q++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev4.push(e) }, { text: "undo", github: true });
   assert.equal(r4.undoRequest, undefined, "not from GitHub");
   const routes = readFileSync(HERE("src/coder-routes.mjs"), "utf8");
-  assert.match(routes, /if \(s\.result\.undoRequest && t\)[\s\S]*Not undone: this job changed files too[\s\S]*post\("\/undo"/);
+  assert.match(routes, /if \(s\.result\.undoRequest && \(t \|\| meta\.readOnly\)\)[\s\S]*Not undone: this job changed files too[\s\S]*post\("\/undo"/);
 });
 
 test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, source marks, code; nothing unsafe gets through", async () => {
@@ -2171,7 +2197,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.deepEqual(lastJobFor({ turn: 5, commits: [{ turn: 3, title: "Add a.txt" }, { turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: true });
   assert.deepEqual(lastJobFor({ turn: 6, commits: [{ turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: false }, "the last job was a review: it changed nothing");
   assert.deepEqual(lastJobFor({ turn: 2, commits: [] }), { title: "", changed: false });
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \} \}, /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, /);
   assert.deepEqual(lastJobOf({ lastJob: { title: "Add  one.txt\n", changed: true } }), { title: "Add one.txt", changed: true });
   assert.equal(lastJobOf({}), null);
   assert.match(undoNote({ title: "Add one.txt", changed: false }), /UNDO: the last job in this chat that changed files was "Add one\.txt"; your last job changed no files, so if the owner asks to undo, ask first which one they mean\./);
