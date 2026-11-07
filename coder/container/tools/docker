@@ -23,10 +23,18 @@ if ! up; then
   rm -rf "$sock" "$XDG_RUNTIME_DIR/docker.pid" "$XDG_RUNTIME_DIR/dockerd-rootless" 2>/dev/null
   (
     # The engine's own downloads (images) go through Coder's proxy when the
-    # network is limited. Inside the engine's network, this machine is 10.0.2.2.
+    # network is limited. Today's engine runs in this machine's own network
+    # (Docker's "detach-netns"), where the proxy is 127.0.0.1, as here (GitHub's
+    # image check, 2026-11-07: sent to 10.0.2.2, it was "network is unreachable").
+    # An older one runs inside its own network, where this machine is 10.0.2.2.
+    # Containers reach this machine at 10.0.2.2 either way.
     if [ -n "${HTTPS_PROXY:-}${HTTP_PROXY:-}" ]; then
       export DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=false
-      export HTTPS_PROXY="${HTTPS_PROXY//127.0.0.1/10.0.2.2}" HTTP_PROXY="${HTTP_PROXY//127.0.0.1/10.0.2.2}"
+      if grep -q DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS "$(command -v dockerd-rootless.sh)" 2>/dev/null; then
+        export DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS=true
+      else
+        export HTTPS_PROXY="${HTTPS_PROXY//127.0.0.1/10.0.2.2}" HTTP_PROXY="${HTTP_PROXY//127.0.0.1/10.0.2.2}"
+      fi
       export https_proxy="$HTTPS_PROXY" http_proxy="$HTTP_PROXY"
     fi
     exec nohup dockerd-rootless.sh >"$log" 2>&1

@@ -171,3 +171,28 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   for (const w of ["Ubuntu 24.04", "check-tools", "Python 3.12", "uv", "poetry", "pytest", "Node 22", "/opt/node24/bin", "nvm install", "yarn", "pnpm", "bun", "Ruby 3.3", "rbenv local", "PHP 8.3", "Composer", "Java 21", "Maven", "Gradle", "Go.", "Rust", "clippy", "clang", "cmake", "gh (this machine has no GitHub login", "yq", "service postgresql start", "service redis-server start", "psql -d postgres", "Docker and docker compose work without admin rights", "/usr/bin/google-chrome", "--no-sandbox", "your home folder, never in the project", "Playwright", "require(\"playwright\")", "ffmpeg", "ImageMagick", "pdftotext", "pandoc", "pandas", "python-docx", "markitdown", "strace", "valgrind"]) assert.ok(MACHINE_TOOLS.includes(w), w);
   assert.match(read("container/server.mjs"), /const context = \(env\.CODER_IMAGE === "full" \? \(t\.box \? MACHINE_ADMIN : MACHINE_TOOLS\) \+ "\\n\\n" : ""\) \+ style \+ /);
 });
+
+test("CD154 the docker command sends its engine's downloads to Coder's gate where the engine is: today's engine runs in this machine's own network (gate at 127.0.0.1; GitHub's image check: through 10.0.2.2 it was \"network is unreachable\"); an older one, inside its own (this machine is 10.0.2.2 there); containers may reach this machine either way", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync, symlinkSync } = await import("node:fs");
+  // Only grep on the way (this computer's own Docker, if any, is never found).
+  const tools = mkdtempSync(join(tmpdir(), "coder-dkt-"));
+  symlinkSync(spawnSync("bash", ["-c", "command -v grep"], { encoding: "utf8" }).stdout.trim(), join(tools, "grep"));
+  const BASH = spawnSync("bash", ["-c", "command -v bash"], { encoding: "utf8" }).stdout.trim();
+  const W = readFileSync(HERE("container/tools/docker"), "utf8");
+  const block = (W.match(/\n    if \[ -n "\$\{HTTPS_PROXY:-\}\$\{HTTP_PROXY:-\}" \]; then\n[\s\S]*?\n    fi\n/) || [""])[0];
+  assert.ok(block, "the proxy part of the engine's start");
+  const run = (script, envMore = {}) => {
+    const bin = mkdtempSync(join(tmpdir(), "coder-dkr-"));
+    if (script !== null) writeFileSync(join(bin, "dockerd-rootless.sh"), script, { mode: 0o755 });
+    const r = spawnSync(BASH, ["-c", "set -u\n" + block + 'echo "${HTTPS_PROXY:-}|${http_proxy:-}|${DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS:-}|${DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK:-}"'], { env: { PATH: bin + ":" + tools, ...envMore }, encoding: "utf8" });
+    return r.stdout.trim();
+  };
+  const today = '#!/bin/sh\n: "${DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS:=true}"\n';
+  const gate = { HTTPS_PROXY: "http://127.0.0.1:40123", HTTP_PROXY: "http://127.0.0.1:40123" };
+  assert.equal(run(today, gate), "http://127.0.0.1:40123|http://127.0.0.1:40123|true|false", "today's engine: the gate as it is here");
+  assert.equal(run("#!/bin/sh\necho old\n", gate), "http://10.0.2.2:40123|http://10.0.2.2:40123||false", "an older engine: this machine from inside its network");
+  assert.equal(run(null, gate), "http://10.0.2.2:40123|http://10.0.2.2:40123||false", "no start script found: the older way");
+  // No gate (Full access): nothing set.
+  assert.equal(run(today, {}), "|||", "no gate, no change");
+});
