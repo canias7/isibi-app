@@ -429,9 +429,13 @@ a key it needs, an environment change it proposes). They go out as the job's
 steps reach the Worker (`handleLive`), each step once, never about a chat the
 owner is looking at (the page's polls say so while visible and focused). A
 device its push service says is gone is forgotten. Works in browsers on
-computers and Android, and on iPhone from the Home Screen (iOS 16.4 or later);
-the Electron and Capacitor apps have no Web Push (native push would need the
-owner's Firebase and Apple accounts).
+computers and Android, and on iPhone from the Home Screen (iOS 16.4 or later).
+The desktop app's window has no Web Push: while the app is open (minimized too;
+its background throttling is off) the page watches the chats itself and shows
+the same notifications with the same switches (the chat list's `waiting`, what
+a job left for the owner, and `ran`, how long it took), turned on per app. The
+phone app (Capacitor) has none yet: native push needs the owner's Firebase and
+Apple accounts.
 
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.

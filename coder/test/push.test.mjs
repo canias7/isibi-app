@@ -191,3 +191,42 @@ test("CD190 Coder's notify tool (at most 3 a job); the page: Notifications in th
   await wait;
   assert.deepEqual(opened, ["https://gofarther.dev/?chat=" + ID]);
 });
+
+test("CD191 the desktop app (no web push in its window): while it is open it shows the same notifications itself, with the same switches: a long job finished, a job waiting for the owner, Coder's own notify in the open chat; never about the chat in front of the owner; the chat list says what a job left waiting and how long it ran; a minimized window keeps watching", async () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const src = /function desktopNews\(before, now, o\) \{[\s\S]*?\n  \}/.exec(ui)[0];
+  const desktopNews = new Function(src + "; return desktopNews;")();
+  const run = { id: "a", repo: "ana/shop", title: "Fix the cart", status: "running" };
+  const on = { decides: true, actions: true, openId: "", focused: false };
+  assert.deepEqual(desktopNews([run], [{ ...run, status: "idle", ran: 4 * 60000 }], on), [{ id: "a", title: "Coder finished · Fix the cart", body: "Open the chat to see what it did." }]);
+  assert.deepEqual(desktopNews([run], [{ ...run, status: "idle", ran: 60000 }], on), [], "a short job: nothing");
+  assert.deepEqual(desktopNews([run], [{ ...run, status: "idle", waiting: "question", ran: 1000 }], on), [{ id: "a", title: "Coder needs your answer · Fix the cart", body: "Coder asked you something." }]);
+  assert.deepEqual(desktopNews([run], [{ ...run, status: "idle", waiting: "secret" }], { ...on, actions: false }), [], "the switch is off");
+  assert.deepEqual(desktopNews([run], [{ ...run, status: "idle", ran: 4 * 60000 }], { ...on, openId: "a", focused: true }), [], "the owner is looking at it");
+  assert.deepEqual(desktopNews([run], [run], on), [], "still working");
+  assert.deepEqual(desktopNews([{ ...run, status: "idle" }], [{ ...run, status: "idle", ran: 9e6 }], on), [], "only a job that just ended");
+  // THE PAGE: the panel's own switch for the app, the watcher started at load, the open chat's news.
+  assert.match(ui, /const DESKTOP_APP = \/GoFartherDesktop\\\/\/\.test\(navigator\.userAgent\);/);
+  assert.match(ui, /id="cdLocalOn">Turn on in this app<\/button>/);
+  assert.match(ui, /S\.projects = \(p\.data && p\.data\.projects\) \|\| \[\];\n\s+if \(DESKTOP_APP\) startDesktopWatch\(\);/);
+  assert.match(ui, /if \(DESKTOP_APP && localNotifyOn\(\) && !document\.hasFocus\(\) && 'Notification' in window && Notification\.permission === 'granted'\) \{/);
+  assert.match(readFileSync(HERE("desktop/main.js"), "utf8"), /backgroundThrottling: false/);
+  // THE CHAT LIST: what the last job left waiting, and how long it ran.
+  const { handleCoder } = await import("../src/coder-routes.mjs");
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", CODER_TOKEN_KEY: KEY, CODER_PUBLIC_URL: "https://coder.gofarther.dev", CODER_BUCKET: bucket };
+  await saveConnection(env, bucket, UID, { access: "ghu_x" }, "ana");
+  await bucket.put("coder/" + UID + "/" + ID + "/meta.json", JSON.stringify({ id: ID, repo: "ana/shop", base: "main", branch: "coder/" + ID, turn: 1, saved: 0, status: "running", at: Date.now() - 5 * 60000 }));
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: UID, email: "me@x.y" }), container: () => ({ fetch: async (req) => {
+    const p = new URL(req.url).pathname;
+    if (p === "/state") return Response.json({ running: false, next: 2, events: [{ type: "user", text: "go" }, { type: "question", text: "Which database?", options: [] }], result: { status: "done", messages: [{ role: "user", content: "go" }], summary: "Which database?" } });
+    if (p === "/push") return Response.json({ ok: true, pushed: false, changed: false });
+    return Response.json({ ok: true });
+  } }) };
+  const go = (path) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { headers: { "content-type": "application/json" } }), env, {}, deps);
+  await go("projects/" + ID + "/state?since=0");
+  const [entry] = (await (await go("projects")).json()).projects;
+  assert.equal(entry.waiting, "question");
+  assert.ok(entry.ran >= 5 * 60000 && entry.ran < 6 * 60000, String(entry.ran));
+});

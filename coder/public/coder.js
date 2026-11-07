@@ -91,6 +91,7 @@
     if (!g.data.connected) { S.phase = 'connect'; return draw(); }
     const p = await call('/projects');
     S.projects = (p.data && p.data.projects) || [];
+    if (DESKTOP_APP) startDesktopWatch();
     // A NOTIFICATION'S CHAT (owner item 8): /?chat=<id> opens it.
     const want = new URLSearchParams(location.search).get('chat');
     if (want) { try { history.replaceState(history.state, '', location.pathname); } catch (e) {} }
@@ -153,7 +154,7 @@
   }
 
   // THE CHAT LIST (each chat its own session): what the sidebar shows.
-  const entryOf = (m) => ({ id: m.id, repo: m.repo, title: m.title || '', status: m.status || 'idle', pr: m.pr ? (m.pr.number || m.pr) : null, at: m.at });
+  const entryOf = (m) => ({ id: m.id, repo: m.repo, title: m.title || '', status: m.status || 'idle', pr: m.pr ? (m.pr.number || m.pr) : null, at: m.at, waiting: m.waiting || null, ran: Number(m.ran) || 0 });
   function syncEntry() {
     if (!S.project) return;
     const e = entryOf(S.project);
@@ -201,22 +202,31 @@
     let note = '';
     const paint = () => {
       const blocked = canPush() && Notification.permission === 'denied';
+      const local = DESKTOP_APP && 'Notification' in window;
+      const localOn = local && Notification.permission === 'granted' && localNotifyOn();
       box.innerHTML = '<div class="cd-sure-title">Notifications</div>' +
         '<div class="cd-sure-text">Like Claude Code’s: Coder tells you when a long job finishes or when you asked it to, and when it needs your answer. Never about a chat you’re looking at.</div>' +
-        '<div class="cd-notify-device">' + (!canPush() ? '<span>This browser can’t get notifications. On iPhone, add gofarther.dev to your Home Screen (Share, then Add to Home Screen) and open it from there.</span>'
+        '<div class="cd-notify-device">' + (local ? (localOn ? '<span class="cd-notify-on">On in this app</span><button type="button" id="cdLocalOff">Turn off here</button><span class="cd-notify-hint">The desktop app shows them while it’s open (minimized is fine).</span>' : '<button type="button" class="cd-notify-go" id="cdLocalOn">Turn on in this app</button><span class="cd-notify-hint">The desktop app shows them while it’s open (minimized is fine).</span>')
+          : !canPush() ? '<span>This browser can’t get notifications. On iPhone, add gofarther.dev to your Home Screen (Share, then Add to Home Screen) and open it from there.</span>'
           : blocked ? '<span>Notifications are blocked for gofarther.dev in this browser’s settings.</span>'
           : sub ? '<span class="cd-notify-on">On for this device</span><button type="button" id="cdNotifyOff">Turn off here</button>'
           : '<button type="button" class="cd-notify-go" id="cdNotifyOn">Turn on for this device</button>') + '</div>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdPushDecides"' + (info.decides ? ' checked' : '') + '><span><b>Push when Coder decides</b><br>A long job finished, or you asked to be told (“notify me when the tests finish”).</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdPushActions"' + (info.actions ? ' checked' : '') + '><span><b>Push when actions are required</b><br>Coder asks you something, or needs a key or your approval.</span></label>' +
         (note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
-        '<div class="cd-sure-row">' + (info.devices ? '<button type="button" id="cdPushTest">Send a test</button>' : '') + '<button type="button" class="cd-notify-done" id="cdNotifyDone">Done</button></div>';
+        '<div class="cd-sure-row">' + (info.devices || localOn ? '<button type="button" id="cdPushTest">Send a test</button>' : '') + '<button type="button" class="cd-notify-done" id="cdNotifyDone">Done</button></div>';
       const $ = (id) => box.querySelector('#' + id);
       $('cdNotifyDone').onclick = close;
-      const sw = async (field, el) => { const x = await call('/push/settings', { method: 'POST', body: JSON.stringify({ [field]: el.checked }) }); if (x.status === 200) info[field] = el.checked; else { el.checked = !el.checked; note = (x.data && x.data.error) || 'Not saved.'; paint(); } };
+      const sw = async (field, el) => { const x = await call('/push/settings', { method: 'POST', body: JSON.stringify({ [field]: el.checked }) }); if (x.status === 200) { info[field] = el.checked; S.pushInfo = info; } else { el.checked = !el.checked; note = (x.data && x.data.error) || 'Not saved.'; paint(); } };
       $('cdPushDecides').onchange = (e) => sw('decides', e.currentTarget);
       $('cdPushActions').onchange = (e) => sw('actions', e.currentTarget);
-      if ($('cdPushTest')) $('cdPushTest').onclick = async () => { const x = await call('/push/test', { method: 'POST', body: '{}' }); note = x.status === 200 && x.data.sent ? 'Sent. It should arrive in a few seconds.' : 'Nothing was sent: no device took it.'; paint(); };
+      if ($('cdPushTest')) $('cdPushTest').onclick = async () => {
+        // In the desktop app, a test shows here too; the server's goes to the devices turned on elsewhere.
+        if (localOn) showLocal({ id: '', title: 'Coder', body: 'Notifications are on in this app.' });
+        const x = info.devices ? await call('/push/test', { method: 'POST', body: '{}' }) : null;
+        note = localOn || (x && x.status === 200 && x.data.sent) ? 'Sent. It should arrive in a few seconds.' : 'Nothing was sent: no device took it.';
+        paint();
+      };
       if ($('cdNotifyOn')) $('cdNotifyOn').onclick = async () => {
         try {
           if ((await Notification.requestPermission()) !== 'granted') { note = 'Notifications were not allowed.'; return paint(); }
@@ -230,6 +240,11 @@
         } catch (e) { note = 'This device could not be added: ' + String((e && e.message) || e).slice(0, 120); }
         paint();
       };
+      if ($('cdLocalOn')) $('cdLocalOn').onclick = async () => {
+        if ((await Notification.requestPermission()) !== 'granted') { note = 'Notifications were not allowed.'; return paint(); }
+        setLocalNotify(true); S.pushInfo = info; startDesktopWatch(); note = 'On. This app will show Coder’s notifications while it’s open.'; paint();
+      };
+      if ($('cdLocalOff')) $('cdLocalOff').onclick = () => { setLocalNotify(false); stopDesktopWatch(); note = 'Off in this app.'; paint(); };
       if ($('cdNotifyOff')) $('cdNotifyOff').onclick = async () => {
         const endpoint = sub ? sub.endpoint : '';
         try { if (sub) await sub.unsubscribe(); } catch (e) {}
@@ -239,6 +254,48 @@
       };
     };
     paint();
+  }
+
+  // THE DESKTOP APP'S NOTIFICATIONS (owner item 8): its window has no web push, so while the app is open (a
+  // minimized window too) it watches the chats itself and shows the same notifications, with the same two
+  // switches: a long job finished, a job waiting for the owner, Coder's own notify in the open chat.
+  const DESKTOP_APP = /GoFartherDesktop\//.test(navigator.userAgent);
+  const localNotifyOn = () => { try { return localStorage.getItem('gf_local_notify') === '1'; } catch (e) { return false; } };
+  const setLocalNotify = (on) => { try { if (on) localStorage.setItem('gf_local_notify', '1'); else localStorage.removeItem('gf_local_notify'); } catch (e) {} };
+  /** What changed between two looks at the chat list that is worth a notification. */
+  function desktopNews(before, now, o) {
+    const out = [];
+    for (const c of now || []) {
+      const b = (before || []).find((x) => x.id === c.id);
+      if (!b || b.status !== 'running' || c.status === 'running') continue;
+      if (o.openId === c.id && o.focused) continue;
+      const name = c.title || c.repo;
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : 'Coder asked you something.' }); }
+      else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
+    }
+    return out;
+  }
+  function showLocal(n) {
+    try {
+      const x = new Notification(n.title, { body: n.body || '', tag: n.id, icon: '/icons/icon-192.png' });
+      x.onclick = () => { try { window.focus(); } catch (e) {} x.close(); if (n.id && (!S.project || S.project.id !== n.id)) openProject(n.id); };
+    } catch (e) {}
+  }
+  function stopDesktopWatch() { if (S.deskWatch) clearInterval(S.deskWatch); S.deskWatch = 0; }
+  async function startDesktopWatch() {
+    stopDesktopWatch();
+    if (!DESKTOP_APP || !('Notification' in window) || Notification.permission !== 'granted' || !localNotifyOn()) return;
+    if (!S.pushInfo) { const r = await call('/push'); if (r.status === 200) S.pushInfo = r.data; }
+    let seen = S.projects.slice();
+    S.deskWatch = setInterval(async () => {
+      if (!seen.some((c) => c.status === 'running')) { seen = S.projects.slice(); if (!seen.some((c) => c.status === 'running')) return; }
+      const r = await call('/projects');
+      if (r.status !== 200) return;
+      const now = (r.data.projects || []).map(entryOf);
+      const info = S.pushInfo || { decides: true, actions: true };
+      for (const n of desktopNews(seen, now, { decides: info.decides !== false, actions: info.actions !== false, openId: S.project && S.project.id, focused: document.hasFocus() })) showLocal(n);
+      seen = now;
+    }, 30000);
   }
 
   // CODER'S OWN BOX WITH SEVERAL CHOICES (Rewind's three, like Claude Code's).
@@ -557,6 +614,15 @@
         return true;
       });
       if (fresh.length) S.events = S.events.concat(fresh);
+      // THE DESKTOP APP, its window not in front: Coder's own notify, or a question, in this chat (owner item 8).
+      if (DESKTOP_APP && localNotifyOn() && !document.hasFocus() && 'Notification' in window && Notification.permission === 'granted') {
+        const info = S.pushInfo || { decides: true, actions: true };
+        const name = S.project.title || S.project.repo;
+        for (const e of fresh) {
+          if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
+          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: e.text || e.reason || '' });
+        }
+      }
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
       S.running = !!r.data.running;

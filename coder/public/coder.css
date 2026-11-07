@@ -442,3 +442,4 @@
 .cd-notify-sw input { margin-top: 3px; }
 .cd-notify-note { margin-top: 10px; font-size: 13px; color: #1f1e1d; }
 .cd-sure-row .cd-notify-done { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cd-notify-hint { flex-basis: 100%; font-size: 12px; color: #6b7280; }

@@ -147,7 +147,9 @@ const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMet
 /** A CHAT IN THE LIST (2026-11-05, the owner: "each coder can have its own session"): each
  *  project is one chat, with its own history, branch and pull request. */
 function listEntry(meta) {
-  return { id: meta.id, name: meta.repo, repo: meta.repo, title: meta.title || "", status: meta.status || "idle", pr: meta.pr ? meta.pr.number : null, at: meta.at };
+  // `waiting`: its last job ended asking the owner something; `ran`: how long that job took (the desktop
+  // app's notifications, owner item 8).
+  return { id: meta.id, name: meta.repo, repo: meta.repo, title: meta.title || "", status: meta.status || "idle", pr: meta.pr ? meta.pr.number : null, at: meta.at, waiting: meta.waiting || null, ran: Number(meta.ran) || 0 };
 }
 // THE AUDIT (2026-11-05): one shared index.json lost updates when two chats
 // changed at once. Now each chat keeps only its own meta.json, and the list is
@@ -642,7 +644,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // to review comment threads"): only one GitHub's news started the job for; kept for its end.
     const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
     const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
-    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
+    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
     // minutes, and Cloudflare stops a request whose tab has closed; the watch
@@ -848,7 +850,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // The oldest history may have been trimmed: Rewind's marks move with it.
       const dropM = (Array.isArray(s.result.messages) ? s.result.messages.length : 0) - kept.length, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
-      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
+      const asked = fresh.filter((e) => e && ["question", "secret", "envchange"].includes(e.type)).at(-1);
+      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).

@@ -552,7 +552,8 @@ test("CD21 the screen asks the server: the commands, the model list and pick, an
   assert.doesNotMatch(ui, /slash|runCommand|\/command/, "the slash commands were removed (each has a button)");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   assert.doesNotMatch(ui, /Comments on the changes:/, "the server writes the comments in, not the page");
-  assert.doesNotMatch(ui, /localStorage/, "the pick is kept on the account");
+  // The pick is kept on the account; only the desktop app's own notifications switch (owner item 8) is kept on the device.
+  assert.doesNotMatch(ui.replace(/  const localNotifyOn = [^\n]*\n  const setLocalNotify = [^\n]*\n/, ""), /localStorage/, "the pick is kept on the account");
   assert.match(ui, /r\.background \? 'bg'/);
 });
 
