@@ -23,6 +23,12 @@ log (81,000 lines) is in git history.
 - With a limited network, its downloads go through Coder's gate too, so your setting holds.
 - **Honest limit:** this is not the whole master key. Editing system files, or any other admin command, would need a full container system with the machine's disk mirrored for it. That's a multi-day job with real risk, so it's not done. Removing packages is also refused: removing something like git would quietly break how Coder saves your work.
 - Tests: the GitHub machine check installs a program as Coder's own user, starts Redis, serves on port 80 in the room, and checks that `sudo bash`, `apt-get remove`, a trick apt option and a sneaky service name are all refused (150 tests in all, plus 16 admin-only).
+- **The GitHub machine check passed** (run 42348124083):
+  - As Coder's own user, `apt-get install figlet` and `sudo apt-get install` installed and ran it.
+  - `sudo service redis-server start` started Redis (it answered PONG) and it stopped again.
+  - Everything else was refused.
+  - A server on port 80 worked in the room.
+  - The room stayed sealed for every network setting.
 
 ## 2026-11-07: Step 3 of 4: the sealed room, so your network setting is a real wall (on the branch, not deployed yet)
 
