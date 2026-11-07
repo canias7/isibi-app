@@ -22,7 +22,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync } from "node:fs";
+import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
@@ -158,15 +158,18 @@ export const NO_SUBMODULES = ["-c", "submodule.recurse=false", "-c", "diff.ignor
 const RAW_MAX = 256 * 1024 * 1024;
 
 /** One git command as this process's user, on the project's own git folder, the token only in its own environment. `{ code, output, stdout }` (and `data`, all of git's answer as bytes, with `raw`). */
-export async function gitIn(dir, args, { token = "", timeoutS = 180, gitDir = gitDirFor(dir), remote = DEFAULT_REMOTE, root = PROJECT_ROOT, raw = false } = {}) {
+export async function gitIn(dir, args, { token = "", headers = [], timeoutS = 180, gitDir = gitDirFor(dir), remote = DEFAULT_REMOTE, root = PROJECT_ROOT, raw = false } = {}) {
   // Never in a project folder that fails the check: git is not even started.
   const bad = await projectDirProblem(dir, root);
   if (bad) return { code: -1, output: bad, stdout: "" };
   const header = token ? "Authorization: Basic " + Buffer.from("x-access-token:" + token).toString("base64") : "";
   // The token goes only to the GitHub address, never to another server.
   const headerKey = /^https?:\/\//.test(remote) ? "http." + remote + ".extraHeader" : "http.extraHeader";
+  // THE JOB'S PASS for Coder's Worker's git address (2026-11-07): sent only to that address, like the token was to GitHub's.
+  const extra = (Array.isArray(headers) ? headers : []).filter((x) => typeof x === "string" && /^X-Coder-[A-Za-z]+: [\w/.=-]{1,200}$/.test(x)).slice(0, 6);
+  const sent = [...(token ? [header] : []), ...extra];
   const env = { PATH: GIT_PATH, HOME: "/root", GIT_TERMINAL_PROMPT: "0", LANG: "C.UTF-8",
-    GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_COUNT: token ? "1" : "0", ...(token ? { GIT_CONFIG_KEY_0: headerKey, GIT_CONFIG_VALUE_0: header } : {}) };
+    GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_COUNT: String(sent.length), ...Object.fromEntries(sent.flatMap((v, i) => [["GIT_CONFIG_KEY_" + i, headerKey], ["GIT_CONFIG_VALUE_" + i, v]])) };
   const safe = ["--git-dir=" + gitDir, "--work-tree=" + dir, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.sshCommand=false", "-c", "protocol.ext.allow=never", ...NO_SUBMODULES];
   return new Promise((done) => {
     let out = "", stdout = "", size = 0;
@@ -178,7 +181,7 @@ export async function gitIn(dir, args, { token = "", timeoutS = 180, gitDir = gi
     p.stderr.on("data", (b) => { out += b; });
     const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, timeoutS * 1000);
     p.on("error", (e) => { clearTimeout(t); done({ code: -1, output: e.message, stdout: "" }); });
-    p.on("close", (code) => { clearTimeout(t); const hide = (s) => (token ? s.split(token).join("[hidden]").split(header).join("[hidden]") : s);
+    p.on("close", (code) => { clearTimeout(t); const hide = (s) => { if (token) s = s.split(token).join("[hidden]").split(header).join("[hidden]"); for (const x of extra) s = s.split(x.slice(x.indexOf(": ") + 2)).join("[hidden]"); return s; };
       const over = size > RAW_MAX;
       // `stdout`: git's answer alone, without its warnings (used to read state).
       done({ code: over ? -1 : typeof code === "number" ? code : -1, output: hide(over ? "git's answer was too long" : out).slice(0, 4000), stdout: hide(stdout).slice(0, 4000), ...(raw ? { data: Buffer.concat(bytes) } : {}) }); });
@@ -485,7 +488,7 @@ export async function keepOut(dir, { gitDir = gitDirFor(dir), remote = DEFAULT_R
  * `base`). The work tree is handed to `dev`; the git folder stays root's.
  * `{ ok, why? }`.
  */
-export async function prepareRepo({ dir, repo, base, branch, token, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
+export async function prepareRepo({ dir, repo, base, branch, token, headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
   const url = remote + repo + ".git";
   const gitDir = gitDirFor(dir, gitRoot);
   const o = { gitDir, remote, root };
@@ -508,14 +511,14 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
     if (c.code !== 0) return { ok: false, why: "could not start the repository: " + c.output.slice(0, 200) };
     // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
     // nothing to fetch; Coder starts from nothing on its own branch.
-    const heads = await gitIn(dir, ["ls-remote", "--heads", url], { ...o, token });
+    const heads = await gitIn(dir, ["ls-remote", "--heads", url], { ...o, token, headers });
     if (heads.code !== 0) return { ok: false, why: "could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200) };
     const empty = !String(heads.stdout ?? heads.output).trim();
     if (!empty && !String(heads.stdout ?? heads.output).includes("refs/heads/" + base + "\n") && !String(heads.stdout ?? heads.output).endsWith("refs/heads/" + base)) {
       return { ok: false, why: repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + "." };
     }
     if (!empty) {
-      const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token });
+      const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token, headers });
       if (f.code !== 0) return { ok: false, why: "could not clone " + repo + ": " + f.output.slice(0, 300) };
       const co = await checkout(["-q", "-B", base, "refs/remotes/origin/" + base]);
       if (co.code !== 0) return { ok: false, why: "could not open " + base + ": " + co.output.slice(0, 200) };
@@ -529,7 +532,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
     if (empty) {
       const c = await gitIn(dir, ["commit", "-q", "--allow-empty", "--no-verify", "-m", "Start"], o);
       if (c.code !== 0) return { ok: false, why: "could not start the empty repository: " + c.output.slice(0, 200) };
-      const pb = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + base], { ...o, token });
+      const pb = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + base], { ...o, token, headers });
       if (pb.code !== 0) return { ok: false, why: "could not create " + base + " in the empty repository: " + pb.output.slice(0, 200) };
       await gitIn(dir, ["update-ref", "refs/remotes/origin/" + base, "HEAD"], o);
     }
@@ -537,11 +540,11 @@ export async function prepareRepo({ dir, repo, base, branch, token, remote = DEF
     // history. A new plain file: never written through a link left with its name.
     await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
-  const remoteHas = await gitIn(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token });
+  const remoteHas = await gitIn(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token, headers });
   if (remoteHas.code !== 0) return { ok: false, why: "could not reach " + repo + " on GitHub: " + remoteHas.output.slice(0, 200) };
   const cur = (await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], o)).stdout.trim();
   if (remoteHas.stdout.trim()) {
-    const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token });
+    const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token, headers });
     if (f.code !== 0) return { ok: false, why: "could not fetch the branch " + branch + ": " + f.output.slice(0, 200) };
     if (cur !== branch) {
       const co = await checkout(["-q", "-B", branch, "refs/remotes/origin/" + branch]);
@@ -660,7 +663,7 @@ async function saveSubmodules(dir, k, o) {
   return left;
 }
 
-export async function pushRepo({ dir, repo, branch, token, message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
+export async function pushRepo({ dir, repo, branch, token, headers = [], message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
   // before anything is read, and nothing of the AI's user runs while root works.
@@ -702,7 +705,7 @@ export async function pushRepo({ dir, repo, branch, token, message, remote = DEF
     if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, pushed: false, changed: false, ...told };
   }
   const url = remote + repo + ".git";
-  const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token });
+  const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token, headers });
   if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300), ...told };
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
   // `changed`: this job changed files (a new commit), so there is new work to show.
@@ -834,6 +837,17 @@ export function gitNote(body) {
   return "\n\nGIT: the repo's main branch is " + body.base + " (fetched as origin/" + body.base + ")" + (ok(body.branch) ? "; you work on this chat's branch " + body.branch : "") + ". This chat's changes so far: git diff origin/" + body.base + "...HEAD";
 }
 
+// ── YOUR GITHUB LOGIN NEVER ENTERS THIS MACHINE (owner, 2026-11-07: "Do 1 and 3", like Claude Code) ──
+// The Worker sends a job a short-lived pass and its own git address (src/coder-git.mjs);
+// this machine's git goes there, and the Worker adds the login on the way to GitHub.
+/** Where git goes for this request: the Worker's address with the job's pass (the real service), or as before (a test's machine, or an older Worker that still sends a token). */
+export function gitFrom(body, { via = false, remote = DEFAULT_REMOTE } = {}) {
+  const g = body && body.git;
+  if (via && g && typeof g.remote === "string" && /^https:\/\/[a-z0-9.-]+\/api\/coder\/git\/$/.test(g.remote) && Array.isArray(g.headers) && g.headers.length >= 1 && g.headers.length <= 6
+    && g.headers.every((x) => typeof x === "string" && /^X-Coder-[A-Za-z]+: [\w/.=-]{1,200}$/.test(x))) return { remote: g.remote, headers: g.headers, token: "" };
+  return { remote, headers: [], token: String((body && body.token) || "") };
+}
+
 // ── ON FLY.IO (owner, 2026-11-07: "YES OPTION 2", "OK LETS START THEN") ───
 // Each chat's machine is a small VM there, stopped when quiet with its disk
 // kept, like Claude Code's. The chat's files live on that kept disk
@@ -852,6 +866,19 @@ export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0 } = {}) {
     chmodSync(p, 0o755);
   }
   return d;
+}
+
+/**
+ * WAS THIS MACHINE'S OWN DISK KEPT since it last started? (2026-11-07: on
+ * Fly.io it should be, while it sleeps; then the setup does not run again.) A
+ * mark left on that disk at each start says so; it is shown on /health.
+ */
+export function bootKept(dir = SETUP_ROOT, now = Date.now()) {
+  const f = join(dir, ".started");
+  let kept = false;
+  try { kept = existsSync(f); } catch { kept = false; }
+  try { writeFileSync(f, String(now)); } catch { /* a read-only disk: nothing to show */ }
+  return kept;
 }
 
 // ── THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06; the owner: "Do this") ──
@@ -1010,7 +1037,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
+export function createApp({ kept = null, gitVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1037,7 +1064,7 @@ export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KE
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
       if (body.repo) {
-        const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), remote, gitRoot, root });
+        const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         if (!prep.ok) return fail(502, prep.why);
       } else {
         // A CHAT WITHOUT A REPOSITORY (the audit, 2026-11-06): its folder is made
@@ -1055,7 +1082,7 @@ export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KE
     for (const [i, x] of extraRepos(body).entries()) {
       const xdir = join(root, project + "-x" + (i + 1));
       try {
-        const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, token: String(body.token || ""), remote, gitRoot, root });
+        const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         if (p.ok) extras.push({ ...x, dir: xdir });
         else t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String(p.why).slice(0, 200) });
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String((e && e.message) || e).slice(0, 160) }); }
@@ -1242,7 +1269,8 @@ export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KE
         for await (const c of req) { s += c; if (s.length > BODY_MAX) return send(413, { error: "too large" }); }
         body = s ? JSON.parse(s) : {};
       }
-      if (url.pathname === "/health") return send(200, { ok: true });
+      // `kept`: whether this machine's own disk was kept since it last started (Fly.io, bootKept).
+      if (url.pathname === "/health") return send(200, { ok: true, ...(kept === null ? {} : { kept }) });
       // THE CONTROL PANEL IS LOCKED (the audit, 2026-11-05): only the Worker,
       // which sends the key it gave this machine, may start, claim, push or stop.
       // The AI's commands (as `dev`) cannot read root's environment, so cannot send it.
@@ -1300,7 +1328,7 @@ export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KE
         if (!/^[0-9a-f]{7,40}$/.test(sha)) return send(400, { error: "bad commit" });
         const dir = join(root, project);
         const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
-        const prep = await prepareRepo({ dir, repo: String(body.repo || ""), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), remote, gitRoot, root });
+        const prep = await prepareRepo({ dir, repo: String(body.repo || ""), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         if (!prep.ok) return send(502, { ok: false, why: prep.why });
         const has = await gitIn(dir, ["cat-file", "-e", sha + "^{commit}"], o);
         if (has.code !== 0) return send(409, { ok: false, why: "that job's commit is not on this branch any more" });
@@ -1309,7 +1337,7 @@ export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KE
         if (!k.ok) return send(409, { ok: false, why: k.why });
         const rv = await nestedAway(dir, o.gitDir, async () => { const r = await gitIn(dir, ["revert", "--no-edit", sha], o); if (r.code !== 0) await gitIn(dir, ["revert", "--abort"], o); return r; }, (why) => ({ code: -1, output: why }));
         if (rv.code !== 0) { return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
-        const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: "", remote, gitRoot, root });
+        const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         // What the save left out is said here too (the audit, 2026-11-06).
         const told = p.left ? { left: p.left } : {};
         if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
@@ -1318,13 +1346,13 @@ export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KE
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
         if (t) killAll(t); else killUser();
-        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), token: String(body.token || ""), message: String(body.message || ""), remote, gitRoot, root });
+        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
         for (const [i, x] of extraRepos(body).entries()) {
           const xdir = join(root, project + "-x" + (i + 1));
           if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
-          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, token: String(body.token || ""), message: String(body.message || ""), remote, gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
           extra.push({ repo: x.repo, ...r });
         }
         return send(200, extra.length ? { ...main, extra } : main);
@@ -1340,5 +1368,6 @@ if (import.meta.url === "file://" + process.argv[1]) {
   process.on("uncaughtException", (e) => { if (e && /^E(CONNRESET|PIPE|CONNREFUSED|TIMEDOUT|HOSTUNREACH|NETUNREACH)$|^ERR_STREAM/.test(String(e.code || ""))) console.error("coder: network error, kept running:", e.code); else { console.error(e); process.exit(1); } });
   // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
   // On Fly.io, the chat's files live on its kept disk (CODER_DATA).
-  http.createServer(createApp({ liveFetch: (url, init) => fetch(url, init), ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
+  // Git goes through the Worker with each job's pass (your GitHub login never comes here).
+  http.createServer(createApp({ kept: bootKept(), gitVia: true, liveFetch: (url, init) => fetch(url, init), ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }

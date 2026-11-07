@@ -9,6 +9,19 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Your GitHub login stays off Coder's machines; a sleeping machine keeps what it installed (like Claude Code)
+
+- Your word: "Do 1 and 3", from the comparison with Claude Code.
+- **1. Your GitHub login never goes to Coder's machine now**, like Claude Code ("GitHub credentials ... never enter the session VM").
+  - The machine gets only a short pass for its chat, valid for one message and 3 hours.
+  - Its git goes through Coder's server, which checks the pass and adds your login on the way to GitHub.
+  - Git can read the chat's own repos, and push only to the chat's own branch. It can never delete a branch or push a tag. The one exception is the very first commit of an empty repo's main branch, which Coder makes when it opens one.
+  - Tested for real on a computer, with git's own GitHub-style server standing in for GitHub: it read and saved through Coder's server, and the stand-in only ever saw your login, added by the server. A push to main, a deletion and a tag were all refused.
+- **3. A sleeping machine keeps its whole disk**, so what the setup installed is still there and the setup doesn't run again, like Claude Code. This uses Fly.io's own setting for it. If Fly.io ever refuses the setting, the machine is made without it and the setup runs again, as before.
+  - A new Coder version still starts the machine fresh, as Claude Code does after its cache expires.
+  - The machine now reports whether its disk was kept, so I can check it live.
+- Tests: CD130 to CD132. 141 in all, all passing, plus the 14 admin-only safety tests. On the branch, not deployed.
+
 ## 2026-11-07: Deployed: Coder's machines on Fly.io, and the chat saved as it goes
 
 - Your word: "Merge and deploy". You made the Fly.io account and saved its token in GitHub as `FLY_API_TOKEN`.

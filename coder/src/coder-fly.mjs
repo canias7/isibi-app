@@ -72,15 +72,22 @@ export async function flyApi(env, path, { method = "GET", body, fetchFn = fetch,
 }
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-/** A chat's machine, as Fly.io is told to make it (the whole of it: Fly takes no partial changes). */
-export function machineConfig(env, volumeId) {
+/**
+ * A chat's machine, as Fly.io is told to make it (the whole of it: Fly takes no
+ * partial changes). ITS WHOLE DISK IS KEPT while it sleeps (owner, 2026-11-07:
+ * "Do 1 and 3"; like Claude Code, where a paused VM keeps what was installed and
+ * the setup does not run again): Fly's persist_rootfs "restart" keeps the
+ * machine's own disk across restarts, and a new Coder version (an update) still
+ * starts it fresh. `keepRoot: false` leaves it out (if Fly ever refuses it).
+ */
+export function machineConfig(env, volumeId, { keepRoot = true } = {}) {
   const s = flySettings(env);
   return {
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
     env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
-    guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory },
+    guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory, ...(keepRoot ? { persist_rootfs: "restart" } : {}) },
     mounts: [{ volume: volumeId, path: FLY_DATA }],
     // Only through Fly's front door, on https; Coder starts and stops it itself.
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
@@ -136,7 +143,9 @@ async function makeMachine(env, bucket, names, deps) {
   const s = flySettings(env);
   const v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk }, ...deps });
   if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io could not make the machine's disk (" + v.status + ")" };
-  const m = await flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id) }, ...deps });
+  let m = await flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id) }, ...deps });
+  // Fly refused the settings (should it not take a kept disk): made without it, as before.
+  if (m.status === 400 || m.status === 422) m = await flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, { keepRoot: false }) }, ...deps });
   if (!m.ok || !m.data || typeof m.data.id !== "string") {
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
@@ -159,7 +168,8 @@ async function wakeMachine(env, bucket, names, rec, deps) {
   const state = m.data && m.data.state;
   if (state !== "started" && state !== "starting") {
     if (rec.image !== s.image) {
-      const u = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume) }, ...deps });
+      let u = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume) }, ...deps });
+      if (u.status === 400 || u.status === 422) u = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { keepRoot: false }) }, ...deps });
       if (u.ok) rec = { ...rec, image: s.image };
       else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
     } else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });

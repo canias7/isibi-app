@@ -89,7 +89,7 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
   assert.deepEqual(F.machineConfig(envWith(b, { CODER_MODEL: "default" }), "vol_9"), {
     image: IMG1,
     env: { CODER_DATA: "/data", CODER_MODEL: "default" },
-    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 },
+    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096, persist_rootfs: "restart" },
     mounts: [{ volume: "vol_9", path: "/data" }],
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },

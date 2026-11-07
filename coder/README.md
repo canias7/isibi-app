@@ -9,6 +9,7 @@ code in **each user's own GitHub**.
 | `wrangler.jsonc` | Its config: addresses, container, bucket, settings |
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
+| `src/coder-git.mjs` | Coder's git address: the machine's git goes through it with its chat's pass, and the Worker adds the GitHub login (the login never enters the machine) |
 | `src/coder-fly.mjs` | Coder's machines on Fly.io: one small VM per chat with its own kept disk, made, woken, stopped and removed by the Worker |
 | `src/coder-control.mjs` | The key that locks a machine's control panel (made from `CODER_TOKEN_KEY`) |
 | `src/coder-live.mjs` | The chat saved as it goes: the machine sends each job's steps here every few seconds; kept sealed until the job is saved, put back in the chat if the machine is lost |
@@ -78,7 +79,11 @@ minute, awake machines with nothing to do for 10 minutes are stopped (a job
 working, or waiting to be saved, keeps one on); machines unused for 30 days
 are removed with their disks; machines or disks no chat knows are removed
 after an hour. The setup script's marks stay on the machine's own disk, so a
-restarted machine runs the setup again. The deploy makes the Fly app once
+restarted machine runs the setup again, unless its whole disk was kept: the
+machines ask Fly for that (`persist_rootfs` "restart"; made without it if Fly
+refuses it), so a sleeping machine wakes with what was installed and the setup
+does not run again, like Claude Code. A new Coder version still starts the
+machine's own disk fresh. `/health` says whether it was kept (`kept`). The deploy makes the Fly app once
 (`gofarther-coder-machines`, org `personal`, region `iad`), its addresses, and
 its secrets (`XAI_API_KEY`, `CODER_CONTROL_KEY`, from standard input), builds
 the image, sends it to `registry.fly.io`, and gives the Worker the image
@@ -119,10 +124,18 @@ it nobody can sign in.
 list and the GitHub connection (encrypted with `CODER_TOKEN_KEY`), and for
 sign-in the remembered passwords (scrambled) and the code counts.
 
-**The AI never sees the GitHub token.** Git runs in the service, as root, with
-the token only in its own environment. Every command the AI runs is started as
-the unprivileged `dev` user, with no secrets in its environment. The token is
-never written into the repository's settings.
+**The GitHub login never enters Coder's machine** (2026-11-07, like Claude
+Code: "GitHub credentials ... never enter the session VM"). The machine is given
+only a short-lived pass for its chat (`gitAccess` in `src/coder-git.mjs`: one
+chat, one turn, 3 hours). Its git, run by the service as root, talks to the
+Worker's git address (`/api/coder/git/<owner>/<repo>.git/...`) with that pass;
+the Worker checks it, adds the owner's GitHub login, and passes the request on
+to GitHub. Git may read the chat's own repositories and push only to the chat's
+own branch (made or moved, never deleted), plus an empty repository's very
+first main; no tags (like Claude Code's proxy, which "rejects branch deletions
+and pushes of anything other than a branch"). Every command the AI runs is
+started as the unprivileged `dev` user, with no secrets in its environment.
+A test's machine (no `gitVia`) still uses its own remote.
 
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's
