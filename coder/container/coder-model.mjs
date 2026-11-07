@@ -3,8 +3,10 @@
 // call: "yes" to Grok's own search). Coder keeps its conversation in the
 // OpenAI chat shape (messages, tool_calls, tool answers); this file turns it
 // into the Responses shape and back, so nothing else changes.
-// Runs inside Coder's container with the key it was started with; the key is
-// never handed to a command (`cleanEnv`).
+// On Coder's machines it runs with no key at all (owner, 2026-11-07, step 1:
+// "the Grok key out of the machine"): each call goes to Coder's Worker with the
+// job's pass (`via`), and the Worker adds the key. A machine made in a test, or
+// a key in the environment, still calls xAI itself.
 export const CODER_ENDPOINT = "https://api.x.ai/v1/responses";
 export const CODER_DEFAULT_MODEL = "grok-4.7";
 export const CODER_CALL_MS = 4 * 60 * 1000;
@@ -80,19 +82,20 @@ export function fromResponsesOutput(j) {
  * A `send` for `runCoder`: `{ model, messages, tools, tool_choice } → { message, searches, usage }`.
  * Throws on a missing key, a failed call or an answer with no message (the loop says so).
  * Retries once on 429 / 5xx after a short wait.
+ * `via` `{ url, headers }`: through Coder's Worker with the job's pass (no key here).
  */
-export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms)), via = null } = {}) {
   const key = env && typeof env.XAI_API_KEY === "string" ? env.XAI_API_KEY : "";
   return async (req) => {
-    if (!key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
+    if (!via && !key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
     let withEffort = !!req.effort;
     const { instructions, input } = toResponsesInput(req.messages);
     const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch !== false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
     let body = make();
     for (let attempt = 0; attempt < 2; attempt++) {
-      const r = await fetchFn(CODER_ENDPOINT, {
+      const r = await fetchFn(via ? via.url : CODER_ENDPOINT, {
         method: "POST", body,
-        headers: { authorization: "Bearer " + key, "content-type": "application/json" },
+        headers: via ? { ...via.headers, "content-type": "application/json" } : { authorization: "Bearer " + key, "content-type": "application/json" },
         signal: AbortSignal.timeout(CODER_CALL_MS),
       });
       if ((r.status === 429 || r.status >= 500) && attempt === 0) { await wait(3000); continue; }

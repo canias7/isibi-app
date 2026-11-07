@@ -171,6 +171,16 @@ and pushes of anything other than a branch"). Every command the AI runs is
 started as the unprivileged `dev` user, with no secrets in its environment.
 A test's machine (no `gitVia`) still uses its own remote.
 
+**Your Grok key never enters Coder's machine either** (owner, 2026-11-07,
+step 1 of: the Grok key out, each machine its own lock key, a sealed network
+room, the master key inside it). Each job is given a short pass for its AI calls
+(`modelAccess` in `src/coder-model-gate.mjs`: one chat, one turn, 3 hours); the
+machine's `coderSend` posts each call to the Worker's `/api/coder/model` with it
+(`modelTarget` in `container/server.mjs`), and the Worker checks the pass and
+the chat's current turn, allows only Coder's own models, adds `XAI_API_KEY` and
+passes the call to xAI. Neither Fly.io's machines (the deploy takes the old
+Fly secret away) nor Cloudflare's backup machines are given the key.
+
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's
 folder and hands only that folder to `dev`, and refuses to work in a project

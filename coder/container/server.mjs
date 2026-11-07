@@ -904,6 +904,21 @@ export const LIVE_BATCH = 200;
 export const LIVE_REFUSALS = 20;
 const LIVE_WAIT_MS = 10_000;
 
+/**
+ * WHERE THIS JOB'S AI CALLS GO (owner, 2026-11-07: the Grok key out of the
+ * machine): Coder's Worker, with the job's pass as headers; null when the
+ * Worker sent no valid one. coderSend adds no key then: the Worker does.
+ */
+export function modelTarget(x) {
+  if (!x || typeof x !== "object") return null;
+  let u;
+  try { u = new URL(String(x.url || "")); } catch { return null; }
+  if (u.protocol !== "https:" || u.username || u.password) return null;
+  const chat = String(x.chat || ""), turn = Number(x.turn), until = String(x.until || ""), pass = String(x.pass || "");
+  if (!/^[\w-]{1,100}\/[a-z0-9][a-z0-9-]{2,40}$/.test(chat) || !Number.isInteger(turn) || turn < 1 || !/^\d{13}$/.test(until) || !/^[\w-]{20,200}$/.test(pass)) return null;
+  return { url: u.href, headers: { "x-coder-chat": chat, "x-coder-turn": String(turn), "x-coder-until": until, "x-coder-model": pass } };
+}
+
 /** Where this job's steps go, when the Worker sent a valid one: an https address, the chat, the turn and the pass. */
 export function liveTarget(x) {
   if (!x || typeof x !== "object") return null;
@@ -1047,7 +1062,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1219,8 +1234,10 @@ export function createApp({ kept = null, gitVia = false, liveFetch = null, setup
     // On the full image, Coder knows its machine's tools (2026-11-07).
     const context = (env.CODER_IMAGE === "full" ? MACHINE_TOOLS + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     const lastSend = async () => { if (sender) await sender.flush(); };
+    // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
+    const via = modelVia && !send ? modelTarget(body.model) : null;
     runCoder({
-      send: sendFn,
+      send: via ? coderSend(env, { via }) : sendFn,
       // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
       watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
       exec: async ({ command, timeoutS, tool, payload }) => {
@@ -1380,5 +1397,5 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
   // On Fly.io, the chat's files live on its kept disk (CODER_DATA), the AI's home too; elsewhere its home is /home/dev.
   // Git goes through the Worker with each job's pass (your GitHub login never comes here).
-  http.createServer(createApp({ kept: bootKept(), gitVia: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
+  http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }

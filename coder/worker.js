@@ -9,6 +9,7 @@ import { handleSignin } from "./src/coder-signin.mjs";
 import { handleEgress, EGRESS_PATH } from "./src/coder-egress.mjs";
 import { handleLive, LIVE_PATH } from "./src/coder-live.mjs";
 import { handleGit, GIT_PATH } from "./src/coder-git.mjs";
+import { handleModel, MODEL_PATH } from "./src/coder-model-gate.mjs";
 import { runMentionJobs } from "./src/coder-mentions.mjs";
 import { runWatchedJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
 import { controlKeySync } from "./src/coder-control.mjs";
@@ -28,7 +29,8 @@ export class CoderContainer extends Container {
   constructor(ctx, env, options) {
     super(ctx, env, options);
     this.controlKey = env.CODER_TOKEN_KEY ? controlKeySync(env.CODER_TOKEN_KEY) : "";
-    this.envVars = { ...(env.XAI_API_KEY ? { XAI_API_KEY: env.XAI_API_KEY } : {}), ...(env.CODER_MODEL ? { CODER_MODEL: env.CODER_MODEL } : {}), ...(this.controlKey ? { CODER_CONTROL_KEY: this.controlKey } : {}) };
+    // No Grok key here (2026-11-07): the machine's AI calls go through the Worker (MODEL_PATH).
+    this.envVars = { ...(env.CODER_MODEL ? { CODER_MODEL: env.CODER_MODEL } : {}), ...(this.controlKey ? { CODER_CONTROL_KEY: this.controlKey } : {}) };
   }
   // NEVER ASLEEP WITH WORK ON IT (2026-11-06, the old builder's way; like Claude
   // Code's cloud sessions): after 10 quiet minutes the library would stop the
@@ -90,6 +92,9 @@ export default {
     } else if (url.pathname.startsWith(GIT_PATH)) {
       // YOUR GITHUB LOGIN STAYS HERE (2026-11-07, like Claude Code): the machine's git, with its job's pass.
       res = await handleGit(request, env);
+    } else if (url.pathname === MODEL_PATH) {
+      // YOUR GROK KEY STAYS HERE (2026-11-07, like Claude Code): the machine's AI calls, with its job's pass.
+      res = await handleModel(request, env);
     } else if (url.pathname === LIVE_PATH) {
       // THE CHAT SAVED AS IT GOES (2026-11-06, like Claude Code): a job's own pass, not a user.
       res = await handleLive(request, env);

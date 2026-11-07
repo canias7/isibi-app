@@ -97,7 +97,7 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
     restart: { policy: "on-failure", max_retries: 3 },
     metadata: { coder: "chat-machine" },
   });
-  assert.equal(JSON.stringify(F.machineConfig(envWith(b, { XAI_API_KEY: "xai-secret" }), "v")).includes("xai-secret"), false, "the AI key is a Fly secret, never in the machine's settings");
+  assert.equal(JSON.stringify(F.machineConfig(envWith(b, { XAI_API_KEY: "xai-secret" }), "v")).includes("xai-secret"), false, "the AI key is never in the machine's settings (it stays on the Worker)");
   // ITS LOCK, ALWAYS: the control key (made from CODER_TOKEN_KEY, never that key itself) is in its settings too.
   const { controlKeySync } = await import("../src/coder-control.mjs");
   const tk = Buffer.alloc(32, 7).toString("base64");
@@ -331,7 +331,10 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   assert.match(y, /FLY_API_TOKEN: \$\{\{ secrets\.FLY_API_TOKEN \}\}/);
   assert.doesNotMatch(y, /echo (?!"::add-mask::)[^\n]*\$\{?(FLY_API_TOKEN|XAI_API_KEY|ck)\b/, "never shown (only masked)");
   assert.match(y, /echo "::add-mask::\$ck"/);
-  assert.match(y, /printf 'XAI_API_KEY=%s\\nCODER_CONTROL_KEY=%s\\n' "\$XAI_API_KEY" "\$ck" \| flyctl secrets import -a "\$FLY_APP" --stage/, "keys from standard input, not a command line");
+  assert.match(y, /printf 'CODER_CONTROL_KEY=%s\\n' "\$ck" \| flyctl secrets import -a "\$FLY_APP" --stage/, "the lock key from standard input, not a command line");
+  // YOUR GROK KEY STAYS ON THE WORKER (2026-11-07): never given to Fly.io again, and the old copy taken away.
+  assert.doesNotMatch(y, /XAI_API_KEY=%s/);
+  assert.match(y, /flyctl secrets unset XAI_API_KEY -a "\$FLY_APP" --stage/);
   assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)"\n/, "named after the machine's own folder: a deploy that does not change it leaves the machines as they are");
   // ALL OF CLAUDE CODE'S TOOLS (2026-11-07): Fly.io's machines get the full image, built only when that version is not there yet.
   assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n\s+docker build --build-arg CODER_IMAGE=full -t "\$img" container\n\s+docker push "\$img"\n\s+fi\n/);
