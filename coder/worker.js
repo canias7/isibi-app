@@ -75,10 +75,15 @@ export default {
     if (env.CODER_ON !== "on") return;
     const m = machinesFor(env);
     const coder = (req, who) => handleCoder(req, env, ctx, { authUser: async () => who, container: m.container, dropMachine: m.drop });
-    ctx.waitUntil(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
-    ctx.waitUntil(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
+    const work = [];
+    const job = (p) => { work.push(p); ctx.waitUntil(p); };
+    job(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
+    job(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
     // FLY.IO (2026-11-07): machines with nothing to do for 10 minutes are stopped, old ones removed.
-    if (m.kind === "fly") ctx.waitUntil(runFlyMachines(env).catch((e) => console.log("coder fly: " + String((e && e.message) || e).slice(0, 200))));
+    if (m.kind === "fly") job(runFlyMachines(env).catch((e) => console.log("coder fly: " + String((e && e.message) || e).slice(0, 200))));
+    // ALL OF IT AWAITED (live test, 2026-11-07): Cloudflare waits for what this returns, up to 15
+    // minutes, and a GitHub job's start can take minutes (its machine first fetching Coder's image).
+    await Promise.all(work);
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

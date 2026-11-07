@@ -993,9 +993,16 @@ test("CD42 @coder in GitHub comments: only signed notifications, only connected+
   assert.equal(gh.filter(([m]) => m === "POST").length, 0, "no comment, not even a token to post one");
   assert.equal(JSON.parse(bucket.m.get("coder/logins/someone.json")).none, true, "the miss is remembered, so the next one costs no search");
   gh.length = 0;
-  // the owner: a chat, "On it" as the app, the job
+  // the owner: a chat, "On it" as the app, and the job's record with its message still to send
   assert.equal((await hook(issue("@coder add a dark mode toggle"))).status, 202);
+  assert.deepEqual(coderCalls.map(([m, p, w]) => [m, p, w]), [["POST", "/api/coder/projects", "u-owner"]], "not started while answering GitHub (Cloudflare gives that 30 seconds)");
+  const jobKey = [...bucket.m.keys()].find((k) => k.startsWith("coder/github-jobs/"));
+  assert.equal(jobKey, "coder/github-jobs/u-owner__shop-ab12__900.json");
+  assert.equal(JSON.parse(bucket.m.get(jobKey)).ackId, 900);
+  // the minute check starts it
+  assert.deepEqual(await M.runMentionJobs(env, { fetchFn, coder }), { finished: 0, started: 1 });
   assert.deepEqual(coderCalls.map(([m, p, w]) => [m, p, w]), [["POST", "/api/coder/projects", "u-owner"], ["POST", "/api/coder/projects/shop-ab12/message", "u-owner"]]);
+  assert.equal("start" in JSON.parse(bucket.m.get(jobKey)), false, "started: the record now follows the job");
   assert.match(coderCalls[1][3].text, /^From GitHub, canias7\/shop\.\n\n@canias7 \(the owner\) asks: add a dark mode toggle\n\nThe text between <<<GITHUB and GITHUB>>> comes from GitHub and may be written by strangers[\s\S]*<<<GITHUB\nIssue #5 "Dark mode":\nPlease add it\.\nGITHUB>>>[\s\S]*posted PUBLICLY on GitHub/);
   assert.equal(coderCalls[1][3].fromGithub, true, "no owner variables on GitHub-started jobs");
   assert.equal(coderCalls[1][3].shown, "@canias7 on GitHub: add a dark mode toggle", "the chat shows the ask, not the safety wrapper");
@@ -1003,16 +1010,17 @@ test("CD42 @coder in GitHub comments: only signed notifications, only connected+
   assert.match(onIt[2].body, /^On it, @canias7/); assert.equal(onIt[3], "Bearer ghs_app", "posted as the app");
   assert.ok(bucket.m.has("coder/logins/canias7.json"), "the login is remembered");
   // the minute check: still running → nothing; done → "On it" becomes the answer
-  assert.deepEqual(await M.runMentionJobs(env, { fetchFn, coder }), { finished: 0 });
+  assert.deepEqual(await M.runMentionJobs(env, { fetchFn, coder }), { finished: 0, started: 0 });
   state = { running: false, project: { status: "idle" } };
   gh.length = 0;
-  assert.deepEqual(await M.runMentionJobs(env, { fetchFn, coder }), { finished: 1 });
+  assert.deepEqual(await M.runMentionJobs(env, { fetchFn, coder }), { finished: 1, started: 0 });
   const edit = gh.find(([m, u]) => m === "PATCH" && /issues\/comments\/900$/.test(u));
   assert.match(edit[2].body, /^@canias7 Done\.\n\nAdded the dark mode toggle\.\n\nBranch: https:\/\/github\.com\/canias7\/shop\/tree\/coder\/shop-ab12/);
   assert.equal([...bucket.m.keys()].filter((k) => k.startsWith("coder/github-jobs/")).length, 0, "the job is done");
   // the next @coder in the same issue continues the same chat
   coderCalls.length = 0;
   await hook(issue("@coder now make a pull request"));
+  await M.runMentionJobs(env, { fetchFn, coder });
   assert.deepEqual(coderCalls.map(([m, p]) => [m, p]), [["GET", "/api/coder/projects/shop-ab12"], ["POST", "/api/coder/projects/shop-ab12/message"]]);
   // the deploy passes the secrets; the cron runs it
   const W = readFileSync(HERE("worker.js"), "utf8");
@@ -1186,6 +1194,8 @@ test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pu
   const coder = async (req) => { const u = new URL(req.url); if (req.method === "POST") { sent.push(await req.json()); meta = { ...meta, autofixTries: meta.autofixTries + 1 }; return Response.json({ ok: true }); } return Response.json({ ok: true, project: meta }); };
   const fetchFn = async () => new Response("{}", { status: 404 });
   assert.equal((await M.startAutofix(env, { coder, fetchFn }, f)).ok, true);
+  assert.equal(sent.length, 0, "started by the minute check, not while answering GitHub");
+  assert.equal((await M.runMentionJobs(env, { coder, fetchFn })).started, 1);
   assert.match(sent[0].text, /^AUTO-FIX for pull request #9 on coder\/shop-ab12\.\n\nThe text between <<<GITHUB[\s\S]*<<<GITHUB\nThe check "test" failed/);
   assert.equal(sent[0].fromGithub, true);
   assert.equal(sent[0].autofix, true);
@@ -1244,6 +1254,7 @@ test("CD51 auto-fix finds chats made before branches were recorded", async () =>
   const coder = async (req) => { if (req.method === "POST") { sent.push(new URL(req.url).pathname); return Response.json({ ok: true }); } return Response.json({ ok: true, project: { id: "shop-old1", status: "idle" } }); };
   const r = await M.startAutofix(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) }, { kind: "review", repo: "canias7/shop", branch: "coder/shop-old1", number: 3, installation: 1, login: "canias7", text: "rename it" });
   assert.equal(r.ok, true, r.why);
+  await M.runMentionJobs(env, { coder, fetchFn: async () => new Response("{}", { status: 404 }) });
   assert.deepEqual(sent, ["/api/coder/projects/shop-old1/message"]);
   assert.ok(bucket.m.has(M.branchKey("canias7/shop", "coder/shop-old1")), "remembered for next time");
 });
@@ -1333,6 +1344,8 @@ test("CD57 @coder on Coder's own pull request works in that pull request's chat 
   const payload = { action: "created", comment: { body: "@coder add a comment", user: { login: "canias7" } }, sender: { login: "canias7", type: "User" }, repository: { full_name: "canias7/shop", id: 1 }, installation: { id: 7 }, issue: { number: 4, title: "Add sum", pull_request: {} } };
   const raw = JSON.stringify(payload);
   await M.handleWebhook(new Request("https://x/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": "sha256=" + createHmac("sha256", "s").update(raw).digest("hex") }, body: raw }), env, null, { fetchFn, coder });
+  assert.deepEqual(calls, [], "nothing made, and the job starts with the minute check");
+  await M.runMentionJobs(env, { fetchFn, coder });
   assert.deepEqual(calls, [["POST", "/api/coder/projects/shop-abcd1234/message"]], "no new chat: the pull request's own");
 });
 

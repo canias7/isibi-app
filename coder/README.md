@@ -261,6 +261,20 @@ Registered: **gofarther-coder** (Client ID `Iv23li7CSEGqBSxEqQU7`), callback
 `https://coder.gofarther.dev/api/coder/github/callback`, permissions Contents and
 Pull requests (read and write) and Metadata (read), installable by any account.
 
+**@coder in a comment, and auto-fix** (`src/coder-mentions.mjs`). GitHub's call
+is answered at once, with "On it" posted as the app, and the job's record is
+made with its message still to send (`queueStart`). The every-minute check
+(`runMentionJobs`, from `scheduled` in `worker.js`, which awaits all of its
+work) sends it: Cloudflare cancels what still runs 30 seconds after GitHub's
+call is answered, and a start can take minutes (a machine fetching Coder's
+image, the clone, the setup script). It claims a start first (`starting`), so
+a slow one is never sent twice, and starts one job per chat at a time. A start
+that fails is told in place of "On it". If the check that was starting a job
+was cut off (Cloudflare gives it 15 minutes, `START_STALE_MS`), the job goes on
+when its message went in, and otherwise Coder says on GitHub that starting took
+too long. Live test, 2026-11-07: before this, a job whose start took minutes
+had no record, so its "On it" comment never changed.
+
 ## Deploy
 
 The **deploy coder** button (`.github/workflows/deploy-coder.yml`), pressed by

@@ -322,7 +322,7 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key");
   assert.match(worker, /return \{ kind: "cloudflare", sign, container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: async \(\) => \{\} \};/);
-  assert.match(worker, /if \(m\.kind === "fly"\) ctx\.waitUntil\(runFlyMachines\(env\)/);
+  assert.match(worker, /if \(m\.kind === "fly"\) job\(runFlyMachines\(env\)/);
   assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop \}\);/);
   const { controlKeySync } = await import("../src/coder-control.mjs");
   assert.match(controlKeySync("k".repeat(44)), /^[0-9a-f]{32}$/);

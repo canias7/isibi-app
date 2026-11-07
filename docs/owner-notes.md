@@ -9,6 +9,19 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Why your test comment stayed at "On it", and the fix (on the branch, not deployed yet)
+
+- Your word: "you do it" (look into the stuck test).
+- **What happened:** when a GitHub comment comes in, Coder answers GitHub straight away and posts "On it". Cloudflare then gives Coder only 30 more seconds to finish what it's doing. Starting your job took minutes, because the machine first had to download the new 6.9 GB toolbox. So Cloudflare cut it off before Coder had written down "come back and update this comment". Nothing was left to update it, so it will stay at "On it".
+- I couldn't open the chat to look: the test account's saved browser sign-in had expired, and signing in again would send an email. The reason above comes from Cloudflare's own documentation (the 30-second limit) and from the code. Your test comment was never answered at all, which only happens when that note is missing.
+- **The fix:** Coder now writes the note first, together with the message it has to send. The every-minute check, which Cloudflare lets run for 15 minutes, starts the job and keeps watching it. Your comment gets "On it" at once, and the job starts within a minute.
+  - If starting fails, Coder says why in place of "On it".
+  - It's never started twice, even when a start is slow.
+  - Two @coder comments on the same chat start one at a time, as before.
+  - Auto-fixes start the same way.
+- Test: CD144, plus the GitHub tests updated (153 in all).
+- After the deploy, comment on testingforclaude #2 again. The old "On it" comment won't change.
+
 ## 2026-11-07: Bigger machines on Fly.io (on the branch, not deployed yet)
 
 - Your choices: "4 CPUs, 16 GB" and "Grow to 50 GB". For Cloudflare, "it wont be off", so Cloudflare's backup containers stay as they are.

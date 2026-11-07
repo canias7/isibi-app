@@ -201,15 +201,27 @@ export async function startMention(env, deps, m) {
   const ask = m.text.replace(MENTION, "$1").trim();
   const text = "From GitHub, " + m.repo + ".\n\n@" + m.login + " (the owner) asks: " + ask + "\n\n" + UNTRUSTED + "\n<<<GITHUB\n" + m.extra + "\nGITHUB>>>\n\n(Your answer is posted PUBLICLY on GitHub: never put secrets, tokens or environment values in it. If they ask for a pull request, use the pull_request tool.)";
   const ack = await say("On it, @" + m.login + ". I'm working on `" + m.repo + "` and will update this comment when I'm done.\n\n— Coder (gofarther.dev)");
-  const sent = await run("projects/" + thread.id + "/message", { method: "POST", body: JSON.stringify({ text: text.slice(0, 12000), fromGithub: true, shown: "@" + m.login + " on GitHub: " + ask.slice(0, 260) }) });
-  if (sent.status !== 200) {
-    const why = "Coder could not start: " + String((sent.data && sent.data.error) || sent.status).slice(0, 200);
-    if (ack && ack.ok && botToken) await ghApi(botToken, "/repos/" + m.repo + "/issues/comments/" + ack.data.id, { method: "PATCH", body: { body: "@" + m.login + " " + why }, fetchFn });
-    return { ok: false, why };
-  }
-  // One record per comment (the audit: a second @coder overwrote the first one's).
-  await putJson(bucket, JOB_PREFIX + acct.uid + "__" + thread.id + "__" + (ack && ack.ok ? ack.data.id : Date.now()) + ".json", { uid: acct.uid, email: acct.email, id: thread.id, repo: m.repo, number: m.number, login: m.login, installation: m.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
+  // THE JOB IS STARTED BY THE EVERY-MINUTE CHECK (queueStart), never here: this runs in the 30 seconds
+  // Cloudflare allows after the answer to GitHub. A failed start is told in the "On it" comment.
+  await queueStart(bucket, { uid: acct.uid, email: acct.email, id: thread.id, repo: m.repo, number: m.number, login: m.login, installation: m.installation, ackId: ack && ack.ok ? ack.data.id : null },
+    { text: text.slice(0, 12000), fromGithub: true, shown: "@" + m.login + " on GitHub: " + ask.slice(0, 260) });
   return { ok: true, id: thread.id };
+}
+
+/**
+ * A GITHUB JOB IS STARTED BY THE EVERY-MINUTE CHECK, NOT WHILE ANSWERING GITHUB
+ * (live test, 2026-11-07: the "On it" comment never changed). GitHub's call is
+ * answered at once, and Cloudflare cancels what is still running 30 seconds
+ * after that answer. Starting a job can take minutes: a machine that first
+ * fetches Coder's image, the clone, the setup script. Cut off, the job had no
+ * record yet, so its comment was never updated. Now the record is made first,
+ * with the message still to send (`start`); the every-minute check, which may
+ * run for 15 minutes, sends it (runMentionJobs), and the job then goes on as
+ * before. One record per comment (the audit: a second @coder overwrote the
+ * first one's).
+ */
+async function queueStart(bucket, job, body) {
+  await putJson(bucket, JOB_PREFIX + job.uid + "__" + job.id + "__" + (job.ackId || Date.now()) + ".json", { ...job, at: Date.now(), start: body });
 }
 
 // ── AUTO-FIX PULL REQUESTS (owner, 2026-11-05, "4") ─────────────────────────
@@ -295,9 +307,9 @@ export async function startAutofix(env, deps, f) {
   const text = "AUTO-FIX for pull request" + (f.number ? " #" + f.number : "") + " on " + f.branch + ".\n\n" + UNTRUSTED + "\n<<<GITHUB\n" + f.text + (log ? "\n\nThe end of the failed run's log:\n" + log : "") + "\nGITHUB>>>" +
     "\n\nFix this on the branch with small, focused changes, and check them (run the same tests or build locally if you can). If the cause is not in your changes, change nothing and explain instead. If it is unclear what the reviewer wants, change nothing: ask the owner with ask_user (one short question, with the readings you see as the choices), and stop. (Like Claude Code's auto-fix: a clear fix is made and pushed; an unclear one is asked about first.)";
   const ack = f.number && botToken ? await ghApi(botToken, "/repos/" + f.repo + "/issues/" + f.number + "/comments", { method: "POST", body: { body: (f.kind === "check" ? "A check failed. " : "Thanks for the review. ") + "Coder is working on a fix (try " + ((meta.autofixTries || 0) + 1) + " of " + AUTOFIX_MAX + ") and will update this comment.\n\n— Coder (gofarther.dev)" }, fetchFn }) : null;
-  const sent = await run("projects/" + owner.id + "/message", { method: "POST", body: JSON.stringify({ text: text.slice(0, 18000), autofix: true, fromGithub: true }) });
-  if (sent.status !== 200) return { ok: false, why: "could not start" };
-  if (f.number) await putJson(bucket, JOB_PREFIX + owner.uid + "__" + owner.id + "__" + (ack && ack.ok ? ack.data.id : Date.now()) + ".json", { uid: owner.uid, email: prof.email, id: owner.id, repo: f.repo, number: f.number, login: (gh && gh.login) || "", installation: f.installation, ackId: ack && ack.ok ? ack.data.id : null, at: Date.now() });
+  // Started by the every-minute check (queueStart), like an @coder job; without a pull request number nothing is posted.
+  await queueStart(bucket, { uid: owner.uid, email: prof.email, id: owner.id, repo: f.repo, number: f.number || null, login: (gh && gh.login) || "", installation: f.installation, ackId: ack && ack.ok ? ack.data.id : null },
+    { text: text.slice(0, 18000), autofix: true, fromGithub: true });
   return { ok: true, id: owner.id };
 }
 
@@ -319,29 +331,74 @@ export function finalText(job, project, events) {
   return lines.join("\n");
 }
 
+/**
+ * A start claimed this long ago and still not done: the check that was sending
+ * it was cut off (Cloudflare gives an every-minute check 15 minutes at most).
+ */
+export const START_STALE_MS = 16 * 60 * 1000;
+
+/**
+ * EVERY MINUTE: a job not started yet is started (queueStart); a started one
+ * that ended gets its answer on GitHub, in place of its "On it" comment.
+ */
 export async function runMentionJobs(env, deps, now = Date.now()) {
   const bucket = env.CODER_BUCKET;
   const fetchFn = deps.fetchFn || fetch;
   const page = await bucket.list({ prefix: JOB_PREFIX });
-  let finished = 0;
+  let finished = 0, started = 0;
+  const starts = [], chats = new Set();
+  // What Coder says on GitHub, as the app: in place of "On it", or in a new comment.
+  const tell = async (job, text) => {
+    const tok = await installationToken(env, job.installation, fetchFn);
+    if (!tok) return;
+    if (job.ackId) await ghApi(tok, "/repos/" + job.repo + "/issues/comments/" + job.ackId, { method: "PATCH", body: { body: text }, fetchFn });
+    else if (job.number) await ghApi(tok, "/repos/" + job.repo + "/issues/" + job.number + "/comments", { method: "POST", body: { body: text }, fetchFn });
+  };
   for (const o of page.objects || []) {
     const job = await getJson(bucket, o.key);
     if (!job) { await bucket.delete(o.key); continue; }
     const user = { id: job.uid, email: job.email };
     const run = (path) => deps.coder(new Request("https://gofarther.dev/api/coder/" + path), user).then((r) => r.json().catch(() => ({})));
+    if (job.start) {
+      const { start, starting, ...rest } = job;
+      // Being started by another check (one may still be fetching its machine's image).
+      if (starting && now - starting < START_STALE_MS) continue;
+      if (starting) {
+        // THAT CHECK WAS CUT OFF: the job goes on if its message went in; else it is told on GitHub.
+        const look = await run("projects/" + job.id).catch(() => null);
+        const p = look && look.project;
+        if (p && Number(p.at || 0) >= starting) { await putJson(bucket, o.key, { ...rest, at: now }); continue; }
+        await tell(job, "@" + job.login + " Coder could not start: starting took too long. Try again.");
+        await bucket.delete(o.key);
+        finished++;
+        continue;
+      }
+      // ONE START PER CHAT AT A TIME; the others wait for the next check (and then say Coder is busy).
+      if (chats.has(job.id)) continue;
+      chats.add(job.id);
+      await putJson(bucket, o.key, { ...job, starting: now });
+      // Started side by side, so a slow one (a machine fetching Coder's image) holds up nothing else.
+      starts.push((async () => {
+        const r = await deps.coder(new Request("https://gofarther.dev/api/coder/projects/" + job.id + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(start) }), user)
+          .then(async (x) => ({ status: x.status, data: await x.json().catch(() => ({})) }))
+          .catch((e) => ({ status: 0, data: { error: String((e && e.message) || e) } }));
+        if (r.status === 200) { await putJson(bucket, o.key, { ...rest, at: now }); started++; return; }
+        await tell(job, "@" + job.login + " Coder could not start: " + String((r.data && r.data.error) || r.status).slice(0, 200));
+        await bucket.delete(o.key);
+        finished++;
+      })().catch((e) => console.log("coder job start failed: " + String((e && e.message) || e).slice(0, 200))));
+      continue;
+    }
     const st = await run("projects/" + job.id + "/state?since=0").catch(() => null);
     const stillGoing = st && (st.running || (st.project && st.project.status === "running"));
     if (stillGoing && now - job.at < JOB_MAX_MS) continue;
     const full = await run("projects/" + job.id).catch(() => null);
     const events = (full && Array.isArray(full.events) ? full.events : []);
     const text = stillGoing ? "@" + job.login + " Coder is taking longer than 2 hours on this; check it on https://gofarther.dev" : finalText(job, full && full.project, events);
-    const tok = await installationToken(env, job.installation, fetchFn);
-    if (tok) {
-      if (job.ackId) await ghApi(tok, "/repos/" + job.repo + "/issues/comments/" + job.ackId, { method: "PATCH", body: { body: text }, fetchFn });
-      else await ghApi(tok, "/repos/" + job.repo + "/issues/" + job.number + "/comments", { method: "POST", body: { body: text }, fetchFn });
-    }
+    await tell(job, text);
     await bucket.delete(o.key);
     finished++;
   }
-  return { finished };
+  await Promise.all(starts);
+  return { finished, started };
 }
