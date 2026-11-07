@@ -25,6 +25,23 @@ permissions:
   contents: read
 
 jobs:
+  # THE DEPLOY'S ADMIN TESTS ON THE DEPLOY'S OWN KIND OF MACHINE (deploy, 2026-11-07: it runs on
+  # ubuntu-latest, now Ubuntu 26.04 with another sudo; the check below runs on 24.04, like Coder's image).
+  deploy-machine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: The deploy's admin tests, on the deploy's kind of machine (as root)
+        working-directory: coder
+        run: |
+          npm ci --no-audit --no-fund
+          command -v newuidmap >/dev/null || sudo apt-get install -y -qq uidmap >/dev/null
+          sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs test/room.test.mjs test/sandbox.test.mjs
+
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 75

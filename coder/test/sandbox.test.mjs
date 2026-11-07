@@ -134,6 +134,9 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
   assert.match(init, /mount -t overlay overlay -o "lowerdir=\$SBX_LOWER,upperdir=\$SBX_UPPER,workdir=\$SBX_WORK,userxattr" "\$R"/);
   assert.match(init, /^#1001 ALL=\(ALL:ALL\) NOPASSWD: ALL$/m);
+  // Only rules both kinds of sudo know: the classic one (Coder's image) and sudo-rs (Ubuntu 26.04, GitHub's
+  // deploy machine, which said "unknown setting: 'requiretty'"; Ubuntu's sudo never asks for a terminal anyway).
+  assert.doesNotMatch(init, /requiretty/);
   assert.match(init, /> "\$R\/etc\/coder-sandbox"/);
   assert.match(init, /pivot_root \. \.coder-outside\ncd \/\numount -l \/\.coder-outside/);
   assert.match(init, /echo ready\nexec sleep infinity\n$/);

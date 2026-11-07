@@ -42,7 +42,6 @@ done
 mkdir -p "$R/etc/sudoers.d"
 cat > "$R/etc/sudoers.d/coder-sandbox" <<'RULES'
 #1001 ALL=(ALL:ALL) NOPASSWD: ALL
-Defaults:#1001 !requiretty
 Defaults:#1001 env_keep += "http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY SSL_CERT_FILE NODE_EXTRA_CA_CERTS CURL_CA_BUNDLE REQUESTS_CA_BUNDLE GIT_SSL_CAINFO"
 RULES
 chmod 0440 "$R/etc/sudoers.d/coder-sandbox"
