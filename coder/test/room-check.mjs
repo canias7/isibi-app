@@ -4,7 +4,8 @@
 // setting, a command run the way Coder runs the AI's commands (in the room, as
 // `dev`) tries the internet directly, through the gate to an allowed site, and
 // through the gate to a site the setting does not allow.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 
 const { startProxy } = await import("/app/coder-proxy.mjs");
 const R = await import("/app/coder-room.mjs");
@@ -52,6 +53,21 @@ want("Full access: straight to the internet", open.out === "200", open.out);
 await R.roomInternet(false);
 const shut = await inRoom(code("https://example.com", "--noproxy '*'"), env);
 want("taken away again with the setting", shut.code !== 0 && shut.out !== "200", shut.out);
+
+// A RESTART ON A KEPT DISK (live test, 2026-11-07: on Fly.io /run is kept while a machine sleeps, so only
+// the room's name was left, and every job then ran without the room): the room is made again.
+console.log("\n== After a restart that kept the disk (only the room's name left)");
+R.roomStop();
+spawnSync("ip", ["netns", "del", R.ROOM], { stdio: "ignore" });
+writeFileSync(R.ROOM_NS, "");
+want("the room is made again", R.makeRoom(), "makeRoom");
+want("the pipe to the gate, again", await R.roomGate(px.port), "roomGate");
+px.setNetwork({ mode: "trusted" });
+await R.roomInternet(false);
+const again = await inRoom(code("https://example.com", "--noproxy '*'"), env);
+want("straight to the internet: still no way", again.code !== 0 && again.out !== "200", again.out);
+const npm2 = await inRoom(code("https://registry.npmjs.org/"), env);
+want("an allowed site (npm), through the gate: reached", npm2.out === "200", npm2.out);
 
 R.roomStop();
 await px.close();

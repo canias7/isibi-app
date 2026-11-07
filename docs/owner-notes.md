@@ -9,6 +9,21 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: The sealed room after a restart, and the whole 20 GB system disk (on the branch, not deployed yet)
+
+- Your fourth comment (08:42) confirmed both causes:
+  - `/run/netns/coder-room` was a plain file left on the kept disk, made at 08:21. The machine had restarted at 08:33, so the room was gone. No gate relay was running.
+  - Fly.io's disk for the machine's own changes is 20 GB, but the filesystem on it is 7.8 GB.
+  - Coder refused to print its proxy address in a public reply. That was right.
+- **Fix 1, the room:** a room now counts only if Coder can actually get into it. If only the name is left after a restart, Coder removes it and makes the room again. So every job is inside the wall again.
+- **Fix 2, the disk:** when Coder's machine starts, it grows the filesystem to fill the 20 GB disk Fly.io gave it, while in use, the way cloud machines do at boot. It never holds up the start; anything unexpected, and it does nothing. The full image now lists e2fsprogs (which has the tool for this) explicitly.
+- Tests:
+  - The real room test, run as admin with real network namespaces, now includes a restart that leaves only the name. It fails on the old code and passes on the new one.
+  - GitHub's machine check runs the same restart in Coder's real image.
+  - CD146 covers the disk.
+  - 155 in all pass.
+- This changes the machine image, so the deploy rebuilds it (about 13 minutes). Each chat's machine then gets it the next time it wakes.
+
 ## 2026-11-07: The third test: almost everything works live; the sealed room is not in use
 
 - Your third comment (08:32) was answered at 08:35, all five commands run.

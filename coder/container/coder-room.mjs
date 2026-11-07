@@ -34,16 +34,25 @@ const have = (cmd) => spawnSync("sh", ["-c", "command -v " + cmd], { stdio: "ign
 
 /** Makes the room once (as root). True when it is there; false when this machine cannot have one. */
 export function makeRoom({ ns = ROOM_NS, name = ROOM } = {}) {
-  if (existsSync(ns)) return true;
   if (typeof process.getuid === "function" && process.getuid() !== 0) return false;
   if (!have("ip") || !have("nsenter") || !have("setpriv")) return false;
   const ip = (args) => spawnSync("ip", args, { stdio: "ignore", timeout: 10000 }).status === 0;
+  // A ROOM IS ONE ONLY WHEN IT CAN BE ENTERED.
+  const live = () => spawnSync("nsenter", ["--net=" + ns, "--", "true"], { stdio: "ignore", timeout: 10000 }).status === 0;
+  if (existsSync(ns)) {
+    if (live()) return true;
+    // ONLY ITS NAME LEFT (live test, 2026-11-07): on Fly.io a sleeping machine keeps its own disk,
+    // /run with it, so after a restart the room's name was still there without the room, and every
+    // job then ran without it. The name is taken away and the room made again.
+    ip(["netns", "del", name]);
+    rmSync(ns, { force: true });
+  }
   if (!ip(["netns", "add", name])) return false;
   if (!ip(["-n", name, "link", "set", "lo", "up"])) { ip(["netns", "del", name]); return false; }
   // PORTS 80 AND 443 IN THE ROOM (step 4, the master key's jobs): any port may be
   // used inside the room (this setting is the room's own, not the machine's).
   spawnSync("nsenter", ["--net=" + ns, "--", "sysctl", "-qw", "net.ipv4.ip_unprivileged_port_start=0"], { stdio: "ignore", timeout: 10000 });
-  return existsSync(ns);
+  return live();
 }
 
 /**

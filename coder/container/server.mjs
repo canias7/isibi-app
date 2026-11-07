@@ -22,7 +22,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync } from "node:fs";
+import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
 import { runCoder, MACHINE_TOOLS } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
@@ -890,6 +890,31 @@ export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0, dev = DEV } 
  * Fly.io it should be, while it sleeps; then the setup does not run again.) A
  * mark left on that disk at each start says so; it is shown on /health.
  */
+/**
+ * THE MACHINE'S OWN DISK, ALL OF IT (live test, 2026-11-07). On Fly.io a machine's
+ * own changes (what the AI installs) go on its own disk, mounted at
+ * /.fly-upper-layer. A machine made before that disk could be 20 GB had the disk
+ * made bigger by Fly.io but not the filesystem on it (7.8 GB of 20). At start the
+ * filesystem is grown to fill its disk, while in use, as cloud machines do at
+ * boot (ext4, resize2fs). It never holds up or stops the start: anything
+ * unexpected, and nothing is done. Answers what it did.
+ */
+export const UPPER_DISK = "/.fly-upper-layer";
+export function growOwnDisk({ mount = UPPER_DISK, root = typeof process.getuid === "function" && process.getuid() === 0, run = spawnSync, read = readFileSync, statfs = statfsSync, grow = (dev) => { const c = spawn("resize2fs", [dev], { stdio: "ignore", detached: true }); c.on("error", () => {}); c.unref(); } } = {}) {
+  try {
+    if (!root) return "not root";
+    const m = run("findmnt", ["-n", "-o", "SOURCE,FSTYPE", mount], { encoding: "utf8", timeout: 10000 });
+    const [dev, type] = String((m && m.stdout) || "").trim().split(/\s+/);
+    if (!/^\/dev\/vd[a-z]$/.test(dev || "") || type !== "ext4") return "no disk to grow";
+    const disk = Number(String(read("/sys/class/block/" + dev.slice(5) + "/size", "utf8")).trim()) * 512;
+    const s = statfs(mount);
+    const fs = Number(s.blocks) * Number(s.bsize);
+    if (!(disk > 0 && fs > 0) || disk < fs * 1.1) return "full size";
+    grow(dev);
+    return "growing";
+  } catch { return "could not grow"; }
+}
+
 export function bootKept(dir = SETUP_ROOT, now = Date.now()) {
   const f = join(dir, ".started");
   let kept = false;
@@ -1425,5 +1450,7 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
   // On Fly.io, the chat's files live on its kept disk (CODER_DATA), the AI's home too; elsewhere its home is /home/dev.
   // Git goes through the Worker with each job's pass (your GitHub login never comes here).
+  // The machine's own disk grows to the size Fly.io gave it (growOwnDisk), never holding up the start.
+  growOwnDisk();
   http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }
