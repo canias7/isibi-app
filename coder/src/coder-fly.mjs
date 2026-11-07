@@ -133,7 +133,8 @@ export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, 
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
-    env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
+    // CODER_IMAGE_REF: which Coder version this is, so the admin sandbox's own layer starts fresh with a new one.
+    env: { CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s.image, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
     guest: { ...(small ? FLY_SMALL : { cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }), ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
     ...(keepRoot && bigRoot ? { rootfs: { persist: "restart", size_gb: s.root } } : {}),
     // The chat's work disk, which Fly.io makes bigger by itself when it is 80% full (Fly's auto-extend).
@@ -174,8 +175,12 @@ export async function machineLock(env, machine, rec) {
   return rec && rec.lock === 2 ? controlKeyFor(env.CODER_TOKEN_KEY, machine) : controlKeySync(env.CODER_TOKEN_KEY);
 }
 /** The request with this machine's own lock key (never another's). */
+/** The message route's hint for a new chat's disk (the environment's saved copy): for flyBox only, never sent on. */
+export const FROM_COPY = "x-coder-from-copy";
+export const FROM_COPY_GB = "x-coder-from-copy-gb";
 async function locked(env, machine, rec, req) {
   const r = new Request(req.url, { method: req.method, headers: req.headers });
+  r.headers.delete(FROM_COPY); r.headers.delete(FROM_COPY_GB);
   const k = await machineLock(env, machine, rec);
   if (k) r.headers.set("x-coder-key", k); else r.headers.delete("x-coder-key");
   return r;
@@ -223,15 +228,76 @@ async function untilAnswers(env, id, { fetchFn, sleep, now }, waitMs = FLY_WAKE_
   return false;
 }
 
-/** A NEW CHAT'S MACHINE: its kept disk, then the machine on it (Fly starts it). */
-async function makeMachine(env, bucket, names, deps) {
+// ── THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like
+// Claude Code's environment cache: "If it completes in under about 5 minutes, the
+// filesystem is snapshotted and reused" for the environment's next sessions).
+// Right after the setup script ran on a fresh chat disk, Fly.io saves a copy of
+// that disk (a snapshot; the message route asks, src/coder-routes.mjs); a new chat
+// in the same environment gets its disk made from the copy, and its machine skips
+// the setup (container/server.mjs). Every chat still clones its repository fresh.
+/** Claude Code: the copy is made again "after about 7 days". */
+export const CACHE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Days Fly.io keeps the copy (its default is 5): past the seven. */
+export const CACHE_KEEP_DAYS = 8;
+/** How long Fly.io has to list a new copy (it makes one "in a few moments"). */
+export const CACHE_WAIT_MS = 60 * 1000;
+const SNAP_ID = /^vs_\w{4,80}$/;
+
+/** May a new chat start from this copy? Made for this setup, by this Coder version, in this region, not too old, still kept by Fly. */
+export function cacheUsable(env, c, key, now = Date.now()) {
+  if (!c || !SNAP_ID.test(String(c.snapshot)) || !key || c.key !== key) return false;
+  const s = flySettings(env);
+  if (c.image !== s.image || c.region !== s.region) return false;
+  const age = now - Number(c.at);
+  const kept = Number(c.retention) > 0 ? Number(c.retention) * 24 * 3600 * 1000 - 12 * 3600 * 1000 : CACHE_MS;
+  return age >= 0 && age < Math.min(CACHE_MS, kept);
+}
+
+/**
+ * SAVE A COPY OF A CHAT'S KEPT DISK (a Fly.io snapshot, kept CACHE_KEEP_DAYS days).
+ * Answers { snapshot, size, region, image, retention } once Fly lists it; else null.
+ */
+export async function snapshotChat(env, name, deps0 = {}) {
+  if (!flyOn(env)) return null;
+  const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now };
+  const s = flySettings(env);
+  const rec = await readRec(env.CODER_BUCKET, (await flyNames(name)).key);
+  if (!rec || typeof rec.volume !== "string") return null;
+  const path = "/apps/" + s.app + "/volumes/" + rec.volume;
+  // Kept past the seven days (this disk's later daily copies too; Fly's default is 5 days).
+  const v = await flyApi(env, path, { method: "PUT", body: { snapshot_retention: CACHE_KEEP_DAYS }, ...deps });
+  const made = await flyApi(env, path + "/snapshots", { method: "POST", ...deps });
+  const b = made.ok && made.data && made.data.Msg && made.data.Msg.backup;
+  const id = b ? String(b.graph_id || "") : "";
+  if (!SNAP_ID.test(id)) return null;
+  // "Wait a few moments for the snapshot to get created and then get the list of snapshots to confirm."
+  const until = deps.now() + CACHE_WAIT_MS;
+  for (;;) {
+    const l = await flyApi(env, path + "/snapshots", deps);
+    const hit = l.ok && Array.isArray(l.data) ? l.data.find((x) => x && x.id === id) : null;
+    if (hit) return { snapshot: id, size: Number(v.ok && v.data && v.data.size_gb) || s.disk, region: rec.region || s.region, image: rec.image, retention: Number(hit.retention_days) || 0 };
+    if (deps.now() >= until) return null;
+    await deps.sleep(2000);
+  }
+}
+
+/**
+ * A NEW CHAT'S MACHINE: its kept disk, then the machine on it (Fly starts it).
+ * `from` (the environment's saved copy): the disk is made from it, at least as big
+ * (Fly: "a new volume of equal or greater size"); if Fly cannot, an empty one, as before.
+ */
+async function makeMachine(env, bucket, names, deps, from = null) {
   const s = flySettings(env);
   // ITS DISK GOES ON A SERVER WITH ROOM FOR ITS SIZE (Fly's `compute`: a machine can only run where
   // its disk is); else on one with room for the size before; else anywhere, as before.
-  let v;
-  for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
-    v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk, ...(compute ? { compute } : {}) }, ...deps });
-    if (v.ok || v.status === 401 || v.status === 403) break;
+  let v, copied = "";
+  const copy = from && SNAP_ID.test(String(from.snapshot)) ? { snapshot_id: String(from.snapshot), size_gb: Math.min(500, Math.max(s.disk, Math.ceil(Number(from.size) || 0))) } : null;
+  for (const c of copy ? [copy, null] : [null]) {
+    for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
+      v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk, ...(compute ? { compute } : {}), ...(c || {}) }, ...deps });
+      if (v.ok || v.status === 401 || v.status === 403) break;
+    }
+    if (v.ok || v.status === 401 || v.status === 403) { copied = v.ok && c ? c.snapshot_id : ""; break; }
   }
   if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io could not make the machine's disk (" + v.status + ")" };
   // Fly refused the settings (should it not take a bigger or kept disk, or the size): made the older way, as before.
@@ -241,7 +307,7 @@ async function makeMachine(env, bucket, names, deps) {
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
   }
-  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false };
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, ...(copied ? { from: copied } : {}) };
   await writeRec(bucket, names.key, rec);
   await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec };
@@ -301,7 +367,9 @@ export function flyBox(env, name, deps0 = {}) {
         // is still being made, a Stop) never makes a second one.
         const u = new URL(req.url);
         if (!(req.method === "POST" && (u.pathname === "/turn" || u.pathname === "/undo"))) return json({ error: "This chat has no machine on Fly.io yet." }, 503);
-        const made = await makeMachine(env, bucket, names, deps);
+        // A new chat in an environment with a saved copy: its disk from the copy (the message route's hint).
+        const from = u.pathname === "/turn" ? { snapshot: req.headers.get(FROM_COPY) || "", size: Number(req.headers.get(FROM_COPY_GB)) || 0 } : null;
+        const made = await makeMachine(env, bucket, names, deps, from && from.snapshot ? from : null);
         if (!made.rec) return json({ error: made.why }, 503);
         rec = made.rec;
       }

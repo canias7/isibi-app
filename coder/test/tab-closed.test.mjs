@@ -123,7 +123,7 @@ test("CD113 the watch list never keeps a machine awake for nothing: an ended, re
 test("CD114 wiring: every minute the Worker runs the watch list beside @coder's jobs; the page says the tab can be closed, and loads the saved chat when it was saved elsewhere", () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /import \{ runWatchedJobs[ ,][^}]*\} from "\.\/src\/coder-watch\.mjs";/);
-  assert.match(worker, /const coder = \(req, who\) => handleCoder\(req, env, ctx, \{ authUser: async \(\) => who, container: m\.container, dropMachine: m\.drop \}\);\n\s+const work = \[\];\n\s+const job = \(p\) => \{ work\.push\(p\); ctx\.waitUntil\(p\); \};\n\s+job\(runMentionJobs\(env, \{ coder \}\)[^\n]*\n\s+job\(runWatchedJobs\(env, \{ coder \}\)/);
+  assert.match(worker, /const coder = \(req, who\) => handleCoder\(req, env, ctx, \{ authUser: async \(\) => who, container: m\.container, dropMachine: m\.drop, snapshot: m\.snapshot, cacheUsable: m\.cacheUsable \}\);\n\s+const work = \[\];\n\s+const job = \(p\) => \{ work\.push\(p\); ctx\.waitUntil\(p\); \};\n\s+job\(runMentionJobs\(env, \{ coder \}\)[^\n]*\n\s+job\(runWatchedJobs\(env, \{ coder \}\)/);
   // ALL OF IT AWAITED: Cloudflare waits for what scheduled() returns (up to 15 minutes), and a GitHub job's start can take minutes.
   assert.match(worker, /if \(m\.kind === "fly"\) job\(runFlyMachines\(env\)[^\n]*\n(\s+\/\/[^\n]*\n)*\s+await Promise\.all\(work\);\n\s+\},/);
   assert.match(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /"crons": \["\* \* \* \* \*"\]/, "every minute");

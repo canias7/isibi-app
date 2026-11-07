@@ -9,7 +9,165 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
-## 2026-11-07: The fifth test: the sealed room works live; the disk grow missed its disk (fix on the branch, not deployed yet)
+## 2026-11-07: Docker in the admin sandbox, fourth fix: two sites missing from Trusted
+
+- GitHub's check ran again (run 42368272165). Docker's engine reached the gate and began downloading, but the gate refused one site: `production.cloudfront.docker.com`. Docker Hub now keeps its image files there.
+- Claude Code's default list has that site, and also `gcloud.google.com`. Ours didn't: two sites were missed when the list was copied on 2026-11-06. Both are added now. Test CD155 checks them.
+- Comparing the two lists again found 42 differences in all. Besides these two, they are the "www." versions of about 30 sites (your item 6 on the list) and Claude's own sites (claude.ai, anthropic.com, its API and docs). Those wait for item 6, as you asked to go one by one.
+- GitHub's check runs again with the push.
+
+## 2026-11-07: The setup's saved copy, per environment (like Claude Code's cache)
+
+- Your word: "ok start", for item 1 of the comparison list (Coder's setup was saved per chat, not per environment).
+- **What it does now, on Fly.io:**
+  - The first chat that runs an environment's setup script, on a fresh disk, has its disk saved by Fly.io right after the setup works. Coder waits a few seconds for that before it starts working. "Fresh" means no job has worked on that disk yet, so a copy never holds an earlier job's leftovers (chats from before this change count as not fresh).
+  - A new chat in the same environment gets its disk made from that saved copy. It skips the setup, and the chat says so: "Setup: this chat started from the environment's saved copy… so the setup script did not run again."
+  - The saved copy holds what the setup installed on the system and in Coder's home (packages, caches, Docker images).
+  - Every chat still clones its repository fresh. The other chat's files, git folder and memory are removed first.
+  - Something the setup made inside the project folder (like node_modules) is therefore not there. Coder is told this and runs the project's install itself when it needs to. This matches Claude Code's docs ("Cloud sessions start from a fresh clone of your repository").
+  - A new copy is made when the setup script or the network setting changes, after 7 days, or with a new Coder version, like Claude Code. Your variables and keys never reach the setup, so they are not in the copy.
+  - If Fly.io cannot make a disk from the copy, the chat starts with an empty disk and runs the setup, as before.
+- **Cost:** Fly.io keeps each copy 8 days, at $0.08 per GB a month after the first 10 GB free. The chat whose disk was copied also keeps its own daily copies 8 days instead of 5.
+- **Not on Cloudflare** (Cloudflare's containers have no saved copies). It also needs the admin sandbox, so it starts working once the sandbox is deployed.
+- Tests: CD151 (Fly.io: the copy is made, kept and used; a refused copy falls back), CD152 (the Worker asks for the copy and points new chats at it), CD153 (the machine waits, then goes; a disk from the copy skips the setup and keeps nothing of the other chat). A picture of the new chat line was made on a local copy of the page.
+
+## 2026-11-07: Docker in the admin sandbox, third fix: its downloads
+
+- GitHub's check ran again (run 42366848802). Docker's engine now started in the sandbox and kept its files in your home folder. It then could not download an image: "network is unreachable".
+- **Why:** today's Docker runs its engine in the machine's own network (Docker calls this "detach-netns"). There, Coder's network gate is at 127.0.0.1. Coder's docker command still sent it to 10.0.2.2, the address an older Docker needed.
+- **Fixed:** the docker command checks which kind of Docker is installed and gives the engine the right address. Test CD154 checks both kinds, and fails on the old command.
+- Tried on my own test machine: the engine now reaches the gate and asks it for Docker's site. GitHub's check, with the real gate, runs again with the push.
+
+## 2026-11-07: Docker in the admin sandbox, second fix
+
+- GitHub's check ran again (run 42365082752). The id fix worked: Docker's engine got further. It then stopped because it could not make its own files in your chat's home folder ("value too large").
+- **Why:** inside the sandbox, your folders only showed Coder's own user. Docker gives the users in its containers ids of their own (165536 to 231071), and those were not shown.
+- **Fixed:** your folders in the sandbox now also show those Docker ids, the same ids as on disk. They still never show the machine's admin or any other user, so nothing in your folders can be made as admin.
+- **Tried for real before pushing:** on my own test machine, Docker failed the same way without the fix. With it, Docker started in the sandbox and ran a container.
+- Tests: CD148 checks which ids are shown and which never are. CD147 (the real one, as admin) checks that a Docker id can own a file in your folder, and that admin, user 1000 and others cannot. GitHub's check also confirms the image's Docker ids fit.
+- 159 tests pass. GitHub's check runs again with the push.
+
+## 2026-11-07: The admin sandbox in Coder's real image: all passed but Docker; fixed
+
+- GitHub's check (run 42363852080) tried the sandbox in Coder's real image, made into a disk as on Fly.io.
+- **Passed:**
+  - admin through sudo;
+  - `apt-get install` through the network gate;
+  - removing a package from the image;
+  - a system file;
+  - PostgreSQL;
+  - port 80;
+  - every tool;
+  - every wall (no direct internet, only allowed sites, the room unchangeable, nothing of the machine visible);
+  - the machine's own files untouched;
+  - your files staying Coder's user's.
+- **Failed: Docker.** Docker's engine maps its own range of user ids, which in the image is 165536 to 231071. The sandbox only had ids up to 196607 inside, so the system refused.
+- **Fixed:** the sandbox now has 262144 ids, enough for Docker's range, and outside it starts at 1000000, clear of every other user's range. Tests updated; 159 pass. GitHub's check runs again with the push.
+
+## 2026-11-07: The two small problems, fixed (on the branch, not deployed yet)
+
+- Your word: "fix this".
+- **The setup script runs whole.** Environment takes a script up to 64 KB, but Coder's machine ran only its first 20,000 characters. Now both use one shared limit of 64 KB, so whatever Environment accepts runs in full. Test CD149: a 40,000-character script's last line runs. It fails on the old code.
+- **The README says what Coder does now.**
+  - Coder pushes its branch after each job. A pull request opens only when you press Create PR or Create draft PR, or ask for one. The old text said it opened one after every job.
+  - Coder has many tools. The old text said bash was its only one.
+  - A job's start gets 8 minutes, not 3.
+  - The setup script never gets your saved keys or variables. The old text said it could use the keys.
+  - The project file (CLAUDE.md) had the same "one tool" line; fixed too.
+  - Test CD150 checks these lines against the code.
+- 159 tests pass.
+
+## 2026-11-07: Admin for anything, in a sealed sandbox (on the branch, not deployed yet)
+
+- Your word: "finish this", about the comparison's line "Claude Code's commands run as full admin. Coder's run as admin only for installing programs, starting services and using ports 80 and 443."
+- **What Coder can do now, like Claude Code:**
+  - install, remove or upgrade any package;
+  - change any system file;
+  - start any service;
+  - use any port;
+  - run any command with `sudo`.
+  - The setup script runs this way too.
+  - `apt-get`, `apt` and `service` need no `sudo` typed.
+- **How it stays safe:** Claude Code keeps its keys and network rules outside its machine; on Fly.io ours are inside the same machine. So Coder's commands run in a sealed sandbox inside the machine:
+  - **Inside:** they have admin for anything.
+  - **Outside:** that admin is an ordinary, unknown user. It can't leave the network room or change its network. It can't see or stop Coder's own service, read its keys, or touch the machine's own files.
+- **What the sandbox is:**
+  - **Its system:** the machine's own image, read-only.
+  - **Its changes:** a layer on the chat's work disk. What Coder installs stays while the machine sleeps, and a new Coder version starts it fresh.
+  - **Your project files:** they stay owned by Coder's ordinary user, so saving to GitHub and Docker work as before.
+- **One small difference from Claude Code:** commands run as Coder's own user and use `sudo` for admin, rather than running as admin all the time. Otherwise files Coder makes in your project would be admin's.
+- **Checked:**
+  - **Fly.io's machines can run it:** your comment at 09:59 showed kernel 6.12, sandboxes allowed, and the overlay system there.
+  - **The real test, run as admin here:** admin for anything; dpkg's folder renames; your files stay Coder's user's; the machine's files untouched; the room can't be changed or left; only its own processes and folders are visible; a stop ends everything; installs kept for the next job, and started fresh with a new version. The deploy runs this test as admin too.
+  - **GitHub's image check:** it now makes Coder's real image a disk, as on Fly.io, and tries the sandbox there: apt install and remove, a system file, PostgreSQL, port 80, Docker, every tool and the network wall.
+- If a machine can't have the sandbox, Coder works as before, with the master key's jobs, and is told which.
+- Tests: CD147 (real) and CD148, plus older checks updated. 157 pass.
+
+## 2026-11-07: Coder compared with Claude Code's docs again (after today's work)
+
+- Your word: "before we anything, let compare all we have to claude code docs please".
+- The three cloud pages were unchanged since this morning's comparison. This time I also read the pages on GitHub, code review, memory, rewind, scheduled tasks, Projects, the phone app, Remote Control and security checks.
+- **Now matching, since this morning:**
+  - the machine (4 CPUs, 16 GB, and more disk than Claude Code's 30 GB);
+  - Ubuntu with all of Claude Code's tools;
+  - installs and services mid-job;
+  - the network setting as a real wall.
+- **Still partly:**
+  - the setup cache is per chat;
+  - the setup runs as admin only for apt lines;
+  - admin during a job is limited to the master key's jobs;
+  - auto-fix details;
+  - long chats are cut, not summarized;
+  - no compare-to-another-branch;
+  - only writable repositories;
+  - `gh` is installed but not logged in;
+  - "www." sites are missing from the Trusted list;
+  - the apps aren't published;
+  - Rewind can't do code-only or conversation-only;
+  - no AGENTS.md;
+  - no automatic review on every pull request;
+  - no security checks while writing.
+- **Still missing:**
+  - permission modes;
+  - sending a message while Coder works;
+  - share, archive and rename a chat;
+  - a prefilled link;
+  - a link back to the chat in commits;
+  - helper agents, hooks, connectors, skills and plugins;
+  - terminal and Remote Control;
+  - Projects;
+  - scheduled tasks;
+  - phone notifications;
+  - ultrareview.
+- **Still open from this morning:**
+  - the setup script is cut at 20,000 characters, though settings take 64 KB;
+  - old README lines say Coder opens a pull request after each job, that the setup script can use saved keys, that bash is its only tool, and that a start gets 3 minutes (it's 8 now).
+
+## 2026-11-07: Live test passed: the whole 20 GB system disk, admin rights, the sealed room
+
+- Your comment at 09:41, answered at 09:46:
+  - `df -h / /.fly-upper-layer`: **20 GB** on both. The system disk grew from 7.8 GB to the 20 GB Fly.io gave it.
+  - Coder's service has every admin right (`CapEff 000001ffffffffff`), including the one the grow needs.
+  - `ip -br addr`: only `lo` and `tap0`, so the commands are inside the sealed room (this chat's network is Full).
+- **Now proven live on Fly.io today:**
+  - the tools;
+  - installing a program mid-job;
+  - Grok through Coder's server (no key on the machine);
+  - each machine's own lock key;
+  - 4 CPUs and 15 GB;
+  - a 10 GB work disk;
+  - the 20 GB system disk;
+  - the sealed room, also after a restart;
+  - GitHub jobs that start from the every-minute check.
+- **Not tried live yet:** a chat whose network is Trusted or None, where the room has no internet link of its own. GitHub's check proved it in the real image. To see it live, set testingforclaude's network to Trusted and run the curl again; it should print 000.
+
+## 2026-11-07: Deployed: the disk grow finds Fly.io's disk
+
+- Your word: "merge and deploy". Main b46f9a3b, run 42359923774, every step passing, the machine image rebuilt.
+- **Live checks:** the site answers, and the app refuses anyone not signed in.
+- **Next:** your test comment, which checks the disk size and the admin right the grow needs.
+
+## 2026-11-07: The fifth test: the sealed room works live; the disk grow missed its disk (now deployed)
 
 - Your comment at 09:17 was answered at 09:21, after the new image's first download.
 - **The room works on Fly.io now:**

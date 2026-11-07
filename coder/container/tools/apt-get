@@ -9,6 +9,9 @@
 name=$(basename "$0")
 real=/usr/bin/$name
 [ "$(id -u)" = 0 ] && exec "$real" "$@"
+# IN THE ADMIN SANDBOX (owner, 2026-11-07: "finish this"; container/coder-sandbox.mjs): admin for
+# anything, as on Claude Code's machine (install, remove, upgrade...), with no sudo to type.
+[ -e /etc/coder-sandbox ] && exec /usr/bin/sudo -n "$real" "$@"
 sub=""
 for a in "$@"; do case "$a" in -*) ;; *) sub=$a; break ;; esac; done
 case "$sub" in

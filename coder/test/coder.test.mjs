@@ -431,7 +431,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*\}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \} \}, useCopy \? /);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1165,6 +1165,44 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     const s3 = await run({ script: "echo changed > ready.txt", vars: {} });
     assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 1, "again when it changed");
   } finally { await close(); }
+});
+
+test("CD149 the whole setup script runs, up to the 64 KB Environment takes (live comparison, 2026-11-07: the machine ran only the first 20,000 characters)", async () => {
+  const { SETUP_SCRIPT_MAX } = await import("../container/coder-checks.mjs");
+  assert.equal(SETUP_SCRIPT_MAX, 65536);
+  // ENVIRONMENT TAKES UP TO IT, AND NO MORE.
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const sent = [];
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-big", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  const big = "# " + "x".repeat(40000) + "\necho the-last-line > last.txt";
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "#".repeat(SETUP_SCRIPT_MAX) }) })).status, 200, "64 KB is taken");
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "#".repeat(SETUP_SCRIPT_MAX + 1) }) })).status, 413, "more is refused");
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: big }) })).status, 200);
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.equal(sent[0].setup.script, big, "sent to the machine whole");
+  // THE MACHINE RUNS ALL OF IT: its last line, 40,000 characters in, leaves its mark.
+  const { remote } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const turns = [say("", [call("bash", { command: "cat last.txt" })]), say("Done.", [])];
+  let n = 0;
+  const { base, close } = await serve(createApp({ root, send: async () => turns[Math.min(n++, turns.length - 1)], remote, ...r0 }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    await post("/turn", { project: "shop-bigs", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-bigs", token: "", setup: { script: big, vars: {} } });
+    let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-bigs&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.equal(st.events.filter((e) => e.verb === "Ran setup").length, 1);
+    assert.ok(st.events.some((e) => e.type === "result" && /^the-last-line\n?$/.test(e.output || "")), "its last line ran: " + JSON.stringify(st.events.filter((e) => e.type === "result").map((e) => (e.output || "").slice(0, 120))));
+    await post("/claim", { project: "shop-bigs" });
+  } finally { await close(); }
+  const server = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(server, /body\.setup\.script\.trim\(\)\.slice\(0, SETUP_SCRIPT_MAX\)/);
+  assert.doesNotMatch(server, /\.slice\(0, 20000\) : "";/);
 });
 
 test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pull request starts a fix in that chat; others, bots and loops are refused", async () => {
@@ -2120,7 +2158,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.deepEqual(lastJobFor({ turn: 5, commits: [{ turn: 3, title: "Add a.txt" }, { turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: true });
   assert.deepEqual(lastJobFor({ turn: 6, commits: [{ turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: false }, "the last job was a review: it changed nothing");
   assert.deepEqual(lastJobFor({ turn: 2, commits: [] }), { title: "", changed: false });
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment \}\);/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \} \}, /);
   assert.deepEqual(lastJobOf({ lastJob: { title: "Add  one.txt\n", changed: true } }), { title: "Add one.txt", changed: true });
   assert.equal(lastJobOf({}), null);
   assert.match(undoNote({ title: "Add one.txt", changed: false }), /UNDO: the last job in this chat that changed files was "Add one\.txt"; your last job changed no files, so if the owner asks to undo, ask first which one they mean\./);

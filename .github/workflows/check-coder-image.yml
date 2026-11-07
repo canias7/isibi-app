@@ -14,6 +14,7 @@ on:
       - "coder/container/**"
       - "coder/test/machine-tools.sh"
       - "coder/test/room-check.mjs"
+      - "coder/test/sandbox-check.mjs"
       - ".github/workflows/check-coder-image.yml"
   workflow_dispatch:
 
@@ -59,3 +60,23 @@ jobs:
           # Docker's engine cannot stack its layers on the image's own layered disk.
           sudo mkdir -p /tmp/dev-home && sudo chown 1001:1001 /tmp/dev-home
           docker run --rm --privileged -v /tmp/dev-home:/home/dev -v "$PWD/coder/test:/coder-test:ro" coder:full bash /coder-test/machine-tools.sh
+
+      - name: The admin sandbox, in Coder's own image
+        run: |
+          # ADMIN FOR ANYTHING, SEALED (owner, 2026-11-07: "finish this"; coder/test/sandbox-check.mjs).
+          # On Fly.io the sandbox's system is the machine image's own disk (/dev/vda); here the
+          # same image is made a disk and given to the machine the same way.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          df -h /mnt /
+          docker create --name full-disk coder:full >/dev/null
+          sudo truncate -s 16G /mnt/coder-full.img
+          sudo mkfs.ext4 -q -F /mnt/coder-full.img
+          sudo mkdir -p /mnt/coder-full && sudo mount -o loop /mnt/coder-full.img /mnt/coder-full
+          docker export full-disk | sudo tar -x -C /mnt/coder-full
+          sudo umount /mnt/coder-full
+          docker rm full-disk >/dev/null
+          loop=$(sudo losetup -f --show -r /mnt/coder-full.img)
+          # The chat's kept disk, as on Fly.io: a plain disk folder.
+          sudo mkdir -p /mnt/coder-data
+          docker run --rm --privileged -e CODER_SANDBOX_BASE="$loop" -v /mnt/coder-data:/data -v "$PWD/coder/test:/coder-test:ro" coder:full node /coder-test/sandbox-check.mjs
+          sudo losetup -d "$loop"

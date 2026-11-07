@@ -100,6 +100,14 @@ export const MACHINE_TOOLS = `THIS MACHINE: Ubuntu 24.04 with the same tools as 
 - Chrome is /usr/bin/google-chrome ($CHROME_PATH), with chromedriver: run it headless with --headless=new --no-sandbox. Playwright with its own Chromium: require("playwright") works from any folder (xvfb-run gives a screen when one is needed).
 - Media and documents: ffmpeg, ImageMagick (convert), pdftotext, pandoc, and Python's numpy, pandas, openpyxl, python-docx, python-pptx, pypdf, pdfplumber, reportlab, markitdown, requests, pillow. Debugging: strace, lsof, valgrind, nc.`;
 
+/**
+ * THE SAME MACHINE, WITH ADMIN FOR ANYTHING (owner, 2026-11-07: "finish this"; container/coder-sandbox.mjs):
+ * told instead of MACHINE_TOOLS when the job's commands run in the admin sandbox.
+ */
+export const MACHINE_ADMIN = MACHINE_TOOLS
+  .replace(/\n- The master key's jobs are yours:[^\n]*/, "\n- You have admin for anything, as on Claude Code's machine: sudo works for every command (no password). Install, remove or upgrade any package (apt-get and apt need no sudo), change any system file (sudo), start, stop or restart any service (service NAME start, no sudo), use any port (80 and 443 too). What you change in the system stays while this chat's machine lives; a new Coder version starts it fresh. Your own commands run as you, so the project's files stay yours: never run builds or installs in the project with sudo.")
+  .replace("Docker and docker compose work without admin rights: the engine starts with your first docker command.", "Docker and docker compose work (no sudo): the engine starts with your first docker command.");
+
 export const CODER_SYSTEM = `You are Coder, a software developer working for the owner in your own Linux machine.
 The project lives in the current folder. You work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 

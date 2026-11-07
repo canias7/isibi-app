@@ -27,12 +27,14 @@ code in **each user's own GitHub**.
 1. The user signs in, then connects GitHub: Coder sends them to GitHub's own
    sign-in, and they choose which repositories Coder may use.
 2. They pick a repository. That is a Coder project.
-3. Each message: Coder's container clones the repository (once), works on its
-   own branch `coder/<project>`, runs commands (`bash`, its only tool)
+3. Each message: Coder's machine clones the repository (once), works on its
+   own branch `coder/<project>` with its tools (read, edit, write, grep, glob,
+   bash, web search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
    and finishes by answering in words.
-4. When a piece of work ends, Coder commits, pushes the branch and opens a
-   **pull request** into the main branch. The user merges it on GitHub. Coder
-   never pushes to the main branch.
+4. When a job ends, Coder commits and pushes its branch. A **pull request**
+   opens only when the user presses Create PR or Create draft PR in the chat,
+   or asks Coder for one, as on Claude Code. The user merges it on GitHub.
+   Coder never pushes to the main branch.
 
 **A job keeps going when the tab is closed** (like Claude Code, 2026-11-06).
 Each job goes on a watch list (`coder/running-jobs/` in Coder's storage) when
@@ -150,9 +152,10 @@ tool as dev (`test/machine-tools.sh`).
 first (the clone, the setup script), and Cloudflare stops a request whose tab
 has closed, so the chat is marked running and put on the watch list first; a
 start that fails puts the chat back as it was. A machine that does not have
-the job yet is given 3 minutes to wake up before the job counts as lost. (This
-also lets the setup script use saved keys: the Worker adds them only to a
-running job.)
+the job yet is given 8 minutes before the job counts as lost (`START_GRACE_MS`;
+a machine being made or given a new version first fetches the image). The
+setup script never gets the owner's saved keys or variables, like Claude
+Code's: the gate adds no key while it runs.
 
 **Sign-in is both steps, every time** (the audit, 2026-11-06). The password
 step gives the page a 15-minute ticket and ends Supabase's own session for it;
@@ -241,9 +244,70 @@ request (package names only, never an apt option; a service that is installed;
 start, stop, restart, reload, status) and does nothing else; with a limited
 network its apt goes through the gate (`gateForApt`, `/run/coder-gate/apt-proxy`).
 `tools/apt-get` (also `apt`), `tools/service` and `tools/sudo` pass only those
-jobs on, and refuse the rest plainly. The whole master key (editing system
-files, any `sudo`) would need a full container system with the machine's disk
-mirrored for it; not done.
+jobs on, and refuse the rest plainly. On a machine with the admin sandbox
+(below), that is only the fallback.
+
+**The admin sandbox** (owner, 2026-11-07: "finish this": Claude Code's commands
+run as full admin; `container/coder-sandbox.mjs`). Each job's commands, and the
+whole setup script, run in a sandbox of their own, as its `dev` with sudo for
+anything (`/etc/sudoers.d/coder-sandbox` in the sandbox's own layer): install,
+remove or upgrade any package, change any system file, run any service, use any
+port. `tools/apt-get` (also `apt`) and `tools/service` add the sudo themselves
+there, and `tools/sudo` passes everything to the real sudo (they know the
+sandbox by `/etc/coder-sandbox`, which only it has). It is Linux namespaces: a
+user namespace whose admin is, outside, an ordinary unknown user (ids 1000000 and
+up; `/etc/subuid` gives root that range), its own mount and process namespaces,
+and the sealed room's network, which it cannot change or leave (it is owned by
+the machine's admin). Its system is the machine image itself, read-only, shown
+through an id map (on Fly.io the image's own disk, `/dev/vda`, since the
+machine's root is a layered filesystem that an id map cannot show; elsewhere the
+root; `CODER_SANDBOX_BASE` names another), under its own layer (overlayfs, with
+`userxattr`, without which dpkg's folder renames fail) on the chat's kept disk,
+`/data/.coder-admin/<version>`: what it installs stays while the machine
+sleeps, and a new Coder version (`CODER_IMAGE_REF`, from the Fly settings)
+starts it fresh. It sees, at the same places, the chat's files, dev's home and
+Coder's memory (dev's on disk and inside: only dev, and its Docker's own ids from
+`/etc/subuid`, are mapped, so nothing there can be made as the machine's admin
+or any other user: `mineIdmap`), and, read-only, the git folders, the
+background logs and the gate's certificates; nothing else of the machine
+(`pivot_root`). Its first process (`coder-sandbox-init.sh`) builds all that and
+waits; each command enters it (`nsenter`, `sandboxArgs`). It is stopped wherever
+the AI's commands are (`killUser`): before root's git, at the end of a job and
+before the next. Docker's engine runs in it as dev, as before (today's engine
+runs in the room's own network, Docker's "detach-netns", so `tools/docker` gives
+it the gate at 127.0.0.1; an older one, inside its own, gets 10.0.2.2). A machine that
+cannot have it runs commands as before, with the master key's jobs, and Coder is
+told which (`MACHINE_ADMIN` or `MACHINE_TOOLS`). `test/sandbox.test.mjs` tries it
+for real as root (the deploy runs it), and the GitHub machine check tries it in
+the full image given as a disk, with the real gate (`test/sandbox-check.mjs`).
+
+**The environment's saved copy of its setup** (owner, 2026-11-07: "ok start";
+like Claude Code's environment cache: "If it completes in under about 5 minutes,
+the filesystem is snapshotted and reused", and "Cloud sessions start from a
+fresh clone of your repository"). On Fly.io, when a chat's setup script runs on
+a fresh disk (no job has worked on it: no `.coder-used`, and no project on it
+before the job's clone), in the admin sandbox (so
+all it made is on that disk: the sandbox's layer and dev's home), and works
+within its five minutes, the job waits before Coder starts (`held`): the machine
+writes the copy's note (`.coder-copy.json`: the chat, the setup's fingerprint
+`setupSha` of the script and the network setting, the Coder version) and flushes
+the disk; the Worker has Fly save the disk (`snapshotChat`: kept 8 days,
+`CACHE_KEEP_DAYS`, confirmed in the disk's list) and records it on the
+environment (`coder/<uid>/environments/<id>.cache.json`: Fly's name for the
+copy, its size, region and Coder version, the setup's key `setupKeyOf`), then
+tells the machine to go (`/go`; without an answer it goes on after 2 minutes,
+`HOLD_MS`). A new chat in the environment gets its disk made from the copy
+(`x-coder-from-copy`, only when its machine is made, never sent to a machine;
+at least as big; if Fly cannot, an empty disk as before) when the copy is for
+the same setup script and network setting, Coder version and region, and under
+7 days old (`cacheUsable`). On that disk the machine's first job (`takeCopy`)
+first removes the other chat's own files (its repositories, git folders and
+memory), so every chat clones its repository fresh; a copy of this same setup
+skips the setup (said in the chat, and to Coder, which runs a project's own
+install itself, since what the setup made inside the project folder is not
+there); any other copy is cleared down to a fresh disk and the setup runs. The
+variables and keys never reach the setup, so they are not part of the copy.
+Cloudflare's containers have no saved copies.
 
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's

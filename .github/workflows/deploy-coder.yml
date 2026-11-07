@@ -74,7 +74,10 @@ jobs:
       # the step above skips them. GitHub's machines allow sudo. These tests never
       # stop the processes of user 1001 (this machine's own runner user).
       - name: Run Coder's root-only safety tests (as root)
-        run: sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs test/room.test.mjs
+        run: |
+          # The admin sandbox's real test needs the user-id tools (newuidmap), as Coder's image has them.
+          command -v newuidmap >/dev/null || sudo apt-get install -y -qq uidmap >/dev/null
+          sudo -E env "PATH=$PATH" CODER_TESTS_NEED_ROOT=1 node --test test/root-safety.test.mjs test/room.test.mjs test/sandbox.test.mjs
       - name: Make the token key
         env:
           SEED: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}
