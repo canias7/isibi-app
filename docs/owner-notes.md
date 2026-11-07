@@ -9,6 +9,46 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Coder compared with Claude Code's docs again (after today's work)
+
+- Your word: "before we anything, let compare all we have to claude code docs please".
+- The three cloud pages were unchanged since this morning's comparison. This time I also read the pages on GitHub, code review, memory, rewind, scheduled tasks, Projects, the phone app, Remote Control and security checks.
+- **Now matching, since this morning:**
+  - the machine (4 CPUs, 16 GB, and more disk than Claude Code's 30 GB);
+  - Ubuntu with all of Claude Code's tools;
+  - installs and services mid-job;
+  - the network setting as a real wall.
+- **Still partly:**
+  - the setup cache is per chat;
+  - the setup runs as admin only for apt lines;
+  - admin during a job is limited to the master key's jobs;
+  - auto-fix details;
+  - long chats are cut, not summarized;
+  - no compare-to-another-branch;
+  - only writable repositories;
+  - `gh` is installed but not logged in;
+  - "www." sites are missing from the Trusted list;
+  - the apps aren't published;
+  - Rewind can't do code-only or conversation-only;
+  - no AGENTS.md;
+  - no automatic review on every pull request;
+  - no security checks while writing.
+- **Still missing:**
+  - permission modes;
+  - sending a message while Coder works;
+  - share, archive and rename a chat;
+  - a prefilled link;
+  - a link back to the chat in commits;
+  - helper agents, hooks, connectors, skills and plugins;
+  - terminal and Remote Control;
+  - Projects;
+  - scheduled tasks;
+  - phone notifications;
+  - ultrareview.
+- **Still open from this morning:**
+  - the setup script is cut at 20,000 characters, though settings take 64 KB;
+  - old README lines say Coder opens a pull request after each job, that the setup script can use saved keys, that bash is its only tool, and that a start gets 3 minutes (it's 8 now).
+
 ## 2026-11-07: Live test passed: the whole 20 GB system disk, admin rights, the sealed room
 
 - Your comment at 09:41, answered at 09:46:
