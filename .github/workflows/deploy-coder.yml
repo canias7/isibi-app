@@ -11,9 +11,23 @@ name: deploy coder
 # from CODER_GITHUB_CLIENT_SECRET (HMAC, 32 bytes), so it is the same on every
 # deploy and nobody has to make one by hand. It is masked and never printed.
 # A new client secret means a new key: everyone connects GitHub again.
+#
+# CODER'S MACHINES ON FLY.IO (owner, 2026-11-07: "YES OPTION 2", like Claude
+# Code's VMs): with the FLY_API_TOKEN secret there (the owner makes it on
+# Fly.io: the organization's Tokens page), each chat's machine is a small VM on
+# Fly.io, stopped when quiet with its disk kept. This deploy then makes the Fly
+# app once, gives it Coder's keys, builds Coder's machine and sends it there.
+# Without the secret (or with "cloudflare" picked), chats keep Cloudflare's
+# containers, as before.
 
 on:
   workflow_dispatch:
+    inputs:
+      machines:
+        description: "Where chats' machines run: fly (needs the FLY_API_TOKEN secret) or cloudflare"
+        type: choice
+        options: [fly, cloudflare]
+        default: fly
 
 concurrency:
   group: deploy-coder
@@ -22,6 +36,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      FLY_APP: gofarther-coder-machines
+      FLY_ORG: personal
     defaults:
       run:
         working-directory: coder
@@ -72,6 +89,55 @@ jobs:
         run: |
           out=$(npx --yes wrangler@4.107.0 r2 bucket create gofarther-coder 2>&1) || true
           echo "$out" | tail -n 3
+      - name: "Fly.io: switched on?"
+        id: fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          WANT: ${{ github.event.inputs.machines || 'fly' }}
+        run: |
+          if [ -n "$FLY_API_TOKEN" ] && [ "$WANT" = "fly" ]; then
+            echo "on=true" >> "$GITHUB_OUTPUT"; echo "Chats' machines: Fly.io ($FLY_APP)."
+          else
+            echo "on=false" >> "$GITHUB_OUTPUT"; echo "Chats' machines: Cloudflare (no FLY_API_TOKEN secret, or cloudflare was picked)."
+          fi
+      - name: "Fly.io: install flyctl"
+        if: steps.fly.outputs.on == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: "Fly.io: the app, its addresses and Coder's keys (made once; fine if they exist)"
+        if: steps.fly.outputs.on == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+        run: |
+          if ! flyctl apps list --json | jq -e --arg a "$FLY_APP" 'map(.Name // .name) | index($a) != null' >/dev/null; then
+            flyctl apps create "$FLY_APP" --org "$FLY_ORG"
+          fi
+          if [ "$(flyctl ips list -a "$FLY_APP" --json | jq 'length')" = "0" ]; then
+            flyctl ips allocate-v6 -a "$FLY_APP"
+            flyctl ips allocate-v4 --shared -a "$FLY_APP"
+          fi
+          # The machines' keys go in as Fly secrets (from standard input, never on a command line or in the log).
+          ck=$(node --input-type=module -e "import { controlKeySync } from './src/coder-control.mjs'; process.stdout.write(controlKeySync(process.env.CODER_TOKEN_KEY))")
+          echo "::add-mask::$ck"
+          printf 'XAI_API_KEY=%s\nCODER_CONTROL_KEY=%s\n' "$XAI_API_KEY" "$ck" | flyctl secrets import -a "$FLY_APP" --stage
+      - name: "Fly.io: build Coder's machine and send it"
+        id: flyimage
+        if: steps.fly.outputs.on == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl auth docker
+          img="registry.fly.io/$FLY_APP:coder-${GITHUB_SHA::12}"
+          docker build -t "$img" container
+          docker push "$img"
+          echo "image=$img" >> "$GITHUB_OUTPUT"
+      - name: "Fly.io: give the Worker the token"
+        if: steps.fly.outputs.on == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: printf '%s' "$FLY_API_TOKEN" | npx --yes wrangler@4.107.0 secret put FLY_API_TOKEN
       - name: Deploy Coder
         uses: cloudflare/wrangler-action@v3
         env:
@@ -84,6 +150,8 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.107.0"
           workingDirectory: coder
+          # Where chats' machines run, and (on Fly.io) the machine version just sent.
+          command: deploy --var CODER_MACHINES:${{ steps.fly.outputs.on == 'true' && 'fly' || 'cloudflare' }} --var CODER_FLY_APP:${{ env.FLY_APP }} --var CODER_FLY_IMAGE:${{ steps.flyimage.outputs.image || 'none' }}
           secrets: |
             XAI_API_KEY
             GITHUB_APP_CLIENT_SECRET

@@ -88,8 +88,9 @@ export async function envForRepo(bucket, uid, repo, list0) {
     }
   }
   // The one used (or made) most recently with this repo.
-  const last = list.filter((e) => !e.archived && Array.isArray(e.repos) && e.repos.includes(repo)).sort((a, b) => (b.used || b.at || 0) - (a.used || a.at || 0))[0];
-  return last ? last.id : DEFAULT_ENV;
+  // Two at the same moment: the one made later (further down the list) wins, so the choice never depends on chance.
+  const last = list.map((e, i) => [e, i]).filter(([e]) => !e.archived && Array.isArray(e.repos) && e.repos.includes(repo)).sort(([a, ia], [b, ib]) => (b.used || b.at || 0) - (a.used || a.at || 0) || ib - ia)[0];
+  return last ? last[0].id : DEFAULT_ENV;
 }
 
 /** The environment a chat uses: the one it picked; older chats, their repo's. An archived one keeps working for the chats that use it. */

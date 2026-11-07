@@ -424,6 +424,7 @@
     }
     S.fails = 0;
     if (r.status === 200 && r.data) {
+      if (r.data.reload) { if (r.data.project) S.project = r.data.project; S.running = false; syncEntry(); draw(); return reloadChat(id); }
       // The message shown when it was sent is not drawn twice.
       const fresh = (r.data.events || []).filter((e) => {
         if (e.type !== 'user') return true;
@@ -441,6 +442,17 @@
     if (S.running) S.poll = setTimeout(tick, POLL_MS);
   }
 
+  // SAVED ELSEWHERE (another tab, or Coder's every-minute run while no tab was
+  // open): the saved chat is loaded, with the save's own lines.
+  async function reloadChat(id) {
+    const r = await call('/projects/' + encodeURIComponent(id));
+    if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
+    S.project = r.data.project; S.events = r.data.events || [];
+    S.running = S.project.status === 'running';
+    syncEntry(); draw(true);
+    if (S.running) { S.next = 0; startPoll(); }
+  }
+
   async function loadChanges() {
     if (!S.project) return;
     S.changes = null;
@@ -450,7 +462,10 @@
   }
   async function stop() {
     if (!S.project) return;
-    await call('/projects/' + encodeURIComponent(S.project.id) + '/stop', { method: 'POST' });
+    const id = S.project.id;
+    const r = await call('/projects/' + encodeURIComponent(id) + '/stop', { method: 'POST' });
+    // The machine was gone: the chat was freed, with what the job saved as it went.
+    if (r.status === 200 && r.data && r.data.reload && S.project && S.project.id === id) { stopPoll(); S.running = false; return reloadChat(id); }
   }
 
   // ── DRAWING ───────────────────────────────────────────────────────────────
@@ -777,7 +792,7 @@
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<div class="cd-composewrap">' + mentionHTML() + commentsHTML() + picsHTML() +
       '<form class="cd-compose" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working…' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working… you can close this tab' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="Attach a picture" title="Attach a picture (or paste one)">' + ICON.clip + '</button><input type="file" id="cdFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>' +
         (S.running
           ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'

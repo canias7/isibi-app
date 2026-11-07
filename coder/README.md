@@ -9,6 +9,10 @@ code in **each user's own GitHub**.
 | `wrangler.jsonc` | Its config: addresses, container, bucket, settings |
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
+| `src/coder-fly.mjs` | Coder's machines on Fly.io: one small VM per chat with its own kept disk, made, woken, stopped and removed by the Worker |
+| `src/coder-control.mjs` | The key that locks a machine's control panel (made from `CODER_TOKEN_KEY`) |
+| `src/coder-live.mjs` | The chat saved as it goes: the machine sends each job's steps here every few seconds; kept sealed until the job is saved, put back in the chat if the machine is lost |
+| `src/coder-watch.mjs` | The watch list: every minute, each running job is kept awake and saved when it ends, with or without an open tab |
 | `src/coder-github.mjs` | Sign in with GitHub, the user's token (encrypted), repositories, pull requests |
 | `src/coder-auth.mjs` | Go Farther sign-in (Supabase), the Worker's proof that both steps (password, then the emailed code) happened, the password it remembers and the count of code checks |
 | `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
@@ -28,6 +32,66 @@ code in **each user's own GitHub**.
 4. When a piece of work ends, Coder commits, pushes the branch and opens a
    **pull request** into the main branch. The user merges it on GitHub. Coder
    never pushes to the main branch.
+
+**A job keeps going when the tab is closed** (like Claude Code, 2026-11-06).
+Each job goes on a watch list (`coder/running-jobs/` in Coder's storage) when
+it starts. Every minute the Worker asks Coder's machine about each one, as its
+owner, through the same route the page uses. That keeps the machine awake (it
+sleeps after 10 quiet minutes) and saves the job when it ends: pushed to its
+branch, the whole chat kept. A tab and the minute's run never save a job twice
+(the machine hands its end out once). A job leaves the list when it ends, or
+after 2 hours (a job works for 45 minutes at most).
+
+**And the machine never sleeps with work on it** (the old builder's way).
+When it has had no request for 10 minutes, the container library is about to
+stop it; first `CoderContainer.onActivityExpired` asks it (`/busy`, behind its
+control key) whether a job is working or has ended without being saved, and
+then it stays awake: 2 hours at most for a working job, 30 minutes for one
+waiting to be saved. A machine that does not answer within 5 seconds, an idle
+one, or one past those times sleeps as before (`holdDecision` in
+`src/coder-watch.mjs`).
+
+**The chat is saved as it goes** (like Claude Code, 2026-11-07). The machine
+sends a job's new steps to the Worker every 3 seconds, and this job's part of
+the conversation every 15 seconds, with the job's own pass
+(`/api/coder/live`, `src/coder-live.mjs`). The Worker keeps them sealed
+(encrypted with `CODER_TOKEN_KEY`, as the owner's values may be in them) in
+parts of 200 steps until the job is saved, then deletes them. If the machine
+is lost mid-job (it restarted, slept, stopped answering, or was gone when Stop
+was pressed), they are put back in the chat with the owner's values hidden,
+Coder is told the job was cut off and its unsaved changes are gone, and the
+page loads the saved chat. Only the real service sends (`createApp`'s
+`liveFetch`, given by its entry point); a machine made in a test never does.
+
+**Coder's machines on Fly.io** (owner, 2026-11-07, like Claude Code's VMs).
+With `CODER_MACHINES` "fly" (the deploy sets it when the `FLY_API_TOKEN` secret
+is there), each chat's machine is a Fly Machine (`src/coder-fly.mjs`): a small
+VM made from the same image (`container/Dockerfile`), with its own Fly volume
+at `/data` (`CODER_DATA`), where the chat's projects, git folders and memory
+live (`dataDirs` in `container/server.mjs`). The Worker reaches it through
+`https://<app>.fly.dev`, pinned with `fly-force-instance-id`. Fly's front door
+cuts a request quiet for 60 seconds, so the machine's answers carry a space
+every 15 seconds and their real status last (`x-coder-keepalive`), unwrapped
+by the Worker. Only a job's start or an Undo makes a machine. An asleep one is
+started, and given the newest image only then, never under a job. Every
+minute, awake machines with nothing to do for 10 minutes are stopped (a job
+working, or waiting to be saved, keeps one on); machines unused for 30 days
+are removed with their disks; machines or disks no chat knows are removed
+after an hour. The setup script's marks stay on the machine's own disk, so a
+restarted machine runs the setup again. The deploy makes the Fly app once
+(`gofarther-coder-machines`, org `personal`, region `iad`), its addresses, and
+its secrets (`XAI_API_KEY`, `CODER_CONTROL_KEY`, from standard input), builds
+the image, sends it to `registry.fly.io`, and gives the Worker the image
+(`CODER_FLY_IMAGE`) and the token. Picking "cloudflare" on the deploy button,
+or removing the secret, goes back to Cloudflare's containers.
+
+**A job is "running" before the machine is handed it.** The machine sets up
+first (the clone, the setup script), and Cloudflare stops a request whose tab
+has closed, so the chat is marked running and put on the watch list first; a
+start that fails puts the chat back as it was. A machine that does not have
+the job yet is given 3 minutes to wake up before the job counts as lost. (This
+also lets the setup script use saved keys: the Worker adds them only to a
+running job.)
 
 **Sign-in is both steps, every time** (the audit, 2026-11-06). The password
 step gives the page a 15-minute ticket and ends Supabase's own session for it;

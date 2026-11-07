@@ -4,6 +4,55 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## Waiting on you (noted 2026-11-06, your word: "Note it, i will do it later")
+
+- **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
+- Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
+- **For the new Fly.io machines:** a Fly.io account, and its token saved in GitHub as `FLY_API_TOKEN` (the steps are in the chat). Then "merge and deploy".
+
+## 2026-11-07: Coder's machines can run on Fly.io (like Claude Code's VMs)
+
+- Your word: "YES OPTION 2", then "OK LETS START THEN".
+- **Each chat gets its own small VM on Fly.io:** 2 shared CPUs, 4 GB of memory and a 10 GB kept disk. It's made from the same Coder machine as today.
+- **It stops after 10 quiet minutes, and its disk is kept.** Your next message starts it again; Fly says a stopped machine starts "well under a second", then Coder starts. A job that is working, or waiting to be saved, keeps it on.
+- **Your files stay on that disk between messages:** the repo, Coder's changes, and the project's installed packages (like node_modules). The setup script runs again after a restart, which puts back its system packages.
+- **Coder gives a machine its newest version only while it's asleep**, never during a job. The disk stays.
+- **A machine unused for 30 days is removed with its disk**, like Claude Code's "reclaimed after a period of inactivity". Removing a chat removes its machine at once. Finished work is always on GitHub.
+- **Cloudflare stays as the backup.** The deploy button has a new choice: machines on "fly" or "cloudflare".
+- **Cost (Fly.io's prices):** about 3.5 cents an hour while a machine runs, and 15 cents per GB a month for each kept disk. A 10 GB disk is $1.50 a month while its chat is kept.
+- Fly.io's front door cuts a request that is quiet for 60 seconds, so on long requests (a job's setup) the machine sends a small "still working" signal every 15 seconds.
+- Not live yet. Waiting on you: a Fly.io account, its token in GitHub, then "merge and deploy".
+- Tests: CD125 to CD129, 138 in all, all passing, plus the 14 admin-only safety tests.
+
+## 2026-11-07: The chat is saved as it goes (like Claude Code)
+
+- Your word: "Do this" (Coder only saved a job's chat when the job ended, so a machine that crashed mid-job lost that job's steps).
+- **Now Coder's machine sends each job's new steps to Coder's server every 3 seconds**, and the conversation every 15 seconds. They are kept locked (encrypted) until the job is saved, then deleted.
+- **If the machine is lost mid-job** (it restarted, went to sleep, or stopped answering), the steps so far stay in the chat. Your saved values are hidden, as always. A note says the job ended there and its unsaved file changes are gone. Coder is told the same, so your next message carries on from there.
+- **Closing the tab right after sending is safe too.** Before, if you closed it while Coder was still setting up (the clone, the setup script), the job could run with nobody saving it, because Cloudflare stops a request whose tab is gone (the old builder's notes say the same). Now the chat counts the job as started before Coder's machine is asked to start it.
+- This also fixes a setup script not being able to use your saved keys.
+- Tests: CD118 to CD124. 133 in all, all passing. On the branch, not deployed.
+
+## 2026-11-06: A job keeps going when you close the tab (like Claude Code)
+
+- From your screenshots: item 1, "Closing the tab", which I had missed. Before, Coder's machine went to sleep after 10 minutes with no tab open, and the job was lost. A finished job was also only saved while a tab was open.
+- **Now each job goes on a watch list when it starts.** Every minute, Coder's server checks each job on the list:
+  - this keeps the job's machine awake;
+  - when the job ends, the server saves it just as an open tab would: pushed to its branch, the chat kept, and Coder remembers it next time.
+- A job comes off the list when it ends, or after 2 hours (a job works for 45 minutes at most).
+- While Coder works, the message box says "Coder is working… you can close this tab".
+- If a tab stays open while the job is saved somewhere else, it loads the saved chat by itself, with the "Saved to the branch" line.
+- **Your question: how Claude Code does it.** Its jobs run on its own cloud machines. The chat history is kept on its servers, so the browser is only a window: "The session keeps running after you close your laptop, and you can check on it or steer it from any device." A machine pauses "after a few minutes without activity", with its files saved.
+- **You were right: the old builder had it.** Its "container hold" asked the machine "are you still working?" just before it was put to sleep, and kept it on if so, with a time limit so a stuck one never ran (and cost) for good. Coder now does the same: the machine stays on while a job works (2 hours at most) or while a finished job waits to be saved (30 minutes at most), and sleeps as before otherwise. The every-minute check stays; it is what saves the job when no tab is open.
+- Tests: CD112 to CD117. 126 in all, all passing.
+
+## 2026-11-06: Deployed: audit items 3 and 4, and Coder like Claude Code
+
+- Your word: "Merge and deploy". Merged into main (3d57f2b4) and deployed (run 42306004077), with the admin-only safety tests passing on GitHub too.
+- Checked from outside, with no sign-in and no Grok: the page is up and has the new parts (Create PR buttons, Rewind, the branch and repository menus); the page sends the sign-in proof; Coder's API refuses anyone not signed in; the key adder refuses anything without a job's pass; model.gofarther.dev doesn't answer.
+- **Everyone signs in once more, you too** (password, then the emailed code). Reload any Coder window already open (desktop app: View, then Reload; phone: close the app and open it again). Coder's machines pick up the new image for new chats within about 10 minutes.
+- No recorded browser test this time: it would need a sign-in, which emails a code, and tests never send sign-in emails.
+
 ## 2026-11-06: Audit items 1, 2 and 4 done; Coder closer to Claude Code
 
 - Your word: "Do 1,2,3,4", then "Finish all this" (about the differences from Claude Code's docs).

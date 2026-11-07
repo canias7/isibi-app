@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # commands can never rename a project's folder or put a link in its place,
 # which root's git would follow (the audit, 2026-11-06).
 RUN useradd -m -u 1001 dev && mkdir -p /work && chown root:root /work && chmod 755 /work \
- && mkdir -p /srv/coder-git /srv/coder-memory /srv/coder-bg && chmod 755 /srv/coder-git /srv/coder-memory /srv/coder-bg \
+ && mkdir -p /srv/coder-git /srv/coder-memory /srv/coder-bg /srv/coder-setup && chmod 755 /srv/coder-git /srv/coder-memory /srv/coder-bg /srv/coder-setup \
  && git config --system --add safe.directory '*'
 # The git folders, the memory files and the background logs live under /srv,
 # which belongs to root: the AI's commands (as `dev`) may read them but cannot
