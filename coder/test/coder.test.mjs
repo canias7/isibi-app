@@ -1167,6 +1167,44 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
   } finally { await close(); }
 });
 
+test("CD149 the whole setup script runs, up to the 64 KB Environment takes (live comparison, 2026-11-07: the machine ran only the first 20,000 characters)", async () => {
+  const { SETUP_SCRIPT_MAX } = await import("../container/coder-checks.mjs");
+  assert.equal(SETUP_SCRIPT_MAX, 65536);
+  // ENVIRONMENT TAKES UP TO IT, AND NO MORE.
+  const bucket = fakeBucket();
+  const env = { ...GH_ENV, CODER_BUCKET: bucket };
+  const gf = fakeGithub();
+  const sent = [];
+  const deps = { fetchFn: gf.fetchFn, authUser: async () => ({ id: "user-big", email: "me@x.y" }), container: () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") sent.push(JSON.parse(await req.text())); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
+  await connectGithub(go, env, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  const big = "# " + "x".repeat(40000) + "\necho the-last-line > last.txt";
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "#".repeat(SETUP_SCRIPT_MAX) }) })).status, 200, "64 KB is taken");
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "#".repeat(SETUP_SCRIPT_MAX + 1) }) })).status, 413, "more is refused");
+  assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: big }) })).status, 200);
+  await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.equal(sent[0].setup.script, big, "sent to the machine whole");
+  // THE MACHINE RUNS ALL OF IT: its last line, 40,000 characters in, leaves its mark.
+  const { remote } = await fakeRemote();
+  const r0 = await roots();
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const turns = [say("", [call("bash", { command: "cat last.txt" })]), say("Done.", [])];
+  let n = 0;
+  const { base, close } = await serve(createApp({ root, send: async () => turns[Math.min(n++, turns.length - 1)], remote, ...r0 }));
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    await post("/turn", { project: "shop-bigs", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-bigs", token: "", setup: { script: big, vars: {} } });
+    let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-bigs&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.equal(st.events.filter((e) => e.verb === "Ran setup").length, 1);
+    assert.ok(st.events.some((e) => e.type === "result" && /^the-last-line\n?$/.test(e.output || "")), "its last line ran: " + JSON.stringify(st.events.filter((e) => e.type === "result").map((e) => (e.output || "").slice(0, 120))));
+    await post("/claim", { project: "shop-bigs" });
+  } finally { await close(); }
+  const server = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(server, /body\.setup\.script\.trim\(\)\.slice\(0, SETUP_SCRIPT_MAX\)/);
+  assert.doesNotMatch(server, /\.slice\(0, 20000\) : "";/);
+});
+
 test("CD48 auto-fix: a failed check or the owner's review on a Coder branch's pull request starts a fix in that chat; others, bots and loops are refused", async () => {
   const M = await import("../src/coder-mentions.mjs");
   const base = { repository: { full_name: "canias7/shop", id: 1 }, installation: { id: 77 } };

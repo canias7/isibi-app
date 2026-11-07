@@ -19,6 +19,11 @@ export const MAX_COMMAND_CHARS = 8000;
 export const MAX_OUTPUT_CHARS = 12000;
 export const DEFAULT_TIMEOUT_S = 120;
 export const MAX_TIMEOUT_S = 600;
+/**
+ * THE SETUP SCRIPT'S LIMIT, 64 KB (like Claude Code's): what Environment takes is all that runs.
+ * (Live comparison, 2026-11-07: settings took 64 KB, but the machine ran only the first 20,000 characters.)
+ */
+export const SETUP_SCRIPT_MAX = 65536;
 
 // Each: [pattern, why]. Read against the command as typed.
 const REFUSED = [

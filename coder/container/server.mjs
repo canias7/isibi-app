@@ -27,7 +27,7 @@ import { join, dirname, relative, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs } from "./coder-sandbox.mjs";
@@ -1248,7 +1248,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (room) gateForApt(net.limited && px ? "http://127.0.0.1:" + px.port : "");
     // THE JOB'S ADMIN SANDBOX (owner, 2026-11-07: "finish this"), in the room; without the room, none.
     t.box = BOX = t.room ? await openBox() : null;
-    const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, 20000) : "";
+    const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let setupFailed = null, setupRan = false;
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
     // browser test, 2026-11-06: the owner fixed the setup script between two

@@ -30,7 +30,7 @@
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
-import { PROJECT_ID } from "../container/coder-checks.mjs";
+import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV } from "./coder-environments.mjs";
@@ -382,7 +382,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const name = String(body.name || "").trim();
       if (!ENV_NAME.test(name)) return json({ error: "give it a name (up to 40 characters)" }, 400);
       const script = typeof body.script === "string" ? body.script.replace(/\r/g, "") : "";
-      if (script.length > 65536) return json({ error: "the setup script is over 64 KB" }, 413);
+      if (script.length > SETUP_SCRIPT_MAX) return json({ error: "the setup script is over 64 KB" }, 413);
       const id = envIdFor(name, list);
       const e = { id, name: uniqueName(name, list), at: Date.now(), repos: (Array.isArray(body.repos) ? body.repos : []).map(String).filter((r) => REPO.test(r)).slice(0, 20) };
       if (e.repos.length) e.used = Date.now(); // made for these repos: their next chat starts with it
@@ -878,7 +878,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 40 characters)" }, 400);
       if (me) { me.name = uniqueName(n, list.filter((x) => x !== me)); await saveEnvList(bucket, uid, list); }
     }
-    if (typeof body.script === "string") { if (body.script.length > 65536) return json({ error: "the setup script is over 64 KB" }, 413); cur.script = body.script; }
+    if (typeof body.script === "string") { if (body.script.length > SETUP_SCRIPT_MAX) return json({ error: "the setup script is over 64 KB" }, 413); cur.script = body.script; }
     if (typeof body.varsText === "string") {
       if (body.varsText.length > 100000) return json({ error: "that is too long" }, 413);
       cur.vars = parseEnv(body.varsText);

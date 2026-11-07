@@ -9,6 +9,19 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: The two small problems, fixed (on the branch, not deployed yet)
+
+- Your word: "fix this".
+- **The setup script runs whole.** Environment takes a script up to 64 KB, but Coder's machine ran only its first 20,000 characters. Now both use one shared limit of 64 KB, so whatever Environment accepts runs in full. Test CD149: a 40,000-character script's last line runs. It fails on the old code.
+- **The README says what Coder does now.**
+  - Coder pushes its branch after each job. A pull request opens only when you press Create PR or Create draft PR, or ask for one. The old text said it opened one after every job.
+  - Coder has many tools. The old text said bash was its only one.
+  - A job's start gets 8 minutes, not 3.
+  - The setup script never gets your saved keys or variables. The old text said it could use the keys.
+  - The project file (CLAUDE.md) had the same "one tool" line; fixed too.
+  - Test CD150 checks these lines against the code.
+- 159 tests pass.
+
 ## 2026-11-07: Admin for anything, in a sealed sandbox (on the branch, not deployed yet)
 
 - Your word: "finish this", about the comparison's line "Claude Code's commands run as full admin. Coder's run as admin only for installing programs, starting services and using ports 80 and 443."

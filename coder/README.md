@@ -27,12 +27,14 @@ code in **each user's own GitHub**.
 1. The user signs in, then connects GitHub: Coder sends them to GitHub's own
    sign-in, and they choose which repositories Coder may use.
 2. They pick a repository. That is a Coder project.
-3. Each message: Coder's container clones the repository (once), works on its
-   own branch `coder/<project>`, runs commands (`bash`, its only tool)
+3. Each message: Coder's machine clones the repository (once), works on its
+   own branch `coder/<project>` with its tools (read, edit, write, grep, glob,
+   bash, web search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
    and finishes by answering in words.
-4. When a piece of work ends, Coder commits, pushes the branch and opens a
-   **pull request** into the main branch. The user merges it on GitHub. Coder
-   never pushes to the main branch.
+4. When a job ends, Coder commits and pushes its branch. A **pull request**
+   opens only when the user presses Create PR or Create draft PR in the chat,
+   or asks Coder for one, as on Claude Code. The user merges it on GitHub.
+   Coder never pushes to the main branch.
 
 **A job keeps going when the tab is closed** (like Claude Code, 2026-11-06).
 Each job goes on a watch list (`coder/running-jobs/` in Coder's storage) when
@@ -150,9 +152,10 @@ tool as dev (`test/machine-tools.sh`).
 first (the clone, the setup script), and Cloudflare stops a request whose tab
 has closed, so the chat is marked running and put on the watch list first; a
 start that fails puts the chat back as it was. A machine that does not have
-the job yet is given 3 minutes to wake up before the job counts as lost. (This
-also lets the setup script use saved keys: the Worker adds them only to a
-running job.)
+the job yet is given 8 minutes before the job counts as lost (`START_GRACE_MS`;
+a machine being made or given a new version first fetches the image). The
+setup script never gets the owner's saved keys or variables, like Claude
+Code's: the gate adds no key while it runs.
 
 **Sign-in is both steps, every time** (the audit, 2026-11-06). The password
 step gives the page a 15-minute ticket and ends Supabase's own session for it;

@@ -19,7 +19,7 @@ repository on 2026-11-05. The full old tree is in git history (the commit before
 | `coder/worker.js` | Coder's Cloudflare Worker (`gofarther-coder`): the page and `/api/coder/*` |
 | `coder/public/` | The page: sign-in (`auth.js`, `app.js`), then Coder's chat (`coder.js`, `coder.css`) |
 | `coder/src/` | Routes, GitHub (App sign-in, encrypted tokens, pull requests), Supabase sign-in, the page's headers |
-| `coder/container/` | Coder's own container: the agent loop (Grok, one tool, `bash`; it finishes by answering in words), safety checks, git |
+| `coder/container/` | Coder's own machine: the agent loop (Grok, with its tools; it finishes by answering in words), safety checks, git, the sealed room and the admin sandbox |
 | `coder/test/` | `npm test` from `coder/` |
 | `coder/desktop/` | The desktop app for Mac and Windows (Electron): gofarther.dev in its own window; `npm test` from `coder/desktop/` |
 | `coder/mobile/` | The phone app for iPhone and Android (Capacitor): gofarther.dev in its own app; `npm test` from `coder/mobile/` |
