@@ -17,7 +17,9 @@ log (81,000 lines) is in git history.
 - GitHub's image check now also runs the deploy's admin tests on GitHub's own machine, first thing. A branch learns about a failure like this in minutes, before any merge.
 - **The reason** (GitHub's check, run 42396802053): "coder-sandbox-init.sh: Permission denied". The sandbox's first step runs as the sandbox's own admin, who outside is an ordinary user. On GitHub's machine Coder's code sits in a folder ordinary users cannot open, so it could not read its own start script. (On Fly.io the code sits where everyone can read it, so only the test was hit.)
 - **Fixed:** the script's text is now handed over directly, never as a file to open. Tried first with the code in a folder only admin can open: it failed the same way, and passes with the fix.
-- Next: GitHub's check again, then deploy again.
+- GitHub's check then passed everything, the admin tests on GitHub's own machine included. Merged (ee1a0824) and deployed again (run 42398130000).
+- **The deploy stopped at the same safety step again, for a new reason.** The deploy runs on GitHub's newest machine (Ubuntu 26.04), which has a newer kind of sudo. The image check ran on Ubuntu 24.04, like Coder's own image. Inside the sandbox sudo worked (it answered "admin"), but also printed a warning about one line of the sandbox's sudo rules ("requiretty"), which only the older sudo knows. That line was never needed, so it is gone. Nothing went live.
+- GitHub's image check now runs the admin tests on both kinds of machine: the deploy's (newest Ubuntu) and Coder's image's (24.04).
 
 ## 2026-11-07: Docker in the admin sandbox, fourth fix: two sites missing from Trusted
 
