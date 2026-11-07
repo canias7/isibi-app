@@ -123,7 +123,7 @@ test("CD113 the watch list never keeps a machine awake for nothing: an ended, re
 test("CD114 wiring: every minute the Worker runs the watch list beside @coder's jobs; the page says the tab can be closed, and loads the saved chat when it was saved elsewhere", () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /import \{ runWatchedJobs[ ,][^}]*\} from "\.\/src\/coder-watch\.mjs";/);
-  assert.match(worker, /const coder = \(req, who\) => handleCoder\(req, env, ctx, \{ authUser: async \(\) => who, container \}\);\n\s+ctx\.waitUntil\(runMentionJobs\(env, \{ coder \}\)[^\n]*\n\s+ctx\.waitUntil\(runWatchedJobs\(env, \{ coder \}\)/);
+  assert.match(worker, /const coder = \(req, who\) => handleCoder\(req, env, ctx, \{ authUser: async \(\) => who, container: m\.container, dropMachine: m\.drop \}\);\n\s+ctx\.waitUntil\(runMentionJobs\(env, \{ coder \}\)[^\n]*\n\s+ctx\.waitUntil\(runWatchedJobs\(env, \{ coder \}\)/);
   assert.match(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /"crons": \["\* \* \* \* \*"\]/, "every minute");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   // Marked running and watched BEFORE the machine is asked (it sets up first, and the tab may close meanwhile).
@@ -176,12 +176,12 @@ test("CD116 the machine's /busy is behind its control key like the rest of its p
     assert.equal(r.status, 200);
     const b = await r.json();
     assert.equal(typeof b.busy, "boolean");
-    assert.deepEqual(Object.keys(b).sort(), ["busy", "unsaved", "unsavedMs", "working", "workingMs"]);
+    assert.deepEqual(Object.keys(b).sort(), ["busy", "idleMs", "unsaved", "unsavedMs", "working", "workingMs"]);
   } finally { await new Promise((r) => srv.close(r)); }
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, bg: new Set\(\), started: Date\.now\(\) \};/);
   assert.match(server, /t\.ended = Date\.now\(\);\n\s+t\.running = false;/);
-  assert.match(server, /if \(want && req\.headers\["x-coder-key"\] !== want\) return send\(403, \{ error: "not allowed" \}\);[\s\S]{0,300}if \(url\.pathname === "\/busy" && req\.method === "GET"\) return send\(200, busyState\(turns\)\);/, "after the key check");
+  assert.match(server, /if \(want && req\.headers\["x-coder-key"\] !== want\) return send\(403, \{ error: "not allowed" \}\);[\s\S]{0,300}if \(url\.pathname === "\/busy" && req\.method === "GET"\) return send\(200, \{ \.\.\.busyState\(turns\), idleMs: Math\.max\(0, Date\.now\(\) - lastAsked\) \}\);/, "after the key check");
 });
 
 test("CD117 wiring: before the machine sleeps, Coder's container asks it (with its key, for 5 seconds at most) and stops it only when the decision says so", () => {

@@ -22,7 +22,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync } from "node:fs";
+import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
 import { runCoder } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
@@ -834,6 +834,26 @@ export function gitNote(body) {
   return "\n\nGIT: the repo's main branch is " + body.base + " (fetched as origin/" + body.base + ")" + (ok(body.branch) ? "; you work on this chat's branch " + body.branch : "") + ". This chat's changes so far: git diff origin/" + body.base + "...HEAD";
 }
 
+// ── ON FLY.IO (owner, 2026-11-07: "YES OPTION 2", "OK LETS START THEN") ───
+// Each chat's machine is a small VM there, stopped when quiet with its disk
+// kept, like Claude Code's. The chat's files live on that kept disk
+// (CODER_DATA, e.g. /data): its projects, git folders and memory. The marks
+// of the setup script stay on the machine's own disk (SETUP_ROOT), which is
+// fresh after a restart, so the setup (and its installed packages) runs again.
+export const KEEPALIVE_MS = 15000;
+export const SETUP_ROOT = "/srv/coder-setup";
+export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0 } = {}) {
+  if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return {};
+  const d = { root: join(data, "work"), gitRoot: join(data, "git"), memRoot: join(data, "memory"), setupRoot };
+  // Root's own folders (755), like /work and /srv in the image: the AI's user may read them, never swap them.
+  for (const p of [data, d.root, d.gitRoot, d.memRoot, d.setupRoot]) {
+    mkdirSync(p, { recursive: true, mode: 0o755 });
+    if (owner !== null) chownSync(p, owner, owner);
+    chmodSync(p, 0o755);
+  }
+  return d;
+}
+
 // ── THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06; the owner: "Do this") ──
 // A job's new steps go to Coder's Worker every few seconds, and its conversation
 // every 15 seconds, with the job's own pass; the Worker keeps them until the job
@@ -990,7 +1010,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ liveFetch = null, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
+export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1097,11 +1117,12 @@ export function createApp({ liveFetch = null, root = PROJECT_ROOT, env = process
     // messages, yet Coder kept saying the broken line was still there). The
     // last setup this chat's machine saw is kept, and a change is told to Coder
     // in the message itself, so it stays in the chat's history.
-    const lastFile = join(gitRoot, project + ".setup-last");
+    // The setup's marks sit where the installed packages do (Fly.io: the machine's own disk, not the chat's kept disk), so a fresh machine runs the setup again.
+    const lastFile = join(setupRoot || gitRoot, project + ".setup-last");
     let lastEnv = null; try { lastEnv = JSON.parse(await readFile(lastFile, "utf8")); } catch { lastEnv = null; }
     const netNow = { mode: net.mode, hosts: net.hosts, defaults: net.defaults };
     if (script) {
-      const mark = join(gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
+      const mark = join(setupRoot || gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
       // LIKE CLAUDE CODE'S CACHE (its docs, read 2026-11-06): run again when the
       // script or the network setting changes, or after about seven days.
       const sha = createHash("sha256").update(script + "\n" + JSON.stringify({ mode: net.mode, hosts: net.hosts, defaults: net.defaults })).digest("hex");
@@ -1191,9 +1212,29 @@ export function createApp({ liveFetch = null, root = PROJECT_ROOT, env = process
       });
     return [200, { ok: true }];
   }
+  // WHEN THE WORKER LAST ASKED THIS MACHINE FOR SOMETHING (not counting /busy
+  // or /health): on Fly.io a machine quiet for 10 minutes is stopped (src/coder-fly.mjs).
+  let lastAsked = Date.now();
   return async function handle(req, res) {
     const url = new URL(req.url, "http://coder");
-    const send = (status, obj) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+    // A "STILL WORKING" SIGNAL (Fly.io, 2026-11-07): Fly's front door cuts a
+    // request that sends nothing for 60 seconds, and a job's start (the clone,
+    // the setup script) can be quiet for minutes. Asked for it, the answer
+    // starts at once, a space follows every 15 seconds, and the real status and
+    // answer come last, wrapped; Coder's Worker unwraps them (src/coder-fly.mjs).
+    const keep = req.headers["x-coder-keepalive"] === "1";
+    let beat = null;
+    if (keep) {
+      res.writeHead(200, { "content-type": "application/json", "x-coder-machine": "1", "x-coder-keepalive": "1" });
+      beat = setInterval(() => { try { if (!res.writableEnded && !res.destroyed) res.write(" "); } catch { /* gone */ } }, keepaliveMs);
+      res.on("close", () => clearInterval(beat));
+    }
+    // Every answer says it is the machine's own (Fly's front door answers for a machine that is asleep).
+    const send = (status, obj) => {
+      if (keep) { clearInterval(beat); res.end(JSON.stringify({ coderStatus: status, body: obj })); return; }
+      res.writeHead(status, { "content-type": "application/json", "x-coder-machine": "1" });
+      res.end(JSON.stringify(obj));
+    };
     try {
       let body = {};
       if (req.method === "POST") {
@@ -1207,9 +1248,10 @@ export function createApp({ liveFetch = null, root = PROJECT_ROOT, env = process
       // The AI's commands (as `dev`) cannot read root's environment, so cannot send it.
       const want = env && env.CODER_CONTROL_KEY;
       if (want && req.headers["x-coder-key"] !== want) return send(403, { error: "not allowed" });
+      // Asked before this machine is put to sleep (busyState), with how long the Worker has not asked it for anything.
+      if (url.pathname === "/busy" && req.method === "GET") return send(200, { ...busyState(turns), idleMs: Math.max(0, Date.now() - lastAsked) });
+      lastAsked = Date.now();
       if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body); return send(st, o); }
-      // Asked before this machine is put to sleep (busyState).
-      if (url.pathname === "/busy" && req.method === "GET") return send(200, busyState(turns));
       const project = String(body.project || url.searchParams.get("project") || "");
       if (!PROJECT_ID.test(project)) return send(400, { error: "bad project" });
       const t = turns.get(project);
@@ -1294,5 +1336,6 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // nobody caught (in the key/network proxy) used to stop the whole machine.
   process.on("uncaughtException", (e) => { if (e && /^E(CONNRESET|PIPE|CONNREFUSED|TIMEDOUT|HOSTUNREACH|NETUNREACH)$|^ERR_STREAM/.test(String(e.code || ""))) console.error("coder: network error, kept running:", e.code); else { console.error(e); process.exit(1); } });
   // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
-  http.createServer(createApp({ liveFetch: (url, init) => fetch(url, init) })).listen(8080, () => console.log("coder: listening on 8080"));
+  // On Fly.io, the chat's files live on its kept disk (CODER_DATA).
+  http.createServer(createApp({ liveFetch: (url, init) => fetch(url, init), ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }

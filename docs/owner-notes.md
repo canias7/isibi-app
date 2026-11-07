@@ -8,6 +8,21 @@ log (81,000 lines) is in git history.
 
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
+- **For the new Fly.io machines:** a Fly.io account, and its token saved in GitHub as `FLY_API_TOKEN` (the steps are in the chat). Then "merge and deploy".
+
+## 2026-11-07: Coder's machines can run on Fly.io (like Claude Code's VMs)
+
+- Your word: "YES OPTION 2", then "OK LETS START THEN".
+- **Each chat gets its own small VM on Fly.io:** 2 shared CPUs, 4 GB of memory and a 10 GB kept disk. It's made from the same Coder machine as today.
+- **It stops after 10 quiet minutes, and its disk is kept.** Your next message starts it again; Fly says a stopped machine starts "well under a second", then Coder starts. A job that is working, or waiting to be saved, keeps it on.
+- **Your files stay on that disk between messages:** the repo, Coder's changes, and the project's installed packages (like node_modules). The setup script runs again after a restart, which puts back its system packages.
+- **Coder gives a machine its newest version only while it's asleep**, never during a job. The disk stays.
+- **A machine unused for 30 days is removed with its disk**, like Claude Code's "reclaimed after a period of inactivity". Removing a chat removes its machine at once. Finished work is always on GitHub.
+- **Cloudflare stays as the backup.** The deploy button has a new choice: machines on "fly" or "cloudflare".
+- **Cost (Fly.io's prices):** about 3.5 cents an hour while a machine runs, and 15 cents per GB a month for each kept disk. A 10 GB disk is $1.50 a month while its chat is kept.
+- Fly.io's front door cuts a request that is quiet for 60 seconds, so on long requests (a job's setup) the machine sends a small "still working" signal every 15 seconds.
+- Not live yet. Waiting on you: a Fly.io account, its token in GitHub, then "merge and deploy".
+- Tests: CD125 to CD129, 138 in all, all passing, plus the 14 admin-only safety tests.
 
 ## 2026-11-07: The chat is saved as it goes (like Claude Code)
 

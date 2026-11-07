@@ -965,6 +965,8 @@ export async function handleCoder(request, env, ctx, deps) {
     if (meta.status === "running") return json({ error: "Coder is still working in this chat: stop it first" }, 409);
     for (const k of ["meta.json", "messages.json", "events.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
     await dropLive(bucket, uid, id).catch(() => {});
+    // ITS MACHINE GOES TOO (Fly.io: the chat's own VM and its kept disk; worker.js).
+    if (typeof deps.dropMachine === "function") await deps.dropMachine(uid + "-" + id).catch(() => {});
     return json({ ok: true });
   }
 

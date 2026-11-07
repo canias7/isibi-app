@@ -9,6 +9,8 @@ code in **each user's own GitHub**.
 | `wrangler.jsonc` | Its config: addresses, container, bucket, settings |
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
+| `src/coder-fly.mjs` | Coder's machines on Fly.io: one small VM per chat with its own kept disk, made, woken, stopped and removed by the Worker |
+| `src/coder-control.mjs` | The key that locks a machine's control panel (made from `CODER_TOKEN_KEY`) |
 | `src/coder-live.mjs` | The chat saved as it goes: the machine sends each job's steps here every few seconds; kept sealed until the job is saved, put back in the chat if the machine is lost |
 | `src/coder-watch.mjs` | The watch list: every minute, each running job is kept awake and saved when it ends, with or without an open tab |
 | `src/coder-github.mjs` | Sign in with GitHub, the user's token (encrypted), repositories, pull requests |
@@ -60,6 +62,28 @@ was pressed), they are put back in the chat with the owner's values hidden,
 Coder is told the job was cut off and its unsaved changes are gone, and the
 page loads the saved chat. Only the real service sends (`createApp`'s
 `liveFetch`, given by its entry point); a machine made in a test never does.
+
+**Coder's machines on Fly.io** (owner, 2026-11-07, like Claude Code's VMs).
+With `CODER_MACHINES` "fly" (the deploy sets it when the `FLY_API_TOKEN` secret
+is there), each chat's machine is a Fly Machine (`src/coder-fly.mjs`): a small
+VM made from the same image (`container/Dockerfile`), with its own Fly volume
+at `/data` (`CODER_DATA`), where the chat's projects, git folders and memory
+live (`dataDirs` in `container/server.mjs`). The Worker reaches it through
+`https://<app>.fly.dev`, pinned with `fly-force-instance-id`. Fly's front door
+cuts a request quiet for 60 seconds, so the machine's answers carry a space
+every 15 seconds and their real status last (`x-coder-keepalive`), unwrapped
+by the Worker. Only a job's start or an Undo makes a machine. An asleep one is
+started, and given the newest image only then, never under a job. Every
+minute, awake machines with nothing to do for 10 minutes are stopped (a job
+working, or waiting to be saved, keeps one on); machines unused for 30 days
+are removed with their disks; machines or disks no chat knows are removed
+after an hour. The setup script's marks stay on the machine's own disk, so a
+restarted machine runs the setup again. The deploy makes the Fly app once
+(`gofarther-coder-machines`, org `personal`, region `iad`), its addresses, and
+its secrets (`XAI_API_KEY`, `CODER_CONTROL_KEY`, from standard input), builds
+the image, sends it to `registry.fly.io`, and gives the Worker the image
+(`CODER_FLY_IMAGE`) and the token. Picking "cloudflare" on the deploy button,
+or removing the secret, goes back to Cloudflare's containers.
 
 **A job is "running" before the machine is handed it.** The machine sets up
 first (the clone, the setup script), and Cloudflare stops a request whose tab
