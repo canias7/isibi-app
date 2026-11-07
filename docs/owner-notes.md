@@ -9,6 +9,23 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: The third test: almost everything works live; the sealed room is not in use
+
+- Your third comment (08:32) was answered at 08:35, all five commands run.
+- **Works live:**
+  - Coder reaches Grok through its server, so the machine has no AI key.
+  - Every tool is "ok".
+  - `apt-get install figlet` worked mid-job with the master key.
+  - The machine has 4 CPUs and 15 GB of memory, the new size.
+  - The work disk is 10 GB.
+  - Coder answered within 3 minutes.
+- **Not working:** `curl --noproxy '*' https://example.com` printed 200. Under the default setting (Trusted) the sealed room should block that.
+  - Your follow-up (08:37) showed why: Coder's commands see the machine's own network card (`eth0`). In the room they would see only their own loopback. So the room isn't being used on Fly.io, and commands run as before step 3 (only a guard for tools that use the proxy).
+- **Likely cause:** on Fly.io the machine's own disk is kept while it sleeps, and the place where the room's name lives (/run) is kept with it. After a restart the name is still there but the room is gone. Coder sees the name, thinks the room exists, can't get into it, and falls back to no room.
+  - It worked in the GitHub check because that machine is always fresh.
+  - A follow-up comment checks this before the fix.
+- **The system disk:** `lsblk` shows a 20 GB disk mounted for the machine's own changes (`/.fly-upper-layer`), so the 20 GB did arrive. `df` reports 7.8 GB for `/`; the follow-up also checks which of the two Coder's installs really use.
+
 ## 2026-11-07: Deployed: the Grok pass fix
 
 - Your word: "ok". Main 33f8a97d, run 42355635500, every step passing. The machine image didn't change.
