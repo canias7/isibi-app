@@ -115,15 +115,15 @@ jobs:
             flyctl ips allocate-v6 -a "$FLY_APP"
             flyctl ips allocate-v4 --shared -a "$FLY_APP"
           fi
-          # The machines' lock key goes in as a Fly secret (from standard input, never on a command line or in the log).
-          ck=$(node --input-type=module -e "import { controlKeySync } from './src/coder-control.mjs'; process.stdout.write(controlKeySync(process.env.CODER_TOKEN_KEY))")
-          echo "::add-mask::$ck"
-          printf 'CODER_CONTROL_KEY=%s\n' "$ck" | flyctl secrets import -a "$FLY_APP" --stage
-          # YOUR GROK KEY STAYS ON CODER'S WORKER (2026-11-07): the machines' AI calls go through it,
-          # so the copy the machines had is taken away (each machine loses it at its next update).
-          if flyctl secrets list -a "$FLY_APP" --json | jq -e 'map(.Name // .name) | index("XAI_API_KEY") != null' >/dev/null; then
-            flyctl secrets unset XAI_API_KEY -a "$FLY_APP" --stage
-          fi
+          # NO KEYS ON FLY.IO ITSELF (2026-11-07). Your Grok key stays on Coder's Worker (the machines'
+          # AI calls go through it), and each machine's own lock key is in its own settings (made by
+          # the Worker from CODER_TOKEN_KEY and the machine's name). The shared copies Fly.io held are
+          # taken away (each machine loses them at its next update).
+          for k in XAI_API_KEY CODER_CONTROL_KEY; do
+            if flyctl secrets list -a "$FLY_APP" --json | jq -e --arg k "$k" 'map(.Name // .name) | index($k) != null' >/dev/null; then
+              flyctl secrets unset "$k" -a "$FLY_APP" --stage
+            fi
+          done
       - name: "Fly.io: build Coder's machine and send it"
         id: flyimage
         if: steps.fly.outputs.on == 'true'

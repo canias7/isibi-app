@@ -9,6 +9,15 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Step 2 of 4: each chat's machine has its own lock key (on the branch, not deployed yet)
+
+- Before: one lock key opened every chat's machine's controls. On Fly.io a machine can be reached from the internet, so a chat that ever read its own key could have worked another chat's machine.
+- Now each Fly.io machine's key is a strong code made from Coder's secret and that machine's own name. Knowing one machine's key gives nothing for another's.
+- Machines made before this keep the old key until their next update, so a deploy never locks out a job that is running.
+- Fly.io itself no longer keeps any of Coder's keys: the deploy removes the shared copies.
+- Cloudflare's backup machines keep the old key: they cannot be reached from outside.
+- Tests: CD139, and the Fly.io tests now check that each machine gets its own key (148 in all, all passing).
+
 ## 2026-11-07: Step 1 of 4: your Grok key never goes to Coder's machine (on the branch, not deployed yet)
 
 - Your word: "ok", to the plan: 1. the Grok key out of the machine, 2. each machine its own lock key, 3. a sealed room for Coder's commands whose only door to the internet is Coder's gate (this makes your network setting a real wall on Fly.io), 4. the master key inside that room, like Claude Code.

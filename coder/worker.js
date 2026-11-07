@@ -61,7 +61,8 @@ export class CoderContainer extends Container {
 export function machinesFor(env) {
   const key = env.CODER_TOKEN_KEY ? controlKeySync(env.CODER_TOKEN_KEY) : "";
   const sign = (req) => { const r = new Request(req); if (key) r.headers.set("x-coder-key", key); return r; };
-  if (flyOn(env)) return { kind: "fly", sign, container: (name) => { const box = flyBox(env, name); return { fetch: (req) => box.fetch(sign(req)) }; }, drop: (name) => dropFlyMachine(env, name) };
+  // On Fly.io each machine has its own lock key (step 2, 2026-11-07): flyBox adds it, per machine.
+  if (flyOn(env)) return { kind: "fly", sign, container: (name) => { const box = flyBox(env, name); return { fetch: (req) => box.fetch(req) }; }, drop: (name) => dropFlyMachine(env, name) };
   return { kind: "cloudflare", sign, container: (name) => { const box = getContainer(env.CODER_CONTAINER, name); return { fetch: (req) => box.fetch(sign(req)) }; }, drop: async () => {} };
 }
 
@@ -77,7 +78,7 @@ export default {
     ctx.waitUntil(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
     ctx.waitUntil(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
     // FLY.IO (2026-11-07): machines with nothing to do for 10 minutes are stopped, old ones removed.
-    if (m.kind === "fly") ctx.waitUntil(runFlyMachines(env, { sign: m.sign }).catch((e) => console.log("coder fly: " + String((e && e.message) || e).slice(0, 200))));
+    if (m.kind === "fly") ctx.waitUntil(runFlyMachines(env).catch((e) => console.log("coder fly: " + String((e && e.message) || e).slice(0, 200))));
   },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);

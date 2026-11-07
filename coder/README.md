@@ -88,7 +88,11 @@ what is used), so a sleeping machine wakes with what was installed and the setup
 does not run again, like Claude Code. A new Coder version still starts the
 machine's own disk fresh. `/health` says whether it was kept (`kept`). The deploy makes the Fly app once
 (`gofarther-coder-machines`, org `personal`, region `iad`), its addresses, and
-its secrets (`XAI_API_KEY`, `CODER_CONTROL_KEY`, from standard input), builds
+no secrets on Fly.io itself (it takes away the old shared `XAI_API_KEY` and
+`CODER_CONTROL_KEY`: the Grok key stays on the Worker, and each machine's own
+lock key, `controlKeyFor` its Fly name in `src/coder-control.mjs`, is in its
+own settings; a machine from before keeps the shared one, `rec.lock`, until
+its next update), builds
 the image, sends it to `registry.fly.io`, and gives the Worker the image
 (`CODER_FLY_IMAGE`) and the token. Picking "cloudflare" on the deploy button,
 or removing the secret, goes back to Cloudflare's containers.
