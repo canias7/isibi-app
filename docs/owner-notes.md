@@ -9,6 +9,19 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Your GitHub login stays off Coder's machines; a sleeping machine keeps what it installed (like Claude Code)
+
+- Your word: "Do 1 and 3", from the comparison with Claude Code.
+- **1. Your GitHub login never goes to Coder's machine now**, like Claude Code ("GitHub credentials ... never enter the session VM").
+  - The machine gets only a short pass for its chat, valid for one message and 3 hours.
+  - Its git goes through Coder's server, which checks the pass and adds your login on the way to GitHub.
+  - Git can read the chat's own repos, and push only to the chat's own branch. It can never delete a branch or push a tag. The one exception is the very first commit of an empty repo's main branch, which Coder makes when it opens one.
+  - Tested for real on a computer, with git's own GitHub-style server standing in for GitHub: it read and saved through Coder's server, and the stand-in only ever saw your login, added by the server. A push to main, a deletion and a tag were all refused.
+- **3. A sleeping machine keeps its whole disk**, so what the setup installed is still there and the setup doesn't run again, like Claude Code. This uses Fly.io's own setting for it. If Fly.io ever refuses the setting, the machine is made without it and the setup runs again, as before.
+  - A new Coder version still starts the machine fresh, as Claude Code does after its cache expires.
+  - The machine now reports whether its disk was kept, so I can check it live.
+- Tests: CD130 to CD132. 141 in all, all passing, plus the 14 admin-only safety tests. On the branch, not deployed.
+
 ## 2026-11-07: Deployed: Coder's machines on Fly.io, and the chat saved as it goes
 
 - Your word: "Merge and deploy". You made the Fly.io account and saved its token in GitHub as `FLY_API_TOKEN`.
@@ -16,7 +29,12 @@ log (81,000 lines) is in git history.
 - **On Fly.io:** the app `gofarther-coder-machines` was made, with its internet address and Coder's keys. Coder's machine was built and sent to Fly.io. The site now runs chats' machines on Fly.io (checked in the deploy's log).
 - Also live now: jobs keep going when you close the tab, the machine hold, and the chat saved as it goes.
 - Checked from outside: the site is up with the new page. Coder refuses anyone not signed in, and its saving address refuses a sender without a job's pass.
-- **One more safety step, on the branch:** each Fly.io machine is always given its lock key directly, and a machine without one answers nothing but its health check. Fly.io machines are on the internet, so the key is their only lock; before, it reached them only as a Fly.io secret. This needs one more deploy before the first chat on Fly.io. Tests: 138, all passing, plus the 14 admin-only safety tests.
+- **One more safety step, deployed too:** each Fly.io machine is always given its lock key directly, and a machine without one answers nothing but its health check. Fly.io machines are on the internet, so the key is their only lock; before, it reached them only as a Fly.io secret. Your word: "Merge and deploy". Merged into main (75f65ec8) and deployed (run 42326567782), all steps passing, before the first chat on Fly.io. Tests: 138, plus the 14 admin-only safety tests.
+- **Live test on Fly.io (2026-11-07):** you wrote "@coder say hi and list the files in this repo" on canias7/testingforclaude issue #2 at 02:21:35. Coder said "On it" 4 seconds later, made the chat's machine and disk on Fly.io, ran the job, and answered at 02:23:55, about 2 minutes 20 seconds in all, including making the machine: "Done. Hi @canias7. Files in this repo: README.md, notes.md, setup-ran.txt."
+  - Checked from outside through Fly.io's front door: the machine answers as Coder's own, in Fly.io's Virginia region (iad). A request without Coder's key is refused ("not allowed"), so the lock works.
+  - **It went to sleep by itself at 02:34:54**, about 11 minutes after the job ended (10 quiet minutes, then the every-minute check). Asleep, it costs only its disk.
+  - **It woke up for the next message:** your second comment at 02:46:13 woke the sleeping machine. Coder answered at 02:47:58, about 1 minute 45 seconds in all, faster than the first job: "This repo currently has README.md, notes.md, and setup-ran.txt." The machine answers again on Fly.io's front door.
+  - So it behaves like Claude Code's machines: one machine per chat, asleep when quiet, woken by your next message with its disk kept.
 
 ## 2026-11-07: Coder's machines can run on Fly.io (like Claude Code's VMs)
 
