@@ -1247,6 +1247,9 @@ export function createApp({ liveFetch = null, setupRoot = null, keepaliveMs = KE
       // which sends the key it gave this machine, may start, claim, push or stop.
       // The AI's commands (as `dev`) cannot read root's environment, so cannot send it.
       const want = env && env.CODER_CONTROL_KEY;
+      // ON FLY.IO A MACHINE IS ON THE INTERNET (Fly's front door, 2026-11-07): without its
+      // key it answers nothing but /health; it never runs with its panel open.
+      if (!want && env && (env.FLY_MACHINE_ID || env.CODER_DATA)) return send(503, { error: "this machine has no control key" });
       if (want && req.headers["x-coder-key"] !== want) return send(403, { error: "not allowed" });
       // Asked before this machine is put to sleep (busyState), with how long the Worker has not asked it for anything.
       if (url.pathname === "/busy" && req.method === "GET") return send(200, { ...busyState(turns), idleMs: Math.max(0, Date.now() - lastAsked) });

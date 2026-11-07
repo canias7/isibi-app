@@ -8,7 +8,15 @@ log (81,000 lines) is in git history.
 
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
-- **For the new Fly.io machines:** a Fly.io account, and its token saved in GitHub as `FLY_API_TOKEN` (the steps are in the chat). Then "merge and deploy".
+
+## 2026-11-07: Deployed: Coder's machines on Fly.io, and the chat saved as it goes
+
+- Your word: "Merge and deploy". You made the Fly.io account and saved its token in GitHub as `FLY_API_TOKEN`.
+- Merged into main (9421b902) and deployed (run 42325783438). Every step passed, including the tests on GitHub and the admin-only safety tests.
+- **On Fly.io:** the app `gofarther-coder-machines` was made, with its internet address and Coder's keys. Coder's machine was built and sent to Fly.io. The site now runs chats' machines on Fly.io (checked in the deploy's log).
+- Also live now: jobs keep going when you close the tab, the machine hold, and the chat saved as it goes.
+- Checked from outside: the site is up with the new page. Coder refuses anyone not signed in, and its saving address refuses a sender without a job's pass.
+- **One more safety step, on the branch:** each Fly.io machine is always given its lock key directly, and a machine without one answers nothing but its health check. Fly.io machines are on the internet, so the key is their only lock; before, it reached them only as a Fly.io secret. This needs one more deploy before the first chat on Fly.io. Tests: 138, all passing, plus the 14 admin-only safety tests.
 
 ## 2026-11-07: Coder's machines can run on Fly.io (like Claude Code's VMs)
 

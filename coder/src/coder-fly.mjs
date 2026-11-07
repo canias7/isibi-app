@@ -17,6 +17,7 @@
 // Cloudflare's containers stay as the fallback: CODER_MACHINES "fly" switches.
 
 import { holdDecision } from "./coder-watch.mjs";
+import { controlKeySync } from "./coder-control.mjs";
 
 export const FLY_API = "https://api.machines.dev/v1";
 /** Where the chat's kept disk is on its machine (the machine's CODER_DATA). */
@@ -76,7 +77,9 @@ export function machineConfig(env, volumeId) {
   const s = flySettings(env);
   return {
     image: s.image,
-    env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}) },
+    // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
+    // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
+    env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
     guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory },
     mounts: [{ volume: volumeId, path: FLY_DATA }],
     // Only through Fly's front door, on https; Coder starts and stops it itself.
