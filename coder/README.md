@@ -241,9 +241,39 @@ request (package names only, never an apt option; a service that is installed;
 start, stop, restart, reload, status) and does nothing else; with a limited
 network its apt goes through the gate (`gateForApt`, `/run/coder-gate/apt-proxy`).
 `tools/apt-get` (also `apt`), `tools/service` and `tools/sudo` pass only those
-jobs on, and refuse the rest plainly. The whole master key (editing system
-files, any `sudo`) would need a full container system with the machine's disk
-mirrored for it; not done.
+jobs on, and refuse the rest plainly. On a machine with the admin sandbox
+(below), that is only the fallback.
+
+**The admin sandbox** (owner, 2026-11-07: "finish this": Claude Code's commands
+run as full admin; `container/coder-sandbox.mjs`). Each job's commands, and the
+whole setup script, run in a sandbox of their own, as its `dev` with sudo for
+anything (`/etc/sudoers.d/coder-sandbox` in the sandbox's own layer): install,
+remove or upgrade any package, change any system file, run any service, use any
+port. `tools/apt-get` (also `apt`) and `tools/service` add the sudo themselves
+there, and `tools/sudo` passes everything to the real sudo (they know the
+sandbox by `/etc/coder-sandbox`, which only it has). It is Linux namespaces: a
+user namespace whose admin is, outside, an ordinary unknown user (ids 200000 and
+up; `/etc/subuid` gives root that range), its own mount and process namespaces,
+and the sealed room's network, which it cannot change or leave (it is owned by
+the machine's admin). Its system is the machine image itself, read-only, shown
+through an id map (on Fly.io the image's own disk, `/dev/vda`, since the
+machine's root is a layered filesystem that an id map cannot show; elsewhere the
+root; `CODER_SANDBOX_BASE` names another), under its own layer (overlayfs, with
+`userxattr`, without which dpkg's folder renames fail) on the chat's kept disk,
+`/data/.coder-admin/<version>`: what it installs stays while the machine
+sleeps, and a new Coder version (`CODER_IMAGE_REF`, from the Fly settings)
+starts it fresh. It sees, at the same places, the chat's files, dev's home and
+Coder's memory (dev's on disk and inside: only dev is mapped, so nothing there
+can be made as the machine's admin), and, read-only, the git folders, the
+background logs and the gate's certificates; nothing else of the machine
+(`pivot_root`). Its first process (`coder-sandbox-init.sh`) builds all that and
+waits; each command enters it (`nsenter`, `sandboxArgs`). It is stopped wherever
+the AI's commands are (`killUser`): before root's git, at the end of a job and
+before the next. Docker's engine runs in it as dev, as before. A machine that
+cannot have it runs commands as before, with the master key's jobs, and Coder is
+told which (`MACHINE_ADMIN` or `MACHINE_TOOLS`). `test/sandbox.test.mjs` tries it
+for real as root (the deploy runs it), and the GitHub machine check tries it in
+the full image given as a disk, with the real gate (`test/sandbox-check.mjs`).
 
 **Root's git is never steered by the AI's files** (the audit, 2026-11-06). The
 projects folder (`/work`) belongs to root: the service makes each project's

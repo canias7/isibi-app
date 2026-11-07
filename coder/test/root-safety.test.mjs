@@ -736,7 +736,7 @@ test("CD94 root runs git by its full name with system folders only, never into s
   assert.ok(existsSync(GIT_BIN), "git is where root runs it from");
   // THE DEPLOY runs these root-only tests as root, and fails rather than skip them.
   const deploy = readFileSync(new URL("../../.github/workflows/deploy-coder.yml", import.meta.url), "utf8");
-  assert.match(deploy, /run: sudo -E env "PATH=\$PATH" CODER_TESTS_NEED_ROOT=1 node --test test\/root-safety\.test\.mjs/);
+  assert.match(deploy, /\n\s+sudo -E env "PATH=\$PATH" CODER_TESTS_NEED_ROOT=1 node --test test\/root-safety\.test\.mjs test\/room\.test\.mjs test\/sandbox\.test\.mjs\n/, "and the room's and the admin sandbox's real tests");
   assert.ok(deploy.indexOf("root-safety.test.mjs") < deploy.indexOf("name: Deploy Coder"), "the root-only tests run after the deploy");
 });
 

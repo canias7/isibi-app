@@ -9,6 +9,32 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Admin for anything, in a sealed sandbox (on the branch, not deployed yet)
+
+- Your word: "finish this", about the comparison's line "Claude Code's commands run as full admin. Coder's run as admin only for installing programs, starting services and using ports 80 and 443."
+- **What Coder can do now, like Claude Code:**
+  - install, remove or upgrade any package;
+  - change any system file;
+  - start any service;
+  - use any port;
+  - run any command with `sudo`.
+  - The setup script runs this way too.
+  - `apt-get`, `apt` and `service` need no `sudo` typed.
+- **How it stays safe:** Claude Code keeps its keys and network rules outside its machine; on Fly.io ours are inside the same machine. So Coder's commands run in a sealed sandbox inside the machine:
+  - **Inside:** they have admin for anything.
+  - **Outside:** that admin is an ordinary, unknown user. It can't leave the network room or change its network. It can't see or stop Coder's own service, read its keys, or touch the machine's own files.
+- **What the sandbox is:**
+  - **Its system:** the machine's own image, read-only.
+  - **Its changes:** a layer on the chat's work disk. What Coder installs stays while the machine sleeps, and a new Coder version starts it fresh.
+  - **Your project files:** they stay owned by Coder's ordinary user, so saving to GitHub and Docker work as before.
+- **One small difference from Claude Code:** commands run as Coder's own user and use `sudo` for admin, rather than running as admin all the time. Otherwise files Coder makes in your project would be admin's.
+- **Checked:**
+  - **Fly.io's machines can run it:** your comment at 09:59 showed kernel 6.12, sandboxes allowed, and the overlay system there.
+  - **The real test, run as admin here:** admin for anything; dpkg's folder renames; your files stay Coder's user's; the machine's files untouched; the room can't be changed or left; only its own processes and folders are visible; a stop ends everything; installs kept for the next job, and started fresh with a new version. The deploy runs this test as admin too.
+  - **GitHub's image check:** it now makes Coder's real image a disk, as on Fly.io, and tries the sandbox there: apt install and remove, a system file, PostgreSQL, port 80, Docker, every tool and the network wall.
+- If a machine can't have the sandbox, Coder works as before, with the master key's jobs, and is told which.
+- Tests: CD147 (real) and CD148, plus older checks updated. 157 pass.
+
 ## 2026-11-07: Coder compared with Claude Code's docs again (after today's work)
 
 - Your word: "before we anything, let compare all we have to claude code docs please".

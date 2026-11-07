@@ -133,7 +133,8 @@ export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, 
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
-    env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
+    // CODER_IMAGE_REF: which Coder version this is, so the admin sandbox's own layer starts fresh with a new one.
+    env: { CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s.image, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
     guest: { ...(small ? FLY_SMALL : { cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }), ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
     ...(keepRoot && bigRoot ? { rootfs: { persist: "restart", size_gb: s.root } } : {}),
     // The chat's work disk, which Fly.io makes bigger by itself when it is 80% full (Fly's auto-extend).

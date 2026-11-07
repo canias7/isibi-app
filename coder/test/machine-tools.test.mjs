@@ -54,7 +54,7 @@ test("CD133 the AI's commands find every tool and keep what they install in thei
   assert.equal(inTest.output, dir, "a machine made in a test, given no home, keeps the project folder; extraEnv never replaces PATH or HOME");
   // The service gives the AI its home: /home/dev, or on Fly.io one on the chat's kept disk.
   const server = read("container/server.mjs");
-  assert.match(server, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\) \}\)/);
+  assert.match(server, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, sandbox: true, data: process\.env\.CODER_DATA \|\| null, image: process\.env\.CODER_IMAGE_REF \|\| imageId\(\), liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\) \}\)/);
   assert.match(server, /const u = await execIn\(dir, userPart, left, \{ bgDir, kill: true, home, /, "the setup script's own part");
   assert.match(server, /const r = await execIn\(dir, command, timeoutS, \{ bgDir, kill: !!tool, home, /, "every command and tool");
   assert.match(server, /const aptRun = apt \|\| \(\(dir, command, timeoutS, o\) => execIn\(dir, command, timeoutS, \{ \.\.\.o, uid: null, gid: null,/);
@@ -169,5 +169,5 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   for (const s of ["Ruby 3.1, 3.2, 3.3", "Media and documents", "Playwright with its Chromium, from any folder", "Debugging tools", "Docker without admin rights", "PostgreSQL and Redis", "Chrome and chromedriver", "The master key's jobs (step 4)", "...and nothing else", "Java, Maven, Gradle", "Rust", "Go"]) assert.ok(T.includes(s), s);
   // CODER KNOWS ITS TOOLS on the full image.
   for (const w of ["Ubuntu 24.04", "check-tools", "Python 3.12", "uv", "poetry", "pytest", "Node 22", "/opt/node24/bin", "nvm install", "yarn", "pnpm", "bun", "Ruby 3.3", "rbenv local", "PHP 8.3", "Composer", "Java 21", "Maven", "Gradle", "Go.", "Rust", "clippy", "clang", "cmake", "gh (this machine has no GitHub login", "yq", "service postgresql start", "service redis-server start", "psql -d postgres", "Docker and docker compose work without admin rights", "/usr/bin/google-chrome", "--no-sandbox", "your home folder, never in the project", "Playwright", "require(\"playwright\")", "ffmpeg", "ImageMagick", "pdftotext", "pandoc", "pandas", "python-docx", "markitdown", "strace", "valgrind"]) assert.ok(MACHINE_TOOLS.includes(w), w);
-  assert.match(read("container/server.mjs"), /const context = \(env\.CODER_IMAGE === "full" \? MACHINE_TOOLS \+ "\\n\\n" : ""\) \+ style \+ /);
+  assert.match(read("container/server.mjs"), /const context = \(env\.CODER_IMAGE === "full" \? \(t\.box \? MACHINE_ADMIN : MACHINE_TOOLS\) \+ "\\n\\n" : ""\) \+ style \+ /);
 });

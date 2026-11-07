@@ -207,14 +207,17 @@ RUN set -eu; visudo -cf /etc/sudoers.d/coder-admin; cp -p /usr/local/sbin/apt-ge
 COPY --chmod=0755 tools/docker tools/check-tools tools/sudo /usr/local/bin/
 RUN set -eu; \
     grep -q '^dev:' /etc/subuid || echo 'dev:100000:65536' >> /etc/subuid; \
-    grep -q '^dev:' /etc/subgid || echo 'dev:100000:65536' >> /etc/subgid
+    grep -q '^dev:' /etc/subgid || echo 'dev:100000:65536' >> /etc/subgid; \
+    # THE ADMIN SANDBOX'S IDS (coder-sandbox.mjs): outside, 200000 and up, a user nobody is.
+    grep -q '^root:200000:' /etc/subuid || echo 'root:200000:196608' >> /etc/subuid; \
+    grep -q '^root:200000:' /etc/subgid || echo 'root:200000:196608' >> /etc/subgid
 
 # ── CODER ITSELF, on core or full ────────────────────────────────────────────
 FROM ${CODER_IMAGE} AS app
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.
-COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs ./
+COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs coder-sandbox.mjs coder-sandbox-init.sh ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]

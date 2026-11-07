@@ -94,7 +94,7 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_CPUS: "99", CODER_FLY_REGION: "x" })).cpus, 4, "nonsense falls back");
   assert.deepEqual(F.machineConfig(envWith(b, { CODER_MODEL: "default" }), "vol_9"), {
     image: IMG1,
-    env: { CODER_DATA: "/data", CODER_MODEL: "default" },
+    env: { CODER_DATA: "/data", CODER_IMAGE_REF: IMG1, CODER_MODEL: "default" },
     guest: { cpu_kind: "performance", cpus: 4, memory_mb: 16384 },
     rootfs: { persist: "restart", size_gb: 20 },
     mounts: [{ volume: "vol_9", path: "/data", extend_threshold_percent: 80, add_size_gb: 10, size_gb_limit: 50 }],
