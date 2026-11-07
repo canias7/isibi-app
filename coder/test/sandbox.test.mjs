@@ -138,6 +138,9 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(init, /pivot_root \. \.coder-outside\ncd \/\numount -l \/\.coder-outside/);
   assert.match(init, /echo ready\nexec sleep infinity\n$/);
   const mod = readFileSync(new URL("../container/coder-sandbox.mjs", import.meta.url), "utf8");
+  // Its script handed over whole: the sandbox's admin may not reach where Coder's code sits (GitHub's /home/runner).
+  assert.match(mod, /"--", "\/bin\/bash", "-c", readFileSync\(SBX_INIT, "utf8"\), "coder-sandbox-init"\]/);
+  assert.ok(Buffer.byteLength(init) < 100_000, "well inside one argument's limit (128 KB)");
   assert.match(mod, /const opts = b\.mine \? \["--bind", "-o", \(b\.mode === "ro" \? "ro," : ""\) \+ idmap\]/, "dev's folders, through mineIdmap");
   // DEV'S FOLDERS: dev, and dev's own extra ids (its Docker's; GitHub's image check: "value too large"
   // without them); never the machine's admin or another user.

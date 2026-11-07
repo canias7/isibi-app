@@ -204,8 +204,11 @@ export async function startSandbox({ upper, work, binds = [], ns = ROOM_NS, dir 
     const root = join(dir, "root");
     mkdirSync(root, { recursive: true, mode: 0o755 });
     chownSync(root, SBX_BASE, SBX_BASE);
+    // ITS FIRST PROCESS'S SCRIPT IS HANDED OVER WHOLE, never as a file to open: it runs as the
+    // sandbox's admin, an ordinary user outside, who may not reach where Coder's code sits (deploy,
+    // 2026-11-07: under GitHub's /home/runner, "coder-sandbox-init.sh: Permission denied").
     const p = spawn("nsenter", ["--net=" + ns, "--", "unshare", "--user", "--map-users=0:" + SBX_BASE + ":" + SBX_RANGE, "--map-groups=0:" + SBX_BASE + ":" + SBX_RANGE,
-      "--setuid", "0", "--setgid", "0", "--mount", "--propagation", "private", "--pid", "--fork", "--kill-child", "--", "/bin/bash", SBX_INIT], {
+      "--setuid", "0", "--setgid", "0", "--mount", "--propagation", "private", "--pid", "--fork", "--kill-child", "--", "/bin/bash", "-c", readFileSync(SBX_INIT, "utf8"), "coder-sandbox-init"], {
       env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", SBX_LOWER: lower, SBX_UPPER: upper, SBX_WORK: work, SBX_ROOT: root, SBX_BINDS: lines.join("\n"), SBX_RESOLV: "/etc/resolv.conf", SBX_HOSTS: "/etc/hosts" },
       stdio: ["ignore", "pipe", "pipe"], detached: true,
     });

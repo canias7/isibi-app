@@ -15,7 +15,9 @@ log (81,000 lines) is in git history.
 - **The deploy stopped before building or sending anything,** at its own safety step: the admin sandbox's real test (CD147), run as admin on GitHub's own machine. The sandbox did not start there, but it does on my test machine and inside Coder's image (GitHub's image check, all passed).
 - The sandbox code did not say why. Now it does: the reason goes into the test's message and into the machine's log on Fly.io ("no admin sandbox (…)").
 - GitHub's image check now also runs the deploy's admin tests on GitHub's own machine, first thing. A branch learns about a failure like this in minutes, before any merge.
-- Next: read the reason from that check, fix it, then deploy again.
+- **The reason** (GitHub's check, run 42396802053): "coder-sandbox-init.sh: Permission denied". The sandbox's first step runs as the sandbox's own admin, who outside is an ordinary user. On GitHub's machine Coder's code sits in a folder ordinary users cannot open, so it could not read its own start script. (On Fly.io the code sits where everyone can read it, so only the test was hit.)
+- **Fixed:** the script's text is now handed over directly, never as a file to open. Tried first with the code in a folder only admin can open: it failed the same way, and passes with the fix.
+- Next: GitHub's check again, then deploy again.
 
 ## 2026-11-07: Docker in the admin sandbox, fourth fix: two sites missing from Trusted
 
