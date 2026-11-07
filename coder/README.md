@@ -80,8 +80,11 @@ working, or waiting to be saved, keeps one on); machines unused for 30 days
 are removed with their disks; machines or disks no chat knows are removed
 after an hour. The setup script's marks stay on the machine's own disk, so a
 restarted machine runs the setup again, unless its whole disk was kept: the
-machines ask Fly for that (`persist_rootfs` "restart"; made without it if Fly
-refuses it), so a sleeping machine wakes with what was installed and the setup
+machines ask Fly for that, and for a disk of up to 20 GB, 30 with the chat's
+kept one, like Claude Code's machine (`rootfs` { persist "restart", size_gb
+20 }; if Fly refuses it, the older `persist_rootfs` "restart" at Fly's default
+8 GB, then neither: `CONFIG_TRIES`; Fly bills a sleeping machine's disk by
+what is used), so a sleeping machine wakes with what was installed and the setup
 does not run again, like Claude Code. A new Coder version still starts the
 machine's own disk fresh. `/health` says whether it was kept (`kept`). The deploy makes the Fly app once
 (`gofarther-coder-machines`, org `personal`, region `iad`), its addresses, and

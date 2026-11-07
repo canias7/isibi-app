@@ -83,13 +83,15 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
   assert.deepEqual(a, a2, "the same chat, the same names");
   assert.notEqual(a.machine, c.machine);
   assert.match(a.machine, /^coder-[0-9a-f]{20}$/); assert.match(a.volume, /^coder_[0-9a-f]{20}$/); assert.match(a.key, /^coder\/fly-machines\/[0-9a-f]{20}\.json$/);
-  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", cpus: 2, memory: 4096, disk: 10 });
-  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20" })), { app: APP, image: IMG1, region: "ams", cpus: 4, memory: 8192, disk: 20 });
+  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", cpus: 2, memory: 4096, disk: 10, root: 20 });
+  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, region: "ams", cpus: 4, memory: 8192, disk: 20, root: 30 });
+  assert.equal(F.flySettings(envWith(b, { CODER_FLY_ROOT_GB: "99" })).root, 20, "Fly allows at most 50");
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_CPUS: "99", CODER_FLY_REGION: "x" })).cpus, 2, "nonsense falls back");
   assert.deepEqual(F.machineConfig(envWith(b, { CODER_MODEL: "default" }), "vol_9"), {
     image: IMG1,
     env: { CODER_DATA: "/data", CODER_MODEL: "default" },
-    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096, persist_rootfs: "restart" },
+    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 },
+    rootfs: { persist: "restart", size_gb: 20 },
     mounts: [{ volume: "vol_9", path: "/data" }],
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },

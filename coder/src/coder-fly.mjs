@@ -48,6 +48,10 @@ export function flySettings(env) {
     cpus: num(env.CODER_FLY_CPUS, 2, 1, 8),
     memory: num(env.CODER_FLY_MEMORY_MB, 4096, 1024, 16384),
     disk: num(env.CODER_FLY_DISK_GB, 10, 1, 100),
+    // THE MACHINE'S OWN DISK MAY GROW TO 20 GB (Fly.io's default is 8; owner, 2026-11-07, all of
+    // Claude Code's tools): with the chat's 10 GB disk, 30 GB, like Claude Code's machine. Fly.io
+    // bills a sleeping machine's disk by what is used, not by this limit.
+    root: num(env.CODER_FLY_ROOT_GB, 20, 8, 50),
   };
 }
 
@@ -78,22 +82,33 @@ const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
  * "Do 1 and 3"; like Claude Code, where a paused VM keeps what was installed and
  * the setup does not run again): Fly's persist_rootfs "restart" keeps the
  * machine's own disk across restarts, and a new Coder version (an update) still
- * starts it fresh. `keepRoot: false` leaves it out (if Fly ever refuses it).
+ * starts it fresh. That disk may grow to `root` GB (Fly's `rootfs`, which
+ * also keeps it). `bigRoot: false` asks the older way, Fly's default size;
+ * `keepRoot: false` leaves it out (if Fly ever refuses them: CONFIG_TRIES).
  */
-export function machineConfig(env, volumeId, { keepRoot = true } = {}) {
+export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true } = {}) {
   const s = flySettings(env);
   return {
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
     env: { CODER_DATA: FLY_DATA, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
-    guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory, ...(keepRoot ? { persist_rootfs: "restart" } : {}) },
+    guest: { cpu_kind: "shared", cpus: s.cpus, memory_mb: s.memory, ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
+    ...(keepRoot && bigRoot ? { rootfs: { persist: "restart", size_gb: s.root } } : {}),
     mounts: [{ volume: volumeId, path: FLY_DATA }],
     // Only through Fly's front door, on https; Coder starts and stops it itself.
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },
     metadata: { coder: "chat-machine" },
   };
+}
+
+/** The machine's settings, the newest first: if Fly.io refuses one (400 or 422), the next. */
+export const CONFIG_TRIES = [{}, { bigRoot: false }, { keepRoot: false }];
+async function withConfig(call) {
+  let r;
+  for (const o of CONFIG_TRIES) { r = await call(o); if (r.status !== 400 && r.status !== 422) break; }
+  return r;
 }
 
 async function readRec(bucket, key) {
@@ -143,9 +158,8 @@ async function makeMachine(env, bucket, names, deps) {
   const s = flySettings(env);
   const v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk }, ...deps });
   if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io could not make the machine's disk (" + v.status + ")" };
-  let m = await flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id) }, ...deps });
-  // Fly refused the settings (should it not take a kept disk): made without it, as before.
-  if (m.status === 400 || m.status === 422) m = await flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, { keepRoot: false }) }, ...deps });
+  // Fly refused the settings (should it not take a bigger or kept disk): made the older way, as before.
+  const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, o) }, ...deps }));
   if (!m.ok || !m.data || typeof m.data.id !== "string") {
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
@@ -168,8 +182,7 @@ async function wakeMachine(env, bucket, names, rec, deps) {
   const state = m.data && m.data.state;
   if (state !== "started" && state !== "starting") {
     if (rec.image !== s.image) {
-      let u = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume) }, ...deps });
-      if (u.status === 400 || u.status === 422) u = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { keepRoot: false }) }, ...deps });
+      const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, o) }, ...deps }));
       if (u.ok) rec = { ...rec, image: s.image };
       else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
     } else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
