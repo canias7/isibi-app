@@ -9,7 +9,31 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
-## 2026-11-07: Why your test comment stayed at "On it", and the fix (on the branch, not deployed yet)
+## 2026-11-07: The second test: the start fix worked, and a step 1 slip found (fix on the branch, not deployed yet)
+
+- Your second test comment (08:19:59) got "On it" in 4 seconds. The job started at the next minute's check, and the comment was updated at 08:22. So the start fix works live.
+- **But the job failed:** "The AI could not be reached: no AI key in Coder's container".
+- **Why:** Coder's server sent the machine two things under the same name, `model`: the pass to Grok (step 1), and then the model's name, which replaced the pass. So the machine had no pass, and it no longer has its own key, by design.
+  - The earlier tests checked each part on its own. One test even expected the name to be sent as `model`, so the clash slipped through.
+- **The fix:** only the pass goes as `model`. The machine reads that same field for the model too. Coder has one model (Grok 4.7), so the machine picks it, at the effort you chose.
+  - The fix is only in Coder's server, so the 7 GB machine image doesn't need rebuilding.
+- New test CD145 follows a message from the app all the way to what the machine reads: its Grok pass, then Grok 4.7 at the chosen effort.
+  - It also fails if `model` is ever sent twice again.
+  - It also fails if a second model is added before the model's name gets its own field.
+- 154 tests pass.
+
+## 2026-11-07: Deployed: bigger machines and the GitHub start fix
+
+- Your word: "ok" (to merge and deploy).
+- Main c6f4a3fb, run 42354646813, every step passing. The machine image didn't change, so it wasn't rebuilt.
+- **Live checks:**
+  - the site answers;
+  - the app refuses anyone not signed in;
+  - the Grok address refuses a request with no pass;
+  - GitHub's address refuses an unsigned call.
+- **Next:** your new test comment on testingforclaude #2. It adds `nproc && free -g`, to show the 4 CPUs and 16 GB.
+
+## 2026-11-07: Why your test comment stayed at "On it", and the fix (now deployed)
 
 - Your word: "you do it" (look into the stuck test).
 - **What happened:** when a GitHub comment comes in, Coder answers GitHub straight away and posts "On it". Cloudflare then gives Coder only 30 more seconds to finish what it's doing. Starting your job took minutes, because the machine first had to download the new 6.9 GB toolbox. So Cloudflare cut it off before Coder had written down "come back and update this comment". Nothing was left to update it, so it will stay at "On it".
@@ -22,7 +46,7 @@ log (81,000 lines) is in git history.
 - Test: CD144, plus the GitHub tests updated (153 in all).
 - After the deploy, comment on testingforclaude #2 again. The old "On it" comment won't change.
 
-## 2026-11-07: Bigger machines on Fly.io (on the branch, not deployed yet)
+## 2026-11-07: Bigger machines on Fly.io (now deployed)
 
 - Your choices: "4 CPUs, 16 GB" and "Grow to 50 GB". For Cloudflare, "it wont be off", so Cloudflare's backup containers stay as they are.
 - **Why:** each chat had 2 of Fly.io's "shared" CPUs and 4 GB. Fly slows a shared CPU to 1/16 of a CPU after a short burst, and a shared machine's disk is 4 times slower. So installs, builds and tests crawled.
