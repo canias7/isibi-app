@@ -9,6 +9,13 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: In progress: all of Claude Code's tools on Coder's machine
+
+- Your word: "can we install all the tools we need?", about this line of the comparison: Claude Code comes with Python, Node, Ruby, PHP, Java, Go, Rust, C/C++, Docker, PostgreSQL, Redis, Chrome, gh and more.
+- Written so far, on the branch only (not deployed, not yet used by the deploy): a new machine image on Ubuntu 24.04, the same system as Claude Code's machine, with all of those tools. Fly.io's machines get the full image; Cloudflare's backup machines keep a small one.
+- Docker runs without admin rights there, so Coder's commands still never have them. The two databases start with the same commands as on Claude Code's machine.
+- Still to do: test it on a computer, give Coder's commands a home folder of their own (so download caches never land on your branch), tell Coder what is installed, the tests, and the deploy step.
+
 ## 2026-11-07: A deploy no longer resets the chats' machines for nothing
 
 - Your word: "merge and deploy". Before that deploy: every deploy gave Coder's machine a new version name, even when nothing in the machine had changed. Each chat's machine then started its own disk fresh on its next wake and ran its setup again.

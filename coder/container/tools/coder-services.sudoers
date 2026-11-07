@@ -1,0 +1,4 @@
+# Coder's commands (the `dev` user) may start, stop and check the two databases
+# that come installed, like Claude Code's `service postgresql start`. Nothing
+# else: no other command, no other arguments (owner, 2026-11-07).
+dev ALL=(root) NOPASSWD: /usr/sbin/service postgresql start, /usr/sbin/service postgresql stop, /usr/sbin/service postgresql restart, /usr/sbin/service postgresql status, /usr/sbin/service redis-server start, /usr/sbin/service redis-server stop, /usr/sbin/service redis-server restart, /usr/sbin/service redis-server status

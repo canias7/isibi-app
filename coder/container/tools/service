@@ -1,0 +1,16 @@
+#!/bin/sh
+# THE DATABASES START AS ON CLAUDE CODE'S MACHINE (owner, 2026-11-07: "can we
+# install all the tools we need?"). Its docs: PostgreSQL and Redis are installed
+# but not running; "Ask Claude to start whichever you need; the commands it runs
+# are: service postgresql start / service redis-server start".
+#
+# There every command runs as admin. Coder's commands run as `dev`, so for these
+# two services and these four actions only, this asks sudo, which allows exactly
+# them (/etc/sudoers.d/coder-services). Anything else goes to the real `service`.
+if [ "$(id -u)" != 0 ] && [ "$#" -eq 2 ]; then
+  case "$1:$2" in
+    postgresql:start|postgresql:stop|postgresql:restart|postgresql:status|redis-server:start|redis-server:stop|redis-server:restart|redis-server:status)
+      exec sudo -n /usr/sbin/service "$1" "$2" ;;
+  esac
+fi
+exec /usr/sbin/service "$@"
