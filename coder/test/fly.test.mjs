@@ -20,8 +20,10 @@ const envWith = (bucket, o = {}) => ({ CODER_MACHINES: "fly", FLY_API_TOKEN: TOK
 
 /** Fly.io as far as Coder uses it: the Machines API, and the front door to each machine. */
 function fakeFly() {
-  const w = { machines: new Map(), volumes: new Map(), api: [], door: [], seq: 0, busy: {}, silent: new Set(), cut: new Set(), limited: 0, failVolume: false, keys: [] };
+  // noRoom: no server has room for a machine of Fly's "performance" kind; noRoomDisk: nor for a disk meant for one.
+  const w = { machines: new Map(), volumes: new Map(), api: [], door: [], seq: 0, busy: {}, silent: new Set(), cut: new Set(), limited: 0, failVolume: false, noRoom: false, noRoomDisk: false, keys: [] };
   const J = (o, s = 200, h = {}) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", ...h } });
+  const roomless = (cfg) => w.noRoom && cfg && cfg.guest && cfg.guest.cpu_kind === "performance";
   w.fetchFn = async (url, init = {}) => {
     const u = new URL(String(url));
     const method = String(init.method || "GET").toUpperCase();
@@ -34,9 +36,11 @@ function fakeFly() {
       let m;
       if (method === "POST" && p === "/volumes") {
         if (w.failVolume) return J({ error: "no room" }, 422);
+        if (w.noRoomDisk && body.compute && body.compute.cpu_kind === "performance") return J({ error: "insufficient resources to place volume" }, 412);
         const id = "vol_" + ++w.seq; w.volumes.set(id, { id, ...body, attached_machine_id: null, created_at: new Date(Date.now() - 2 * 3600e3).toISOString() }); return J(w.volumes.get(id));
       }
       if (method === "POST" && p === "/machines") {
+        if (roomless(body.config)) return J({ error: "insufficient resources available to fulfill request" }, 412);
         const id = "m" + ++w.seq; w.machines.set(id, { id, name: body.name, region: body.region, config: body.config, state: "started", created_at: new Date().toISOString() });
         w.volumes.get(body.config.mounts[0].volume).attached_machine_id = id; return J(w.machines.get(id));
       }
@@ -48,7 +52,7 @@ function fakeFly() {
         const x = w.machines.get(m[1]);
         if (!x) return J({ error: "not found" }, 404);
         if (method === "GET") return J(x);
-        if (method === "POST") { x.config = body.config; x.state = "started"; return J(x); }
+        if (method === "POST") { if (roomless(body.config)) return J({ error: "insufficient resources available to fulfill request" }, 412); x.config = body.config; x.state = "started"; return J(x); }
         if (method === "DELETE") { w.machines.delete(m[1]); for (const v of w.volumes.values()) if (v.attached_machine_id === m[1]) v.attached_machine_id = null; return J({ ok: true }); }
       }
       if (method === "DELETE" && (m = /^\/volumes\/(\w+)$/.exec(p))) { w.volumes.delete(m[1]); return J({ ok: true }); }
@@ -84,16 +88,16 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
   assert.deepEqual(a, a2, "the same chat, the same names");
   assert.notEqual(a.machine, c.machine);
   assert.match(a.machine, /^coder-[0-9a-f]{20}$/); assert.match(a.volume, /^coder_[0-9a-f]{20}$/); assert.match(a.key, /^coder\/fly-machines\/[0-9a-f]{20}\.json$/);
-  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", cpus: 2, memory: 4096, disk: 10, root: 20 });
-  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, region: "ams", cpus: 4, memory: 8192, disk: 20, root: 30 });
+  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", kind: "performance", cpus: 4, memory: 16384, disk: 10, diskMax: 50, root: 20 });
+  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, region: "ams", kind: "performance", cpus: 4, memory: 8192, disk: 20, diskMax: 50, root: 30 });
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_ROOT_GB: "99" })).root, 20, "Fly allows at most 50");
-  assert.equal(F.flySettings(envWith(b, { CODER_FLY_CPUS: "99", CODER_FLY_REGION: "x" })).cpus, 2, "nonsense falls back");
+  assert.equal(F.flySettings(envWith(b, { CODER_FLY_CPUS: "99", CODER_FLY_REGION: "x" })).cpus, 4, "nonsense falls back");
   assert.deepEqual(F.machineConfig(envWith(b, { CODER_MODEL: "default" }), "vol_9"), {
     image: IMG1,
     env: { CODER_DATA: "/data", CODER_MODEL: "default" },
-    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 },
+    guest: { cpu_kind: "performance", cpus: 4, memory_mb: 16384 },
     rootfs: { persist: "restart", size_gb: 20 },
-    mounts: [{ volume: "vol_9", path: "/data" }],
+    mounts: [{ volume: "vol_9", path: "/data", extend_threshold_percent: 80, add_size_gb: 10, size_gb_limit: 50 }],
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },
     metadata: { coder: "chat-machine" },
@@ -119,13 +123,14 @@ test("CD126 a chat's machine on Fly.io: made with its disk on first use, then as
   assert.deepEqual(w.api, ["POST /volumes", "POST /machines"]);
   const [vol] = [...w.volumes.values()], [mach] = [...w.machines.values()];
   assert.deepEqual({ name: vol.name, region: vol.region, size_gb: vol.size_gb }, { name: names.volume, region: "iad", size_gb: 10 });
+  assert.deepEqual(vol.compute, { cpu_kind: "performance", cpus: 4, memory_mb: 16384 }, "its disk on a server with room for its size");
   assert.equal(mach.name, names.machine);
   assert.deepEqual(mach.config, F.machineConfig(env, vol.id, { lock: own }), "made with its own lock key (step 2)");
   assert.equal(mach.config.env.CODER_CONTROL_KEY, own);
   assert.deepEqual(w.door, ["/health", "/turn"]);
   assert.deepEqual(w.keys, [own], "its own lock key goes along, never the one the caller sent");
   const rec = JSON.parse(b.m.get(names.key));
-  assert.deepEqual({ id: rec.id, volume: rec.volume, image: rec.image, stopped: rec.stopped, lock: rec.lock }, { id: mach.id, volume: vol.id, image: IMG1, stopped: false, lock: 2 });
+  assert.deepEqual({ id: rec.id, volume: rec.volume, image: rec.image, shape: rec.shape, small: rec.small, stopped: rec.stopped, lock: rec.lock }, { id: mach.id, volume: vol.id, image: IMG1, shape: "performance/4/16384/50/20", small: false, stopped: false, lock: 2 });
   // AWAKE: straight through, no Fly API call. Its real status comes through.
   w.api.length = 0; w.door.length = 0;
   const r2 = await box.fetch(signed(new Request("http://coder/claim", { method: "POST", body: "{}" })));
@@ -151,7 +156,7 @@ test("CD126 a chat's machine on Fly.io: made with its disk on first use, then as
   await box2.fetch(signed(new Request("http://coder/state?project=shop-a1")));
   assert.deepEqual(w.api, ["GET /machines/" + mach.id, "POST /machines/" + mach.id], "updated (which starts it), not started twice");
   assert.equal(mach.config.image, IMG2);
-  assert.deepEqual(mach.config.mounts, [{ volume: vol.id, path: "/data" }], "the same disk");
+  assert.deepEqual(mach.config.mounts, [{ volume: vol.id, path: "/data", extend_threshold_percent: 80, add_size_gb: 10, size_gb_limit: 50 }], "the same disk");
   assert.equal(JSON.parse(b.m.get(names.key)).image, IMG2);
   // A MACHINE FROM BEFORE (the shared lock key) gets its own at this update, and is asked with it from then on (step 2).
   assert.equal(mach.config.env.CODER_CONTROL_KEY, own);
@@ -317,7 +322,7 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key");
   assert.match(worker, /return \{ kind: "cloudflare", sign, container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: async \(\) => \{\} \};/);
-  assert.match(worker, /if \(m\.kind === "fly"\) ctx\.waitUntil\(runFlyMachines\(env\)/);
+  assert.match(worker, /if \(m\.kind === "fly"\) job\(runFlyMachines\(env\)/);
   assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop \}\);/);
   const { controlKeySync } = await import("../src/coder-control.mjs");
   assert.match(controlKeySync("k".repeat(44)), /^[0-9a-f]{32}$/);
@@ -352,4 +357,77 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   assert.match(tree("HEAD"), /^[0-9a-f]{40}$/);
   assert.match(y, /printf '%s' "\$FLY_API_TOKEN" \| npx --yes wrangler@4\.107\.0 secret put FLY_API_TOKEN/);
   assert.match(y, /command: deploy --var CODER_MACHINES:\$\{\{ steps\.fly\.outputs\.on == 'true' && 'fly' \|\| 'cloudflare' \}\} --var CODER_FLY_APP:\$\{\{ env\.FLY_APP \}\} --var CODER_FLY_IMAGE:\$\{\{ steps\.flyimage\.outputs\.image \|\| 'none' \}\}/);
+});
+
+test("CD143 the size (owner, 2026-11-07: \"4 CPUs, 16 GB\", like Claude Code's machine; \"Grow to 50 GB\"): full CPUs and 16 GB, a work disk that grows by itself, its disk placed where that size fits; with no room, the size chats had before, so the chat still works; a machine from before gets the new size when it next wakes, never under a job", async () => {
+  const b = fakeBucket();
+  // FLY.IO'S RULES: a size outside them falls back.
+  const S = (o) => { const s = F.flySettings(envWith(b, o)); return [s.kind, s.cpus, s.memory, s.disk, s.diskMax]; };
+  assert.deepEqual(S({}), ["performance", 4, 16384, 10, 50], "4 full CPUs, 16 GB; a 10 GB disk that grows to 50");
+  assert.deepEqual(S({ CODER_FLY_CPU_KIND: "shared", CODER_FLY_CPUS: "2", CODER_FLY_MEMORY_MB: "4096" }), ["shared", 2, 4096, 10, 50], "the size before, if ever wanted");
+  assert.deepEqual(S({ CODER_FLY_CPU_KIND: "shared", CODER_FLY_CPUS: "9" }), ["shared", 4, 8192, 10, 50], "shared: at most 8 CPUs and 2 GB each");
+  assert.deepEqual(S({ CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "4096" }), ["performance", 4, 16384, 10, 50], "full CPUs need 2 GB each");
+  assert.deepEqual(S({ CODER_FLY_MEMORY_MB: "9000" }), ["performance", 4, 16384, 10, 50], "in steps of 2 GB");
+  assert.deepEqual(S({ CODER_FLY_CPUS: "16" }), ["performance", 16, 32768, 10, 50]);
+  assert.deepEqual(S({ CODER_FLY_CPUS: "1" }), ["performance", 1, 8192, 10, 50], "at most 8 GB a CPU");
+  assert.deepEqual(S({ CODER_FLY_CPU_KIND: "huge", CODER_FLY_CPUS: "17" }), ["performance", 4, 16384, 10, 50]);
+  assert.deepEqual(S({ CODER_FLY_DISK_MAX_GB: "100" }), ["performance", 4, 16384, 10, 100]);
+  assert.deepEqual(S({ CODER_FLY_DISK_MAX_GB: "5", CODER_FLY_DISK_GB: "600" }), ["performance", 4, 16384, 10, 50], "Fly allows 500 GB at most; never less than the disk");
+  assert.equal(F.flyShape(F.flySettings(envWith(b))), "performance/4/16384/50/20");
+  assert.deepEqual(F.FLY_SMALL, { cpu_kind: "shared", cpus: 2, memory_mb: 4096 }, "the size chats had before");
+  assert.deepEqual(F.SIZE_TRIES, [{}, { small: true }, { small: true, grow: false }]);
+  assert.deepEqual(F.machineConfig(envWith(b), "v", { small: true }).guest, F.FLY_SMALL);
+  assert.deepEqual(F.machineConfig(envWith(b), "v", { small: true, grow: false }).mounts, [{ volume: "v", path: "/data" }]);
+  assert.deepEqual(F.machineConfig(envWith(b, { CODER_FLY_DISK_MAX_GB: "10" }), "v").mounts, [{ volume: "v", path: "/data" }], "no room to grow: Fly is not asked to");
+  const turn = () => signed(new Request("http://coder/turn", { method: "POST", body: "{}" }));
+
+  // NO ROOM FOR THE SIZE (Fly.io refuses it): the chat's machine is made at the size before, and works.
+  const b1 = fakeBucket(), w1 = fakeFly(); w1.noRoom = true;
+  assert.equal((await F.flyBox(envWith(b1), "user-1-a-1", deps(w1)).fetch(turn())).status, 200);
+  assert.deepEqual(w1.api, ["POST /volumes", "POST /machines", "POST /machines"]);
+  const [m1] = [...w1.machines.values()], n1 = await F.flyNames("user-1-a-1");
+  assert.deepEqual(m1.config.guest, F.FLY_SMALL);
+  assert.equal(m1.config.mounts[0].size_gb_limit, 50, "its disk still grows");
+  assert.deepEqual((({ shape, small }) => ({ shape, small }))(JSON.parse(b1.m.get(n1.key))), { shape: "performance/4/16384/50/20", small: true });
+  // ... AND IT IS NOT TRIED AGAIN AT EACH WAKE (each try would start its own disk fresh): only with Coder's next version.
+  m1.state = "stopped"; await b1.put(n1.key, JSON.stringify({ ...JSON.parse(b1.m.get(n1.key)), stopped: true }));
+  w1.api.length = 0; w1.noRoom = false;
+  await F.flyBox(envWith(b1), "user-1-a-1", deps(w1)).fetch(signed(new Request("http://coder/state?project=a-1")));
+  assert.deepEqual(w1.api, ["GET /machines/" + m1.id, "POST /machines/" + m1.id + "/start"], "woken as it is");
+  m1.state = "stopped"; await b1.put(n1.key, JSON.stringify({ ...JSON.parse(b1.m.get(n1.key)), stopped: true }));
+  w1.api.length = 0;
+  await F.flyBox(envWith(b1, { CODER_FLY_IMAGE: IMG2 }), "user-1-a-1", deps(w1)).fetch(signed(new Request("http://coder/state?project=a-1")));
+  assert.deepEqual(w1.api, ["GET /machines/" + m1.id, "POST /machines/" + m1.id], "a new version: the size is asked for again");
+  assert.deepEqual(m1.config.guest, { cpu_kind: "performance", cpus: 4, memory_mb: 16384 }, "and given, now that there is room");
+  assert.equal(JSON.parse(b1.m.get(n1.key)).small, false);
+
+  // NO ROOM FOR ITS DISK ON A SERVER THAT FITS THE SIZE: the disk where the size before fits, then that size.
+  const b2 = fakeBucket(), w2 = fakeFly(); w2.noRoom = true; w2.noRoomDisk = true;
+  assert.equal((await F.flyBox(envWith(b2), "user-2-b-1", deps(w2)).fetch(turn())).status, 200);
+  assert.deepEqual(w2.api, ["POST /volumes", "POST /volumes", "POST /machines", "POST /machines"]);
+  assert.deepEqual([...w2.volumes.values()].map((v) => v.compute), [F.FLY_SMALL], "one disk, placed for the size before");
+  assert.deepEqual([...w2.machines.values()][0].config.guest, F.FLY_SMALL);
+
+  // A MACHINE FROM BEFORE THIS CHANGE (2 shared CPUs, 4 GB, the same image): never changed while awake;
+  // given the new size and the growing disk when it next wakes (an update, which keeps its work disk).
+  const b3 = fakeBucket(), w3 = fakeFly(), n3 = await F.flyNames("user-3-c-1");
+  w3.volumes.set("vol_old", { id: "vol_old", name: n3.volume, size_gb: 10, attached_machine_id: "m_old" });
+  const old = { id: "m_old", name: n3.machine, state: "started", config: { image: IMG1, guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 }, mounts: [{ volume: "vol_old", path: "/data" }] } };
+  w3.machines.set("m_old", old);
+  await b3.put(n3.key, JSON.stringify({ id: "m_old", volume: "vol_old", region: "iad", image: IMG1, lock: 2, at: 1, used: 1, stopped: false }));
+  await F.flyBox(envWith(b3), "user-3-c-1", deps(w3)).fetch(signed(new Request("http://coder/state?project=c-1")));
+  assert.deepEqual(w3.api, [], "awake: straight through, never changed under a job");
+  assert.equal(old.config.guest.cpu_kind, "shared");
+  old.state = "stopped"; await b3.put(n3.key, JSON.stringify({ ...JSON.parse(b3.m.get(n3.key)), stopped: true }));
+  await F.flyBox(envWith(b3), "user-3-c-1", deps(w3)).fetch(signed(new Request("http://coder/state?project=c-1")));
+  assert.deepEqual(w3.api, ["GET /machines/m_old", "POST /machines/m_old"], "asleep: updated (which starts it)");
+  assert.deepEqual(old.config.guest, { cpu_kind: "performance", cpus: 4, memory_mb: 16384 });
+  assert.deepEqual(old.config.mounts, [{ volume: "vol_old", path: "/data", extend_threshold_percent: 80, add_size_gb: 10, size_gb_limit: 50 }], "the same work disk, now growing");
+  assert.deepEqual((({ shape, small, image }) => ({ shape, small, image }))(JSON.parse(b3.m.get(n3.key))), { shape: "performance/4/16384/50/20", small: false, image: IMG1 });
+
+  // CODER'S OWN KEY REFUSED: not asked again and again at other sizes.
+  const b4 = fakeBucket(), w4 = fakeFly();
+  const no = await F.flyBox(envWith(b4, { FLY_API_TOKEN: "fly-token-wrong-000000" }), "user-4-d-1", deps(w4)).fetch(turn());
+  assert.equal(no.status, 503);
+  assert.deepEqual(w4.api, ["POST /volumes"]);
 });

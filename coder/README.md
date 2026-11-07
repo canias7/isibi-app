@@ -10,7 +10,7 @@ code in **each user's own GitHub**.
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
 | `src/coder-git.mjs` | Coder's git address: the machine's git goes through it with its chat's pass, and the Worker adds the GitHub login (the login never enters the machine) |
-| `src/coder-fly.mjs` | Coder's machines on Fly.io: one small VM per chat with its own kept disk, made, woken, stopped and removed by the Worker |
+| `src/coder-fly.mjs` | Coder's machines on Fly.io: one VM per chat (4 full CPUs, 16 GB) with its own kept disk, made, woken, stopped and removed by the Worker |
 | `src/coder-control.mjs` | The key that locks a machine's control panel (made from `CODER_TOKEN_KEY`) |
 | `src/coder-live.mjs` | The chat saved as it goes: the machine sends each job's steps here every few seconds; kept sealed until the job is saved, put back in the chat if the machine is lost |
 | `src/coder-watch.mjs` | The watch list: every minute, each running job is kept awake and saved when it ends, with or without an open tab |
@@ -96,6 +96,24 @@ its next update), builds
 the image, sends it to `registry.fly.io`, and gives the Worker the image
 (`CODER_FLY_IMAGE`) and the token. Picking "cloudflare" on the deploy button,
 or removing the secret, goes back to Cloudflare's containers.
+
+**The size** (owner, 2026-11-07: "4 CPUs, 16 GB", the size of Claude Code's
+machine; "Grow to 50 GB"). Each chat's machine has 4 of Fly.io's
+"performance" CPUs, which always run at full speed, and 16 GB (`flySettings`;
+`CODER_FLY_CPU_KIND`, `CODER_FLY_CPUS` and `CODER_FLY_MEMORY_MB` change it,
+within Fly's rules). Before, it had 2 "shared" CPUs, which Fly slows to 1/16
+of a CPU each after a short burst, and 4 GB; a shared machine's disk is also
+4 times slower. A chat's work disk starts at 10 GB and Fly.io adds 10 GB each
+time it is 80% full, up to 50 GB (`diskMax`, `CODER_FLY_DISK_MAX_GB`; Fly's
+auto-extend on the machine's mount). A new chat's disk is placed on a server
+with room for that size (Fly's `compute` on the volume). If Fly.io cannot give
+a chat's machine the size, it gets the size chats had before (`FLY_SMALL`,
+`SIZE_TRIES`), so the chat still works, and keeps it until Coder's next
+version, since each try would start its own disk fresh. A machine made before
+gets the new size when it next wakes, never under a job (`flyShape`, recorded
+as `rec.shape`). Fly.io bills a running machine by the second: about $0.25 an
+hour at this size ($0.035 before), and a sleeping chat's work disk at $0.15 a
+GB a month.
 
 **All of Claude Code's tools** (owner, 2026-11-07: "can we install all the
 tools we need?"). The machine is Ubuntu 24.04 on x86_64, like Claude Code's.
@@ -242,6 +260,20 @@ charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 Registered: **gofarther-coder** (Client ID `Iv23li7CSEGqBSxEqQU7`), callback
 `https://coder.gofarther.dev/api/coder/github/callback`, permissions Contents and
 Pull requests (read and write) and Metadata (read), installable by any account.
+
+**@coder in a comment, and auto-fix** (`src/coder-mentions.mjs`). GitHub's call
+is answered at once, with "On it" posted as the app, and the job's record is
+made with its message still to send (`queueStart`). The every-minute check
+(`runMentionJobs`, from `scheduled` in `worker.js`, which awaits all of its
+work) sends it: Cloudflare cancels what still runs 30 seconds after GitHub's
+call is answered, and a start can take minutes (a machine fetching Coder's
+image, the clone, the setup script). It claims a start first (`starting`), so
+a slow one is never sent twice, and starts one job per chat at a time. A start
+that fails is told in place of "On it". If the check that was starting a job
+was cut off (Cloudflare gives it 15 minutes, `START_STALE_MS`), the job goes on
+when its message went in, and otherwise Coder says on GitHub that starting took
+too long. Live test, 2026-11-07: before this, a job whose start took minutes
+had no record, so its "On it" comment never changed.
 
 ## Deploy
 

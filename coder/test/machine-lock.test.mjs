@@ -40,6 +40,6 @@ test("CD142 a machine being made or updated (which first fetches Coder's 6.9 GB 
   assert.ok(R.START_GRACE_MS > F.FLY_PULL_MS, "a start is never counted lost while its machine may still be fetching the image");
   const src = readFileSync(new URL("../src/coder-fly.mjs", import.meta.url), "utf8");
   assert.match(src, /await writeRec\(bucket, names\.key, rec\);\n\s+await untilAnswers\(env, rec\.id, deps, FLY_PULL_MS\);\n\s+return \{ rec \};/, "a new machine");
-  assert.match(src, /if \(u\.ok\) \{ rec = \{ \.\.\.rec, image: s\.image, lock: 2 \}; pulled = true; \}/);
+  assert.match(src, /if \(u\.ok\) \{ rec = \{ \.\.\.rec, image: s\.image, shape, small: u\.small, lock: 2 \}; pulled = true; \}/, "updated: a new image or a new size");
   assert.match(src, /await untilAnswers\(env, rec\.id, deps, pulled \? FLY_PULL_MS : FLY_WAKE_MS\);/, "an updated one; a plain wake as before");
 });
