@@ -323,9 +323,23 @@ does nothing with the files. The hand-over holds each folder open while it works
 in it, so a folder swapped for a link is never followed. A save says in the chat
 what it left out ("Not saved: …"), and a submodule the AI moved to another
 commit is still saved (its commit is read by the service, never by git inside
-its folder). Root reads CODER.md and the memory file only when they are plain
-files with one name. The deploy runs the root-only tests
-(`test/root-safety.test.mjs`) under sudo.
+its folder). Root reads the repo's instruction files and the memory file only
+when they are plain files with one name, through real folders, never a link.
+The deploy runs the root-only tests (`test/root-safety.test.mjs`) under sudo.
+
+**The repo's instruction files** (owner, 2026-11-07, item 10; like Claude Code's
+memory docs, with Coder's own names; CLAUDE.md is never Coder's:
+`repoInstructions` in `container/server.mjs`). At the start of every job:
+`CODER.md` and `.coder/CODER.md`; when the repo has neither, `AGENTS.md` and
+`.coder/AGENTS.md` (other coding agents' file); and the rules in
+`.coder/rules/` (any `.md`, in folders too). A rule whose YAML front matter has
+`paths:` (Claude Code's patterns: `*.md` anywhere, `/*.md` only at the top,
+`src/**/*.{ts,tsx}`) loads instead once Coder reads, edits or writes a matching
+file, and a subfolder's own `CODER.md` (else its `AGENTS.md`) once Coder works
+on a file under it: with that tool's answer, once a job (`laterNotes`). Coder is
+told at the start which ones wait for which files. All are read by root before
+any of the AI's commands run; `node_modules`, `.git` and build folders are not
+searched.
 
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.

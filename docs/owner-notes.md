@@ -9,6 +9,18 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 10: AGENTS.md and a rules folder, like Claude Code
+
+- Item 10: Coder read only CODER.md.
+- **Now, like Claude Code (its names for Coder; CLAUDE.md is still never read):**
+  - `CODER.md` and `.coder/CODER.md`: read at the start of every job, as before.
+  - `AGENTS.md` (and `.coder/AGENTS.md`): read when the repo has no CODER.md. Many repos already have one for other coding tools, and Claude Code does the same.
+  - A rules folder, `.coder/rules/`: each `.md` file in it is a topic rule (testing, code style…), read at the start.
+  - A rule can say which files it is for, at its top (`paths: src/api/**/*.ts`). Then it is given to Coder only once Coder reads or changes such a file.
+  - A subfolder's own CODER.md (or AGENTS.md) is given to Coder once it works on a file in that folder.
+- They are read with the same safety as CODER.md: only plain files, never through a link, before any of Coder's commands run.
+- Tests: CD157 (which files load and when), CD158 (the file patterns, as in Claude Code's docs), CD159 (given with the tool's answer, once a job). CD19 updated: AGENTS.md is now read when there is no CODER.md. 168 tests pass.
+
 ## 2026-11-07: Item 7: Trusted is now Claude Code's whole list
 
 - Your word: "lets finish off this list". Item 7: the Trusted list was missing the "www." versions of about 30 sites.
