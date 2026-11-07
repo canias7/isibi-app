@@ -54,4 +54,7 @@ jobs:
           # The runner's Ubuntu stops programs from making their own user namespaces,
           # which Docker without admin rights needs; Fly.io's machines have no such rule.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          docker run --rm --privileged -v "$PWD/coder/test/machine-tools.sh:/machine-tools.sh:ro" coder:full bash /machine-tools.sh
+          # Coder's home on a plain disk folder, as on Fly.io (/data/home, the chat's own disk):
+          # Docker's engine cannot stack its layers on the image's own layered disk.
+          sudo mkdir -p /tmp/dev-home && sudo chown 1001:1001 /tmp/dev-home
+          docker run --rm --privileged -v /tmp/dev-home:/home/dev -v "$PWD/coder/test/machine-tools.sh:/machine-tools.sh:ro" coder:full bash /machine-tools.sh

@@ -21,7 +21,8 @@ log (81,000 lines) is in git history.
   - Python's document and data libraries (Excel, Word, PowerPoint, PDF, numpy, pandas).
   - Playwright with its own browser, for scripted browser tests and screenshots.
   - Debugging tools: strace, lsof, valgrind, netcat.
-  - Left out on purpose: Google Cloud's tools (useless without a Google login on the machine) and Nix (rarely needed). LibreOffice depends on the image's size (Fly.io's limit is 8 GB).
+  - Left out on purpose: Google Cloud's tools (useless without a Google login on the machine), Nix (rarely needed), and LibreOffice: the full image is about 5.2 GB without these extras and about 6.7 GB with them, and LibreOffice would bring it near Fly.io's 8 GB limit, leaving too little room for what chats install.
+- **The first check on GitHub** (before the extras): every tool worked as Coder's own user except Docker running a container, because on the test machine Coder's home sat on the image's layered disk. On Fly.io it sits on the chat's own plain disk, so the test now does the same.
 - **Fly.io's machines get the full set; Cloudflare's backup machines keep a small image.** Cloudflare's limit is 8 GB an image and 50 GB in all.
 - **Coder still never has admin rights.**
   - Docker runs as Coder's own user ("rootless").

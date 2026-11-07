@@ -146,7 +146,7 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   assert.match(C, /branches-ignore: \[main\]\n\s+paths:\n\s+- "coder\/container\/\*\*"/);
   assert.match(C, /docker build -t coder:core coder\/container/);
   assert.match(C, /docker build --build-arg CODER_IMAGE=full -t coder:full coder\/container/);
-  assert.match(C, /docker run --rm --privileged -v "\$PWD\/coder\/test\/machine-tools\.sh:\/machine-tools\.sh:ro" coder:full bash \/machine-tools\.sh/);
+  assert.match(C, /docker run --rm --privileged -v \/tmp\/dev-home:\/home\/dev -v "\$PWD\/coder\/test\/machine-tools\.sh:\/machine-tools\.sh:ro" coder:full bash \/machine-tools\.sh/, "dev's home on a plain disk, as on Fly.io");
   assert.doesNotMatch(C, /\$\{\{\s*secrets\./, "it uses no secrets");
   assert.match(C, /permissions:\n\s+contents: read/);
   // The tools are tried with the very environment the service gives the AI's commands.
