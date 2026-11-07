@@ -9,6 +9,15 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Deployed: all of Claude Code's tools, and steps 1 to 4
+
+- Your word: "merge and deploy". Main 3a9bbb3d, run 42349243500, all steps passing.
+  - The tests ran first, including the room's admin-only test on GitHub's machine.
+  - Fly.io's shared keys were removed.
+  - The big machine image was built once and sent to Fly.io.
+- **Live checks:** the site and health check answer. Coder's git address refuses a request without a pass. The new Grok address refuses a request with no pass and with a made-up pass. The app refuses anyone not signed in.
+- **Waiting:** your test comment on testingforclaude #2 (the network wall, check-tools, installing figlet mid-job, the disks).
+
 ## 2026-11-07: Before deploying: the first start after the deploy is given time to fetch the big image
 
 - Your word: "merge and deploy".
