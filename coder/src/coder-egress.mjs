@@ -49,6 +49,9 @@ export async function githubApi(request, env, bucket, uid, meta, target, { fetch
   const method = String(h.get("x-coder-method") || "GET").toUpperCase();
   if (!/^[A-Z]{1,20}$/.test(method)) return text("bad method");
   if (meta.jobFromGithub === true && !["GET", "HEAD"].includes(method)) return text("a job started from GitHub may only read through gh", 403);
+  // A REPOSITORY THE OWNER CAN ONLY READ (owner item 5): gh only reads it too (nothing is written as them there).
+  const ro = full === String(meta.repo).toLowerCase() ? meta.readOnly === true : (Array.isArray(meta.repos) ? meta.repos : []).some((r) => r && typeof r.repo === "string" && r.repo.toLowerCase() === full && r.readOnly === true);
+  if (ro && !["GET", "HEAD"].includes(method)) return text("you can read " + full + " but not push to it, so gh may only read it", 403);
   const { userToken } = await import("./coder-github.mjs");
   const t = await userToken(env, bucket, uid, { fetchFn });
   if (!t) return text("connect GitHub again on gofarther.dev: the connection has ended", 403);

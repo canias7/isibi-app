@@ -181,8 +181,8 @@ test("CD131 for real, with git: the machine fetches and pushes through Coder's W
 test("CD132 wiring: every job, save, Undo and Rewind sends the machine the pass, never the login; the machine uses it only as the real service; a sleeping Fly.io machine keeps its whole disk (and the setup does not run again), and says so", async () => {
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(routes, /token: t\.token/, "the login never goes to the machine");
-  assert.match(routes, /git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), effort: pick\.effort/, "a job: its new turn's pass");
-  assert.equal((routes.match(/git: await gitAccess\(env, uid, id, meta\.turn\)/g) || []).length, 4, "the save, Coder's own Undo, the Undo button, Rewind");
+  assert.match(routes, /git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort/, "a job: its new turn's pass");
+  assert.equal((routes.match(/git: await gitAccess\(env, uid, id, meta\.turn\)/g) || []).length, 5, "the save, Coder's own Undo, the Undo button, Rewind, a read-only chat's See changes");
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /\} else if \(url\.pathname\.startsWith\(GIT_PATH\)\) \{[\s\S]{0,200}res = await handleGit\(request, env\);/);
   // The machine: the Worker's git only as the real service, and only a plain https Worker address with plain headers.
@@ -194,7 +194,7 @@ test("CD132 wiring: every job, save, Undo and Rewind sends the machine the pass,
     assert.deepEqual(gitFrom({ git: bad, token: "old" }, { via: true, remote: "https://github.com/" }), { remote: "https://github.com/", headers: [], token: "old" }, JSON.stringify(bad));
   }
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.equal((server.match(/\.\.\.gitFrom\(body, \{ via: gitVia, remote \}\)/g) || []).length, 6, "the job's repository and its others, Undo, and the save");
+  assert.equal((server.match(/\.\.\.gitFrom\(body, \{ via: gitVia, remote \}\)/g) || []).length, 7, "the job's repository and its others, Undo, the save, and a read-only chat's See changes");
   assert.doesNotMatch(server.replace(/export function gitFrom[\s\S]*?\n\}\n/, ""), /body\.token/, "no other use of a token from the Worker");
   // THE WHOLE DISK KEPT WHILE ASLEEP, and up to 20 GB (Fly's rootfs, 2026-11-07); the older way (persist_rootfs,
   // Fly's default size), then without it, if Fly ever refuses them.

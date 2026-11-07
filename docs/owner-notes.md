@@ -9,6 +9,22 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 5: read-only repositories, and a fix found by the live test
+
+- Item 5: Coder only opened repositories it could write to.
+- **Now, like Claude Code ("a session can clone any public repository"):**
+  - **Open any repository you can read.** Pick one from the list (repositories you can only read are marked "read-only"), or type any public one as `owner/name` or paste its GitHub address.
+  - **Where you can't push, the chat is read-only.** Coder works as usual, but its work is saved on Coder's machine instead of GitHub. The chat says so, and the header shows a "Read-only" label.
+  - **See changes** shows that work. A new **Download patch** button gives it to you as one file, which `git am` applies to your own copy.
+  - **No pull request buttons, and no auto-fix there.** Claude Code can't push back without push access either. Undo and Rewind still work, on the machine.
+  - **Coder is told** the repository is read-only, and `gh` may only read it, so nothing is written there in your name.
+  - **@coder on GitHub still needs push access,** like Claude Code's GitHub app ("the triggering user must have write access").
+- **The live test found a separate bug, now fixed.** Your test chat's first try failed partway through copying the repository (the git bug fixed earlier today). After that, every new job thought the copy was finished, so Coder saw an empty folder: no files, no git.
+  - **Fix:** a copy that fails leaves nothing behind, and a half-made one from before is cleared and copied again.
+  - That test chat will repair itself on its next message once this is live.
+  - The live test also confirmed the admin sandbox works on Fly.io: `sudo` gives admin, `apt-get install` works, and the setup script ran.
+- Tests: CD175 (the copy fix; it fails on the old code), CD176-CD181 (read-only repositories). Eight older tests were updated for the new behaviour. 190 tests pass, plus the 18 machine-admin tests.
+
 ## 2026-11-07: Item 6: gh works, with your GitHub login kept outside the machine
 
 - Item 6: GitHub's `gh` tool was installed on Coder's machine but not logged in.

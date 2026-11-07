@@ -193,7 +193,8 @@ export async function startMention(env, deps, m) {
     }
   }
   if (!thread) {
-    const made = await run("projects", { method: "POST", body: JSON.stringify({ repo: m.repo, ...(headRef ? { base: headRef } : {}) }) });
+    // Only where they may push (like Claude Code's GitHub app: "the triggering user must have write access").
+    const made = await run("projects", { method: "POST", body: JSON.stringify({ repo: m.repo, needPush: true, ...(headRef ? { base: headRef } : {}) }) });
     if (made.status !== 200 || !made.data.project) { await say("@" + m.login + " Coder could not open " + m.repo + ": " + String((made.data && made.data.error) || made.status).slice(0, 200)); return { ok: false, why: "open" }; }
     thread = { id: made.data.project.id };
     await putJson(bucket, threadKey, thread);

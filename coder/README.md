@@ -196,6 +196,13 @@ and pushes of anything other than a branch"). Every command the AI runs is
 started as the unprivileged `dev` user, with no secrets in its environment.
 A test's machine (no `gitVia`) still uses its own remote.
 
+**A clone that did not finish is made again** (live test, 2026-11-07). A first
+clone that fails removes its git folder, so the next job clones afresh. A git
+folder with no commit (left by an older version, whose failed clone kept it)
+is cleared and the repository cloned again, keeping what the setup made in the
+project folder; a finished clone whose `.git` pointer was removed gets it back.
+Before this, such a chat's commands found an empty folder with no git at all.
+
 **`gh` uses your GitHub login, outside the machine too** (owner, 2026-11-07,
 item 6; like Claude Code's GitHub proxy, whose docs say `gh`'s requests "under
 the proxy-injected placeholder go out with your real credentials substituted").
@@ -208,6 +215,27 @@ access to ... is not enabled for this session"); GitHub's GraphQL, which
 `gh api repos/{owner}/{repo}/...`; a job started from GitHub may only read. The
 commands see `GH_TOKEN` and `GITHUB_TOKEN` as `proxy-injected`, as on Claude
 Code's machine, unless the owner set their own in the environment's variables.
+
+**Read-only repositories** (owner, 2026-11-07, item 5; like Claude Code, whose
+docs say "a session can clone any public repository" and pushes back "only when
+your GitHub connection has push access"). A chat opens on any repository GitHub
+shows the owner (`repoAccess` in `src/coder-github.mjs`): the picker's list, or
+any public repository typed as `owner/name` or its address. A public repository
+GitHub keeps from the owner's login (Coder's app is not on it) is read with no
+login at all, by the Worker and by its git address. One the owner cannot push to
+is **read-only** (`meta.readOnly`; also a chat's other repositories, one by one):
+- each job's work is committed on the chat's branch **on Coder's machine** and
+  never pushed (`pushRepo` with `noPush`); the chat says "Kept on Coder's machine";
+- **See changes** comes from the machine's own git (`localChanges`, the same
+  compare as GitHub's, against the base or any branch, fetched when needed), and
+  **Download patch** gives the commits as one file `git am` applies
+  (`localPatch`, `GET projects/:id/patch`, saved through the page's one door);
+- no pull request (no buttons; the Worker and Coder's `pull_request` tool
+  refuse), no auto-fix, and no branch for GitHub's news; Undo and Rewind stay
+  on the machine;
+- Coder is told (`readOnlyNote`), and `gh` may only read there.
+A job started by @coder on GitHub still needs push access (`needPush`), like
+Claude Code's GitHub app ("the triggering user must have write access").
 
 **Your Grok key never enters Coder's machine either** (owner, 2026-11-07,
 step 1 of: the Grok key out, each machine its own lock key, a sealed network

@@ -290,13 +290,18 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
   } finally { await close(); }
 });
 
-test("CD10b a repository Coder cannot write to is refused; GitHub's pieces: signed state, sealed token, refresh", async () => {
+test("CD10b a repository Coder cannot write to opens READ-ONLY (owner item 5, like Claude Code: any repository you can read), and is refused for a job from GitHub (needPush); GitHub's pieces: signed state, sealed token, refresh", async () => {
   const bucket = fakeBucket();
   const env = { ...GH_ENV, CODER_BUCKET: bucket };
   const ghFake = fakeGithub({ canPush: false });
   await saveConnection(env, bucket, "u1", { access: "ghu_x", refresh: "ghr_x", expires: Date.now() + 3600e3, refreshExpires: Date.now() + 1e9 }, "ana");
-  const r = await handleCoder(new Request("https://c/api/coder/projects", { method: "POST", headers: { Authorization: "Bearer ok" }, body: JSON.stringify({ repo: "ana/shop" }) }), env, {}, { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => null });
-  assert.equal(r.status, 403);
+  const open = (body) => handleCoder(new Request("https://c/api/coder/projects", { method: "POST", headers: { Authorization: "Bearer ok" }, body: JSON.stringify(body) }), env, {}, { fetchFn: ghFake.fetchFn, authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => null });
+  const r = await open({ repo: "ana/shop" });
+  assert.equal(r.status, 200);
+  const made = (await r.json()).project;
+  assert.equal(made.readOnly, true, "a chat on it is read-only");
+  assert.equal(bucket.m.has("coder/github-branches/" + "ana__shop__" + made.branch.replace(/\//g, "__") + ".json"), false, "its branch is never GitHub's to report on");
+  assert.equal((await open({ repo: "ana/shop", needPush: true })).status, 403, "a job from GitHub needs push access, like Claude Code's GitHub app");
   const T = 1762300000000;
   const state = await makeState(env, "u1", T);
   assert.equal(await readState(env, state, T + 1000), "u1");
@@ -431,7 +436,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1764,7 +1769,7 @@ test("CD71 (owner 2026-11-06) review and undo are tools Coder calls itself: revi
   const r4 = await runCoder({ send: async () => t4[q++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev4.push(e) }, { text: "undo", github: true });
   assert.equal(r4.undoRequest, undefined, "not from GitHub");
   const routes = readFileSync(HERE("src/coder-routes.mjs"), "utf8");
-  assert.match(routes, /if \(s\.result\.undoRequest && t\)[\s\S]*Not undone: this job changed files too[\s\S]*post\("\/undo"/);
+  assert.match(routes, /if \(s\.result\.undoRequest && \(t \|\| meta\.readOnly\)\)[\s\S]*Not undone: this job changed files too[\s\S]*post\("\/undo"/);
 });
 
 test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, source marks, code; nothing unsafe gets through", async () => {

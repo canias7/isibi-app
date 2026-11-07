@@ -510,40 +510,49 @@ export async function keepOut(dir, { gitDir = gitDirFor(dir), remote = DEFAULT_R
  * `base`). The work tree is handed to `dev`; the git folder stays root's.
  * `{ ok, why? }`.
  */
-export async function prepareRepo({ dir, repo, base, branch, token, headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
+export async function prepareRepo({ dir, repo, base, branch, token, headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
   const url = remote + repo + ".git";
   const gitDir = gitDirFor(dir, gitRoot);
   const o = { gitDir, remote, root };
   // Every checkout writes the work tree: nested repositories are kept out first (the audit, 2026-11-06).
   const checkout = async (args) => { const k = await keepOut(dir, o); const no = (why) => ({ code: -1, output: why, stdout: "", refused: true }); return k.ok ? nestedAway(dir, gitDir, () => gitIn(dir, ["checkout", ...args], o), no) : no(k.why); };
   await mkdir(gitRoot, { recursive: true, mode: 0o755 });
-  const has = await stat(join(gitDir, "HEAD")).then(() => true, () => false);
+  let has = await stat(join(gitDir, "HEAD")).then(() => true, () => false);
   if (has) {
     // A TREE `dev` HAS WORKED IN (the audit, 2026-11-06): checked, and nothing of
     // dev's left running while root works in it.
     const bad = await projectDirProblem(dir, root);
     if (bad) return { ok: false, why: bad };
     if (!killUser()) return { ok: false, why: NOT_STOPPED };
-  } else {
+    // A CLONE THAT NEVER FINISHED (live test, 2026-11-07: a chat's first clone failed after git's folder
+    // was made, and every later job took the repository as cloned: Coder's commands found no files at
+    // all). A finished clone always has a commit; one without is cleared and made again.
+    if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) { await rm(gitDir, { recursive: true, force: true }); has = false; }
+    // The work tree's pointer to the git folder, put back when it is gone (never over anything there).
+    else if (!(await lstat(join(dir, ".git")).then(() => true, () => false))) await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
+  }
+  if (!has) {
     // A NEW CLONE goes in a folder this service makes itself (the audit, 2026-11-06).
     const pd = await makeProjectDir(dir, { root });
     if (pd.why) return { ok: false, why: pd.why };
     if (!pd.made && !killUser()) return { ok: false, why: NOT_STOPPED };
+    // A clone that fails leaves no git folder behind, so the next job clones again (live test, 2026-11-07).
+    const failed = async (why) => { await rm(gitDir, { recursive: true, force: true }).catch(() => {}); return { ok: false, why }; };
     const c = await gitIn(dir, ["init", "-q", "-b", base], o);
-    if (c.code !== 0) return { ok: false, why: "could not start the repository: " + c.output.slice(0, 200) };
+    if (c.code !== 0) return failed("could not start the repository: " + c.output.slice(0, 200));
     // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
     // nothing to fetch; Coder starts from nothing on its own branch.
     const heads = await gitIn(dir, ["ls-remote", "--heads", url], { ...o, token, headers });
-    if (heads.code !== 0) return { ok: false, why: "could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200) };
+    if (heads.code !== 0) return failed("could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200));
     const empty = !String(heads.stdout ?? heads.output).trim();
     if (!empty && !String(heads.stdout ?? heads.output).includes("refs/heads/" + base + "\n") && !String(heads.stdout ?? heads.output).endsWith("refs/heads/" + base)) {
-      return { ok: false, why: repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + "." };
+      return failed(repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + ".");
     }
     if (!empty) {
       const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token, headers });
-      if (f.code !== 0) return { ok: false, why: "could not clone " + repo + ": " + f.output.slice(0, 300) };
+      if (f.code !== 0) return failed("could not clone " + repo + ": " + f.output.slice(0, 300));
       const co = await checkout(["-q", "-B", base, "refs/remotes/origin/" + base]);
-      if (co.code !== 0) return { ok: false, why: "could not open " + base + ": " + co.output.slice(0, 200) };
+      if (co.code !== 0) return failed("could not open " + base + ": " + co.output.slice(0, 200));
     }
     await gitIn(dir, ["config", "user.name", "Coder (Go Farther)"], o);
     await gitIn(dir, ["config", "user.email", "coder@gofarther.dev"], o);
@@ -553,9 +562,12 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // writes to main, and only when the repository has nothing at all.
     if (empty) {
       const c = await gitIn(dir, ["commit", "-q", "--allow-empty", "--no-verify", "-m", "Start"], o);
-      if (c.code !== 0) return { ok: false, why: "could not start the empty repository: " + c.output.slice(0, 200) };
-      const pb = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + base], { ...o, token, headers });
-      if (pb.code !== 0) return { ok: false, why: "could not create " + base + " in the empty repository: " + pb.output.slice(0, 200) };
+      if (c.code !== 0) return failed("could not start the empty repository: " + c.output.slice(0, 200));
+      // A READ-ONLY REPOSITORY (owner item 5): the start stays on this machine too.
+      if (!noPush) {
+        const pb = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + base], { ...o, token, headers });
+        if (pb.code !== 0) return failed("could not create " + base + " in the empty repository: " + pb.output.slice(0, 200));
+      }
       await gitIn(dir, ["update-ref", "refs/remotes/origin/" + base, "HEAD"], o);
     }
     // The work tree's own `.git` points at the git folder, so `dev` can read the
@@ -685,7 +697,7 @@ async function saveSubmodules(dir, k, o) {
   return left;
 }
 
-export async function pushRepo({ dir, repo, branch, token, headers = [], message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
+export async function pushRepo({ dir, repo, branch, token, headers = [], message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
   // before anything is read, and nothing of the AI's user runs while root works.
@@ -719,6 +731,11 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   }, (why) => ({ why }));
   if (saved.why) return { ok: false, pushed: false, why: saved.why, ...told };
   const committed = saved.committed;
+  // A READ-ONLY REPOSITORY (owner item 5): the work is committed here, on the chat's branch, and never pushed.
+  if (noPush) {
+    const sha = committed ? (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim() : "";
+    return { ok: true, pushed: false, kept: true, changed: committed, ...(sha ? { sha } : {}), ...told };
+  }
   // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
   if (!committed) {
     const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
@@ -978,14 +995,80 @@ export function lastJobOf(body) {
 export function extraRepos(body) {
   const ok = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/, br = /^[A-Za-z0-9._/-]{1,100}$/;
   return (Array.isArray(body && body.extra) ? body.extra : []).filter((x) => x && ok.test(String(x.repo)) && br.test(String(x.base || "main")) && br.test(String(x.branch || "")) && !String(x.branch).includes("..")).slice(0, 3)
-    .map((x) => ({ repo: String(x.repo), base: String(x.base || "main"), branch: String(x.branch) }));
+    .map((x) => ({ repo: String(x.repo), base: String(x.base || "main"), branch: String(x.branch), ...(x.readOnly === true ? { readOnly: true } : {}) }));
 }
 /** What Coder is told about them. */
 export function extrasNote(extras) {
   if (!extras.length) return "";
   return "\n\nTHIS CHAT'S OTHER REPOSITORIES (the owner added them; like this one, each is on the chat's branch and saved to it in its own repository when your turn ends):\n" +
-    extras.map((x) => "- " + x.repo + " in " + x.dir + " (from " + x.base + ")").join("\n") +
+    extras.map((x) => "- " + x.repo + " in " + x.dir + " (from " + x.base + ")" + (x.readOnly ? " (READ-ONLY for the owner: kept on this machine, never sent to GitHub; no pull request)" : "")).join("\n") +
     "\nWork in them with the same tools: give the file tools paths in those folders, and cd there in bash. A pull request for one of them: pull_request with its repo.";
+}
+// ── A READ-ONLY CHAT'S WORK, FROM THIS MACHINE (owner item 5) ─────────────────
+// A repository the owner may read but not push to: Coder's work is committed
+// here, on the chat's branch, and nowhere else. The owner sees it (See changes)
+// and takes it away as a patch file from here.
+/** The most of a diff or patch handed back. */
+export const LOCAL_DIFF_MAX = 10 * 1024 * 1024;
+const okBranchName = (b) => typeof b === "string" && /^[A-Za-z0-9._/-]{1,100}$/.test(b) && !b.includes("..") && !b.startsWith("-") && !b.startsWith("/");
+
+/** git's diff, one entry per file, as GitHub's compare gives them: its path, the lines added and taken away, and the changes. */
+export function splitDiff(text, max = 100) {
+  const out = [];
+  for (const part of String(text || "").split(/^diff --git /m).slice(1, max + 1)) {
+    const lines = part.split("\n");
+    let path = "";
+    for (const l of lines) { if (l.startsWith("+++ b/")) { path = l.slice(6); break; } if (l.startsWith("+++ ") || l.startsWith("@@")) break; }
+    if (!path) { const m = lines.find((l) => l.startsWith("--- a/")); if (m) path = m.slice(6); }
+    if (!path) { const i = lines[0].lastIndexOf(" b/"); path = i >= 0 ? lines[0].slice(i + 3) : lines[0]; }
+    const at = lines.findIndex((l) => l.startsWith("@@"));
+    const body = at >= 0 ? lines.slice(at) : [];
+    let add = 0, del = 0;
+    for (const l of body) { if (l.startsWith("+")) add++; else if (l.startsWith("-")) del++; }
+    out.push({ path, add, del, patch: body.join("\n").replace(/\n$/, "") });
+  }
+  return out;
+}
+
+/**
+ * THE CHAT'S BRANCH AGAINST `against`, as GitHub's compare shows a branch: what changed since the two
+ * parted. `against` is fetched first when this machine does not have it. Commits only (each job's work
+ * is committed when it ends). `{ ok, files }`, or `{ ok: false, why }`.
+ */
+export async function localChanges({ dir, repo, against, token = "", headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT }) {
+  if (!okBranchName(against)) return { ok: false, why: "that is not a branch name" };
+  const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
+  if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, files: [] };
+  const ref = "refs/remotes/origin/" + against;
+  if ((await gitIn(dir, ["rev-parse", "--verify", "-q", ref], o)).code !== 0) {
+    const f = await gitIn(dir, ["fetch", "--depth", "50", remote + repo + ".git", "+refs/heads/" + against + ":" + ref], { ...o, token, headers });
+    if (f.code !== 0) return { ok: false, why: repo + " has no branch named " + against + " that Coder could fetch" };
+  }
+  const mb = await gitIn(dir, ["merge-base", ref, "HEAD"], o);
+  const from = mb.code === 0 && /^[0-9a-f]{40}$/.test(String(mb.stdout).trim()) ? String(mb.stdout).trim() : ref;
+  // Two commits only (git reads no work tree for this), with no outside diff program.
+  const d = await gitIn(dir, ["-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv", from, "HEAD", "--"], { ...o, raw: true, timeoutS: 60 });
+  if (d.code !== 0 || !d.data) return { ok: false, why: "git could not show the changes" };
+  return { ok: true, files: splitDiff(d.data.subarray(0, LOCAL_DIFF_MAX).toString("utf8")) };
+}
+
+/** THE CHAT'S COMMITS SINCE ITS MAIN BRANCH, as one patch file (git am applies it). `{ ok, patch }`. */
+export async function localPatch({ dir, base, gitRoot = GIT_ROOT, root = PROJECT_ROOT, remote = DEFAULT_REMOTE }) {
+  if (!okBranchName(base)) return { ok: false, why: "that is not a branch name" };
+  const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
+  if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, patch: "" };
+  const ref = "refs/remotes/origin/" + base;
+  if ((await gitIn(dir, ["rev-parse", "--verify", "-q", ref], o)).code !== 0) return { ok: false, why: "this machine does not have " + base + " to compare with" };
+  const r = await gitIn(dir, ["-c", "core.quotePath=false", "format-patch", "--stdout", "--no-color", "--no-ext-diff", "--no-textconv", ref + "..HEAD", "--"], { ...o, raw: true, timeoutS: 60 });
+  if (r.code !== 0 || !r.data) return { ok: false, why: "git could not make the patch" };
+  if (r.data.length > LOCAL_DIFF_MAX) return { ok: false, why: "the patch is over 10 MB" };
+  return { ok: true, patch: r.data.toString("utf8") };
+}
+
+/** A READ-ONLY CHAT (owner item 5): what Coder is told. */
+export function readOnlyNote(body) {
+  if (!body || body.readOnly !== true || typeof body.repo !== "string") return "";
+  return "\n\nREAD-ONLY REPOSITORY: the owner can read " + body.repo + " on GitHub but cannot push to it. Work as usual: when your turn ends your changes are committed to this chat's branch HERE, on this machine, and never sent to GitHub, so no pull request can be opened (do not use pull_request or auto_fix, and never try to push). The owner sees the changes with See changes and can download them as a patch file. gh may only read this repository.";
 }
 export function gitNote(body) {
   const ok = (b) => typeof b === "string" && /^[\w./-]{1,200}$/.test(b) && !b.startsWith("-") && !b.includes("..");
@@ -1367,7 +1450,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
       if (body.repo) {
-        const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: body.readOnly === true });
         if (!prep.ok) return fail(502, prep.why);
       } else {
         // A CHAT WITHOUT A REPOSITORY (the audit, 2026-11-06): its folder is made
@@ -1385,7 +1468,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     for (const [i, x] of extraRepos(body).entries()) {
       const xdir = join(root, project + "-x" + (i + 1));
       try {
-        const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: x.readOnly === true });
         if (p.ok) extras.push({ ...x, dir: xdir });
         else t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String(p.why).slice(0, 200) });
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String((e && e.message) || e).slice(0, 160) }); }
@@ -1540,7 +1623,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
     // On the full image, Coder knows its machine's tools (2026-11-07).
-    const context = (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "", ins.later) + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? (setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "", ins.later) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? (setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     const lastSend = async () => { if (sender) await sender.flush(); };
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
@@ -1575,7 +1658,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(ins.later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .finally(() => {
@@ -1701,7 +1784,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!/^[0-9a-f]{7,40}$/.test(sha)) return send(400, { error: "bad commit" });
         const dir = join(root, project);
         const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
-        const prep = await prepareRepo({ dir, repo: String(body.repo || ""), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const noPush = body.noPush === true;
+        const prep = await prepareRepo({ dir, repo: String(body.repo || ""), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
         if (!prep.ok) return send(502, { ok: false, why: prep.why });
         const has = await gitIn(dir, ["cat-file", "-e", sha + "^{commit}"], o);
         if (has.code !== 0) return send(409, { ok: false, why: "that job's commit is not on this branch any more" });
@@ -1710,22 +1794,33 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!k.ok) return send(409, { ok: false, why: k.why });
         const rv = await nestedAway(dir, o.gitDir, async () => { const r = await gitIn(dir, ["revert", "--no-edit", sha], o); if (r.code !== 0) await gitIn(dir, ["revert", "--abort"], o); return r; }, (why) => ({ code: -1, output: why }));
         if (rv.code !== 0) { return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
-        const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
         // What the save left out is said here too (the audit, 2026-11-06).
         const told = p.left ? { left: p.left } : {};
         if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
         return send(200, { ok: true, sha: p.sha, ...told });
       }
+      // A READ-ONLY CHAT'S CHANGES AND ITS PATCH FILE (owner item 5): from this machine's own git, the only place they are.
+      if (url.pathname === "/diff" && req.method === "POST") {
+        const repo = String(body.repo || "");
+        if (!/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(repo)) return send(400, { ok: false, why: "bad repository" });
+        const r = await localChanges({ dir: join(root, project), repo, against: String(body.against || ""), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, why: String((e && e.message) || e).slice(0, 200) }));
+        return send(r.ok ? 200 : 409, r);
+      }
+      if (url.pathname === "/patch" && req.method === "POST") {
+        const r = await localPatch({ dir: join(root, project), base: String(body.base || "main"), gitRoot, root, remote }).catch((e) => ({ ok: false, why: String((e && e.message) || e).slice(0, 200) }));
+        return send(r.ok ? 200 : 409, r);
+      }
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
         if (t) killAll(t); else killUser();
-        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), noPush: body.noPush === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
         for (const [i, x] of extraRepos(body).entries()) {
           const xdir = join(root, project + "-x" + (i + 1));
           if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
-          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), noPush: x.readOnly === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
           extra.push({ repo: x.repo, ...r });
         }
         return send(200, extra.length ? { ...main, extra } : main);

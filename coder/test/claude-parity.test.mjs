@@ -70,7 +70,7 @@ test("CD101 Create PR and Create draft PR, like Claude Code: buttons in the chat
   // The page: the two buttons appear once the branch has work and no pull request, and are off while Coder works.
   const { readFileSync } = await import("node:fs");
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /p && !\(p\.pr && p\.pr\.url\) && Array\.isArray\(p\.commits\) && p\.commits\.length \? '<button type="button" class="cd-hbtn" id="cdMakePr"' \+ \(S\.running \|\| S\.sending \? ' disabled' : ''\) \+ '>Create PR<\/button><button type="button" class="cd-hbtn" id="cdMakeDraft"/);
+  assert.match(page, /p && !p\.readOnly && !\(p\.pr && p\.pr\.url\) && Array\.isArray\(p\.commits\) && p\.commits\.length \? '<button type="button" class="cd-hbtn" id="cdMakePr"' \+ \(S\.running \|\| S\.sending \? ' disabled' : ''\) \+ '>Create PR<\/button><button type="button" class="cd-hbtn" id="cdMakeDraft"/);
   assert.match(page, /on\('#cdMakePr', 'click', \(\) => send\(PR_ASK\)\);\n\s+on\('#cdMakeDraft', 'click', \(\) => send\(PR_ASK_DRAFT\)\);/);
   assert.match(page, /const PR_ASK_DRAFT = 'Create a draft pull request for this branch\./);
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
@@ -388,7 +388,11 @@ test("CD111 several repositories in one chat, like Claude Code: up to 3 more, ad
   assert.deepEqual(one.project.repos, [{ repo: "ana/api", base: "develop" }], "with its own main branch");
   assert.equal((await add("ana/api")).status, 400, "not twice");
   assert.equal((await add("ana/shop")).status, 400, "not the chat's own repository");
-  assert.equal((await add("ana/ro")).status, 403, "only one Coder may write to");
+  // One the owner can only read (owner item 5, like Claude Code): added, read-only.
+  const ro = await add("ana/ro");
+  assert.equal(ro.status, 200);
+  assert.deepEqual((await ro.json()).project.repos.find((r) => r.repo === "ana/ro"), { repo: "ana/ro", base: "main", readOnly: true });
+  await go("projects/" + id + "/repos?repo=ana%2Fro", { method: "DELETE" });
   await add("ana/w1"); await add("ana/w2");
   assert.equal((await add("ana/w3")).status, 400, "at most 3 more");
   const less = await (await go("projects/" + id + "/repos?repo=ana%2Fw2", { method: "DELETE" })).json();
@@ -421,7 +425,7 @@ test("CD111 several repositories in one chat, like Claude Code: up to 3 more, ad
   const { readFileSync } = await import("node:fs");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), extra: extraFor\(meta\),/);
-  assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, git: await gitAccess\(env, uid, id, meta\.turn\), message: commitTitle\(s\.result\.summary\), extra: extraFor\(meta\) \}\)/);
+  assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, git: await gitAccess\(env, uid, id, meta\.turn\), message: commitTitle\(s\.result\.summary\), extra: extraFor\(meta\), \.\.\.\(meta\.readOnly \? \{ noPush: true \} : \{\}\) \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /on\('#cdAddRepo', 'change', \(e\) => \{ const v = e\.currentTarget\.value; if \(v\) changeRepos\(v, true\); \}\);/);
   assert.match(page, /data-unrepo="' \+ esc\(x\.repo\)/);

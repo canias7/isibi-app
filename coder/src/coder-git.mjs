@@ -101,6 +101,9 @@ export async function handleGit(request, env, { fetchFn = fetch, now = Date.now(
   const repos = [{ repo: meta.repo, base: meta.base }, ...(Array.isArray(meta.repos) ? meta.repos : [])].filter((r) => r && typeof r.repo === "string");
   const mine = repos.find((r) => r.repo.toLowerCase() === full);
   if (!mine) return text("not one of this chat's repositories", 403);
+  // A READ-ONLY REPOSITORY (owner item 5): the owner may read it, never push to it; Coder's work stays on its machine.
+  const readOnly = mine.repo === meta.repo ? meta.readOnly === true : mine.readOnly === true;
+  if (readOnly && service === "git-receive-pack") return text("you can read " + mine.repo + " but not push to it, so Coder keeps its work on its machine", 403);
   let body;
   if (request.method === "POST") {
     if (Number(request.headers.get("content-length")) > GIT_BODY_MAX) return text("that push is too large", 413);
@@ -124,6 +127,13 @@ export async function handleGit(request, env, { fetchFn = fetch, now = Date.now(
   let r;
   try { r = await fetchFn("https://github.com/" + owner + "/" + name + ".git/" + what + url.search, { method: request.method, headers, ...(body !== undefined ? { body } : {}), redirect: "manual" }); }
   catch { return text("GitHub could not be reached", 502); }
+  // A PUBLIC REPOSITORY GITHUB KEEPS FROM THE OWNER'S LOGIN (one Coder's app is not on): read with no login
+  // at all, as anyone may (like Claude Code: "a session can clone any public repository").
+  if (readOnly && [401, 403, 404].includes(r.status)) {
+    delete headers.authorization;
+    try { r = await fetchFn("https://github.com/" + owner + "/" + name + ".git/" + what + url.search, { method: request.method, headers, ...(body !== undefined ? { body } : {}), redirect: "manual" }); }
+    catch { return text("GitHub could not be reached", 502); }
+  }
   // Only the headers git needs come back (nothing GitHub might echo of the login).
   const out = new Headers();
   for (const k of ["content-type", "cache-control", "expires", "pragma"]) { const v = r.headers.get(k); if (v) out.set(k, v); }

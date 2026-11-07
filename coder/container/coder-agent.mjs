@@ -220,7 +220,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -483,6 +483,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       } else if (c.name === "auto_fix") {
         // From GitHub (strangers can write there) the owner's settings are never changed.
         if (github) { reply("error: auto-fix is turned on or off from the chat on gofarther.dev, not from GitHub; tell the owner in your answer"); continue; }
+        if (readOnly && readOnly.main === true && c.args.on !== false) { reply("error: the owner can read this repository but not push to it, so Coder could not push a fix; tell the owner"); continue; }
         const pr = String(c.args.pr || "").trim().slice(0, 300);
         if (!pr) { reply("error: give the pull request's address or number"); continue; }
         autofixRequest = { pr, on: c.args.on !== false };
@@ -502,6 +503,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const one = { title: scrub(title), body: scrub(body), ...(c.args.draft === true ? { draft: true } : {}) };
         // One of the chat's other repositories (2026-11-06): its own pull request.
         const repo = typeof c.args.repo === "string" && /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(c.args.repo.trim()) ? c.args.repo.trim() : "";
+        // A REPOSITORY THE OWNER CAN ONLY READ (owner item 5): no pull request can be opened there.
+        if (readOnly && (repo ? Array.isArray(readOnly.extra) && readOnly.extra.includes(repo.toLowerCase()) : readOnly.main === true)) { reply("error: the owner can read " + (repo || "this repository") + " but not push to it, so no pull request can be opened; your changes stay on this machine (the owner sees them with See changes). Tell the owner."); continue; }
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");

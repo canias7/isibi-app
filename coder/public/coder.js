@@ -61,6 +61,8 @@
     try {
       r = await fetch(API + path, { ...(init || {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(init && init.body ? { 'content-type': 'application/json' } : {}) } });
     } catch (e) { return { status: 0, data: { error: 'Coder could not be reached. Check your connection.' } }; }
+    // A FILE TO SAVE (a read-only chat's patch, owner item 5): handed back whole when it came.
+    if (r.ok && typeof (init || {}).file === 'string') return { status: r.status, data: {}, blob: await r.blob(), name: (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || init.file };
     const data = await r.json().catch(() => ({}));
     if (r.status === 401 && (data.signin === true || data.error === 'sign in first')) {
       if (data.signin !== true && !again) {
@@ -113,6 +115,23 @@
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'That repository could not be added.'; return draw(); }
     S.projects = [entryOf(r.data.project), ...S.projects];
     openProject(r.data.project.id);
+  }
+
+  // A REPOSITORY'S NAME from what was typed: owner/name, or its GitHub address (owner item 5).
+  function repoName(v) {
+    const t = String(v || '').trim();
+    const m = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?(?:[\/?#].*)?$/.exec(t) || /^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?$/.exec(t);
+    return m ? m[1] + '/' + m[2] : '';
+  }
+  // A READ-ONLY CHAT'S WORK AS A PATCH FILE (owner item 5): from Coder's machine, the only place it is.
+  async function downloadPatch() {
+    if (!S.project) return;
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/patch', { file: 'coder.patch' });
+    if (!r.blob) { S.error = (r.data && r.data.error) || 'The patch could not be made.'; return draw(); }
+    // As a data: address, like the pictures (the page's rules block blob: ones).
+    const href = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(r.blob); });
+    if (!href) { S.error = 'The patch could not be saved.'; return draw(); }
+    const a = document.createElement('a'); a.href = href; a.download = r.name; document.body.appendChild(a); a.click(); a.remove();
   }
 
   // THE CHAT LIST (each chat its own session): what the sidebar shows.
@@ -689,11 +708,13 @@
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b><span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
+      // A READ-ONLY REPOSITORY (owner item 5, like Claude Code: any public repository can be worked on).
+      (p && p.readOnly ? '<span class="cd-ro" title="You can read this repository on GitHub but not push to it, so Coder keeps its work on its machine (See changes shows it, and downloads it as a patch file).">Read-only</span>' : '') +
       (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === true ? ' on' : '') + '" id="cdAutofix" title="Like Claude Code\'s auto-fix: when one of its checks fails or you review it, Coder fixes it in this chat (up to 3 tries in a row). Off until you turn it on.">Auto-fix: ' + (p.autofix === true ? 'On' : 'Off') + '</button>' : '') +
       // CREATE PR / CREATE DRAFT PR, like Claude Code's buttons (owner, 2026-11-06:
       // "Finish all this"): once the branch has work and no pull request yet.
       // Coder writes the title and description from the changes.
-      (p && !(p.pr && p.pr.url) && Array.isArray(p.commits) && p.commits.length ? '<button type="button" class="cd-hbtn" id="cdMakePr"' + (S.running || S.sending ? ' disabled' : '') + '>Create PR</button><button type="button" class="cd-hbtn" id="cdMakeDraft"' + (S.running || S.sending ? ' disabled' : '') + '>Create draft PR</button>' : '') +
+      (p && !p.readOnly && !(p.pr && p.pr.url) && Array.isArray(p.commits) && p.commits.length ? '<button type="button" class="cd-hbtn" id="cdMakePr"' + (S.running || S.sending ? ' disabled' : '') + '>Create PR</button><button type="button" class="cd-hbtn" id="cdMakeDraft"' + (S.running || S.sending ? ' disabled' : '') + '>Create draft PR</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
     '</div>' +
@@ -739,7 +760,8 @@
     if (!c) return '<div class="cd-changes">' + bar + '<span class="cd-spin"></span></div>';
     if (!c.files.length) return '<div class="cd-changes">' + bar + '<p class="cd-changes-none">' + (c.error ? esc(c.error) : pick === base ? 'No changes yet.' : 'No differences from ' + esc(pick) + '.') + '</p></div>';
     return '<div class="cd-changes">' + bar +
-      '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span>' + (pick !== base ? ' <span class="cd-compare-vs">compared with ' + esc(pick) + '</span>' : '') + '</div>' +
+      '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span>' + (pick !== base ? ' <span class="cd-compare-vs">compared with ' + esc(pick) + '</span>' : '') +
+        (p.readOnly ? ' <button type="button" class="cd-hbtn cd-patch" id="cdPatch" title="This chat\'s work, from Coder\'s machine, as one patch file (git am applies it)">Download patch</button>' : '') + '</div>' +
       c.files.map((f) => '<details class="cd-file" data-path="' + esc(f.path) + '"' + (S.openFiles[f.path] ? ' open' : '') + '><summary><code>' + esc(f.path) + '</code><span class="cd-add">+' + f.add + '</span><span class="cd-del">−' + f.del + '</span></summary>' +
         '<pre class="cd-diff">' + diffLines(f) + '</pre></details>').join('') +
     '</div>';
@@ -874,11 +896,15 @@
     if (S.phase === 'pick') {
       const install = S.github && S.github.install;
       const list = S.repos === null ? '<span class="cd-spin cd-spin-lg"></span>'
-        : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.private ? '<em>private</em>' : '') + '</button>').join('') + '</div>'
+        : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.readOnly ? '<em title="You can read it but not push to it">read-only</em>' : '') + (r.private ? '<em>private</em>' : '') + '</button>').join('') + '</div>'
         : '<p class="cd-sub">Coder can’t see any repositories yet.</p>';
+      // ANY PUBLIC REPOSITORY (owner item 5, like Claude Code: "a session can clone any public repository").
+      const open = '<form class="cd-open" id="cdOpenForm"><label for="cdOpenRepo">Or open any public repository</label>' +
+        '<div class="cd-open-row"><input id="cdOpenRepo" placeholder="owner/name or its GitHub address" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"><button type="submit" class="cd-btn-2">Open</button></div>' +
+        '<p class="cd-open-note">One you can’t push to is read-only: Coder keeps its work on its machine, and you download it as a patch.</p></form>';
       return centerHTML('<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
-        list +
+        list + open +
         (install ? '<a class="cd-btn-2" href="' + esc(install) + '" target="_blank" rel="noopener">Add repositories on GitHub</a>' : '') +
         (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     }
@@ -915,6 +941,13 @@
     on('#cdRetry', 'click', load);
     on('#cdConnect', 'click', connect);
     on('.cd-repo', 'click', (e) => addProject(e.currentTarget.dataset.repo));
+    on('#cdOpenForm', 'submit', (e) => {
+      e.preventDefault();
+      const repo = repoName(root.querySelector('#cdOpenRepo').value);
+      if (!repo) { S.error = 'Write it as owner/name, or paste its GitHub address.'; return draw(); }
+      S.error = ''; addProject(repo);
+    });
+    on('#cdPatch', 'click', downloadPatch);
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     // THE QUESTION CARD: the choice lives in S.ask; Submit sends it as your answer.

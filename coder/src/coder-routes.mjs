@@ -41,7 +41,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
+import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
@@ -66,7 +66,11 @@ export function checkImages(list) {
 }
 // REVIEW (owner, 2026-11-05, "5"): Coder reviews its branch, written on the server.
 /** The chat's other repositories, as the machine gets them: each on the chat's branch. */
-export const extraFor = (meta) => (Array.isArray(meta && meta.repos) ? meta.repos : []).slice(0, 3).map((r) => ({ repo: r.repo, base: r.base, branch: meta.branch }));
+// A READ-ONLY REPOSITORY (owner item 5, like Claude Code: any public repository can be worked on, and the
+// work goes back to GitHub "only when your GitHub connection has push access"): what the chat says.
+export const keptNote = (repo) => "Kept on Coder's machine (you can read " + repo + " but not push to it, so nothing went to GitHub). See changes shows it, and downloads it as a patch file.";
+export const noPrNote = (repo) => "No pull request: you can read " + repo + " but not push to it, so Coder cannot open one there.";
+export const extraFor = (meta) => (Array.isArray(meta && meta.repos) ? meta.repos : []).slice(0, 3).map((r) => ({ repo: r.repo, base: r.base, branch: meta.branch, ...(r.readOnly ? { readOnly: true } : {}) }));
 export const REVIEWS = {
   code: { label: "Review", text: "Review the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD). Look for bugs, broken edge cases, missing tests and anything a careful reviewer would flag. Run the tests if there are any. Do NOT change any files: answer with a short list of findings, most serious first, each with the file and line and a one-line fix. If everything looks fine, say so." },
   security: { label: "Security review", text: "Do a security review of the changes on this chat's branch compared with BASE_BRANCH (git diff BASE_BRANCH...HEAD): injection, unsafe input handling, secrets in code, auth or permission mistakes, unsafe dependencies, path traversal, XSS, SSRF. Do NOT change any files: answer with a short list of real risks, most serious first, each with the file and line, why it matters and a one-line fix. If you find nothing serious, say so." },
@@ -223,6 +227,8 @@ export async function autofixFor(env, bucket, uid, meta, want, token, fetchFn = 
   if (!m) return { note: "Auto-fix was not changed: give the pull request's address or number." };
   const repo = m[1] || meta.repo, number = Number(m[2]);
   if (repo.toLowerCase() !== String(meta.repo).toLowerCase()) return { note: "Auto-fix was not changed: pull request #" + number + " is in " + repo + "; open a chat on that repository for it." };
+  // A read-only chat cannot push a fix (owner item 5).
+  if (on && meta.readOnly) return { note: "Auto-fix was not turned on: you can read " + meta.repo + " but not push to it, so Coder could not push a fix." };
   if (!on) {
     if (meta.pr && Number(meta.pr.number) === number && meta.autofix === true) return { meta: { autofix: false }, note: "Auto-fix is off for pull request #" + number + "." };
     return { note: "Auto-fix was not on for pull request #" + number + " in this chat." };
@@ -455,9 +461,13 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!REPO.test(repo)) return json({ error: "pick one of your GitHub repositories" }, 400);
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
-    // ONLY A REPOSITORY THIS USER GAVE CODER: GitHub itself says, as them.
-    const r = await gh(t.token, "/repos/" + repo, { fetchFn });
-    if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
+    // ANY REPOSITORY THIS USER CAN READ, LIKE CLAUDE CODE (owner item 5; its docs: "a session can clone any
+    // public repository", and push back "only when your GitHub connection has push access"): GitHub itself
+    // says, as them. One they cannot push to is READ-ONLY: Coder's work stays on its machine.
+    const r = await repoAccess(t.token, repo, { fetchFn });
+    if (!r.ok) return json({ error: "GitHub shows you no repository named " + repo + ". For a private one, add it to Coder in GitHub first.", install: installUrl(env) }, 404);
+    // A job started from GitHub (like Claude Code's GitHub app: "the triggering user must have write access").
+    if (r.readOnly && body.needPush === true) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
     const base = typeof body.base === "string" && BRANCH.test(body.base) ? body.base : String(r.data.default_branch || "main");
     if (!BRANCH.test(base)) return json({ error: "this repository's main branch has a name Coder cannot use" }, 400);
     let id = projectIdFor(repo);
@@ -468,11 +478,12 @@ export async function handleCoder(request, env, ctx, deps) {
     const envs = await listEnvs(bucket, uid);
     const asked = typeof body.envId === "string" ? envs.find((e) => e.id === body.envId && !e.archived) : null;
     const envId = asked ? asked.id : await envForRepo(bucket, uid, repo, envs);
-    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId };
+    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId, ...(r.readOnly ? { readOnly: true } : {}) };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed
     // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
-    await bucket.put(branchKey(repo, meta.branch), JSON.stringify({ uid, id }), { httpMetadata: { contentType: "application/json" } });
+    // (A read-only chat's branch never reaches GitHub.)
+    if (!meta.readOnly) await bucket.put(branchKey(repo, meta.branch), JSON.stringify({ uid, id }), { httpMetadata: { contentType: "application/json" } });
     return json({ ok: true, project: meta });
   }
 
@@ -593,7 +604,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -669,24 +680,34 @@ export async function handleCoder(request, env, ctx, deps) {
       const afMeta = {};
       // Each job that changed files is one commit: kept so it can be undone.
       let commits = Array.isArray(meta.commits) ? meta.commits : [];
+      // A READ-ONLY CHAT (owner item 5): its work is committed on Coder's machine, never sent to GitHub.
+      let keptHere = !!meta.kept;
       const t = await userToken(env, bucket, uid, { fetchFn });
-      if (!t) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
+      if (!t && !meta.readOnly) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
-        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.summary), extra: extraFor(meta) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.summary), extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : {}) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
         for (const x of Array.isArray(p.extra) ? p.extra : []) {
-          const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.pushed && x.changed !== false ? "Saved to the branch " + meta.branch + " in " + x.repo : "";
+          const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.kept ? (x.changed ? keptNote(x.repo) : "") : x.pushed && x.changed !== false ? "Saved to the branch " + meta.branch + " in " + x.repo : "";
           if (line) extraNotes.push(line);
         }
         for (const want of Array.isArray(s.result.prExtra) ? s.result.prExtra : []) {
           const x = (Array.isArray(meta.repos) ? meta.repos : []).find((r) => r.repo === want.repo);
           if (!x) { extraNotes.push("No pull request in " + String(want.repo).slice(0, 100) + ": it is not one of this chat's repositories."); continue; }
+          if (x.readOnly) { extraNotes.push(noPrNote(x.repo)); continue; }
+          if (!t) { extraNotes.push("No pull request in " + x.repo + ": connect GitHub again first."); continue; }
           const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder.", draft: want.draft === true }, fetchFn).catch(() => null);
           if (made) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
           else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub (is its branch saved?).");
         }
-        if (!p.ok) pushNote = "Not sent to GitHub: " + String(p.why || "the push failed").slice(0, 200);
-        else if (p.pushed && p.changed !== false) {
+        if (!p.ok) pushNote = (meta.readOnly ? "Not kept: " : "Not sent to GitHub: ") + String(p.why || "the push failed").slice(0, 200);
+        else if (meta.readOnly) {
+          if (p.changed) {
+            keptHere = true;
+            if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now() }].slice(-50);
+            pushNote = keptNote(meta.repo);
+          }
+        } else if (p.pushed && p.changed !== false) {
           pushed = true;
           if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now() }].slice(-50);
           if (pr) pr = await prStillOpen(t.token, meta.repo, pr, fetchFn);
@@ -698,14 +719,14 @@ export async function handleCoder(request, env, ctx, deps) {
       }
       // UNDO, ASKED FOR IN THE CHAT (owner, 2026-11-06: Coder calls it itself):
       // the last job's commit is reverted and pushed, like the old Undo button.
-      if (s.result.undoRequest && t) {
+      if (s.result.undoRequest && (t || meta.readOnly)) {
         const before = Array.isArray(meta.commits) ? meta.commits.length : 0;
         if (commits.length > before) pushNote = (pushNote ? pushNote + " · " : "") + "Not undone: this job changed files too. Ask again on its own.";
         else if (!commits.length) pushNote = (pushNote ? pushNote + " · " : "") + "Nothing to undo: no job in this chat changed files yet.";
         else {
           const last = commits[commits.length - 1];
-          const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: last.sha }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
-          if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "") + "."; }
+          const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
+          if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "")) + "."; }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
           const lo = leftOutNote(u.left);
           if (lo && !pushNote.includes(lo)) pushNote += " · " + lo;
@@ -713,7 +734,8 @@ export async function handleCoder(request, env, ctx, deps) {
       }
       // THE PULL REQUEST CODER WAS ASKED FOR in the chat (owner, 2026-11-05: "b").
       const want = s.result.prRequest;
-      if (want && t && pushed) {
+      if (want && meta.readOnly) pushNote = (pushNote ? pushNote + " · " : "") + noPrNote(meta.repo);
+      else if (want && t && pushed) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
         if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
         else {
@@ -761,7 +783,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // The oldest history may have been trimmed: Rewind's marks move with it.
       const dropM = (Array.isArray(s.result.messages) ? s.result.messages.length : 0) - kept.length, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
-      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
@@ -779,6 +801,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // CREATE PULL REQUEST (the user's button): the open one when there is one,
   // else a fresh one from Coder's branch.
   if (action === "pr" && request.method === "POST") {
+    if (meta.readOnly) return json({ error: noPrNote(meta.repo) }, 409);
     if (meta.status === "running") return json({ error: "Coder is still working. Try again when it is done." }, 409);
     if (!meta.pushed) return json({ error: "Coder has not saved any changes to GitHub yet." }, 400);
     const t = await userToken(env, bucket, uid, { fetchFn });
@@ -800,11 +823,11 @@ export async function handleCoder(request, env, ctx, deps) {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "Connect GitHub again first." }, 401);
     let r;
-    try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: last.sha }).then((x) => x.json()); }
+    try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()); }
     catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
     if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
     const lo = leftOutNote(r.left);
-    const note = "Undid the last job (" + last.title + "). The files are back as they were; saved to the branch " + meta.branch + "." + (lo ? " · " + lo : "");
+    const note = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch) + "." + (lo ? " · " + lo : "");
     const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "github", text: note };
     await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
@@ -858,7 +881,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!t) return json({ error: "Connect GitHub again first." }, 401);
       for (const c of later) {
         let r;
-        try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: c.sha }).then((x) => x.json()); }
+        try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: c.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()); }
         catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
         if (!r.ok) {
           // What was undone so far stays undone, and is recorded.
@@ -906,7 +929,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (action === "branches" && request.method === "GET") {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
-    const r = await gh(t.token, "/repos/" + meta.repo + "/branches?per_page=100", { fetchFn });
+    const r = await ghRead(t.token, "/repos/" + meta.repo + "/branches?per_page=100", { fetchFn });
     if (!r.ok || !Array.isArray(r.data)) return json({ error: "GitHub could not list the branches" }, 502);
     // `all`: for Compare against, every branch but this chat's own (other chats' too); else none of Coder's.
     const all = url.searchParams.get("all") === "1";
@@ -933,11 +956,12 @@ export async function handleCoder(request, env, ctx, deps) {
     if (list.length >= 3) return json({ error: "at most 3 more repositories in one chat" }, 400);
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
-    const r = await gh(t.token, "/repos/" + repo, { fetchFn });
-    if (!r.ok || !r.data || !(r.data.permissions && r.data.permissions.push)) return json({ error: "Coder cannot write to " + repo + ": add it to Coder in GitHub first", install: installUrl(env) }, 403);
+    // Any repository this user can read (owner item 5, like the chat's own): one they cannot push to is read-only.
+    const r = await repoAccess(t.token, repo, { fetchFn });
+    if (!r.ok) return json({ error: "GitHub shows you no repository named " + repo + ". For a private one, add it to Coder in GitHub first.", install: installUrl(env) }, 404);
     const base = String(r.data.default_branch || "main");
     if (!BRANCH.test(base)) return json({ error: "this repository's main branch has a name Coder cannot use" }, 400);
-    const next = { ...meta, repos: [...list, { repo, base }] };
+    const next = { ...meta, repos: [...list, { repo, base, ...(r.readOnly ? { readOnly: true } : {}) }] };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next });
   }
@@ -948,7 +972,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!BRANCH.test(base) || base.startsWith("coder/")) return json({ error: "pick one of the repository's branches" }, 400);
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
-    const r = await gh(t.token, "/repos/" + meta.repo + "/branches/" + encodeURIComponent(base), { fetchFn });
+    const r = await ghRead(t.token, "/repos/" + meta.repo + "/branches/" + encodeURIComponent(base), { fetchFn });
     if (!r.ok) return json({ error: meta.repo + " has no branch named " + base }, 404);
     const next = { ...meta, base };
     await saveMeta(bucket, uid, next);
@@ -1086,8 +1110,8 @@ export async function handleCoder(request, env, ctx, deps) {
   if (action === "files" && request.method === "GET") {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
-    let tree = await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.branch) + "?recursive=1", { fetchFn });
-    if (!tree.ok) tree = await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.base) + "?recursive=1", { fetchFn });
+    let tree = meta.readOnly ? { ok: false } : await gh(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.branch) + "?recursive=1", { fetchFn });
+    if (!tree.ok) tree = await ghRead(t.token, "/repos/" + meta.repo + "/git/trees/" + encodeURIComponent(meta.base) + "?recursive=1", { fetchFn });
     const files = tree.ok && tree.data && Array.isArray(tree.data.tree) ? tree.data.tree.filter((x) => x.type === "blob").map((x) => String(x.path)).filter((p) => !/(^|\/)(node_modules|\.git)\//.test(p)).slice(0, 5000) : [];
     return json({ ok: true, files });
   }
@@ -1100,11 +1124,31 @@ export async function handleCoder(request, env, ctx, deps) {
     // Compare against and pick one": its docs, read 2026-11-07; owner, item 4).
     const against = String(url.searchParams.get("against") || "").trim() || meta.base;
     if (!BRANCH.test(against) || against.includes("..") || against.startsWith("-") || against.startsWith("/")) return json({ error: "that is not a branch name" }, 400);
+    // A READ-ONLY CHAT (owner item 5): its branch is only on Coder's machine, so the machine shows it, as
+    // GitHub's compare would (like Claude Code, whose diff view also shows what is not pushed yet).
+    if (meta.readOnly) {
+      const r = await post("/diff", { project: id, repo: meta.repo, against, git: await gitAccess(env, uid, id, meta.turn) }).then((x) => x.json()).catch(() => null);
+      if (!r || !r.ok) return json({ error: "Coder's machine could not show the changes" + (r && r.why ? ": " + String(r.why).slice(0, 200) : "") }, 502);
+      const files = (Array.isArray(r.files) ? r.files : []).slice(0, 100).map((f) => ({ path: String(f.path || ""), add: f.add | 0, del: f.del | 0, patch: typeof f.patch === "string" ? f.patch.slice(0, 20000) : "" }));
+      return json({ ok: true, against, files, add: files.reduce((n, f) => n + f.add, 0), del: files.reduce((n, f) => n + f.del, 0), local: true });
+    }
     const c = await gh(t.token, "/repos/" + meta.repo + "/compare/" + encodeURIComponent(against) + "..." + encodeURIComponent(meta.branch), { fetchFn });
     if (c.status === 404) return json({ ok: true, against, files: [], add: 0, del: 0 });
     if (!c.ok || !c.data) return json({ error: "GitHub could not show the changes" }, 502);
     const files = (Array.isArray(c.data.files) ? c.data.files : []).slice(0, 100).map((f) => ({ path: String(f.filename || ""), add: f.additions | 0, del: f.deletions | 0, patch: typeof f.patch === "string" ? f.patch.slice(0, 20000) : "" }));
     return json({ ok: true, against, files, add: files.reduce((n, f) => n + f.add, 0), del: files.reduce((n, f) => n + f.del, 0) });
+  }
+
+  // A READ-ONLY CHAT'S WORK AS A PATCH FILE (owner item 5): its commits since the main branch, in git's own
+  // format (git am applies it), from Coder's machine, the only place they are.
+  if (action === "patch" && request.method === "GET") {
+    if (!meta.readOnly) return json({ error: "This chat's work is on GitHub, in the branch " + meta.branch + "." }, 400);
+    const r = await post("/patch", { project: id, base: meta.base }).catch(() => null);
+    const j = r ? await r.json().catch(() => null) : null;
+    if (!j || !j.ok) return json({ error: "Coder's machine could not make the patch" + (j && j.why ? ": " + String(j.why).slice(0, 200) : "") }, 502);
+    if (!j.patch) return json({ error: "There is nothing to download yet: Coder has not changed any files in this chat." }, 404);
+    const name = String(meta.repo).split("/")[1].replace(/[^\w.-]/g, "") + "-" + id + ".patch";
+    return new Response(j.patch, { headers: { "content-type": "text/x-patch; charset=utf-8", "content-disposition": "attachment; filename=\"" + name + "\"", "cache-control": "no-store" } });
   }
 
   // DELETE A CHAT from the list (its branch and pull request stay on GitHub).
