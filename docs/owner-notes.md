@@ -11,6 +11,11 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-07: Merged and deployed; the full list of everything Coder has
+
+- You said "merge and deploy": items 3, 9, 2, 6, 5, 11 and 8, and the fix for the half-made copy, are merged into main and deploying.
+- **The full list** is in [`docs/coder-features.md`](coder-features.md): 50 things, numbered, each with how we test it, who tests it (me through GitHub, or you on your screen) and where it stands. We test them one by one from there.
+
 ## 2026-11-07: Notifications in the desktop app too; the auto-fix screenshot
 
 - **Desktop app:** its window can't get web notifications. Instead, while the app is open (minimized is fine), it watches your chats itself and shows the same notifications with the same two switches. Turn it on in the app: the gear, Notifications, "Turn on in this app".
