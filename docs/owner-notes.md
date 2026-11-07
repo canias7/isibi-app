@@ -9,6 +9,18 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 6: gh works, with your GitHub login kept outside the machine
+
+- Item 6: GitHub's `gh` tool was installed on Coder's machine but not logged in.
+- **Now, like Claude Code's:**
+  - **Your login stays on Coder's server.** When Coder runs `gh` in a chat on a GitHub repository, the request goes through Coder's network gate to Coder's server, which adds your GitHub login there. It never reaches the machine, so nothing Coder runs can read it.
+  - **Only the chat's own repositories.** Anything else is refused with Claude Code's message ("GitHub access to … is not enabled for this session").
+  - **`gh pr` and `gh issue` are refused,** as in Claude Code: they use GitHub's GraphQL. The message points to the REST form (`gh api repos/OWNER/REPO/pulls`), which works, and Coder is told so.
+  - **The network setting doesn't block it** (even None), as in Claude Code, because it goes to Coder's server, not the internet.
+  - **A job started from a GitHub comment can only read** through `gh`, since strangers can write the text that starts it.
+  - **On the machine, `GH_TOKEN` reads `proxy-injected`,** like Claude Code's placeholder. A GH_TOKEN or GITHUB_TOKEN you set yourself in the environment's variables passes through instead.
+- Tests: CD172 (the gate), CD173 (the server: only the chat's repositories, GraphQL refused, read-only from GitHub), CD174 (the machine). 183 tests pass.
+
 ## 2026-11-07: Item 2: auto-fix like Claude Code's
 
 - Item 2: auto-fix was always on, worked only on Coder's own pull requests, and didn't answer on GitHub.

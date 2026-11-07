@@ -196,6 +196,19 @@ and pushes of anything other than a branch"). Every command the AI runs is
 started as the unprivileged `dev` user, with no secrets in its environment.
 A test's machine (no `gitVia`) still uses its own remote.
 
+**`gh` uses your GitHub login, outside the machine too** (owner, 2026-11-07,
+item 6; like Claude Code's GitHub proxy, whose docs say `gh`'s requests "under
+the proxy-injected placeholder go out with your real credentials substituted").
+In a chat on a GitHub repository, the machine's gate sends `api.github.com` to
+the Worker with the job's pass (whatever the network setting), and the Worker
+puts the owner's login in (`githubApi` in `src/coder-egress.mjs`): only for the
+chat's own repositories, as `/repos/OWNER/REPO/...` (anything else: "GitHub
+access to ... is not enabled for this session"); GitHub's GraphQL, which
+`gh pr` and `gh issue` use, is refused with Claude Code's message naming
+`gh api repos/{owner}/{repo}/...`; a job started from GitHub may only read. The
+commands see `GH_TOKEN` and `GITHUB_TOKEN` as `proxy-injected`, as on Claude
+Code's machine, unless the owner set their own in the environment's variables.
+
 **Your Grok key never enters Coder's machine either** (owner, 2026-11-07,
 step 1 of: the Grok key out, each machine its own lock key, a sealed network
 room, the master key inside it). Each job is given a short pass for its AI calls

@@ -1425,14 +1425,19 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // THE NETWORK LIST (owner, 2026-11-06, "4"): with "limited" on, a firewall
     // leaves the proxy as the only way out, and the proxy checks the list.
     const secretList = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && ((Array.isArray(s.hosts) && s.hosts.some(okPattern)) || okHost(s.host))).slice(0, 20);
+    // `gh` WITH THE OWNER'S GITHUB LOGIN, PUT IN BY CODER'S SERVER (owner item 6, like Claude Code's GitHub
+    // proxy): for a chat on a GitHub repository whose job has a pass; the commands see the placeholder
+    // "proxy-injected", as on Claude Code's machine, unless the owner set their own GH_TOKEN or GITHUB_TOKEN.
+    const githubOn = !!body.repo && !!(body.egress && typeof body.egress.pass === "string" && body.egress.pass);
+    if (githubOn && !ownerVars.GH_TOKEN && !ownerVars.GITHUB_TOKEN) Object.assign(extraEnv, { GH_TOKEN: "proxy-injected", GITHUB_TOKEN: "proxy-injected" });
     const nn = normNetwork(body.setup && body.setup.network);
     const net = { ...nn, limited: nn.mode !== "full" };
     let secretHosts = [], proxyEnv = {}, px = null, netNote = "", walled = false;
     t.room = false;
-    if (secretList.length || net.limited) {
+    if (secretList.length || net.limited || githubOn) {
       try {
         px = await proxyFor();
-        px.setNetwork(net); px.setSecrets(secretList); px.setEgress(body.egress || null); secretHosts = secretList.length ? px.hosts() : [];
+        px.setNetwork(net); px.setSecrets(secretList); px.setEgress(body.egress || null); px.setGithub(githubOn); secretHosts = secretList.length ? px.hosts() : [];
         // web_fetch follows the list too: Claude Code's docs name only GitHub,
         // connectors, sites with a saved secret and its own API as skipping it.
         proxyEnv = { ...px.env(), ...(net.limited ? { CODER_NET_LIMITED: "1" } : {}) };
@@ -1448,7 +1453,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
     }
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
-    if (!secretList.length && !net.limited && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); } catch { /* not started */ } }
+    if (!secretList.length && !net.limited && !githubOn && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); p0.setGithub(false); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
     if (!net.limited) t.room = await enterRoom(px, false);
     // The master key's package installs (step 4) go through the gate when the network is limited.

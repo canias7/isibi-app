@@ -27,6 +27,51 @@ const text = (s, status = 400) => new Response(s, { status, headers: { "content-
 export const EGRESS_PATH = "/api/coder/egress";
 export const BODY_MAX = 10 * 1024 * 1024;
 
+/** Claude Code's own refusal, with Coder's name (its docs: "GitHub GraphQL is not available from Claude Code sessions", naming the REST fallback). */
+export const GRAPHQL_REFUSED = "GitHub GraphQL is not available from Coder's sessions. Use GitHub's REST API instead: gh api repos/{owner}/{repo}/... (gh pr and gh issue use GraphQL and are refused; gh api works).";
+
+/**
+ * GITHUB'S API FOR `gh` (owner, 2026-11-07, item 6: "gh: installed, but not logged in"). Like Claude Code's
+ * GitHub proxy (its docs, read 2026-11-07): `gh`'s requests, made with the placeholder "proxy-injected", go
+ * out with the owner's GitHub login put in here, never on the machine; only "for the repositories attached
+ * to the session" (others: "GitHub access to ... is not enabled for this session"); GraphQL is refused with
+ * the REST fallback named. A job started from GitHub (strangers can write there) may only read.
+ */
+export async function githubApi(request, env, bucket, uid, meta, target, { fetchFn = fetch } = {}) {
+  const path = target.pathname;
+  if (/^\/graphql(\/|$)/.test(path)) return text(GRAPHQL_REFUSED, 403);
+  const repos = [meta.repo, ...(Array.isArray(meta.repos) ? meta.repos.map((r) => r && r.repo) : [])].filter((r) => typeof r === "string" && r).map((r) => r.toLowerCase());
+  const m = /^\/repos\/([^/]+)\/([^/]+)(\/|$)/.exec(path);
+  let full = "";
+  try { full = m ? (decodeURIComponent(m[1]) + "/" + decodeURIComponent(m[2])).toLowerCase() : ""; } catch { full = ""; }
+  if (!m || !plainPath(path + target.search) || !repos.includes(full)) return text("GitHub access to " + (full || path.slice(0, 100)) + " is not enabled for this session: only this chat's repositories (" + repos.join(", ") + "), as gh api repos/OWNER/REPO/...", 403);
+  const h = request.headers;
+  const method = String(h.get("x-coder-method") || "GET").toUpperCase();
+  if (!/^[A-Z]{1,20}$/.test(method)) return text("bad method");
+  if (meta.jobFromGithub === true && !["GET", "HEAD"].includes(method)) return text("a job started from GitHub may only read through gh", 403);
+  const { userToken } = await import("./coder-github.mjs");
+  const t = await userToken(env, bucket, uid, { fetchFn });
+  if (!t) return text("connect GitHub again on gofarther.dev: the connection has ended", 403);
+  let asked = {};
+  try { asked = JSON.parse(dec.decode(Uint8Array.from(atob(String(h.get("x-coder-headers") || "e30").replace(/-/g, "+").replace(/_/g, "/")), (ch) => ch.charCodeAt(0)))); } catch { asked = {}; }
+  const headers = {};
+  for (const [k, v] of Object.entries(asked && typeof asked === "object" ? asked : {})) if (!HOP.test(k) && !/^(authorization|cookie|host)$/i.test(k) && typeof v === "string" && v.length < 8192) headers[k.toLowerCase()] = v;
+  headers.authorization = "Bearer " + t.token;
+  if (!headers["user-agent"]) headers["user-agent"] = "gofarther-coder";
+  let body = null;
+  if (!["GET", "HEAD"].includes(method)) {
+    const buf = new Uint8Array(await request.arrayBuffer());
+    if (buf.length > BODY_MAX) return text("the request body is over 10 MB", 413);
+    body = buf;
+  }
+  let r;
+  try { r = await fetchFn("https://api.github.com" + path + target.search, { method, headers, body, redirect: "manual" }); }
+  catch (e) { return text("Coder could not reach GitHub: " + String((e && e.message) || e).slice(0, 200), 502); }
+  const back = new Headers();
+  r.headers.forEach((v, k) => { if (!v.includes(t.token) && !/^(content-encoding|content-length|transfer-encoding|connection|set-cookie)$/i.test(k)) back.append(k, v); });
+  return new Response(r.body, { status: r.status, headers: back });
+}
+
 /** This job's pass: only the Worker can make it (CODER_TOKEN_KEY), only for one chat and one turn. */
 export async function egressPass(env, chat, turn) {
   const raw = String((env && env.CODER_TOKEN_KEY) || "");
@@ -123,11 +168,15 @@ export async function handleEgress(request, env, { fetchFn = fetch } = {}) {
   const [, uid, id] = m;
   let meta = null;
   try { const o = await bucket.get("coder/" + uid + "/" + id + "/meta.json"); meta = o ? JSON.parse(await o.text()) : null; } catch { meta = null; }
-  // Only a job that is running now, and never one started from GitHub (it gets no keys).
-  if (!meta || meta.status !== "running" || String(meta.turn) !== turn || meta.jobFromGithub === true) return text("that job is not running", 403);
+  // Only a job that is running now.
+  if (!meta || meta.status !== "running" || String(meta.turn) !== turn) return text("that job is not running", 403);
   let target;
   try { target = new URL(String(h.get("x-coder-url") || "")); } catch { return text("bad address"); }
   const host = target.hostname.toLowerCase();
+  // GITHUB'S API FOR `gh`, with the owner's GitHub login (owner item 6; githubApi).
+  if (host === "api.github.com" && target.protocol === "https:" && !target.username && !target.password && !target.port) return githubApi(request, env, bucket, uid, meta, target, { fetchFn });
+  // Never a saved key for a job started from GitHub (strangers can write there).
+  if (meta.jobFromGithub === true) return text("that job is not running", 403);
   if (target.protocol !== "https:" || target.username || target.password || target.port || !okHost(host) || !keyAllowed(host)) return text("only https to a named site");
   const path = target.pathname + target.search;
   const envData = await readEnvData(env, bucket, uid, meta.envId || (await envIdOf(bucket, uid, meta)));
