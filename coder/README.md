@@ -216,9 +216,20 @@ gate through a socket only root can open, and, with Full access only, the
 room's own user-mode internet link (`slirp4netns`). The AI has no rights over
 the room's network, and a change of setting mid-job reaches the room at once.
 A machine that cannot have the room runs commands as before, and Coder is told
-the list is then only a guard. `test/room.test.mjs` tries the room for real as
-root (the deploy runs it), and the GitHub machine check tries it in the full
-image with the real gate and real websites (`test/room-check.mjs`).
+the list is then only a guard. A room counts only when it can be entered
+(`makeRoom`): on Fly.io a sleeping machine keeps its own disk, `/run` with it,
+so after a restart only the room's name was left, and every job ran without the
+room (live test, 2026-11-07); now the name is taken away and the room made
+again. `test/room.test.mjs` tries the room for real as root, a restart
+included (the deploy runs it), and the GitHub machine check tries it in the
+full image with the real gate and real websites (`test/room-check.mjs`).
+
+**The machine's own disk, all of it** (live test, 2026-11-07). On Fly.io the
+machine's own changes go on its own disk (`/.fly-upper-layer`). A machine made
+before that disk could be 20 GB had the disk made bigger by Fly.io, not the
+filesystem on it (7.8 GB of 20). At start the service grows the filesystem to
+fill its disk while in use (`growOwnDisk`, `resize2fs` from e2fsprogs), without
+holding up the start; anything unexpected, and nothing is done.
 
 **The master key's jobs** (owner, 2026-11-07, step 4). Coder's commands install
 any Ubuntu package mid-job (`apt-get install`, `apt install`, `sudo apt-get

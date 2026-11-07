@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -53,6 +54,18 @@ test("CD140 the sealed room: commands reach Coder's gate and nothing else; they 
         assert.notEqual((await inRoom(cmd)).status, 0, cmd + " is refused");
       }
       assert.equal((await inRoom("curl -sS -m 5 http://127.0.0.1:" + gp + "/")).stdout, "gate ok", "and the room still works");
+      // A RESTART ON A KEPT DISK (live test, 2026-11-07: on Fly.io /run is kept while a machine sleeps):
+      // the room is gone and only its name is left, a plain file. It is made again, never taken for a room.
+      R.roomStop();
+      spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
+      writeFileSync(NS, "");
+      const enters = () => spawnSync("nsenter", ["--net=" + NS, "--", "true"], { stdio: "ignore" }).status === 0;
+      assert.equal(enters(), false, "only the name: no room to enter");
+      assert.equal(R.makeRoom({ ns: NS, name: NAME }), true, "made again");
+      assert.equal(enters(), true, "a real room");
+      assert.equal(await R.roomGate(gp, { ns: NS, sock: join(dir, "gate.sock"), dir }), true, "the pipe to the gate, again");
+      assert.equal((await inRoom("curl -sS -m 5 http://127.0.0.1:" + gp + "/")).stdout, "gate ok", "the gate, through the new room");
+      assert.notEqual((await inRoom("curl -sS -m 3 --noproxy '*' https://example.com/")).status, 0, "and still nothing else");
       // FULL ACCESS: the room's own link (slirp4netns), and away again.
       if (have("slirp4netns")) {
         assert.equal(await R.roomInternet(true, { ns: NS }), true, "the link is up");
