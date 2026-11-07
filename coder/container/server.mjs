@@ -903,9 +903,11 @@ export const UPPER_DISK = "/.fly-upper-layer";
 export function growOwnDisk({ mount = UPPER_DISK, root = typeof process.getuid === "function" && process.getuid() === 0, run = spawnSync, read = readFileSync, statfs = statfsSync, grow = (dev) => { const c = spawn("resize2fs", [dev], { stdio: "ignore", detached: true }); c.on("error", () => {}); c.unref(); } } = {}) {
   try {
     if (!root) return "not root";
-    const m = run("findmnt", ["-n", "-o", "SOURCE,FSTYPE", mount], { encoding: "utf8", timeout: 10000 });
-    const [dev, type] = String((m && m.stdout) || "").trim().split(/\s+/);
-    if (!/^\/dev\/vd[a-z]$/.test(dev || "") || type !== "ext4") return "no disk to grow";
+    // Fly.io's says "/dev/vdb[/upper]" (a folder on the disk; live test, 2026-11-07): the disk is what is before "[".
+    const m = run("findmnt", ["-n", "-o", "SOURCE,FSTYPE", "--nofsroot", mount], { encoding: "utf8", timeout: 10000 });
+    const [src, type] = String((m && m.stdout) || "").trim().split(/\s+/);
+    const dev = String(src || "").replace(/\[[^\]]*\]$/, "");
+    if (!/^\/dev\/vd[a-z]$/.test(dev) || type !== "ext4") return "no disk to grow";
     const disk = Number(String(read("/sys/class/block/" + dev.slice(5) + "/size", "utf8")).trim()) * 512;
     const s = statfs(mount);
     const fs = Number(s.blocks) * Number(s.bsize);
@@ -1451,6 +1453,6 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // On Fly.io, the chat's files live on its kept disk (CODER_DATA), the AI's home too; elsewhere its home is /home/dev.
   // Git goes through the Worker with each job's pass (your GitHub login never comes here).
   // The machine's own disk grows to the size Fly.io gave it (growOwnDisk), never holding up the start.
-  growOwnDisk();
+  console.log("coder: the machine's own disk: " + growOwnDisk());
   http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
 }
