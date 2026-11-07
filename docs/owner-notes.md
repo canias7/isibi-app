@@ -9,6 +9,12 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: A deploy no longer resets the chats' machines for nothing
+
+- Your word: "merge and deploy". Before that deploy: every deploy gave Coder's machine a new version name, even when nothing in the machine had changed. Each chat's machine then started its own disk fresh on its next wake and ran its setup again.
+- Now the name changes only when Coder's machine itself changes (its folder, `coder/container`). A deploy of anything else, like these notes or the website, leaves the machines and their kept disks as they are.
+- This deploy changes the name once, so each chat's machine starts fresh one last time.
+
 ## 2026-11-07: Your GitHub login stays off Coder's machines; a sleeping machine keeps what it installed (like Claude Code)
 
 - Your word: "Do 1 and 3", from the comparison with Claude Code.

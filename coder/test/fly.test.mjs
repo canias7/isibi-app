@@ -329,7 +329,11 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   assert.doesNotMatch(y, /echo (?!"::add-mask::)[^\n]*\$\{?(FLY_API_TOKEN|XAI_API_KEY|ck)\b/, "never shown (only masked)");
   assert.match(y, /echo "::add-mask::\$ck"/);
   assert.match(y, /printf 'XAI_API_KEY=%s\\nCODER_CONTROL_KEY=%s\\n' "\$XAI_API_KEY" "\$ck" \| flyctl secrets import -a "\$FLY_APP" --stage/, "keys from standard input, not a command line");
-  assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\{GITHUB_SHA::12\}"\n\s+docker build -t "\$img" container\n\s+docker push "\$img"/);
+  assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)"\n\s+docker build -t "\$img" container\n\s+docker push "\$img"/, "named after the machine's own folder: a deploy that does not change it leaves the machines as they are");
+  // The name is the same as long as coder/container is (a change elsewhere, like the notes, keeps it).
+  const { execFileSync } = await import("node:child_process");
+  const tree = (rev) => execFileSync("git", ["rev-parse", rev + ":coder/container"], { cwd: new URL("../..", import.meta.url).pathname }).toString().trim();
+  assert.match(tree("HEAD"), /^[0-9a-f]{40}$/);
   assert.match(y, /printf '%s' "\$FLY_API_TOKEN" \| npx --yes wrangler@4\.107\.0 secret put FLY_API_TOKEN/);
   assert.match(y, /command: deploy --var CODER_MACHINES:\$\{\{ steps\.fly\.outputs\.on == 'true' && 'fly' \|\| 'cloudflare' \}\} --var CODER_FLY_APP:\$\{\{ env\.FLY_APP \}\} --var CODER_FLY_IMAGE:\$\{\{ steps\.flyimage\.outputs\.image \|\| 'none' \}\}/);
 });

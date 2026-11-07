@@ -127,7 +127,10 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           flyctl auth docker
-          img="registry.fly.io/$FLY_APP:coder-${GITHUB_SHA::12}"
+          # THE VERSION NAME CHANGES ONLY WHEN CODER'S MACHINE DOES (2026-11-07): it is the
+          # git fingerprint of coder/container, so a deploy that changes nothing there leaves
+          # every chat's machine as it is (its kept disk, and no setup running again).
+          img="registry.fly.io/$FLY_APP:coder-$(git rev-parse HEAD:coder/container | cut -c1-12)"
           docker build -t "$img" container
           docker push "$img"
           echo "image=$img" >> "$GITHUB_OUTPUT"
