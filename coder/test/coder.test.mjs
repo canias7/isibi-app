@@ -438,9 +438,12 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
   const bucket = fakeBucket();
   const env = { ...GH_ENV, CODER_BUCKET: bucket };
   const base = fakeGithub();
+  let chatB = null;
   const fetchFn = async (url, init = {}) => {
     const u = String(url);
     if (u.startsWith("https://api.github.com/repos/ana/shop/compare/main...coder%2F")) return new Response(JSON.stringify({ files: [{ filename: "src/a.js", additions: 3, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b" }, { filename: "README.md", additions: 2, deletions: 0 }] }));
+    if (u.startsWith("https://api.github.com/repos/ana/shop/compare/release-2.4...coder%2F")) return new Response(JSON.stringify({ files: [{ filename: "CHANGELOG.md", additions: 1, deletions: 0, patch: "@@ -0,0 +1 @@\n+v3" }] }));
+    if (u.startsWith("https://api.github.com/repos/ana/shop/branches")) return new Response(JSON.stringify([{ name: "main" }, { name: "release-2.4" }, { name: "coder/other-chat" }, ...(chatB ? [{ name: chatB.branch }] : [])]));
     return base.fetchFn(url, init);
   };
   let turns = 0;
@@ -449,6 +452,7 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
   await connectGithub(go, env, deps);
   const a = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
   const b = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project;
+  chatB = b;
   assert.notEqual(a.id, b.id, "two chats on one repo share an id");
   assert.notEqual(a.branch, b.branch, "two chats on one repo share a branch");
   assert.equal((await go("projects/" + a.id + "/message", { method: "POST", body: JSON.stringify({ text: "Fix the checkout total when there is a discount, please, and run every test afterwards" }) })).status, 200);
@@ -463,7 +467,16 @@ test("CD17 chats: each is its own session (two on one repo get their own id and 
   assert.equal(meta.title, list[0].title);
   // SEE CHANGES: GitHub's compare of the chat's branch against the main branch.
   const ch = await (await go("projects/" + b.id + "/changes")).json();
-  assert.deepEqual(ch, { ok: true, add: 5, del: 1, files: [{ path: "src/a.js", add: 3, del: 1, patch: "@@ -1 +1 @@\n-a\n+b" }, { path: "README.md", add: 2, del: 0, patch: "" }] });
+  assert.deepEqual(ch, { ok: true, against: "main", add: 5, del: 1, files: [{ path: "src/a.js", add: 3, del: 1, patch: "@@ -1 +1 @@\n-a\n+b" }, { path: "README.md", add: 2, del: 0, patch: "" }] });
+  // COMPARE AGAINST ANOTHER BRANCH (owner item 4, like Claude Code's diff view): any of the repo's branches.
+  assert.deepEqual(await (await go("projects/" + b.id + "/changes?against=release-2.4")).json(), { ok: true, against: "release-2.4", add: 1, del: 0, files: [{ path: "CHANGELOG.md", add: 1, del: 0, patch: "@@ -0,0 +1 @@\n+v3" }] });
+  for (const bad of ["a..b", "x y", "-rf"]) assert.equal((await go("projects/" + b.id + "/changes?against=" + encodeURIComponent(bad))).status, 400, bad);
+  // Its list: every branch but the chat's own (other chats' too); the starting-branch list still leaves Coder's out.
+  assert.deepEqual((await (await go("projects/" + b.id + "/branches?all=1")).json()).branches, ["main", "release-2.4", "coder/other-chat"]);
+  assert.deepEqual((await (await go("projects/" + b.id + "/branches")).json()).branches, ["main", "release-2.4"]);
+  const ui2 = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui2, /'<div class="cd-compare"><label for="cdCompare">Compare against<\/label><select id="cdCompare">'/);
+  assert.match(ui2, /'\/changes' \+ \(S\.compareAgainst \? '\?against=' \+ encodeURIComponent\(S\.compareAgainst\) : ''\)/);
   // REMOVE: a running chat is refused; an idle one goes from the list.
   assert.equal((await go("projects/" + a.id, { method: "DELETE" })).status, 409);
   assert.equal((await go("projects/" + b.id, { method: "DELETE" })).status, 200);

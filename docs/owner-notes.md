@@ -9,6 +9,21 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 4: "Compare against" another branch in See changes
+
+- Item 4: See changes only compared with the chat's starting branch.
+- **Now, like Claude Code's diff view:** See changes has a "Compare against" list at its top. It starts at the chat's starting branch (marked "base"); pick any other branch of the repository, other chats' branches included, and the changes are shown against that one ("compared with release-2.4").
+- The pictures were made on a local copy of the page with made-up chat data.
+- Tests: CD17 now also checks comparing with another branch, refusing odd branch names, and the branch list. 173 tests pass.
+
+## 2026-11-07: Live test found a bug: a branch with a "1" in its name looked missing (fixed)
+
+- I started the live test myself on GitHub: issue #9 in testingforclaude, `@coder` asked to run admin commands.
+- **Coder could not start:** "canias7/testingforclaude has no branch named coder/testingforclaude-c51d". The branch exists. GitHub made it the repo's default branch, because an earlier Coder chat made the first branch there while the repo was empty.
+- **The real cause, a bug from today's earlier work** ("your GitHub login stays outside the machine"): the machine's git hid every value it sent to Coder's server in git's answers, so none could leak into the chat. One of those values is the job's number. For a chat's first job that is 1, so every "1" in git's answer became "[hidden]". The branch name no longer matched, and commit numbers were spoiled too.
+- **Fixed:** only the one secret value (the job's pass) is hidden. Test CD164 copies the live case and fails on the old code.
+- This needs a deploy before the live test can go on.
+
 ## 2026-11-07: Item 12: a security check on each edit, like Claude Code's
 
 - Item 12: nothing checked Coder's edits as it wrote them.
