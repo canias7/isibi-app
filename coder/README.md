@@ -356,6 +356,24 @@ says why it is safe; nothing is blocked. A repo adds its own rules in
 to 1 KB; 50 at most). Claude Code's two model-backed reviews (at the end of each
 turn, and on each commit) are not built: they cost model calls.
 
+**Long chats are summarized, not cut** (owner, 2026-11-07, items 3 and 9; like
+Claude Code's auto-compact, `/compact` and Rewind's summaries:
+`container/coder-compact.mjs`, `src/coder-summary.mjs`). Coder's own model
+writes each summary from a plain-text copy of that part of the conversation
+(tool answers cut short; no secrets kept); it stands in for those messages in
+what Coder reads (`messages.json`), while the chat (`events.json`) keeps every
+message, with a note where the summary stands. Before a job, a saved
+conversation past 300 KB has its older jobs summarized (the owner's newest
+three messages stay whole); if no summary can be made, the oldest part is cut
+as before. Within a job, past 450 KB, the job summarizes its own older steps
+(never between a tool's call and its answer, and never the saved history
+before the job), its newest eight rounds whole, at most three times a job.
+`/compact [what to keep]` makes the whole conversation one summary and starts
+no job. Rewind offers Claude Code's choices: Restore code and chat, chat only,
+code only (the code ones only when a later job changed files), Summarize from
+here and Summarize up to here (each with an optional focus); after the chat
+goes back, the message returns to the box. Rewind's points inside a summary go.
+
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 

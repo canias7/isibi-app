@@ -9,6 +9,22 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Items 3 and 9: long chats summarized, not cut; Rewind can summarize
+
+- Item 3: in a long chat Coder dropped the oldest part. Claude Code summarizes it.
+- Item 9: Rewind could not summarize. (Its three restore choices, code and chat, chat only and code only, were already there from an earlier session; the list was out of date on that point.)
+- **Now, like Claude Code:**
+  - **Before a job,** a chat that has grown large has its older jobs turned into one summary for Coder. Your newest three messages stay whole.
+  - **During a very long job,** Coder summarizes its own earlier steps to make room, and keeps its newest steps whole (Claude Code's "auto-compact").
+  - **`/compact`** in the chat turns the whole conversation into a summary without starting a job. You can add what to keep: `/compact keep the API notes`.
+  - **Rewind** has two new choices: "Summarize from here" and "Summarize up to here". Each asks what the summary should keep (optional).
+  - **Rewind's code choices** show only when a later job changed files.
+  - **After the chat goes back,** your message returns to the box, to send again or change.
+- The chat on your page still shows every message. A note marks where a summary stands in. Only what Coder reads is shortened.
+- Each summary is one Grok call (extra AI use, like Claude Code's). If a summary can't be made, nothing changes, and before a job the old cut is still the fallback.
+- Pictures of the new Rewind menu were made on a local copy of the page with made-up data.
+- Tests: CD165-CD168; CD105 updated. 177 tests pass.
+
 ## 2026-11-07: Item 4: "Compare against" another branch in See changes
 
 - Item 4: See changes only compared with the chat's starting branch.

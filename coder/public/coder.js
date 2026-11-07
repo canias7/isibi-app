@@ -160,29 +160,49 @@
   }
   // REWIND (like Claude Code's /rewind, 2026-11-06): back to before one of your messages.
   async function rewind(turn) {
-    const pick = await askPick('Rewind to before this message?', 'Coder goes back to how things were before you sent it. Code changes are undone with new commits on the branch, never deleted from GitHub.',
-      [['both', 'Restore code and chat'], ['chat', 'Restore chat only'], ['code', 'Restore code only']]);
+    if (!S.project) return;
+    // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
+    // later job changed files; Summarize from here / up to here; the message back in the box after the chat goes back.
+    const mark = (S.project.marks || []).find((m) => m.turn === turn);
+    const said = mark && S.events[mark.ev] && S.events[mark.ev].type === 'user' ? String(S.events[mark.ev].text || '') : '';
+    const changed = (S.project.commits || []).some((c) => Number(c.turn) >= turn);
+    const first = !(S.project.marks || []).some((m) => m.turn < turn);
+    const choices = [...(changed ? [['both', 'Restore code and chat']] : []), ['chat', changed ? 'Restore chat only' : 'Restore chat'], ...(changed ? [['code', 'Restore code only']] : []),
+      ['sumfrom', 'Summarize from here'], ...(first ? [] : [['sumupto', 'Summarize up to here']])];
+    const pick = await askPick('Rewind to this message?', (changed ? 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits on the branch, never deleted from GitHub. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
     if (!pick || !S.project) return;
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify({ turn, code: pick !== 'chat', chat: pick !== 'code' }) });
+    let body;
+    if (pick === 'sumfrom' || pick === 'sumupto') {
+      const focus = await askText('Summarize ' + (pick === 'sumfrom' ? 'from here' : 'up to here'), 'Anything the summary should keep? (Optional: leave it empty for a general summary.)', 'Summarize', '', { optional: true, max: 300 });
+      if (focus === null || !S.project) return;
+      body = { turn, summarize: pick === 'sumfrom' ? 'from' : 'upto', focus };
+    } else body = { turn, code: pick !== 'chat', chat: pick !== 'code' };
+    S.error = ''; S.rewinding = true; draw();
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify(body) });
+    S.rewinding = false;
     if (r.data && r.data.project) S.project = r.data.project;
-    if (r.status === 200 && r.data) { S.events = r.data.events || S.events; S.error = ''; }
-    else S.error = (r.data && r.data.error) || 'Could not rewind.';
+    if (r.status === 200 && r.data) {
+      S.events = r.data.events || S.events; S.error = '';
+      // The message comes back to the box, to send again or change (like Claude Code).
+      if ((pick === 'both' || pick === 'chat' || pick === 'sumfrom') && said && !S.draft) S.draft = said;
+    } else S.error = (r.data && r.data.error) || 'Could not rewind.';
     syncEntry(); draw();
   }
   // CODER'S OWN BOX WITH A TEXT FIELD (a new environment's name).
-  function askText(title, text, yes, value) {
+  // `o.optional`: an empty answer is an answer (""), not a Cancel; `o.max`: the longest answer.
+  function askText(title, text, yes, value, o = {}) {
     return new Promise((done) => {
       const wrap = document.createElement('div'); wrap.className = 'cd-sure';
       const box = document.createElement('div'); box.className = 'cd-sure-box is-text'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
       const h = document.createElement('div'); h.className = 'cd-sure-title'; h.textContent = title;
       const p = document.createElement('div'); p.className = 'cd-sure-text'; p.textContent = text;
-      const inp = document.createElement('input'); inp.className = 'cd-sure-in'; inp.maxLength = 40; inp.value = value || ''; inp.setAttribute('aria-label', title);
+      const inp = document.createElement('input'); inp.className = 'cd-sure-in'; inp.maxLength = o.max || 40; inp.value = value || ''; inp.setAttribute('aria-label', title);
       const row = document.createElement('div'); row.className = 'cd-sure-row';
       const no = document.createElement('button'); no.type = 'button'; no.className = 'cd-sure-no'; no.textContent = 'Cancel';
       const ok = document.createElement('button'); ok.type = 'button'; ok.className = 'cd-sure-yes'; ok.textContent = yes;
       row.append(no, ok); box.append(h, p, inp, row); wrap.append(box); document.body.append(wrap);
       const end = (v) => { wrap.remove(); done(v); };
-      no.onclick = () => end(null); ok.onclick = () => end(inp.value.trim() || null);
+      no.onclick = () => end(null); ok.onclick = () => end(inp.value.trim() || (o.optional ? '' : null));
       inp.onkeydown = (e) => { if (e.key === 'Enter') ok.click(); if (e.key === 'Escape') end(null); };
       wrap.onclick = (e) => { if (e.target === wrap) end(null); };
       inp.focus(); inp.select();
@@ -402,6 +422,8 @@
       if (r.data && r.data.connect) S.phase = 'connect';
       return draw();
     }
+    // /compact (like Claude Code's): the summary is made; no job runs.
+    if (r.data.compacted) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); syncEntry(); return draw(true); }
     S.project = r.data.project; S.running = true; syncEntry();
     S.next = 0;
     startPoll(); draw(true);

@@ -18,6 +18,7 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
+import { summaryRequest, summaryMessage, cutPoint } from "./coder-compact.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
@@ -36,6 +37,8 @@ export const WRITE_MAX = 1_000_000;
 /** Commands that need root, which the setup script's own lines (run as `dev`) never have (live test, 2026-11-06). Plain `apt-get install -y <packages>` lines are the exception: Coder's app does those as root (see splitSetup). */
 export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitude|dpkg|yum|dnf|apk|zypper|pacman)(?=\s|$)/m;
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
+/** A job's conversation past this many characters has its older steps summarized (owner item 3). */
+export const COMPACT_AT = 450_000;
 /** The file tools after which the service may add something for that file (afterFile). */
 export const FILE_HOOK_TOOLS = new Set(["read", "edit", "write"]);
 export const RUN_TOOLS = {
@@ -210,6 +213,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   const convo = Array.isArray(messages) ? messages.slice() : [];
+  // WHERE THIS JOB BEGINS: what is before it is the chat's saved history (the Worker summarizes that
+  // between jobs); this job may summarize only its own steps, after the owner's message (compactJob).
+  const jobStart = convo.length;
+  let compactions = 0;
   // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
   // history keeps a note in their place (so it stays small).
   const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
@@ -244,6 +251,21 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     if (rounds >= maxRounds) { emit({ type: "error", text: "Coder reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
     if (now() - started > maxMs) { emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
     rounds++;
+    // A LONG JOB IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact "when the context
+    // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
+    const room = deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT;
+    if (room && compactions < 3 && JSON.stringify(convo).length > room) {
+      const cutAt = cutPoint(convo, jobStart + 1, 8);
+      if (cutAt > 0) {
+        let text = "";
+        try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt)), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
+        if (text) {
+          convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room"));
+          compactions++;
+          emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows them all." });
+        }
+      }
+    }
     let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }

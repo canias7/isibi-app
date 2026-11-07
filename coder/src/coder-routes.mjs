@@ -35,6 +35,8 @@ import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, n
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB } from "./coder-fly.mjs";
+import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
+import { summaryMessage } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
@@ -447,6 +449,8 @@ export async function handleCoder(request, env, ctx, deps) {
   const box = () => deps.container(uid + "-" + id);
   const call = (path, init) => box().fetch(new Request("http://coder" + path, init));
   const post = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
+  // A SUMMARY BY CODER'S OWN MODEL (owner items 3 and 9), on this Worker (deps.summarize in tests).
+  const summarizeFn = (m, f) => (typeof deps.summarize === "function" ? deps.summarize(m, f) : summarize(env, m, f, { fetchFn }));
   const action = parts[2] || "";
 
   if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []) });
@@ -462,11 +466,39 @@ export async function handleCoder(request, env, ctx, deps) {
     if (!text && !pics.images.length) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
     if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
+    // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
+    // optional focus instructions"): the conversation so far becomes one summary for Coder; no job runs.
+    const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(said);
+    if (compact && !notes && !pics.images.length) {
+      const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+      if (!Array.isArray(msgs) || !msgs.length) return json({ error: "There is nothing to summarize yet." }, 400);
+      const focus = String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300);
+      const sum = await summarizeFn(msgs, focus);
+      if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
+      const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      const ev = { at: Date.now(), type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
+      await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""))]);
+      await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, ev].slice(-MAX_EVENTS));
+      const next = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: msgs.length }), at: Date.now() };
+      await saveMeta(bucket, uid, next);
+      return json({ ok: true, project: next, events: [ev], compacted: true });
+    }
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again: the connection has ended", connect: true }, 409);
     const running = (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length;
     if (running >= maxRunning(env)) return json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429);
-    const messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    // A LONG CHAT IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact): past
+    // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
+    let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
+    const squeezed = await compactHistory(messages, summarizeFn);
+    if (squeezed.to) {
+      messages = squeezed.messages;
+      await putJson(bucket, keyOf(uid, id, "messages.json"), messages);
+      const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, { at: Date.now(), type: "note", text: "Compacted: the earlier part of this chat is now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows it all." }].slice(-MAX_EVENTS));
+      baseMarks = marksAfter(baseMarks, { from: squeezed.from, to: squeezed.to });
+    }
     const saved = await getJson(bucket, settingsKey(uid), {});
     const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
     // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message).
@@ -499,7 +531,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
     // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
     const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
-    const marks = [...(Array.isArray(meta.marks) ? meta.marks : []), { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+    const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
     const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true };
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
@@ -733,6 +765,28 @@ export async function handleCoder(request, env, ctx, deps) {
     const turn = Number(body.turn), code = body.code === true, chat = body.chat === true;
     const mark = (Array.isArray(meta.marks) ? meta.marks : []).find((m) => m.turn === turn);
     if (!mark) return json({ error: "That message is too old to rewind to here." }, 400);
+    // SUMMARIZE FROM HERE / UP TO HERE (owner item 9, like Claude Code's Rewind: "compress the conversation
+    // from this point forward" / "before this point into a summary, keeping later messages intact"; the
+    // original messages stay in the chat; an optional focus guides it). Files are never touched.
+    const sumWay = body.summarize === "from" || body.summarize === "upto" ? body.summarize : "";
+    if (sumWay) {
+      const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+      const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      const [from, to] = sumWay === "upto" ? [0, Math.min(mark.msg, msgs.length)] : [Math.min(mark.msg, msgs.length), msgs.length];
+      if (to - from < 1) return json({ error: sumWay === "upto" ? "There is nothing before this message to summarize." : "There is nothing from this message on to summarize." }, 400);
+      const focus = String(body.focus || "").replace(/\s+/g, " ").trim().slice(0, 300);
+      const sum = await summarizeFn(msgs.slice(from, to), focus);
+      if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
+      const what = sumWay === "upto" ? "everything before one of the owner's messages (Rewind: Summarize up to here)" : "one of the owner's messages and everything after it (Rewind: Summarize from here)";
+      const ev = { at: Date.now(), type: "note", text: "Summarized conversation: " + (sumWay === "upto" ? "everything above this point" : "this point and everything below it") + " is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
+      const evAt = Math.max(0, Math.min(mark.ev, evs.length));
+      const nextEvs = [...evs.slice(0, evAt), ev, ...evs.slice(evAt)].slice(-MAX_EVENTS);
+      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : "")), ...msgs.slice(to)]));
+      await putJson(bucket, keyOf(uid, id, "events.json"), nextEvs);
+      const next = { ...meta, marks: marksAfter(meta.marks, { from, to, evAt }), at: Date.now() };
+      await saveMeta(bucket, uid, next);
+      return json({ ok: true, project: next, events: nextEvs, summarized: sumWay });
+    }
     if (!code && !chat) return json({ error: "Choose the code, the chat, or both." }, 400);
     let commits = Array.isArray(meta.commits) ? meta.commits : [];
     const later = commits.filter((c) => Number(c.turn) >= turn).reverse();
