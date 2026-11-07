@@ -9,7 +9,13 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
-## 2026-11-07: The second test: the start fix worked, and a step 1 slip found (fix on the branch, not deployed yet)
+## 2026-11-07: Deployed: the Grok pass fix
+
+- Your word: "ok". Main 33f8a97d, run 42355635500, every step passing. The machine image didn't change.
+- **Live checks:** the site answers, the app refuses anyone not signed in, and the Grok address refuses a request with no pass.
+- **Next:** your third test comment on testingforclaude #2.
+
+## 2026-11-07: The second test: the start fix worked, and a step 1 slip found (now deployed)
 
 - Your second test comment (08:19:59) got "On it" in 4 seconds. The job started at the next minute's check, and the comment was updated at 08:22. So the start fix works live.
 - **But the job failed:** "The AI could not be reached: no AI key in Coder's container".
