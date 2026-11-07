@@ -219,3 +219,21 @@ test("CD156 Trusted is Claude Code's whole default list (owner, 2026-11-07, item
   for (const h of ["www.github.com", "www.nodejs.org", "www.pypi.org", "www.rust-lang.org", "claude.ai", "api.anthropic.com", "www.anthropic.com"]) assert.equal(hostAllowed(h, trusted), true, h);
   assert.equal(hostAllowed("www.example.com", trusted), false);
 });
+
+test("CD163 every module Coder's service loads, directly or through another, is copied into the image (a new one left out would stop the machine at its start)", () => {
+  const D = readFileSync(HERE("container/Dockerfile"), "utf8");
+  const line = (D.match(/^COPY package\.json server\.mjs ([^\n]*) \.\/$/m) || [])[1] || "";
+  const copied = new Set(["server.mjs", ...line.split(/\s+/)]);
+  const seen = new Set(), todo = ["server.mjs"];
+  while (todo.length) {
+    const f = todo.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    const src = readFileSync(HERE("container/" + f), "utf8");
+    for (const m of src.matchAll(/(?:from\s+|import\(\s*)["']\.\/([\w.-]+\.mjs)["']/g)) todo.push(m[1]);
+    for (const m of src.matchAll(/new URL\(\s*["']\.\/([\w.-]+\.(?:mjs|sh))["']/g)) todo.push(m[1]);
+  }
+  const missing = [...seen].filter((f) => !copied.has(f));
+  assert.deepEqual(missing, [], "not in the image: " + missing.join(" "));
+  assert.ok(seen.has("coder-security.mjs") && seen.has("coder-globs.mjs") && seen.has("coder-sandbox-init.sh"));
+});

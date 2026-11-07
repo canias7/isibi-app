@@ -9,6 +9,22 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 12: a security check on each edit, like Claude Code's
+
+- Item 12: nothing checked Coder's edits as it wrote them.
+- **Now, like Claude Code's security check on each edit:** everything Coder writes is matched against risky patterns:
+  - code that runs text (`eval(`, `new Function`, shell commands built from text);
+  - loading untrusted data (`pickle`, unsafe `yaml.load`);
+  - putting raw HTML on a page (`innerHTML =`, `dangerouslySetInnerHTML`, `document.write`);
+  - database queries built from text;
+  - private keys in files;
+  - any edit to GitHub workflow files.
+- A match adds a warning to Coder's next step, and Coder fixes it or says why it is safe. Nothing is blocked. Each warning shows once per file per job, so it doesn't flood the chat.
+- It uses no AI calls, so it costs nothing.
+- A repo can add its own rules in `.coder/security-patterns.json` (or `.yaml`), with the same fields as Claude Code's file.
+- Not built: Claude Code's two deeper reviews (one after each turn, one on each commit). Each uses extra AI calls. Say if you want them.
+- Tests: CD160 (the patterns, and look-alikes they leave alone), CD161 (a repo's own rules), CD162 (a real job: the warning reaches Coder). Also CD163: every file Coder's service needs is copied into the machine image, so a new file can never be left out. 172 tests pass.
+
 ## 2026-11-07: Item 10: AGENTS.md and a rules folder, like Claude Code
 
 - Item 10: Coder read only CODER.md.

@@ -341,6 +341,21 @@ told at the start which ones wait for which files. All are read by root before
 any of the AI's commands run; `node_modules`, `.git` and build folders are not
 searched.
 
+**A security check on each edit** (owner, 2026-11-07, item 12; like Claude
+Code's security-guidance check on each file edit, with no model call:
+`container/coder-security.mjs`). What Coder writes (`write`: the whole file;
+`edit`: what goes in) is matched against risky patterns: dynamic code (`eval(`,
+`new Function`, `os.system`, `shell=True`, `child_process.exec`), unsafe
+deserialization (`pickle`, `yaml.load` without SafeLoader), DOM injection
+(`dangerouslySetInnerHTML`, `.innerHTML =`, `document.write`), queries built from
+text, private keys, and any edit to `.github/workflows/`. A match adds a warning
+to that tool's answer, once a job for each rule and file, and Coder fixes it or
+says why it is safe; nothing is blocked. A repo adds its own rules in
+`.coder/security-patterns.json`, `.yaml` or `.yml`, with Claude Code's fields
+(`rule_name`, `regex` or `substrings`, `paths`, `exclude_paths`, `reminder` up
+to 1 KB; 50 at most). Claude Code's two model-backed reviews (at the end of each
+turn, and on each commit) are not built: they cost model calls.
+
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
 
