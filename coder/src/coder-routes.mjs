@@ -210,6 +210,41 @@ export async function listChats(bucket, uid) {
   const metas = await Promise.all(keys.map((k) => getJson(bucket, k, null)));
   return metas.filter((m) => m && m.id).map(listEntry).sort((a, b) => (b.at || 0) - (a.at || 0));
 }
+/**
+ * AUTO-FIX FOR A PULL REQUEST, ASKED FOR IN THE CHAT (owner item 2; Claude Code's docs, read 2026-11-07:
+ * "Any existing PR: paste the PR URL into a session and tell Claude to auto-fix it"; "tell Claude to stop
+ * watching the PR"). Only a pull request of the chat's repository whose branch is there too (a fork's
+ * cannot be pushed to), and not one another chat already has; the chat then works on its branch.
+ * Answers { note, meta? } (meta: what changes on the chat).
+ */
+export async function autofixFor(env, bucket, uid, meta, want, token, fetchFn = fetch) {
+  const on = !(want && want.on === false);
+  const m = /^(?:https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/)?#?(\d{1,9})(?:[/?#].*)?$/.exec(String((want && want.pr) || "").trim());
+  if (!m) return { note: "Auto-fix was not changed: give the pull request's address or number." };
+  const repo = m[1] || meta.repo, number = Number(m[2]);
+  if (repo.toLowerCase() !== String(meta.repo).toLowerCase()) return { note: "Auto-fix was not changed: pull request #" + number + " is in " + repo + "; open a chat on that repository for it." };
+  if (!on) {
+    if (meta.pr && Number(meta.pr.number) === number && meta.autofix === true) return { meta: { autofix: false }, note: "Auto-fix is off for pull request #" + number + "." };
+    return { note: "Auto-fix was not on for pull request #" + number + " in this chat." };
+  }
+  const r = await gh(token, "/repos/" + meta.repo + "/pulls/" + number, { fetchFn });
+  const d = r && r.ok && r.data ? r.data : null;
+  if (!d) return { note: "Auto-fix was not turned on: GitHub shows no pull request #" + number + " in " + meta.repo + " that Coder can see." };
+  if (d.state !== "open") return { note: "Auto-fix was not turned on: pull request #" + number + " is closed." };
+  const head = d.head || {}, into = d.base || {};
+  if (!head.repo || !into.repo || head.repo.id !== into.repo.id) return { note: "Auto-fix was not turned on: pull request #" + number + " comes from a fork, whose branch Coder cannot push to." };
+  const branch = String(head.ref || ""), base = String(into.ref || "");
+  if (!BRANCH.test(branch) || !BRANCH.test(base)) return { note: "Auto-fix was not turned on: pull request #" + number + "'s branch has a name Coder cannot use." };
+  const owner = await getJson(bucket, branchKey(meta.repo, branch), null);
+  if (owner && !(owner.uid === uid && owner.id === meta.id)) return { note: "Auto-fix was not turned on: pull request #" + number + "'s branch belongs to another chat; turn it on there." };
+  if (!owner) await bucket.put(branchKey(meta.repo, branch), JSON.stringify({ uid, id: meta.id }), { httpMetadata: { contentType: "application/json" } });
+  const moved = branch !== meta.branch;
+  return {
+    meta: { autofix: true, autofixTries: 0, pr: { number, url: String(d.html_url || "") }, ...(moved ? { branch, base, commits: [], pushed: true } : {}) },
+    note: "Auto-fix is on for pull request #" + number + ": when a check fails or you review it, Coder fixes it in this chat" + (moved ? ", on its branch " + branch + " (this chat now works on that branch)" : "") + ". Turn it off with the Auto-fix button, or ask Coder.",
+  };
+}
+
 /** How long a chat may say "working" with no machine answering before it is freed. */
 export const STALE_MS = 15 * 60 * 1000;
 /**
@@ -532,7 +567,11 @@ export async function handleCoder(request, env, ctx, deps) {
     // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
     const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
     const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
-    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true };
+    // THE REVIEW THREAD AN AUTO-FIX JOB MAY ANSWER IN (owner item 2, like Claude Code's auto-fix: it "may reply
+    // to review comment threads"): only one GitHub's news started the job for; kept for its end.
+    const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
+    const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
+    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
     // minutes, and Cloudflare stops a request whose tab has closed; the watch
@@ -554,7 +593,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn } }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -626,6 +665,8 @@ export async function handleCoder(request, env, ctx, deps) {
       // button comes back for the next one.
       let pr = meta.pr || null, pushNote = "", pushed = !!meta.pushed, prs = meta.prs || {};
       const extraNotes = [];
+      // What an auto-fix asked for in the chat changes on the chat (autofixFor).
+      const afMeta = {};
       // Each job that changed files is one commit: kept so it can be undone.
       let commits = Array.isArray(meta.commits) ? meta.commits : [];
       const t = await userToken(env, bucket, uid, { fetchFn });
@@ -687,6 +728,27 @@ export async function handleCoder(request, env, ctx, deps) {
         const note = !(t && pr && pr.number) ? "No pull request yet: the review stays in this chat." : x && x.ok ? "Review posted on pull request #" + pr.number + (x.inline ? "" : " (as one comment: GitHub took no line comments)") + "." : "The review could not be posted on GitHub.";
         pushNote = (pushNote ? pushNote + " · " : "") + note;
       }
+      // REPLIES IN REVIEW THREADS (owner item 2, like Claude Code's auto-fix: "posted using your GitHub
+      // account ... each reply is labeled as coming from Claude Code"): only in the thread this job was for.
+      const rr = Array.isArray(s.result.reviewReplies) ? s.result.reviewReplies.slice(0, 10) : [];
+      if (rr.length) {
+        const allow = meta.jobReplyTo && Array.isArray(meta.jobReplyTo.ids) ? meta.jobReplyTo : null;
+        let done = 0;
+        for (const x of rr) {
+          if (!allow || !t || !allow.ids.includes(Number(x && x.id))) continue;
+          const r = await gh(t.token, "/repos/" + meta.repo + "/pulls/" + Number(allow.pr) + "/comments/" + Number(x.id) + "/replies", { method: "POST", body: { body: String(x.body || "").slice(0, 4000) + "\n\n— Coder (gofarther.dev), for @" + (t.login || "the owner") }, fetchFn }).catch(() => null);
+          if (r && r.ok) done++;
+        }
+        extraNotes.push(done ? "Answered in " + done + " review thread" + (done > 1 ? "s" : "") + " on pull request #" + allow.pr + " (as you, marked as Coder's)." : "No answer was posted on GitHub" + (allow ? " (GitHub refused it)." : ": only the review comment this job was started for can be answered."));
+      }
+      // AUTO-FIX, ASKED FOR IN THE CHAT (owner item 2, like Claude Code: "paste the PR URL into a session and
+      // tell Claude to auto-fix it", or "tell Claude to stop watching the PR").
+      const afWant = s.result.autofixRequest;
+      if (afWant) {
+        const r = t ? await autofixFor(env, bucket, uid, meta, afWant, t.token, fetchFn) : { note: "Auto-fix was not changed: connect GitHub again first." };
+        if (r.meta) Object.assign(afMeta, r.meta);
+        extraNotes.push(r.note);
+      }
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
@@ -699,7 +761,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // The oldest history may have been trimmed: Rewind's marks move with it.
       const dropM = (Array.isArray(s.result.messages) ? s.result.messages.length : 0) - kept.length, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
-      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
+      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
@@ -823,7 +885,7 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, project: next, events });
   }
 
-  // AUTO-FIX ON/OFF for this chat's pull request (on unless turned off).
+  // AUTO-FIX ON/OFF for this chat's pull request (off until turned on, like Claude Code's: owner item 2).
   if (action === "autofix" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const next = { ...meta, autofix: body.on !== false, autofixTries: 0 };

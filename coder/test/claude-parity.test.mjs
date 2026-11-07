@@ -41,7 +41,7 @@ test("CD100 GitHub like Claude Code: strangers get no reply and cost one search 
   const r = await M.startAutofix({ CODER_USERS: "me@x.y", CODER_BUCKET: b2 }, { coder, fetchFn }, { kind: "review", repo: "ana/shop", branch: "coder/shop-1", number: 3, login: "ana", text: "Maybe rename this?", installation: 7 });
   assert.equal(r.ok, true);
   await M.runMentionJobs({ CODER_USERS: "me@x.y", CODER_BUCKET: b2 }, { coder, fetchFn });
-  assert.match(sent[0].text, /If it is unclear what the reviewer wants, change nothing: ask the owner with ask_user/);
+  assert.match(sent[0].text, /If it is unclear what the reviewer wants, or the change would be large, change nothing: ask the owner with ask_user/);
 
   // A question from a GitHub job shows its choices (the new card's options are objects).
   const t = M.finalText({ login: "ana", repo: "ana/shop" }, { branch: "coder/shop-1", base: "main" }, [

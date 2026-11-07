@@ -689,7 +689,7 @@
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b><span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
-      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === false ? '' : ' on') + '" id="cdAutofix" title="When a check fails or you review the pull request, Coder fixes it (up to 3 tries in a row)">Auto-fix: ' + (p.autofix === false ? 'Off' : 'On') + '</button>' : '') +
+      (p && p.pr && p.pr.url ? '<a class="cd-pr" href="' + esc(p.pr.url) + '" target="_blank" rel="noopener">Pull request #' + esc(p.pr.number) + '</a><button type="button" class="cd-hbtn cd-autofix' + (p.autofix === true ? ' on' : '') + '" id="cdAutofix" title="Like Claude Code\'s auto-fix: when one of its checks fails or you review it, Coder fixes it in this chat (up to 3 tries in a row). Off until you turn it on.">Auto-fix: ' + (p.autofix === true ? 'On' : 'Off') + '</button>' : '') +
       // CREATE PR / CREATE DRAFT PR, like Claude Code's buttons (owner, 2026-11-06:
       // "Finish all this"): once the branch has work and no pull request yet.
       // Coder writes the title and description from the changes.
@@ -978,7 +978,7 @@
     on('[data-rewind]', 'click', (e) => rewind(Number(e.currentTarget.dataset.rewind)));
     on('#cdMakePr', 'click', () => send(PR_ASK));
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
-    on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix === false }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
+    on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix !== true }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
     on('#cdBaseSel', 'change', (e) => pickBase(e.currentTarget.value));
     on('#cdAddRepo', 'change', (e) => { const v = e.currentTarget.value; if (v) changeRepos(v, true); });
     on('[data-unrepo]', 'click', (e) => changeRepos(e.currentTarget.dataset.unrepo, false));

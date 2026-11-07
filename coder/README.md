@@ -397,6 +397,22 @@ when its message went in, and otherwise Coder says on GitHub that starting took
 too long. Live test, 2026-11-07: before this, a job whose start took minutes
 had no record, so its "On it" comment never changed.
 
+**Auto-fix, like Claude Code's** (owner, 2026-11-07, item 2; its docs: "turn on
+Auto-fix", "paste the PR URL into a session and tell Claude to auto-fix it",
+"tell Claude to stop watching the PR"). Off until turned on for a pull request:
+with the chat's Auto-fix button, or by asking Coder in the chat (its `auto_fix`
+tool; never from a job GitHub started), for any open pull request of the chat's
+repository (never a fork's, whose branch cannot be pushed to, nor one another
+chat has): the chat then works on that pull request's branch (`autofixFor`,
+applied when the turn ends; its branch is recorded, `branchKey`). With it on, a
+failed check on the pull request's newest commit, or the owner's review, starts
+a job in its chat (up to 3 in a row without the owner writing). Nothing is
+posted on the pull request: Coder explains in the chat, asks first when a
+comment is unclear, and, for a review comment, may answer in that comment's
+thread (`reply_review`, only that thread), posted at the job's end as the owner
+and marked "— Coder (gofarther.dev), for @owner". Like Claude Code's, it cannot
+react to a merge conflict (GitHub sends no news when the base branch moves).
+
 ## Deploy
 
 The **deploy coder** button (`.github/workflows/deploy-coder.yml`), pressed by

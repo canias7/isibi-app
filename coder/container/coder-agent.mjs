@@ -90,6 +90,18 @@ export const CODER_TOOLS = Object.freeze([
     description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository.",
     parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
   } },
+  // AUTO-FIX, LIKE CLAUDE CODE'S (owner item 2; its docs: "paste the PR URL into a session and tell Claude
+  // to auto-fix it", "tell Claude to stop watching the PR").
+  { type: "function", function: {
+    name: "auto_fix",
+    description: "Turn auto-fix on (or off) for a pull request, ONLY when the owner asks (\"watch this PR and fix any CI failures or review comments\", \"auto-fix PR 12\", \"stop watching it\"). Give its address or number; it must be in this chat's repository (a fork's cannot be watched). With it on, when one of its checks fails or the owner reviews it, a new job in this chat fixes it on that pull request's branch (this chat then works on that branch). It takes effect when your turn ends.",
+    parameters: { type: "object", properties: { pr: { type: "string" }, on: { type: "boolean" } }, required: ["pr"] },
+  } },
+  { type: "function", function: {
+    name: "reply_review",
+    description: "In an auto-fix job started by a review comment, answer in that comment's thread on GitHub, once you have resolved it: one or two sentences on what you changed, or why nothing needed to change. It is posted as the owner, marked as written by Coder, when your turn ends. Only the comment this job was started for.",
+    parameters: { type: "object", properties: { comment_id: { type: "integer" }, body: { type: "string" } }, required: ["comment_id", "body"] },
+  } },
 ]);
 
 // THE MACHINE'S TOOLS (owner, 2026-11-07: "can we install all the tools we need?").
@@ -208,7 +220,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", setupScript = "", setupFailed = null, lastJob = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -228,7 +240,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const usage = [];
   const started = now();
   let rounds = 0;
-  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [];
+  let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null;
+  const reviewReplies = [];
+  // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
+  const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
   // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
   // reminded once, before it finishes, to offer them for the setup script.
   const installs = new Set(); let nudged = false;
@@ -244,7 +259,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]" } : m);
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(noPics)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(noPics), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(noPics), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -465,6 +480,21 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reviewPost = { summary: scrub(String(c.args.summary || "").trim()).slice(0, 4000), comments: list };
         emit({ type: "pr", text: "Review for the pull request: " + list.length + " comment" + (list.length > 1 ? "s" : "") });
         reply("ok: the " + list.length + " comment" + (list.length > 1 ? "s are" : " is") + " posted on the pull request when your turn ends (if the chat has one). Finish by telling the owner what you found.");
+      } else if (c.name === "auto_fix") {
+        // From GitHub (strangers can write there) the owner's settings are never changed.
+        if (github) { reply("error: auto-fix is turned on or off from the chat on gofarther.dev, not from GitHub; tell the owner in your answer"); continue; }
+        const pr = String(c.args.pr || "").trim().slice(0, 300);
+        if (!pr) { reply("error: give the pull request's address or number"); continue; }
+        autofixRequest = { pr, on: c.args.on !== false };
+        emit({ type: "pr", text: "Auto-fix " + (autofixRequest.on ? "on" : "off") + " for " + pr });
+        reply("ok: auto-fix is turned " + (autofixRequest.on ? "on" : "off") + " for that pull request when your turn ends (the chat says whether it worked). Finish by telling the owner.");
+      } else if (c.name === "reply_review") {
+        const cid = Number(c.args.comment_id), body = scrub(String(c.args.body || "").trim()).slice(0, 2000);
+        if (!replyIds.includes(cid)) { reply("error: only the review comment this auto-fix job was started for can be answered" + (replyIds.length ? " (" + replyIds.join(", ") + ")" : " (none in this job)")); continue; }
+        if (!body) { reply("error: write the answer"); continue; }
+        if (reviewReplies.length < 10) reviewReplies.push({ id: cid, body });
+        emit({ type: "pr", text: "Answer for review comment " + cid + " on GitHub" });
+        reply("ok: posted in that comment's thread on GitHub when your turn ends.");
       } else if (c.name === "pull_request") {
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);

@@ -240,23 +240,26 @@ export function readAutofix(event, p) {
     const rid = p.repository.id;
     const pr = (p.check_run.pull_requests || []).find((x) => x && x.head && x.head.repo && x.head.repo.id === rid && x.base && x.base.repo && x.base.repo.id === rid);
     const branch = pr && pr.head.ref;
-    if (!branch || !/^coder\//.test(branch)) return null;
+    // ANY PULL REQUEST INSIDE THIS REPOSITORY (owner item 2, like Claude Code's auto-fix: "Any existing
+    // PR"): its chat is found by its branch (branchKey); one nobody watches goes no further.
+    if (!branch) return null;
     const o = p.check_run.output || {};
     return { kind: "check", repo, branch, number: pr.number, sha: String(p.check_run.head_sha || ""), installation: p.installation.id, checkId: p.check_run.id, appSlug: p.check_run.app && p.check_run.app.slug,
       text: "The check \"" + String(p.check_run.name || "").slice(0, 120) + "\" failed (" + p.check_run.conclusion + ")" + (o.title ? ": " + String(o.title).slice(0, 200) : "") + (o.summary ? "\n" + String(o.summary).slice(0, 2000) : "") + (o.text ? "\n" + String(o.text).slice(0, 3000) : "") };
   }
   const sameRepo = (pr) => !!(pr && pr.head && pr.head.repo && pr.head.repo.id === p.repository.id);
-  if (event === "pull_request_review" && p.action === "submitted" && p.review && sameRepo(p.pull_request) && /^coder\//.test(p.pull_request.head.ref || "")) {
+  if (event === "pull_request_review" && p.action === "submitted" && p.review && sameRepo(p.pull_request) && p.pull_request.head.ref) {
     if (p.sender && p.sender.type === "Bot") return null;
     if (p.review.state === "approved" || !String(p.review.body || "").trim() && p.review.state !== "changes_requested") return null;
     if (MENTION.test(String(p.review.body || ""))) return null; // an @coder mention is handled as one
     return { kind: "review", repo, branch: p.pull_request.head.ref, number: p.pull_request.number, installation: p.installation.id, login: String(p.sender && p.sender.login || ""),
       text: "@" + (p.sender && p.sender.login) + " reviewed your pull request (" + p.review.state.replace("_", " ") + "):\n" + String(p.review.body || "(no text; see their line comments)").slice(0, 4000) };
   }
-  if (event === "pull_request_review_comment" && p.action === "created" && p.comment && sameRepo(p.pull_request) && /^coder\//.test(p.pull_request.head.ref || "")) {
+  if (event === "pull_request_review_comment" && p.action === "created" && p.comment && sameRepo(p.pull_request) && p.pull_request.head.ref) {
     if (p.sender && p.sender.type === "Bot") return null;
     if (MENTION.test(String(p.comment.body || ""))) return null;
-    return { kind: "review", repo, branch: p.pull_request.head.ref, number: p.pull_request.number, installation: p.installation.id, login: String(p.sender && p.sender.login || ""),
+    // Its id: Coder may answer in that comment's thread (like Claude Code, which "may reply to review comment threads").
+    return { kind: "review", repo, branch: p.pull_request.head.ref, number: p.pull_request.number, installation: p.installation.id, login: String(p.sender && p.sender.login || ""), commentId: Number(p.comment.id) || 0,
       text: "@" + (p.sender && p.sender.login) + " commented on " + String(p.comment.path || "") + (p.comment.line ? " line " + p.comment.line : "") + ":\n" + String(p.comment.body || "").slice(0, 3000) + (p.comment.diff_hunk ? "\n\nThe lines:\n" + String(p.comment.diff_hunk).slice(0, 1500) : "") };
   }
   return null;
@@ -266,7 +269,7 @@ export async function startAutofix(env, deps, f) {
   const bucket = env.CODER_BUCKET;
   const fetchFn = deps.fetchFn || fetch;
   let owner = await getJson(bucket, branchKey(f.repo, f.branch));
-  if (!owner) {
+  if (!owner && /^coder\//.test(String(f.branch))) {
     // Chats made before branches were recorded: find coder/<uid>/<id>/meta.json for this branch.
     const id = String(f.branch).replace(/^coder\//, "");
     let cursor;
@@ -292,12 +295,20 @@ export async function startAutofix(env, deps, f) {
   const look = await run("projects/" + owner.id);
   if (look.status !== 200 || !look.data.project) return { ok: false, why: "chat gone" };
   const meta = look.data.project;
-  if (meta.autofix === false) return { ok: false, why: "auto-fix off" };
+  // OFF UNTIL TURNED ON, for each pull request (owner item 2, like Claude Code: "turn on Auto-fix" in the
+  // pull request's menu, or tell Claude to auto-fix it).
+  if (meta.autofix !== true) return { ok: false, why: "auto-fix off" };
   if (meta.status === "running") return { ok: false, why: "busy" };
   if ((meta.autofixTries || 0) >= AUTOFIX_MAX) return { ok: false, why: "too many tries" };
-  const last = Array.isArray(meta.commits) && meta.commits.length ? meta.commits[meta.commits.length - 1] : null;
-  if (f.kind === "check" && (!last || !f.sha || last.sha !== f.sha)) return { ok: false, why: "not Coder's latest commit" };
   const botToken = await installationToken(env, f.installation, fetchFn);
+  // A FAILED CHECK ON THE PULL REQUEST'S NEWEST COMMIT only, whoever made it (a watched pull request has
+  // the owner's commits too); when GitHub cannot say, only on Coder's own newest commit, as before.
+  if (f.kind === "check") {
+    const pr = botToken && f.number ? await ghApi(botToken, "/repos/" + f.repo + "/pulls/" + Number(f.number), { fetchFn }) : null;
+    const head = pr && pr.ok && pr.data && pr.data.head ? String(pr.data.head.sha || "") : "";
+    const last = Array.isArray(meta.commits) && meta.commits.length ? meta.commits[meta.commits.length - 1] : null;
+    if (!f.sha || (head ? head !== f.sha : !last || last.sha !== f.sha)) return { ok: false, why: "not the pull request's newest commit" };
+  }
   // THE FAILED RUN'S LOG (GitHub Actions): its last lines tell Coder what broke.
   let log = "";
   if (f.kind === "check" && botToken && f.checkId && (!f.appSlug || f.appSlug === "github-actions")) {
@@ -305,11 +316,13 @@ export async function startAutofix(env, deps, f) {
     if (r && r.ok) log = (await r.text().catch(() => "")).replace(/^\S+Z /gm, "").slice(-6000);
   }
   const text = "AUTO-FIX for pull request" + (f.number ? " #" + f.number : "") + " on " + f.branch + ".\n\n" + UNTRUSTED + "\n<<<GITHUB\n" + f.text + (log ? "\n\nThe end of the failed run's log:\n" + log : "") + "\nGITHUB>>>" +
-    "\n\nFix this on the branch with small, focused changes, and check them (run the same tests or build locally if you can). If the cause is not in your changes, change nothing and explain instead. If it is unclear what the reviewer wants, change nothing: ask the owner with ask_user (one short question, with the readings you see as the choices), and stop. (Like Claude Code's auto-fix: a clear fix is made and pushed; an unclear one is asked about first.)";
-  const ack = f.number && botToken ? await ghApi(botToken, "/repos/" + f.repo + "/issues/" + f.number + "/comments", { method: "POST", body: { body: (f.kind === "check" ? "A check failed. " : "Thanks for the review. ") + "Coder is working on a fix (try " + ((meta.autofixTries || 0) + 1) + " of " + AUTOFIX_MAX + ") and will update this comment.\n\n— Coder (gofarther.dev)" }, fetchFn }) : null;
-  // Started by the every-minute check (queueStart), like an @coder job; without a pull request number nothing is posted.
-  await queueStart(bucket, { uid: owner.uid, email: prof.email, id: owner.id, repo: f.repo, number: f.number || null, login: (gh && gh.login) || "", installation: f.installation, ackId: ack && ack.ok ? ack.data.id : null },
-    { text: text.slice(0, 18000), autofix: true, fromGithub: true });
+    "\n\nFix this on the branch with small, focused changes, and check them (run the same tests or build locally if you can). If nothing needs to change (a duplicate, or already done), say so and stop. If it is unclear what the reviewer wants, or the change would be large, change nothing: ask the owner with ask_user (one short question, with the readings you see as the choices), and stop. (Like Claude Code's auto-fix: a clear fix is made and pushed and explained in the chat; an unclear one is asked about first.)" +
+    (f.commentId ? "\n\nThis is review comment " + f.commentId + ": once you have resolved it, you may answer in its thread on GitHub with reply_review (one or two sentences on what you changed, or why nothing needed to change)." : "");
+  // NOTHING IS POSTED ON THE PULL REQUEST for an auto-fix (like Claude Code: it "explains what was done in
+  // the session", and may answer in a review comment's thread): the chat says it all.
+  // Started by the every-minute check (queueStart), like an @coder job; with no number, nothing is posted on GitHub.
+  await queueStart(bucket, { uid: owner.uid, email: prof.email, id: owner.id, repo: f.repo, number: null, login: (gh && gh.login) || "", installation: f.installation, ackId: null },
+    { text: text.slice(0, 18000), autofix: true, fromGithub: true, ...(f.commentId && f.number ? { replyTo: { pr: Number(f.number), ids: [Number(f.commentId)] } } : {}) });
   return { ok: true, id: owner.id };
 }
 

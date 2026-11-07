@@ -9,6 +9,20 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 2: auto-fix like Claude Code's
+
+- Item 2: auto-fix was always on, worked only on Coder's own pull requests, and didn't answer on GitHub.
+- **Now, as in Claude Code's docs:**
+  - **Off until you turn it on** for a pull request: the Auto-fix button in the chat, or ask Coder ("watch this PR and fix any CI failures or review comments", "stop watching it").
+  - **Any open pull request of the chat's repository**, not only Coder's. The chat then works on that pull request's branch. Not a fork's (its branch can't be pushed to, so Claude Code can't either), and not one another chat already watches.
+  - **What starts a fix:** a check failing on the pull request's newest commit (whoever made it), or your review.
+  - **Coder explains in the chat**, as Claude Code does. No "Coder is working on it" comments on the pull request any more.
+  - **For a review comment,** Coder may answer in that comment's thread on GitHub: as you, marked "— Coder (gofarther.dev), for @you". Only in that one thread.
+  - **When a comment is unclear,** or the change would be large, Coder asks you first.
+- **Same limits as Claude Code:** it can't react to merge conflicts, because GitHub sends no news when the base branch moves. At most 3 tries in a row without you writing in the chat.
+- **Change:** chats that had auto-fix on by default now have it off, until you press the button.
+- Tests: CD48 updated, CD169-CD171 new. 180 tests pass.
+
 ## 2026-11-07: Items 3 and 9: long chats summarized, not cut; Rewind can summarize
 
 - Item 3: in a long chat Coder dropped the oldest part. Claude Code summarizes it.
