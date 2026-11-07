@@ -51,7 +51,8 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 20. **Admin sandbox**: `sudo` works for anything inside it, and `apt-get install` works; the machine itself stays safe.
     Who: me. Status: **Passed** (live test, 2026-11-07: `sudo whoami` = root, cowsay installed).
 21. **The sealed network room**: all of Coder's internet goes through the gate that follows your network setting. Who: me. Status: To test.
-22. **A copy of the repository that failed is made again** (the bug the live test found). Who: me. Status: To test (fixed in this deploy).
+22. **A copy of the repository that failed is made again** (the bug the live test found). Who: me.
+    Status: **Passed** (2026-11-07, issue #9: the files and git came back). The test found one leftover, now fixed (live after the next deploy): the setup's own file in that chat was pushed as Coder's work.
 
 ## E. Environments
 

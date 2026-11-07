@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-07: Testing: #22 passed, and one leftover fixed
+
+- **#22 passed:** your broken test chat (issue #9) repaired itself after the deploy. Its files and git came back, on Coder's own branch.
+- **What the test found:** that chat's setup had made a file (`setup-ran.txt`) while it was broken. Coder keeps a list of files the setup made, so they're never saved as its work. That list was inside the broken git folder, which the repair cleared, so the file got pushed to Coder's branch once.
+- **Fixed** (live after the next deploy): the list is now kept when a broken git folder is cleared. Only chats broken by the old bug could hit this. The test for it fails on the live version and passes now.
+- The test branch `coder/testingforclaude-1jpc6lty` on your test repository has that one extra file. It's harmless test data; delete the branch on GitHub whenever you like.
+- Tests: CD175 extended. 200 tests pass, plus the 18 machine-admin tests.
+
 ## 2026-11-07: Merged and deployed; the full list of everything Coder has
 
 - You said "merge and deploy": items 3, 9, 2, 6, 5, 11 and 8, and the fix for the half-made copy, are merged into main and deploying.

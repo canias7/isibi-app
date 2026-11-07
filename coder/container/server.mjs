@@ -518,6 +518,8 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
   const checkout = async (args) => { const k = await keepOut(dir, o); const no = (why) => ({ code: -1, output: why, stdout: "", refused: true }); return k.ok ? nestedAway(dir, gitDir, () => gitIn(dir, ["checkout", ...args], o), no) : no(k.why); };
   await mkdir(gitRoot, { recursive: true, mode: 0o755 });
   let has = await stat(join(gitDir, "HEAD")).then(() => true, () => false);
+  // What a half-made folder's list of files to leave out held (the setup's own files), kept for the new clone.
+  let keptExclude = "";
   if (has) {
     // A TREE `dev` HAS WORKED IN (the audit, 2026-11-06): checked, and nothing of
     // dev's left running while root works in it.
@@ -527,7 +529,13 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // A CLONE THAT NEVER FINISHED (live test, 2026-11-07: a chat's first clone failed after git's folder
     // was made, and every later job took the repository as cloned: Coder's commands found no files at
     // all). A finished clone always has a commit; one without is cleared and made again.
-    if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) { await rm(gitDir, { recursive: true, force: true }); has = false; }
+    // (Live test, 2026-11-07: the setup had already run on such a folder, and the list of what it made, kept
+    // in that git folder, went with it, so its file was pushed as Coder's work: the list is kept now.)
+    if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) {
+      keptExclude = await readFile(join(gitDir, "info", "exclude"), "utf8").catch(() => "");
+      await rm(gitDir, { recursive: true, force: true });
+      has = false;
+    }
     // The work tree's pointer to the git folder, put back when it is gone (never over anything there).
     else if (!(await lstat(join(dir, ".git")).then(() => true, () => false))) await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
@@ -540,6 +548,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     const failed = async (why) => { await rm(gitDir, { recursive: true, force: true }).catch(() => {}); return { ok: false, why }; };
     const c = await gitIn(dir, ["init", "-q", "-b", base], o);
     if (c.code !== 0) return failed("could not start the repository: " + c.output.slice(0, 200));
+    if (keptExclude) { await mkdir(join(gitDir, "info"), { recursive: true }); await writeFile(join(gitDir, "info", "exclude"), keptExclude); }
     // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
     // nothing to fetch; Coder starts from nothing on its own branch.
     const heads = await gitIn(dir, ["ls-remote", "--heads", url], { ...o, token, headers });
