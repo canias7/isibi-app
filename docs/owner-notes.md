@@ -9,7 +9,13 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
-## 2026-11-07: The sealed room after a restart, and the whole 20 GB system disk (on the branch, not deployed yet)
+## 2026-11-07: Deployed: the sealed room after a restart, and the whole 20 GB system disk
+
+- Your word: "merge and deploy". Main 1056ea0c, run 42357874840, every step passing, the machine image rebuilt and sent to Fly.io.
+- **Live checks:** the site answers, the app refuses anyone not signed in, and the Grok address refuses a request with no pass.
+- **Next:** your test comment. The first start fetches the new image, so it may take a few minutes.
+
+## 2026-11-07: The sealed room after a restart, and the whole 20 GB system disk (now deployed)
 
 - Your fourth comment (08:42) confirmed both causes:
   - `/run/netns/coder-room` was a plain file left on the kept disk, made at 08:21. The machine had restarted at 08:33, so the room was gone. No gate relay was running.
