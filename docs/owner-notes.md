@@ -20,7 +20,9 @@ log (81,000 lines) is in git history.
 - **3. A sleeping machine keeps its whole disk**, so what the setup installed is still there and the setup doesn't run again, like Claude Code. This uses Fly.io's own setting for it. If Fly.io ever refuses the setting, the machine is made without it and the setup runs again, as before.
   - A new Coder version still starts the machine fresh, as Claude Code does after its cache expires.
   - The machine now reports whether its disk was kept, so I can check it live.
-- Tests: CD130 to CD132. 141 in all, all passing, plus the 14 admin-only safety tests. On the branch, not deployed.
+- Tests: CD130 to CD132. 141 in all, all passing, plus the 14 admin-only safety tests.
+- **Deployed** (your word: "Merge and deploy"): main df610f55, run 42333195974, all steps passing. Coder's git address refuses a request without a pass.
+- **Live test 1, saving through Coder's server:** you wrote `@coder add a line saying "fly test" to notes.md` on testingforclaude issue #2 at 03:30:22. The machine woke with the new version, and the commit "Added `fly test` to `notes.md`" was on the chat's branch at 03:30:57. That could only have gone through Coder's server, because the machine no longer has your login. The machine reported `"kept": false`, as expected the first time after a new version.
 
 ## 2026-11-07: Deployed: Coder's machines on Fly.io, and the chat saved as it goes
 
