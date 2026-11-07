@@ -942,6 +942,57 @@ export function bootKept(dir = SETUP_ROOT, now = Date.now()) {
   return kept;
 }
 
+// ── THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like
+// Claude Code's environment cache, whose docs say: "If it completes in under about
+// 5 minutes, the filesystem is snapshotted and reused" for the environment's next
+// sessions, and "Cloud sessions start from a fresh clone of your repository").
+// When the setup script runs on a fresh chat disk, in the admin sandbox (so all it
+// makes is on that disk), and works, this job waits before Coder starts: Coder's
+// Worker has Fly.io save a copy of the disk, then says go (/go). A new chat in the
+// same environment gets its disk made from that copy (src/coder-fly.mjs), and here
+// its first job skips the setup. The copy's own note says what it is a copy of.
+/** On the kept disk: the copy's note (written just before Fly.io saves the disk), and "a job has worked here". */
+export const COPY_NOTE = ".coder-copy.json";
+export const USED_NOTE = ".coder-used";
+/** How long a job waits for the Worker's go while its disk is saved; then it goes on by itself. */
+export const HOLD_MS = 2 * 60 * 1000;
+
+/** The setup's fingerprint: its script and the network setting (what Claude Code's cache follows). */
+export function setupSha(script, net) {
+  return createHash("sha256").update(script + "\n" + JSON.stringify({ mode: net.mode, hosts: net.hosts, defaults: net.defaults })).digest("hex");
+}
+
+/**
+ * A DISK MADE FROM THE ENVIRONMENT'S SAVED COPY (a new chat's first job, before
+ * anything else). What was the other chat's own (its repositories, git folders,
+ * memory) goes: every chat clones its repository fresh. A copy of this same setup
+ * (`sha`), made by this Coder version (`image`), under seven days old, answers
+ * { at } (the setup need not run). Any other copy (made for an older script, say)
+ * is cleared down to a fresh disk: the AI's home and the admin sandbox's layer go
+ * too. This chat's own note (its machine stopped while the copy was being saved)
+ * only goes. No note: null, nothing touched. Only folders on the kept disk are
+ * ever cleared.
+ */
+export async function takeCopy({ data, project, sha, image, dirs = {}, now = Date.now() }) {
+  if (typeof data !== "string" || !data.startsWith("/")) return null;
+  const f = join(data, COPY_NOTE);
+  if (!existsSync(f)) return null;
+  let note = null;
+  try { note = JSON.parse(await readFile(f, "utf8")); } catch { note = null; }
+  const mine = note && note.from === project;
+  const onDisk = (d) => typeof d === "string" && d.startsWith(data + "/") && resolve(d) === d;
+  const clear = async (d) => { if (!onDisk(d)) return; try { for (const n of await readdir(d)) await rm(join(d, n), { recursive: true, force: true }); } catch { /* none */ } };
+  let same = false;
+  if (!mine) {
+    for (const d of [dirs.root, dirs.gitRoot, dirs.memRoot]) await clear(d);
+    same = !!note && !!sha && note.sha === sha && note.image === image && Number(note.at) > now - SETUP_CACHE_MS && Number(note.at) <= now + 60000;
+    if (!same) { await clear(dirs.home); await rm(join(data, ".coder-admin"), { recursive: true, force: true }); }
+    await rm(join(data, USED_NOTE), { force: true });
+  }
+  await rm(f, { force: true });
+  return same ? { at: Number(note.at) } : null;
+}
+
 // ── THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06; the owner: "Do this") ──
 // A job's new steps go to Coder's Worker every few seconds, and its conversation
 // every 15 seconds, with the job's own pass; the Worker keeps them until the job
@@ -1117,7 +1168,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "" } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1162,6 +1213,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // Nothing left from before may race root while it prepares the files (the
     // audit); if it cannot be stopped, the job does not start (2026-11-06).
     if (!killUser()) return fail(500, NOT_STOPPED);
+    // A DISK MADE FROM THE ENVIRONMENT'S SAVED COPY: the other chat's files go first (takeCopy).
+    const script0 = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
+    let copied = null;
+    try { copied = await takeCopy({ data, project, sha: script0 ? setupSha(script0, normNetwork(body.setup && body.setup.network)) : "", image, dirs: { root, gitRoot, memRoot, home } }); } catch { copied = null; }
+    // FRESH: no job has worked on this disk yet (only then is a copy of it saved).
+    const fresh = !!data && !existsSync(join(data, USED_NOTE));
     const dir = join(root, project);
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
@@ -1249,7 +1306,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // THE JOB'S ADMIN SANDBOX (owner, 2026-11-07: "finish this"), in the room; without the room, none.
     t.box = BOX = t.room ? await openBox() : null;
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
-    let setupFailed = null, setupRan = false;
+    let setupFailed = null, setupRan = false, setupCopied = null;
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
     // browser test, 2026-11-06: the owner fixed the setup script between two
     // messages, yet Coder kept saying the broken line was still there). The
@@ -1263,8 +1320,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const mark = join(setupRoot || gitRoot, project + ".setup-done"); // root-owned folder: never a link the AI made
       // LIKE CLAUDE CODE'S CACHE (its docs, read 2026-11-06): run again when the
       // script or the network setting changes, or after about seven days.
-      const sha = createHash("sha256").update(script + "\n" + JSON.stringify({ mode: net.mode, hosts: net.hosts, defaults: net.defaults })).digest("hex");
-      const [doneSha, doneAt] = (await readFile(mark, "utf8").catch(() => "")).trim().split(" ");
+      const sha = setupSha(script, net);
+      let [doneSha, doneAt] = (await readFile(mark, "utf8").catch(() => "")).trim().split(" ");
+      // FROM THE ENVIRONMENT'S SAVED COPY: the setup ran, and worked, in the chat the copy was made in
+      // (its seven days count from then).
+      if (copied && doneSha !== sha) {
+        await writeFile(mark, sha + " " + copied.at).catch(() => {});
+        [doneSha, doneAt] = [sha, String(copied.at)];
+        setupCopied = copied;
+        t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat started from the environment's saved copy (made " + new Date(copied.at).toISOString().slice(0, 16).replace("T", " ") + " UTC), so the setup script did not run again." });
+      }
       if (doneSha !== sha || !(Number(doneAt) > Date.now() - SETUP_CACHE_MS)) {
         const id = "setup-" + Date.now();
         setupRan = true;
@@ -1320,39 +1385,62 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
     // On the full image, Coder knows its machine's tools (2026-11-07).
-    const context = (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const context = (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? (setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     const lastSend = async () => { if (sender) await sender.flush(); };
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
-    runCoder({
-      send: via ? coderSend(env, { via }) : sendFn,
-      // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
-      watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
-      exec: async ({ command, timeoutS, tool, payload }) => {
-        // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
-        if (typeof payload === "string" && command.includes("@REQUEST")) {
-          const f = join(bgDir, "req-" + randomUUID() + ".json");
-          const fh = await open(f, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-          try { await fh.writeFile(payload); } finally { await fh.close(); }
-          command = command.replace("@REQUEST", "@" + f);
-        }
-        // A file or web tool is ended at its time limit, never sent to the background.
-        const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
-        if (r && r.background && r.pid) t.bg.add(r.pid);
-        return r;
-      },
-      stopped: () => t.stop,
-      emit: (e) => { t.events.push(e); },
-    }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
-      // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
-      .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
-      .finally(() => {
-        // THE TURN IS OVER: nothing it started keeps running, and its logs go.
-        killAll(t);
-        rm(bgDir, { recursive: true, force: true }).catch(() => {});
-        t.ended = Date.now();
-        t.running = false;
-      });
+    // THE COPY IS SAVED NOW (above: takeCopy): a setup that ran on this fresh disk and worked, with all it
+    // made on the disk (the admin sandbox), when the Worker asks for one.
+    const hold = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox));
+    const begin = () => {
+      // A job has worked on this disk: no copy is made of it from now on.
+      if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
+      runCoder({
+        send: via ? coderSend(env, { via }) : sendFn,
+        // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
+        watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
+        exec: async ({ command, timeoutS, tool, payload }) => {
+          // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
+          if (typeof payload === "string" && command.includes("@REQUEST")) {
+            const f = join(bgDir, "req-" + randomUUID() + ".json");
+            const fh = await open(f, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+            try { await fh.writeFile(payload); } finally { await fh.close(); }
+            command = command.replace("@REQUEST", "@" + f);
+          }
+          // A file or web tool is ended at its time limit, never sent to the background.
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
+          if (r && r.background && r.pid) t.bg.add(r.pid);
+          return r;
+        },
+        stopped: () => t.stop,
+        emit: (e) => { t.events.push(e); },
+      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+        // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
+        .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+        .finally(() => {
+          // THE TURN IS OVER: nothing it started keeps running, and its logs go.
+          killAll(t);
+          rm(bgDir, { recursive: true, force: true }).catch(() => {});
+          t.ended = Date.now();
+          t.running = false;
+        });
+    };
+    if (hold) {
+      try {
+        // root's own file on the kept disk (dev cannot make or change one there), then all of it written out.
+        await writeFile(join(data, COPY_NOTE), JSON.stringify({ from: project, sha: setupSha(script, net), image, at: Date.now() }), { mode: 0o600 });
+        spawnSync("sync", ["-f", data], { stdio: "ignore", timeout: 60000 });
+        let gone = false;
+        const timer = setTimeout(() => t.release && t.release(), holdMs);
+        t.release = () => {
+          if (gone) return;
+          gone = true; clearTimeout(timer); t.release = null;
+          rm(join(data, COPY_NOTE), { force: true }).catch(() => {}).finally(begin);
+        };
+        return [200, { ok: true, held: true }];
+      } catch { /* no copy this time */ }
+    }
+    begin();
     return [200, { ok: true }];
   }
   // WHEN THE WORKER LAST ASKED THIS MACHINE FOR SOMETHING (not counting /busy
@@ -1440,7 +1528,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.claimed = true;
         return send(200, { ok: true });
       }
-      if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); } return send(200, { ok: true, running: !!(t && t.running) }); }
+      if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
+      // THE ENVIRONMENT'S COPY IS SAVED (or could not be): the job waiting for it goes on.
+      if (url.pathname === "/go" && req.method === "POST") { const was = !!(t && t.release); if (was) t.release(); return send(200, { ok: true, went: was }); }
       // UNDO A JOB (owner, 2026-11-05, "add 2"): its commit is reverted (a new
       // commit that puts the files back) and saved to the branch. Never a force push.
       if (url.pathname === "/undo" && req.method === "POST") {

@@ -9,6 +9,28 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: The setup's saved copy, per environment (like Claude Code's cache)
+
+- Your word: "ok start", for item 1 of the comparison list (Coder's setup was saved per chat, not per environment).
+- **What it does now, on Fly.io:**
+  - The first chat that runs an environment's setup script, on a fresh disk, has its disk saved by Fly.io right after the setup works. Coder waits a few seconds for that before it starts working.
+  - A new chat in the same environment gets its disk made from that saved copy. It skips the setup, and the chat says so: "Setup: this chat started from the environment's saved copy… so the setup script did not run again."
+  - The saved copy holds what the setup installed on the system and in Coder's home (packages, caches, Docker images).
+  - Every chat still clones its repository fresh. The other chat's files, git folder and memory are removed first.
+  - Something the setup made inside the project folder (like node_modules) is therefore not there. Coder is told this and runs the project's install itself when it needs to. This matches Claude Code's docs ("Cloud sessions start from a fresh clone of your repository").
+  - A new copy is made when the setup script or the network setting changes, after 7 days, or with a new Coder version, like Claude Code. Your variables and keys never reach the setup, so they are not in the copy.
+  - If Fly.io cannot make a disk from the copy, the chat starts with an empty disk and runs the setup, as before.
+- **Cost:** Fly.io keeps each copy 8 days, at $0.08 per GB a month after the first 10 GB free. The chat whose disk was copied also keeps its own daily copies 8 days instead of 5.
+- **Not on Cloudflare** (Cloudflare's containers have no saved copies). It also needs the admin sandbox, so it starts working once the sandbox is deployed.
+- Tests: CD151 (Fly.io: the copy is made, kept and used; a refused copy falls back), CD152 (the Worker asks for the copy and points new chats at it), CD153 (the machine waits, then goes; a disk from the copy skips the setup and keeps nothing of the other chat). A picture of the new chat line was made on a local copy of the page.
+
+## 2026-11-07: Docker in the admin sandbox, third fix: its downloads
+
+- GitHub's check ran again (run 42366848802). Docker's engine now started in the sandbox and kept its files in your home folder. It then could not download an image: "network is unreachable".
+- **Why:** today's Docker runs its engine in the machine's own network (Docker calls this "detach-netns"). There, Coder's network gate is at 127.0.0.1. Coder's docker command still sent it to 10.0.2.2, the address an older Docker needed.
+- **Fixed:** the docker command checks which kind of Docker is installed and gives the engine the right address. Test CD154 checks both kinds, and fails on the old command.
+- Tried on my own test machine: the engine now reaches the gate and asks it for Docker's site. GitHub's check, with the real gate, runs again with the push.
+
 ## 2026-11-07: Docker in the admin sandbox, second fix
 
 - GitHub's check ran again (run 42365082752). The id fix worked: Docker's engine got further. It then stopped because it could not make its own files in your chat's home folder ("value too large").

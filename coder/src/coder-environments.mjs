@@ -112,3 +112,29 @@ export async function markUsed(bucket, uid, id, repo) {
 
 /** What the page may see of the list (names only; nothing sealed). */
 export const envListOut = (list) => list.filter((e) => !e.archived).map((e) => ({ id: e.id, name: e.name, isDefault: e.id === DEFAULT_ENV }));
+
+// THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like
+// Claude Code's environment cache: its docs, read 2026-11-07). The first chat that
+// runs the setup script in a fresh machine has its disk saved by Fly.io (a
+// snapshot) right after the setup; a new chat in the environment starts from that
+// copy and skips the setup. It is made again when the script or the network
+// setting changes, after about seven days, or with a new Coder version (Fly's
+// side: src/coder-fly.mjs). Not secret: only Fly's name for the copy.
+//   coder/<uid>/environments/<id>.cache.json   { snapshot, size, region, image, retention, key, at, from }
+export const envCacheKey = (uid, id) => "coder/" + uid + "/environments/" + id + ".cache.json";
+
+/** What the copy is a copy of: the setup script and the network setting (the variables and keys never reach the setup). */
+export async function setupKeyOf(setup) {
+  const text = JSON.stringify({ script: String((setup && setup.script) || "").trim(), network: normNetwork(setup && setup.network) });
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+export async function readEnvCache(bucket, uid, id) {
+  const o = await bucket.get(envCacheKey(uid, id));
+  if (!o) return null;
+  try {
+    const c = JSON.parse(await o.text());
+    return c && /^vs_\w{4,80}$/.test(String(c.snapshot)) && /^[0-9a-f]{64}$/.test(String(c.key)) && Number(c.at) > 0 ? c : null;
+  } catch { return null; }
+}
+export const writeEnvCache = (bucket, uid, id, c) => put(bucket, envCacheKey(uid, id), JSON.stringify(c));
