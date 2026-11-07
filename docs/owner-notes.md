@@ -9,7 +9,13 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
-## 2026-11-07: The fifth test: the sealed room works live; the disk grow missed its disk (fix on the branch, not deployed yet)
+## 2026-11-07: Deployed: the disk grow finds Fly.io's disk
+
+- Your word: "merge and deploy". Main b46f9a3b, run 42359923774, every step passing, the machine image rebuilt.
+- **Live checks:** the site answers, and the app refuses anyone not signed in.
+- **Next:** your test comment, which checks the disk size and the admin right the grow needs.
+
+## 2026-11-07: The fifth test: the sealed room works live; the disk grow missed its disk (now deployed)
 
 - Your comment at 09:17 was answered at 09:21, after the new image's first download.
 - **The room works on Fly.io now:**
