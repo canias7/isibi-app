@@ -12,6 +12,8 @@
 //      next @coder in the same thread continues it.
 //   4. Every minute (the Worker's cron) unfinished jobs are checked; when one
 //      ends, the "On it" comment is replaced by what Coder did, with links.
+import { readReviewEvent, handleReviewEvent } from "./coder-review.mjs";
+
 const enc = new TextEncoder();
 export const MENTION = /(^|[^\w-])@coder\b/i;
 const JOB_PREFIX = "coder/github-jobs/";
@@ -143,6 +145,16 @@ export async function handleWebhook(request, env, ctx, deps) {
   const event = request.headers.get("x-github-event") || "";
   if (event === "ping") return new Response("pong");
   let p; try { p = JSON.parse(body); } catch { return new Response("bad body", { status: 400 }); }
+  // CODE REVIEW (owner item 11, like Claude Code's): a pull request opened or pushed to, or a comment that
+  // starts "@coder review" (never a plain @coder job: Claude Code keeps the two apart too).
+  const rv = readReviewEvent(event, p);
+  if (rv) {
+    const fetchFn = deps.fetchFn || fetch;
+    const d = { fetchFn, token: (i) => installationToken(env, i, fetchFn), account: (login) => accountForLogin(env.CODER_BUCKET, login), allowed: (email) => allowed(env, email) };
+    const work = handleReviewEvent(env, d, rv).catch((e) => console.log("coder review failed: " + String((e && e.message) || e).slice(0, 200)));
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work); else await work;
+    return new Response("ok", { status: 202 });
+  }
   // AUTO-FIX (owner, 2026-11-05, "4"): a failed check or a review on a pull
   // request from one of Coder's branches starts a fix in that branch's chat.
   const fix = readAutofix(event, p);

@@ -101,6 +101,20 @@
     if (r.data && r.data.connect) { S.phase = 'connect'; return draw(); }
     S.repos = (r.data && r.data.repos) || [];
     if (r.data && r.data.install && S.github) S.github.install = r.data.install;
+    // CODE REVIEW, PER REPOSITORY (owner item 11, like Claude Code's "Review runs"): on the Repositories screen.
+    if (S.pickMode === 'repos') { const rs = await call('/review/settings'); S.reviews = (rs.data && rs.data.repos) || {}; }
+    draw();
+  }
+
+  // CODE REVIEW ON OR OFF FOR A REPOSITORY, and its level (owner item 11).
+  async function saveReview(repo, change) {
+    const cur = (S.reviews || {})[repo] || { runs: 'off', level: 'standard' };
+    const next = { runs: cur.runs, level: cur.level || 'standard', ...change };
+    const r = await call('/review/settings', { method: 'POST', body: JSON.stringify({ repo, runs: next.runs, level: next.level }) });
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Code review could not be changed.'; return draw(); }
+    S.reviews = { ...(S.reviews || {}) };
+    if (next.runs === 'off') delete S.reviews[repo]; else S.reviews[repo] = { runs: next.runs, level: next.level };
+    S.error = '';
     draw();
   }
 
@@ -895,8 +909,18 @@
       (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     if (S.phase === 'pick') {
       const install = S.github && S.github.install;
+      const repoBtn = (r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.readOnly ? '<em title="You can read it but not push to it">read-only</em>' : '') + (r.private ? '<em>private</em>' : '') + '</button>';
+      // ON THE REPOSITORIES SCREEN: each repository you can push to has its Code review setting (owner item 11).
+      const RUNS = [['off', 'Off'], ['push', 'After every push'], ['open', 'Once after PR creation'], ['manual', 'Manual (@coder review)']];
+      const LEVELS = [['quick', 'Quick'], ['standard', 'Standard'], ['deep', 'Deep']];
+      const opts = (list, cur) => list.map(([v, l]) => '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + l + '</option>').join('');
+      const reviewRow = (r) => {
+        const cur = (S.reviews || {})[r.repo] || null;
+        return '<div class="cd-repo-row">' + repoBtn(r) + (r.readOnly ? '' : '<div class="cd-review"><label>Code review <select data-review-runs="' + esc(r.repo) + '">' + opts(RUNS, cur ? cur.runs : 'off') + '</select></label>' +
+          (cur ? '<select data-review-level="' + esc(r.repo) + '" aria-label="Review level for ' + esc(r.repo) + '">' + opts(LEVELS, cur.level || 'standard') + '</select>' : '') + '</div>') + '</div>';
+      };
       const list = S.repos === null ? '<span class="cd-spin cd-spin-lg"></span>'
-        : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => '<button type="button" class="cd-repo" data-repo="' + esc(r.repo) + '">' + ICON.gh + '<span>' + esc(r.repo) + '</span>' + (r.readOnly ? '<em title="You can read it but not push to it">read-only</em>' : '') + (r.private ? '<em>private</em>' : '') + '</button>').join('') + '</div>'
+        : S.repos.length ? '<div class="cd-repos">' + S.repos.map((r) => (S.pickMode === 'repos' ? reviewRow(r) : repoBtn(r))).join('') + '</div>'
         : '<p class="cd-sub">Coder can’t see any repositories yet.</p>';
       // ANY PUBLIC REPOSITORY (owner item 5, like Claude Code: "a session can clone any public repository").
       const open = '<form class="cd-open" id="cdOpenForm"><label for="cdOpenRepo">Or open any public repository</label>' +
@@ -904,6 +928,7 @@
         '<p class="cd-open-note">One you can’t push to is read-only: Coder keeps its work on its machine, and you download it as a patch.</p></form>';
       return centerHTML('<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
+        (S.pickMode === 'repos' ? '<p class="cd-sub cd-review-note">Turn on <b>Code review</b> for a repository and Coder reviews its pull requests, posting what it finds on them. It never approves or blocks one. Anyone with write access can also comment <code>@coder review</code>.</p>' : '') +
         list + open +
         (install ? '<a class="cd-btn-2" href="' + esc(install) + '" target="_blank" rel="noopener">Add repositories on GitHub</a>' : '') +
         (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
@@ -948,6 +973,8 @@
       S.error = ''; addProject(repo);
     });
     on('#cdPatch', 'click', downloadPatch);
+    on('[data-review-runs]', 'change', (e) => saveReview(e.currentTarget.dataset.reviewRuns, { runs: e.currentTarget.value }));
+    on('[data-review-level]', 'change', (e) => saveReview(e.currentTarget.dataset.reviewLevel, { level: e.currentTarget.value }));
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     // THE QUESTION CARD: the choice lives in S.ask; Submit sends it as your answer.

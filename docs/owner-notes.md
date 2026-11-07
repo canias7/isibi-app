@@ -9,6 +9,20 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: Item 11: Code review like Claude Code's
+
+- Item 11: Coder had no automatic review of pull requests.
+- **Now, like Claude Code's Code Review:**
+  - **Turn it on per repository** on the Repositories screen. Pick when reviews run: After every push, Once after PR creation, or Manual (only when someone comments `@coder review`). Then pick a level: Quick, Standard or Deep. **Off by default**, since every review spends Grok calls.
+  - **Comment commands** on a pull request: `@coder review` (one review), `@coder review always` (also review each push), `@coder review stop`. Only Coder users with write access; strangers get no answer, and people without write access get a short note.
+  - **What it posts:** comments on the lines concerned, marked 🔴 Important, 🟡 Nit or 🟣 Pre-existing, each with "Why this was flagged". Also a summary, and a "Coder Review" check that never fails the pull request. It never approves or blocks.
+  - **How it reviews:** several passes look for different kinds of bugs, a second check drops false alarms, then the findings are ranked. It only reads the code; it never runs it.
+  - **Your rules:** a `REVIEW.md` in the repository (read from the main branch, never from the pull request itself) and `CODER.md`.
+  - **Later pushes:** reviews only what changed, marks fixed findings resolved, and skips if nothing really changed.
+  - Drafts and pull requests from forks are skipped unless someone asks with a comment.
+- **Waiting on you (later, when you want automatic reviews):** in GitHub, the gofarther-coder app's settings need two things: the "Pull request" events ticked, and "Checks" set to read and write. Without them, `@coder review` comments still work, just with no check on the pull request.
+- Tests: CD182-CD186. 195 tests pass.
+
 ## 2026-11-07: Item 5: read-only repositories, and a fix found by the live test
 
 - Item 5: Coder only opened repositories it could write to.

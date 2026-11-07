@@ -10,7 +10,8 @@ import { handleEgress, EGRESS_PATH } from "./src/coder-egress.mjs";
 import { handleLive, LIVE_PATH } from "./src/coder-live.mjs";
 import { handleGit, GIT_PATH } from "./src/coder-git.mjs";
 import { handleModel, MODEL_PATH } from "./src/coder-model-gate.mjs";
-import { runMentionJobs } from "./src/coder-mentions.mjs";
+import { runMentionJobs, installationToken } from "./src/coder-mentions.mjs";
+import { runReviewJobs } from "./src/coder-review.mjs";
 import { runWatchedJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
 import { controlKeySync } from "./src/coder-control.mjs";
 import { flyOn, flyBox, runFlyMachines, dropFlyMachine, snapshotChat, cacheUsable } from "./src/coder-fly.mjs";
@@ -80,6 +81,8 @@ export default {
     const job = (p) => { work.push(p); ctx.waitUntil(p); };
     job(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
     job(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
+    // CODE REVIEW (owner item 11, like Claude Code's): the reviews GitHub's news asked for, as Coder's app.
+    job(runReviewJobs(env, { token: (i) => installationToken(env, i) }).catch((e) => console.log("coder review: " + String((e && e.message) || e).slice(0, 200))));
     // FLY.IO (2026-11-07): machines with nothing to do for 10 minutes are stopped, old ones removed.
     if (m.kind === "fly") job(runFlyMachines(env).catch((e) => console.log("coder fly: " + String((e && e.message) || e).slice(0, 200))));
     // ALL OF IT AWAITED (live test, 2026-11-07): Cloudflare waits for what this returns, up to 15

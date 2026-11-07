@@ -20,6 +20,8 @@
 //   GET  /api/coder/github/start                 { url }: the GitHub sign-in to open
 //   GET  /api/coder/github/callback?code&state   GitHub sends the user back here
 //   GET  /api/coder/github/repos                 the repositories they let Coder use
+//   GET  /api/coder/review/settings              Code Review, per repository (owner item 11)
+//   POST /api/coder/review/settings              { repo, runs: off|push|open|manual, level: quick|standard|deep }
 //   POST /api/coder/github/disconnect
 //   GET  /api/coder/projects                     their projects
 //   POST /api/coder/projects    { repo, base? }  a project for one of their repositories
@@ -33,6 +35,7 @@ import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
+import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
@@ -395,6 +398,29 @@ export async function handleCoder(request, env, ctx, deps) {
       catch { return json({ error: "GitHub could not be reached" }, 502); }
     }
     return json({ error: "not found" }, 404);
+  }
+
+  // CODE REVIEW, PER REPOSITORY (owner item 11, like Claude Code's "Review runs" and review level): set by an
+  // owner who may push to the repository (Claude Code: "Adding a repository needs write access to it"), where
+  // Coder's app is installed (its reviews are posted as the app). Off: no record.
+  if (parts[0] === "review" && parts[1] === "settings") {
+    if (request.method === "GET") return json({ ok: true, repos: await reviewSettingsOf(bucket, uid) });
+    if (request.method !== "POST") return json({ error: "method" }, 405);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const repo = String(body.repo || "").trim();
+    if (!REPO.test(repo)) return json({ error: "pick one of your GitHub repositories" }, 400);
+    const runs = String(body.runs || "");
+    if (runs !== "off" && !REVIEW_RUNS.includes(runs)) return json({ error: "pick when reviews run" }, 400);
+    const level = REVIEW_LEVELS.includes(body.level) ? body.level : "standard";
+    const t = await userToken(env, bucket, uid, { fetchFn });
+    if (!t) return json({ error: "connect GitHub first", connect: true }, 409);
+    const r = await repoAccess(t.token, repo, { fetchFn });
+    if (!r.ok || !r.data.permissions) return json({ error: "Add " + repo + " to Coder in GitHub first: Code review works where Coder's app is installed.", install: installUrl(env) }, 403);
+    if (r.readOnly) return json({ error: "Code review needs write access to " + repo + "." }, 403);
+    const name = String(r.data.full_name || repo);
+    if (runs === "off") { if (typeof bucket.delete === "function") await bucket.delete(repoReviewKey(name)); return json({ ok: true, repo: name, runs: "off" }); }
+    await bucket.put(repoReviewKey(name), JSON.stringify({ repo: name, uid, runs, level, at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
+    return json({ ok: true, repo: name, runs, level });
   }
 
   // THE MODEL LIST AND THE USER'S PICK (kept on their account).

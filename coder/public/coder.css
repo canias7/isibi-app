@@ -424,3 +424,10 @@
 .cd-open-row input:focus { outline: none; border-color: #0d1b2a; }
 .cd-open-note { margin: 0; font-size: 12px; color: #6b7280; }
 .cd-patch { margin-left: 8px; }
+/* CODE REVIEW, PER REPOSITORY (owner item 11): on the Repositories screen. */
+.cd-repo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.cd-repo-row .cd-repo { flex: 1 1 260px; min-width: 0; }
+.cd-review { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #4b5563; }
+.cd-review label { display: flex; align-items: center; gap: 6px; }
+.cd-review select { font: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid #ddd8d0; border-radius: 8px; background: #fff; color: #1f2937; }
+.cd-review-note code { font-size: 12px; background: #f1eee9; border-radius: 4px; padding: 1px 4px; }

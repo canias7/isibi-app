@@ -454,6 +454,40 @@ thread (`reply_review`, only that thread), posted at the job's end as the owner
 and marked "— Coder (gofarther.dev), for @owner". Like Claude Code's, it cannot
 react to a merge conflict (GitHub sends no news when the base branch moves).
 
+**Code review, like Claude Code's** (owner, 2026-11-07, item 11; its Code Review
+docs; `src/coder-review.mjs`). Off until the owner turns it on for a repository
+they can push to, where Coder's app is installed (Repositories screen,
+`POST /review/settings`). Its **Review runs**, as Claude Code's: After every
+push, Once after PR creation (opened, reopened, ready for review), or Manual;
+and a **level**: Quick (one finder, low effort), Standard (two finders and a
+check) or Deep (three finders, a check, high effort). Automatic reviews skip
+drafts and forks, with a tip where none starts. **Comment commands**, at the
+very start of a new top-level comment on a pull request, from a Coder user with
+write access (checked with GitHub; strangers get no answer): `@coder review`
+(or `once`), `@coder review always` (also reviews each push), `@coder review
+stop` / `off` / `pause`; they never start a plain @coder job. A review is
+queued with a **Coder Review** check run ("Code review queued..."), one per pull
+request, and run by the every-minute check on the Worker, read-only, never
+building or running the code: **find** (finders with different lenses, at
+once), **verify** (a check that drops false positives), **rank** (deduplicated,
+by severity, at most 25 and 10 nits), **post**: one review (`COMMENT`, never an
+approval) with an inline comment for each finding on a line of the diff (🔴
+Important, 🟡 Nit, 🟣 Pre-existing, with "Why this was flagged"), the rest in
+its summary and as the check run's annotations; the check run concludes
+neutral, its details a table ending with `<!-- coder-review-severity: {...} -->`;
+no findings: a note. It reads `REVIEW.md` from the base branch only (its `@file`
+lines beside it, at most 8; a skill's `SKILL.md`; a subfolder's own, never in a
+test, example, generated or vendored folder) and `CODER.md` (or `AGENTS.md`)
+at the root and in each changed file's folders. The pull request's text and
+code are data. **A later review on a push** covers what changed since the
+last one, posts no nits or pre-existing findings (and says how many), resolves
+the threads of findings it judges fixed (GitHub's GraphQL, as the app), and
+answers a person's reply once; a push that changes no lines keeps the earlier
+result ("skipped — no new changes", or "not repeated — earlier findings still
+open"). Needs, in the app's GitHub settings: **Pull request** events (for
+automatic reviews) and **Checks: read and write** (for the check run); without
+them, comment commands and the review itself still work.
+
 ## Deploy
 
 The **deploy coder** button (`.github/workflows/deploy-coder.yml`), pressed by
