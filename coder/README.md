@@ -9,6 +9,7 @@ code in **each user's own GitHub**.
 | `wrangler.jsonc` | Its config: addresses, container, bucket, settings |
 | `public/` | The page: sign-in (`auth.js`, `app.js`), the tabs (Coder, Gloopy agent), Coder's chat (`coder.js`, `coder.css`) |
 | `src/coder-routes.mjs` | `/api/coder/...`: GitHub, projects, message, follow, stop |
+| `src/coder-live.mjs` | The chat saved as it goes: the machine sends each job's steps here every few seconds; kept sealed until the job is saved, put back in the chat if the machine is lost |
 | `src/coder-watch.mjs` | The watch list: every minute, each running job is kept awake and saved when it ends, with or without an open tab |
 | `src/coder-github.mjs` | Sign in with GitHub, the user's token (encrypted), repositories, pull requests |
 | `src/coder-auth.mjs` | Go Farther sign-in (Supabase), the Worker's proof that both steps (password, then the emailed code) happened, the password it remembers and the count of code checks |
@@ -47,6 +48,26 @@ then it stays awake: 2 hours at most for a working job, 30 minutes for one
 waiting to be saved. A machine that does not answer within 5 seconds, an idle
 one, or one past those times sleeps as before (`holdDecision` in
 `src/coder-watch.mjs`).
+
+**The chat is saved as it goes** (like Claude Code, 2026-11-07). The machine
+sends a job's new steps to the Worker every 3 seconds, and this job's part of
+the conversation every 15 seconds, with the job's own pass
+(`/api/coder/live`, `src/coder-live.mjs`). The Worker keeps them sealed
+(encrypted with `CODER_TOKEN_KEY`, as the owner's values may be in them) in
+parts of 200 steps until the job is saved, then deletes them. If the machine
+is lost mid-job (it restarted, slept, stopped answering, or was gone when Stop
+was pressed), they are put back in the chat with the owner's values hidden,
+Coder is told the job was cut off and its unsaved changes are gone, and the
+page loads the saved chat. Only the real service sends (`createApp`'s
+`liveFetch`, given by its entry point); a machine made in a test never does.
+
+**A job is "running" before the machine is handed it.** The machine sets up
+first (the clone, the setup script), and Cloudflare stops a request whose tab
+has closed, so the chat is marked running and put on the watch list first; a
+start that fails puts the chat back as it was. A machine that does not have
+the job yet is given 3 minutes to wake up before the job counts as lost. (This
+also lets the setup script use saved keys: the Worker adds them only to a
+running job.)
 
 **Sign-in is both steps, every time** (the audit, 2026-11-06). The password
 step gives the page a 15-minute ticket and ends Supabase's own session for it;

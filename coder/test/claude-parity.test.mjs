@@ -313,7 +313,7 @@ test("CD108 keys are added outside the machine, like Claude Code: the Worker add
   // The machine gets where keys apply, never their values; the Worker answers at /api/coder/egress before any sign-in.
   assert.deepEqual(E.machineKeyRules([{ kind: "headers", hosts: ["a.com"], paths: [], headers: [{ name: "Authorization", value: "zzzzzzzz" }] }]), [{ kind: "headers", hosts: ["a.com"], paths: [], egress: true }]);
   const { readFileSync } = await import("node:fs");
-  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /\} else if \(url\.pathname === EGRESS_PATH\) \{[\s\S]{0,200}res = await handleEgress\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\)/);
+  assert.match(readFileSync(new URL("../worker.js", import.meta.url), "utf8"), /\} else if \(url\.pathname === EGRESS_PATH\) \{[\s\S]{0,200}res = await handleEgress\(request, env\);\n\s+\} else if \(url\.pathname === LIVE_PATH\) \{[\s\S]{0,200}res = await handleLive\(request, env\);\n\s+\} else if \(url\.pathname\.startsWith\("\/api\/coder\/"\)\)/);
 });
 
 test("CD109 the Worker's signing gives exactly what the machine's did (AWS, Google Cloud, body keys)", async () => {
@@ -419,7 +419,7 @@ test("CD111 several repositories in one chat, like Claude Code: up to 3 more, ad
   // Wiring: the job start and the save carry them; the page adds and removes them before the first message.
   const { readFileSync } = await import("node:fs");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.match(routes, /post\("\/turn", \{ secrets, egress, extra: extraFor\(meta\),/);
+  assert.match(routes, /post\("\/turn", \{ secrets, egress, live, extra: extraFor\(meta\),/);
   assert.match(routes, /post\("\/push", \{ project: id, repo: meta\.repo, branch: meta\.branch, token: t\.token, message: commitTitle\(s\.result\.summary\), extra: extraFor\(meta\) \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /on\('#cdAddRepo', 'change', \(e\) => \{ const v = e\.currentTarget\.value; if \(v\) changeRepos\(v, true\); \}\);/);

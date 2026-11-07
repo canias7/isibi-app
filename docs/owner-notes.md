@@ -9,6 +9,15 @@ log (81,000 lines) is in git history.
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 
+## 2026-11-07: The chat is saved as it goes (like Claude Code)
+
+- Your word: "Do this" (Coder only saved a job's chat when the job ended, so a machine that crashed mid-job lost that job's steps).
+- **Now Coder's machine sends each job's new steps to Coder's server every 3 seconds**, and the conversation every 15 seconds. They are kept locked (encrypted) until the job is saved, then deleted.
+- **If the machine is lost mid-job** (it restarted, went to sleep, or stopped answering), the steps so far stay in the chat. Your saved values are hidden, as always. A note says the job ended there and its unsaved file changes are gone. Coder is told the same, so your next message carries on from there.
+- **Closing the tab right after sending is safe too.** Before, if you closed it while Coder was still setting up (the clone, the setup script), the job could run with nobody saving it, because Cloudflare stops a request whose tab is gone (the old builder's notes say the same). Now the chat counts the job as started before Coder's machine is asked to start it.
+- This also fixes a setup script not being able to use your saved keys.
+- Tests: CD118 to CD124. 133 in all, all passing. On the branch, not deployed.
+
 ## 2026-11-06: A job keeps going when you close the tab (like Claude Code)
 
 - From your screenshots: item 1, "Closing the tab", which I had missed. Before, Coder's machine went to sleep after 10 minutes with no tab open, and the job was lost. A finished job was also only saved while a tab was open.

@@ -462,7 +462,10 @@
   }
   async function stop() {
     if (!S.project) return;
-    await call('/projects/' + encodeURIComponent(S.project.id) + '/stop', { method: 'POST' });
+    const id = S.project.id;
+    const r = await call('/projects/' + encodeURIComponent(id) + '/stop', { method: 'POST' });
+    // The machine was gone: the chat was freed, with what the job saved as it went.
+    if (r.status === 200 && r.data && r.data.reload && S.project && S.project.id === id) { stopPoll(); S.running = false; return reloadChat(id); }
   }
 
   // ── DRAWING ───────────────────────────────────────────────────────────────

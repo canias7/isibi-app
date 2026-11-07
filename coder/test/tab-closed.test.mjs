@@ -126,7 +126,8 @@ test("CD114 wiring: every minute the Worker runs the watch list beside @coder's 
   assert.match(worker, /const coder = \(req, who\) => handleCoder\(req, env, ctx, \{ authUser: async \(\) => who, container \}\);\n\s+ctx\.waitUntil\(runMentionJobs\(env, \{ coder \}\)[^\n]*\n\s+ctx\.waitUntil\(runWatchedJobs\(env, \{ coder \}\)/);
   assert.match(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /"crons": \["\* \* \* \* \*"\]/, "every minute");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.match(routes, /await saveMeta\(bucket, uid, next\);[\s\S]{0,600}await watchJob\(bucket, \{ uid, email: user\.email, id, turn: next\.turn \}\)\.catch\(\(\) => \{\}\);\n\s+return json\(\{ ok: true, project: next \}\);/);
+  // Marked running and watched BEFORE the machine is asked (it sets up first, and the tab may close meanwhile).
+  assert.match(routes, /await saveMeta\(bucket, uid, next\);[\s\S]{0,600}await watchJob\(bucket, \{ uid, email: user\.email, id, turn: next\.turn \}\)\.catch\(\(\) => \{\}\);[\s\S]{0,600}let r;\n\s+try \{\n\s+r = await post\("\/turn", \{/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /'Coder is working… you can close this tab'/);
   assert.match(page, /if \(r\.data\.reload\) \{ if \(r\.data\.project\) S\.project = r\.data\.project; S\.running = false; syncEntry\(\); draw\(\); return reloadChat\(id\); \}/, "shown as done at once, then the saved chat");
@@ -192,4 +193,67 @@ test("CD117 wiring: before the machine sleeps, Coder's container asks it (with i
   assert.match(worker, /const d = holdDecision\(state\);[\s\S]{0,200}if \(d\.hold\) return;\n\s+await this\.stop\(\);/);
   assert.match(worker, /this\.controlKey = env\.CODER_TOKEN_KEY \? controlKeySync\(env\.CODER_TOKEN_KEY\) : "";/);
   assert.match(worker, /sleepAfter = "10m";/, "an idle machine still sleeps after 10 minutes");
+});
+
+test("CD123 closing the tab while the machine sets up (clone, setup script) loses nothing: the chat says \"running\" and the job is watched before the machine is asked; a start that fails leaves the chat as it was; a machine still waking up is not taken for lost; Stop pressed meanwhile stops the machine too", async () => {
+  const W = await import("../src/coder-watch.mjs");
+  const R = await import("../src/coder-routes.mjs");
+  const { handleCoder } = R;
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const uid = "user-1234567890abcdef", id = "shop-s1";
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev", CODER_BUCKET: bucket };
+  await saveConnection(env, bucket, uid, { access: "ghu_user" }, "ana");
+  const mk = "coder/" + uid + "/" + id + "/meta.json";
+  const before = { id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 0, saved: 0, status: "idle", at: 1000 };
+  await bucket.put(mk, JSON.stringify(before));
+  let during = null, answer = () => Response.json({ ok: true }); const seen = [];
+  const box = () => ({ fetch: async (req) => {
+    const p = new URL(req.url).pathname; seen.push(p);
+    // What the chat says while the machine is still setting up.
+    if (p === "/turn") { const body = await req.json(); during = { meta: JSON.parse(bucket.m.get(mk)), watched: bucket.m.has(W.watchKey(uid, id, 1)) }; return answer(body); }
+    if (p === "/state") return Response.json({ status: "idle", events: [], running: false });
+    return Response.json({ ok: true, running: false });
+  } });
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: uid, email: "me@x.y" }), container: box });
+  // A START THAT FAILS (the clone failed, after a first step was already sent as it went): the chat is as it was.
+  const { handleLive } = await import("../src/coder-live.mjs");
+  answer = async (body) => {
+    const l = body.live;
+    const sentAsItWent = await handleLive(new Request(l.url, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": l.chat, "x-coder-turn": String(l.turn), "x-coder-live": l.pass }, body: JSON.stringify({ from: 0, events: [{ type: "bash", tool: "setup" }] }) }), env);
+    assert.equal(sentAsItWent.status, 200, "the job counts as running during the setup, so its steps are taken");
+    return Response.json({ error: "clone failed" }, { status: 502 });
+  };
+  const bad = await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.equal(bad.status, 502);
+  assert.equal(during.meta.status, "running", "running while the machine set up");
+  assert.equal(during.watched, true, "watched while the machine set up");
+  assert.deepEqual(JSON.parse(bucket.m.get(mk)), before, "as it was");
+  assert.equal(bucket.m.has(W.watchKey(uid, id, 1)), false);
+  assert.equal([...bucket.m.keys()].some((k) => k.includes("/live/")), false, "nothing it sent is left");
+  // A START THAT WORKS: running and watched before the machine was asked (so a closed tab loses nothing).
+  answer = () => Response.json({ ok: true });
+  assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) })).status, 200);
+  assert.deepEqual([during.meta.status, during.meta.turn, during.watched], ["running", 1, true]);
+  // A MACHINE STILL WAKING UP (it does not have the job yet) is not taken for lost in the first minutes.
+  const st = await (await go("projects/" + id + "/state?since=0")).json();
+  assert.equal(st.running, true);
+  assert.equal(JSON.parse(bucket.m.get(mk)).status, "running");
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), at: Date.now() - R.START_GRACE_MS - 1000 }));
+  assert.equal((await (await go("projects/" + id + "/state?since=0")).json()).running, false, "after 3 minutes it is");
+  assert.equal(R.START_GRACE_MS, 3 * 60 * 1000);
+  // STOP PRESSED WHILE THE MACHINE SET UP: the chat is freed, and the machine is told to stop the job it then started.
+  answer = async () => { await go("projects/" + id + "/stop", { method: "POST", body: "{}" }); return Response.json({ ok: true }); };
+  seen.length = 0;
+  const r = await (await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "again" }) })).json();
+  assert.equal(r.project.status, "idle");
+  assert.deepEqual(seen.filter((p) => p === "/stop").length, 2, "Stop's own, then once the machine had the job");
+  assert.equal(JSON.parse(bucket.m.get(mk)).status, "idle");
+});
+
+test("CD124 (2026-11-06) two environments used with a repo in the same millisecond: the one made later is offered, every time", async () => {
+  const { envForRepo } = await import("../src/coder-environments.mjs");
+  const list = [{ id: "default", name: "Default", at: 1 }, { id: "shop-1", name: "shop", at: 5, used: 900, repos: ["ana/blog"] }, { id: "testing2-1", name: "testing2", at: 900, repos: ["ana/blog"] }];
+  for (let i = 0; i < 5; i++) assert.equal(await envForRepo(fakeBucket(), "u", "ana/blog", list), "testing2-1");
+  assert.equal(await envForRepo(fakeBucket(), "u", "ana/blog", [list[0], { ...list[1], used: 901 }, list[2]]), "shop-1", "a later use still wins");
 });

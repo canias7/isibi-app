@@ -7,6 +7,7 @@ import { corsHeaders } from "./src/coder-cors.mjs";
 import { servePage } from "./src/coder-page.mjs";
 import { handleSignin } from "./src/coder-signin.mjs";
 import { handleEgress, EGRESS_PATH } from "./src/coder-egress.mjs";
+import { handleLive, LIVE_PATH } from "./src/coder-live.mjs";
 import { runMentionJobs } from "./src/coder-mentions.mjs";
 import { runWatchedJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
 
@@ -77,6 +78,9 @@ export default {
     } else if (url.pathname === EGRESS_PATH) {
       // KEYS ADDED HERE, never on the machine (2026-11-06, like Claude Code): a job's pass, not a user.
       res = await handleEgress(request, env);
+    } else if (url.pathname === LIVE_PATH) {
+      // THE CHAT SAVED AS IT GOES (2026-11-06, like Claude Code): a job's own pass, not a user.
+      res = await handleLive(request, env);
     } else if (url.pathname.startsWith("/api/coder/")) {
       res = await handleCoder(request, env, ctx, {
         authUser: (r) => authUser(r, env),

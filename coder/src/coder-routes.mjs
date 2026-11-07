@@ -35,6 +35,7 @@ import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey } from "./coder-watch.mjs";
+import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -139,6 +140,51 @@ function listEntry(meta) {
 async function saveMeta(bucket, uid, meta) {
   await putJson(bucket, keyOf(uid, meta.id, "meta.json"), meta);
 }
+/** The owner's variable and key values a chat must never keep, and this job's (sealed when it started; used up here). */
+async function hiddenValues(env, bucket, uid, meta) {
+  const envNow = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta));
+  let jobKeys = [];
+  const ho = await bucket.get(keyOf(uid, meta.id, "hide.json"));
+  if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, meta.id, "hide.json")); }
+  return [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
+}
+/** Those values hidden in a job's steps. */
+function hideIn(events, values) {
+  if (values.length) for (const ev of events) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of values) ev[f] = ev[f].split(v).join("[hidden]");
+  return events;
+}
+/**
+ * A JOB THE MACHINE LOST (it restarted, slept, or stopped answering; or it was
+ * gone when Stop was pressed): what the job saved as it went (coder-live.mjs)
+ * is put back in the chat, its values hidden, with `note` after it, and Coder
+ * is told the job was cut off and its unsaved changes are gone (like Claude
+ * Code, which keeps "your conversation history" but not the work that was
+ * still running). Then the chat is free. Answers `{ steps, ev, idle }`.
+ */
+async function endLostJob(env, bucket, uid, meta, note) {
+  const id = meta.id;
+  const kept = await readLive(env, bucket, uid, id, meta.turn).catch(() => ({ events: [], messages: null }));
+  const steps = hideIn(kept.events, kept.events.length ? await hiddenValues(env, bucket, uid, meta).catch(() => []) : []);
+  const ev = { at: Date.now(), ...note };
+  const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+  await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...steps, ev].slice(-MAX_EVENTS));
+  if (steps.length || kept.messages) {
+    const asked = (steps.find((e) => e && e.type === "user") || {}).text;
+    // The chat's saved history, then this job's part as far as it came (to its last whole step).
+    const saved = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    const base = wholeSteps([...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
+    const told = [
+      { role: "user", content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
+      { role: "assistant", content: "Understood: that job was cut off, and its unsaved changes are gone." },
+    ];
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...base, ...told]));
+  }
+  const idle = { ...meta, status: "idle", saved: meta.turn, at: Date.now() };
+  await saveMeta(bucket, uid, idle);
+  await dropLive(bucket, uid, id).catch(() => {});
+  if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {});
+  return { steps, ev, idle };
+}
 /** The user's chats, newest first, read from each chat's own meta.json. */
 /** The chat's pull request if it is still open on GitHub; null when merged, closed or gone. */
 export async function prStillOpen(token, repo, pr, fetchFn = fetch) {
@@ -161,6 +207,8 @@ export async function listChats(bucket, uid) {
 }
 /** How long a chat may say "working" with no machine answering before it is freed. */
 export const STALE_MS = 15 * 60 * 1000;
+/** A job is marked running before its machine is handed it; for this long, a machine without it is still waking up, not lost. */
+export const START_GRACE_MS = 3 * 60 * 1000;
 /** How much conversation Coder keeps (the audit): the oldest is dropped first, starting again at a message from the user. */
 export const HISTORY_MAX = 400 * 1024;
 export function capHistory(messages, max = HISTORY_MAX) {
@@ -430,15 +478,43 @@ export async function handleCoder(request, env, ctx, deps) {
     const jobValues = (setup.secrets || []).flatMap((s) => [...s.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(s.kind, s.config)]).filter(Boolean);
     const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
     delete setup.secrets;
+    // THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06): where the machine sends this job's steps, with its own pass.
+    const livePassNow = env.CODER_PUBLIC_URL ? await livePass(env, uid + "/" + id, meta.turn + 1) : "";
+    const live = livePassNow ? { url: String(env.CODER_PUBLIC_URL).replace(/\/+$/, "") + LIVE_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: livePassNow } : null;
     const mo = await bucket.get(memoryKey(uid, meta.repo));
     const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
+    // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
+    // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
+    const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
+    const marks = [...(Array.isArray(meta.marks) ? meta.marks : []), { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true };
+    // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
+    // the machine sets up first (the clone, the setup script), which can take
+    // minutes, and Cloudflare stops a request whose tab has closed; the watch
+    // list then carries the job on. (Keys added by the Worker work during the
+    // setup too: the job is "running" by then.)
+    await saveMeta(bucket, uid, next);
+    // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
+    // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
+    if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
+    // ON THE WATCH LIST (like Claude Code, 2026-11-06): the job keeps going and
+    // is saved when it ends, even after the tab is closed (coder-watch.mjs).
+    await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
+    // Not started after all: the chat is as it was.
+    const notStarted = async () => {
+      await saveMeta(bucket, uid, meta);
+      if (typeof bucket.delete === "function") { if (jobValues.length) await bucket.delete(keyOf(uid, id, "hide.json")).catch(() => {}); await bucket.delete(watchKey(uid, id, next.turn)).catch(() => {}); }
+      await dropLive(bucket, uid, id).catch(() => {});
+    };
     let r;
     try {
-    r = await post("/turn", { secrets, egress, extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment });
+    r = await post("/turn", { secrets, egress, live, extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, token: t.token, model: pick.model, effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment });
     } catch (e) {
+      await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
     }
     if (!r.ok) {
+      await notStarted();
       // THE REAL REASON, whatever shape it came in (the container's JSON, or the
       // platform's own text when the container could not start).
       const raw = await r.text().catch(() => "");
@@ -447,18 +523,9 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     // Auto-fix tries in a row; a message from the owner starts the count again.
     await markUsed(bucket, uid, envId, meta.repo).catch(() => {});
-    // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
-    // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
-    const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
-    const marks = [...(Array.isArray(meta.marks) ? meta.marks : []), { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
-    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true };
-    await saveMeta(bucket, uid, next);
-    // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
-    // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
-    if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
-    // ON THE WATCH LIST (like Claude Code, 2026-11-06): the job keeps going and
-    // is saved when it ends, even after the tab is closed (coder-watch.mjs).
-    await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
+    // STOPPED WHILE THE MACHINE WAS SETTING UP (the chat was freed meanwhile): the machine stops it too.
+    const nowMeta = await getJson(bucket, metaKey, null);
+    if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
     return json({ ok: true, project: next });
   }
 
@@ -472,19 +539,21 @@ export async function handleCoder(request, env, ctx, deps) {
     // turn (restarted, slept) frees it at once; one that never answers frees it
     // after STALE_MS.
     const free = async (why) => {
-      const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-      const ev = { at: Date.now(), type: "error", text: why };
-      await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
-      const idle = { ...meta, status: "idle", saved: meta.turn, at: Date.now() };
-      await saveMeta(bucket, uid, idle);
-      await unwatch();
-      return json({ ok: true, events: [ev], next: since, running: false, project: idle });
+      // What the job saved as it went is put back in the chat (like Claude Code); the page then loads the saved chat.
+      const { steps, ev, idle } = await endLostJob(env, bucket, uid, meta, { type: "error", text: why });
+      return json({ ok: true, events: [ev], next: since, running: false, project: idle, ...(steps.length ? { reload: true } : {}) });
     };
     if (!s) {
-      if (meta.status === "running" && Date.now() - (meta.at || 0) > STALE_MS) return free("Coder's machine stopped answering, so this job was ended. Send your message again.");
+      if (meta.status === "running" && Date.now() - (meta.at || 0) > STALE_MS) return free("Coder's machine stopped answering, so this job was ended. What it did so far is above; its unsaved changes are gone. Send your message again to carry on.");
+      // The chat was already freed (by Stop, or another tab): nothing to wait for; the page loads the saved chat.
+      if (meta.status !== "running") return json({ ok: true, events: [], next: since, running: false, project: meta, reload: true });
       return json({ ok: false, error: "Coder's machine could not be reached", project: meta }, 502);
     }
-    if (meta.status === "running" && !s.running && !s.result) return free("Coder's machine restarted and this job was lost. Send your message again.");
+    if (meta.status === "running" && !s.running && !s.result) {
+      // STILL STARTING: the chat says "running" before the machine is handed the job (it may be waking up); not lost yet.
+      if (Date.now() - (meta.at || 0) < START_GRACE_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
+      return free("Coder's machine restarted, so this job ended here. What it did so far is above; its unsaved changes are gone. Send your message again to carry on.");
+    }
     // THE TURN ENDED: the chat is kept, and the work goes to GitHub (a commit on
     // Coder's branch, pushed, and a pull request), once per turn.
     if (s.result && meta.status === "running" && meta.saved < meta.turn) {
@@ -565,12 +634,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
-      const envNow = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta));
-      let jobKeys = [];
-      const ho = await bucket.get(keyOf(uid, id, "hide.json"));
-      if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, id, "hide.json")); }
-      const secrets = [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
-      if (secrets.length) for (const ev of fresh) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of secrets) ev[f] = ev[f].split(v).join("[hidden]");
+      hideIn(fresh, await hiddenValues(env, bucket, uid, meta));
       const kept = capHistory(s.result.messages);
       await putJson(bucket, keyOf(uid, id, "messages.json"), kept);
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
@@ -582,6 +646,8 @@ export async function handleCoder(request, env, ctx, deps) {
       const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
       await saveMeta(bucket, uid, ended);
       await unwatch();
+      // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
+      await dropLive(bucket, uid, id).catch(() => {});
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
     }
     // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
@@ -898,6 +964,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (!action && request.method === "DELETE") {
     if (meta.status === "running") return json({ error: "Coder is still working in this chat: stop it first" }, 409);
     for (const k of ["meta.json", "messages.json", "events.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
+    await dropLive(bucket, uid, id).catch(() => {});
     return json({ ok: true });
   }
 
@@ -906,10 +973,10 @@ export async function handleCoder(request, env, ctx, deps) {
     try { st = await post("/stop", { project: id }).then((r) => r.json()); } catch { st = null; }
     // Nothing is running on the machine (or it is gone): the chat is freed now.
     if (meta.status === "running" && (!st || st.running === false)) {
-      const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-      await putJson(bucket, keyOf(uid, id, "events.json"), [...old, { at: Date.now(), type: "stopped" }].slice(-MAX_EVENTS));
-      await saveMeta(bucket, uid, { ...meta, status: "idle", saved: meta.turn, at: Date.now() });
-      if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {});
+      // What the job saved as it went is kept (like Claude Code).
+      await endLostJob(env, bucket, uid, meta, { type: "stopped" });
+      // The page loads the saved chat (it no longer waits for a machine that is gone).
+      return json({ ok: true, reload: true });
     }
     return json({ ok: true });
   }

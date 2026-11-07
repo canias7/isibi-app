@@ -21,7 +21,9 @@ export function githubReady(env) {
   return !!(env && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.CODER_TOKEN_KEY && env.CODER_PUBLIC_URL);
 }
 
-const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+// In pieces (2026-11-06): spreading every byte into one call fails past about 100 KB,
+// and a job's saved steps (coder-live.mjs) are sealed with this too.
+const b64 = (bytes) => { const b = new Uint8Array(bytes); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const b64url = (bytes) => b64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 

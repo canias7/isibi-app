@@ -834,6 +834,67 @@ export function gitNote(body) {
   return "\n\nGIT: the repo's main branch is " + body.base + " (fetched as origin/" + body.base + ")" + (ok(body.branch) ? "; you work on this chat's branch " + body.branch : "") + ". This chat's changes so far: git diff origin/" + body.base + "...HEAD";
 }
 
+// ── THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06; the owner: "Do this") ──
+// A job's new steps go to Coder's Worker every few seconds, and its conversation
+// every 15 seconds, with the job's own pass; the Worker keeps them until the job
+// is saved, and puts them back in the chat if this machine is lost
+// (src/coder-live.mjs). Only the real service sends (the entry point below
+// gives `liveFetch`); a machine made in a test never does.
+export const LIVE_EVERY_MS = 3000;
+export const LIVE_CONVO_MS = 15000;
+export const LIVE_BATCH = 200;
+/** Refused this many times in a row as "not running": the Worker has ended the job, so sending stops. */
+export const LIVE_REFUSALS = 20;
+const LIVE_WAIT_MS = 10_000;
+
+/** Where this job's steps go, when the Worker sent a valid one: an https address, the chat, the turn and the pass. */
+export function liveTarget(x) {
+  if (!x || typeof x !== "object") return null;
+  let u;
+  try { u = new URL(String(x.url || "")); } catch { return null; }
+  if (u.protocol !== "https:" || u.username || u.password) return null;
+  const chat = String(x.chat || ""), turn = Number(x.turn), pass = String(x.pass || "");
+  if (!/^[\w-]{1,100}\/[a-z0-9][a-z0-9-]{2,40}$/.test(chat) || !Number.isInteger(turn) || turn < 1 || !/^[\w-]{20,200}$/.test(pass)) return null;
+  return { url: u.href, chat, turn, pass };
+}
+
+/**
+ * Send a job's steps (`t.events`) and conversation (`t.convoNow()`) as they come.
+ * One sending at a time; a failed one is tried again next time; too large, and
+ * fewer steps go; "not this job" (403), or "not running" many times in a row,
+ * and it stops. `flush()` stops the timer and sends everything left.
+ */
+export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery = LIVE_CONVO_MS, now = () => Date.now() } = {}) {
+  let sent = 0, convoSent = -1, convoAt = now(), batch = LIVE_BATCH, refused = 0, over = false, queued = false;
+  let chain = Promise.resolve();
+  // A step too large to send on its own is kept as a short note in its place (the steps stay numbered alike).
+  const tooBig = new Set();
+  const once = async (final) => {
+    for (let tries = 0; tries < (final ? 40 : 1) && !over; tries++) {
+      const events = t.events.slice(sent, sent + batch).map((e, i) => (tooBig.has(sent + i) ? { at: e && e.at, type: "note", text: "(a step too large to keep here)" } : e));
+      const convo = typeof t.convoNow === "function" ? t.convoNow() : null;
+      const withConvo = Array.isArray(convo) && convo.length !== convoSent && (final || now() - convoAt >= convoEvery);
+      if (!events.length && !withConvo) return;
+      let r;
+      try {
+        r = await fetchFn(live.url, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": live.chat, "x-coder-turn": String(live.turn), "x-coder-live": live.pass }, body: JSON.stringify({ from: sent, events, ...(withConvo ? { messages: convo } : {}) }), signal: AbortSignal.timeout(LIVE_WAIT_MS) });
+      } catch { return; }
+      if (r.status === 413) { if (events.length > 1) batch = Math.max(1, Math.floor(events.length / 2)); else tooBig.add(sent); continue; }
+      if (r.status === 403) { over = true; return; }
+      if (r.status === 409) { if (++refused >= LIVE_REFUSALS) over = true; return; }
+      if (!r.ok) return;
+      refused = 0;
+      const j = await r.json().catch(() => ({}));
+      sent = Number.isInteger(j.have) && j.have >= 0 && j.have <= t.events.length ? j.have : sent + events.length;
+      if (withConvo) { convoSent = convo.length; convoAt = now(); }
+    }
+  };
+  const run = (final) => (chain = chain.then(() => once(final)).catch(() => {}));
+  const timer = setInterval(() => { if (!queued && !over) { queued = true; run(false).finally(() => { queued = false; }); } }, every);
+  if (timer.unref) timer.unref();
+  return { flush: () => { clearInterval(timer); return run(true); }, stop: () => clearInterval(timer), get sent() { return sent; }, get over() { return over; } };
+}
+
 // ── THE TURNS ────────────────────────────────────────────────────────────────
 const turns = new Map(); // project → { running, stop, events, result, started, ended, claimed }
 
@@ -929,7 +990,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
+export function createApp({ liveFetch = null, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -945,7 +1006,10 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
     const t = { running: true, stop: false, events: [], result: null, bg: new Set(), started: Date.now() };
     turns.set(project, t);
-    const fail = (status, why) => { t.running = false; turns.delete(project); return [status, { error: why }]; };
+    // THE CHAT SAVED AS IT GOES (like Claude Code): its steps, the setup's included, go to the Worker every few seconds.
+    const live = liveFetch ? liveTarget(body.live) : null;
+    const sender = live ? liveSender(t, live, liveFetch) : null;
+    const fail = (status, why) => { if (sender) sender.stop(); t.running = false; turns.delete(project); return [status, { error: why }]; };
     // Nothing left from before may race root while it prepares the files (the
     // audit); if it cannot be stopped, the job does not start (2026-11-06).
     if (!killUser()) return fail(500, NOT_STOPPED);
@@ -1095,8 +1159,11 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
     const styleLines = String(typeof body.memory === "string" ? body.memory : "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
     const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
     const context = style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notes, memFile, typeof body.memory === "string" ? body.memory : "") + extrasNote(extras) + gitNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + (script ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: its plain apt-get install lines by Coder's app as admin, every other line as your own user; its output is in the chat):\n" + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+    const lastSend = async () => { if (sender) await sender.flush(); };
     runCoder({
       send: sendFn,
+      // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
+      watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
       exec: async ({ command, timeoutS, tool, payload }) => {
         // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
         if (typeof payload === "string" && command.includes("@REQUEST")) {
@@ -1113,7 +1180,8 @@ export function createApp({ root = PROJECT_ROOT, env = process.env, send = null,
       stopped: () => t.stop,
       emit: (e) => { t.events.push(e); },
     }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
-      .then(async (r) => { t.result = { ...r, memory: await readMemory(memFile) }; }, (e) => { t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+      // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
+      .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
       .finally(() => {
         // THE TURN IS OVER: nothing it started keeps running, and its logs go.
         killAll(t);
@@ -1225,5 +1293,6 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // A NETWORK ERROR NEVER ENDS EVERY JOB (live test, 2026-11-06): a socket error
   // nobody caught (in the key/network proxy) used to stop the whole machine.
   process.on("uncaughtException", (e) => { if (e && /^E(CONNRESET|PIPE|CONNREFUSED|TIMEDOUT|HOSTUNREACH|NETUNREACH)$|^ERR_STREAM/.test(String(e.code || ""))) console.error("coder: network error, kept running:", e.code); else { console.error(e); process.exit(1); } });
-  http.createServer(createApp()).listen(8080, () => console.log("coder: listening on 8080"));
+  // THE REAL SERVICE sends each job's steps to Coder's Worker as they come (a test's machine never does).
+  http.createServer(createApp({ liveFetch: (url, init) => fetch(url, init) })).listen(8080, () => console.log("coder: listening on 8080"));
 }
