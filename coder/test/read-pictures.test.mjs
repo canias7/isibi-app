@@ -54,7 +54,7 @@ test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF, W
   // A big screenshot: made 1600 wide (its longest side), and said so.
   const shot = read(dir, { path: "shot.png" });
   assert.equal(shot.code, 0, shot.text);
-  assert.match(shot.text, /^Picture: shot\.png \(2400×1200, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop the part you need with ImageMagick \(e\.g\. convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/part\.png\) and read the crop\.$/);
+  assert.match(shot.text, /^Picture: shot\.png \(2400×1200, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop the part you need with ImageMagick into the scratch folder \(e\.g\. mkdir -p \/tmp\/coder-scratch && convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/coder-scratch\/part\.png\) and read the crop\.$/);
   assert.equal(shot.pictures.length, 1);
   assert.equal(shot.pictures[0].type, "image/png");
   assert.deepEqual(T.picSize(pngOf(shot.pictures[0])), { w: 1600, h: 800 });

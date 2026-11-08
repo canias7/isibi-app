@@ -43,6 +43,14 @@ class ToolError extends Error {}
 const fail = (m) => { throw new ToolError(m); };
 
 /** A path inside the project, or an error. Links that lead outside are refused too. */
+/**
+ * A SCRATCH FOLDER the file tools may use besides the project (the review, 2026-11-08: read's crop hint pointed at /tmp,
+ * which read refused): crops and conversions go there, never into the project, so nothing in it is saved to the branch.
+ * Its files are named by their whole path.
+ */
+export const SCRATCH = "/tmp/coder-scratch";
+/** A file read does not give as text (a picture, a PDF, a notebook, a binary kind): not read again after a summary. */
+export function notTextKind(p) { const e = extname(String(p || "")).toLowerCase(); return !!(PIC_KINDS[e] || e === ".pdf" || e === ".ipynb" || BINARY_HOW.has(e)); }
 /** A NULL BYTE in a path or pattern (Claude Code's errors page: "Read file_path cannot contain null bytes (\0). Remove
  * the null byte and try again."): no file system or search tool takes one. */
 const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
@@ -62,7 +70,7 @@ async function inside(p, { mustExist = false } = {}) {
   }
   // THE CHAT'S OTHER REPOSITORIES (2026-11-06, like Claude Code's several repos
   // in one session): their folders, next to this one, count as inside too.
-  const home = [ROOT, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))].find((r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); }) || ROOT;
+  const home = [ROOT, SCRATCH, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))].find((r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); }) || ROOT;
   const rel = relative(home, abs);
   if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
@@ -83,18 +91,31 @@ async function inside(p, { mustExist = false } = {}) {
       probe = up;
     }
   }
-  return { abs, rel };
+  return { abs, rel: home === SCRATCH ? abs : rel };
 }
 
 // THE AUDIT (2026-11-05): huge files would fill the memory, and binary ones come out as garbage (and editing corrupts them).
 export const READ_MAX_BYTES = 20 * 1024 * 1024;
 export const EDIT_MAX_BYTES = 5 * 1024 * 1024;
-async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it") {
+/** A UTF-16 TEXT FILE starts with a byte-order mark: FF FE (little-endian) or FE FF (big-endian). */
+const utf16Of = (b) => (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe ? "le" : b.length >= 2 && b[0] === 0xfe && b[1] === 0xff ? "be" : "");
+/**
+ * A FILE'S TEXT AS READ SHOWS IT: UTF-8, or UTF-16 when it starts with a byte-order mark (Claude Code 2.1.299: "Fixed
+ * Read garbling UTF-16LE files with a byte-order mark"; Windows tools often write them). Bytes that do not decode show
+ * as U+FFFD, as in Claude Code ("the character Read shows Claude in place of bytes it can't decode").
+ */
+export function fileText(buf) {
+  const u = utf16Of(buf);
+  if (u === "le") return buf.subarray(2).toString("utf16le");
+  if (u === "be") { const b = Buffer.from(buf.subarray(2, 2 + ((buf.length - 2) & ~1))); b.swap16(); return b.toString("utf16le") + (buf.length % 2 ? "\ufffd" : ""); }
+  return buf.toString("utf8");
+}
+async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it", { utf16 = false } = {}) {
   const st = await stat(abs);
   if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; " + tooBig);
   const fh = await openFile(abs, "r");
-  try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0)) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file"); } finally { await fh.close(); }
+  try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0) && !(utf16 && utf16Of(b))) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file"); } finally { await fh.close(); }
 }
 // ── PICTURES, PDFs AND NOTEBOOKS (owner item 1, 2026-11-07), like Claude Code's Read (its docs: it
 // "reads images (PNG, JPG, …) and presents them visually", "reads PDFs via the pages parameter (max 20
@@ -123,7 +144,9 @@ export const PIC_SIDES = [1600, 1200, 800];
 function runProg(cmd, args, { input = null, timeoutMs = 40_000, max = 30 * 1024 * 1024 } = {}) {
   return new Promise((done) => {
     let p;
-    try { p = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"] }); } catch { return done({ code: -2, out: Buffer.alloc(0), err: "" }); }
+    // Never in the project's folder (the review, 2026-11-08: a read must not run the repository's code, as Python did
+    // with a pypdf.py of the repo's): every path given to these programs is whole.
+    try { p = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], cwd: tmpdir() }); } catch { return done({ code: -2, out: Buffer.alloc(0), err: "" }); }
     const out = [], err = []; let size = 0, over = false;
     const timer = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, timeoutMs);
     p.stdout.on("data", (b) => { size += b.length; if (size > max) { over = true; try { p.kill("SIGKILL"); } catch { /* gone */ } } else out.push(b); });
@@ -160,7 +183,7 @@ export async function asPicture(buf, kind, budget = PICS_BUDGET) {
   const first = kind === "gif" || kind === "tiff" ? "[0]" : "";
   for (const side of PIC_SIDES) {
     for (const to of kind === "jpeg" ? ["jpeg"] : ["png", "jpeg"]) {
-      const r = await runProg("convert", [kind + ":-" + first, "-auto-orient", "-resize", side + "x" + side + ">", "-strip", ...(to === "jpeg" ? ["-background", "white", "-flatten", "-quality", "85"] : []), to + ":-"], { input: buf });
+      const r = await runProg("convert", [kind + ":-" + first, "-auto-orient", "-colorspace", "sRGB", "-resize", side + "x" + side + ">", "-strip", ...(to === "jpeg" ? ["-background", "white", "-flatten", "-quality", "85"] : []), to + ":-"], { input: buf });
       if (r.code === -2) {
         if ((kind === "png" || kind === "jpeg") && Math.ceil(buf.length / 3) * 4 <= budget) return done("image/" + kind, buf);
         return { why: kind === "png" || kind === "jpeg" ? "it is too big to show without ImageMagick" : "this machine cannot turn a " + kind.toUpperCase() + " into a PNG (no ImageMagick)" };
@@ -192,11 +215,16 @@ async function readPicture(abs, rel, kind) {
   // A BIG PICTURE IS SHOWN SMALLER, and Coder is told so (Claude Code's docs: "Claude may see a downscaled version of a
   // large screenshot. If Claude misses fine pixel-level detail in a large image, ask it to crop the region you care
   // about, such as with ImageMagick via Bash, and then read the crop"): its real size, and how to crop.
-  const real = picSize(buf);
+  let real = picSize(buf);
+  if (!real) {
+    const id = await runProg("identify", ["-format", "%w %h\n", kind + ":-" + (kind === "gif" || kind === "tiff" ? "[0]" : "")], { input: buf, timeoutMs: 20_000, max: 4096 });
+    const m = /^(\d+) (\d+)/.exec(String(id.out || ""));
+    if (id.code === 0 && m) real = { w: Number(m[1]), h: Number(m[2]) };
+  }
   const shown = p.w && p.h ? p.w + "×" + p.h : "";
   const smaller = real && p.w && p.h && Math.max(real.w, real.h) > Math.max(p.w, p.h);
   return withPics("Picture: " + rel + " (" + (smaller ? real.w + "×" + real.h : shown ? shown : "") + (smaller || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
-    (smaller ? ", made smaller (" + shown + "): for fine detail, crop the part you need with ImageMagick (e.g. convert " + shq(rel) + " -crop 800x600+0+0 /tmp/part.png) and read the crop." : "."), [p]);
+    (smaller ? ", made smaller (" + shown + "): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop." : "."), [p]);
 }
 
 /** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */
@@ -240,7 +268,7 @@ async function readPdf(abs, rel, pages) {
     // A page count that is wrong (too low: pages hidden; too high: poppler gives up) is mended from the pages themselves.
     let src = abs, stated = 0;
     const fixed = join(dir, "true.pdf");
-    const c = await runProg("python3", ["-c", PDF_PAGES_PY, abs, String(total), fixed], { timeoutMs: 30_000, max: 1024 });
+    const c = await runProg("python3", ["-I", "-c", PDF_PAGES_PY, abs, String(total), fixed], { timeoutMs: 30_000, max: 1024 });
     const real = Number(String(c.out || "").trim());
     if (Number.isInteger(real) && real > 0 && real !== total && (await stat(fixed).then((x) => x.size > 0, () => false))) { stated = total; total = real; src = fixed; }
     if (!total) fail(rel + " is not a valid PDF; it could not be opened" + (info.err ? " (" + info.err + ")" : "") + ". If it should be one, try its text with bash (pdftotext)");
@@ -317,7 +345,7 @@ const BINARY_KINDS = [
   [["xlsx", "xlsm", "xls", "ods"], "read it with a script, e.g. python3 with openpyxl or pandas (pip install them if they are missing)"],
   [["docx", "doc", "odt", "pptx", "ppt", "odp"], "read its text with a script, e.g. python3 with python-docx or python-pptx (for a .docx, `unzip -p FILE word/document.xml` also works)"],
   [["parquet", "avro", "orc", "feather", "arrow"], "read it with a script, e.g. python3 with pandas and pyarrow, or duckdb"],
-  [["heic", "heif", "avif", "psd"], "make a PNG of it with a command (ImageMagick: `convert FILE /tmp/out.png`; for HEIC also heif-convert), then read the PNG"],
+  [["heic", "heif", "avif", "psd"], "make a PNG of it in the scratch folder with a command (ImageMagick: `mkdir -p /tmp/coder-scratch && convert FILE /tmp/coder-scratch/out.png`; for HEIC also heif-convert), then read the PNG"],
   [["sqlite", "sqlite3"], "open it with `sqlite3 FILE .tables`, then query it"],
   [["mp3", "m4a", "wav", "flac", "ogg", "aac", "mp4", "mov", "avi", "mkv", "webm"], "look at it with `ffprobe FILE`; for a video, take a frame as a picture with ffmpeg and read that"],
   [["exe", "dll", "so", "dylib", "o", "a", "class", "pyc", "wasm", "iso", "dmg"], "see what it is with `file FILE`, or its text parts with `strings FILE | head -n 50`"],
@@ -341,9 +369,9 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
     const nb = await readNotebook(await readFile(abs, "utf8"), rel);
     if (nb !== null) return nb;
   }
-  await plainText(abs, rel, READ_MAX_BYTES);
+  await plainText(abs, rel, READ_MAX_BYTES, undefined, { utf16: true });
   const buf = await readFile(abs);
-  const text = buf.toString("utf8");
+  const text = fileText(buf);
   await remember(abs, buf);
   if (!text.length) return rel + " exists, but it is empty.";
   const lines = text.split("\n");

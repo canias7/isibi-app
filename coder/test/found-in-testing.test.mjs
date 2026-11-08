@@ -411,7 +411,7 @@ test("CD211 the repository's instructions at the start: up to 100,000 characters
   const ins2 = await repoInstructions(dir2);
   const long = ins2.notes.find((n) => n.name === ".coder/rules/long.md").text;
   assert.ok(long.startsWith(lines(900, 52).slice(0, NOTE_ONE_MAX - 100)));
-  assert.match(long, /\n\[\.coder\/rules\/long\.md goes on past 40,000 characters: read the rest of it with the read tool\]$/);
+  assert.match(long, /\n\[\.coder\/rules\/long\.md goes on past 40,000 characters: read the rest of it with the read tool, from line \d+\]$/);
 });
 
 test("CD212 the file tools refuse a null byte in a path or a pattern as Claude Code's do (\"cannot contain null bytes (\\0). Remove the null byte and try again.\"); a file that is not a PDF says it is not a valid PDF", async () => {
@@ -583,7 +583,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   assert.equal(await read("data.zip"), "error: data.zip is a binary file (ZIP), not text, so read does not open it: list it with `unzip -l 'data.zip'`, or print one file in it with `unzip -p 'data.zip' path/inside`");
   assert.match(await read("Sheet 1.xlsx"), /^error: Sheet 1\.xlsx is a binary file \(XLSX\), not text, so read does not open it: read it with a script, e\.g\. python3 with openpyxl or pandas/);
   assert.match(await read("t.parquet"), /\(PARQUET\).*python3 with pandas and pyarrow, or duckdb$/);
-  assert.match(await read("photo.heic"), /\(HEIC\).*make a PNG of it with a command \(ImageMagick: `convert 'photo\.heic' \/tmp\/out\.png`/);
+  assert.match(await read("photo.heic"), /\(HEIC\).*make a PNG of it in the scratch folder with a command \(ImageMagick: `mkdir -p \/tmp\/coder-scratch && convert 'photo\.heic' \/tmp\/coder-scratch\/out\.png`/);
   // Any other binary file: by the NUL byte in its start, with how to see what it is.
   await writeFile(join(dir, "blob.dat"), Buffer.from([1, 2, 0, 3]));
   assert.equal(await read("blob.dat"), "error: blob.dat is a binary file (not text): see what it is with `file 'blob.dat'`, then use a command or a script that reads that kind of file");
@@ -636,11 +636,11 @@ test("CD217 the review (2026-11-08): a job that reads a lot never wipes the save
   assert.match(capped.find((m) => m.role === "tool").content, /\n\[… cut short in the saved chat: read the file again if you need it\]$/);
 });
 
-test("CD218 the review (2026-11-08): a long job that reads a lot keeps its requests to Grok bounded. Its summaries keep the newest rounds whole only up to 40% of the room (at least the newest one), and a job may summarize itself up to 10 times", async () => {
+test("CD218 the review (2026-11-08): a long job that reads a lot keeps its requests to Grok bounded. What its summaries leave comes to at most 70% of the room (the newest rounds whole get what is left, at least the newest one), and a job may summarize itself up to 30 times", async () => {
   const { runCoder, COMPACT_AT, COMPACT_JOB_MAX, KEEP_SHARE } = await import("../container/coder-agent.mjs");
   const { cutPoint } = await import("../container/coder-compact.mjs");
-  assert.equal(COMPACT_JOB_MAX, 10);
-  assert.equal(KEEP_SHARE, 0.4);
+  assert.equal(COMPACT_JOB_MAX, 30);
+  assert.equal(KEEP_SHARE, 0.7);
   // cutPoint: as before when the rounds are small; by size when they are big.
   const rounds = (n, size) => { const c = [{ role: "user", content: "go" }]; for (let i = 0; i < n; i++) c.push({ role: "assistant", content: "", tool_calls: [call("read", { path: "f" }, "c" + i)] }, { role: "tool", tool_call_id: "c" + i, content: "y".repeat(size) }); return c; };
   const small = rounds(12, 100);
@@ -664,7 +664,7 @@ test("CD218 the review (2026-11-08): a long job that reads a lot keeps its reque
     exec: async () => ({ code: 0, output: page }),
   }, { text: "read them all", maxRounds: 60 });
   assert.equal(k, 41);
-  assert.ok(notes > 3 && notes <= 10, notes + " summaries");
+  assert.ok(notes > 3 && notes <= COMPACT_JOB_MAX, notes + " summaries");
   assert.ok(most < COMPACT_AT + 2 * 110000, "the biggest request was " + most + " characters");
 });
 
@@ -716,7 +716,7 @@ test("CD220 a big picture is shown smaller, and Coder is told so, with its real 
   const run = machine(dir);
   const read = async (path) => { const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64") })).output; return out.startsWith(PICS_MARK) ? JSON.parse(out.slice(PICS_MARK.length)) : { text: out }; };
   const big = await read("shot.png");
-  assert.match(big.text, /^Picture: shot\.png \(4000×2000, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop the part you need with ImageMagick \(e\.g\. convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/part\.png\) and read the crop\.$/);
+  assert.match(big.text, /^Picture: shot\.png \(4000×2000, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop the part you need with ImageMagick into the scratch folder \(e\.g\. mkdir -p \/tmp\/coder-scratch && convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/coder-scratch\/part\.png\) and read the crop\.$/);
   assert.equal(big.pictures.length, 1);
   const small = await read("small.jpg");
   assert.match(small.text, /^Picture: small\.jpg \(300×200, JPEG, \d+ KB\), shown to you as a picture after these results\.$/);
@@ -783,5 +783,181 @@ test("CD222 after a job's summary, Coder's instructions and memory come fresh fr
   assert.ok(systems.at(-1).endsWith("CONTEXT FROM DISK: CODER.md now says use tabs"), "the next step has it fresh");
   // On Coder's machine it is made again from the repository's files and the memory file (server.mjs).
   const src = (await import("node:fs")).readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(src, /freshContext: async \(\) => \{ const now = await repoInstructions\(dir\); later = now\.later; return contextFor\(now\.notes, await readMemory\(memFile\), now\.later\); \}/);
+  assert.match(src, /freshContext: async \(\) => contextFor\(await topNotes\(dir, notes\), \(await readMemory\(memFile\)\) \?\? "", later\),/);
+});
+
+test("CD223 an instruction file loads without its block-level HTML comments, as Claude Code's CLAUDE.md does (\"Block-level HTML comments (<!-- maintainer notes -->) in CLAUDE.md files are stripped before the content is injected into Claude's context … Comments inside code blocks are preserved. When you open a CLAUDE.md file directly with the Read tool, comments remain visible\"); a long file's \"read the rest from line N\" still names the file's own line", async () => {
+  const { repoInstructions, laterNotes, withoutComments } = await import("../container/server.mjs");
+  const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const doc = ["# Rules", "<!-- maintainer notes:", "  keep this list short", "-->", "Use tabs. <!-- an inline comment stays -->", "```html", "<!-- inside code: kept -->", "```", "   <!-- one line -->", "Run npm test."].join("\n");
+  const w = withoutComments(doc);
+  assert.equal(w.text, ["# Rules", "Use tabs. <!-- an inline comment stays -->", "```html", "<!-- inside code: kept -->", "```", "Run npm test."].join("\n"));
+  assert.deepEqual(w.lines, [1, 5, 6, 7, 8, 10], "each kept line's own number in the file");
+  const dir = await mkdtemp(join(tmpdir(), "coder-comments-"));
+  await writeFile(join(dir, "CODER.md"), doc);
+  const ins = await repoInstructions(dir);
+  assert.equal(ins.notes.find((n) => n.name === "CODER.md").text, w.text);
+  // The read tool shows the file as it is, comments too.
+  const read = (await machine(dir)({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path: "CODER.md" } })).toString("base64") })).output;
+  assert.match(read, /     2\t<!-- maintainer notes:/);
+  // A long subfolder file with a big comment at its top: its note names the file's own line to read on from.
+  const dir2 = await mkdtemp(join(tmpdir(), "coder-comments-"));
+  await mkdir(join(dir2, "src"));
+  const body = Array.from({ length: 900 }, (_, i) => "Rule " + (i + 1) + ": " + "w".repeat(52));
+  await writeFile(join(dir2, "src", "CODER.md"), ["<!--", ...Array.from({ length: 100 }, () => "maintainers only"), "-->", ...body].join("\n"));
+  const later = (await repoInstructions(dir2)).later.find((x) => x.name === "src/CODER.md");
+  assert.ok(!later.text.includes("maintainers only"));
+  const shown = laterNotes([later], dir2, "src/a.js", new Set());
+  const from = Number(/from line (\d+)\]$/.exec(shown)[1]);
+  const keptRules = later.text.trim().split("\n").length;
+  assert.ok(from === 102 + keptRules || from === 102 + keptRules - 1, "the file's own line (" + from + "), 102 lines of comment before the rules");
+});
+
+test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-order mark (2.1.299: \"Fixed Read garbling UTF-16LE files with a byte-order mark\"; edit still refuses it, for now); a CMYK JPEG is shown in sRGB (2.1.269: \"Fixed CMYK JPEG images failing to attach\"); `file_path`, Claude Code's own name, is taken for `path` (2.1.292)", async () => {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { PICS_MARK } = await import("../container/coder-tools.mjs");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-utf16-"));
+  const run = machine(dir);
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const words = "héllo\nwörld\n";
+  await writeFile(join(dir, "le.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(words, "utf16le")]));
+  const be = Buffer.from(words, "utf16le"); be.swap16();
+  await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
+  assert.equal(await tool("read", { path: "le.txt" }), "     1\théllo\n     2\twörld");
+  assert.equal(await tool("read", { path: "be.txt" }), "     1\théllo\n     2\twörld");
+  await writeFile(join(dir, "nul.txt"), Buffer.from([0x61, 0, 0x62]));
+  assert.match(await tool("read", { path: "nul.txt" }), /is a binary file \(not text\)/, "zero bytes without a byte-order mark: binary, as before");
+  assert.match(await tool("edit", { path: "le.txt", old_string: "h", new_string: "j" }), /is a binary file/, "edit does not change UTF-16 files yet (tool 3)");
+  // A CMYK JPEG: the picture Grok gets is sRGB.
+  execFileSync("convert", ["-size", "64x48", "xc:red", "-colorspace", "CMYK", join(dir, "cmyk.jpg")]);
+  assert.equal(execFileSync("identify", ["-format", "%[colorspace]", join(dir, "cmyk.jpg")]).toString(), "CMYK");
+  const out = await tool("read", { path: "cmyk.jpg" });
+  const pic = JSON.parse(out.slice(PICS_MARK.length)).pictures[0];
+  assert.equal(execFileSync("identify", ["-format", "%[colorspace]", "-"], { input: Buffer.from(pic.data, "base64") }).toString(), "sRGB");
+  // file_path for path.
+  await writeFile(join(dir, "a.txt"), "alpha\n");
+  let k = 0;
+  const res = await runCoder({ send: async () => (++k === 1 ? say("", [call("read", { file_path: "a.txt" }, "r1")]) : say("Done.")), emit: () => {}, exec: run }, { text: "read a" });
+  assert.equal(res.messages.find((m) => m.tool_call_id === "r1").content, "     1\talpha");
+});
+
+test("CD225 the second review (2026-11-08), Coder's loop: a long chat's job no longer summarizes every round, and its requests stay bounded (what a summary leaves is sized with the chat before the job and the files read again); pictures never count when sizing the steps kept; after a summary, pictures, PDFs and notebooks are not read again, and the files read again keep to their room", async () => {
+  const { runCoder, rereadFiles, COMPACT_AT } = await import("../container/coder-agent.mjs");
+  const { PICS_MARK } = await import("../container/coder-tools.mjs");
+  // The review's case: a saved chat of about 300,000 characters, then a job reading a 28,000-character file each round.
+  const history = [];
+  for (let i = 0; i < 30; i++) history.push({ role: "user", content: "ask " + i + " " + "h".repeat(5000) }, { role: "assistant", content: "answer " + i + " " + "a".repeat(5000) });
+  const file = "f".repeat(28000);
+  let k = 0, summaries = 0, most = 0;
+  await runCoder({
+    send: async (q) => {
+      if (!q.tools || !q.tools.length) { summaries++; return say("SUMMARY"); }
+      most = Math.max(most, JSON.stringify(q.messages).length);
+      k++;
+      return k <= 30 ? say("", [call("read", { path: "big" + k + ".txt" }, "r" + k)]) : say("Done.");
+    },
+    emit: () => {},
+    exec: async () => ({ code: 0, output: file }),
+  }, { messages: history, text: "read them", maxRounds: 60 });
+  assert.equal(k, 31);
+  assert.ok(summaries <= 12, summaries + " summaries for 30 rounds (one before nearly every round before)");
+  assert.ok(most < COMPACT_AT + 60000, "the biggest request: " + most + " characters (940,000 before)");
+  // A picture in the newest rounds does not shrink what a summary keeps: the same cut with or without it.
+  const cut = async (withPicture) => {
+    let n = 0, done = false, summarized = "";
+    await runCoder({
+      get compactAt() { return n === 12 && !done ? 30_000 : 10_000_000; },
+      send: async (q) => {
+        if (!q.tools || !q.tools.length) { done = true; summarized = q.messages.at(-1).content; return say("SUMMARY"); }
+        n++;
+        return n <= 12 ? say("", [call(n === 11 ? "read" : "bash", n === 11 ? { path: "shot.png" } : { command: "echo " + n }, "c" + n)]) : say("Done.");
+      },
+      emit: () => {},
+      // The same text either way; only the picture's size differs (600 KB, or tiny).
+      exec: async ({ command }) => (command.includes("coder-tools.mjs") ? { code: 0, output: PICS_MARK + JSON.stringify({ text: "o".repeat(2500), pictures: [{ type: "image/png", data: "A".repeat(withPicture ? 600000 : 100) }] }) } : { code: 0, output: "o".repeat(2500) }),
+    }, { text: "go" });
+    return (summarized.match(/CODER USED/g) || []).length;
+  };
+  const plain = await cut(false), pictured = await cut(true);
+  assert.ok(plain > 0);
+  assert.equal(pictured, plain, "the same steps summarized, picture or not");
+  // Re-reads: no picture, PDF or notebook is read; the files read again keep to their room.
+  const asked = [];
+  const exec = async ({ command }) => {
+    const req = JSON.parse(Buffer.from(command.split(" ").pop(), "base64").toString("utf8"));
+    asked.push(req.tool + " " + (req.args.path || (req.args.paths || []).join(",")));
+    if (req.tool === "mtimes") return { code: 0, output: JSON.stringify(req.args.paths.map((p, i) => ({ path: p, mtime: 1000 - i }))) };
+    return { code: 0, output: "x".repeat(15000) };
+  };
+  const touched = new Map([["one.js", 6], ["shot.png", 5], ["doc.pdf", 4], ["nb.ipynb", 3], ["two.js", 2], ["data.zip", 1]]);
+  const text = await rereadFiles({ exec }, [], touched, () => {}, { most: 20000 });
+  assert.deepEqual(asked, ["mtimes one.js,two.js", "read one.js", "read two.js"], "only the text files are looked at and read");
+  assert.match(text, /--- one\.js ---\n/);
+  assert.match(text, /Referenced file two\.js /, "the second would go past the room: named only");
+});
+
+test("CD226 the second review (2026-11-08), the tools and the machine: a read never runs the repository's code (Python in isolated mode, every program outside the project's folder); a scratch folder read can open, for crops and conversions; every picture's real size is said; after a summary only the top-level CODER.md or AGENTS.md is read again from disk (no folder on the way to swap), and a missing memory file is no error; a job cut down to the owner's message keeps its Rewind mark", async () => {
+  const { mkdtemp, writeFile, mkdir, rm, symlink, unlink } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { existsSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { PICS_MARK, SCRATCH } = await import("../container/coder-tools.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-review2-"));
+  const run = machine(dir);
+  const read = async (path) => { const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64") })).output; return out.startsWith(PICS_MARK) ? JSON.parse(out.slice(PICS_MARK.length)) : { text: out }; };
+  // A repository's pypdf.py does not run when a PDF is read.
+  let tools = true;
+  try { execFileSync("python3", ["-c", "import pypdf"]); execFileSync("pdfinfo", ["-v"], { stdio: "ignore" }); } catch { tools = false; }
+  if (tools) {
+    const mark = join(dir, "RAN");
+    await writeFile(join(dir, "pypdf.py"), "open(" + JSON.stringify(mark) + ", 'w').write('ran')\n");
+    execFileSync("python3", ["-I", "-c", "import pypdf, sys\nw = pypdf.PdfWriter()\nw.add_blank_page(612, 792)\nw.write(sys.argv[1])", join(dir, "doc.pdf")]);
+    const pdf = await read("doc.pdf");
+    assert.match(pdf.text, /^doc\.pdf: PDF, 1 page/);
+    assert.equal(existsSync(mark), false, "the repository's pypdf.py never ran");
+  }
+  // The scratch folder: read opens a crop there (named by its whole path); a link out of it is refused.
+  assert.equal(SCRATCH, "/tmp/coder-scratch");
+  await mkdir(SCRATCH, { recursive: true });
+  execFileSync("convert", ["-size", "40x30", "xc:green", join(SCRATCH, "part-cd226.png")]);
+  assert.match((await read(SCRATCH + "/part-cd226.png")).text, /^Picture: \/tmp\/coder-scratch\/part-cd226\.png \(40×30, PNG, /);
+  await symlink("/etc/passwd", join(SCRATCH, "out-cd226.txt")).catch(() => {});
+  assert.match((await read(SCRATCH + "/out-cd226.txt")).text, /leads outside/);
+  await rm(join(SCRATCH, "part-cd226.png"), { force: true }); await unlink(join(SCRATCH, "out-cd226.txt")).catch(() => {});
+  // A WebP's real size (ImageMagick tells it when the header is not PNG or JPEG).
+  execFileSync("convert", ["-size", "4000x2000", "xc:white", join(dir, "wide.webp")]);
+  assert.match((await read("wide.webp")).text, /^Picture: wide\.webp \(4000×2000, WEBP, [^)]*\), shown to you as a picture after these results, made smaller \(1600×800\)/);
+  // After a summary: the top-level CODER.md fresh; .coder/CODER.md as it was; a top-level file gone or turned into a link: left out.
+  const { repoInstructions, topNotes } = await import("../container/server.mjs");
+  const repo = await mkdtemp(join(tmpdir(), "coder-review2-repo-"));
+  await mkdir(join(repo, ".coder"));
+  await writeFile(join(repo, "CODER.md"), "Use spaces.");
+  await writeFile(join(repo, ".coder", "CODER.md"), "Deploy on Fridays.");
+  const { notes } = await repoInstructions(repo);
+  await writeFile(join(repo, "CODER.md"), "Use tabs. <!-- kept inline -->\n<!--\nleft out\n-->");
+  await writeFile(join(repo, ".coder", "CODER.md"), "Deploy on Mondays.");
+  assert.deepEqual(await topNotes(repo, notes), [{ name: "CODER.md", text: "Use tabs. <!-- kept inline -->" }, { name: ".coder/CODER.md", text: "Deploy on Fridays." }]);
+  await unlink(join(repo, "CODER.md"));
+  await writeFile(join(dir, "outside.md"), "secret");
+  await symlink(join(dir, "outside.md"), join(repo, "CODER.md"));
+  assert.deepEqual(await topNotes(repo, notes), [{ name: ".coder/CODER.md", text: "Deploy on Fridays." }], "a link is never followed");
+  const src = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(src, /\(await readMemory\(memFile\)\) \?\? ""/);
+  // A job cut down to the owner's message: its Rewind mark now points at it (it went before).
+  const { capHistoryInfo } = await import("../src/coder-routes.mjs");
+  const msgs = [{ role: "user", content: "ask 1" }, { role: "assistant", content: "answer 1" }, { role: "user", content: "ask 2" }];
+  for (let i = 0; i < 40; i++) msgs.push({ role: "assistant", content: "x".repeat(20000) });
+  const capped = capHistoryInfo(msgs, 400 * 1024);
+  assert.equal(capped.messages[0].content, "ask 2");
+  assert.equal(capped.dropped, 2, "two messages went before it");
+  const marks = [{ turn: 1, msg: 0 }, { turn: 2, msg: 2 }].map((m) => ({ ...m, msg: m.msg - capped.dropped })).filter((m) => m.msg >= 0);
+  assert.deepEqual(marks, [{ turn: 2, msg: 0 }]);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const dropM = capped\.dropped,/);
 });

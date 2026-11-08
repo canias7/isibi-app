@@ -275,23 +275,26 @@ export const STALE_MS = 15 * 60 * 1000;
 export const START_GRACE_MS = 8 * 60 * 1000;
 /** How much conversation Coder keeps (the audit): the oldest is dropped first, starting again at a message from the user. */
 export const HISTORY_MAX = 400 * 1024;
-export function capHistory(messages, max = HISTORY_MAX) {
-  if (!Array.isArray(messages)) return [];
-  let out = messages;
+export function capHistory(messages, max = HISTORY_MAX) { return capHistoryInfo(messages, max).messages; }
+/** capHistory, and how many of the messages went from the front (`dropped`): Rewind's marks move up by that many. */
+export function capHistoryInfo(messages, max = HISTORY_MAX) {
+  if (!Array.isArray(messages)) return { messages: [], dropped: 0 };
+  let out = messages, dropped = 0;
   while (out.length && JSON.stringify(out).length > max) {
     // At one of the owner's messages (or a summary), never at a note of Coder's app.
     const next = out.findIndex((m, i) => i > 0 && m && m.role === "user" && m.appNote !== true);
-    if (next > 0) { out = out.slice(next); continue; }
+    if (next > 0) { out = out.slice(next); dropped += next; continue; }
     // ONE JOB ALONE IS OVER THE SIZE (the review, 2026-11-08: it used to leave nothing at all): its long answers are cut
     // shorter instead, and only if that is not enough does the job's own record go, keeping the owner's message.
     for (const keep of [2000, 300]) {
       out = out.map((m) => (m && (m.role === "tool" || m.appNote === true) && typeof m.content === "string" && m.content.length > keep ? { ...m, content: m.content.slice(0, keep) + "\n[… cut short in the saved chat: read the file again if you need it]" } : m));
-      if (JSON.stringify(out).length <= max) return out;
+      if (JSON.stringify(out).length <= max) return { messages: out, dropped };
     }
-    const first = out.find((m) => m && m.role === "user" && m.appNote !== true && typeof m.content === "string");
-    return first ? [{ ...first, content: first.content.slice(0, 20000) }, { role: "assistant", content: "(The steps of this job were too long to keep in the saved chat.)" }] : [];
+    // The owner's message stays where Rewind's mark for it now points (the second review, 2026-11-08: the mark was lost).
+    const at = out.findIndex((m) => m && m.role === "user" && m.appNote !== true && typeof m.content === "string");
+    return at >= 0 ? { messages: [{ ...out[at], content: out[at].content.slice(0, 20000) }, { role: "assistant", content: "(The steps of this job were too long to keep in the saved chat.)" }], dropped: dropped + at } : { messages: [], dropped: messages.length };
   }
-  return out;
+  return { messages: out, dropped };
 }
 /** WHAT "UNDO" WOULD UNDO (owner, 2026-11-06, "3"): the chat's last commit, and whether the last job made it. */
 export function lastJobFor(meta) {
@@ -877,13 +880,13 @@ export async function handleCoder(request, env, ctx, deps) {
       for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
       hideIn(fresh, await hiddenValues(env, bucket, uid, meta));
-      const kept = capHistory(s.result.messages);
+      const capped = capHistoryInfo(s.result.messages), kept = capped.messages;
       await putJson(bucket, keyOf(uid, id, "messages.json"), kept);
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
       await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
       // The oldest history may have been trimmed: Rewind's marks move with it.
-      const dropM = (Array.isArray(s.result.messages) ? s.result.messages.length : 0) - kept.length, dropE = allEvents.length - keptEvents.length;
+      const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
       const asked = fresh.filter((e) => e && ["question", "secret", "envchange"].includes(e.type)).at(-1);

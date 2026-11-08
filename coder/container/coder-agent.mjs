@@ -23,7 +23,7 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from 
 export { viewedFile };
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS } from "./coder-tools.mjs";
+import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -42,10 +42,15 @@ export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitud
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 /** A job's conversation past this many characters has its older steps summarized (owner item 3). */
 export const COMPACT_AT = 450_000;
-/** A job summarizes its own steps at most this many times (3 before the review, 2026-11-08: with big reads, too few). */
-export const COMPACT_JOB_MAX = 10;
-/** The newest rounds a summary keeps whole come to at most this share of COMPACT_AT. */
-export const KEEP_SHARE = 0.4;
+/** A job summarizes its own steps at most this many times (3, then 10, before the reviews of 2026-11-08). */
+export const COMPACT_JOB_MAX = 30;
+/**
+ * WHAT A JOB'S SUMMARY LEAVES comes to at most this share of the room (the second review, 2026-11-08: the newest rounds
+ * kept whole were sized without the saved chat before the job and the files read again, so a long chat was still over
+ * the room right after each summary): the chat before the job and the owner's message, the summary, the files read
+ * again (at most REREAD_SHARE of the room), and the newest rounds, which get what is left (at least the newest one).
+ */
+export const KEEP_SHARE = 0.7, REREAD_SHARE = 0.1;
 /**
  * THE SAVED CHAT KEEPS LONG ANSWERS SHORT (the review, 2026-11-08): while Coder works, a read gives up to about 100,000
  * characters (more with allow_large), like Claude Code's Read; the chat saved between messages keeps each tool's answer
@@ -200,7 +205,7 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
  * are not read again. The text that goes with the summary ("" when there is none), each file shown as a step.
  */
 export const REREAD_LEAD = "(Like Claude Code after a summary: the files you were working on, read again just now as they are now, the most recently changed first.)";
-export async function rereadFiles(deps, kept, touched, emit = () => {}, { lead = REREAD_LEAD, touch = () => {} } = {}) {
+export async function rereadFiles(deps, kept, touched, emit = () => {}, { lead = REREAD_LEAD, touch = () => {}, most = Infinity } = {}) {
   const seen = new Set();
   for (const m of Array.isArray(kept) ? kept : []) {
     // Files the owner @-mentioned in a kept message are there whole already.
@@ -213,7 +218,8 @@ export async function rereadFiles(deps, kept, touched, emit = () => {}, { lead =
     }
   }
   // The most recently touched first (the tie-break), at most 50 of them.
-  const list = [...touched.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p).filter((p) => !seen.has(p)).slice(0, 50);
+  // Pictures, PDFs, notebooks and binary kinds are not read again (the review, 2026-11-08: they were drawn, then dropped).
+  const list = [...touched.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p).filter((p) => !seen.has(p) && !notTextKind(p)).slice(0, 50);
   if (!list.length) return "";
   const t = await appTool(deps, "mtimes", { paths: list });
   let times = [];
@@ -221,14 +227,16 @@ export async function rereadFiles(deps, kept, touched, emit = () => {}, { lead =
   if (!Array.isArray(times)) return "";
   const pick = times.map((x, i) => ({ path: x && typeof x.path === "string" ? x.path : "", mtime: Number(x && x.mtime), i })).filter((x) => x.path && Number.isFinite(x.mtime)).sort((a, b) => b.mtime - a.mtime || a.i - b.i);
   const parts = [], done = new Set();
+  let used = 0;
   for (const f of pick) {
     if (parts.length >= REREAD_FILES) break;
-    if (done.has(f.path) || seen.has(f.path)) continue;
+    if (done.has(f.path) || seen.has(f.path) || notTextKind(f.path)) continue;
     done.add(f.path);
     const r = await appTool(deps, "read", { path: f.path });
     if (r.code !== 0 || r.output.startsWith(PICS_MARK)) continue;
     const text = capOutput(r.output, READ_LARGE_CHARS + 2000);
-    const big = text.length > REREAD_ONE || /\n\[PARTIAL view: /.test(text);
+    const big = text.length > REREAD_ONE || /\n\[PARTIAL view: /.test(text) || used + text.length > most;
+    if (!big) used += text.length;
     const id = stepId("rr");
     emit({ type: "bash", id, tool: "read", verb: "Read", command: scrub(f.path).slice(0, 300) + " (again, after the summary)" });
     emit({ type: "result", id, code: 0, output: big ? "(only named again: over " + REREAD_ONE.toLocaleString("en-US") + " characters)" : capOutput(text) });
@@ -266,7 +274,7 @@ export const CODER_MAX_MS = 45 * 60 * 1000;
 
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
-  fn("read", "Read a file in the project, like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
+  fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly (read it first) and appear once, unless replace_all is true. Use this instead of sed.", { path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
   fn("write", "Write a whole file (new, or replacing everything in it). At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
@@ -456,7 +464,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // WHERE THIS JOB BEGINS: what is before it is the chat's saved history (the Worker summarizes that
   // between jobs); this job may summarize only its own steps, after the owner's message (compactJob).
   const jobStart = convo.length;
-  let compactions = 0;
+  let compactions = 0, summarizeAgainAt = 0;
   // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
   // history keeps a note in their place (so it stays small).
   const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
@@ -491,7 +499,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     const named = convo[lastSum].reread.filter((p) => typeof p === "string");
     const { reread: _done, ...asRead } = convo[lastSum];
     convo[lastSum] = asRead;
-    const again = await rereadFiles(deps, convo.slice(lastSum + 1), new Map(named.map((p, i) => [normPath(p), i + 1])), emit, { touch, lead: "(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)" });
+    const again = await rereadFiles(deps, convo.slice(lastSum + 1), new Map(named.map((p, i) => [normPath(p), i + 1])), emit, { touch, most: Math.floor((deps.compactAt === 0 ? COMPACT_AT : Number(deps.compactAt) || COMPACT_AT) * REREAD_SHARE), lead: "(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)" });
     if (again) convo.push({ role: "user", appNote: true, content: again });
   }
   const usage = [];
@@ -528,8 +536,12 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
     const room = deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT;
     // Pictures do not count (they are sent beside the text, and a read keeps at most PICS_KEEP of them).
-    if (room && compactions < COMPACT_JOB_MAX && JSON.stringify(convo.map(noPics)).length > room) {
-      const cutAt = cutPoint(convo, jobStart + 1, 8, Math.floor(room * KEEP_SHARE));
+    const textNow = convo.map(noPics);
+    const sizeNow = JSON.stringify(textNow).length;
+    if (room && compactions < COMPACT_JOB_MAX && sizeNow > room && sizeNow >= summarizeAgainAt) {
+      const stays = JSON.stringify(textNow.slice(0, jobStart + 1)).length;
+      const rereadRoom = Math.floor(room * REREAD_SHARE);
+      const cutAt = cutPoint(textNow, jobStart + 1, 8, Math.max(0, Math.floor(room * KEEP_SHARE) - stays - rereadRoom - 10_000));
       if (cutAt > 0) {
         let text = "";
         try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt)), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
@@ -539,11 +551,15 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
           emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows them all." });
           // The files it was working on, read again, go with the summary (not a message of the owner's).
-          const again = await rereadFiles(deps, convo.slice(jobStart + 2), touched, emit);
+          const again = await rereadFiles(deps, convo.slice(jobStart + 2), touched, emit, { most: rereadRoom });
           if (again) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + again };
           // The repo's instructions and the memory, fresh from disk (Coder may have changed them in this job), as Claude
           // Code re-injects them "from disk" after compaction (deps.freshContext, from Coder's machine).
           if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) context = c; } catch { /* the one it had stays */ } }
+          // A SUMMARY THAT CANNOT BRING THE JOB BACK UNDER ITS ROOM (the chat before it is near the room) is not made again
+          // until the job has grown by a tenth of the room (Claude Code too stops when "context refills immediately").
+          const after = JSON.stringify(convo.map(noPics)).length;
+          summarizeAgainAt = after > room * 0.9 ? after + Math.floor(room * 0.1) : 0;
         }
       }
     }
@@ -750,6 +766,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
         const spec = RUN_TOOLS[c.name];
         const args = c.args || {};
+        // `file_path`, Claude Code's own name for it, is taken for `path` (Claude Code 2.1.292: Read "ignore[s] a few
+        // stray parameters instead of failing the call"; its Grep "accepts file_path for path").
+        if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
         // READ'S ROOM (like Claude Code's allow_large, "sized against the room left in the session's context
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }

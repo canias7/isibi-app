@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read, checked again before merging (your word: "double check again against claude code docs before merging")
+
+- **Claude Code's changelog, further back** (45 more versions, word for word). Coder already matched nearly all of its read changes. Three more, fixed:
+  - **Windows text files (UTF-16)** open now; Coder refused them as binary.
+  - **CMYK JPEG pictures** (a print colour format) are converted so Grok can open them.
+  - If Grok says `file_path` (Claude Code's own name) instead of `path`, read still works.
+- **From the docs:** comments in CODER.md (`<!-- like this -->`) now stay out of what Grok sees, like Claude Code. Reading the file still shows them.
+- **A second fresh review of the newest code** found nine real problems, all fixed. The two security ones:
+  - reloading the instructions after a summary could be tricked by a background command into reading a file from outside the project;
+  - reading a PDF would have run a repo's own Python file named `pypdf.py`.
+  The other seven: long jobs on a big chat summarizing almost every step; wasted re-reads of pictures; the crop hint pointing to a folder read couldn't open (now a scratch folder it can); a WebP's real size; a deleted memory file; and a lost rewind point in a rare case.
+- **For you to decide later:** Claude Code saves pictures you paste so Claude can open them again as files; its @ file list puts file-name matches first.
+- Tests CD223 to CD226 are new, and each fails on the old code. 235 pass, all 24 rule checks pass on the real tool, and the machine check passes.
+
 ## 2026-11-08: Read, double-checked (your word: "double check everything we have with that tool")
 
 - **Every read rule, run for real:** 24 cases on the actual tool, run the way Coder's machine runs it. All 24 match Claude Code's docs.

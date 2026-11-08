@@ -75,7 +75,9 @@ code in **each user's own GitHub**.
    up to five of the files"; `rereadFiles`; the `mtimes` tool gives their times):
    each up to 20,000 characters (about 5,000 tokens), a bigger one only named as
    a "Referenced file". Files the kept steps read already, pictures and files
-   that are gone are skipped. After a job's own summary they go with the summary
+   that are gone are skipped, and so are pictures, PDFs, notebooks and binary
+   kinds (`notTextKind`), before they are read; the files read again come to at
+   most 10% of the room. After a job's own summary they go with the summary
    message. A summary made between messages (`/compact`, a long chat summarized
    before a job, Rewind's summaries) names the files its part worked on
    (`filesTouched` in `container/coder-compact.mjs`, kept as the summary's
@@ -92,13 +94,27 @@ code in **each user's own GitHub**.
    **After a job's summary, Coder's instructions and memory come fresh from disk**
    (Claude Code's docs: "Project-root CLAUDE.md and unscoped rules | Re-injected
    from disk", "Auto memory | Re-injected from disk"; its 2.1.311 fixed stale
-   copies): the machine builds Coder's context with `contextFor`, and again from
-   the repository's files and the memory file after a summary (`freshContext`).
+   copies): the machine builds Coder's context with `contextFor`, and again after
+   a summary (`freshContext`) with the memory file and the repository's top-level
+   CODER.md or AGENTS.md (`topNotes`): only files with no folder on the way, as
+   Coder's commands may still run then (a folder could be swapped for a link); the
+   rest stays as read before any command ran. Block-level HTML comments in the
+   instruction files are left out as they load (`withoutComments`; Claude Code's
+   CLAUDE.md does the same), and a note to read the rest names the file's own line.
 
    **A big picture is shown smaller, and Coder is told so** (Claude Code's docs:
    "Claude may see a downscaled version of a large screenshot … crop the region
    you care about, such as with ImageMagick via Bash, and then read the crop"):
    read's answer gives the picture's real size, the size shown, and how to crop.
+
+   **Text read opens:** UTF-8, and UTF-16 with a byte-order mark (Claude Code
+   2.1.299; edit still refuses those). Pictures are made sRGB (a CMYK JPEG too).
+   `file_path`, Claude Code's own name, is taken for `path`. Besides the project,
+   the file tools may use a scratch folder, `/tmp/coder-scratch` (`SCRATCH`), for
+   crops and conversions, which is never saved to the branch. The programs a read
+   runs (ImageMagick, poppler, Python for a PDF's pages) never start in the
+   project's folder, and Python runs isolated (`-I`), so a read never runs the
+   repository's code.
 
    **What read refuses, as Claude Code's Read does:** a folder ("list what is in
    it with glob, or a command such as ls"); a file whose kind is binary by its
@@ -540,10 +556,13 @@ conversation past 300 KB has its older jobs summarized (the owner's newest
 three messages stay whole); if no summary can be made, the oldest part is cut
 as before. Within a job, past 450 KB, the job summarizes its own older steps
 (never between a tool's call and its answer, and never the saved history
-before the job), its newest rounds whole: up to eight, and only up to 40% of
-that room (at least the newest one), so that big reads cannot keep it over the
-room; at most ten times a job (`COMPACT_JOB_MAX`; three before the review of
-2026-11-08). While Coder works, a read gives up to about 100,000 characters,
+before the job). What a summary leaves comes to at most 70% of the room
+(`KEEP_SHARE`): the chat before the job and the owner's message, the summary,
+the files read again (at most 10%, `REREAD_SHARE`), and the newest rounds whole,
+which get what is left (up to eight, at least the newest one); pictures never
+count. When a summary cannot bring the job back under its room (the chat before
+it is near the room), none is made again until the job has grown by a tenth of
+it. At most thirty times a job (`COMPACT_JOB_MAX`). While Coder works, a read gives up to about 100,000 characters,
 but the chat saved between messages keeps each tool's answer and each note of
 the app to 12,000 characters, and a summary to 40,000 (`forSaving`), and the
 chat's record keeps each step's output to 12,000; the saved chat's size cap
