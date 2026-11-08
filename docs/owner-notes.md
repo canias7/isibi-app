@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read: a note on files saved in an old text format (your word: "Yea fix that")
+
+- **Found while checking write:** when a file is saved in an old text format (like Windows-1252, common for older Windows files), letters like "é" can't be read and show as "�". Claude Code's read then adds a note saying so, and that edit and write shouldn't be used on it. Coder's read said nothing, so Coder didn't know, and its write then saved "�" over the real letters.
+- **Now Coder's read adds the same note**, with how to change such a file safely (a command that keeps its format, or asking you about converting it). Normal files get no note.
+- Test CD241 (fails on the old code); all 250 pass. Live with the next merge and deploy.
+- **A missing file, now with where Coder is** (your word: "Ok do those fixes too"): Claude Code says "File does not exist. Note: your current working directory is …", so a wrong folder is easy to spot. Coder said only "no such file". Now it adds the same note. Test CD242; all 251 pass.
+- Checked the same in both: file names with spaces and accents, SVG files, and links that stay inside the project. Windows line endings go with edit (tool 3).
+
 ## 2026-11-08: Coder keeps /tmp from one message to the next, like Claude Code (your word: "Fix that too")
 
 This is part of tool 5 (bash), done now on your word.
@@ -18,7 +26,8 @@ This is part of tool 5 (bash), done now on your word.
 - **Before:** each message's commands started with an empty `/tmp`, so a file put there was gone by the next message. That's why the big picture in the read test had to be made and read in one message.
 - **Now:** `/tmp` lasts for the whole chat, like Claude Code keeps it for the whole session. It's kept even while the chat's machine sleeps. Only a new version of Coder starts it fresh, the same way it starts fresh the programs Coder installed.
 - Tested for real in Coder's sandbox: a file made in `/tmp` was still there in the next message's sandbox, and gone after a new version. Both tests fail on the old code; all 249 tests pass.
-- Live with the next merge and deploy, then tested in the browser.
+- **Live** (deploy 66) **and tested in the browser (recording 12):** a file made in /tmp in one message was still there in the next.
+- **40 old test chats deleted** (your word: "you can delete old chats bro"): the account was at Coder's limit of 50 chats, so no new chat could start. All were test chats on canias7/testingforclaude; the 10 newest are kept. Their branches and pull requests stay on GitHub.
 
 ## 2026-11-08: Read: the four differences fixed (your word: "Yea fix those 4")
 
@@ -27,7 +36,7 @@ This is part of tool 5 (bash), done now on your word.
 - **3. The changed lines:** after a command changes a file Coder read, Coder is also shown the lines the change touched (8 lines either side, numbered), as Claude Code's second note does. For that, Coder keeps a short fingerprint of each line, never the text itself. It's a note for Coder only; the chat doesn't show it, as in Claude Code.
 - **4. Big pictures at 2,000 pixels** (1,600 before), with Claude Code's line on how to map a spot back to the real picture ("multiply coordinates by 3.00"). The crop hint stays. A bit more Grok per picture, as you agreed.
 - Tests: three new (CD238 to CD240) and four updated, each failing on the old code. All 249 pass, and the 24 real read checks pass.
-- Next: merge, deploy, and test all four live in the browser, recorded.
+- **Live** (your word: "merge and deploy"; deploy 66) **and tested in the browser, recorded (recording 12):** all four worked. Long lines came back whole (a 20,000-character one too, and in an @-mention); after `cat` then `sed`, Coder got both notes, the second with the changed lines, word for word as Claude Code's; the big picture came at 2,000 pixels with the coordinates line; and GIF, BMP and TIFF pictures all opened (Claude Code opens only the GIF). A link that points out of the project was refused, as it should be.
 
 ## 2026-11-08: Read, tested live in the browser, then side by side with Claude Code (your word: "ok")
 

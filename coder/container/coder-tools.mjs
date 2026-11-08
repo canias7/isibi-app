@@ -9,6 +9,7 @@
 // File tools stay inside the project folder.
 import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { isUtf8 } from "node:buffer";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
@@ -45,6 +46,8 @@ const ROOT = process.cwd();
  * tools name files by their full paths (grep and glob: from the folder searched, as Claude Code's do). Every path is
  * still kept inside the project by `inside`.
  */
+/** A missing file, named, with the folder a short path counts from (as Claude Code's Read says it). */
+export const missingFile = (shown) => "no such file: " + shown + ". Note: your current working directory is " + BASE + ".";
 const BASE = (() => { const c = process.env.CODER_CWD; return c && isAbsolute(c) && !c.includes("\0") ? resolve(c) : ROOT; })();
 
 class ToolError extends Error {}
@@ -97,7 +100,10 @@ async function inside(p, { mustExist = false } = {}) {
       break;
     } catch (e) {
       if (e instanceof ToolError) throw e;
-      if (mustExist) fail("no such file: " + shown);
+      // WHERE A SHORT PATH STARTS, said with it (the owner, 2026-11-08: "Ok do those fixes too"; Claude Code's Read,
+      // tried side by side: "File does not exist. Note: your current working directory is /home/user/cc-test4."), so a
+      // path given from the wrong folder is seen as such.
+      if (mustExist) fail(missingFile(shown));
       const up = dirname(probe);
       if (up === probe) break;
       probe = up;
@@ -408,6 +414,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   await plainText(abs, rel, READ_MAX_BYTES, undefined, { utf16: true });
   const buf = await readFile(abs);
   const text = fileText(buf);
+  const oldText = !utf16Of(buf) && !isUtf8(buf) ? "\n" + NOT_UTF8_NOTE : "";
   await remember(abs, buf);
   if (!text.length) return rel + " exists, but it is empty.";
   const lines = text.split("\n");
@@ -445,17 +452,26 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // A part that was asked for and does not fit is refused, as in Claude Code; a whole-file read gets its first part.
   if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
   const body = rows.join("\n");
-  if (last >= total) return body;
+  if (last >= total) return body + oldText;
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   return body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
-    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]");
+    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText;
 }
 /**
  * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT
  * answer from this page alone if the answer may be further in the file"): Grok reads the rest before answering.
  */
 export const PARTIAL_HINT = "Do not answer from this part alone if the answer may be further in the file.";
+/**
+ * A FILE THAT IS NOT VALID UTF-8 (an old encoding such as Windows-1252, or binary with no zero byte): said after its
+ * lines, as Claude Code's Read says it (the owner, 2026-11-08: "Yea fix that"; tried side by side: "[This file is not
+ * valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes
+ * show above as U+FFFD. Edit and Write will refuse it: …]"). Before, Coder saw the � with no word of why, and a write
+ * then saved the � over the real letters. Coder's edit and write do not refuse such a file (yet), so the note says
+ * what they would do.
+ */
+export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD (�). Edit and write would save the � in their place and lose those bytes for good, so do not use them on it: change it with a command that keeps its encoding (iconv), or ask the owner whether to convert it to UTF-8.]";
 
 export async function toolWrite({ path, content }) {
   const { abs, rel } = await inside(path);

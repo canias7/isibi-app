@@ -172,6 +172,10 @@ code in **each user's own GitHub**.
    line came back whole, tried side by side; Coder cut every line at 2,000
    characters before). A line too big for one read by itself is left for a read of
    its own, which says so, with allow_large and a command to see part of it.
+   A file that is not valid UTF-8 (an old encoding such as Windows-1252) gets
+   Claude Code's note after its lines: its undecodable bytes show as U+FFFD, and
+   edit and write would save that over them, so change it with a command that keeps
+   its encoding (iconv), or ask the owner about converting it (`NOT_UTF8_NOTE`).
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the
