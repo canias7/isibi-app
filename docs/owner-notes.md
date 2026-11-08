@@ -11,6 +11,70 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Everything tested, one by one, and recorded (your word: "u test it all yourself one by one , record it pls")
+
+- **Recorded:** 8 videos of the page and the desktop app, plus a ninth that films the live GitHub threads and stops at each result. Items checked only by the automatic tests can't be filmed (2, 48–50), and 45 and 47 weren't tested.
+- **The results are in [`docs/coder-features.md`](coder-features.md)**, item by item, each with how it was tested:
+  - **live:** the real Coder through @coder on your test repo, issues #12 to #16 and pull request #16;
+  - **page:** the real page and server code on my side, with stand-ins for sign-in, GitHub and Grok, because the code is emailed and I can't sign in;
+  - **app:** the real desktop app, filmed.
+- **44 of 50 passed.** 4 passed as far as I can go and need you for the last step. 2 weren't tested: desktop notifications (they need signing in inside the app) and the phone app (no phone here).
+- **6 problems found and fixed**, in the entries below:
+  - background commands;
+  - /usr/games;
+  - "Full" network not said;
+  - the message box carrying over between chats;
+  - dead ends on GitHub;
+  - the desktop app's blank window.
+- **Live highlights:**
+  - 60 of 60 tools ok;
+  - sudo and apt-get work;
+  - the machine keeps its files and installs while asleep;
+  - a screenshot and a PDF page read exactly;
+  - the eval warning;
+  - the next chat started from the setup's saved copy (#25 passes now);
+  - CODER.md in the root and in `src/` followed;
+  - memory carried to a new chat;
+  - review and security review;
+  - a 2-question card on GitHub;
+  - a draft pull request (#16);
+  - your GitHub login isn't on the machine (only a placeholder).
+- **Needs you, for the last steps:**
+  - on gofarther.dev, Repositories, turn on Code review for testingforclaude (Manual is enough), then I'll ask `@coder review` on pull request #16;
+  - in the chat that made pull request #16, press Auto-fix;
+  - on your phone or in Chrome, turn on notifications and press "Send a test";
+  - install from the Home Screen.
+- My own mistakes, corrected: the first recording 4 said a pull request had opened when none had (my stand-in for Grok never asked for one), and my test browser put the sign-in back after Sign out. Both were redone.
+- A question for you: **Sign out ends your sign-in on every device** (phone, desktop app, other browsers). That's Supabase's default. Claude's apps sign out only the device you're on. I haven't changed it.
+
+## 2026-11-08: Desktop app: "Try again" with no internet no longer leaves a blank window
+
+- Found by running the real desktop app on my side (recorded): with no internet, the app shows its "Can't reach Go Farther" page, as it should. But pressing **Try again** while still offline left the window **blank**, with no button. The page was loaded again, but the window stopped drawing it.
+- Now Try again first checks that Go Farther answers. Still offline: the page stays and says "Still can't reach it. Go Farther opens by itself when your internet is back." And it does: when the computer comes back online, Go Farther opens on its own.
+- I tested this on Linux, on a virtual screen. A Mac or Windows computer may not have gone blank, but the fix avoids the failing reload either way.
+- Tests: D3 and D4 are new in the desktop app's tests (4 pass). It's in the next desktop build (the build button); the website doesn't change.
+
+## 2026-11-08: Two more fixes found by testing everything (not live yet)
+
+- **Each chat keeps its own message box** (page test, recorded): a message that couldn't be sent in one chat was still in the box after opening another chat, with its pictures and line comments, and would have gone to the wrong chat. Now what you typed, attached or commented stays with its chat and comes back when you open it again. A chat you open for the first time starts empty.
+- **No dead ends on GitHub** (live test C, issue #14 on your test repo): you asked `@coder Undo the last job`. Coder asked which job, then said undo can't be done from GitHub. Some things are only for your chat on gofarther.dev on purpose, because anyone can write on GitHub: undo, asking for a key, changing the environment, posting review comments as you, and turning auto-fix on or off. A job started from GitHub is no longer offered those, like Claude Code's GitHub mode, and Coder is told to say straight away that they're done in the chat on gofarther.dev. If it tried one anyway, it's still refused, as before.
+- Tests: CD202 and CD203 are new. 212 tests pass.
+- Live after the next "merge and deploy", with the three fixes below.
+
+## 2026-11-08: Three fixes found by testing everything (not live yet)
+
+- **Background commands** (live test A, issue #12 on your test repo): when Coder ran a server in the background, its check said "not running" while it ran, and its stop didn't stop it. Coder checked and stopped them from inside its sandbox, where the machine's process numbers mean nothing. Now Coder's own service, which started the command, checks and stops it, with everything it started.
+- **Programs in /usr/games** (same test): apt-get installed `cowsay`, but Coder couldn't run it by name, because /usr/games wasn't on its command path. It is now, like on a normal Ubuntu machine.
+- **Full network access** (same test, follow-up): asked which network setting its environment has, Coder couldn't tell when it was Full (only the limited ones were described). Now it's told.
+- Tests: CD199, CD200 and CD201 are new (the first two fail on the old code); two older tests updated. 210 tests pass.
+- Live after the next "merge and deploy".
+
+## 2026-11-08: Merged and deployed: pictures, PDFs and notebooks (pick 1), and up to 4 questions in one card (pick 4)
+
+- You said "merge and deploy": both are live on gofarther.dev.
+- The deploy ran all 207 tests, including the new picture and PDF ones (it now installs the same picture and PDF programs Coder's machine has). The 18 machine-admin tests passed too.
+- GitHub's check of Coder's machine passed, including opening a picture, a PDF page with no text, and a notebook's chart inside Coder's real machine.
+
 ## 2026-11-08: Coder can ask up to 4 questions in one card (your pick 4)
 
 - Like Claude Code: when Coder truly needs you to choose, it can now ask 1 to 4 related questions in one card instead of one at a time.

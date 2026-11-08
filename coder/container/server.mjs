@@ -1362,6 +1362,10 @@ export function safeVars(vars) {
   return out;
 }
 
+/** Is anything of this process group (a background command and all it started) still running? */
+function groupAlive(pid) {
+  try { process.kill(-pid, 0); return true; } catch (e) { return !!(e && e.code === "EPERM"); }
+}
 function killAll(t) {
   for (const pid of t.bg || []) { try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ } }
   if (t.bg) t.bg.clear();
@@ -1563,6 +1567,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         }
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
     }
+    // FULL ACCESS is said too (live test, 2026-11-08: asked which network setting its environment has, Coder
+    // could not tell: only the limited ones were described).
+    if (!net.limited) netNote = "\n\nNETWORK: FULL. This chat's environment allows any site on the internet (the owner can limit it in Environment, Network access).";
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && !githubOn && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); p0.setGithub(false); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
@@ -1679,6 +1686,22 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return r;
         },
         stopped: () => t.stop,
+        // THE JOB'S BACKGROUND COMMANDS, SEEN AND STOPPED HERE, where they were started (live test, 2026-11-08:
+        // inside the admin sandbox their numbers are not the machine's, so a check there missed them). Only
+        // this job's own (t.bg), each with everything it started (its process group).
+        bg: {
+          alive: async (pid) => t.bg.has(pid) && groupAlive(pid),
+          stop: async (pid) => {
+            if (!t.bg.has(pid)) return false;
+            try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ }
+            for (let i = 0; i < 10 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
+            try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
+            for (let i = 0; i < 10 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
+            const gone = !groupAlive(pid);
+            if (gone) t.bg.delete(pid);
+            return gone;
+          },
+        },
         // AFTER Coder READS OR CHANGES A FILE: the repo's instructions for it (item 10), and for what it
         // wrote, the security check (item 12).
         afterFile: ({ tool, args }) => {

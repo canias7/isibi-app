@@ -34,6 +34,7 @@
     sending: false,
     draft: (() => { try { const a = sessionStorage.getItem('gf_ask') || ''; sessionStorage.removeItem('gf_ask'); return a.slice(0, 4000); } catch (e) { return ''; } })(), // the landing page's ask, kept
     unsent: '',       // a message on its way, kept if the session ends meanwhile
+    drafts: {},       // each chat's own message box (text, pictures, line comments) while another chat is open
     open: {},         // which command outputs are opened
     root: null,
     poll: 0,
@@ -551,12 +552,24 @@
     const r = await call('/projects/' + encodeURIComponent(id), { method: 'DELETE' });
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The chat could not be removed.'; return draw(); }
     S.projects = S.projects.filter((p) => p.id !== id);
-    if (S.project && S.project.id === id) { stopPoll(); S.project = null; return S.projects.length ? openProject(S.projects[0].id) : showPicker('new'); }
+    if (S.project && S.project.id === id) { stopPoll(); S.project = null; S.draft = ''; S.pics = []; S.comments = []; return S.projects.length ? openProject(S.projects[0].id) : showPicker('new'); }
+    delete S.drafts[id];
     draw();
+  }
+
+  // EACH CHAT ITS OWN MESSAGE BOX (live test, 2026-11-08: a message that failed to send in one chat was still
+  // in the box in the next one, with its pictures and line comments, and went there). What was typed,
+  // attached or commented stays with its chat; a new chat starts empty. The landing page's ask goes to the first.
+  function keepDraft(st, was, id) {
+    if (was === id) return;
+    if (was) st.drafts[was] = { draft: st.draft, pics: st.pics, comments: st.comments };
+    const kept = st.drafts[id]; delete st.drafts[id];
+    if (was || kept) { st.draft = kept ? kept.draft : ''; st.pics = kept ? kept.pics : []; st.comments = kept ? kept.comments : []; st.mention = null; }
   }
 
   async function openProject(id) {
     stopPoll();
+    keepDraft(S, S.project && S.project.id, id);
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
