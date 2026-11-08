@@ -1531,6 +1531,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const shownSec = new Set();
     const memDir = join(memRoot, project);
     const memFile = join(memDir, "MEMORY.md");
+    // THE COPIES OF THE FILES CODER READ OR CHANGED (the `changed` tool: "a note when a file Claude read earlier changes
+    // on disk", like Claude Code), kept between messages: dev's own folder beside the memory's (a project id has no dot).
+    const seenDir = join(memRoot, project + ".seen");
     const bgDir = join(bgRoot, project);
     try {
       await mkdir(memRoot, { recursive: true, mode: 0o755 });
@@ -1542,6 +1545,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       await mkdir(bgDir, { recursive: true });
       // The folder is root's own new folder inside root's /srv/coder-memory: the AI cannot swap it.
       if (Number.isInteger(RUN_UID)) { try { await chown(memDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
+      // Root only makes it and hands it over; only the file tools (as dev) read and write in it.
+      await mkdir(seenDir, { recursive: true });
+      if (Number.isInteger(RUN_UID)) { try { await chown(seenDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
     } catch (e) { return fail(500, "could not prepare the memory: " + String((e && e.message) || e).slice(0, 160)); }
     // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): the owner's own variables
     // for every command, and a setup script run (as `dev`) when this machine first
@@ -1695,7 +1701,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             command = command.replace("@REQUEST", "@" + f);
           }
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : {}) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : {}) });
           if (r && r.background && r.pid) t.bg.add(r.pid);
           return r;
         },
@@ -1721,6 +1727,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A LONG JOB SUMMARIZED: the instruction files it had been shown may be summarized away, so they load again
         // on demand (like Claude Code: "Nested CLAUDE.md files ... load again on demand" after compaction).
         compacted: () => { shownNotes.clear(); },
+        // The file tools keep copies of what Coder read or changed (CODER_SEEN_DIR), so it is told when one changes on disk.
+        seen: true,
         afterFile: ({ tool, args }) => {
           const rel = projectRel(dir, args && args.path), text = editedText(tool, args);
           return [laterNotes(ins.later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");

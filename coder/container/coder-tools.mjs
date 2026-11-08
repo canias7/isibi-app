@@ -7,7 +7,8 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
-import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
@@ -282,7 +283,9 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
     if (nb !== null) return nb;
   }
   await plainText(abs, rel, READ_MAX_BYTES);
-  const text = await readFile(abs, "utf8");
+  const buf = await readFile(abs);
+  const text = buf.toString("utf8");
+  await remember(abs, buf);
   if (!text.length) return rel + " exists, but it is empty.";
   const lines = text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
@@ -323,6 +326,7 @@ export async function toolWrite({ path, content }) {
   if (typeof content !== "string") fail("give the file's content");
   await mkdir(dirname(abs), { recursive: true });
   await writeFile(abs, content);
+  await remember(abs, Buffer.from(content));
   return "wrote " + rel + " (" + content.split("\n").length + " lines)";
 }
 
@@ -338,6 +342,7 @@ export async function toolEdit({ path, old_string, new_string, replace_all = fal
   if (count > 1 && !replace_all) fail("old_string appears " + count + " times in " + rel + ". Add more lines around it so it is unique, or set replace_all.");
   const out = replace_all ? text.split(old_string).join(new_string) : text.replace(old_string, () => new_string);
   await writeFile(abs, out);
+  await remember(abs, Buffer.from(out));
   return "edited " + rel + " (" + (replace_all ? count : 1) + " place" + ((replace_all ? count : 1) > 1 ? "s" : "") + ")";
 }
 
@@ -491,7 +496,7 @@ export async function toolLsp({ action, path, line, column }) {
 export async function toolMtimes({ paths }) {
   const out = [];
   for (const p of (Array.isArray(paths) ? paths : []).slice(0, 50)) {
-    try { const { abs, rel } = await inside(String(p), { mustExist: true }); const st = await stat(abs); if (st.isFile()) out.push({ path: rel, mtime: st.mtimeMs }); } catch { /* gone, or not the project's */ }
+    try { const { abs } = await inside(String(p), { mustExist: true }); const st = await stat(abs); if (st.isFile()) out.push({ path: showPath(abs), mtime: st.mtimeMs }); } catch { /* gone, or not the project's */ }
   }
   return JSON.stringify(out);
 }
@@ -509,7 +514,78 @@ export async function toolListing({ path }) {
   return all.slice(0, LISTING_MAX).join("\n") + (all.length > LISTING_MAX ? "\n[" + (all.length - LISTING_MAX) + " more]" : "");
 }
 
-export const TOOLS = { lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing };
+/**
+ * A NOTE WHEN A FILE CODER READ EARLIER CHANGES ON DISK (the owner, 2026-11-08: "Yes do that too"; Claude Code's docs,
+ * "Context Claude Code adds on its own": "A note when a file Claude read earlier changes on disk"). A copy of each text
+ * file Coder reads, writes or edits (up to 256 KB) is kept in CODER_SEEN_DIR, a folder Coder's app makes for each chat
+ * outside the project (it lasts between messages), at most SEEN_FILES of them and SEEN_BYTES in all, the oldest let
+ * go first. The `changed` tool says which changed since, and how, and brings the copies up to date.
+ */
+export const SEEN_FILES = 100, SEEN_BYTES = 20 * 1024 * 1024, CHANGE_ONE = 4000, CHANGE_ALL = 16000;
+const seenDir = () => { const d = String(process.env.CODER_SEEN_DIR || ""); return d && isAbsolute(d) ? d : ""; };
+const seenKey = (abs) => createHash("sha256").update(abs).digest("hex").slice(0, 32);
+async function seenList(dir) {
+  try { const j = JSON.parse(await readFile(join(dir, "index.json"), "utf8")); return Array.isArray(j) ? j.filter((x) => x && typeof x.abs === "string" && isAbsolute(x.abs) && /^[0-9a-f]{32}$/.test(String(x.key))) : []; } catch { return []; }
+}
+async function seenSave(dir, list) { const tmp = join(dir, "index.json." + process.pid + ".tmp"); await writeFile(tmp, JSON.stringify(list)); await rename(tmp, join(dir, "index.json")); }
+/** A file's path as the tools take it: from the project's folder, or whole for one of the chat's other repositories. */
+function showPath(abs) { const r = relative(ROOT, abs); return r && !r.startsWith("..") && !isAbsolute(r) ? r : abs; }
+/** Keeps a copy of a text file as Coder now knows it, after a read, a write or an edit (not the memory file). */
+async function remember(abs, buf) {
+  const dir = seenDir();
+  const mem = process.env.CODER_MEMORY_FILE;
+  if (!dir || (mem && abs === resolve(mem))) return;
+  try {
+    const st = await stat(abs);
+    const key = seenKey(abs);
+    const list = (await seenList(dir)).filter((x) => x.abs !== abs);
+    if (!st.isFile() || buf.length > READ_WHOLE_MAX) { await unlink(join(dir, key)).catch(() => {}); await seenSave(dir, list); return; } // too big to follow
+    await writeFile(join(dir, key), buf);
+    list.push({ abs, key, mtime: st.mtimeMs, size: st.size, bytes: buf.length });
+    let total = list.reduce((n, x) => n + (Number(x.bytes) || 0), 0);
+    while (list.length > SEEN_FILES || total > SEEN_BYTES) { const old = list.shift(); total -= Number(old.bytes) || 0; await unlink(join(dir, old.key)).catch(() => {}); }
+    await seenSave(dir, list);
+  } catch { /* never costs the tool */ }
+}
+/**
+ * WHAT CHANGED since Coder last read or changed its files, for Coder's app only (no tool Grok has):
+ * { followed, changed: [{ path, diff } | { path, gone: true } | { path, big: bytes }] }. A file only touched (the same
+ * bytes) is no change; what changed is shown as a unified diff (with line numbers), CHANGE_ONE a file, CHANGE_ALL in all.
+ */
+export async function toolChanged() {
+  const dir = seenDir();
+  const list = dir ? await seenList(dir) : [];
+  const keep = [], changed = [];
+  let room = CHANGE_ALL, dirty = false;
+  for (const x of list) {
+    let st = null;
+    try { await inside(x.abs, { mustExist: true }); st = await stat(x.abs); } catch { st = null; }
+    const path = showPath(x.abs);
+    if (!st || !st.isFile()) { changed.push({ path, gone: true }); await unlink(join(dir, x.key)).catch(() => {}); dirty = true; continue; }
+    if (st.mtimeMs === x.mtime && st.size === x.size) { keep.push(x); continue; }
+    dirty = true;
+    if (st.size > READ_WHOLE_MAX) { changed.push({ path, big: st.size }); await unlink(join(dir, x.key)).catch(() => {}); continue; }
+    let now;
+    try { now = await readFile(x.abs); } catch { changed.push({ path, gone: true }); await unlink(join(dir, x.key)).catch(() => {}); continue; }
+    const before = await readFile(join(dir, x.key)).catch(() => null);
+    if (before && before.equals(now)) { keep.push({ ...x, mtime: st.mtimeMs, size: st.size }); continue; }
+    let diff = "";
+    if (before && room > 0) {
+      const d = await runProg("diff", ["-U2", "--label", "a/" + path, "--label", "b/" + path, "--", join(dir, x.key), x.abs], { timeoutMs: 15_000, max: 4 * 1024 * 1024 });
+      diff = d.code === 1 || d.code === 2 ? d.out.toString("utf8") : "";
+      const most = Math.min(CHANGE_ONE, room);
+      if (diff.length > most) diff = diff.slice(0, most).replace(/\n[^\n]*$/, "") + "\n[more changes: read the file again to see them]";
+      room -= diff.length;
+    }
+    changed.push({ path, diff });
+    await writeFile(join(dir, x.key), now).catch(() => {});
+    keep.push({ ...x, mtime: st.mtimeMs, size: st.size, bytes: now.length });
+  }
+  if (dirty) await seenSave(dir, keep).catch(() => {});
+  return JSON.stringify({ followed: keep.length, changed });
+}
+
+export const TOOLS = { lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

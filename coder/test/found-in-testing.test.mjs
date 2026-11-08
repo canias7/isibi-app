@@ -250,10 +250,10 @@ test("CD208 Claude Code's other reading rules (its memory, tools and errors docs
 // Code's docs for read: @-mentions, the re-read after a summary, and the instruction files at the start.
 const toolsScript = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
 /** Coder's machine as tests run it: the file tools for real, in `dir`; any other command answered by `other`. */
-const machine = (dir, other = () => ({ code: 0, output: "ok" })) => async ({ command }) => {
+const machine = (dir, other = () => ({ code: 0, output: "ok" }), env = process.env) => async ({ command }) => {
   const { execSync } = await import("node:child_process");
   if (!command.startsWith("node --no-warnings " + toolsScript + " ")) return other(command);
-  try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20 }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; }
+  try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20, env }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; }
 };
 
 test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"includes the content of the file in the conversation when it fits the Read tool's token limit\"): a file whole with its folder's instructions, a picture shown, a folder as its listing; a file too big for one read is named, not included; a path that is not a file (a package name) is left alone; never in a job from GitHub; the note is the app's, not the owner's, when a long chat is summarized", async () => {
@@ -424,4 +424,108 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
   assert.match(await tool("read", { path: "fake.pdf" }), /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s);
+});
+
+test("CD213 a note when a file Coder read earlier changes on disk, like Claude Code (\"A note when a file Claude read earlier changes on disk\"): the machine keeps a copy of each file Coder reads, writes or edits; a command that changed one says so in its result, in Claude Code's way (\"This command modified 1 file you've previously read … Call Read before editing\"); a change made any other way (a command in the background; between messages, an undo) comes before Coder's next step, with what changed; Coder's own edits are no news; only on a machine that keeps the copies", async () => {
+  const { runCoder, changedNote, commandChangedNote } = await import("../container/coder-agent.mjs");
+  const { SEEN_FILES } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile, readFile, unlink, utimes } = await import("node:fs/promises");
+  const { execSync, execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(SEEN_FILES, 100);
+  const dir = await mkdtemp(join(tmpdir(), "coder-seen-"));
+  const copies = await mkdtemp(join(tmpdir(), "coder-seen-copies-"));
+  const env = { ...process.env, CODER_SEEN_DIR: copies };
+  const sh = (command) => { try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", env }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; } };
+  const tools = [];
+  const run = machine(dir, sh, env);
+  const exec = async (x) => { const b = x.command.split(" ").pop(); try { tools.push(JSON.parse(Buffer.from(b, "base64").toString("utf8")).tool); } catch { tools.push("bash"); } return run(x); };
+  const tool = async (name, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const changed = async () => JSON.parse(await tool("changed"));
+  await writeFile(join(dir, "a.js"), "const a = 1;\n");
+  await writeFile(join(dir, "b.js"), "const b = 1;\nconst c = 3;\n");
+  await writeFile(join(dir, "c.js"), "c\n");
+  // The tools: a read keeps a copy; a change on disk is told once, with what changed; the same bytes are no change.
+  await tool("read", { path: "a.js" });
+  assert.deepEqual(await changed(), { followed: 1, changed: [] });
+  await writeFile(join(dir, "a.js"), "const a = 2;\n");
+  const one = await changed();
+  assert.equal(one.followed, 1);
+  assert.equal(one.changed.length, 1);
+  assert.equal(one.changed[0].path, "a.js");
+  assert.match(one.changed[0].diff, /^--- a\/a\.js\n\+\+\+ b\/a\.js\n@@ -1 \+1 @@\n-const a = 1;\n\+const a = 2;\n$/);
+  assert.deepEqual((await changed()).changed, [], "told once");
+  await utimes(join(dir, "a.js"), new Date(), new Date(Date.now() + 5000));
+  assert.deepEqual((await changed()).changed, [], "only touched: the same bytes");
+  // Coder's own write and edit are no news to it.
+  await tool("write", { path: "a.js", content: "const a = 3;\n" });
+  await tool("edit", { path: "a.js", old_string: "3", new_string: "4" });
+  assert.deepEqual((await changed()).changed, []);
+  // Deleted; grown too big to show; and no copies kept where the machine keeps none.
+  await tool("read", { path: "c.js" });
+  await tool("read", { path: "b.js" });
+  await unlink(join(dir, "c.js"));
+  await writeFile(join(dir, "b.js"), "x".repeat(300 * 1024));
+  const two = await changed();
+  assert.deepEqual(two.changed.sort((p, q) => p.path.localeCompare(q.path)), [{ path: "b.js", big: 300 * 1024 }, { path: "c.js", gone: true }]);
+  assert.equal(two.followed, 1, "only a.js is followed now");
+  const bare = machine(dir, sh);
+  assert.match((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path: "a.js" } })).toString("base64") })).output, /const a = 4;/);
+  assert.equal((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "changed", args: {} })).toString("base64") })).output, '{"followed":0,"changed":[]}');
+  // At most SEEN_FILES copies, the oldest let go first.
+  const many = await mkdtemp(join(tmpdir(), "coder-seen-many-"));
+  const manyCopies = await mkdtemp(join(tmpdir(), "coder-seen-copies-"));
+  for (let i = 0; i < 105; i++) await writeFile(join(many, "f" + i + ".txt"), "file " + i + "\n");
+  execFileSync("node", ["--input-type=module", "-e", "const { toolRead } = await import(" + JSON.stringify(toolsScript) + "); for (let i = 0; i < 105; i++) await toolRead({ path: 'f' + i + '.txt' });"], { cwd: many, env: { ...process.env, CODER_SEEN_DIR: manyCopies } });
+  const index = JSON.parse(await readFile(join(manyCopies, "index.json"), "utf8"));
+  assert.equal(index.length, 100);
+  assert.ok(index[0].abs.endsWith("/f5.txt") && index[99].abs.endsWith("/f104.txt"), "f0 to f4 let go");
+
+  // In a job: a command that changes a file Coder read says so in its result; a change made otherwise (by a command
+  // in the background) is told apart, with what changed: before the next command, or before the next step.
+  await writeFile(join(dir, "a.js"), "const a = 1;\n");
+  await writeFile(join(dir, "b.js"), "const b = 1;\nconst c = 3;\n");
+  await writeFile(join(dir, "c.js"), "c = 1\n");
+  const job = (command) => command === "sleep 30" ? { code: -1, background: true, pid: 999999, log: join(dir, "bg.log"), output: "" } : command.includes("tail -n") ? (execSync("printf 'c = 5\\n' > c.js", { cwd: dir }), { code: 0, output: "[not running]" }) : sh(command);
+  const run2 = machine(dir, job, env);
+  const plan = [
+    [call("read", { path: "a.js" }, "r1"), call("read", { path: "b.js" }, "r2"), call("read", { path: "c.js" }, "r3")],
+    [call("bash", { command: "sed -i s/1/2/ a.js" }, "b4")],
+    [call("bash", { command: "sleep 30", run_in_background: true }, "b5")],
+    [call("bash", { command: "echo hi" }, "b6")],
+    [call("monitor", { job: "job1" }, "m7")],
+  ];
+  let k = 0;
+  const seen = [];
+  const deps = { seen: true, exec: async (x) => { const b = x.command.split(" ").pop(); try { tools.push(JSON.parse(Buffer.from(b, "base64").toString("utf8")).tool); } catch { tools.push("bash"); } return run2(x); }, emit: () => {}, send: async (q) => { seen.push(q); k++; if (k === 4) await writeFile(join(dir, "b.js"), "const b = 9;\nconst c = 3;\n"); return k <= plan.length ? say("", plan[k - 1]) : say("Done."); } };
+  const out = await runCoder(deps, { text: "work" });
+  const reply = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.match(reply("b4"), /^exit code 0\n\(no output\)\n\[This command changed 1 file you read before: a\.js\. Read it again before editing\.\]$/);
+  // b.js changed while Coder was thinking, with a command in the background: not put down to "echo hi".
+  assert.doesNotMatch(reply("b6"), /This command changed/);
+  assert.match(reply("b6"), /^exit code 0\nhi\n\n\n\(Note from Coder's app, not the owner: like Claude Code, a note when a file you read earlier changes on disk\. This file changed since you last read or changed it, by something other than your own steps .*don't undo it unless the owner asks\.\)\n\n--- b\.js: changed ---\n--- a\/b\.js\n\+\+\+ b\/b\.js\n@@ -1,2 \+1,2 @@\n-const b = 1;\n\+const b = 9;\n const c = 3;\n$/s);
+  // c.js changed during the check on the background command: told before the next step.
+  const note = seen[5].messages.at(-1);
+  assert.equal(note.role, "user");
+  assert.equal(note.appNote, true);
+  assert.match(note.content, /\n\n--- c\.js: changed ---\n--- a\/c\.js\n\+\+\+ b\/c\.js\n@@ -1 \+1 @@\n-c = 1\n\+c = 5\n$/);
+  assert.ok(!seen.slice(0, 5).some((q) => q.messages.some((m) => m.appNote)), "nothing to tell before");
+  // Between messages (an undo, say): the next message's first step is told; Coder's own edit then is no news.
+  await writeFile(join(dir, "a.js"), "const a = 7;\n");
+  let k2 = 0;
+  const seen2 = [];
+  const out2 = await runCoder({ ...deps, send: async (q) => { seen2.push(q); k2++; return k2 === 1 ? say("", [call("edit", { path: "a.js", old_string: "7", new_string: "8" }, "e1")]) : say("Done."); } }, { messages: out.messages, text: "next" });
+  assert.match(seen2[0].messages.at(-1).content, /--- a\.js: changed ---\n--- a\/a\.js\n\+\+\+ b\/a\.js\n@@ -1 \+1 @@\n-const a = 2;\n\+const a = 7;/);
+  assert.equal(seen2[0].messages.at(-2).content, "next", "after the owner's message");
+  assert.ok(!seen2[1].messages.slice(-2).some((m) => m.appNote), "its own edit is no news");
+  assert.equal(out2.status, "done");
+  // Only where the machine keeps the copies: otherwise the job is as before (no extra steps at all).
+  tools.length = 0;
+  await runCoder({ ...deps, seen: undefined, send: async () => say("Done.") }, { messages: out.messages, text: "again" });
+  assert.deepEqual(tools, []);
+  // The notes' words.
+  assert.equal(commandChangedNote([{ path: "a.js" }, { path: "b.js", gone: true }]), "[This command changed 2 files you read before: a.js, b.js (deleted or moved). Read it again before editing.]");
+  assert.equal(commandChangedNote([{ path: "b.js", gone: true }]), "[This command changed 1 file you read before: b.js (deleted or moved).]");
+  assert.match(changedNote([{ path: "x.bin", big: 2048 * 1024 }, { path: "y.js", gone: true }]), /These files changed since you last read or changed them[\s\S]*--- x\.bin: changed \(it is now 2048 KB, too big to show what changed: read the part you need again\) ---\n\n--- y\.js: deleted \(or moved\) ---$/);
 });

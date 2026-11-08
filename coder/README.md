@@ -76,6 +76,24 @@ code in **each user's own GitHub**.
    named as a "Referenced file". Files the kept steps read already, pictures and
    files that are gone are skipped. They go with the summary message.
 
+   **A note when a file Coder read earlier changes on disk** (owner, 2026-11-08:
+   "Yes do that too"; Claude Code's docs, "Context Claude Code adds on its own":
+   "A note when a file Claude read earlier changes on disk"). The file tools keep
+   a copy of each text file Coder reads, writes or edits (up to 256 KB; at most 100
+   files and 20 MB a chat, the oldest let go first) in the chat's own folder beside
+   its memory (`/srv/coder-memory/<chat>.seen`, made by root and handed to `dev`,
+   kept between messages: `CODER_SEEN_DIR`). The `changed` tool says which changed
+   since, as a unified diff, and brings the copies up to date (`changedFiles` in
+   `container/coder-agent.mjs`). As Claude Code does, a command that changed files
+   Coder had read says so at the end of its result ("[This command changed 1 file
+   you read before: a.js. Read it again before editing.]"), and a change made any
+   other way (a command still running in the background; between messages, an
+   undo or a rewind) comes as a note from the app before Coder's next step, with
+   what changed. While a background command of the job runs, what changed before
+   each command is told apart, so it is not put down to that command. Coder's own
+   writes and edits are no news, and a file only touched (the same bytes) is no
+   change.
+
    **Coder asks with a card of up to 4 questions** (`ask_user`; owner pick 4,
    2026-11-08), like Claude Code's AskUserQuestion: each question with a header
    shown as a chip, 2 to 4 options with a one-line description (the recommended
