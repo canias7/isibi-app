@@ -84,6 +84,11 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
     assert.notEqual((await sh("ls " + dir)).code, 0, "not the machine's sandbox folder");
     assert.equal((await sh("ls " + data)).out, "work", "of the kept disk, only what it was shown");
 
+    // ITS /tmp (the owner, 2026-11-08: "Fix that too"): of its own layer, so kept for the next job, as Claude Code keeps
+    // /tmp for its session (each job had a fresh, empty one before); open to every user, as a /tmp is.
+    assert.equal((await sh("findmnt -n -o FSTYPE --target /tmp")).out, "overlay", "not a fresh, empty /tmp for each job");
+    assert.equal((await sh("stat -c %a /tmp")).out, "1777");
+    assert.equal((await sh("echo kept > /tmp/coder-sbx-tmp-test && cat /tmp/coder-sbx-tmp-test")).out, "kept");
     // A STOP ENDS EVERYTHING IN IT; its layer is kept for the next job.
     await sh("sleep 1000 >/dev/null 2>&1 & echo started");
     const pid = box.pid;
@@ -95,12 +100,14 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
     assert.equal(spawnSync("pgrep", ["-f", "sleep 1000"]).status, 1, "and what was started in it");
     box = await S.startSandbox({ ...up, ns: NS, dir, binds: [{ src: work, mode: "rw", mine: true }] });
     assert.equal((await inBox(box, proj, "cat /etc/coder-sbx-test")).out, "admin", "the next job's sandbox keeps what was changed");
+    assert.equal((await inBox(box, proj, "cat /tmp/coder-sbx-tmp-test")).out, "kept", "its /tmp too");
     // A NEW CODER VERSION STARTS IT FRESH.
     box.stop(); box = null;
     const up2 = S.makeUpper({ data, image: "registry.fly.io/app:coder-bbbb" });
     assert.equal(existsSync(up.upper), false, "the old version's layer is gone");
     box = await S.startSandbox({ ...up2, ns: NS, dir, binds: [{ src: work, mode: "rw", mine: true }] });
     assert.notEqual((await inBox(box, proj, "cat /etc/coder-sbx-test")).code, 0);
+    assert.notEqual((await inBox(box, proj, "cat /tmp/coder-sbx-tmp-test")).code, 0, "and its /tmp starts empty");
   } finally {
     if (box) box.stop();
     spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
@@ -140,6 +147,10 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(init, /> "\$R\/etc\/coder-sandbox"/);
   assert.match(init, /pivot_root \. \.coder-outside\ncd \/\numount -l \/\.coder-outside/);
   assert.match(init, /echo ready\nexec sleep infinity\n$/);
+  // /tmp is the sandbox's own layer's, kept between jobs (never a fresh tmpfs again); /run and /dev/shm last one job.
+  assert.doesNotMatch(init, /tmpfs "\$R\/tmp"/);
+  assert.match(init, /^chmod 1777 "\$R\/tmp"/m);
+  assert.match(init, /tmpfs "\$R\/run"/);
   const mod = readFileSync(new URL("../container/coder-sandbox.mjs", import.meta.url), "utf8");
   // Its script handed over whole: the sandbox's admin may not reach where Coder's code sits (GitHub's /home/runner).
   assert.match(mod, /"--", "\/bin\/bash", "-c", readFileSync\(SBX_INIT, "utf8"\), "coder-sandbox-init"\]/);

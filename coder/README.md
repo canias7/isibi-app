@@ -488,7 +488,9 @@ machine's root is a layered filesystem that an id map cannot show; elsewhere the
 root; `CODER_SANDBOX_BASE` names another), under its own layer (overlayfs, with
 `userxattr`, without which dpkg's folder renames fail) on the chat's kept disk,
 `/data/.coder-admin/<version>`: what it installs stays while the machine
-sleeps, and a new Coder version (`CODER_IMAGE_REF`, from the Fly settings)
+sleeps, and so does its `/tmp`, from one message to the next, as Claude Code
+keeps `/tmp` for its session (the owner, 2026-11-08: "Fix that too"; each job had
+a fresh, empty `/tmp` before); `/run` and `/dev/shm` last one job. A new Coder version (`CODER_IMAGE_REF`, from the Fly settings)
 starts it fresh. It sees, at the same places, the chat's files, dev's home and
 Coder's memory (dev's on disk and inside: only dev, and its Docker's own ids from
 `/etc/subuid`, are mapped, so nothing there can be made as the machine's admin

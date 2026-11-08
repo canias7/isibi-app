@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Coder keeps /tmp from one message to the next, like Claude Code (your word: "Fix that too")
+
+This is part of tool 5 (bash), done now on your word.
+
+- **Before:** each message's commands started with an empty `/tmp`, so a file put there was gone by the next message. That's why the big picture in the read test had to be made and read in one message.
+- **Now:** `/tmp` lasts for the whole chat, like Claude Code keeps it for the whole session. It's kept even while the chat's machine sleeps. Only a new version of Coder starts it fresh, the same way it starts fresh the programs Coder installed.
+- Tested for real in Coder's sandbox: a file made in `/tmp` was still there in the next message's sandbox, and gone after a new version. Both tests fail on the old code; all 249 tests pass.
+- Live with the next merge and deploy, then tested in the browser.
+
 ## 2026-11-08: Read: the four differences fixed (your word: "Yea fix those 4")
 
 - **1. A `cat` counts as reading the file:** after `cat notes.txt`, a command that changes notes.txt now says "[This command changed 1 file you read before: notes.txt. Read it again before editing.]", as Claude Code's does. Before, only Coder's own read counted.

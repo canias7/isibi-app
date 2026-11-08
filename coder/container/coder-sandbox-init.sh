@@ -11,7 +11,7 @@ R="$SBX_ROOT"
 # (userxattr: in a user namespace, without it renaming a folder fails, and dpkg does that.)
 mount -t overlay overlay -o "lowerdir=$SBX_LOWER,upperdir=$SBX_UPPER,workdir=$SBX_WORK,userxattr" "$R"
 
-# Its own processes, devices, temporary folders.
+# Its own processes, devices, and the temporary folders that last one job (/dev/shm, /run).
 mount -t proc -o nosuid,nodev,noexec proc "$R/proc"
 mount -t tmpfs -o mode=755,nosuid tmpfs "$R/dev"
 for n in null zero full random urandom tty; do touch "$R/dev/$n"; mount --bind "/dev/$n" "$R/dev/$n"; done
@@ -24,7 +24,11 @@ ln -sf /proc/self/fd "$R/dev/fd"
 ln -sf /proc/self/fd/0 "$R/dev/stdin"; ln -sf /proc/self/fd/1 "$R/dev/stdout"; ln -sf /proc/self/fd/2 "$R/dev/stderr"
 mount -t tmpfs -o nosuid,nodev tmpfs "$R/dev/shm"
 if mount --rbind /sys "$R/sys" 2>/dev/null; then mount -o remount,bind,ro "$R/sys" 2>/dev/null || true; fi
-mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$R/tmp"
+# /tmp IS THE SANDBOX'S OWN LAYER'S (the owner, 2026-11-08: "Fix that too"): kept from one message to the next,
+# as Claude Code keeps /tmp for its session (tried side by side: a picture made in /tmp in one message was gone by
+# the next in Coder, when each sandbox had a fresh, empty /tmp of its own). A new Coder version starts it fresh, with
+# the rest of the layer, as a new machine would.
+chmod 1777 "$R/tmp" 2>/dev/null || true
 mount -t tmpfs -o mode=755,nosuid,nodev tmpfs "$R/run"
 
 # The machine's name lookups, as they are (a link in the image is replaced, in the sandbox's own layer).
