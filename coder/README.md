@@ -82,6 +82,11 @@ code in **each user's own GitHub**.
    `reread`), and the next job reads them again, once, in a note from the app
    after the owner's message.
 
+   **A big picture is shown smaller, and Coder is told so** (Claude Code's docs:
+   "Claude may see a downscaled version of a large screenshot … crop the region
+   you care about, such as with ImageMagick via Bash, and then read the crop"):
+   read's answer gives the picture's real size, the size shown, and how to crop.
+
    **What read refuses, as Claude Code's Read does:** a folder ("list what is in
    it with glob, or a command such as ls"); a file whose kind is binary by its
    name (`.zip`, `.xlsx`, `.parquet`, `.heic` and others: `BINARY_KINDS`), with a

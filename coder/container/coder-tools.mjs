@@ -186,9 +186,17 @@ async function readPicture(abs, rel, kind) {
   if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   if (st.size > PIC_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, over the 128 MB a picture may be: make a smaller copy with bash (e.g. convert, or crop the part you need) and read that");
   const size = st.size;
-  const p = await asPicture(await readFile(abs), kind, PIC_ONE_MAX);
+  const buf = await readFile(abs);
+  const p = await asPicture(buf, kind, PIC_ONE_MAX);
   if (p.why) fail(rel + " cannot be shown: " + p.why);
-  return withPics("Picture: " + rel + " (" + (p.w && p.h ? p.w + "×" + p.h + ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results.", [p]);
+  // A BIG PICTURE IS SHOWN SMALLER, and Coder is told so (Claude Code's docs: "Claude may see a downscaled version of a
+  // large screenshot. If Claude misses fine pixel-level detail in a large image, ask it to crop the region you care
+  // about, such as with ImageMagick via Bash, and then read the crop"): its real size, and how to crop.
+  const real = picSize(buf);
+  const shown = p.w && p.h ? p.w + "×" + p.h : "";
+  const smaller = real && p.w && p.h && Math.max(real.w, real.h) > Math.max(p.w, p.h);
+  return withPics("Picture: " + rel + " (" + (smaller ? real.w + "×" + real.h : shown ? shown : "") + (smaller || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
+    (smaller ? ", made smaller (" + shown + "): for fine detail, crop the part you need with ImageMagick (e.g. convert " + shq(rel) + " -crop 800x600+0+0 /tmp/part.png) and read the crop." : "."), [p]);
 }
 
 /** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */

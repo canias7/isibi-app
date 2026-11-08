@@ -121,6 +121,7 @@ Fixed (test CD207, CD208; 217 pass):
   - **The chat's record kept every big read whole** (heavy to load). Now each step's output there is kept to 12,000 characters.
   - **Next.js paths like `[...slug].tsx`** were not @-mentionable ("..." looked like going up a folder). Now only a real `..` part is refused.
   - Also: the PARTIAL view's "about X KB of Y KB" now counts bytes on both sides.
+- **One more pass over the docs** (the owner: "one more time"): a big picture is shown smaller, and read's answer used to give only the smaller size as if it were the real one. Now it gives the real size, says it is shown smaller, and how to crop for fine detail ("Claude may see a downscaled version of a large screenshot … crop the region you care about … and then read the crop"). Test CD220.
 - **A correction:** I said Claude Code sent its separate "changed on disk" note probably because my command failed. It did it again after a command that worked, for a file outside the git repository. So that note seems to be for changes its in-command check doesn't catch. Either way it names the file and doesn't show the changes, as Coder's does.
 
 Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a prompt for files outside the working folder, network paths) and its `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` setting. Coder has no permission prompts or settings. It reads only inside the chat's repositories (its extra ones too), plus its own memory file.

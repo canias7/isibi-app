@@ -26,6 +26,7 @@ log (81,000 lines) is in git history.
   - Next.js paths like `[...slug].tsx` couldn't be @-mentioned.
 - **A correction:** Claude Code's separate "file changed" note isn't about a command failing. It happened again after a command that worked. Either way, it names the file and doesn't show the changes, same as Coder.
 - Tests CD214 to CD219 are new; each fails on the old code. 228 pass. Live with your next "merge and deploy".
+- **One more check against the docs** (your word: "one more time"). One small fix: when a picture is too big, Coder shows a smaller copy, as Claude Code does. Coder's answer used to give only the smaller size, as if it were the real one. Now it says the real size, that it's seeing a smaller copy, and how to crop the part it needs for fine detail, like Claude Code's docs say. Test CD220; 229 pass.
 
 ## 2026-11-08: Tool by tool against Claude Code: 1, read (and the test account's password reset)
 

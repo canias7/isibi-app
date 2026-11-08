@@ -703,3 +703,21 @@ test("CD219 the review (2026-11-08): a chat with no history (new, or rewound to 
   assert.equal(got, Math.round(Buffer.byteLength(Array.from({ length: lines }, (_, i) => "row " + i + " " + "é".repeat(60)).join("\n") + "\n") / 1024));
   assert.equal(all, Math.round(Buffer.byteLength(Array.from({ length: 2000 }, (_, i) => "row " + i + " " + "é".repeat(60)).join("\n")) / 1024));
 });
+
+test("CD220 a big picture is shown smaller, and Coder is told so, with its real size and how to crop for fine detail (Claude Code's docs: \"Claude may see a downscaled version of a large screenshot … crop the region you care about, such as with ImageMagick via Bash, and then read the crop\"); a small one is shown as it is", async () => {
+  const { mkdtemp } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { PICS_MARK } = await import("../container/coder-tools.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-bigpic-"));
+  execFileSync("convert", ["-size", "4000x2000", "xc:white", join(dir, "shot.png")]);
+  execFileSync("convert", ["-size", "300x200", "xc:white", join(dir, "small.jpg")]);
+  const run = machine(dir);
+  const read = async (path) => { const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64") })).output; return out.startsWith(PICS_MARK) ? JSON.parse(out.slice(PICS_MARK.length)) : { text: out }; };
+  const big = await read("shot.png");
+  assert.match(big.text, /^Picture: shot\.png \(4000×2000, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop the part you need with ImageMagick \(e\.g\. convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/part\.png\) and read the crop\.$/);
+  assert.equal(big.pictures.length, 1);
+  const small = await read("small.jpg");
+  assert.match(small.text, /^Picture: small\.jpg \(300×200, JPEG, \d+ KB\), shown to you as a picture after these results\.$/);
+});
