@@ -33,6 +33,10 @@ The right answers: line 250 is 220956, a red square with TEST, and page 2 is a b
 |---|---|---|---|---|
 | Coder, GitHub (issue #18) | 220956 ✓ | ✓ | ✓ | 3 (asked for line 245 on) |
 | Coder, its real page (recording 9) | 220956 ✓ | ✓ | ✓ | 3 (asked for line 250 on; it fixed a missing font by itself first) |
-| Claude Code | (the owner's run) | | | |
+| Claude Code (the owner's run, session "testing2") | 220956 ✓ (read just that line) | ✓ (and shown in the chat) | ✓ | 3 |
 
 **Changed:** read gives whole files up to about 100,000 characters, like Claude Code's. Live with the next deploy.
+
+**Differences seen side by side:**
+- **Claude Code shows the picture it opened in the chat.** Coder shows the step ("Read test.png") but not the picture. Offered to the owner.
+- **Saving:** Claude Code left the files uncommitted until its stop hook asked, then committed and pushed. Coder commits and pushes every job by itself. Same end result.
