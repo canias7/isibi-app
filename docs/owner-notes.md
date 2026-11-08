@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read: the four differences fixed (your word: "Yea fix those 4")
+
+- **1. A `cat` counts as reading the file:** after `cat notes.txt`, a command that changes notes.txt now says "[This command changed 1 file you read before: notes.txt. Read it again before editing.]", as Claude Code's does. Before, only Coder's own read counted.
+- **2. Long lines are never cut:** Coder used to cut every line at 2,000 characters, so it never saw the rest of a long line (minified code, a long paragraph). Now, like Claude Code, a line comes whole. A single line too big for one read gets a note saying how to read it.
+- **3. The changed lines:** after a command changes a file Coder read, Coder is also shown the lines the change touched (8 lines either side, numbered), as Claude Code's second note does. For that, Coder keeps a short fingerprint of each line, never the text itself. It's a note for Coder only; the chat doesn't show it, as in Claude Code.
+- **4. Big pictures at 2,000 pixels** (1,600 before), with Claude Code's line on how to map a spot back to the real picture ("multiply coordinates by 3.00"). The crop hint stays. A bit more Grok per picture, as you agreed.
+- Tests: three new (CD238 to CD240) and four updated, each failing on the old code. All 249 pass, and the 24 real read checks pass.
+- Next: merge, deploy, and test all four live in the browser, recorded.
+
 ## 2026-11-08: Read, tested live in the browser, then side by side with Claude Code (your word: "ok")
 
 - **Live now:** the steps line, the folder's full path and the PARTIAL sentence (deploy 65, first try).

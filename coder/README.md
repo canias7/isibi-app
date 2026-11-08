@@ -38,7 +38,8 @@ code in **each user's own GitHub**.
    10 pages)", and "Jupyter notebooks (.ipynb) as cells with outputs"). Grok takes
    only JPG and PNG pictures, and a tool answers only in text (xAI's docs), so the
    read tool (`container/coder-tools.mjs`, as `dev`) makes any other picture a PNG,
-   and a big one smaller (1600 on its longest side, then smaller should it not fit
+   and a big one smaller (2000 on its longest side, like Claude Code's, with how to
+   map a place on it back to the real picture; then smaller should it not fit
    in what the machine passes on), through ImageMagick fed on stdin with the kind
    named, never a file name; a PDF gives each page's text (poppler's `pdftotext`)
    and draws every page (`pdftoppm`, 1400 on its longest side) as a picture too,
@@ -158,7 +159,19 @@ code in **each user's own GitHub**.
    changed any other way (a command in the background; between messages, an undo
    or a rewind) gets no note, and is taken in first so it is never put down to
    Coder's next command. Coder's own writes and edits are no news, and a file only
-   touched (the same bytes) is no change.
+   touched (the same bytes) is no change. A file a command showed (`cat`, `head`,
+   `sed -n 'X,Yp'` … on one file) is followed too, as Claude Code counts it as read
+   (tried side by side, 2026-11-08). Beside each file's fingerprint, each line's own
+   short one (8 characters, never its text), so Grok also gets, after that round's
+   results, the lines the change touched (8 either side, numbered as read numbers
+   them; past 8,000 characters, "The changes are not shown here"), as Claude Code's
+   second note gives them ("Note: … changed on disk since you last read it … Here are
+   the relevant changes (shown with line numbers)"). The chat never shows that note.
+
+   **Read gives whole lines, never cut**, as Claude Code's does (a 20,000-character
+   line came back whole, tried side by side; Coder cut every line at 2,000
+   characters before). A line too big for one read by itself is left for a read of
+   its own, which says so, with allow_large and a command to see part of it.
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

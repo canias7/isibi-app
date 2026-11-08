@@ -462,7 +462,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.deepEqual(Object.keys(index[0]).sort(), ["abs", "hash", "mtime", "size"]);
   assert.ok(!JSON.stringify(index).includes("const a"), "no copy of the file is kept");
   await writeFile(join(dir, "a.js"), "const a = 2;\n");
-  assert.deepEqual(await changed(), { followed: 1, changed: [{ path: "a.js" }] });
+  assert.deepEqual(await changed(), { followed: 1, changed: [{ path: "a.js", lines: "     1\tconst a = 2;" }] }, "with the lines the change touched");
   assert.deepEqual((await changed()).changed, [], "told once");
   await utimes(join(dir, "a.js"), new Date(), new Date(Date.now() + 5000));
   assert.deepEqual((await changed()).changed, [], "only touched: the same bytes");
@@ -476,7 +476,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   await unlink(join(dir, "c.js"));
   await writeFile(join(dir, "b.js"), "x".repeat(300 * 1024));
   const two = await changed();
-  assert.deepEqual(two.changed.sort((p, q) => p.path.localeCompare(q.path)), [{ path: "b.js" }, { path: "c.js", gone: true }]);
+  assert.deepEqual(two.changed.sort((p, q) => p.path.localeCompare(q.path)), [{ path: "b.js", big: true }, { path: "c.js", gone: true }]);
   assert.equal(two.followed, 1, "only a.js is followed now");
   const bare = machine(dir, sh);
   assert.match((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path: "a.js" } })).toString("base64") })).output, /const a = 4;/);
@@ -518,7 +518,10 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.equal(reply(out.messages, "b5"), "exit code 0\nnothing\n");
   assert.equal(reply(out.messages, "b7"), "exit code 0\nhi\n", "b.js changed while Coder was thinking: no note, and not put down to echo");
   assert.equal(reply(out.messages, "b9"), "exit code 0\nbye\n", "c.js changed while Coder checked on the background command: the same");
-  assert.ok(!seen.some((q) => q.messages.some((m) => m.appNote)), "and no note before any step");
+  // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
+  // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
+  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
+  assert.ok(!seen[0].messages.some((m) => m.appNote), "and no note before any step");
   // Between messages (an undo, say): no note, and not put down to Coder's first command.
   await writeFile(join(dir, "a.js"), "const a = 7;\n");
   let k2 = 0;
@@ -724,7 +727,7 @@ test("CD220 a big picture is shown smaller, and Coder is told so, with its real 
   const run = machine(dir);
   const read = async (path) => { const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64") })).output; return out.startsWith(PICS_MARK) ? JSON.parse(out.slice(PICS_MARK.length)) : { text: out }; };
   const big = await read("shot.png");
-  assert.match(big.text, /^Picture: shot\.png \(4000×2000, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop the part you need with ImageMagick into the scratch folder \(e\.g\. mkdir -p \/tmp\/coder-scratch && convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/coder-scratch\/part\.png\) and read the crop\.$/);
+  assert.match(big.text, /^Picture: shot\.png \(4000×2000, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(2000×1000; multiply coordinates by 2\.00 to map them to the real picture\): for fine detail, crop the part you need with ImageMagick into the scratch folder \(e\.g\. mkdir -p \/tmp\/coder-scratch && convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/coder-scratch\/part\.png\) and read the crop\.$/);
   assert.equal(big.pictures.length, 1);
   const small = await read("small.jpg");
   assert.match(small.text, /^Picture: small\.jpg \(300×200, JPEG, \d+ KB\), shown to you as a picture after these results\.$/);
@@ -941,7 +944,7 @@ test("CD226 the second review (2026-11-08), the tools and the machine: a read ne
   await rm(join(SCRATCH, "part-cd226.png"), { force: true }); await unlink(join(SCRATCH, "out-cd226.txt")).catch(() => {});
   // A WebP's real size (ImageMagick tells it when the header is not PNG or JPEG).
   execFileSync("convert", ["-size", "4000x2000", "xc:white", join(dir, "wide.webp")]);
-  assert.match((await read("wide.webp")).text, /^Picture: wide\.webp \(4000×2000, WEBP, [^)]*\), shown to you as a picture after these results, made smaller \(1600×800\)/);
+  assert.match((await read("wide.webp")).text, /^Picture: wide\.webp \(4000×2000, WEBP, [^)]*\), shown to you as a picture after these results, made smaller \(2000×1000; multiply coordinates by 2\.00 to map them to the real picture\)/);
   // After a summary: the top-level CODER.md fresh; .coder/CODER.md as it was; a top-level file gone or turned into a link: left out.
   const { repoInstructions, topNotes } = await import("../container/server.mjs");
   const repo = await mkdtemp(join(tmpdir(), "coder-review2-repo-"));
@@ -1112,4 +1115,102 @@ test("CD237 reading a folder names it by its full path, as Claude Code's Read do
   assert.equal(read("docs.pdf").trim(), said(join(dir, "docs.pdf")), "a folder named like a PDF");
   // Where the commands are (CODER_CWD): `.` is that folder.
   assert.equal(read(".", { CODER_CWD: join(dir, "src") }).trim(), said(join(dir, "src")));
+});
+
+test("CD238 a command that shows one file (cat, head, sed -n …) counts as reading it for the changed note too, as Claude Code's does (tried side by side, 2026-11-08: after `cat notes.txt`, its `sed` said \"This command modified 1 file you've previously read: notes.txt\"), and Grok gets the lines the change touched, as Claude Code's second note gives them; the record keeps each line's short fingerprint, never its text", async () => {
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const { mkdtemp, writeFile, readFile, readdir } = await import("node:fs/promises");
+  const { execSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-shown-"));
+  const followDir = await mkdtemp(join(tmpdir(), "coder-shown-follow-"));
+  const env = { ...process.env, CODER_SEEN_DIR: followDir };
+  await writeFile(join(dir, "notes.txt"), "apple\nbanana\ncherry\n");
+  const sh = (command) => { try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8" }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; } };
+  const exec = machine(dir, sh, env);
+  const plan = [[call("bash", { command: "cat notes.txt" }, "b1")], [call("bash", { command: "sed -i s/banana/kiwi/ notes.txt" }, "b2")]];
+  let k = 0;
+  const seen = [];
+  const out = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async (q) => { seen.push(q); k++; return k <= plan.length ? say("", plan[k - 1]) : say("Done."); } }, { text: "work" });
+  const reply = (id) => out.messages.find((x) => x.role === "tool" && x.tool_call_id === id).content;
+  assert.equal(reply("b1"), "exit code 0\napple\nbanana\ncherry\n");
+  assert.equal(reply("b2"), "exit code 0\n(no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
+  const notes = seen.at(-1).messages.filter((m) => m.appNote).map((m) => m.content);
+  assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
+  // The note comes after the round's results (never between a call and its answer), and only once.
+  const at = seen.at(-1).messages.findIndex((m) => m.appNote);
+  assert.equal(seen.at(-1).messages[at - 1].tool_call_id, "b2");
+  // What is kept: each line's short fingerprint, never the text.
+  const marks = (await readdir(followDir)).filter((f) => f.startsWith("lines-"));
+  assert.equal(marks.length, 1);
+  const kept = await readFile(join(followDir, marks[0]), "utf8");
+  assert.match(kept, /^[0-9a-f]{32}$/, "four lines (the last one empty), 8 characters each, no text");
+  // A search that matched nothing (it ends with 1) does not count; nor does a command on more than one file.
+  await writeFile(join(dir, "other.txt"), "one\n");
+  let k2 = 0;
+  const plan2 = [[call("bash", { command: "grep zzz other.txt" }, "g1")], [call("bash", { command: "cat notes.txt other.txt" }, "g2")], [call("bash", { command: "echo two > other.txt" }, "g3")]];
+  const out2 = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async () => { k2++; return k2 <= plan2.length ? say("", plan2[k2 - 1]) : say("Done."); } }, { messages: out.messages, text: "more" });
+  assert.equal(out2.messages.find((x) => x.role === "tool" && x.tool_call_id === "g3").content, "exit code 0\n(no output)");
+});
+
+test("CD239 read gives whole lines, never cut (Claude Code 2.1.319, tried side by side: a 20,000-character line came back whole; Coder cut every line at 2,000 before); a line too big for one read by itself is left for its own read, and that read says so, with allow_large and a command to see part of it", async () => {
+  const { toolRead } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-lines-"));
+  const words = (n) => Array.from({ length: n }, (_, i) => "w" + (i + 1)).join(" ");
+  const long = words(3600).slice(0, 20000);
+  await writeFile(join(dir, "line20k.txt"), "first\n" + long + "\nlast\n");
+  const huge = "y".repeat(150000);
+  await writeFile(join(dir, "huge.txt"), "first\n" + huge + "\nlast\n");
+  const read = (args) => { try { return execFileSync("node", ["--no-warnings", "--input-type=module", "-e", "const { toolRead } = await import(" + JSON.stringify(new URL("../container/coder-tools.mjs", import.meta.url).pathname) + "); process.stdout.write(await toolRead(" + JSON.stringify(args) + "));"], { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20 }); } catch (e) { return "ERROR " + String(e.stderr || e.stdout || ""); } };
+  assert.equal(typeof toolRead, "function");
+  // A 20,000-character line, whole.
+  assert.equal(read({ path: "line20k.txt" }), "     1\tfirst\n     2\t" + long + "\n     3\tlast");
+  // A 150,000-character line: a whole read stops before it, and says how to read on.
+  const part = read({ path: "huge.txt" });
+  assert.match(part, /^     1\tfirst\n\[PARTIAL view: lines 1-1 of 3 \(about 1 KB of 146 KB\)\. Read more with offset 2 and limit 1\. Do not answer from this part alone if the answer may be further in the file\.\]$/);
+  // That line alone: over one read, so said, with the ways to see it.
+  assert.match(read({ path: "huge.txt", offset: 2, limit: 1 }), /line 2 of huge\.txt is 146 KB by itself, more than one read takes \(about 100,000 characters\): set allow_large to read it whole, or show a part of it with bash, e\.g\. sed -n 2p 'huge\.txt' \| cut -c1-50000/);
+  // With allow_large (and the room for it), the whole line.
+  assert.equal(read({ path: "huge.txt", allow_large: true, max_chars: 400000 }), "     1\tfirst\n     2\t" + huge + "\n     3\tlast");
+});
+
+test("CD240 the lines a change touched, for the note after a command (Claude Code's: \"Here are the relevant changes (shown with line numbers)\"): 8 lines either side of the change, as read numbers them; a change too big to show says so; only touched (the same bytes) is no change", async () => {
+  const { CHANGE_AROUND, CHANGE_SHOW_MAX } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile, utimes } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(CHANGE_AROUND, 8);
+  assert.equal(CHANGE_SHOW_MAX, 8000);
+  const dir = await mkdtemp(join(tmpdir(), "coder-window-"));
+  const followDir = await mkdtemp(join(tmpdir(), "coder-window-follow-"));
+  const env = { ...process.env, CODER_SEEN_DIR: followDir };
+  const run = machine(dir, undefined, env);
+  const tool = async (name, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const changed = async () => JSON.parse(await tool("changed")).changed;
+  const rows = (from, to, f) => Array.from({ length: to - from + 1 }, (_, i) => String(from + i).padStart(6) + "\t" + f(from + i)).join("\n");
+  const lines = (n, f = (i) => "line " + i) => Array.from({ length: n }, (_, i) => f(i + 1)).join("\n") + "\n";
+  await writeFile(join(dir, "a.txt"), lines(30));
+  await tool("read", { path: "a.txt" });
+  // One line changed in the middle: lines 7 to 23.
+  await writeFile(join(dir, "a.txt"), lines(30, (i) => i === 15 ? "line fifteen" : "line " + i));
+  assert.deepEqual(await changed(), [{ path: "a.txt", lines: rows(7, 23, (i) => i === 15 ? "line fifteen" : "line " + i) }]);
+  // Two lines added at the end: from 8 before them to the end.
+  await writeFile(join(dir, "a.txt"), lines(32, (i) => i === 15 ? "line fifteen" : "line " + i));
+  assert.deepEqual(await changed(), [{ path: "a.txt", lines: rows(23, 32, (i) => i === 15 ? "line fifteen" : "line " + i) }]);
+  // Only touched: nothing.
+  await utimes(join(dir, "a.txt"), new Date(), new Date(Date.now() + 5000));
+  assert.deepEqual(await changed(), []);
+  // Every line of a long file changed: too much to show.
+  await writeFile(join(dir, "b.txt"), lines(2000));
+  await tool("read", { path: "b.txt", offset: 1, limit: 10 });
+  await writeFile(join(dir, "b.txt"), lines(2000, (i) => "row " + i));
+  assert.deepEqual(await changed(), [{ path: "b.txt", big: true }]);
+  // Emptied.
+  await writeFile(join(dir, "b.txt"), "");
+  assert.deepEqual(await changed(), [{ path: "b.txt", lines: "(it is empty now)" }]);
 });
