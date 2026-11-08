@@ -597,7 +597,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   assert.equal(await read("blob.dat"), "error: blob.dat is a binary file (not text): see what it is with `file 'blob.dat'`, then use a command or a script that reads that kind of file");
   // A folder.
   await mkdir(join(dir, "src"));
-  assert.equal(await read("src"), "error: src is a folder, not a file: list what is in it with glob, or a command such as ls");
+  assert.equal(await read("src"), "error: " + join(dir, "src") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   // An @-mentioned folder still comes as its listing; an @-mentioned binary file is named, not included.
   const { runCoder } = await import("../container/coder-agent.mjs");
   await writeFile(join(dir, "src", "app.js"), "x\n");
@@ -1090,4 +1090,26 @@ test("CD236 the line over a group of steps names each kind, as Claude Code's doe
   // The page uses it for every group, and the old words are gone.
   assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad' \}\)\)\);/);
   assert.ok(!ui.includes("'a command failed'") && !ui.includes("<span class=\"cd-bad\">a command failed</span>"), "the fixed words are gone");
+});
+
+test("CD237 reading a folder names it by its full path, as Claude Code's Read does (\"EISDIR: illegal operation on a directory, read '/home/user'\"), with how to list it; the project's own folder (.) is never a blank (the live comparison, 2026-11-08: \"error:  is a folder\")", async () => {
+  const { mkdtemp, mkdir, realpath } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { execFileSync } = await import("node:child_process");
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "coder-folder-")));
+  await mkdir(join(dir, "src", "shots.png"), { recursive: true });
+  await mkdir(join(dir, "docs.pdf"));
+  const read = (path, env = {}) => {
+    const b64 = Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64");
+    try { return execFileSync("node", ["--no-warnings", toolsScript, b64], { cwd: dir, env: { ...process.env, ...env } }).toString(); }
+    catch (e) { return String(e.stdout || ""); }
+  };
+  const said = (p) => "error: " + p + " is a folder, not a file: list what is in it with glob, or a command such as ls";
+  assert.equal(read(".").trim(), said(dir), "the project's own folder, by its full path");
+  assert.equal(read("src").trim(), said(join(dir, "src")));
+  assert.equal(read("src/shots.png").trim(), said(join(dir, "src", "shots.png")), "a folder named like a picture");
+  assert.equal(read("docs.pdf").trim(), said(join(dir, "docs.pdf")), "a folder named like a PDF");
+  // Where the commands are (CODER_CWD): `.` is that folder.
+  assert.equal(read(".", { CODER_CWD: join(dir, "src") }).trim(), said(join(dir, "src")));
 });

@@ -19,7 +19,7 @@ log (81,000 lines) is in git history.
   - **The @-mentioned file** came in the message.
   - **The sed command's result** had the "changed 1 file you read before" note.
   - **After /compact,** Coder read notes.txt and empty.txt again and only named mid.txt (over 20,000 characters).
-- **A bug found, in read itself:** reading the folder `.` says "error:  is a folder…" with the folder's name missing. It'll be fixed together with any difference your Claude Code screenshots show, so the wording matches Claude Code's.
+- **A bug found, in read itself, fixed (your word: "ur suggestion yes"):** reading the folder `.` said "error:  is a folder…" with the folder's name missing. Claude Code's own Read, tried in this session, says "EISDIR: illegal operation on a directory, read '/home/user'": it names the folder by its full path. Coder now names it by its full path too, for every folder, and keeps its hint on how to list what's inside (the docs: "Claude lists directory contents with a shell command such as ls"). Test CD237 (fails on the old code); 246 pass, and the 24 read checks pass.
 - **Outside read, done on your word ("do it like this"):** the line over a group of steps names each kind, like Claude Code: "Ran 1 command, read 4 files" instead of "5 steps". Searches, edits, writes, page fetches, web searches, code lookups, background jobs, reviews, undo and the setup script are named too. A failure says what failed ("a read failed"); before, it said "a command failed" even when a read failed, as the recording showed at 2:07. Test CD236 (fails on the old code); 245 pass. Live with your next "merge and deploy".
 
 ## 2026-11-08: Coder remembers the folder after a `cd`, the Claude Code way (your word: "lets do it the claude code way")
