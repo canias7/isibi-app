@@ -160,6 +160,36 @@ code in **each user's own GitHub**.
    Coder's next command. Coder's own writes and edits are no news, and a file only
    touched (the same bytes) is no change.
 
+   **A `cd` carries over to the next commands, the Claude Code way** (the owner,
+   2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the
+   new working directory carries over to later Bash commands as long as it stays
+   inside the project directory or an additional working directory … This includes
+   commands Claude runs in response to your later messages"). Each of Grok's
+   commands starts in the folder the last one left (`t.cwd` in `container/server.mjs`;
+   its shell goes there itself, as `dev`, after starting in the project's folder,
+   so root never enters a folder `dev` can change). A command not asked to run in the
+   background prints, last, the folder it ended in (an EXIT trap that writes it in
+   base64 behind `CWD_MARK` and a random part, only on exit code 0, as tried in
+   Claude Code); `execIn` takes that line out of the output (found after a cut too)
+   and the service keeps the folder while it is inside the project or one of the
+   chat's other repositories (`cwdInside`), else goes back to the project's folder
+   with Claude Code's "Shell cwd was reset to <dir>". A command in the background
+   never moves it ("Session cwd remains <dir>; …" when it had a cd, `CWD_WORDS`), and
+   monitor never shows its folder line (`noCwdMarks`). Grok's file tools get the
+   folder (`CODER_CWD`): a short path counts from it, grep and glob search there and
+   list from there (`searchIn`), and files are named by full path there; the chat's
+   steps still name them from the project (`projectPath`), and the app's notes use
+   full paths while the folder is elsewhere (`sayPath`). Grok is told the folder in
+   its context (WHERE YOUR COMMANDS RUN) and in a result when it changes, and the
+   file tools' `path` asks for a full path, as Claude Code's do. The job's end gives
+   the folder (`result.cwd`), the Worker keeps it with the chat (`meta.cwd`) and
+   sends it with the next message (`cwd`); a chat with no history starts in the
+   project's folder. `CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` in the chat's
+   environment variables (read before `safeVars`, which keeps `CODER_` names from
+   the commands) makes every command start in the project's folder, like Claude
+   Code's `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`. Folder names are told to Grok
+   without control characters (`saidDir`). Tests: `test/cwd.test.mjs`.
+
    **Coder asks with a card of up to 4 questions** (`ask_user`; owner pick 4,
    2026-11-08), like Claude Code's AskUserQuestion: each question with a header
    shown as a chip, 2 to 4 options with a one-line description (the recommended

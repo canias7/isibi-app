@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Coder remembers the folder after a `cd`, the Claude Code way (your word: "lets do it the claude code way")
+
+This is part of tool 5 (bash), done now on your word; it changes read too.
+
+- **A `cd` now carries over** to Coder's next commands, and to the next message's too, like Claude Code. It only happens when the command works and stays inside the project (or the chat's other repositories). I tried these rules in Claude Code first: a command that failed didn't move it.
+- **Outside the project** (say `cd /tmp`), the next command starts back in the project folder, and the result says "Shell cwd was reset to …", Claude Code's own words.
+- **A command in the background never moves it.** If it tried, the result says "Session cwd remains …", as Claude Code's does.
+- **Coder's file tools follow it:** a short path opens from that folder, and searches run from there, as in Claude Code.
+- **Coder is told where it is** at the start of each message and whenever it moves, and to give its file tools full paths, like Claude Code. While it's in another folder, the files you @-mention and the files it re-reads are named by their full path, so a short path never points at the wrong file.
+- **To turn it off:** add `CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` to the chat's environment variables (Environment, Environment variables). Then every command starts in the project folder, as before. Claude Code's own setting is `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`.
+- **Outside bash, fixed because it's the same lines:** grep and glob, asked to search one of the chat's other repositories by a short path (like `../docs`), searched the project's own folder instead. Checked on the old code.
+- **Safety:** a folder's name can't add lines to what Coder is told (line breaks are taken out).
+- Tests CD230 to CD235 are new; each fails on the old code. All 244 tests and the 24 real read checks pass. Checked on the real page with a screenshot. Live with your next "merge and deploy".
+
 ## 2026-11-08: Read: the three changes you asked for (your word: "Fix those 3")
 
 - **The picture Coder opens shows in the chat**, under its "Read" step, like Claude Code. It's a small copy (at most 320 pixels wide), and it's still there when you open the chat again. Grok still gets the whole picture.

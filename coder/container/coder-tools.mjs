@@ -38,6 +38,14 @@ export const NOTEBOOK_CELLS_MAX = 256 * 1024;
 export const OUT_MAX = 30000;
 export const WEB_MAX = 100_000;
 const ROOT = process.cwd();
+/**
+ * WHERE GROK'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"; tried in Claude Code: its Read takes a
+ * short path from the folder a `cd` left it in, and its Grep and Glob search there and list what they find from there):
+ * Coder's machine gives that folder (CODER_CWD) when it is not the project's. A short path then counts from it, and the
+ * tools name files by their full paths (grep and glob: from the folder searched, as Claude Code's do). Every path is
+ * still kept inside the project by `inside`.
+ */
+const BASE = (() => { const c = process.env.CODER_CWD; return c && isAbsolute(c) && !c.includes("\0") ? resolve(c) : ROOT; })();
 
 class ToolError extends Error {}
 const fail = (m) => { throw new ToolError(m); };
@@ -57,7 +65,8 @@ const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot 
 async function inside(p, { mustExist = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   noNul(p, "the path");
-  const abs = resolve(ROOT, p);
+  // A short path counts from where Grok's commands are (BASE).
+  const abs = resolve(BASE, p);
   // CODER'S OWN MEMORY FILE (owner, 2026-11-06): the one file outside the project
   // the file tools may open, so remembering doesn't show a failed step. Only that
   // exact path, and never through a link.
@@ -74,6 +83,9 @@ async function inside(p, { mustExist = false } = {}) {
   const rel = relative(home, abs);
   if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
+  // How the file is named in the tool's answer: from the project's folder, or by its full path when the commands are in
+  // another folder (or it is in the scratch folder).
+  const shown = home === SCRATCH || BASE !== ROOT ? abs : rel;
   // The deepest part that exists must really be inside (no link out of the project).
   let probe = abs;
   for (;;) {
@@ -85,13 +97,13 @@ async function inside(p, { mustExist = false } = {}) {
       break;
     } catch (e) {
       if (e instanceof ToolError) throw e;
-      if (mustExist) fail("no such file: " + rel);
+      if (mustExist) fail("no such file: " + shown);
       const up = dirname(probe);
       if (up === probe) break;
       probe = up;
     }
   }
-  return { abs, rel: home === SCRATCH ? abs : rel };
+  return { abs, rel: shown };
 }
 
 // THE AUDIT (2026-11-05): huge files would fill the memory, and binary ones come out as garbage (and editing corrupts them).
@@ -444,10 +456,10 @@ export async function toolEdit({ path, old_string, new_string, replace_all = fal
   return "edited " + rel + " (" + (replace_all ? count : 1) + " place" + ((replace_all ? count : 1) > 1 ? "s" : "") + ")";
 }
 
-function run(cmd, args) {
+function run(cmd, args, cwd = ROOT) {
   return new Promise((done) => {
     let out = "";
-    const p = spawn(cmd, args, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+    const p = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     p.stdout.on("data", (b) => { if (out.length < OUT_MAX * 2) out += b; });
     p.stderr.on("data", (b) => { if (out.length < OUT_MAX * 2) out += b; });
     p.on("error", (e) => done({ code: -1, out: e.message }));
@@ -455,16 +467,21 @@ function run(cmd, args) {
   });
 }
 
+/**
+ * WHERE GREP AND GLOB SEARCH, as ripgrep is told it (from BASE, where they run): a full path as given (ripgrep then lists
+ * full paths), else the folder from BASE ("." for BASE itself), so what they list counts from there, as Claude Code's do.
+ */
+const searchIn = (given, abs) => (isAbsolute(String(given)) ? abs : relative(BASE, abs) || ".");
 export async function toolGrep({ pattern, path = ".", glob, ignore_case = false }) {
   if (typeof pattern !== "string" || !pattern) fail("give a pattern");
   noNul(pattern, "the pattern");
   if (glob != null) noNul(glob, "the glob");
-  const { rel } = await inside(path);
+  const { abs } = await inside(path);
   const args = ["-n", "--no-heading", "--color", "never", "--max-columns", "300", "--glob", "!.git"];
   if (ignore_case) args.push("-i");
   if (typeof glob === "string" && glob) args.push("--glob", glob);
-  args.push("--", pattern, rel || ".");
-  const r = await run("rg", args);
+  args.push("--", pattern, searchIn(path, abs));
+  const r = await run("rg", args, BASE);
   if (r.code === 1) return "no matches";
   if (r.code !== 0) fail(r.out.trim().slice(0, 500) || "the search failed");
   const lines = r.out.trimEnd().split("\n");
@@ -474,8 +491,8 @@ export async function toolGrep({ pattern, path = ".", glob, ignore_case = false 
 export async function toolGlob({ pattern, path = "." }) {
   if (typeof pattern !== "string" || !pattern) fail("give a pattern, e.g. src/**/*.js");
   noNul(pattern, "the pattern");
-  const { rel } = await inside(path);
-  const r = await run("rg", ["--files", "--hidden", "--glob", "!.git", "--glob", pattern, rel || "."]);
+  const { abs } = await inside(path);
+  const r = await run("rg", ["--files", "--hidden", "--glob", "!.git", "--glob", pattern, searchIn(path, abs)], BASE);
   if (r.code === 1 || !r.out.trim()) return "no files match " + pattern;
   if (r.code !== 0) fail(r.out.trim().slice(0, 500));
   const files = r.out.trim().split("\n").filter((f) => !/(^|\/)\.git(\/|$)/.test(f)).sort();
@@ -584,7 +601,7 @@ export async function toolWebFetch({ url }, fetchFn = pinnedFetch) {
 export async function toolLsp({ action, path, line, column }) {
   const { abs, rel } = await inside(path, { mustExist: true });
   const { runLsp } = await import("./coder-lsp.mjs");
-  return runLsp({ action, path: rel, abs, line, column }, ROOT);
+  return runLsp({ action, path: rel, abs, line, column }, ROOT, BASE === ROOT ? ROOT : null);
 }
 
 /**
