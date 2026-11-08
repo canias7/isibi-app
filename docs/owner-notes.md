@@ -19,7 +19,7 @@ log (81,000 lines) is in git history.
 - **A missing file, now with where Coder is** (your word: "Ok do those fixes too"): Claude Code says "File does not exist. Note: your current working directory is …", so a wrong folder is easy to spot. Coder said only "no such file". Now it adds the same note. Test CD242; all 251 pass.
 - Checked the same in both: file names with spaces and accents, SVG files, and links that stay inside the project. Windows line endings go with edit (tool 3).
 - **Both live** (your word: "merge and deploy"; deploy 67) **and tested in the browser (recording 13):** the old-format file got the note, and a missing file named the folder.
-- **One read check is left: a file in a chat's second repository.** Coder only offers "+ Repository" when its GitHub app can reach more than one of your repositories, and right now it can reach only canias7/testingforclaude. Waiting on you: add one more repository to Coder (the "Add repositories on GitHub" button on Coder's new-chat screen).
+- **The last read check, done (recording 14):** you switched Coder's GitHub app to all your repositories, so a chat could add a second one (isibi-app). Coder read that repository's README (coder/README.md, "# Coder") by its full path, after searching for it. **Read is fully tested.**
 
 ## 2026-11-08: Coder keeps /tmp from one message to the next, like Claude Code (your word: "Fix that too")
 
