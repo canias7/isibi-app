@@ -11,6 +11,25 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: A standing rule: test everything in the browser (your word: "we need to test everything in the browser bro, pls, remember that")
+
+- **The rule, saved** in CLAUDE.md and the preferences file, so every session follows it: every feature and fix is tried live on gofarther.dev in the browser, with Grok, and recorded. Automated tests and checks on my side are not enough on their own.
+- **For read, that means one more recorded test:** the parts tried so far only by automated tests or the 24 checks on my side (big pictures, PDFs, notebooks, binary files, UTF-16, your saved pictures, the @ list order, and the rest), plus the two fixes waiting on the branch. Then the same in Claude Code, to compare.
+
+## 2026-11-08: The read comparison, Coder's side, live (your word: "Ok merge and deploy")
+
+- **Live:** the read changes and the folder change went live. The deploy took three tries: the first stopped at its own tests (GitHub's machine had no ripgrep), and the second hit a timeout on Fly.io's download server; the third worked.
+- **Coder ran your five messages on the live site, recorded:**
+  - **The read rules:** the big file gave its first 926 of 2,000 lines and the PARTIAL note; the empty file and line 5000 got their notes.
+  - **The @-mentioned file** came in the message.
+  - **The sed command's result** had the "changed 1 file you read before" note.
+  - **After /compact,** Coder read notes.txt and empty.txt again and only named mid.txt (over 20,000 characters).
+- **A bug found, in read itself, fixed (your word: "ur suggestion yes"):** reading the folder `.` said "error:  is a folder…" with the folder's name missing. Claude Code's own Read, tried in this session, says "EISDIR: illegal operation on a directory, read '/home/user'": it names the folder by its full path. Coder now names it by its full path too, for every folder, and keeps its hint on how to list what's inside (the docs: "Claude lists directory contents with a shell command such as ls"). Test CD237 (fails on the old code); 246 pass, and the 24 read checks pass.
+- **Claude Code's side, run in this session** (your word: "u can do it here, u are claude code"): messages 1 and 3 on the same files. By Claude Code's docs, Coder matches on all of them except one: Claude Code limits a read to 25,000 tokens, Coder to 100,000 characters (the same for normal code). The rest of what differed (its "Warning:" wording, counting 2,001 lines in a 2,000-line file) isn't in its docs.
+- **Messages 2, 4 and 5 in Claude Code** (you typed them here: "lets do . 2,4,5"): the @-mentioned file came inside the message, as in Coder. After /compact, Claude Code read notes.txt and empty.txt again but didn't mention mid.txt at all, where Coder named it. **Why, from its docs** (your word: "ok go look at the docs pls"): after a summary it brings back at most five files, the most recently changed first, and only names a file over 5,000 tokens. In this session I had changed three big project files after reading mid.txt, so mid.txt came sixth, older than empty.txt by 4 thousandths of a second. Coder has the same rule (five, newest first, a file over 20,000 characters only named), and its chat had read only three files. Nothing to change.
+- **One sentence added, from Claude Code's real note (your word: "ok yes"):** when a file is too big for one read, Coder's note now ends "Do not answer from this part alone if the answer may be further in the file." Test CD204 checks it (fails on the old code); 246 pass, and the 24 read checks pass.
+- **Outside read, done on your word ("do it like this"):** the line over a group of steps names each kind, like Claude Code: "Ran 1 command, read 4 files" instead of "5 steps". Searches, edits, writes, page fetches, web searches, code lookups, background jobs, reviews, undo and the setup script are named too. A failure says what failed ("a read failed"); before, it said "a command failed" even when a read failed, as the recording showed at 2:07. Test CD236 (fails on the old code); 245 pass. Live with your next "merge and deploy".
+
 ## 2026-11-08: Coder remembers the folder after a `cd`, the Claude Code way (your word: "lets do it the claude code way")
 
 This is part of tool 5 (bash), done now on your word; it changes read too.

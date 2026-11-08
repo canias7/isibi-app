@@ -790,6 +790,28 @@
     return list.length ? '<div class="cd-cmd-pics">' + list.map((u) => '<img src="' + u + '" alt="The picture Coder opened" loading="lazy">').join('') + '</div>' : '';
   }
 
+  /**
+   * THE LINE OVER A GROUP OF STEPS, AS CLAUDE CODE WRITES IT (the owner, 2026-11-08: "do it like this … 'Ran 1 command,
+   * read 4 files'"; Claude Code names each kind in a collapsed group, in its docs and changelog: "Ran 3 shell commands",
+   * "Read N files", "Searched for", "Listed N directories"): each kind with how many, in the order they first came, and
+   * what failed by its kind ("a read failed": the line said "a command failed" for a failed read). `steps`: [{ tool,
+   * failed }], a step with no tool being a command.
+   */
+  function groupWords(steps) {
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const said = new Map(), bad = new Map();
+    for (const s of steps) {
+      const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
+      const key = w[0] + '|' + w[1];
+      said.set(key, { w, n: (said.has(key) ? said.get(key).n : 0) + 1 });
+      if (s.failed) bad.set(w[3], (bad.get(w[3]) || 0) + 1);
+    }
+    const line = [...said.values()].map(({ w, n }) => (w[1] ? w[0] + ' ' + n + ' ' + (n === 1 ? w[1] : w[2]) : w[0] + (n === 1 ? '' : ' ' + n + ' times'))).join(', ');
+    const nBad = [...bad.values()].reduce((a, b) => a + b, 0), kind = [...bad.keys()][0];
+    const failed = !nBad ? '' : bad.size > 1 ? nBad + ' steps failed' : nBad === 1 ? (/^[aeiou]/.test(kind) ? 'an ' : 'a ') + kind + ' failed' : nBad + ' ' + (/(ch|sh|s|x)$/.test(kind) ? kind + 'es' : kind + 's') + ' failed';
+    return { line: line.charAt(0).toUpperCase() + line.slice(1), failed };
+  }
+
   function stepsHTML() {
     const out = [];
     const results = {};
@@ -805,9 +827,10 @@
       else {
         const gk = 'g' + String(group[0][0].id || group[0][1]);
         const shut = !!S.open[gk];
-        const bad = group.some(([e, i]) => stateOf(e, i) === 'bad');
+        // The line names each kind of step and what failed, as Claude Code's does (groupWords).
+        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool || '', failed: stateOf(e, i) === 'bad' })));
         out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
-          '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + (group.every(([g]) => !g.tool) ? 'Ran ' + group.length + ' commands' : group.length + ' steps') + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (bad ? '<span class="cd-bad">a command failed</span>' : '') + '</button>' +
+          '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + esc(words.line) + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (words.failed ? '<span class="cd-bad">' + esc(words.failed) + '</span>' : '') + '</button>' +
           (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +
         '</div>');
       }

@@ -122,9 +122,16 @@ export function fileText(buf) {
   if (u === "be") { const b = Buffer.from(buf.subarray(2, 2 + ((buf.length - 2) & ~1))); b.swap16(); return b.toString("utf16le") + (buf.length % 2 ? "\ufffd" : ""); }
   return buf.toString("utf8");
 }
+/**
+ * A FOLDER, NOT A FILE (Claude Code's docs: "Read only reads files, not directories. Claude lists directory contents with
+ * a shell command such as ls"). Named by its full path, as Claude Code's Read names it ("EISDIR: illegal operation on a
+ * directory, read '/home/user'", tried 2026-11-08), so the project's own folder (`.`) is never a blank (the live
+ * comparison, 2026-11-08: "error:  is a folder"); with how to see what is in it (the owner: "ur suggestion yes").
+ */
+const folderError = (abs) => abs + " is a folder, not a file: list what is in it with glob, or a command such as ls";
 async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it", { utf16 = false } = {}) {
   const st = await stat(abs);
-  if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
+  if (st.isDirectory()) fail(folderError(abs));
   if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; " + tooBig);
   const fh = await openFile(abs, "r");
   try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0) && !(utf16 && utf16Of(b))) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file"); } finally { await fh.close(); }
@@ -221,14 +228,14 @@ async function thumbOf(buf, kind) {
 }
 async function fileSize(abs, rel, max) {
   const st = await stat(abs);
-  if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
+  if (st.isDirectory()) fail(folderError(abs));
   if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool");
   return st.size;
 }
 
 async function readPicture(abs, rel, kind) {
   const st = await stat(abs);
-  if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
+  if (st.isDirectory()) fail(folderError(abs));
   if (st.size > PIC_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, over the 128 MB a picture may be: make a smaller copy with bash (e.g. convert, or crop the part you need) and read that");
   const size = st.size;
   const buf = await readFile(abs);
@@ -428,8 +435,13 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   return body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
-    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + "]");
+    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]");
 }
+/**
+ * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT
+ * answer from this page alone if the answer may be further in the file"): Grok reads the rest before answering.
+ */
+export const PARTIAL_HINT = "Do not answer from this part alone if the answer may be further in the file.";
 
 export async function toolWrite({ path, content }) {
   const { abs, rel } = await inside(path);

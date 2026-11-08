@@ -79,7 +79,7 @@ test("CD204 read gives about 100,000 characters of whole lines a call, like Clau
   // About 200 KB: a PARTIAL view, then parts asked for with offset and limit, which join up exactly.
   await writeFile(join(dir, "mid.txt"), Array.from({ length: 2000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
   const first = read({ path: "mid.txt" });
-  const pm = /\n\[PARTIAL view: lines 1-(\d+) of 2000 \(about \d+ KB of \d+ KB\)\. Read more with offset (\d+) and limit (\d+)\]$/.exec(first);
+  const pm = /\n\[PARTIAL view: lines 1-(\d+) of 2000 \(about \d+ KB of \d+ KB\)\. Read more with offset (\d+) and limit (\d+)\. Do not answer from this part alone if the answer may be further in the file\.\]$/.exec(first); // the last sentence: Claude Code\'s note says it too (the owner, 2026-11-08: "ok yes")
   assert.ok(pm, first.slice(-200));
   assert.equal(Number(pm[2]), Number(pm[1]) + 1);
   let body = first.slice(0, pm.index), offset = 1, seen = 0, parts = 0, limit = Number(pm[3]);
@@ -597,7 +597,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   assert.equal(await read("blob.dat"), "error: blob.dat is a binary file (not text): see what it is with `file 'blob.dat'`, then use a command or a script that reads that kind of file");
   // A folder.
   await mkdir(join(dir, "src"));
-  assert.equal(await read("src"), "error: src is a folder, not a file: list what is in it with glob, or a command such as ls");
+  assert.equal(await read("src"), "error: " + join(dir, "src") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   // An @-mentioned folder still comes as its listing; an @-mentioned binary file is named, not included.
   const { runCoder } = await import("../container/coder-agent.mjs");
   await writeFile(join(dir, "src", "app.js"), "x\n");
@@ -1061,4 +1061,55 @@ test("CD229 the @ list puts a file whose name matches first, as Claude Code's do
   assert.deepEqual(rankMentions(list, "CART"), rankMentions(list, "cart"), "any case");
   assert.equal(rankMentions(Array.from({ length: 20 }, (_, i) => "f" + i + ".js"), "f").length, 8);
   assert.match(ui, /return rankMentions\(S\.files\.list, S\.mention\.q\);/);
+});
+
+test("CD236 the line over a group of steps names each kind, as Claude Code's does (the owner: \"do it like this … 'Ran 1 command, read 4 files'\"), and what failed by its kind: a failed read said \"a command failed\" (live comparison, 2026-11-08)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  function groupWords(steps) {"), b = ui.indexOf("\n  }\n", a);
+  assert.ok(a > 0, "the page has groupWords");
+  const groupWords = new Function("return " + ui.slice(a, b + 4).trim())();
+  const step = (tool, failed = false) => ({ tool, failed });
+  // The live comparison's first message: one command, four reads, the last one (the folder) failed.
+  assert.deepEqual(groupWords([step(""), step("read"), step("read"), step("read"), step("read", true)]), { line: "Ran 1 command, read 4 files", failed: "a read failed" });
+  assert.deepEqual(groupWords([step(""), step(""), step("")]), { line: "Ran 3 commands", failed: "" });
+  assert.deepEqual(groupWords([step("", true), step("read")]), { line: "Ran 1 command, read 1 file", failed: "a command failed" });
+  // In the order they first came; grep and glob are both searches (Claude Code: "Searched for").
+  assert.equal(groupWords([step("grep"), step("read"), step("glob"), step("edit"), step("write")]).line, "Searched for 2 patterns, read 1 file, edited 1 file, wrote 1 file");
+  assert.equal(groupWords([step("edit", true), step("edit", true)]).failed, "2 edits failed");
+  assert.equal(groupWords([step("grep", true), step("glob", true)]).failed, "2 searches failed");
+  assert.equal(groupWords([step("edit", true), step("read", true)]).failed, "2 steps failed");
+  assert.equal(groupWords([step("edit", true)]).failed, "an edit failed");
+  assert.equal(groupWords([step("web_search"), step("web_search")]).line, "Searched the web 2 times");
+  assert.equal(groupWords([step("web_search"), step("web_fetch", true)]).line, "Searched the web, fetched 1 page");
+  assert.equal(groupWords([step("web_search"), step("web_fetch", true)]).failed, "a fetch failed");
+  assert.equal(groupWords([step("lsp"), step("lsp"), step("monitor"), step("stop_job")]).line, "Made 2 code lookups, checked 1 background job, stopped 1 background job");
+  assert.equal(groupWords([step("setup"), step("review"), step("undo", true)]).line, "Ran the setup script, reviewed the changes, undid the last job");
+  assert.equal(groupWords([step("undo", true)]).failed, "an undo failed");
+  assert.equal(groupWords([step("something-new"), step("toString")]).line, "Did 2 steps", "a kind it does not know (even one named like an object's own)");
+  // The page uses it for every group, and the old words are gone.
+  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad' \}\)\)\);/);
+  assert.ok(!ui.includes("'a command failed'") && !ui.includes("<span class=\"cd-bad\">a command failed</span>"), "the fixed words are gone");
+});
+
+test("CD237 reading a folder names it by its full path, as Claude Code's Read does (\"EISDIR: illegal operation on a directory, read '/home/user'\"), with how to list it; the project's own folder (.) is never a blank (the live comparison, 2026-11-08: \"error:  is a folder\")", async () => {
+  const { mkdtemp, mkdir, realpath } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { execFileSync } = await import("node:child_process");
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "coder-folder-")));
+  await mkdir(join(dir, "src", "shots.png"), { recursive: true });
+  await mkdir(join(dir, "docs.pdf"));
+  const read = (path, env = {}) => {
+    const b64 = Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64");
+    try { return execFileSync("node", ["--no-warnings", toolsScript, b64], { cwd: dir, env: { ...process.env, ...env } }).toString(); }
+    catch (e) { return String(e.stdout || ""); }
+  };
+  const said = (p) => "error: " + p + " is a folder, not a file: list what is in it with glob, or a command such as ls";
+  assert.equal(read(".").trim(), said(dir), "the project's own folder, by its full path");
+  assert.equal(read("src").trim(), said(join(dir, "src")));
+  assert.equal(read("src/shots.png").trim(), said(join(dir, "src", "shots.png")), "a folder named like a picture");
+  assert.equal(read("docs.pdf").trim(), said(join(dir, "docs.pdf")), "a folder named like a PDF");
+  // Where the commands are (CODER_CWD): `.` is that folder.
+  assert.equal(read(".", { CODER_CWD: join(dir, "src") }).trim(), said(join(dir, "src")));
 });

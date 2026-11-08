@@ -19,6 +19,11 @@ deleted (the old file is in git history).
   design: don't restyle beyond what's asked. Offer options as screenshots.
 - Never write GitHub's skip-CI marker anywhere.
 - Every change ships with tests, an owner-notes entry and a push.
+- **Test everything in the browser (2026-11-08, "we need to test everything in
+  the browser bro, pls, remember that"):** every feature and fix is tried live on
+  gofarther.dev in the browser, with Grok, and recorded (then the same in Claude
+  Code, to compare). Automated tests and checks on Claude's side are not enough
+  on their own.
 - **Tool by tool (2026-11-08, "Ok do that"):** while going through one tool, keep
   anything that is not that tool in its own list, marked as outside it, and ask
   the owner before fixing it. Something the tool's change breaks elsewhere may be
