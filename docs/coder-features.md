@@ -15,7 +15,8 @@ How each item was tested:
 
 The recordings: 1 sign-in, page, GitHub, chats · 2 Stop, closing the tab, question cards · 3 environments ·
 4 changes, pull request, Rewind, Undo, read-only · 4b /compact, the message box, read-only · 5 auto-fix,
-code review settings, notifications, install, sign out · 5b settings kept, sign out · 6 the desktop app.
+code review settings, notifications, install, sign out · 5b settings kept, sign out · 6 the desktop app ·
+7 the live tests, filmed on GitHub (each result outlined, with its item number).
 
 **Totals:** 44 passed. 4 passed as far as Claude can go and need you for the last step (4, 42, 43, 44: a
 switch, or a real phone). 2 weren't tested (45 desktop notifications, 47 the phone app). 6 problems were

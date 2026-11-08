@@ -13,6 +13,7 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-08: Everything tested, one by one, and recorded (your word: "u test it all yourself one by one , record it pls")
 
+- **Recorded:** 8 videos of the page and the desktop app, plus a ninth that films the live GitHub threads and stops at each result. Items checked only by the automatic tests can't be filmed (2, 48–50), and 45 and 47 weren't tested.
 - **The results are in [`docs/coder-features.md`](coder-features.md)**, item by item, each with how it was tested:
   - **live:** the real Coder through @coder on your test repo, issues #12 to #16 and pull request #16;
   - **page:** the real page and server code on my side, with stand-ins for sign-in, GitHub and Grok, because the code is emailed and I can't sign in;
