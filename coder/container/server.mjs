@@ -1531,8 +1531,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const shownSec = new Set();
     const memDir = join(memRoot, project);
     const memFile = join(memDir, "MEMORY.md");
-    // THE COPIES OF THE FILES CODER READ OR CHANGED (the `changed` tool: "a note when a file Claude read earlier changes
-    // on disk", like Claude Code), kept between messages: dev's own folder beside the memory's (a project id has no dot).
+    // THE FILES CODER READ OR CHANGED, each with its time, size and fingerprint (the `changed` tool: a command that changes
+    // one says so, like Claude Code), kept between messages: dev's own folder beside the memory's (a project id has no dot).
     const seenDir = join(memRoot, project + ".seen");
     const bgDir = join(bgRoot, project);
     try {
@@ -1727,7 +1727,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A LONG JOB SUMMARIZED: the instruction files it had been shown may be summarized away, so they load again
         // on demand (like Claude Code: "Nested CLAUDE.md files ... load again on demand" after compaction).
         compacted: () => { shownNotes.clear(); },
-        // The file tools keep copies of what Coder read or changed (CODER_SEEN_DIR), so it is told when one changes on disk.
+        // The file tools follow the files Coder read or changed (CODER_SEEN_DIR), so a command that changes one says so.
         seen: true,
         afterFile: ({ tool, args }) => {
           const rel = projectRel(dir, args && args.path), text = editedText(tool, args);

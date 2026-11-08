@@ -53,13 +53,17 @@ log (81,000 lines) is in git history.
     - a clear message for a "null byte" in a path;
     - "is not a valid PDF" for a file that isn't one.
   - Tests CD209 to CD212 are new, and each fails on the old code. 221 pass.
-- **On your "Yes do that too": Coder is now told when a file it read earlier changes on disk**, like Claude Code.
-  - Claude Code's docs say only that one line, so Coder copies what Claude Code really does. I could see it in my own session: when one of my commands changed a file I'd read, Claude Code told me which one and to read it again before editing.
-  - Coder's machine keeps a copy of each file Coder reads or changes (up to 100 files a chat), kept between messages.
-  - **A command that changed one** (a formatter, say) now says so in its result: "This command changed 1 file you read before: a.js. Read it again before editing."
-  - **A change made any other way** (something running in the background, or an undo or a rewind between messages) comes as a note before Coder's next step, showing exactly what changed, and saying not to undo it unless you ask.
-  - Coder's own edits don't count.
-  - Test CD213 is new (it fails on the old code). 222 pass, and I checked it on the machine's own user too. Live with your next "merge and deploy".
+- **On your "Yes do that too": a command that changes a file Coder read now says so**, like Claude Code.
+  - Claude Code's docs say only one line about this, so we checked what Claude Code really does, with your two tests in Claude Code:
+    - **Test 1:** a background command changed notes.txt from apple to banana, then ended. Claude Code woke up by itself and was told only that the command had ended, nothing about the file. Claude read the file again on its own.
+    - **Test 2:** the command changed the file, then kept running. At your next message, Claude said it got no note at all.
+    - And in my own session, a command of mine that changed a file I had read got: "This command modified 1 file you've previously read … Call Read before editing."
+  - **So Coder now does the same:** a command that changed a file Coder read says so in its result: "This command changed 1 file you read before: a.js. Read it again before editing."
+  - A file changed any other way (in the background, or between messages) gets no note, like Claude Code, and is never blamed on Coder's next command.
+  - My first version also showed the changed lines in those other cases. Your tests showed Claude Code doesn't, so I took that out.
+  - Coder's machine keeps only each file's time, size and a fingerprint (no copies), for up to 100 files a chat.
+  - Test CD213 is new (it fails on the old code). 222 pass, and I checked it as the machine's own user too. Live with your next "merge and deploy".
+  - **Noted for the bash tool:** Claude Code's background commands keep running between messages, and it wakes up when one ends. Coder stops them when a message ends.
 - **Browser tests on my side:** I can now open a real browser here that you can watch from your app (the "browser" preview), signed in to gofarther.dev as the test account. Signing in still needs the emailed code from you.
 - **The test account's password (live data, on your word "reset it"):**
   - cristiananias7@gmail.com was refusing the password you remember. Supabase itself said it was wrong, from your phone too.

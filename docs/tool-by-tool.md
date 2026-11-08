@@ -93,14 +93,19 @@ Fixed (test CD207, CD208; 217 pass):
   - a password-protected PDF says so;
   - a request is kept under the size limit (Claude Code's 32 MB, Coder's 30 MB);
   - after a few summaries in one job, no more (Claude Code stops "after a few attempts").
-- **One more that Claude Code did and Coder didn't, added on the owner's "Yes do that too"** (test CD213, failing on the earlier code): "A note when a file Claude read earlier changes on disk" (how Claude Code works, "Context Claude Code adds on its own"). The docs say only that one line, so Coder copies what Claude Code does (seen in this very session, where my own commands got Claude Code's "[This command modified 1 file you've previously read: … Call Read before editing.]"):
-  - Coder's machine keeps a copy of each file Coder reads, writes or edits (up to 256 KB; at most 100 files a chat), kept between messages.
-  - **A command that changed one** says so at the end of its result: "[This command changed 1 file you read before: a.js. Read it again before editing.]"
-  - **A change made any other way** (a command still running in the background; between messages, an undo or a rewind) comes as a note before Coder's next step, showing exactly what changed, and saying not to undo it unless the owner asks.
-  - Coder's own writes and edits are no news. A file only touched (the same bytes) is no change.
-- **For later (tool 3, edit):** Claude Code's Edit still edits a file that changed since it was read when old_string matches its current content, and "the result notes that the file carries other changes". Coder's edit will get that note with tool 3.
-- **For later (tool 5, bash):** after a summary, Claude Code "reminds Claude which ones [background commands] are still running so it doesn't start a duplicate".
-- **For later (tool 3, edit):** Claude Code's Edit refuses a file that isn't valid UTF-8, rather than spoil its bytes.
+- **One more, added on the owner's "Yes do that too"** (test CD213, failing on the earlier code): "A note when a file Claude read earlier changes on disk" (how Claude Code works, "Context Claude Code adds on its own"). The docs say only that one line, so we checked what Claude Code really does:
+  - **In my own session:** when one of my commands changed a file I had read, Claude Code added to its result: "[This command modified 1 file you've previously read: … Call Read before editing.]"
+  - **The owner's test 1 in Claude Code** (a background command changes notes.txt from apple to banana, then ends): Claude Code woke up by itself when the command ended and was told only that it had finished, nothing about the file. Claude then read the file again on its own.
+  - **The owner's test 2** (the background command changes the file, then keeps running, so nothing wakes Claude): at the owner's next message, Claude said it got no note at all. It learned of the change only from the cloud's own "commit your changes" check.
+  - **So Coder now does the same:** a command that changed a file Coder had read says so in its result: "[This command changed 1 file you read before: a.js. Read it again before editing.]". A file changed any other way (in the background, or between messages) gets no note, and is never put down to Coder's next command.
+  - For each file Coder reads, writes or edits (up to 256 KB; at most 100 a chat), its machine keeps only its time, size and a fingerprint, kept between messages. Coder's own edits are no news, and a file only touched (the same bytes) is no change.
+  - (A first version also showed the changed lines for changes made any other way; the owner's tests showed Claude Code doesn't, so that was taken out.)
+- **For later (tool 3, edit):**
+  - Claude Code's Edit still edits a file that changed since it was read when old_string matches its current content, and "the result notes that the file carries other changes".
+  - It refuses a file that isn't valid UTF-8, rather than spoil its bytes.
+- **For later (tool 5, bash):**
+  - Claude Code's background commands keep running between messages, and Claude Code wakes up when one ends (test 1). Coder stops them when a message ends.
+  - After a summary, Claude Code "reminds Claude which ones [background commands] are still running so it doesn't start a duplicate".
 
 Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a prompt for files outside the working folder, network paths) and its `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` setting. Coder has no permission prompts or settings. It reads only inside the chat's repositories (its extra ones too), plus its own memory file.
 

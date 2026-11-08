@@ -233,12 +233,12 @@ export async function rereadFiles(deps, kept, touched, emit = () => {}) {
 const normPath = (p) => String(p || "").trim().replace(/^(\.\/)+/, "");
 
 /**
- * A NOTE WHEN A FILE CODER READ EARLIER CHANGES ON DISK (the owner, 2026-11-08: "Yes do that too"; Claude Code's docs:
- * "A note when a file Claude read earlier changes on disk"; the `changed` tool in coder-tools.mjs). As Claude Code does:
- * a command that changed files Coder had read says so in its result ("This command modified 1 file you've previously
- * read … Call Read before editing", Claude Code's words), and a change made any other way (a command still running in
- * the background; between messages, an undo or a rewind) comes before Coder's next step, with what changed. Only on a
- * machine that keeps the copies (deps.seen).
+ * A NOTE WHEN A COMMAND CHANGES A FILE CODER READ (the owner, 2026-11-08: "Yes do that too"; Claude Code's docs: "A note
+ * when a file Claude read earlier changes on disk"; the `changed` tool in coder-tools.mjs). As Claude Code really does
+ * (the owner's two tests in Claude Code, and its own session): a command that changed files Coder had read says so in
+ * its result ("This command modified 1 file you've previously read … Call Read before editing"); a file changed any
+ * other way (a command in the background, or between messages: an undo, a rewind) gets no note, and is not put down to
+ * Coder's next command either. Only on a machine that follows the files (deps.seen).
  */
 export async function changedFiles(deps) {
   const r = await appTool(deps, "changed", {});
@@ -252,16 +252,6 @@ const fileNames = (list) => { const names = list.map((x) => scrub(x.path).slice(
 export function commandChangedNote(list) {
   const n = list.length, left = list.filter((x) => !x.gone).length;
   return "[This command changed " + n + " file" + (n === 1 ? "" : "s") + " you read before: " + fileNames(list) + "." + (left ? " Read " + (left === 1 ? "it" : "them") + " again before editing." : "") + "]";
-}
-/** The note before Coder's next step, for files that changed some other way. */
-export function changedNote(list) {
-  const parts = list.map((x) => {
-    const p = scrub(x.path).slice(0, 300);
-    if (x.gone) return "--- " + p + ": deleted (or moved) ---";
-    if (x.big) return "--- " + p + ": changed (it is now " + Math.round(Number(x.big) / 1024) + " KB, too big to show what changed: read the part you need again) ---";
-    return "--- " + p + ": changed ---\n" + (x.diff ? scrub(String(x.diff)) : "(what changed is not shown here: read it again)");
-  });
-  return "(Note from Coder's app, not the owner: like Claude Code, a note when a file you read earlier changes on disk. " + (list.length === 1 ? "This file" : "These files") + " changed since you last read or changed " + (list.length === 1 ? "it" : "them") + ", by something other than your own steps (a command still running in the background, say, or between messages an undo, a rewind or the owner). Take the change into account as you go on, and don't undo it unless the owner asks.)\n\n" + parts.join("\n\n");
 }
 
 export const CODER_MAX_ROUNDS = 60;
@@ -531,11 +521,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         }
       }
     }
-    // FILES CHANGED SOME OTHER WAY since Coder's last step (a command still running; between messages, an undo or a rewind).
-    if (watching()) {
-      const ch = await changedFiles(deps);
-      if (ch) { followed = ch.followed > 0; if (ch.changed.length) convo.push({ role: "user", appNote: true, content: changedNote(ch.changed) }); }
-    }
+    // A LATER MESSAGE: what changed between messages (an undo, a rewind) gets no note, as in Claude Code, and is not put
+    // down to Coder's first command: the files are brought up to date first.
+    if (rounds === 1 && watching()) { const ch = await changedFiles(deps); if (ch) followed = ch.followed > 0; }
     let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "") + (context ? "\n\n" + context : "") }, ...convo], tools: github ? GITHUB_TOOLS : CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
@@ -591,10 +579,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
-        // WHILE A BACKGROUND COMMAND OF THIS JOB MAY BE RUNNING, what changed before this command is told apart (with
-        // what changed), so it is not put down to this command; nothing else changes the files during a job.
-        let before = "";
-        if (jobs.size && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) before = changedNote(ch.changed); } }
+        // WHILE A BACKGROUND COMMAND OF THIS JOB MAY BE RUNNING, what it changed before this command gets no note (as in
+        // Claude Code) and is not put down to this command; nothing else changes the files during a job.
+        if (jobs.size && watching()) { const ch = await changedFiles(deps); if (ch) followed = ch.followed > 0; }
         let r;
         const inBg = c.args.run_in_background === true;
         try { r = await deps.exec({ command, timeoutS: inBg ? 1 : readTimeout(c.args.timeout_s) }); }
@@ -612,7 +599,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // A COMMAND THAT CHANGED FILES CODER HAD READ says so (like Claude Code's "This command modified …").
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) moved = commandChangedNote(ch.changed); } }
-        reply((bg ? (job ? "[running in the background as " + job + ": read it with monitor, end it with stop_job]\n" : "") + out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)")) + (moved ? "\n" + moved : "") + (before ? "\n\n" + before : "") + (viewed ? "\n\n" + viewed : ""));
+        reply((bg ? (job ? "[running in the background as " + job + ": read it with monitor, end it with stop_job]\n" : "") + out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)")) + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : ""));
       } else if (c.name === "monitor" || c.name === "stop_job") {
         // A BACKGROUND JOB: read its log, or stop it (as `dev`, like any command).
         const j = jobs.get(String(c.args.job || ""));

@@ -515,71 +515,59 @@ export async function toolListing({ path }) {
 }
 
 /**
- * A NOTE WHEN A FILE CODER READ EARLIER CHANGES ON DISK (the owner, 2026-11-08: "Yes do that too"; Claude Code's docs,
- * "Context Claude Code adds on its own": "A note when a file Claude read earlier changes on disk"). A copy of each text
- * file Coder reads, writes or edits (up to 256 KB) is kept in CODER_SEEN_DIR, a folder Coder's app makes for each chat
- * outside the project (it lasts between messages), at most SEEN_FILES of them and SEEN_BYTES in all, the oldest let
- * go first. The `changed` tool says which changed since, and how, and brings the copies up to date.
+ * A NOTE WHEN A COMMAND CHANGES A FILE CODER READ (the owner, 2026-11-08: "Yes do that too"; Claude Code's docs,
+ * "Context Claude Code adds on its own": "A note when a file Claude read earlier changes on disk"). What Claude Code
+ * really does, as the owner's two tests in Claude Code showed: a command that changed a file Claude had read says so in
+ * its result ("This command modified 1 file you've previously read … Call Read before editing", seen in Claude Code's
+ * own session), and a file changed any other way (by a command in the background, or between messages) gets no note.
+ * So for each text file Coder reads, writes or edits (up to 256 KB), the file tools keep its time, size and a
+ * fingerprint of its bytes in CODER_SEEN_DIR (a folder Coder's app makes for each chat, outside the project; it lasts
+ * between messages), at most SEEN_FILES of them, the oldest let go first. The `changed` tool says which changed since.
  */
-export const SEEN_FILES = 100, SEEN_BYTES = 20 * 1024 * 1024, CHANGE_ONE = 4000, CHANGE_ALL = 16000;
+export const SEEN_FILES = 100;
 const seenDir = () => { const d = String(process.env.CODER_SEEN_DIR || ""); return d && isAbsolute(d) ? d : ""; };
-const seenKey = (abs) => createHash("sha256").update(abs).digest("hex").slice(0, 32);
+const fingerprint = (buf) => createHash("sha256").update(buf).digest("hex");
 async function seenList(dir) {
-  try { const j = JSON.parse(await readFile(join(dir, "index.json"), "utf8")); return Array.isArray(j) ? j.filter((x) => x && typeof x.abs === "string" && isAbsolute(x.abs) && /^[0-9a-f]{32}$/.test(String(x.key))) : []; } catch { return []; }
+  try { const j = JSON.parse(await readFile(join(dir, "index.json"), "utf8")); return Array.isArray(j) ? j.filter((x) => x && typeof x.abs === "string" && isAbsolute(x.abs) && typeof x.hash === "string") : []; } catch { return []; }
 }
 async function seenSave(dir, list) { const tmp = join(dir, "index.json." + process.pid + ".tmp"); await writeFile(tmp, JSON.stringify(list)); await rename(tmp, join(dir, "index.json")); }
 /** A file's path as the tools take it: from the project's folder, or whole for one of the chat's other repositories. */
 function showPath(abs) { const r = relative(ROOT, abs); return r && !r.startsWith("..") && !isAbsolute(r) ? r : abs; }
-/** Keeps a copy of a text file as Coder now knows it, after a read, a write or an edit (not the memory file). */
+/** Notes a text file as Coder now knows it, after a read, a write or an edit (not the memory file). */
 async function remember(abs, buf) {
   const dir = seenDir();
   const mem = process.env.CODER_MEMORY_FILE;
   if (!dir || (mem && abs === resolve(mem))) return;
   try {
     const st = await stat(abs);
-    const key = seenKey(abs);
     const list = (await seenList(dir)).filter((x) => x.abs !== abs);
-    if (!st.isFile() || buf.length > READ_WHOLE_MAX) { await unlink(join(dir, key)).catch(() => {}); await seenSave(dir, list); return; } // too big to follow
-    await writeFile(join(dir, key), buf);
-    list.push({ abs, key, mtime: st.mtimeMs, size: st.size, bytes: buf.length });
-    let total = list.reduce((n, x) => n + (Number(x.bytes) || 0), 0);
-    while (list.length > SEEN_FILES || total > SEEN_BYTES) { const old = list.shift(); total -= Number(old.bytes) || 0; await unlink(join(dir, old.key)).catch(() => {}); }
+    if (st.isFile() && buf.length <= READ_WHOLE_MAX) list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: fingerprint(buf) }); // a bigger one is not followed
+    while (list.length > SEEN_FILES) list.shift();
     await seenSave(dir, list);
   } catch { /* never costs the tool */ }
 }
 /**
- * WHAT CHANGED since Coder last read or changed its files, for Coder's app only (no tool Grok has):
- * { followed, changed: [{ path, diff } | { path, gone: true } | { path, big: bytes }] }. A file only touched (the same
- * bytes) is no change; what changed is shown as a unified diff (with line numbers), CHANGE_ONE a file, CHANGE_ALL in all.
+ * WHICH FILES CHANGED since Coder last read or changed them, for Coder's app only (no tool Grok has):
+ * { followed, changed: [{ path } | { path, gone: true }] }, and the files brought up to date. A file only touched (the
+ * same bytes) is no change; one grown past 256 KB is a change, and is not followed after.
  */
 export async function toolChanged() {
   const dir = seenDir();
   const list = dir ? await seenList(dir) : [];
   const keep = [], changed = [];
-  let room = CHANGE_ALL, dirty = false;
+  let dirty = false;
   for (const x of list) {
     let st = null;
     try { await inside(x.abs, { mustExist: true }); st = await stat(x.abs); } catch { st = null; }
     const path = showPath(x.abs);
-    if (!st || !st.isFile()) { changed.push({ path, gone: true }); await unlink(join(dir, x.key)).catch(() => {}); dirty = true; continue; }
+    if (!st || !st.isFile()) { changed.push({ path, gone: true }); dirty = true; continue; }
     if (st.mtimeMs === x.mtime && st.size === x.size) { keep.push(x); continue; }
     dirty = true;
-    if (st.size > READ_WHOLE_MAX) { changed.push({ path, big: st.size }); await unlink(join(dir, x.key)).catch(() => {}); continue; }
-    let now;
-    try { now = await readFile(x.abs); } catch { changed.push({ path, gone: true }); await unlink(join(dir, x.key)).catch(() => {}); continue; }
-    const before = await readFile(join(dir, x.key)).catch(() => null);
-    if (before && before.equals(now)) { keep.push({ ...x, mtime: st.mtimeMs, size: st.size }); continue; }
-    let diff = "";
-    if (before && room > 0) {
-      const d = await runProg("diff", ["-U2", "--label", "a/" + path, "--label", "b/" + path, "--", join(dir, x.key), x.abs], { timeoutMs: 15_000, max: 4 * 1024 * 1024 });
-      diff = d.code === 1 || d.code === 2 ? d.out.toString("utf8") : "";
-      const most = Math.min(CHANGE_ONE, room);
-      if (diff.length > most) diff = diff.slice(0, most).replace(/\n[^\n]*$/, "") + "\n[more changes: read the file again to see them]";
-      room -= diff.length;
-    }
-    changed.push({ path, diff });
-    await writeFile(join(dir, x.key), now).catch(() => {});
-    keep.push({ ...x, mtime: st.mtimeMs, size: st.size, bytes: now.length });
+    if (st.size > READ_WHOLE_MAX) { changed.push({ path }); continue; }
+    let hash;
+    try { hash = fingerprint(await readFile(x.abs)); } catch { changed.push({ path, gone: true }); continue; }
+    if (hash !== x.hash) changed.push({ path });
+    keep.push({ ...x, mtime: st.mtimeMs, size: st.size, hash });
   }
   if (dirty) await seenSave(dir, keep).catch(() => {});
   return JSON.stringify({ followed: keep.length, changed });
