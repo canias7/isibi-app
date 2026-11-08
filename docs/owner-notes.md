@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read, tested live in the browser, then side by side with Claude Code (your word: "ok")
+
+- **Live now:** the steps line, the folder's full path and the PARTIAL sentence (deploy 65, first try).
+- **Coder, in the browser, recorded (recording 11):** eleven messages on everything about read not tried live before: big files, allow_large, long lines, UTF-16, the folder, refused kinds (zip, xlsx, binary, a pipe, outside the project, a null byte), pictures (big ones, CMYK, WebP, one over 128 MB), your picture saved and opened again (shown in the chat), PDFs (ranges, 20 at a time, password, fake, one that lies about its pages), a notebook, the @ list and @-mentions, and a long job summarized in the middle (the files read again, and a new CODER.md line followed). All worked.
+- **Claude Code, the same files:** the same on most. Coder does better on four: a pipe (Claude Code's read waited 8 hours), a password-protected PDF, a PDF that lies about its pages, and BMP pictures.
+- **Four differences found, waiting for your word:** (1) after `cat` shows a file, Claude Code notices when a command changes it; Coder doesn't. (2) Claude Code never cuts a long line; Coder cuts at 2,000 characters. (3) Claude Code also sends the changed lines. (4) Claude Code shows big pictures a bit bigger (2000 pixels, with a line about coordinates).
+- **Outside read (bash, for later):** Coder's commands get an empty /tmp with each message; Claude Code keeps /tmp for the whole session.
+
 ## 2026-11-08: A standing rule: test everything in the browser (your word: "we need to test everything in the browser bro, pls, remember that")
 
 - **The rule, saved** in CLAUDE.md and the preferences file, so every session follows it: every feature and fix is tried live on gofarther.dev in the browser, with Grok, and recorded. Automated tests and checks on my side are not enough on their own.

@@ -152,6 +152,41 @@ Fixed (test CD207, CD208; 217 pass):
   - **The @ list ranks file-name matches first** (2.1.280: "a file whose name contains the query now ranks above one that only matches across its folder names"): a name that starts with what was typed, then one that has it, then a match in a folder only; shorter paths first within each.
 - **A correction:** I said Claude Code sent its separate "changed on disk" note probably because my command failed. It did it again after a command that worked, for a file outside the git repository. So that note seems to be for changes its in-command check doesn't catch. Either way it names the file and doesn't show the changes, as Coder's does.
 
+**Everything on read, live in the browser, then side by side with Claude Code** (2026-11-08; the owner: "yea we need to test everything in the browser bro , pls , remember that", then "ok" to merge, deploy and run it; deploy 65; recording 11, a new chat on canias7/testingforclaude, eleven messages; the files made by one script, `maketest.py`, the same on both sides; Claude Code's side run in this session by a helper, Claude Code 2.1.319):
+
+| What | Coder, live | Claude Code |
+|---|---|---|
+| A file over 256 KB | "error: big.txt is 293 KB, over the 256 KB a whole read takes: …" | "File content (293KB) exceeds maximum allowed size (256KB). …" |
+| A 127 KB file, whole | lines 1-1111 of 1561, the PARTIAL note ending "Do not answer from this part alone if the answer may be further in the file." | lines 1-657 of 1562 (50,521 tokens, cap 25,000), its note ending the same way |
+| allow_large | the whole file | the whole file |
+| A 5,000-character line | cut at 2,000, with "…" | whole. A 20,000-character line came back whole too; a 60,000-character line, over one read by itself, was left for its own read ("showing lines 1-1 of 4 total … Call Read with offset=2 limit=1"). **Different.** |
+| UTF-16 | read | read |
+| The folder | "error: /data/work/… is a folder, not a file: …" (its full path: live now) | "EISDIR: illegal operation on a directory, read '/home/user/cc-test2'" |
+| .zip, .xlsx, .bin | refused, with a command for each kind | refused: "This tool cannot read binary files. …" |
+| A named pipe | refused at once: "is a pipe or a device, not a file; it cannot be read" | waited about 8 hours, until something wrote to the pipe, then "the file exists but the contents are empty". **Coder better.** |
+| /etc/hostname | refused: outside the project (on purpose) | read (this session's permissions allow it) |
+| A null byte in the path | "the path cannot contain null bytes (\0). Remove the null byte and try again." | not tried for real (the helper's call sent the six characters `\u0000`) |
+| Pictures: PNG, CMYK JPEG, WebP | all seen; a big one shown at 1600 px, with its real size and a crop hint | all seen; a big one shown at 2000 px: "[Image: original 6000x4000, displayed at 2000x1333. Multiply coordinates by 3.00 to map to original image.]" **Different.** |
+| A 137 MB picture | refused (over 128 MB), with how to make a smaller copy | a BMP is refused as binary (its Read shows PNG, JPEG, GIF and WebP) |
+| The owner's picture | saved to `.coder-pictures`, opened again from there, shown under its step | (saved since 2.1.275; not tried here) |
+| PDFs: 25 pages with no range, 1-25, 21-25, a fake one | the same rules, the same meaning | the same |
+| A password-protected PDF | "is password protected; it cannot be read without its password" | "PDF file read: … (828 bytes)", nothing shown. **Coder better.** |
+| A PDF that says 3 pages but has 12 | "has 12 pages (the file says 3, but it has 12)"; pages 10-12 shown | "PDF has 3 pages"; pages 10-12 refused. **Coder better.** |
+| A notebook with a chart | cells, output, the chart | the same |
+| "@cart" in the box | src/cart.js, docs/cart-guide.md, src/discart.js, cart/index.js | (2.1.280's rule; not typed here) |
+| @ a folder, a file over 256 KB, a picture | the listing; named, not included; the picture | (as in its docs) |
+| `cat notes.txt`, then `sed` changes it | "exit code 0", "(no output)": **no note** | "[This command modified 1 file you've previously read: notes.txt. Call Read before editing.]", then a second note with the new lines: "Note: /home/user/cc-test2/notes.txt changed on disk since you last read it. … Here are the relevant changes (shown with line numbers): 1 apple 2 kiwi 3 cherry". **Different.** |
+| A job summarized in the middle | "Compacted: the earlier steps of this job are now a summary for Coder …"; CODER.md read again whole, part3, part2 and part1 named (over 20,000 characters); the new CODER.md line followed ("PINEAPPLE") | not run here (it needs a session filled to its limit); its docs say the same |
+| How lines are counted; "up to 2000 lines" | 1561; no line limit | 1562 (the end counts); its tool description's "Reads up to 2000 lines by default" was not applied (3,000 lines came back) |
+
+- **Differences found, waiting for the owner's word:**
+  1. **A command that shows one file counts as reading it for the changed note too** (Claude Code: yes). Coder counts it for folder instructions and for what is read again after a summary, but takes no fingerprint of the file, so a later change goes unseen.
+  2. **No cutting of long lines** (Claude Code: none, up to what one read takes). Coder cuts every line at 2,000 characters, so the rest of a long line (minified code, a long paragraph) is never seen.
+  3. **A second note with the changed lines**, as Claude Code sent right after the command. Coder's first version of the changed note showed them; it was taken out after the owner's two tests (a command in the background, a change between messages), where Claude Code sent nothing. For a command's own changes, it does send them.
+  4. **Big pictures shown at 2000 px** with Claude Code's line about mapping coordinates (now 1600 px and a crop hint). Costs a bit more Grok per picture.
+- **Small, seen in the recording:** the step for the null-byte path reads "Read notes.txt" (the null can't be seen); a notebook's chart and a PDF's pages are not shown under their step, as a picture file is.
+- **Outside read (for tool 5, bash):** Coder's commands get an empty `/tmp` with each message (the sandbox's own), so a file made there is gone by the next message; Claude Code keeps `/tmp` for the session. The 137 MB picture was made and read in one message for that reason.
+
 **Which of the fixes above are read, and which are not** (the owner asked, 2026-11-08: "But is this part of that tool?"):
 - **Read itself:** whole files and the PARTIAL view, the 256 KB and allow_large rules, empty files and offsets, long lines, pictures (sizes, the real size and crop hint, CMYK, the 128 MB limit), PDFs (every page a picture, password, not a PDF, the page count a file states, a repo's `pypdf.py` never run), notebooks, folders, binary kinds, pipes, null bytes, UTF-16 text, `file_path`, @-mentions (the file in the message), the re-read of files after a summary, and the note when a command changes a file Coder read.
 - **Outside read, broken by read's bigger answers, so fixed with it:** the saved chat losing its memory and the size cap; long jobs' summaries (how much they keep, how often they run, pictures counted); the chat's record holding whole reads; re-reads of pictures after a summary.
