@@ -55,6 +55,27 @@ code in **each user's own GitHub**.
    note in their place, and they never count toward a long job's summary.
    `test/read-check.mjs` tries it in Coder's own image (the machine check).
 
+   **@-mentioned files go into the message** (owner, 2026-11-08: "add all of
+   that"), like Claude Code's @, which "includes the content of the file in the
+   conversation when it fits the Read tool's token limit": before Coder starts,
+   Coder's app reads each `@path` of the owner's message (`mentionedPaths` and
+   `mentionNote` in `container/coder-agent.mjs`; at most 10, about 100,000
+   characters in all) and adds a note from the app right after the message: each
+   file whole with its folder's instructions, a picture shown, a folder as its
+   listing (the `listing` tool), and a file too big for one read named only. A
+   path that is not a file of the project (a package name like `@types/node`) is
+   left alone; a job from GitHub reads none. Each shows in the chat as a step,
+   "Read src/app.js (@-mentioned)". The Worker still names the paths in the
+   message (`fileMentions`). Notes from the app carry `appNote`, so a long chat's
+   summary never counts one as the owner's message.
+
+   **After a job is summarized, Coder re-reads up to five files** it was working
+   on (read, changed, viewed with a command, or @-mentioned), the most recently
+   changed first, like Claude Code (`rereadFiles`; the `mtimes` tool gives their
+   times): each up to 20,000 characters (about 5,000 tokens), a bigger one only
+   named as a "Referenced file". Files the kept steps read already, pictures and
+   files that are gone are skipped. They go with the summary message.
+
    **Coder asks with a card of up to 4 questions** (`ask_user`; owner pick 4,
    2026-11-08), like Claude Code's AskUserQuestion: each question with a header
    shown as a chip, 2 to 4 options with a one-line description (the recommended
@@ -438,7 +459,11 @@ file, and a subfolder's own `CODER.md` (else its `AGENTS.md`) once Coder works
 on a file under it: with that tool's answer, once a job (`laterNotes`). Coder is
 told at the start which ones wait for which files. All are read by root before
 any of the AI's commands run; `node_modules`, `.git` and build folders are not
-searched.
+searched. At the start they come to at most 100,000 characters in all
+(`NOTES_MAX`; Claude Code loads each CLAUDE.md whole), and one that loads later
+to 40,000 (`NOTE_ONE_MAX`, Claude Code's limit for such a file); past either, the
+file is named with a note to read the rest with the read tool, never cut without
+a word.
 
 **A security check on each edit** (owner, 2026-11-07, item 12; like Claude
 Code's security-guidance check on each file edit, with no model call:

@@ -98,10 +98,17 @@ export async function readEnv(env, bucket, uid, repo) {
     return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: (Array.isArray(v.secrets) ? v.secrets : []).map(normSecret).filter(Boolean), network: normNetwork(v.network) };
   } catch { return none; }
 }
+/** A path's end without the full stop, comma or unmatched bracket of the sentence around it (as tidyPath in container/coder-agent.mjs). */
+function tidyPath(p) {
+  p = String(p).replace(/[.,]+$/, "");
+  for (const [o, c] of [["(", ")"], ["[", "]"]]) while (p.endsWith(c) && p.split(c).length > p.split(o).length) p = p.slice(0, -1).replace(/[.,]+$/, "");
+  return p;
+}
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
-  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w./-]+\.[\w]+|[\w-]+\/[\w./-]+)/g)].map((m) => m[1]).filter((p) => !p.includes("..")))].slice(0, 20);
-  return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ". Read them first.)" : "";
+  // The same paths Coder's machine reads into the message (mentionedPaths in container/coder-agent.mjs); "@src/" is a folder.
+  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w.()\[\]+~@,/-]+\.\w+|[\w()\[\]+~@,-]+\/[\w.()\[\]+~@,/-]*)/g)].map((m) => tidyPath(m[1])).filter((p) => p && !p.includes("..")))].slice(0, 20);
+  return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ".)" : "";
 }
 // SEVERAL CHATS AT ONCE (owner, 2026-11-05: "no limit"): each chat has its own
 // container and a user may have any number working at once. CODER_MAX_RUNNING

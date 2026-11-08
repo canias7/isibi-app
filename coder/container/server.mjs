@@ -796,7 +796,10 @@ async function writeNew(file, text, owner = null) {
 }
 
 // ── THE REPO'S RULES AND THE MEMORY ──────────────────────────────────────────
-export const NOTES_MAX = 20000;
+// THE REPO'S INSTRUCTIONS AT THE START, in all (the owner, 2026-11-08: "add all of that"; Claude Code loads each
+// CLAUDE.md whole, up to 4 MiB): about 25,000 tokens, one read's worth, sent with every round; past it, the rest of a
+// file, or a file that no longer fits, is named with a note to read it with the read tool.
+export const NOTES_MAX = 100_000;
 export const MEMORY_MAX = 25000;
 /** Each instruction file that loads later (a path rule, a subfolder's own file), at most: Claude Code's limit for such a
  * file (its memory docs: "40,000 characters" for a 200K context), and like it, a longer one gets a note to read the rest. */
@@ -872,11 +875,18 @@ export function ruleParts(text) {
 export async function repoInstructions(dir) {
   const notes = [], later = [];
   let left = NOTES_MAX;
-  const now = (name, text) => { if (text === null || left <= 0) return false; text = text.slice(0, left); left -= text.length; notes.push({ name, text }); return true; };
+  const now = (name, text) => {
+    if (text === null) return false;
+    if (left <= 0) { notes.push({ name, text: "[Not loaded here: the repository's instructions already come to " + NOTES_MAX.toLocaleString("en-US") + " characters. Read " + name + " with the read tool.]" }); return true; }
+    const kept = text.slice(0, left);
+    left -= kept.length;
+    notes.push({ name, text: kept + (text.length > kept.length ? "\n[" + name + " goes on: read the rest of it with the read tool, from line " + kept.split("\n").length + "]" : "") });
+    return true;
+  };
   const coder = ["CODER.md", ".coder/CODER.md"];
   let found = false;
-  for (const f of coder) found = now(f, await plainText(dir, f, NOTES_MAX)) || found;
-  if (!found) for (const f of ["AGENTS.md", ".coder/AGENTS.md"]) now(f, await plainText(dir, f, NOTES_MAX));
+  for (const f of coder) found = now(f, await plainText(dir, f, NOTES_MAX + 1)) || found;
+  if (!found) for (const f of ["AGENTS.md", ".coder/AGENTS.md"]) now(f, await plainText(dir, f, NOTES_MAX + 1));
   // .coder/rules/, every .md file in it and its folders.
   const rules = [];
   const walkRules = async (rel, depth) => {
@@ -894,7 +904,7 @@ export async function repoInstructions(dir) {
     const cut = whole.length > NOTE_ONE_MAX, text = whole.slice(0, NOTE_ONE_MAX);
     const { globs, body } = ruleParts(text);
     if (globs.length) later.push({ name: r, globs, text: body, ...(cut ? { cut: true } : {}) });
-    else now(r, body);
+    else now(r, body + (cut ? "\n[" + r + " goes on past " + NOTE_ONE_MAX.toLocaleString("en-US") + " characters: read the rest of it with the read tool]" : ""));
   }
   // A subfolder's own instructions (searched, not read into the start).
   let dirs = 0;

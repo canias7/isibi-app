@@ -7,7 +7,7 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
-import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
@@ -42,8 +42,12 @@ class ToolError extends Error {}
 const fail = (m) => { throw new ToolError(m); };
 
 /** A path inside the project, or an error. Links that lead outside are refused too. */
+/** A NULL BYTE in a path or pattern (Claude Code's errors page: "Read file_path cannot contain null bytes (\0). Remove
+ * the null byte and try again."): no file system or search tool takes one. */
+const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
 async function inside(p, { mustExist = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
+  noNul(p, "the path");
   const abs = resolve(ROOT, p);
   // CODER'S OWN MEMORY FILE (owner, 2026-11-06): the one file outside the project
   // the file tools may open, so remembering doesn't show a failed step. Only that
@@ -200,7 +204,7 @@ async function readPdf(abs, rel, pages) {
   if (info.code === -2) fail("this machine has no PDF reader (poppler); use bash");
   const total = Number((/^Pages:\s+(\d+)/m.exec(info.out.toString("utf8")) || [])[1]) || 0;
   if (/incorrect password|encrypted/i.test(info.err || "")) fail(rel + " is password protected; it cannot be read without its password");
-  if (info.code !== 0 || !total) fail(rel + " could not be opened as a PDF" + (info.err ? " (" + info.err + ")" : ""));
+  if (info.code !== 0 || !total) fail(rel + " is not a valid PDF; it could not be opened" + (info.err ? " (" + info.err + ")" : "") + ". If it should be one, try its text with bash (pdftotext)");
   const asked = String(pages == null ? "" : pages).trim();
   if (!asked && total > PDF_PAGES_FREE) fail(rel + " has " + total + " pages: give pages, e.g. \"1-5\" (at most " + PDF_PAGES_MAX + " at a time)");
   const range = asked ? pageRange(asked, total) : [1, total];
@@ -350,6 +354,8 @@ function run(cmd, args) {
 
 export async function toolGrep({ pattern, path = ".", glob, ignore_case = false }) {
   if (typeof pattern !== "string" || !pattern) fail("give a pattern");
+  noNul(pattern, "the pattern");
+  if (glob != null) noNul(glob, "the glob");
   const { rel } = await inside(path);
   const args = ["-n", "--no-heading", "--color", "never", "--max-columns", "300", "--glob", "!.git"];
   if (ignore_case) args.push("-i");
@@ -364,6 +370,7 @@ export async function toolGrep({ pattern, path = ".", glob, ignore_case = false 
 
 export async function toolGlob({ pattern, path = "." }) {
   if (typeof pattern !== "string" || !pattern) fail("give a pattern, e.g. src/**/*.js");
+  noNul(pattern, "the pattern");
   const { rel } = await inside(path);
   const r = await run("rg", ["--files", "--hidden", "--glob", "!.git", "--glob", pattern, rel || "."]);
   if (r.code === 1 || !r.out.trim()) return "no files match " + pattern;
@@ -477,7 +484,32 @@ export async function toolLsp({ action, path, line, column }) {
   return runLsp({ action, path: rel, abs, line, column }, ROOT);
 }
 
-export const TOOLS = { lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch };
+/**
+ * WHEN THE FILES CODER WORKED ON LAST CHANGED, for Coder's app only (no tool Grok has; RUN_TOOLS in coder-agent.mjs
+ * lists those): after a long job is summarized, the most recently changed ones are read again, like Claude Code.
+ */
+export async function toolMtimes({ paths }) {
+  const out = [];
+  for (const p of (Array.isArray(paths) ? paths : []).slice(0, 50)) {
+    try { const { abs, rel } = await inside(String(p), { mustExist: true }); const st = await stat(abs); if (st.isFile()) out.push({ path: rel, mtime: st.mtimeMs }); } catch { /* gone, or not the project's */ }
+  }
+  return JSON.stringify(out);
+}
+
+/**
+ * WHAT IS IN A FOLDER, for Coder's app only (no tool Grok has): an @-mentioned folder comes into the owner's message
+ * as its listing (Claude Code's docs: "Directory references show file listings, not contents"). Its folders end in /.
+ */
+export const LISTING_MAX = 300;
+export async function toolListing({ path }) {
+  const { abs, rel } = await inside(String(path || ""), { mustExist: true });
+  if (!(await stat(abs)).isDirectory()) fail(rel + " is not a folder");
+  const all = (await readdir(abs, { withFileTypes: true })).filter((d) => d.name !== ".git").map((d) => d.name + (d.isDirectory() ? "/" : "")).sort();
+  if (!all.length) return "(an empty folder)";
+  return all.slice(0, LISTING_MAX).join("\n") + (all.length > LISTING_MAX ? "\n[" + (all.length - LISTING_MAX) + " more]" : "");
+}
+
+export const TOOLS = { lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

@@ -21,7 +21,7 @@ export function transcriptText(messages, max = TRANSCRIPT_MAX) {
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== "object") continue;
     const text = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((x) => (x && typeof x.text === "string" ? x.text : "")).join("\n") : "";
-    if (m.role === "user") lines.push((text.startsWith(SUMMARY_TAG) ? "EARLIER SUMMARY: " : "OWNER: ") + cut(text, 6000));
+    if (m.role === "user") lines.push((text.startsWith(SUMMARY_TAG) ? "EARLIER SUMMARY: " : isAppNote(m) ? "NOTE FROM CODER'S APP: " : "OWNER: ") + cut(text, 6000));
     else if (m.role === "assistant") {
       if (text.trim()) lines.push("CODER: " + cut(text, 4000));
       for (const c of Array.isArray(m.tool_calls) ? m.tool_calls : []) {
@@ -50,6 +50,11 @@ export function summaryMessage(text, what) {
 
 /** Is this one of those summary messages? */
 export const isSummary = (m) => !!m && m.role === "user" && typeof m.content === "string" && m.content.startsWith(SUMMARY_TAG);
+/**
+ * A NOTE Coder's app added for Coder (the files the owner @-mentioned, the pictures a read opened, a reminder before it
+ * finishes), marked `appNote`: not a message of the owner's, so a summary never starts at one or calls it the owner's.
+ */
+export const isAppNote = (m) => !!m && m.role === "user" && m.appNote === true;
 
 /**
  * WHERE A JOB'S OWN STEPS MAY BE CUT for a summary: before an assistant message (its tool answers
@@ -70,7 +75,7 @@ export function cutPoint(convo, from, keep = 8) {
  */
 export function turnCut(messages, keepTurns = 3) {
   const owner = [];
-  for (let i = 0; i < messages.length; i++) if (messages[i] && messages[i].role === "user" && !isSummary(messages[i])) owner.push(i);
+  for (let i = 0; i < messages.length; i++) if (messages[i] && messages[i].role === "user" && !isSummary(messages[i]) && !isAppNote(messages[i])) owner.push(i);
   if (owner.length <= keepTurns) return -1;
   return owner[owner.length - keepTurns];
 }

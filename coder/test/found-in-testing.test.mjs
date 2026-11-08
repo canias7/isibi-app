@@ -245,3 +245,183 @@ test("CD208 Claude Code's other reading rules (its memory, tools and errors docs
     assert.match(msg, /locked\.pdf is password protected; it cannot be read without its password/);
   }
 });
+
+// THE OWNER'S "Yea add all of that and go look at the docs again pls" (2026-11-08), after the second pass over Claude
+// Code's docs for read: @-mentions, the re-read after a summary, and the instruction files at the start.
+const toolsScript = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+/** Coder's machine as tests run it: the file tools for real, in `dir`; any other command answered by `other`. */
+const machine = (dir, other = () => ({ code: 0, output: "ok" })) => async ({ command }) => {
+  const { execSync } = await import("node:child_process");
+  if (!command.startsWith("node --no-warnings " + toolsScript + " ")) return other(command);
+  try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20 }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; }
+};
+
+test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"includes the content of the file in the conversation when it fits the Read tool's token limit\"): a file whole with its folder's instructions, a picture shown, a folder as its listing; a file too big for one read is named, not included; a path that is not a file (a package name) is left alone; never in a job from GitHub; the note is the app's, not the owner's, when a long chat is summarized", async () => {
+  const { runCoder, mentionedPaths, MENTIONS_MAX } = await import("../container/coder-agent.mjs");
+  const { turnCut, transcriptText, isAppNote } = await import("../container/coder-compact.mjs");
+  const { fileMentions } = await import("../src/coder-routes.mjs");
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // Coder's machine and the Worker find the same paths; "@src/" is a folder; a trailing full stop is not part of one.
+  const ask = "look at @src/app.js, @shot.png and @src/ then @big.log and @mid.txt. Also npm i @types/node, mail me@x.y, and @../etc/passwd";
+  assert.deepEqual(mentionedPaths(ask), ["src/app.js", "shot.png", "src/", "big.log", "mid.txt", "types/node"]);
+  assert.equal(fileMentions(ask), "\n\n(The owner pointed at these files: src/app.js, shot.png, src/, big.log, mid.txt, types/node.)");
+  assert.equal(mentionedPaths(Array.from({ length: 15 }, (_, i) => "@f" + i + ".js").join(" ")).length, MENTIONS_MAX);
+  // Real paths with ( ) [ ] (Next.js routes); a plain word (a person on GitHub, @coder) is not a path.
+  const next = "see @app/(auth)/login/page.tsx, @pages/[id].tsx and @node_modules/@types/node/index.d.ts (and @lib/), hi @coder";
+  assert.deepEqual(mentionedPaths(next), ["app/(auth)/login/page.tsx", "pages/[id].tsx", "node_modules/@types/node/index.d.ts", "lib/"]);
+  assert.equal(fileMentions(next), "\n\n(The owner pointed at these files: app/(auth)/login/page.tsx, pages/[id].tsx, node_modules/@types/node/index.d.ts, lib/.)");
+  const dir = await mkdtemp(join(tmpdir(), "coder-at-"));
+  await mkdir(join(dir, "src"));
+  await writeFile(join(dir, "src", "app.js"), "const a = 1;\nexport default a;\n");
+  await writeFile(join(dir, "src", "util.js"), "x\n");
+  await writeFile(join(dir, "big.log"), "z".repeat(300 * 1024));
+  await writeFile(join(dir, "mid.txt"), Array.from({ length: 2000 }, (_, i) => "row " + i + " " + "y".repeat(92)).join("\n"));
+  execFileSync("convert", ["-size", "64x64", "xc:red", join(dir, "shot.png")]);
+  const events = [], seen = [], asked = [];
+  const deps = { send: async (q) => { seen.push(q); return say("Done."); }, emit: (e) => events.push(e), exec: machine(dir), afterFile: async (x) => { asked.push(x); return "THE REPO'S INSTRUCTIONS FOR THIS FILE: src/CODER.md: use semicolons"; } };
+  const out = await runCoder(deps, { text: ask + fileMentions(ask), shown: ask });
+  const msgs = seen[0].messages;
+  assert.equal(msgs.length, 3, "Coder's rules, the owner's message, the note with their files");
+  assert.equal(msgs[1].content, (ask + fileMentions(ask)).trim(), "the owner's message is as they wrote it");
+  const note = msgs[2];
+  assert.equal(note.role, "user");
+  assert.equal(note.appNote, true);
+  assert.match(note.content, /^\(Note from Coder's app, not the owner: the files the owner @-mentioned, read into their message for you, as Claude Code does; the pictures of shot\.png are attached here, in order\./);
+  assert.ok(note.content.includes("--- src/app.js ---\n     1\tconst a = 1;\n     2\texport default a;\n\nTHE REPO'S INSTRUCTIONS FOR THIS FILE: src/CODER.md: use semicolons"), "the file whole, with its folder's instructions");
+  assert.match(note.content, /--- shot\.png ---\n/);
+  assert.equal(note.images.length, 1, "the picture is shown");
+  assert.match(note.images[0], /^data:image\/png;base64,/);
+  assert.equal(note.readPics, true, "and let go like a read's pictures when newer ones need the room");
+  assert.ok(note.content.includes("--- src/ (a folder: what is in it) ---\napp.js\nutil.js"), "a folder as its listing, not its contents");
+  assert.match(note.content, /--- big\.log: not included \(big\.log is 300 KB[^\n]*256 KB[^\n]*\)\. Read it yourself with the read tool if you need it ---/);
+  assert.match(note.content, /--- mid\.txt: not included \(longer than one read gives \(about 100,000 characters\)\)\. Read it yourself with the read tool \(offset and limit\) ---/);
+  assert.ok(!note.content.includes("types/node") && !note.content.includes("passwd"), "not files of the project: left alone");
+  assert.deepEqual(asked, [{ tool: "read", args: { path: "src/app.js" } }, { tool: "read", args: { path: "shot.png" } }]);
+  // Each shows in the chat as a step, after the owner's message.
+  const steps = events.filter((e) => e.type === "bash").map((e) => e.command);
+  assert.deepEqual(steps, ["src/app.js (@-mentioned)", "shot.png (@-mentioned)", "src/ (@-mentioned)", "big.log (@-mentioned)", "mid.txt (@-mentioned)"]);
+  assert.equal(events[0].type, "user");
+  assert.equal(events[0].text, ask);
+  // The saved history keeps the mark, and a note in place of the picture.
+  assert.equal(out.messages[1].appNote, true);
+  assert.match(out.messages[1].content, /\n\[1 picture attached\]$/);
+  // A long chat summarized between jobs: the note is not counted as one of the owner's messages, and is called the app's.
+  const hist = [{ role: "user", content: "ask 1" }, { role: "assistant", content: "a" }, out.messages[1], { role: "assistant", content: "b" }, { role: "user", content: "ask 2" }, { role: "assistant", content: "c" }, { role: "user", content: "ask 3" }, { role: "assistant", content: "d" }];
+  assert.equal(isAppNote(hist[2]), true);
+  assert.equal(turnCut(hist, 3), -1, "three messages of the owner's, not four");
+  assert.match(transcriptText(hist), /NOTE FROM CODER'S APP: \(Note from Coder's app/);
+  assert.doesNotMatch(transcriptText(hist), /OWNER: \(Note from Coder's app/);
+  // From GitHub (strangers write there): nothing is read for a mention.
+  const ran = [];
+  const seen2 = [];
+  await runCoder({ send: async (q) => { seen2.push(q); return say("Done."); }, emit: () => {}, exec: async (x) => { ran.push(x.command); return { code: 0, output: "" }; } }, { text: "@coder look at @src/app.js", github: true });
+  assert.equal(ran.length, 0);
+  assert.equal(seen2[0].messages.length, 2);
+});
+
+test("CD210 after a long job is summarized, the files it was working on are read again, like Claude Code (up to five, the most recently changed first; one over 5,000 tokens comes back as its name only, a \"Referenced file\"): not the ones its kept steps read already, nor pictures, nor files gone; they go with the summary, and show as steps", async () => {
+  const { runCoder, rereadFiles, REREAD_FILES, REREAD_ONE } = await import("../container/coder-agent.mjs");
+  const { isSummary } = await import("../container/coder-compact.mjs");
+  const { mkdtemp, writeFile, utimes } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(REREAD_FILES, 5);
+  assert.equal(REREAD_ONE, 20000);
+  const dir = await mkdtemp(join(tmpdir(), "coder-reread-"));
+  const t0 = Date.now() / 1000 - 3600;
+  for (const [f, text, age] of [["a.js", "const a = 1;\n", 3], ["b.js", "const b = 2;\n", 1], ["big.js", Array.from({ length: 400 }, (_, i) => "// line " + i + " " + "x".repeat(70)).join("\n") + "\n", 2], ["c.js", "c\n", 0], ["e.js", "e\n", 0], ["f.js", "f\n", 0]]) { await writeFile(join(dir, f), text); await utimes(join(dir, f), t0 + age, t0 + age); }
+  const plan = [
+    call("read", { path: "a.js" }, "r1"), call("read", { path: "./big.js" }, "r2"), call("read", { path: "b.js" }, "r3"), call("write", { path: "d.js", content: "export const d = 4;\n" }, "w4"),
+    call("read", { path: "c.js" }, "r5"), call("bash", { command: "cat e.js" }, "b6"), call("read", { path: "f.js" }, "r7"),
+    ...[8, 9, 10, 11, 12].map((k) => call("bash", { command: "echo " + k }, "b" + k)),
+  ];
+  let k = 0, summarized = false;
+  const events = [], seen = [];
+  const deps = {
+    // Summarize exactly once, before the 13th round (12 rounds done: the first 4 are summarized, the newest 8 kept).
+    get compactAt() { return k === 12 && !summarized ? 1000 : 10_000_000; },
+    send: async (q) => {
+      if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY of the earlier steps"); }
+      seen.push(q); k++;
+      return k <= plan.length ? say("", [plan[k - 1]]) : say("Done.");
+    },
+    emit: (e) => events.push(e),
+    exec: machine(dir, (command) => ({ code: 0, output: command === "cat e.js" ? "e\n" : "ok" })),
+  };
+  await runCoder(deps, { text: "work on the files" });
+  assert.equal(summarized, true);
+  const last = seen.at(-1).messages;
+  const sum = last[2];
+  assert.ok(isSummary(sum), "the summary stands after the owner's message");
+  const again = sum.content.slice(sum.content.indexOf("\n\n(Like Claude Code after a summary"));
+  assert.match(again, /^\n\n\(Like Claude Code after a summary: the files you were working on, read again just now as they are now, the most recently changed first\.\)\n\n/);
+  // d.js (written in the job: the newest), then a.js, big.js, b.js by their times; c, e and f were read by the kept steps.
+  const order = ["--- d.js ---\n     1\texport const d = 4;", "--- a.js ---\n     1\tconst a = 1;", "Referenced file big.js (over 20,000 characters, so not shown again here: read it again if you need it)", "--- b.js ---\n     1\tconst b = 2;"];
+  let at = -1;
+  for (const o of order) { const i = again.indexOf(o); assert.ok(i > at, "in order: " + o); at = i; }
+  for (const f of ["c.js", "e.js", "f.js"]) assert.ok(!again.includes(f), f + " is in the kept steps already");
+  assert.ok(!again.includes("x".repeat(70)), "the big one is only named");
+  const shown = events.filter((e) => e.type === "bash" && / \(again, after the summary\)$/.test(e.command)).map((e) => e.command);
+  assert.deepEqual(shown, ["d.js (again, after the summary)", "a.js (again, after the summary)", "big.js (again, after the summary)", "b.js (again, after the summary)"]);
+  // At most five; pictures and files that are gone are not read again.
+  const dir2 = await mkdtemp(join(tmpdir(), "coder-reread-"));
+  const touched = new Map();
+  for (let i = 1; i <= 7; i++) { await writeFile(join(dir2, "f" + i + ".js"), "file " + i + "\n"); await utimes(join(dir2, "f" + i + ".js"), t0 + i, t0 + i); touched.set("f" + i + ".js", i); }
+  execFileSync("convert", ["-size", "8x8", "xc:blue", join(dir2, "pic.png")]);
+  touched.set("pic.png", 8); touched.set("gone.js", 9);
+  const text = await rereadFiles({ exec: machine(dir2) }, [], touched);
+  const named = [...text.matchAll(/^--- (\S+) ---$/gm)].map((m) => m[1]);
+  assert.deepEqual(named, ["f7.js", "f6.js", "f5.js", "f4.js", "f3.js"]);
+  assert.equal(await rereadFiles({ exec: machine(dir2) }, [], new Map()), "", "nothing touched, nothing read");
+});
+
+test("CD211 the repository's instructions at the start: up to 100,000 characters in all (Claude Code loads each CLAUDE.md whole; 20,000 before), and past that a file is named with a note to read the rest, never cut without a word", async () => {
+  const { repoInstructions, NOTES_MAX, NOTE_ONE_MAX } = await import("../container/server.mjs");
+  const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(NOTES_MAX, 100000);
+  const dir = await mkdtemp(join(tmpdir(), "coder-start-"));
+  await mkdir(join(dir, ".coder", "rules"), { recursive: true });
+  const lines = (n, w) => Array.from({ length: n }, (_, i) => "Rule " + (i + 1) + ": " + "w".repeat(w)).join("\n");
+  await writeFile(join(dir, "CODER.md"), lines(500, 52)); // about 30,000 characters
+  await writeFile(join(dir, ".coder", "CODER.md"), lines(1300, 52)); // about 78,000
+  await writeFile(join(dir, ".coder", "rules", "style.md"), "Use tabs.");
+  const ins = await repoInstructions(dir);
+  const by = Object.fromEntries(ins.notes.map((n) => [n.name, n.text]));
+  assert.equal(by["CODER.md"], lines(500, 52), "the first whole");
+  const second = by[".coder/CODER.md"];
+  const kept = NOTES_MAX - lines(500, 52).length;
+  assert.equal(second.slice(0, kept), lines(1300, 52).slice(0, kept), "the second up to the limit");
+  assert.match(second.slice(kept), /^\n\[\.coder\/CODER\.md goes on: read the rest of it with the read tool, from line \d+\]$/);
+  const from = Number(/from line (\d+)/.exec(second)[1]);
+  assert.ok(lines(1300, 52).split("\n").slice(0, from - 1).join("\n").length <= kept && lines(1300, 52).split("\n").slice(0, from).join("\n").length > kept, "the line it stopped in");
+  assert.equal(by[".coder/rules/style.md"], "[Not loaded here: the repository's instructions already come to 100,000 characters. Read .coder/rules/style.md with the read tool.]");
+  // A rule file over 40,000 characters says so too (it was cut without a word).
+  const dir2 = await mkdtemp(join(tmpdir(), "coder-start-"));
+  await mkdir(join(dir2, ".coder", "rules"), { recursive: true });
+  await writeFile(join(dir2, ".coder", "rules", "long.md"), lines(900, 52));
+  const ins2 = await repoInstructions(dir2);
+  const long = ins2.notes.find((n) => n.name === ".coder/rules/long.md").text;
+  assert.ok(long.startsWith(lines(900, 52).slice(0, NOTE_ONE_MAX - 100)));
+  assert.match(long, /\n\[\.coder\/rules\/long\.md goes on past 40,000 characters: read the rest of it with the read tool\]$/);
+});
+
+test("CD212 the file tools refuse a null byte in a path or a pattern as Claude Code's do (\"cannot contain null bytes (\\0). Remove the null byte and try again.\"); a file that is not a PDF says it is not a valid PDF", async () => {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-nul-"));
+  await writeFile(join(dir, "a.txt"), "hi\n");
+  await writeFile(join(dir, "fake.pdf"), "not a pdf at all");
+  const run = machine(dir);
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "the path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "the path"], ["grep", { pattern: "h\0i" }, "the pattern"], ["glob", { pattern: "*\0.txt" }, "the pattern"]]) {
+    assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
+  }
+  assert.match(await tool("read", { path: "fake.pdf" }), /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s);
+});

@@ -119,7 +119,7 @@ test("CD194 read opens a PDF like Claude Code's Read: each page's text, and ever
   for (const bad of ["0", "26", "5-3", "one", "1-2-3"]) assert.equal(read(dir, { path: "long.pdf", pages: bad }).text, 'error: pages must be one page or a range like "1-5", within the PDF\'s 25 pages', bad);
   // NOT A PDF after all.
   await writeFile(join(dir, "fake.pdf"), "not a pdf");
-  assert.match(read(dir, { path: "fake.pdf" }).text, /^error: fake\.pdf could not be opened as a PDF/);
+  assert.match(read(dir, { path: "fake.pdf" }).text, /^error: fake\.pdf is not a valid PDF; it could not be opened/);
 });
 
 test("CD195 read opens a Jupyter notebook as its cells with their outputs (Claude Code's Read): code and markdown, printed text, results, errors without terminal colours, and its plots shown as pictures; a .ipynb that is not a notebook reads as text", async () => {

@@ -42,7 +42,18 @@ log (81,000 lines) is in git history.
   - those instructions load again after a long job is summarized;
   - a password-protected PDF says so.
   - Tests CD207 and CD208 are new; 217 pass.
-  - **Two more, for you to decide:** @-mentioned files go into the message (Coder now asks itself to read them instead), and the files Coder was working on are re-read after a summary.
+- **On your "Yea add all of that and go look at the docs again":**
+  - **@-mentioned files go into your message**, like Claude Code. Coder sees the file at once, with that folder's instructions.
+    - A picture is shown, a folder comes as its list of files, and a file too big for one read is named only.
+    - Each shows in the chat as "Read src/app.js (@-mentioned)".
+    - Paths like `pages/[id].tsx` work too.
+  - **After a long job is summarized, Coder re-reads up to 5 files it was working on**, the most recently changed first, like Claude Code. A big one is only named.
+  - **The repo's instruction files at the start:** up to 100,000 characters in all (was 20,000). Past that, Coder is told which file goes on and to read the rest.
+  - **Third pass over the docs** (errors, settings, hooks and five more pages). Two small fixes:
+    - a clear message for a "null byte" in a path;
+    - "is not a valid PDF" for a file that isn't one.
+  - **One more for you to decide:** Claude Code tells Claude when a file it read earlier has changed on disk (say, a formatter rewrote it). Coder isn't told yet.
+  - Tests CD209 to CD212 are new, and each fails on the old code. 221 pass. Live with your next "merge and deploy".
 - **Browser tests on my side:** I can now open a real browser here that you can watch from your app (the "browser" preview), signed in to gofarther.dev as the test account. Signing in still needs the emailed code from you.
 - **The test account's password (live data, on your word "reset it"):**
   - cristiananias7@gmail.com was refusing the password you remember. Supabase itself said it was wrong, from your phone too.

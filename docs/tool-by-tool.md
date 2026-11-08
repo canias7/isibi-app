@@ -66,13 +66,38 @@ Fixed (test CD207, CD208; 217 pass):
 - **After a long job is summarized**, the folder instructions it was shown load again when their files are read, as Claude Code's do ("load again on demand").
 - **A password-protected PDF** says so ("is password protected").
 
-Not changed yet, offered to the owner:
-- **@-mentions:** Claude Code puts the mentioned file's content into the message ("when it fits the Read tool's token limit"; not a text file over 256 KB), with that folder's CLAUDE.md, and a folder as its listing. Coder adds a note asking Coder to read them, which is one step more.
-- **After a summary,** Claude Code re-reads up to five of the files it was working on, the most recently changed first (each up to 5,000 tokens; a bigger one as its path only). Coder doesn't.
+**Added on the owner's "Yea add all of that"** (tests CD209, CD210 and CD211, all failing on the earlier code):
+- **@-mentioned files go into the message**, like Claude Code's @ ("includes the content of the file in the conversation when it fits the Read tool's token limit"; "a text file larger than 256KB isn't included"):
+  - Coder's app reads each one before Coder starts and puts it right after the owner's message, with its folder's instructions.
+  - A picture is shown. A folder comes as its listing ("Directory references show file listings, not contents").
+  - A file too big for one read is named, not included.
+  - A path that isn't a file in the project (a package name like @types/node) is left alone.
+  - Each shows in the chat as a step: "Read src/app.js (@-mentioned)".
+  - Not in a job from GitHub, where strangers write.
+  - Paths like `app/(auth)/page.tsx` and `pages/[id].tsx` work too.
+- **After a summary, Coder re-reads up to five files it was working on**, the most recently changed first, like Claude Code:
+  - A file over 20,000 characters (about 5,000 tokens) is only named: a "Referenced file".
+  - Files the kept steps already show, pictures, and files that are gone are skipped.
+  - They go with the summary, and show as steps: "Read a.js (again, after the summary)".
+- **Instruction files at the start:** up to 100,000 characters in all (20,000 before). Claude Code loads each CLAUDE.md whole. Past the limit, a file is named with a note to read the rest, never cut without a word.
+- Also: a note Coder's app adds (the @-mentioned files, a read's pictures, a reminder) no longer counts as one of the owner's messages when a long chat is summarized.
+
+**Third pass over the docs** (the owner: "go look at the docs again"). Pages: errors (all of it), environment variables, hooks, settings, interactive mode, sub-agents, troubleshooting, how Claude Code works.
+- **Confirmed:** by default Claude Code puts an @-mentioned file into the message. Only with `CLAUDE_CODE_DISABLE_FILE_MENTIONS=1` does Claude get "the mentioned paths with a note to read them", which is what Coder did before.
+- **Fixed (test CD212):**
+  - A path or a pattern with a null byte is refused in Claude Code's words ("cannot contain null bytes (\0). Remove the null byte and try again."). Coder said "no such file" before.
+  - A file that isn't a PDF says "is not a valid PDF" (Claude Code: "The PDF file was not valid").
+- **The same already:**
+  - a picture over 128 MB is refused, with how to make a smaller copy;
+  - PDF pages need `pdftoppm` (Coder's machine has it);
+  - a password-protected PDF says so;
+  - a request is kept under the size limit (Claude Code's 32 MB, Coder's 30 MB);
+  - after a few summaries in one job, no more (Claude Code stops "after a few attempts").
+- **One more that Claude Code does and Coder doesn't, offered to the owner:** "A note when a file Claude read earlier changes on disk" (how Claude Code works). If a command changes a file Coder read (a formatter, a git checkout), Claude Code tells Claude what changed before its next step. Coder isn't told, so it could edit from an old copy (the edit then fails, and Coder reads the file again).
+- **For later (tool 3, edit):** Claude Code's Edit refuses a file that isn't valid UTF-8, rather than spoil its bytes.
 
 Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a prompt for files outside the working folder, network paths) and its `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` setting. Coder has no permission prompts or settings. It reads only inside the chat's repositories (its extra ones too), plus its own memory file.
 
-For later (item 31, instruction files): Coder takes at most 20,000 characters of the instruction files that load at the start, in all. Claude Code loads each whole, up to 4 MiB.
 
 **Differences seen side by side:**
 - **Claude Code shows the picture it opened in the chat.** Coder shows the step ("Read test.png") but not the picture. Offered to the owner.
