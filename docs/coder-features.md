@@ -42,7 +42,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 15. **Stop** a running job. Who: you. Status: To test.
 16. **A job keeps going when you close the tab**, and the chat is saved as it goes (a lost machine keeps its steps).
     Test: send a long task, close the tab, come back later. Who: you. Status: To test.
-17. **Question cards**: Coder asks up to 4 questions in one card (your pick 4, 2026-11-08), each with choices, Other and sometimes several picks; one Submit sends all the answers. Who: you. Status: To test.
+17. **Question cards**: Coder asks up to 4 questions in one card (your pick 4, live since 2026-11-08), each with choices, Other and sometimes several picks; one Submit sends all the answers. Who: you. Status: To test.
 
 ## D. Coder's machine
 
@@ -69,7 +69,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 
 ## F. How Coder works
 
-30. **Its tools**: read, edit, write, search, the code helper (lsp), commands, web pages and web search, background commands, a to-do list. `read` also opens pictures (a screenshot Coder takes, say), PDFs by page, and Jupyter notebooks (your pick 1, 2026-11-08). Who: me. Status: To test.
+30. **Its tools**: read, edit, write, search, the code helper (lsp), commands, web pages and web search, background commands, a to-do list. `read` also opens pictures (a screenshot Coder takes, say), PDFs by page, and Jupyter notebooks (your pick 1, live since 2026-11-08). Who: me. Status: To test.
 31. **Instruction files**: `CODER.md` (or `AGENTS.md` when there's no CODER.md), rules in `.coder/rules` for some paths only, a subfolder's own file; plus a memory kept between chats (item 10). Who: me. Status: To test.
 32. **Security check on each edit**: a warning to Coder when it writes risky code (item 12). Who: me. Status: To test.
 33. **Review and Security review** of the chat's changes (the buttons, or ask Coder). Who: you. Status: To test.

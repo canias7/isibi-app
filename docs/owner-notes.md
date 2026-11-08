@@ -11,6 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Merged and deployed: pictures, PDFs and notebooks (pick 1), and up to 4 questions in one card (pick 4)
+
+- You said "merge and deploy": both are live on gofarther.dev.
+- The deploy ran all 207 tests, including the new picture and PDF ones (it now installs the same picture and PDF programs Coder's machine has). The 18 machine-admin tests passed too.
+- GitHub's check of Coder's machine passed, including opening a picture, a PDF page with no text, and a notebook's chart inside Coder's real machine.
+
 ## 2026-11-08: Coder can ask up to 4 questions in one card (your pick 4)
 
 - Like Claude Code: when Coder truly needs you to choose, it can now ask 1 to 4 related questions in one card instead of one at a time.
