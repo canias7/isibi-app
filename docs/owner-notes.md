@@ -11,6 +11,32 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Coder keeps /tmp from one message to the next, like Claude Code (your word: "Fix that too")
+
+This is part of tool 5 (bash), done now on your word.
+
+- **Before:** each message's commands started with an empty `/tmp`, so a file put there was gone by the next message. That's why the big picture in the read test had to be made and read in one message.
+- **Now:** `/tmp` lasts for the whole chat, like Claude Code keeps it for the whole session. It's kept even while the chat's machine sleeps. Only a new version of Coder starts it fresh, the same way it starts fresh the programs Coder installed.
+- Tested for real in Coder's sandbox: a file made in `/tmp` was still there in the next message's sandbox, and gone after a new version. Both tests fail on the old code; all 249 tests pass.
+- Live with the next merge and deploy, then tested in the browser.
+
+## 2026-11-08: Read: the four differences fixed (your word: "Yea fix those 4")
+
+- **1. A `cat` counts as reading the file:** after `cat notes.txt`, a command that changes notes.txt now says "[This command changed 1 file you read before: notes.txt. Read it again before editing.]", as Claude Code's does. Before, only Coder's own read counted.
+- **2. Long lines are never cut:** Coder used to cut every line at 2,000 characters, so it never saw the rest of a long line (minified code, a long paragraph). Now, like Claude Code, a line comes whole. A single line too big for one read gets a note saying how to read it.
+- **3. The changed lines:** after a command changes a file Coder read, Coder is also shown the lines the change touched (8 lines either side, numbered), as Claude Code's second note does. For that, Coder keeps a short fingerprint of each line, never the text itself. It's a note for Coder only; the chat doesn't show it, as in Claude Code.
+- **4. Big pictures at 2,000 pixels** (1,600 before), with Claude Code's line on how to map a spot back to the real picture ("multiply coordinates by 3.00"). The crop hint stays. A bit more Grok per picture, as you agreed.
+- Tests: three new (CD238 to CD240) and four updated, each failing on the old code. All 249 pass, and the 24 real read checks pass.
+- Next: merge, deploy, and test all four live in the browser, recorded.
+
+## 2026-11-08: Read, tested live in the browser, then side by side with Claude Code (your word: "ok")
+
+- **Live now:** the steps line, the folder's full path and the PARTIAL sentence (deploy 65, first try).
+- **Coder, in the browser, recorded (recording 11):** eleven messages on everything about read not tried live before: big files, allow_large, long lines, UTF-16, the folder, refused kinds (zip, xlsx, binary, a pipe, outside the project, a null byte), pictures (big ones, CMYK, WebP, one over 128 MB), your picture saved and opened again (shown in the chat), PDFs (ranges, 20 at a time, password, fake, one that lies about its pages), a notebook, the @ list and @-mentions, and a long job summarized in the middle (the files read again, and a new CODER.md line followed). All worked.
+- **Claude Code, the same files:** the same on most. Coder does better on four: a pipe (Claude Code's read waited 8 hours), a password-protected PDF, a PDF that lies about its pages, and BMP pictures.
+- **Four differences found, waiting for your word:** (1) after `cat` shows a file, Claude Code notices when a command changes it; Coder doesn't. (2) Claude Code never cuts a long line; Coder cuts at 2,000 characters. (3) Claude Code also sends the changed lines. (4) Claude Code shows big pictures a bit bigger (2000 pixels, with a line about coordinates).
+- **Outside read (bash, for later):** Coder's commands get an empty /tmp with each message; Claude Code keeps /tmp for the whole session.
+
 ## 2026-11-08: A standing rule: test everything in the browser (your word: "we need to test everything in the browser bro, pls, remember that")
 
 - **The rule, saved** in CLAUDE.md and the preferences file, so every session follows it: every feature and fix is tried live on gofarther.dev in the browser, with Grok, and recorded. Automated tests and checks on my side are not enough on their own.

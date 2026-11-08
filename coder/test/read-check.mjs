@@ -20,7 +20,7 @@ execFileSync("python3", ["-c", "from reportlab.pdfgen import canvas\nc = canvas.
 const plot = execFileSync("convert", ["-size", "120x80", "xc:orange", "png:-"]).toString("base64");
 writeFileSync("nb.ipynb", JSON.stringify({ nbformat: 4, nbformat_minor: 5, metadata: {}, cells: [{ cell_type: "code", execution_count: 1, metadata: {}, source: ["plot()"], outputs: [{ output_type: "display_data", metadata: {}, data: { "image/png": plot } }] }] }));
 
-if (!/^Picture: shot\.png \(2400×1200, PNG, [^)]*\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop /.test(read({ path: "shot.png" }).text)) throw new Error("the screenshot was not made smaller, or Coder was not told so");
+if (!/^Picture: shot\.png \(2400×1200, PNG, [^)]*\), shown to you as a picture after these results, made smaller \(2000×1000; multiply coordinates by 1\.20 to map them to the real picture\): for fine detail, crop /.test(read({ path: "shot.png" }).text)) throw new Error("the screenshot was not made smaller, or Coder was not told so");
 read({ path: "anim.gif" });
 const pdf = read({ path: "doc.pdf" });
 if (!pdf.text.includes("--- Page 1 (picture 1) ---\npdf text ok") || !pdf.text.includes("--- Page 2 (picture 2; no text) ---") || pdf.pictures.length !== 2) throw new Error("the PDF's pages (each a picture too): " + pdf.text);

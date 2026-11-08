@@ -156,8 +156,12 @@ export const PDF_PAGES_MAX = 20, PDF_PAGES_FREE = 10;
 export const READ_TEXT_MAX = READ_CHARS;
 /** The picture kinds read shows, by the file's ending (ImageMagick is told which: it never guesses from the contents). */
 export const PIC_KINDS = { ".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".gif": "gif", ".webp": "webp", ".bmp": "bmp", ".tif": "tiff", ".tiff": "tiff" };
-/** A picture's longest side once shown (a bigger one is made smaller first; then smaller still should it not fit). */
-export const PIC_SIDES = [1600, 1200, 800];
+/**
+ * A picture's longest side once shown (a bigger one is made smaller first; then smaller still should it not fit).
+ * 2000 like Claude Code's (the owner, 2026-11-08: "Yea fix those 4"; tried side by side: a 6000×4000 picture was
+ * "displayed at 2000x1333"); 1600 before.
+ */
+export const PIC_SIDES = [2000, 1600, 1200, 800];
 
 /** Runs a program (no shell) with `input` on its stdin: { code, out (Buffer), err }; code -2 when it is not installed. */
 function runProg(cmd, args, { input = null, timeoutMs = 40_000, max = 30 * 1024 * 1024 } = {}) {
@@ -243,7 +247,9 @@ async function readPicture(abs, rel, kind) {
   if (p.why) fail(rel + " cannot be shown: " + p.why);
   // A BIG PICTURE IS SHOWN SMALLER, and Coder is told so (Claude Code's docs: "Claude may see a downscaled version of a
   // large screenshot. If Claude misses fine pixel-level detail in a large image, ask it to crop the region you care
-  // about, such as with ImageMagick via Bash, and then read the crop"): its real size, and how to crop.
+  // about, such as with ImageMagick via Bash, and then read the crop"): its real size, how to map a place on it back to
+  // the real picture (Claude Code's own note, tried side by side: "Multiply coordinates by 3.00 to map to original
+  // image"), and how to crop.
   let real = picSize(buf);
   if (!real) {
     const id = await runProg("identify", ["-format", "%w %h\n", kind + ":-" + (kind === "gif" || kind === "tiff" ? "[0]" : "")], { input: buf, timeoutMs: 20_000, max: 4096 });
@@ -254,7 +260,7 @@ async function readPicture(abs, rel, kind) {
   const smaller = real && p.w && p.h && Math.max(real.w, real.h) > Math.max(p.w, p.h);
   const thumb = await thumbOf(buf, kind);
   return withPics("Picture: " + rel + " (" + (smaller ? real.w + "×" + real.h : shown ? shown : "") + (smaller || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
-    (smaller ? ", made smaller (" + shown + "): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop." : "."), [p], thumb ? { thumb } : {});
+    (smaller ? ", made smaller (" + shown + "; multiply coordinates by " + (Math.max(real.w, real.h) / Math.max(p.w, p.h)).toFixed(2) + " to map them to the real picture): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop." : "."), [p], thumb ? { thumb } : {});
 }
 
 /** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */
@@ -416,7 +422,14 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   if (!asked && !large && size > READ_WHOLE_MAX) fail(rel + " is " + kb(size) + ", over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large when you truly need all of it at once");
   const want = Number(limit) > 0 ? Math.min(Math.floor(Number(limit)), READ_LINES_MAX) : READ_LINES_MAX;
   const end = Math.min(total, from - 1 + want);
-  const rowOf = (i) => String(i + 1).padStart(6) + "\t" + (lines[i].length > 2000 ? lines[i].slice(0, 2000) + "…" : lines[i]);
+  // WHOLE LINES, NEVER CUT (the owner, 2026-11-08: "Yea fix those 4"; Claude Code 2.1.319, tried side by side: a
+  // 20,000-character line came back whole). Coder cut every line at 2,000 characters before, so the rest of a long line
+  // (minified code, a long paragraph) was never seen.
+  const rowOf = (i) => String(i + 1).padStart(6) + "\t" + lines[i];
+  // A LINE TOO BIG FOR ONE READ BY ITSELF (Claude Code leaves it for a read of its own, "showing lines 1-1 of 4 … Call
+  // Read with offset=2 limit=1", and that read is over its limit too): a whole read stops before it, and a read that
+  // starts at it says so, with the ways to see it.
+  const tooLong = (i) => "line " + (i + 1) + " of " + rel + " is " + kb(Buffer.byteLength(lines[i])) + " by itself, more than one read takes (about " + Math.round(cap / 1000) + ",000 characters): " + (large ? "" : "set allow_large to read it whole, or ") + "show a part of it with bash, e.g. sed -n " + (i + 1) + "p " + shq(rel) + " | cut -c1-50000";
   // How many lines from index `start` fit in one usual read: the limit to suggest next (exact, as lines differ).
   const fitting = (start) => { let u = 0, k = 0; for (let i = start; i < total && k < READ_LINES_MAX; i++) { const r = rowOf(i).length + 1; if (k && u + r > READ_CHARS) break; u += r; k++; } return k; };
   const rows = [];
@@ -424,6 +437,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   for (let i = from - 1; i < end; i++) {
     const row = rowOf(i);
     if (rows.length && used + row.length + 1 > cap) break; // whole lines only, never a cut in the middle
+    if (!rows.length && row.length + 1 > cap) fail(tooLong(i));
     rows.push(row);
     used += row.length + 1;
   }
@@ -660,6 +674,13 @@ async function seenList(dir) {
 async function seenSave(dir, list) { const tmp = join(dir, "index.json." + process.pid + ".tmp"); await writeFile(tmp, JSON.stringify(list)); await rename(tmp, join(dir, "index.json")); }
 /** A file's path as the tools take it: from the project's folder, or whole for one of the chat's other repositories. */
 function showPath(abs) { const r = relative(ROOT, abs); return r && !r.startsWith("..") && !isAbsolute(r) ? r : abs; }
+/**
+ * EACH LINE'S OWN SHORT FINGERPRINT (8 hex characters, never the line's text), kept next to the file's: what lets the
+ * note after a change show the lines it touched, as Claude Code's does (the owner, 2026-11-08: "Yea fix those 4").
+ */
+const lineMark = (l) => createHash("sha256").update(l).digest("hex").slice(0, 8);
+const marksOf = (buf) => fileText(buf).split("\n").map(lineMark).join("");
+const marksFile = (dir, abs) => join(dir, "lines-" + fingerprint(Buffer.from(abs)).slice(0, 24) + ".txt");
 /** Notes a text file as Coder now knows it, after a read, a write or an edit (not the memory file). */
 async function remember(abs, buf) {
   const dir = seenDir();
@@ -668,10 +689,36 @@ async function remember(abs, buf) {
   try {
     const st = await stat(abs);
     const list = (await seenList(dir)).filter((x) => x.abs !== abs);
-    if (st.isFile() && buf.length <= READ_WHOLE_MAX) list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: fingerprint(buf) }); // a bigger one is not followed
-    while (list.length > SEEN_FILES) list.shift();
+    if (st.isFile() && buf.length <= READ_WHOLE_MAX) { // a bigger one is not followed
+      list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: fingerprint(buf) });
+      await writeFile(marksFile(dir, abs), marksOf(buf));
+    }
+    while (list.length > SEEN_FILES) { const old = list.shift(); await unlink(marksFile(dir, old.abs)).catch(() => {}); }
     await seenSave(dir, list);
   } catch { /* never costs the tool */ }
+}
+/**
+ * THE LINES A CHANGE TOUCHED, shown as read shows lines, with CHANGE_AROUND lines either side (Claude Code's note, tried
+ * side by side: "Here are the relevant changes (shown with line numbers):" then the lines): { lines }, or { big: true }
+ * past CHANGE_SHOW_MAX characters ("The changes are not shown here"), or {} without the lines' fingerprints.
+ */
+export const CHANGE_AROUND = 8, CHANGE_SHOW_MAX = 8000;
+function changedLines(was, buf) {
+  const old = String(was || "").match(/[0-9a-f]{8}/g);
+  if (!old) return {};
+  const text = fileText(buf);
+  if (!text.length) return { lines: "(it is empty now)" };
+  const all = text.split("\n"), now = all.map(lineMark);
+  let a = 0;
+  while (a < old.length && a < now.length && old[a] === now[a]) a++;
+  let b = 0;
+  while (b < old.length - a && b < now.length - a && old[old.length - 1 - b] === now[now.length - 1 - b]) b++;
+  const shownLines = all.length > 1 && all[all.length - 1] === "" ? all.length - 1 : all.length; // the last newline ends a line
+  const first = Math.max(0, a - CHANGE_AROUND), last = Math.min(shownLines - 1, Math.max(a, now.length - b - 1) + CHANGE_AROUND);
+  const rows = [];
+  for (let i = first; i <= last; i++) rows.push(String(i + 1).padStart(6) + "\t" + all[i]);
+  const out = rows.join("\n");
+  return out.length > CHANGE_SHOW_MAX ? { big: true } : { lines: out };
 }
 /**
  * WHICH FILES CHANGED since Coder last read or changed them, for Coder's app only (no tool Grok has):
@@ -682,7 +729,11 @@ export async function toolChanged({ reset = false } = {}) {
   const dir = seenDir();
   // A CHAT WITH NO HISTORY (new, or Rewind went back to its very start; the review, 2026-11-08): what Coder read before
   // is no longer in its conversation, so none of it is followed (else a rewind's changes were put down to a command).
-  if (dir && reset === true) { await seenSave(dir, []).catch(() => {}); return JSON.stringify({ followed: 0, changed: [] }); }
+  if (dir && reset === true) {
+    for (const x of await seenList(dir)) await unlink(marksFile(dir, x.abs)).catch(() => {});
+    await seenSave(dir, []).catch(() => {});
+    return JSON.stringify({ followed: 0, changed: [] });
+  }
   const list = dir ? await seenList(dir) : [];
   const keep = [], changed = [];
   let dirty = false;
@@ -690,17 +741,35 @@ export async function toolChanged({ reset = false } = {}) {
     let st = null;
     try { await inside(x.abs, { mustExist: true }); st = await stat(x.abs); } catch { st = null; }
     const path = showPath(x.abs);
-    if (!st || !st.isFile()) { changed.push({ path, gone: true }); dirty = true; continue; }
+    const drop = () => unlink(marksFile(dir, x.abs)).catch(() => {});
+    if (!st || !st.isFile()) { changed.push({ path, gone: true }); dirty = true; await drop(); continue; }
     if (st.mtimeMs === x.mtime && st.size === x.size) { keep.push(x); continue; }
     dirty = true;
-    if (st.size > READ_WHOLE_MAX) { changed.push({ path }); continue; }
-    let hash;
-    try { hash = fingerprint(await readFile(x.abs)); } catch { changed.push({ path, gone: true }); continue; }
-    if (hash !== x.hash) changed.push({ path });
+    if (st.size > READ_WHOLE_MAX) { changed.push({ path, big: true }); await drop(); continue; }
+    let buf;
+    try { buf = await readFile(x.abs); } catch { changed.push({ path, gone: true }); await drop(); continue; }
+    const hash = fingerprint(buf);
+    if (hash !== x.hash) {
+      changed.push({ path, ...changedLines(await readFile(marksFile(dir, x.abs), "utf8").catch(() => ""), buf) });
+      await writeFile(marksFile(dir, x.abs), marksOf(buf)).catch(() => {});
+    }
     keep.push({ ...x, mtime: st.mtimeMs, size: st.size, hash });
   }
   if (dirty) await seenSave(dir, keep).catch(() => {});
   return JSON.stringify({ followed: keep.length, changed });
+}
+/**
+ * A FILE A COMMAND SHOWED (cat, head, sed -n 'X,Yp' … run on one file: viewedFile in coder-compact.mjs), followed as a
+ * read file is, for Coder's app only (no tool Grok has). Claude Code counts such a command as a read for this too (the
+ * owner, 2026-11-08: "Yea fix those 4"; tried side by side: after `cat notes.txt`, its `sed` that changed the file said
+ * "This command modified 1 file you've previously read: notes.txt"). Coder followed only what its own tools read before.
+ */
+export async function toolSeen({ path }) {
+  const { abs } = await inside(String(path || ""), { mustExist: true });
+  const st = await stat(abs);
+  if (!st.isFile() || st.size > READ_WHOLE_MAX) return "not followed";
+  await remember(abs, await readFile(abs));
+  return "followed";
 }
 
 /**
@@ -721,7 +790,7 @@ export async function toolSavePicture({ name, type, data }) {
   return rel;
 }
 
-export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged };
+export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

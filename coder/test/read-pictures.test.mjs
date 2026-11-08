@@ -51,13 +51,13 @@ test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF, W
   execFileSync("convert", ["-size", "2400x1200", "gradient:blue-white", join(dir, "shot.png")]);
   execFileSync("convert", ["-size", "640x480", "plasma:", join(dir, "photo.jpg")]);
   for (const k of ["gif", "webp", "bmp", "tiff"]) execFileSync("convert", ["-size", "300x200", "xc:red", join(dir, "pic." + k)]);
-  // A big screenshot: made 1600 wide (its longest side), and said so.
+  // A big screenshot: made 2000 wide (its longest side, like Claude Code's), and said so, with how to map a place back.
   const shot = read(dir, { path: "shot.png" });
   assert.equal(shot.code, 0, shot.text);
-  assert.match(shot.text, /^Picture: shot\.png \(2400×1200, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(1600×800\): for fine detail, crop the part you need with ImageMagick into the scratch folder \(e\.g\. mkdir -p \/tmp\/coder-scratch && convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/coder-scratch\/part\.png\) and read the crop\.$/);
+  assert.match(shot.text, /^Picture: shot\.png \(2400×1200, PNG, \d+ KB\), shown to you as a picture after these results, made smaller \(2000×1000; multiply coordinates by 1\.20 to map them to the real picture\): for fine detail, crop the part you need with ImageMagick into the scratch folder \(e\.g\. mkdir -p \/tmp\/coder-scratch && convert 'shot\.png' -crop 800x600\+0\+0 \/tmp\/coder-scratch\/part\.png\) and read the crop\.$/);
   assert.equal(shot.pictures.length, 1);
   assert.equal(shot.pictures[0].type, "image/png");
-  assert.deepEqual(T.picSize(pngOf(shot.pictures[0])), { w: 1600, h: 800 });
+  assert.deepEqual(T.picSize(pngOf(shot.pictures[0])), { w: 2000, h: 1000 });
   // A photo stays a JPEG; the other kinds become PNGs (Grok takes only JPG and PNG).
   const photo = read(dir, { path: "photo.jpg" });
   assert.equal(photo.pictures[0].type, "image/jpeg");
