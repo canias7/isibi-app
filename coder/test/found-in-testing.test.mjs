@@ -1062,3 +1062,32 @@ test("CD229 the @ list puts a file whose name matches first, as Claude Code's do
   assert.equal(rankMentions(Array.from({ length: 20 }, (_, i) => "f" + i + ".js"), "f").length, 8);
   assert.match(ui, /return rankMentions\(S\.files\.list, S\.mention\.q\);/);
 });
+
+test("CD236 the line over a group of steps names each kind, as Claude Code's does (the owner: \"do it like this … 'Ran 1 command, read 4 files'\"), and what failed by its kind: a failed read said \"a command failed\" (live comparison, 2026-11-08)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  function groupWords(steps) {"), b = ui.indexOf("\n  }\n", a);
+  assert.ok(a > 0, "the page has groupWords");
+  const groupWords = new Function("return " + ui.slice(a, b + 4).trim())();
+  const step = (tool, failed = false) => ({ tool, failed });
+  // The live comparison's first message: one command, four reads, the last one (the folder) failed.
+  assert.deepEqual(groupWords([step(""), step("read"), step("read"), step("read"), step("read", true)]), { line: "Ran 1 command, read 4 files", failed: "a read failed" });
+  assert.deepEqual(groupWords([step(""), step(""), step("")]), { line: "Ran 3 commands", failed: "" });
+  assert.deepEqual(groupWords([step("", true), step("read")]), { line: "Ran 1 command, read 1 file", failed: "a command failed" });
+  // In the order they first came; grep and glob are both searches (Claude Code: "Searched for").
+  assert.equal(groupWords([step("grep"), step("read"), step("glob"), step("edit"), step("write")]).line, "Searched for 2 patterns, read 1 file, edited 1 file, wrote 1 file");
+  assert.equal(groupWords([step("edit", true), step("edit", true)]).failed, "2 edits failed");
+  assert.equal(groupWords([step("grep", true), step("glob", true)]).failed, "2 searches failed");
+  assert.equal(groupWords([step("edit", true), step("read", true)]).failed, "2 steps failed");
+  assert.equal(groupWords([step("edit", true)]).failed, "an edit failed");
+  assert.equal(groupWords([step("web_search"), step("web_search")]).line, "Searched the web 2 times");
+  assert.equal(groupWords([step("web_search"), step("web_fetch", true)]).line, "Searched the web, fetched 1 page");
+  assert.equal(groupWords([step("web_search"), step("web_fetch", true)]).failed, "a fetch failed");
+  assert.equal(groupWords([step("lsp"), step("lsp"), step("monitor"), step("stop_job")]).line, "Made 2 code lookups, checked 1 background job, stopped 1 background job");
+  assert.equal(groupWords([step("setup"), step("review"), step("undo", true)]).line, "Ran the setup script, reviewed the changes, undid the last job");
+  assert.equal(groupWords([step("undo", true)]).failed, "an undo failed");
+  assert.equal(groupWords([step("something-new"), step("toString")]).line, "Did 2 steps", "a kind it does not know (even one named like an object's own)");
+  // The page uses it for every group, and the old words are gone.
+  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad' \}\)\)\);/);
+  assert.ok(!ui.includes("'a command failed'") && !ui.includes("<span class=\"cd-bad\">a command failed</span>"), "the fixed words are gone");
+});
