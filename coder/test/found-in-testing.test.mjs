@@ -1214,3 +1214,23 @@ test("CD240 the lines a change touched, for the note after a command (Claude Cod
   await writeFile(join(dir, "b.txt"), "");
   assert.deepEqual(await changed(), [{ path: "b.txt", lines: "(it is empty now)" }]);
 });
+
+test("CD241 read says when a file is not valid UTF-8 (an old encoding such as Windows-1252), after its lines, as Claude Code's Read does (tried side by side, 2026-11-08: \"[This file is not valid UTF-8: … Its undecodable bytes show above as U+FFFD …]\"); not for UTF-8 or UTF-16 files; after a PARTIAL view's note too", async () => {
+  const { NOT_UTF8_NOTE } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.match(NOT_UTF8_NOTE, /^\[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. Its undecodable bytes show above as U\+FFFD \(�\)\. Edit and write would save the � in their place and lose those bytes for good, so do not use them on it: change it with a command that keeps its encoding \(iconv\), or ask the owner whether to convert it to UTF-8\.\]$/);
+  const dir = await mkdtemp(join(tmpdir(), "coder-enc-"));
+  const run = machine(dir);
+  const read = async (path, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path, ...args } })).toString("base64") })).output;
+  await writeFile(join(dir, "old.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x6f, 0x6b, 0x0a])); // "caf\xe9\nok\n", Windows-1252
+  assert.equal(await read("old.txt"), "     1\tcaf�\n     2\tok\n" + NOT_UTF8_NOTE);
+  await writeFile(join(dir, "new.txt"), "café\n");
+  assert.equal(await read("new.txt"), "     1\tcafé", "UTF-8: no note");
+  await writeFile(join(dir, "u16.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("café\n", "utf16le")]));
+  assert.equal(await read("u16.txt"), "     1\tcafé", "UTF-16 with its byte-order mark: no note");
+  // A big one: the PARTIAL view's note, then this one.
+  await writeFile(join(dir, "big-old.txt"), Buffer.concat(Array.from({ length: 2000 }, (_, i) => Buffer.concat([Buffer.from("line " + (i + 1) + " caf"), Buffer.from([0xe9]), Buffer.from(" " + "x".repeat(80) + "\n")]))));
+  assert.match(await read("big-old.txt"), /\n\[PARTIAL view: lines 1-\d+ of 2000 [^\]]+\]\n\[This file is not valid UTF-8: /);
+});

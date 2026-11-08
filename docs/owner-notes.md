@@ -11,6 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read: a note on files saved in an old text format (your word: "Yea fix that")
+
+- **Found while checking write:** when a file is saved in an old text format (like Windows-1252, common for older Windows files), letters like "é" can't be read and show as "�". Claude Code's read then adds a note saying so, and that edit and write shouldn't be used on it. Coder's read said nothing, so Coder didn't know, and its write then saved "�" over the real letters.
+- **Now Coder's read adds the same note**, with how to change such a file safely (a command that keeps its format, or asking you about converting it). Normal files get no note.
+- Test CD241 (fails on the old code); all 250 pass. Live with the next merge and deploy.
+
 ## 2026-11-08: Coder keeps /tmp from one message to the next, like Claude Code (your word: "Fix that too")
 
 This is part of tool 5 (bash), done now on your word.
