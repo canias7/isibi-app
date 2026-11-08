@@ -83,7 +83,8 @@ export function cleanEnv(home, { root = false } = {}) {
   if (root) return { PATH: SYSTEM_PATH, HOME: "/root", ...base };
   const h = home || DEV_HOME;
   return {
-    PATH: [h + "/.local/bin", h + "/.npm-global/bin", h + "/.cargo/bin", h + "/go/bin", "/opt/rbenv/shims", "/opt/node22/bin", "/opt/cargo/bin", "/usr/local/go/bin", SYSTEM_PATH].join(":"),
+    // Ubuntu's own end of a user's PATH too (live test, 2026-11-08: cowsay, installed with apt-get, is in /usr/games).
+    PATH: [h + "/.local/bin", h + "/.npm-global/bin", h + "/.cargo/bin", h + "/go/bin", "/opt/rbenv/shims", "/opt/node22/bin", "/opt/cargo/bin", "/usr/local/go/bin", SYSTEM_PATH, "/usr/games", "/usr/local/games"].join(":"),
     HOME: h,
     ...base,
     npm_config_prefix: h + "/.npm-global",

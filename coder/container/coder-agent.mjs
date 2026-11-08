@@ -384,12 +384,24 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (!j) { const m = "error: no background job " + String(c.args.job || "").slice(0, 20) + " (jobs: " + ([...jobs.keys()].join(", ") || "none") + ")"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         const wait = Math.min(60, Math.max(0, Number(c.args.wait_s) || 0));
         const lines = Math.min(200, Math.max(5, Number(c.args.lines) || 40));
-        const cmd = c.name === "monitor"
-          ? (wait ? "sleep " + wait + "; " : "") + "tail -n " + lines + " " + j.log + "; if kill -0 " + j.pid + " 2>/dev/null; then echo '[still running]'; else echo '[not running]'; fi"
-          : "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + String(c.args.job) + "]'";
+        const name = String(c.args.job);
+        // WHETHER IT RUNS, AND ITS STOP, COME FROM CODER'S SERVICE, which started it (live test, 2026-11-08: a check
+        // run inside the admin sandbox could not see the job's process: "[not running]" while it ran, and stop_job
+        // missed it). Without the service's help (a machine made in a test), the commands of before.
+        const svc = deps.bg && typeof deps.bg.alive === "function" && typeof deps.bg.stop === "function" ? deps.bg : null;
         let r;
-        try { r = await deps.exec({ command: cmd, timeoutS: wait + 15, tool: true }); }
-        catch (e) { r = { code: -1, output: String((e && e.message) || e).slice(0, 200) }; }
+        if (c.name === "stop_job" && svc) {
+          const was = await svc.alive(j.pid).catch(() => false);
+          const gone = was ? await svc.stop(j.pid).catch(() => false) : true;
+          r = { code: gone ? 0 : 1, output: !was ? "[" + name + " had already ended]" : gone ? "[stopped " + name + "]" : "[" + name + " could not be stopped]" };
+        } else {
+          const cmd = c.name === "monitor"
+            ? (wait ? "sleep " + wait + "; " : "") + "tail -n " + lines + " " + j.log + (svc ? "" : "; if kill -0 " + j.pid + " 2>/dev/null; then echo '[still running]'; else echo '[not running]'; fi")
+            : "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + name + "]'";
+          try { r = await deps.exec({ command: cmd, timeoutS: wait + 15, tool: true }); }
+          catch (e) { r = { code: -1, output: String((e && e.message) || e).slice(0, 200) }; }
+          if (c.name === "monitor" && svc) r = { ...r, output: String((r && r.output) || "").replace(/\n?$/, "\n") + ((await svc.alive(j.pid).catch(() => false)) ? "[still running]" : "[not running]") };
+        }
         const out = capOutput(String((r && r.output) || ""));
         emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: out });
         reply(out || "(nothing yet)");

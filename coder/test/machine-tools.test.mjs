@@ -24,7 +24,7 @@ test("CD133 the AI's commands find every tool and keep what they install in thei
   const path = dev.PATH.split(":");
   assert.deepEqual(path.slice(0, 4), ["/data/home/.local/bin", "/data/home/.npm-global/bin", "/data/home/.cargo/bin", "/data/home/go/bin"], "its own installs first");
   for (const p of ["/opt/rbenv/shims", "/opt/node22/bin", "/opt/cargo/bin", "/usr/local/go/bin"]) assert.ok(path.includes(p), p);
-  assert.ok(dev.PATH.endsWith(":" + SYSTEM_PATH));
+  assert.ok(dev.PATH.endsWith(":" + SYSTEM_PATH + ":/usr/games:/usr/local/games"), "Ubuntu's own end of a user's PATH (live test: apt's cowsay is in /usr/games)");
   assert.ok(path.indexOf("/opt/node22/bin") < path.indexOf("/usr/local/bin"), "Node 22 first, like Claude Code's machine");
   assert.equal(dev.npm_config_prefix, "/data/home/.npm-global");
   assert.equal(dev.CARGO_HOME, "/data/home/.cargo");

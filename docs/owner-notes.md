@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Three fixes found by testing everything (not live yet)
+
+- **Background commands** (live test A, issue #12 on your test repo): when Coder ran a server in the background, its check said "not running" while it ran, and its stop didn't stop it. Coder checked and stopped them from inside its sandbox, where the machine's process numbers mean nothing. Now Coder's own service, which started the command, checks and stops it, with everything it started.
+- **Programs in /usr/games** (same test): apt-get installed `cowsay`, but Coder couldn't run it by name, because /usr/games wasn't on its command path. It is now, like on a normal Ubuntu machine.
+- **Full network access** (same test, follow-up): asked which network setting its environment has, Coder couldn't tell when it was Full (only the limited ones were described). Now it's told.
+- Tests: CD199, CD200 and CD201 are new (the first two fail on the old code); two older tests updated. 210 tests pass.
+- Live after the next "merge and deploy".
+
 ## 2026-11-08: Merged and deployed: pictures, PDFs and notebooks (pick 1), and up to 4 questions in one card (pick 4)
 
 - You said "merge and deploy": both are live on gofarther.dev.
