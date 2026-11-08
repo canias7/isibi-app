@@ -18,7 +18,12 @@ import https from "node:https";
 import tls from "node:tls";
 import { isIP, BlockList } from "node:net";
 
-export const READ_LINES = 400;
+// HOW MUCH ONE READ GIVES (tool-by-tool comparison with Claude Code, 2026-11-08: Coder's read gave 400 lines and
+// its answer was then cut to 12,000 characters, the middle dropped, so the middle of a long file could be missed;
+// Claude Code's Read gives "at most 25,000 tokens" a call): about 100,000 characters of whole lines, so the whole
+// file when it fits; a longer one comes in parts, read on with offset (limit asks for fewer lines).
+export const READ_CHARS = 100_000;
+export const READ_LINES_MAX = 100_000;
 export const OUT_MAX = 30000;
 export const WEB_MAX = 100_000;
 const ROOT = process.cwd();
@@ -239,7 +244,7 @@ async function readNotebook(raw, rel) {
   return withPics(text, pictures);
 }
 
-export async function toolRead({ path, offset = 1, limit = READ_LINES, pages = "" }) {
+export async function toolRead({ path, offset = 1, limit = 0, pages = "" }) {
   const { abs, rel } = await inside(path, { mustExist: true });
   const ext = extname(abs).toLowerCase();
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
@@ -249,11 +254,19 @@ export async function toolRead({ path, offset = 1, limit = READ_LINES, pages = "
   if (ext === ".ipynb") { const nb = await readNotebook(text, rel); if (nb !== null) return nb; }
   const lines = text.split("\n");
   const from = Math.max(1, Number(offset) || 1);
-  const n = Math.min(Math.max(1, Number(limit) || READ_LINES), 2000);
-  const part = lines.slice(from - 1, from - 1 + n);
-  const body = part.map((l, i) => String(from + i).padStart(6) + "\t" + (l.length > 2000 ? l.slice(0, 2000) + "…" : l)).join("\n");
+  const want = Math.min(Math.max(0, Math.floor(Number(limit) || 0)) || READ_LINES_MAX, READ_LINES_MAX);
+  const rows = [];
+  let used = 0;
+  for (let i = from - 1; i < lines.length && rows.length < want; i++) {
+    const l = lines[i];
+    const row = String(i + 1).padStart(6) + "\t" + (l.length > 2000 ? l.slice(0, 2000) + "…" : l);
+    if (rows.length && used + row.length + 1 > READ_CHARS) break; // whole lines only, never a cut in the middle
+    rows.push(row);
+    used += row.length + 1;
+  }
+  const n = rows.length;
   const more = from - 1 + n < lines.length ? "\n[" + (lines.length - (from - 1 + n)) + " more lines: read again with offset " + (from + n) + "]" : "";
-  return (body || "(empty file)") + more;
+  return (rows.join("\n") || "(empty file)") + more;
 }
 
 export async function toolWrite({ path, content }) {

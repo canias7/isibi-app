@@ -21,7 +21,7 @@
 import { summaryRequest, summaryMessage, cutPoint } from "./coder-compact.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_TEXT_MAX } from "./coder-tools.mjs";
+import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -74,7 +74,7 @@ export const CODER_MAX_MS = 45 * 60 * 1000;
 
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
-  fn("read", "Read a file in the project. Text: with line numbers (400 lines at a time; use offset for more). Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, a page with no text shown as a picture; pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" } }, ["path"]),
+  fn("read", "Read a file in the project. Text: with line numbers, the whole file when it fits (up to about 100,000 characters a call, like Claude Code's Read); a longer file comes in parts: read on with offset (limit asks for fewer lines). Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, a page with no text shown as a picture; pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly (read it first) and appear once, unless replace_all is true. Use this instead of sed.", { path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
   fn("write", "Write a whole file (new, or replacing everything in it). At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
@@ -532,7 +532,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             pics = (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ);
           } catch { raw = "error: the picture could not be read"; pics = []; }
         }
-        let out = capOutput(raw, c.name === "read" && /^\S[^\n]*: (PDF|Jupyter notebook), /.test(raw) ? READ_TEXT_MAX : undefined);
+        // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
+        // tools' output is, to MAX_OUTPUT_CHARS.
+        let out = capOutput(raw, c.name === "read" ? READ_CHARS + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         emit({ type: "result", id: c.id, code, output: out });

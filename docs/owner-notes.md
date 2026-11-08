@@ -11,6 +11,23 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Tool by tool against Claude Code: 1, read (and the test account's password reset)
+
+- **Your plan:** we go through Coder's tools and environment one by one. You try each in both Coder and Claude Code, and I compare them against Claude Code's actual docs. The running record is [`docs/tool-by-tool.md`](tool-by-tool.md).
+- **Tool 1, read:** right in both runs with the real Coder:
+  - GitHub (issue #18);
+  - Coder's real page in a browser on my side (recording 9).
+  - Every answer was right (line 250, the picture, the PDF page with only a circle).
+- **Found by reading the code:** Coder's read gave 400 lines, then cut its answer to 12,000 characters with the middle dropped. On a long file, Coder could miss the middle. Claude Code's Read gives up to 25,000 tokens a call, about 100,000 characters.
+- **Changed after the test, as you said:** read now gives the whole file when it fits (up to about 100,000 characters), and a longer one in parts, whole lines only, never cut in the middle. Test CD204 is new; 213 tests pass. It goes live with your next "merge and deploy".
+- **Browser tests on my side:** I can now open a real browser here that you can watch from your app (the "browser" preview), signed in to gofarther.dev as the test account. Signing in still needs the emailed code from you.
+- **The test account's password (live data, on your word "reset it"):**
+  - cristiananias7@gmail.com was refusing the password you remember. Supabase itself said it was wrong, from your phone too.
+  - Nothing in Coder changes passwords, and the account hadn't signed in since Nov 6.
+  - I set it back to the password you gave me in the chat.
+  - Coder had no scrambled copy to clear: copies are only made at a sign-in, and there hadn't been one since that feature shipped.
+  - Please change it once we're done testing, since it was in the chat.
+
 ## 2026-11-08: Merged and deployed: the fixes found by testing everything, and all passed live
 
 - You said "merge and deploy". Deploy run #61 passed: all 212 tests, the machine-admin tests, Coder's new machine image, and the site's own check. Live since 02:43.

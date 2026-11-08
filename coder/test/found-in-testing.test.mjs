@@ -58,3 +58,49 @@ test("CD203 each chat keeps its own message box: what was typed, its pictures an
   assert.match(ui, /async function openProject\(id\) \{\n    stopPoll\(\);\n    keepDraft\(S, S\.project && S\.project\.id, id\);/);
   assert.match(ui, /delete S\.drafts\[id\];/);
 });
+
+test("CD204 read gives the whole file when it fits, about 100,000 characters of whole lines a call, like Claude Code's Read (\"at most 25,000 tokens\"); a longer file comes in parts that join up exactly; the agent never cuts a read, while other tools' output is still cut", async () => {
+  // Tool-by-tool comparison with Claude Code (2026-11-08): Coder's read gave 400 lines, then its answer was cut to
+  // 12,000 characters with the middle dropped, so line 250 of a 500-line file was not shown.
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { READ_CHARS } = await import("../container/coder-tools.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-read-"));
+  const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const read = (args) => execFileSync("node", ["--no-warnings", script, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: dir, maxBuffer: 8 << 20 }).toString();
+  const num = (n) => 100000 + ((n * 7919) % 900000);
+  await writeFile(join(dir, "long.txt"), Array.from({ length: 500 }, (_, i) => "line " + (i + 1) + ": " + num(i + 1) + " " + "x".repeat(60)).join("\n"));
+  const whole = read({ path: "long.txt" });
+  assert.ok(whole.includes("   250\tline 250: " + num(250) + " "), "line 250 is there");
+  assert.ok(whole.includes("   500\tline 500: "), "and the last line");
+  assert.doesNotMatch(whole, /more lines|characters not shown/);
+  // A file of about 300,000 characters: parts of whole lines, each under READ_CHARS, that join up exactly.
+  await writeFile(join(dir, "big.txt"), Array.from({ length: 3000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
+  let offset = 1, seen = 0, parts = 0;
+  for (;;) {
+    const out = read({ path: "big.txt", offset });
+    const m = /\n\[(\d+) more lines: read again with offset (\d+)\]$/.exec(out);
+    const body = m ? out.slice(0, m.index) : out;
+    assert.ok(body.length <= READ_CHARS, "part " + parts + " is " + body.length + " characters");
+    const rows = body.split("\n");
+    assert.equal(Number(rows[0].split("\t")[0]), offset, "a part starts where the last one stopped");
+    rows.forEach((r, i) => assert.equal(r, String(offset + i).padStart(6) + "\trow " + (offset + i) + " " + "y".repeat(92), "whole lines only"));
+    seen += rows.length; parts++;
+    if (!m) break;
+    assert.equal(Number(m[1]), 3000 - seen); offset = Number(m[2]);
+  }
+  assert.equal(seen, 3000); assert.ok(parts >= 3 && parts <= 4, parts + " parts");
+  assert.match(read({ path: "big.txt", offset: 5, limit: 10 }), /^\s+5\trow 5 [\s\S]*\n\s+14\trow 14 y+\n\[2986 more lines: read again with offset 15\]$/, "limit asks for fewer lines");
+  // In the agent: a read of about 60,000 characters reaches Grok whole; a command's output is still cut.
+  const { runCoder, CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  const big = Array.from({ length: 600 }, (_, i) => String(i + 1).padStart(6) + "\tline " + (i + 1) + " " + "z".repeat(90)).join("\n");
+  let n = 0;
+  const steps = [say("", [call("read", { path: "big.txt" }, "r1"), call("bash", { command: "cat big.txt" }, "b1")]), say("Done.")];
+  const out = await runCoder({ send: async () => steps[Math.min(n++, 1)], emit: () => {}, exec: async () => ({ code: 0, output: big }) }, { text: "read it" });
+  const result = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.ok(result("r1").includes("   300\tline 300 ") && !/characters not shown/.test(result("r1")), "the read is whole");
+  assert.match(result("b1"), /characters not shown/, "a command's long output is still cut, as before");
+  assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "read")), /the whole file when it fits \(up to about 100,000 characters a call, like Claude Code's Read\)/);
+});
