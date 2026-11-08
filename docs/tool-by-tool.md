@@ -7,6 +7,8 @@ docs, read fresh each time: the [tools reference](https://code.claude.com/docs/e
 
 Each entry: what Claude Code's docs say, what Coder does, the test, the results, and what changed.
 
+Anything found that is not the tool itself goes in its own list, marked as outside the tool, and is fixed only on the owner's word (the owner, 2026-11-08: "Ok do that"). Something the tool's change breaks elsewhere may be fixed with it, said plainly.
+
 ---
 
 ## 1. read (Claude Code: Read)
@@ -143,6 +145,11 @@ Fixed (test CD207, CD208; 217 pass):
   - **For later, offered to the owner:** Claude Code saves pictures you paste where Claude can open them as files (2.1.275); its @ file list ranks a file-name match above a folder-name match (2.1.280).
   - **For later (instruction files):** Claude Code warns when an instruction file is too long, and a CLAUDE.md can import others with `@path`.
 - **A correction:** I said Claude Code sent its separate "changed on disk" note probably because my command failed. It did it again after a command that worked, for a file outside the git repository. So that note seems to be for changes its in-command check doesn't catch. Either way it names the file and doesn't show the changes, as Coder's does.
+
+**Which of the fixes above are read, and which are not** (the owner asked, 2026-11-08: "But is this part of that tool?"):
+- **Read itself:** whole files and the PARTIAL view, the 256 KB and allow_large rules, empty files and offsets, long lines, pictures (sizes, the real size and crop hint, CMYK, the 128 MB limit), PDFs (every page a picture, password, not a PDF, the page count a file states, a repo's `pypdf.py` never run), notebooks, folders, binary kinds, pipes, null bytes, UTF-16 text, `file_path`, @-mentions (the file in the message), the re-read of files after a summary, and the note when a command changes a file Coder read.
+- **Outside read, broken by read's bigger answers, so fixed with it:** the saved chat losing its memory and the size cap; long jobs' summaries (how much they keep, how often they run, pictures counted); the chat's record holding whole reads; re-reads of pictures after a summary.
+- **Outside read, fixed while there (found in the same code), before this rule:** comments in CODER.md left out; the instruction files at the start (100,000 characters) and the fresh reload after a summary (and its security fix); a deleted memory file; a lost rewind point; .coder rules' "read the rest from line N".
 
 Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a prompt for files outside the working folder, network paths) and its `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` setting. Coder has no permission prompts or settings. It reads only inside the chat's repositories (its extra ones too), plus its own memory file.
 

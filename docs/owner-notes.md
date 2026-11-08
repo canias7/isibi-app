@@ -11,6 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: A new rule for tool by tool (your word: "Ok do that")
+
+- While we go through one tool, anything that isn't that tool goes in its own list, marked as outside it, and I ask you before fixing it. Saved in your preferences file, so every session follows it.
+- If a tool's change breaks something elsewhere, I may fix it with the tool, but I'll say plainly that it's outside the tool and why.
+- The read page in [`docs/tool-by-tool.md`](tool-by-tool.md) now splits today's fixes into three lists: read itself; outside read but broken by read's bigger answers; and outside read, fixed while I was there.
+
 ## 2026-11-08: Read, checked again before merging (your word: "double check again against claude code docs before merging")
 
 - **Claude Code's changelog, further back** (45 more versions, word for word). Coder already matched nearly all of its read changes. Three more, fixed:

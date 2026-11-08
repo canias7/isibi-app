@@ -19,6 +19,10 @@ deleted (the old file is in git history).
   design: don't restyle beyond what's asked. Offer options as screenshots.
 - Never write GitHub's skip-CI marker anywhere.
 - Every change ships with tests, an owner-notes entry and a push.
+- **Tool by tool (2026-11-08, "Ok do that"):** while going through one tool, keep
+  anything that is not that tool in its own list, marked as outside it, and ask
+  the owner before fixing it. Something the tool's change breaks elsewhere may be
+  fixed with it, but say plainly that it is outside the tool and why.
 
 ## Coder (2026-11-05)
 - Same style as the old sites agent's chat, its own folder, Worker and container.
