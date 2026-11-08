@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Coder's docs page, gofarther.dev/docs (your word: "start making a section for it in the frontend of our website")
+
+- **A new page, gofarther.dev/docs,** in the app's own look: a list of sections on the left, the text on the right; on a phone, the list sits above the text as a row of buttons.
+- **A "Docs" link in Coder's sidebar,** under Repositories. It opens the docs in a new tab, so a chat stays open.
+- **What it says so far:** what Coder is, how a chat works, a table of all the tools with where each stands (Read: Tested; Write: Testing; the rest: Next), then a full Read section and a Write section. It describes Coder only, in plain English.
+- **It grows tool by tool:** as each tool passes its live test, its section is written and its badge turns to Tested.
+- **Every number on it comes from Coder's code** (100,000 characters a read, 256 KB, 2,000-pixel pictures, 20 PDF pages, and so on). Test CD248 checks them, so the page can't drift from what Coder really does. It also checks the page has no script and every link in its list goes somewhere. All 257 tests pass.
+- Live with the next merge and deploy, on your word; then tried in the browser.
+
 ## 2026-11-08: Read: the two small display points (your word: "Do this pls")
 
 - **A hidden character in a file name now shows:** a read of a path with a null byte in it showed in the chat as "Read notes.txt", as if it were notes.txt. Now the step says "Read notes\0.txt" (a line break shows as \n, and so on).

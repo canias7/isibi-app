@@ -1350,3 +1350,36 @@ test("CD246 a step's name writes out characters that cannot be seen (the owner, 
   assert.equal(events.find((e) => e.type === "bash" && e.id === "r1").command, "notes\\0.txt");
   assert.match(events.find((e) => e.type === "result" && e.id === "r1").output, /cannot contain null bytes/);
 });
+
+test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section for it in the frontend of our website\"): /docs is plain HTML and CSS (no script, so the page's safety rules let it work as it is), every link in its list goes to a section that is there, the sidebar opens it, and the numbers it gives are the ones Coder really uses", async () => {
+  const page = readFileSync(HERE("public/docs.html"), "utf8");
+  const css = readFileSync(HERE("public/docs.css"), "utf8");
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.doesNotMatch(page, /<script|\son[a-z]+=|javascript:/i, "no script of any kind (script-src 'self' would refuse an inline one)");
+  assert.match(page, /<link rel="stylesheet" href="\/docs\.css" \/>/);
+  for (const href of [...page.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1])) assert.ok(href.startsWith("/") || href.startsWith("https://fonts.googleapis.com/"), href + " is allowed by style-src");
+  assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
+  const ids = new Set([...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]));
+  for (const want of ["what", "chats", "tools", "read", "write"]) assert.ok(ids.has(want), "section #" + want);
+  const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
+  assert.ok(links.length >= 7);
+  for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a section that is there");
+  assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
+  assert.match(ui, /<a class="gf-nav" id="cdSideDocs" href="\/docs" target="_blank" rel="noopener">' \+ SIDE_ICON\.book \+ 'Docs<\/a>/);
+  // The numbers, from the code itself.
+  const T = await import("../container/coder-tools.mjs");
+  const A = await import("../container/coder-agent.mjs");
+  const n = (x) => x.toLocaleString("en-US");
+  assert.ok(page.includes("up to about <b>" + n(T.READ_CHARS) + " characters</b>"));
+  assert.ok(page.includes("A file over <b>" + T.READ_WHOLE_MAX / 1024 + " KB</b>"));
+  assert.ok(page.includes("up to <b>" + n(T.PIC_SIDES[0]) + " pixels</b>"));
+  assert.ok(page.includes("up to " + T.PIC_MAX_BYTES / 1048576 + " MB"));
+  assert.ok(page.includes("Up to " + T.PDF_PAGES_FREE + " pages are read whole") && page.includes("at most <b>" + T.PDF_PAGES_MAX + " pages</b> at a time"));
+  assert.equal(A.REREAD_FILES, 5);
+  assert.ok(page.includes("up to five files"));
+  const writeSays = A.CODER_TOOLS.find((t) => t.function.name === "write").function.description;
+  const most = writeSays.match(/At most about ([\d,]+) characters per call/)[1];
+  assert.ok(page.includes("Up to about <b>" + most + " characters</b> at a time"));
+  assert.match(ui, /\(S\.project\.repos \|\| \[\]\)\.length < 3/);
+  assert.ok(page.includes("up to three more repositories"));
+});
