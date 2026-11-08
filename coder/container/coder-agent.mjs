@@ -165,17 +165,25 @@ async function appTool(deps, tool, args) {
     return { code: r && Number.isInteger(r.code) ? r.code : -1, output: String((r && r.output) || "") };
   } catch (e) { return { code: -1, output: "error: " + String((e && e.message) || e).slice(0, 200) }; }
 }
+/**
+ * A STEP'S NAME AS THE CHAT SHOWS IT: characters that cannot be seen (a null byte, a line break) written out, so a
+ * path with one does not pass for another (the owner, 2026-11-08: "Do this pls"; a read of "notes\\0.txt" showed as
+ * "Read notes.txt").
+ */
+export const visibleChars = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, (c) => ({ "\0": "\\0", "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] || "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0"));
 /** The small copy of a picture the chat shows under a Read step (the owner, 2026-11-08: "Fix those 3"): a JPEG data URL. */
 export const THUMB_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/;
 /** A read's answer: its text, the pictures it opened (a picture, a PDF's pages, a notebook's plots; PNG and JPEG), and the chat's small copy. */
 export function readAnswer(raw) {
   raw = String(raw || "");
-  if (!raw.startsWith(PICS_MARK)) return { text: raw, pics: [] };
+  if (!raw.startsWith(PICS_MARK)) return { text: raw, pics: [], thumb: "", thumbs: [] };
   try {
     const j = JSON.parse(raw.slice(PICS_MARK.length));
-    const thumb = j && typeof j.thumb === "string" && j.thumb.length <= 60_000 && THUMB_RE.test(j.thumb) ? j.thumb : "";
-    return { text: String((j && j.text) || ""), pics: (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ), thumb };
-  } catch { return { text: "error: the picture could not be read", pics: [], thumb: "" }; }
+    const ok = (u) => typeof u === "string" && u.length <= 60_000 && THUMB_RE.test(u);
+    const thumbs = [...(Array.isArray(j && j.thumbs) ? j.thumbs : []), ...(j && j.thumb ? [j.thumb] : [])].filter(ok).slice(0, 4);
+    const thumb = thumbs[0] || "";
+    return { text: String((j && j.text) || ""), pics: (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ), thumb, thumbs };
+  } catch { return { text: "error: the picture could not be read", pics: [], thumb: "", thumbs: [] }; }
 }
 /** Errors that mean "not a file of this project" (a mention that is not one is left alone). */
 const NOT_A_FILE = /^error: (give a path|no such file|that path (is|leads) outside the project|the \.git folder|the path cannot contain)/;
@@ -187,7 +195,7 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
   let left = MENTIONS_CHARS, bytes = 0;
   for (const p of paths) {
     const r = await appTool(deps, "read", { path: p });
-    let shownOut = "", part = "", stepThumb = "";
+    let shownOut = "", part = "", stepThumbs = [];
     if (r.code !== 0) {
       if (NOT_A_FILE.test(r.output)) continue;
       if (/ is a folder, not a file/.test(r.output)) {
@@ -216,15 +224,15 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
         let more = "";
         if (typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: "read", args: { path: p } })) || ""); } catch { more = ""; } }
         shownOut = text;
-        stepThumb = got.thumb;
+        stepThumbs = got.thumbs || [];
         part = "--- " + sayPath(deps, p) + " ---\n" + text + (lost > 0 ? "\n[" + lost + " of its pictures did not fit here: read it yourself to see them]" : "") + (more ? "\n\n" + more : "");
         touch(p);
         files.push(p);
       }
     }
     const id = stepId("at");
-    emit({ type: "bash", id, tool: "read", verb: "Read", command: scrub(p).slice(0, 300) + " (@-mentioned)" });
-    emit({ type: "result", id, code: 0, output: capOutput(shownOut), ...(stepThumb ? { thumbs: [stepThumb] } : {}) });
+    emit({ type: "bash", id, tool: "read", verb: "Read", command: scrub(visibleChars(p)).slice(0, 300) + " (@-mentioned)" });
+    emit({ type: "result", id, code: 0, output: capOutput(shownOut), ...(stepThumbs.length ? { thumbs: stepThumbs } : {}) });
     parts.push(part);
   }
   if (!parts.length) return null;
@@ -852,7 +860,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
         // folder its commands are in).
-        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || "")).slice(0, 300) });
+        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
@@ -868,8 +876,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
-        let pics = [], thumb = "";
-        if (c.name === "read" && code === 0) ({ text: raw, pics, thumb } = readAnswer(raw));
+        let pics = [], thumbs = [];
+        if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
@@ -879,7 +887,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
-        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumb ? { thumbs: [thumb] } : {}) });
+        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } }

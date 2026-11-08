@@ -214,3 +214,28 @@ test("CD196 the agent shows read's pictures to Grok: the read's answer is its te
   keepPics(big);
   assert.deepEqual(big.map((m) => (m.images || []).length), [1, 2], "the newest that fit, by size");
 });
+
+test("CD247 a PDF's pages and a notebook's charts show small under their step, as a picture read's does (the owner, 2026-11-08: \"Do this pls\"): the first STEP_THUMBS of them, as JPEG data URLs; Grok still gets every page whole", { skip: !(MAGICK && POPPLER) && "needs ImageMagick and poppler" }, async () => {
+  const { readAnswer, runCoder } = await import("../container/coder-agent.mjs");
+  const { execSync } = await import("node:child_process");
+  assert.equal(T.STEP_THUMBS, 4);
+  const dir = await mkdtemp(join(tmpdir(), "coder-thumbs-"));
+  await writeFile(join(dir, "doc.pdf"), makePdf(Array.from({ length: 6 }, (_, i) => "Page " + (i + 1))));
+  const doc = read(dir, { path: "doc.pdf" });
+  assert.equal(doc.pictures.length, 6, "every page for Grok");
+  const got = readAnswer(doc.raw);
+  assert.equal(got.thumbs.length, 4, "the first four, small, for the chat");
+  for (const t of got.thumbs) assert.match(t, /^data:image\/jpeg;base64,/);
+  const png = execFileSync("convert", ["-size", "60x40", "xc:blue", "png:-"]).toString("base64");
+  await writeFile(join(dir, "nb.ipynb"), JSON.stringify({ cells: [{ cell_type: "code", execution_count: 1, metadata: {}, source: ["plot()"], outputs: [{ output_type: "display_data", metadata: {}, data: { "image/png": png } }] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+  assert.equal(readAnswer(read(dir, { path: "nb.ipynb" }).raw).thumbs.length, 1, "the notebook's chart");
+  // In a job: the read's step carries them to the chat.
+  const exec = async ({ command }) => { try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20 }) }; } catch (e) { return { code: e.status || 1, output: String(e.stdout || "") }; } };
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const events = [];
+  let k = 0;
+  await runCoder({ exec, emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("read", { path: "doc.pdf" }, "r1"), call("read", { path: "nb.ipynb" }, "r2")]) : say("Done.")) }, { text: "read them" });
+  assert.equal(events.find((e) => e.type === "result" && e.id === "r1").thumbs.length, 4);
+  assert.equal(events.find((e) => e.type === "result" && e.id === "r2").thumbs.length, 1);
+});

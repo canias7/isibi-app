@@ -1334,3 +1334,19 @@ test("CD245 write refuses a path that is itself a link and names its target, as 
   assert.match(await write("linked/new.txt", "x\n"), /^wrote linked\/new\.txt/);
   assert.equal(await readFile(join(dir, "real", "new.txt"), "utf8"), "x\n");
 });
+
+test("CD246 a step's name writes out characters that cannot be seen (the owner, 2026-11-08: \"Do this pls\"; a read of notes<null>.txt showed in the chat as \"Read notes.txt\"), so a path with one does not pass for another; ordinary letters stay as they are", async () => {
+  const { visibleChars, runCoder } = await import("../container/coder-agent.mjs");
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(visibleChars("notes\0.txt"), "notes\\0.txt");
+  assert.equal(visibleChars("a\nb\tc\rd\x01e\x7f"), "a\\nb\\tc\\rd\\x01e\\x7f");
+  assert.equal(visibleChars("plain café.txt"), "plain café.txt");
+  const dir = await mkdtemp(join(tmpdir(), "coder-visible-"));
+  const events = [];
+  let k = 0;
+  await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("read", { path: "notes\0.txt" }, "r1")]) : say("Done.")) }, { text: "read it" });
+  assert.equal(events.find((e) => e.type === "bash" && e.id === "r1").command, "notes\\0.txt");
+  assert.match(events.find((e) => e.type === "result" && e.id === "r1").output, /cannot contain null bytes/);
+});

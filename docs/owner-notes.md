@@ -11,6 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read: the two small display points (your word: "Do this pls")
+
+- **A hidden character in a file name now shows:** a read of a path with a null byte in it showed in the chat as "Read notes.txt", as if it were notes.txt. Now the step says "Read notes\0.txt" (a line break shows as \n, and so on).
+- **A PDF's pages and a notebook's charts now show under their step,** small, like a picture Coder opens. Up to four; Coder itself still sees every page whole.
+- Tests CD246 and CD247 (each fails on the old code); all 256 pass. Live with the next merge and deploy.
+
 ## 2026-11-08: Write (tool 2): Claude Code's checks, after trying both for real
 
 - **GitHub account:** testing stays on `canias7` (your word: "just use the same GitHub account, i let it all the repos"). Coder's app can now reach all of its repositories. The account made today with cristiananias7@gmail.com isn't connected.
