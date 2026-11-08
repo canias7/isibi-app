@@ -185,3 +185,63 @@ test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a f
   const note = seen[1].messages.find((m) => Array.isArray(m.images));
   assert.equal(note.images.length, 20, "all 20 pages reach Grok");
 });
+
+test("CD207 read refuses a pipe or a device at once, as Claude Code's Read does (\"is a pipe or a device\"), instead of waiting on it until the time limit", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-fifo-"));
+  execFileSync("mkfifo", [join(dir, "pipe.txt")]);
+  const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const t0 = Date.now();
+  let out = "";
+  try { execFileSync("node", ["--no-warnings", script, Buffer.from(JSON.stringify({ tool: "read", args: { path: "pipe.txt" } })).toString("base64")], { cwd: dir, timeout: 10000 }); } catch (e) { out = String(e.stdout || ""); }
+  assert.match(out, /pipe\.txt is a pipe or a device, not a file; it cannot be read/);
+  assert.ok(Date.now() - t0 < 5000, "at once, not after a wait");
+});
+
+test("CD208 Claude Code's other reading rules (its memory, tools and errors docs, read a second time at the owner's word): a command that views one file counts as reading it, so its folder's instructions load; they load again after a long job is summarized; a folder's instruction file is taken up to 40,000 characters, with a note to read the rest; a password-protected PDF says so", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runCoder, viewedFile } = await import("../container/coder-agent.mjs");
+  // Which commands count as viewing one file (Claude Code's list: cat, nl, bat, batcat, head, tail, sed -n 'X,Yp', grep,
+  // egrep, fgrep, rg, on one file, with no pipes or redirects).
+  for (const [c, f] of [["cat src/a.js", "src/a.js"], ["nl a.js", "a.js"], ["head -n 20 src/a.js", "src/a.js"], ["tail -5 'my file.txt'", "my file.txt"], ["sed -n '1,20p' a.js", "a.js"], ["grep -n foo src/a.js", "src/a.js"], ["rg -i foo a.js", "a.js"], ["batcat a.js", "a.js"]]) assert.equal(viewedFile(c), f, c);
+  for (const c of ["cat a.js | grep x", "cat a b", "grep foo", "ls src", "cat $X", "echo hi > a", "cat a.js && cat b.js", "sed 's/a/b/' a.js", "python3 a.py"]) assert.equal(viewedFile(c), "", c);
+  // In the agent: `cat src/a.js` brings src/'s instructions with its output; a pipe, or a failed command, does not.
+  const asked = [];
+  let n = 0;
+  const steps = [say("", [call("bash", { command: "cat src/a.js" }, "b1"), call("bash", { command: "cat src/a.js | wc -l" }, "b2"), call("bash", { command: "cat src/missing.js" }, "b3")]), say("Done.")];
+  const out = await runCoder({ send: async () => steps[Math.min(n++, 1)], emit: () => {}, exec: async ({ command }) => (command.includes("missing") ? { code: 1, output: "No such file" } : { code: 0, output: "const a = 1;\n" }), afterFile: async (x) => { asked.push(x); return "THE REPO'S INSTRUCTIONS FOR THIS FILE: src/CODER.md"; } }, { text: "look" });
+  const result = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.deepEqual(asked, [{ tool: "read", args: { path: "src/a.js" } }]);
+  assert.match(result("b1"), /exit code 0\nconst a = 1;\n\n\nTHE REPO'S INSTRUCTIONS FOR THIS FILE: src\/CODER\.md$/);
+  assert.doesNotMatch(result("b2") + result("b3"), /INSTRUCTIONS/);
+  // A long job summarized: the service is told, so the instructions it had shown load again when needed.
+  let compacted = 0, k = 0;
+  const big = "z".repeat(900);
+  await runCoder({ compactAt: 4000, compacted: () => { compacted++; }, send: async (q) => { if (!q.tools || !q.tools.length) return say("SUMMARY of the earlier steps"); k++; return k <= 14 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done."); }, emit: () => {}, exec: async () => ({ code: 0, output: big }) }, { text: "go" });
+  assert.ok(compacted >= 1, "the service heard of the summary " + compacted + " times");
+  const { repoInstructions, laterNotes, NOTE_ONE_MAX } = await import("../container/server.mjs");
+  assert.equal(NOTE_ONE_MAX, 40000);
+  const dir = await mkdtemp(join(tmpdir(), "coder-notes-"));
+  await mkdir(join(dir, "src"));
+  await writeFile(join(dir, "src", "CODER.md"), Array.from({ length: 1000 }, (_, i) => "Rule " + (i + 1) + ": " + "w".repeat(45)).join("\n"));
+  const ins = await repoInstructions(dir);
+  const sub = ins.later.find((x) => x.name === "src/CODER.md");
+  assert.ok(sub && sub.cut === true && sub.text.length === NOTE_ONE_MAX, "taken up to 40,000 characters, and marked");
+  const shown = laterNotes(ins.later, dir, "src/a.js", new Set());
+  assert.match(shown, /src\/CODER\.md goes on past 40,000 characters: read the rest of it with the read tool, from line 7\d\d\]/);
+  // A password-protected PDF (made with pypdf, when this machine has it).
+  let pypdf = true; try { execFileSync("python3", ["-c", "import pypdf"]); } catch { pypdf = false; }
+  if (pypdf) {
+    execFileSync("python3", ["-c", "import pypdf, sys\nw = pypdf.PdfWriter()\nw.add_blank_page(612, 792)\nw.encrypt('secret')\nw.write(sys.argv[1])", join(dir, "locked.pdf")]);
+    const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+    let msg = "";
+    try { execFileSync("node", ["--no-warnings", script, Buffer.from(JSON.stringify({ tool: "read", args: { path: "locked.pdf" } })).toString("base64")], { cwd: dir }); } catch (e) { msg = String(e.stdout || ""); }
+    assert.match(msg, /locked\.pdf is password protected; it cannot be read without its password/);
+  }
+});

@@ -199,6 +199,7 @@ async function readPdf(abs, rel, pages) {
   const info = await runProg("pdfinfo", [abs]);
   if (info.code === -2) fail("this machine has no PDF reader (poppler); use bash");
   const total = Number((/^Pages:\s+(\d+)/m.exec(info.out.toString("utf8")) || [])[1]) || 0;
+  if (/incorrect password|encrypted/i.test(info.err || "")) fail(rel + " is password protected; it cannot be read without its password");
   if (info.code !== 0 || !total) fail(rel + " could not be opened as a PDF" + (info.err ? " (" + info.err + ")" : ""));
   const asked = String(pages == null ? "" : pages).trim();
   if (!asked && total > PDF_PAGES_FREE) fail(rel + " has " + total + " pages: give pages, e.g. \"1-5\" (at most " + PDF_PAGES_MAX + " at a time)");
@@ -265,6 +266,9 @@ async function readNotebook(raw, rel) {
 
 export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars }) {
   const { abs, rel } = await inside(path, { mustExist: true });
+  // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
+  const kind = await stat(abs);
+  if (!kind.isFile() && !kind.isDirectory()) fail(rel + " is a pipe or a device, not a file; it cannot be read");
   const ext = extname(abs).toLowerCase();
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
   if (ext === ".pdf") return readPdf(abs, rel, pages);

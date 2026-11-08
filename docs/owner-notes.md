@@ -35,6 +35,14 @@ log (81,000 lines) is in git history.
     - Coder keeps the newest 24 pictures in a job (was 8), and at most 18 MB of them, under the 30 MB a Grok request may be.
     - It costs a bit more Grok per PDF, as you agreed.
     - Test CD206 is new, and the PDF and picture tests are updated. 215 tests pass, and the machine's own read check passes too.
+- **Second pass over Claude Code's docs for read** (your word): this time every page that talks about reading files, not only the Read section. Five more fixes:
+  - a pipe or a device is refused at once (Coder used to wait on it);
+  - viewing one file with `cat`, `head` and the like counts as reading it, so its folder's instructions load;
+  - a folder's instruction file is taken up to 40,000 characters (8,000 before), with a note to read the rest;
+  - those instructions load again after a long job is summarized;
+  - a password-protected PDF says so.
+  - Tests CD207 and CD208 are new; 217 pass.
+  - **Two more, for you to decide:** @-mentioned files go into the message (Coder now asks itself to read them instead), and the files Coder was working on are re-read after a summary.
 - **Browser tests on my side:** I can now open a real browser here that you can watch from your app (the "browser" preview), signed in to gofarther.dev as the test account. Signing in still needs the emailed code from you.
 - **The test account's password (live data, on your word "reset it"):**
   - cristiananias7@gmail.com was refusing the password you remember. Supabase itself said it was wrong, from your phone too.

@@ -44,6 +44,24 @@ export const COMPACT_AT = 450_000;
 export const PICS_PER_READ = 20, PICS_KEEP = 24; // 20: a PDF read's pages (like Claude Code's); 24: a whole read and a few more
 /** And at most this much of them (base64): a request to Grok through Coder's server is at most 30 MB (MODEL_BODY_MAX). */
 export const PICS_KEEP_BYTES = 18_000_000;
+/**
+ * A COMMAND THAT VIEWS ONE FILE, which counts as reading it (Claude Code's tools reference: "cat, nl, bat, batcat,
+ * head, tail, sed -n 'X,Yp', grep, egrep, fgrep, and rg, each run on one file with no pipes or redirects"; its
+ * memory docs: reading "includes viewing the file with a Bash command that counts as a read"): the file, or "".
+ */
+export function viewedFile(command) {
+  const c = String(command || "").trim();
+  if (!c || /[|;&<>`$(){}\n\\]/.test(c)) return ""; // no pipes, redirects, chaining or substitution
+  const words = c.match(/'[^']*'|"[^"]*"|\S+/g) || [];
+  const unq = (w) => w.replace(/^'([^']*)'$/, "$1").replace(/^"([^"]*)"$/, "$1");
+  const [prog, ...args] = words;
+  const plain = (skipValue) => { const out = []; for (let i = 0; i < args.length; i++) { if (skipValue.test(args[i])) { i++; continue; } if (!args[i].startsWith("-")) out.push(unq(args[i])); } return out; };
+  if (["cat", "nl", "bat", "batcat", "head", "tail"].includes(prog)) { const f = plain(/^-[nc]$/); return f.length === 1 ? f[0] : ""; }
+  if (prog === "sed") return args.length === 3 && args[0] === "-n" && /^\d+(,\d+)?p$/.test(unq(args[1])) ? unq(args[2]) : "";
+  if (["grep", "egrep", "fgrep", "rg"].includes(prog)) { const f = plain(/^(-[efmABC]|--regexp|--file|--max-count)$/); return f.length === 2 ? f[1] : ""; }
+  return "";
+}
+
 /** Lets go of all but the newest PICS_KEEP pictures that reads opened (pictures the owner sent stay). */
 export function keepPics(convo) {
   let kept = 0, bytes = 0;
@@ -322,6 +340,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (text) {
           convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room"));
           compactions++;
+          if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
           emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows them all." });
         }
       }
@@ -391,7 +410,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         let job = "";
         if (bg && r.pid && r.log) { job = "job" + (jobs.size + 1); jobs.set(job, { pid: r.pid, log: r.log, command }); }
         emit({ type: "result", id: c.id, code, output: out, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}) });
-        reply(bg ? (job ? "[running in the background as " + job + ": read it with monitor, end it with stop_job]\n" : "") + out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)"));
+        // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
+        let viewed = "";
+        const vf = !bg && code === 0 && typeof deps.afterFile === "function" ? viewedFile(command) : "";
+        if (vf) { try { viewed = String((await deps.afterFile({ tool: "read", args: { path: vf } })) || ""); } catch { viewed = ""; } }
+        reply((bg ? (job ? "[running in the background as " + job + ": read it with monitor, end it with stop_job]\n" : "") + out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)")) + (viewed ? "\n\n" + viewed : ""));
       } else if (c.name === "monitor" || c.name === "stop_job") {
         // A BACKGROUND JOB: read its log, or stop it (as `dev`, like any command).
         const j = jobs.get(String(c.args.job || ""));

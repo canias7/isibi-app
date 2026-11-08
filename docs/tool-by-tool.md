@@ -57,6 +57,23 @@ The right answers: line 250 is 220956, a red square with TEST, and page 2 is a b
 
 Tests CD204, CD205 and CD206 (all fail on the earlier code), CD194 and CD196 updated. 215 pass. The machine-image check (`test/read-check.mjs`) passes with it too.
 
+**Second pass over the docs, every page that talks about reading files** (the owner: "Go over the claude code docs again over this tool"). Pages: tools reference (all of it, not only the Read section), errors, environment variables, context window, permissions, common workflows, memory.
+
+Fixed (test CD207, CD208; 217 pass):
+- **A pipe or a device** is refused at once, as Claude Code's Read does ("is a pipe or a device"). Coder used to wait on it until the time limit.
+- **Viewing one file with a command counts as reading it** (`cat`, `nl`, `bat`, `head`, `tail`, `sed -n 'X,Yp'`, `grep`, `rg` on one file, no pipes or redirects, Claude Code's own list). That file's folder instructions now load, as for read.
+- **Folder instruction files** (a subfolder's CODER.md, a path rule) are taken up to 40,000 characters, Claude Code's limit (8,000 before). A longer one gets a note to read the rest, where it used to be cut without a word.
+- **After a long job is summarized**, the folder instructions it was shown load again when their files are read, as Claude Code's do ("load again on demand").
+- **A password-protected PDF** says so ("is password protected").
+
+Not changed yet, offered to the owner:
+- **@-mentions:** Claude Code puts the mentioned file's content into the message ("when it fits the Read tool's token limit"; not a text file over 256 KB), with that folder's CLAUDE.md, and a folder as its listing. Coder adds a note asking Coder to read them, which is one step more.
+- **After a summary,** Claude Code re-reads up to five of the files it was working on, the most recently changed first (each up to 5,000 tokens; a bigger one as its path only). Coder doesn't.
+
+Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a prompt for files outside the working folder, network paths) and its `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` setting. Coder has no permission prompts or settings. It reads only inside the chat's repositories (its extra ones too), plus its own memory file.
+
+For later (item 31, instruction files): Coder takes at most 20,000 characters of the instruction files that load at the start, in all. Claude Code loads each whole, up to 4 MiB.
+
 **Differences seen side by side:**
 - **Claude Code shows the picture it opened in the chat.** Coder shows the step ("Read test.png") but not the picture. Offered to the owner.
 - **Saving:** Claude Code left the files uncommitted until its stop hook asked, then committed and pushed. Coder commits and pushes every job by itself. Same end result.
