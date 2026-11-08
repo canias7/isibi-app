@@ -49,6 +49,18 @@ code in **each user's own GitHub**.
    attached. A job keeps at most 8 attached (`PICS_KEEP`); the saved chat keeps a
    note in their place, and they never count toward a long job's summary.
    `test/read-check.mjs` tries it in Coder's own image (the machine check).
+
+   **Coder asks with a card of up to 4 questions** (`ask_user`; owner pick 4,
+   2026-11-08), like Claude Code's AskUserQuestion: each question with a header
+   shown as a chip, 2 to 4 options with a one-line description (the recommended
+   one first, already chosen), several choices when it allows, and Other with a
+   box; one Skip and one Submit. The turn ends there, and the answers are the
+   owner's next message, one line per question after its header ("Database:
+   Postgres"; "(no answer)" when none; "(Recommended)" left off); one question
+   sends just the choice, as before. The event keeps the first question where
+   older readers look (`text`, `options`) and all of them in `questions`; older
+   one-question cards still show. The notification says how many more; on GitHub
+   (@coder) they are numbered and answered in one comment.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.

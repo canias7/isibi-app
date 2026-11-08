@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Coder can ask up to 4 questions in one card (your pick 4)
+
+- Like Claude Code: when Coder truly needs you to choose, it can now ask 1 to 4 related questions in one card instead of one at a time.
+- Each question has a small label (like "Database"), its choices with a one-line explanation, and Other to type your own. Some questions let you tick several. The recommended choice comes first and is already picked.
+- One **Submit answers** sends everything as one message, one line per question (like "Database: Postgres"). **Skip** lets Coder decide.
+- Notifications say how many questions are waiting. On GitHub (@coder) they're numbered, and you answer them all in one comment.
+- Old one-question cards in your chats still look and work the same.
+- Live after the next deploy. Screenshots are in the chat.
+- Tests: CD197 and CD198 are new; CD84 updated. 207 tests pass.
+
 ## 2026-11-08: Coder can now see pictures, PDFs and notebooks it opens (your pick 1)
 
 - Coder's `read` used to open only text. Now it also opens what Claude Code's Read opens:

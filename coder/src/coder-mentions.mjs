@@ -346,9 +346,13 @@ export function finalText(job, project, events) {
   const question = [...after].reverse().find((e) => e.type === "question");
   const err = [...after].reverse().find((e) => e.type === "error");
   const gh = after.filter((e) => e.type === "github").map((e) => e.text);
-  const lines = ["@" + job.login + " " + (question ? "Coder has a question:" : err && !done ? "Coder ran into a problem:" : "Done.")];
+  const lines = ["@" + job.login + " " + (question ? (Array.isArray(question.questions) && question.questions.length > 1 ? "Coder has " + Math.min(4, question.questions.length) + " questions:" : "Coder has a question:") : err && !done ? "Coder ran into a problem:" : "Done.")];
   if (done && done.text) lines.push("", String(done.text).slice(0, 6000));
-  if (question) lines.push("", "**" + question.text + "**", ...(question.options || []).map((o) => "- " + (o && typeof o === "object" ? String(o.label || "") + (o.description ? " (" + String(o.description) + ")" : "") : String(o))), "", (question.multi ? "Choose one or more, and answer" : "Answer") + " with `@coder <your choice>`.");
+  const choice = (o) => "- " + (o && typeof o === "object" ? String(o.label || "") + (o.description ? " (" + String(o.description) + ")" : "") : String(o));
+  // UP TO 4 QUESTIONS (owner pick 4, 2026-11-08): numbered, each with its header, answered in one comment.
+  const qs = question && Array.isArray(question.questions) && question.questions.length > 1 ? question.questions.slice(0, 4) : null;
+  if (qs) lines.push("", ...qs.flatMap((q, k) => ["**" + (k + 1) + ". " + (q.header ? q.header + ": " : "") + String(q.text || "") + "**" + (q.multi ? " (choose one or more)" : ""), ...(q.options || []).map(choice), ""]), "Answer them in one comment, by number, e.g. `@coder 1. " + String(((qs[0].options || [])[0] || {}).label || "your choice") + " 2. ...`.");
+  else if (question) lines.push("", "**" + question.text + "**", ...(question.options || []).map(choice), "", (question.multi ? "Choose one or more, and answer" : "Answer") + " with `@coder <your choice>`.");
   if (err && !done) lines.push("", String(err.text).slice(0, 500));
   const branch = project && project.branch;
   if (project && project.pr && project.pr.url) lines.push("", "Pull request: " + project.pr.url);

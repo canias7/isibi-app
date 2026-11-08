@@ -42,7 +42,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 15. **Stop** a running job. Who: you. Status: To test.
 16. **A job keeps going when you close the tab**, and the chat is saved as it goes (a lost machine keeps its steps).
     Test: send a long task, close the tab, come back later. Who: you. Status: To test.
-17. **Question cards**: Coder asks with choices; your pick is your answer. Who: you. Status: To test.
+17. **Question cards**: Coder asks up to 4 questions in one card (your pick 4, 2026-11-08), each with choices, Other and sometimes several picks; one Submit sends all the answers. Who: you. Status: To test.
 
 ## D. Coder's machine
 
@@ -103,7 +103,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 
 48. Your Grok key never enters Coder's machine; each machine has its own lock; your keys' values are hidden in the chat; the code is never stored with us (only on GitHub and the chat's machine).
 49. The buttons on GitHub: deploy, the machine's image check, the desktop and phone builds, and the old app's cleanup (which needs your word each time).
-50. 205 automatic tests, plus 18 machine-admin tests, run before every deploy.
+50. 207 automatic tests, plus 18 machine-admin tests, run before every deploy.
 
 ---
 

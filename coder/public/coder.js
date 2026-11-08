@@ -44,6 +44,20 @@
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // CODER'S QUESTIONS (owner pick 4, 2026-11-08): 1 to 4 in a card; a card from before has one (text, options, multi).
+  const askQuestions = (e) => (Array.isArray(e.questions) && e.questions.length ? e.questions : [e]).slice(0, 4).map((q) => ({
+    text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true),
+    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || '') })).filter((o) => o.label),
+  }));
+  /** The answer a card sends: one question's choices as before; several, each on its own line after its header. */
+  const askReply = (a) => {
+    if (!a || !Array.isArray(a.answers)) return '';
+    // A choice is sent without its "(Recommended)" (that was Coder's own word).
+    const said = a.answers.map((x) => x.picked.map((v) => (v === '__other' ? x.other.trim() : v.replace(/\s*\(Recommended\)$/i, ''))).filter(Boolean).join(', '));
+    if (!said.some(Boolean)) return '';
+    if (a.answers.length === 1) return said[0];
+    return a.qs.map((q, k) => (q.header || q.text) + ': ' + (said[k] || '(no answer)')).join('\n');
+  };
 
   // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
   // A call refused because the session is over (signed out here or on another
@@ -620,7 +634,7 @@
         const name = S.project.title || S.project.repo;
         for (const e of fresh) {
           if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
-          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: e.text || e.reason || '' });
+          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || '' });
         }
       }
       S.next = r.data.next || S.next;
@@ -789,20 +803,24 @@
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
       else if (e.type === 'question') {
-        // CODER'S QUESTION, LIKE CLAUDE CODE'S (owner, 2026-11-06, "2"): each choice
-        // with its explanation, the recommended one first and already chosen, Other
-        // to type your own answer, Skip and Submit. Live only on the last question.
+        // CODER'S QUESTIONS, LIKE CLAUDE CODE'S (owner, 2026-11-06, "2"; up to 4 in one card, owner pick 4,
+        // 2026-11-08): each with its header chip and its choices with their explanations, the recommended
+        // one first and already chosen, Other to type your own answer; one Skip and one Submit. Live only
+        // on the last card.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        const opts = (e.options || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || '') })).filter((o) => o.label);
-        const multi = e.multi === true, kind = multi ? 'checkbox' : 'radio';
-        // The choice is kept here, not in the page, so a redraw never loses it.
+        const qs = askQuestions(e);
+        // The choices are kept here, not in the page, so a redraw never loses them.
         const chatId = S.project ? S.project.id : '';
-        if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, picked: multi || !opts.length ? [] : [opts[0].label], other: '' };
-        const a = live ? S.ask : { picked: [], other: '' };
-        out.push('<div class="cd-ask' + (live ? ' is-live' : '') + '" data-ask="' + i + '"><div class="cd-ask-q">' + esc(e.text) + '</div><div class="cd-ask-list" role="' + (multi ? 'group' : 'radiogroup') + '">' +
-          opts.map((o) => '<label class="cd-ask-row"><input type="' + kind + '" name="cdq' + i + '" value="' + esc(o.label) + '"' + (a.picked.includes(o.label) ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
-          '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="cdq' + i + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="500" autocomplete="off">' : '') + '</span></label>' +
-          '</div>' + (live ? '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '">Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '">Submit <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
+        if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, qs, answers: qs.map((q) => ({ picked: q.multi || !q.options.length ? [] : [q.options[0].label], other: '' })) };
+        const many = qs.length > 1;
+        out.push('<div class="cd-ask' + (live ? ' is-live' : '') + (many ? ' is-many' : '') + '" data-ask="' + i + '">' + qs.map((q, k) => {
+          const a = live ? S.ask.answers[k] : { picked: [], other: '' };
+          const kind = q.multi ? 'checkbox' : 'radio', name = 'cdq' + i + '-' + k;
+          return '<div class="cd-ask-one" data-q="' + k + '"><div class="cd-ask-q">' + (q.header ? '<span class="cd-ask-h">' + esc(q.header) + '</span>' : '') + '<span class="cd-ask-qt">' + esc(q.text) + '</span>' + (q.multi ? '<span class="cd-ask-multi">Choose any</span>' : '') + '</div><div class="cd-ask-list" role="' + (q.multi ? 'group' : 'radiogroup') + '">' +
+            q.options.map((o) => '<label class="cd-ask-row"><input type="' + kind + '" name="' + name + '" value="' + esc(o.label) + '"' + (a.picked.includes(o.label) ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
+            '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="' + name + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="500" autocomplete="off">' : '') + '</span></label>' +
+            '</div></div>';
+        }).join('') + (live ? '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '">Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '">Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
           (live ? '<div class="cd-ask-wait">Needs your input</div>' : ''));
       }
       else if (e.type === 'envchange') {
@@ -1113,16 +1131,17 @@
     on('[data-review-level]', 'change', (e) => saveReview(e.currentTarget.dataset.reviewLevel, { level: e.currentTarget.value }));
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
-    // THE QUESTION CARD: the choice lives in S.ask; Submit sends it as your answer.
-    const askAnswer = () => { const a = S.ask; if (!a) return ''; return a.picked.map((v) => (v === '__other' ? a.other.trim() : v)).filter(Boolean).join(', '); };
-    const askSend = () => { const t = askAnswer(); if (!t) return; S.ask = null; send(t); };
+    // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply).
+    const askSend = () => { const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
+    const askOf = (el) => { const one = el.closest('.cd-ask-one'); return S.ask && one ? S.ask.answers[Number(one.dataset.q)] : null; };
     on('.cd-ask.is-live input[type="radio"], .cd-ask.is-live input[type="checkbox"]', 'change', (e) => {
-      if (!S.ask) return;
-      const box = e.currentTarget.closest('.cd-ask');
-      S.ask.picked = [...box.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked')].map((x) => x.value);
-      if (e.currentTarget.value === '__other' && e.currentTarget.checked) { const t = box.querySelector('.cd-ask-in'); if (t) t.focus(); }
+      const a = askOf(e.currentTarget);
+      if (!a) return;
+      const one = e.currentTarget.closest('.cd-ask-one');
+      a.picked = [...one.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked')].map((x) => x.value);
+      if (e.currentTarget.value === '__other' && e.currentTarget.checked) { const t = one.querySelector('.cd-ask-in'); if (t) t.focus(); }
     });
-    on('.cd-ask-in', 'input', (e) => { if (S.ask) S.ask.other = e.currentTarget.value; });
+    on('.cd-ask-in', 'input', (e) => { const a = askOf(e.currentTarget); if (a) a.other = e.currentTarget.value; });
     on('.cd-ask-in', 'focus', (e) => {
       // Typing your own answer chooses Other.
       const r = e.currentTarget.closest('.cd-ask-row').querySelector('input[value="__other"]');
@@ -1131,7 +1150,7 @@
     on('.cd-ask-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
     on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
     on('[data-ask-go]', 'click', () => askSend());
-    on('[data-ask-skip]', 'click', () => { S.ask = null; send('I skipped your question. Decide for yourself and go on.'); });
+    on('[data-ask-skip]', 'click', () => { const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
     on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.'); });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];
