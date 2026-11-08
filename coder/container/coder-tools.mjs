@@ -231,6 +231,16 @@ const withPics = (text, pictures, extra = {}) => (pictures.length ? PICS_MARK + 
  * opened in the chat): a JPEG at most THUMB_SIDE on its longest side, as a data URL, or "" when it cannot be made small.
  */
 export const THUMB_SIDE = 320, THUMB_MAX = 60_000;
+/**
+ * THE SMALL COPIES OF A PDF'S PAGES OR A NOTEBOOK'S CHARTS (the owner, 2026-11-08: "Do this pls": they did not show
+ * under their step, as a picture read's does): at most STEP_THUMBS, the first ones, as the chat shows them.
+ */
+export const STEP_THUMBS = 4;
+async function thumbsOf(pictures) {
+  const out = [];
+  for (const p of pictures.slice(0, STEP_THUMBS)) { const t = await thumbOf(Buffer.from(p.data, "base64"), p.type === "image/png" ? "png" : "jpeg"); if (t) out.push(t); }
+  return out;
+}
 async function thumbOf(buf, kind) {
   const r = await runProg("convert", [kind + ":-" + (kind === "gif" || kind === "tiff" ? "[0]" : ""), "-auto-orient", "-colorspace", "sRGB", "-thumbnail", THUMB_SIDE + "x" + THUMB_SIDE + ">", "-strip", "-background", "white", "-flatten", "-quality", "70", "jpeg:-"], { input: buf, timeoutMs: 20_000, max: THUMB_MAX });
   const u = r.code === 0 && r.out.length ? "data:image/jpeg;base64," + r.out.toString("base64") : "";
@@ -339,7 +349,8 @@ async function readPdf(abs, rel, pages) {
     }
     let text = parts.join("\n\n");
     if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the rest of these pages did not fit; read fewer pages at a time]";
-    return withPics(text, pictures);
+    const thumbs = await thumbsOf(pictures);
+    return withPics(text, pictures, thumbs.length ? { thumbs } : {});
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
@@ -373,7 +384,8 @@ async function readNotebook(raw, rel) {
   }
   const text = parts.join("\n\n");
   if (Buffer.byteLength(text) > NOTEBOOK_CELLS_MAX || text.length > READ_CHARS) fail(rel + "'s cells come to " + kb(Buffer.byteLength(text)) + ", more than one read takes: read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
-  return withPics(text, pictures);
+  const thumbs = await thumbsOf(pictures);
+  return withPics(text, pictures, thumbs.length ? { thumbs } : {});
 }
 
 /**
