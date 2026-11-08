@@ -69,10 +69,10 @@ jobs:
           echo "All secrets present."
       # READ'S PICTURES AND PDFs (owner item 1, 2026-11-08) are tested with the programs Coder's machine
       # has for them; without them those tests are skipped, so a failed install never stops a deploy.
-      - name: The picture and PDF programs Coder's machine has (for its tests)
+      - name: The picture, PDF and search programs Coder's machine has (for its tests)
         run: |
-          sudo apt-get install -y -qq imagemagick poppler-utils >/dev/null 2>&1 || (sudo apt-get update -qq >/dev/null 2>&1 && sudo apt-get install -y -qq imagemagick poppler-utils >/dev/null 2>&1) || echo "Not installed: those tests are skipped."
-          command -v convert pdftotext || true
+          sudo apt-get install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1 || (sudo apt-get update -qq >/dev/null 2>&1 && sudo apt-get install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1) || echo "Not installed: those tests are skipped."
+          command -v convert pdftotext rg || true
       - name: Run Coder's tests
         run: node --test test/*.test.mjs
       # THE ROOT-ONLY TESTS RUN TOO (the audit, 2026-11-06): handing the files

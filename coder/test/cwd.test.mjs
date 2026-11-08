@@ -15,6 +15,9 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// grep and glob use ripgrep, which Coder's machine has (the Dockerfile); checked where this machine has it too (the deploy
+// installs it for its tests).
+let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
 
@@ -73,8 +76,10 @@ test("CD230 a cd carries over to the next commands, the Claude Code way: only wh
     assert.doesNotMatch(j.told("b2"), /Working directory/, "said only when it changes");
     // read, grep and glob count from there; a file is named by its full path there, as Claude Code's tools do.
     assert.match(j.out("r1"), /^\s*1\tinner/);
-    assert.equal(j.out("g1"), "./README.md:1:inner", "grep searches the folder the commands are in, and lists from it");
-    assert.equal(j.out("f1"), "./deep/x.txt", "glob too (its \"./\" as before)");
+    if (hasRg) {
+      assert.equal(j.out("g1"), "./README.md:1:inner", "grep searches the folder the commands are in, and lists from it");
+      assert.equal(j.out("f1"), "./deep/x.txt", "glob too (its \"./\" as before)");
+    }
     assert.match(j.out("r2"), /^\s*1\ttop/, "a full path reads the same file wherever the commands are");
     // b3: outside the project: the next command is back in the project's folder, and the result says so.
     assert.equal(j.out("b3"), "/tmp\nShell cwd was reset to " + dir);
@@ -170,17 +175,19 @@ test("CD233 grep and glob search another repository of the chat by a short path 
     try { return execFileSync("node", ["--no-warnings", join(import.meta.dirname, "../container/coder-tools.mjs"), b64], { cwd: main, env: { ...process.env, CODER_EXTRA_ROOTS: other, ...env } }).toString().trim(); }
     catch (e) { return "FAILED " + String(e.stdout || "") + String(e.stderr || ""); }
   };
-  // From the project's folder: another repository by a short path.
-  assert.equal(tool("grep", { pattern: "readme", path: "../shop-x1" }), "../shop-x1/README.md:1:other readme");
-  assert.equal(tool("glob", { pattern: "*.txt", path: "../shop-x1" }), "../shop-x1/notes.txt");
-  // As before in the project's own folder.
-  assert.equal(tool("grep", { pattern: "readme" }), "./README.md:1:main readme");
+  if (hasRg) {
+    // From the project's folder: another repository by a short path.
+    assert.equal(tool("grep", { pattern: "readme", path: "../shop-x1" }), "../shop-x1/README.md:1:other readme");
+    assert.equal(tool("glob", { pattern: "*.txt", path: "../shop-x1" }), "../shop-x1/notes.txt");
+    // As before in the project's own folder.
+    assert.equal(tool("grep", { pattern: "readme" }), "./README.md:1:main readme");
+  }
   assert.equal(tool("read", { path: "src/b.js" }), "FAILED error: no such file: src/b.js");
   // With the commands in src: a short path counts from there, files are named by their full path.
   assert.match(tool("read", { path: "a.js" }, { CODER_CWD: join(main, "src") }), /^1\tmain code/);
   assert.equal(tool("read", { path: "b.js" }, { CODER_CWD: join(main, "src") }), "FAILED error: no such file: " + join(main, "src", "b.js"));
   assert.match(tool("write", { path: "c.js", content: "x\n" }, { CODER_CWD: join(main, "src") }), new RegExp("^wrote " + join(main, "src", "c.js")));
-  assert.equal(tool("grep", { pattern: "main" }, { CODER_CWD: join(main, "src") }), "./a.js:1:main code");
+  if (hasRg) assert.equal(tool("grep", { pattern: "main" }, { CODER_CWD: join(main, "src") }), "./a.js:1:main code");
   // Still never outside the project, wherever the commands are.
   assert.equal(tool("read", { path: "../../etc/hostname" }, { CODER_CWD: join(main, "src") }), "FAILED error: that path is outside the project");
 });
