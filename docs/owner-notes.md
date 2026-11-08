@@ -23,7 +23,8 @@ This is part of tool 5 (bash), done now on your word; it changes read too.
 - **To turn it off:** add `CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` to the chat's environment variables (Environment, Environment variables). Then every command starts in the project folder, as before. Claude Code's own setting is `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`.
 - **Outside bash, fixed because it's the same lines:** grep and glob, asked to search one of the chat's other repositories by a short path (like `../docs`), searched the project's own folder instead. Checked on the old code.
 - **Safety:** a folder's name can't add lines to what Coder is told (line breaks are taken out).
-- Tests CD230 to CD235 are new; each fails on the old code. All 244 tests and the 24 real read checks pass. Checked on the real page with a screenshot. Live with your next "merge and deploy".
+- Tests CD230 to CD235 are new; each fails on the old code. All 244 tests and the 24 real read checks pass. Checked on the real page with a screenshot.
+- **The first deploy stopped at its own tests, so nothing went live.** GitHub's test machine has no ripgrep, the search program Coder's grep and glob use (Coder's own machine has it), so two of the new tests failed there. The deploy's test step now installs ripgrep, so grep and glob really get tested there; before, those checks were quietly skipped there. The new tests also skip those two checks on a machine without ripgrep, like the older ones.
 
 ## 2026-11-08: Read: the three changes you asked for (your word: "Fix those 3")
 
