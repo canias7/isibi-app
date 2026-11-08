@@ -103,8 +103,10 @@ test("CD204 read gives about 100,000 characters of whole lines a call, like Clau
   const big = Array.from({ length: 600 }, (_, i) => String(i + 1).padStart(6) + "\tline " + (i + 1) + " " + "z".repeat(90)).join("\n");
   let n = 0;
   const steps = [say("", [call("read", { path: "big.txt" }, "r1"), call("bash", { command: "cat big.txt" }, "b1")]), say("Done.")];
-  const out = await runCoder({ send: async () => steps[Math.min(n++, 1)], emit: () => {}, exec: async () => ({ code: 0, output: big }) }, { text: "read it" });
-  const result = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  const asked = [];
+  await runCoder({ send: async (q) => { asked.push(q); return steps[Math.min(n++, 1)]; }, emit: () => {}, exec: async () => ({ code: 0, output: big }) }, { text: "read it" });
+  // What Grok gets (the saved chat keeps long answers shorter: CD217).
+  const result = (id) => asked[1].messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
   assert.ok(result("r1").includes("   300\tline 300 ") && !/characters not shown/.test(result("r1")), "the read is whole");
   assert.match(result("b1"), /characters not shown/, "a command's long output is still cut, as before");
   assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "read")), /up to about 100,000 characters a call: a longer file gives its first part \(PARTIAL view\) and how to read more with offset and limit; a whole file over 256 KB is refused \(read a part, or grep\); allow_large reads all of it/);
@@ -342,8 +344,9 @@ test("CD210 after a long job is summarized, the files it was working on are read
   let k = 0, summarized = false;
   const events = [], seen = [];
   const deps = {
-    // Summarize exactly once, before the 13th round (12 rounds done: the first 4 are summarized, the newest 8 kept).
-    get compactAt() { return k === 12 && !summarized ? 1000 : 10_000_000; },
+    // Summarize exactly once, before the 13th round (12 rounds done: the first 4 are summarized, the newest 8 kept: they
+    // come to under 40% of this room, as they would in a real job's 450,000).
+    get compactAt() { return k === 12 && !summarized ? 20_000 : 10_000_000; },
     send: async (q) => {
       if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY of the earlier steps"); }
       seen.push(q); k++;
@@ -523,4 +526,180 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   // The note's words.
   assert.equal(commandChangedNote([{ path: "a.js" }, { path: "b.js", gone: true }]), "[This command changed 2 files you read before: a.js, b.js (deleted or moved). Read it again before editing.]");
   assert.equal(commandChangedNote([{ path: "b.js", gone: true }]), "[This command changed 1 file you read before: b.js (deleted or moved).]");
+});
+
+test("CD215 right after a summary made between messages (/compact, a long chat summarized, Rewind's summaries), the next job reads again, once, the files that summary names, like Claude Code: up to five, the most recently changed first, a big one only named, none the kept messages show already; @-mentions name their files for it", async () => {
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const { summaryMessage, isSummary } = await import("../container/coder-compact.mjs");
+  const { mkdtemp, writeFile, utimes } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-after-sum-"));
+  const t0 = Date.now() / 1000 - 3600;
+  for (const [f, text, age] of [["a.js", "const a = 1;\n", 1], ["b.js", "const b = 2;\n", 5], ["kept.js", "k\n", 9], ["big.js", Array.from({ length: 400 }, (_, i) => "// " + i + " " + "x".repeat(70)).join("\n") + "\n", 3]]) { await writeFile(join(dir, f), text); await utimes(join(dir, f), t0 + age, t0 + age); }
+  const history = [
+    summaryMessage("THE SUMMARY", "the conversation before the owner's /compact", ["a.js", "gone.js", "big.js", "kept.js", "b.js"]),
+    { role: "user", content: "ask 2" },
+    { role: "assistant", content: "", tool_calls: [call("read", { path: "kept.js" }, "k1")] },
+    { role: "tool", tool_call_id: "k1", content: "     1\tk" },
+    { role: "assistant", content: "ok" },
+  ];
+  const events = [], seen = [];
+  const out = await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: (e) => events.push(e), exec: machine(dir) }, { messages: history, text: "next" });
+  const note = seen[0].messages.at(-1);
+  assert.equal(note.appNote, true);
+  assert.equal(seen[0].messages.at(-2).content, "next", "right after the owner's message");
+  assert.ok(note.content.startsWith("(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)\n\n"));
+  const order = ["--- b.js ---\n     1\tconst b = 2;", "Referenced file big.js (over 20,000 characters", "--- a.js ---\n     1\tconst a = 1;"];
+  let at = -1;
+  for (const o of order) { const i = note.content.indexOf(o); assert.ok(i > at, "in order: " + o); at = i; }
+  assert.ok(!note.content.includes("kept.js") && !note.content.includes("gone.js"), "not what the kept messages show, nor a file that is gone");
+  assert.deepEqual(events.filter((e) => e.type === "bash").map((e) => e.command), ["b.js (again, after the summary)", "big.js (again, after the summary)", "a.js (again, after the summary)"]);
+  // Once: the summary no longer names them in what is saved, and the next job reads nothing again.
+  const sum = out.messages.find(isSummary);
+  assert.equal(sum.reread, undefined);
+  assert.equal(sum.content, history[0].content);
+  const seen2 = [];
+  await runCoder({ send: async (q) => { seen2.push(q); return say("Done."); }, emit: () => {}, exec: machine(dir) }, { messages: out.messages, text: "again" });
+  assert.equal(seen2[0].messages.at(-1).content, "again");
+  // The @-mention note names its files, so a later summary knows them.
+  const seen3 = [];
+  const out3 = await runCoder({ send: async (q) => { seen3.push(q); return say("Done."); }, emit: () => {}, exec: machine(dir) }, { text: "look at @a.js and @nothere.js", shown: "look at @a.js and @nothere.js" });
+  assert.deepEqual(out3.messages[1].files, ["a.js"]);
+});
+
+test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (\"Read refuses a file whose extension it treats as binary, such as .xlsx, .parquet, .heic, or .zip … the error suggests … a shell command or script that reads the format\"), with a way to read each kind; any other binary file says how to find out what it is; a folder says to list it with glob or a command such as ls", async () => {
+  const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-binary-"));
+  const run = machine(dir);
+  const read = async (path) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64") })).output;
+  // By kind, even when what is inside looks like text.
+  await writeFile(join(dir, "data.zip"), "PK looks like text");
+  await writeFile(join(dir, "Sheet 1.xlsx"), "x");
+  await writeFile(join(dir, "t.parquet"), "x");
+  await writeFile(join(dir, "photo.heic"), "x");
+  assert.equal(await read("data.zip"), "error: data.zip is a binary file (ZIP), not text, so read does not open it: list it with `unzip -l 'data.zip'`, or print one file in it with `unzip -p 'data.zip' path/inside`");
+  assert.match(await read("Sheet 1.xlsx"), /^error: Sheet 1\.xlsx is a binary file \(XLSX\), not text, so read does not open it: read it with a script, e\.g\. python3 with openpyxl or pandas/);
+  assert.match(await read("t.parquet"), /\(PARQUET\).*python3 with pandas and pyarrow, or duckdb$/);
+  assert.match(await read("photo.heic"), /\(HEIC\).*make a PNG of it with a command \(ImageMagick: `convert 'photo\.heic' \/tmp\/out\.png`/);
+  // Any other binary file: by the NUL byte in its start, with how to see what it is.
+  await writeFile(join(dir, "blob.dat"), Buffer.from([1, 2, 0, 3]));
+  assert.equal(await read("blob.dat"), "error: blob.dat is a binary file (not text): see what it is with `file 'blob.dat'`, then use a command or a script that reads that kind of file");
+  // A folder.
+  await mkdir(join(dir, "src"));
+  assert.equal(await read("src"), "error: src is a folder, not a file: list what is in it with glob, or a command such as ls");
+  // An @-mentioned folder still comes as its listing; an @-mentioned binary file is named, not included.
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  await writeFile(join(dir, "src", "app.js"), "x\n");
+  const seen = [];
+  await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: () => {}, exec: run }, { text: "see @src/ and @data.zip", shown: "see @src/ and @data.zip" });
+  const note = seen[0].messages.at(-1).content;
+  assert.ok(note.includes("--- src/ (a folder: what is in it) ---\napp.js"));
+  assert.ok(note.includes("--- data.zip: not included (data.zip is a binary file (ZIP), not text"));
+});
+
+test("CD217 the review (2026-11-08): a job that reads a lot never wipes the saved chat. While Coder works, a read reaches Grok whole; the chat saved between messages keeps each tool's answer and each app note to 12,000 characters (a summary to 40,000), and the chat's record keeps each step's output to 12,000; the size cap cuts only at the owner's messages, and one job over it is shortened, never dropped", async () => {
+  const { runCoder, forSaving, SAVE_ONE_MAX, SAVE_SUMMARY_MAX } = await import("../container/coder-agent.mjs");
+  const { summaryMessage } = await import("../container/coder-compact.mjs");
+  const { capHistory, HISTORY_MAX } = await import("../src/coder-routes.mjs");
+  assert.equal(SAVE_ONE_MAX, 12000);
+  assert.equal(SAVE_SUMMARY_MAX, 40000);
+  // What is kept short, and what is not.
+  const long = (n) => "x".repeat(n);
+  assert.equal(forSaving({ role: "tool", tool_call_id: "a", content: long(60000) }).content.length, 12000 + "\n[… 48,000 more characters are left out of the saved chat, to keep it small: read the file again if you need them]".length);
+  assert.match(forSaving({ role: "user", appNote: true, content: long(30000) }).content, /\n\[… 18,000 more characters are left out of the saved chat/);
+  assert.equal(forSaving(summaryMessage(long(45000), "x")).content.length > 40000, true);
+  assert.equal(forSaving({ role: "user", content: long(50000) }).content.length, 50000, "the owner's own words are never cut");
+  assert.equal(forSaving({ role: "tool", tool_call_id: "a", content: "short" }).content, "short");
+  // The review's case: one earlier job, then sixteen reads of about 35,000 characters each.
+  const file = Array.from({ length: 300 }, (_, i) => String(i + 1).padStart(6) + "\tline " + (i + 1) + " " + "z".repeat(100)).join("\n");
+  const plan = Array.from({ length: 8 }, (_, r) => [call("read", { path: "m" + (2 * r) + ".js" }, "r" + (2 * r)), call("read", { path: "m" + (2 * r + 1) + ".js" }, "r" + (2 * r + 1))]);
+  let k = 0;
+  const asked = [], events = [];
+  const earlier = [{ role: "user", content: "ask 1" }, { role: "assistant", content: "answer 1" }];
+  const out = await runCoder({ send: async (q) => { asked.push(q); k++; return k <= plan.length ? say("", plan[k - 1]) : say("Done."); }, emit: (e) => events.push(e), exec: async () => ({ code: 0, output: file }) }, { messages: earlier, text: "review m0..m15" });
+  assert.ok(asked.at(-1).messages.filter((m) => m.role === "tool").every((m) => m.content === file), "Grok got every read whole");
+  assert.ok(JSON.stringify(out.messages).length < 300000, "the saved part is small: " + JSON.stringify(out.messages).length);
+  const kept = capHistory(out.messages);
+  assert.equal(kept.length, out.messages.length, "and the cap keeps all of it, the earlier job too");
+  assert.deepEqual(kept.slice(0, 3).map((m) => m.content), ["ask 1", "answer 1", "review m0..m15"]);
+  assert.ok(events.filter((e) => e.type === "result").every((e) => e.output.length <= 12100), "the chat's record keeps each output short");
+  // One job alone over the cap: shortened, never dropped; an app note is never where the cut starts.
+  const huge = [{ role: "user", content: "old ask" }, { role: "assistant", content: "old answer" }, { role: "user", content: "big job" }, { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: …) " + long(5000) }];
+  for (let i = 0; i < 60; i++) huge.push({ role: "assistant", content: "", tool_calls: [call("read", { path: "f" + i }, "t" + i)] }, { role: "tool", tool_call_id: "t" + i, content: long(12000) });
+  const capped = capHistory(huge);
+  assert.ok(capped.length > 0 && JSON.stringify(capped).length <= HISTORY_MAX);
+  assert.equal(capped[0].content, "big job", "the older job went; this one starts at the owner's message, not at the app's note");
+  assert.equal(capped.filter((m) => m.role === "tool").length, 60, "every step kept, its answer shortened");
+  assert.match(capped.find((m) => m.role === "tool").content, /\n\[… cut short in the saved chat: read the file again if you need it\]$/);
+});
+
+test("CD218 the review (2026-11-08): a long job that reads a lot keeps its requests to Grok bounded. Its summaries keep the newest rounds whole only up to 40% of the room (at least the newest one), and a job may summarize itself up to 10 times", async () => {
+  const { runCoder, COMPACT_AT, COMPACT_JOB_MAX, KEEP_SHARE } = await import("../container/coder-agent.mjs");
+  const { cutPoint } = await import("../container/coder-compact.mjs");
+  assert.equal(COMPACT_JOB_MAX, 10);
+  assert.equal(KEEP_SHARE, 0.4);
+  // cutPoint: as before when the rounds are small; by size when they are big.
+  const rounds = (n, size) => { const c = [{ role: "user", content: "go" }]; for (let i = 0; i < n; i++) c.push({ role: "assistant", content: "", tool_calls: [call("read", { path: "f" }, "c" + i)] }, { role: "tool", tool_call_id: "c" + i, content: "y".repeat(size) }); return c; };
+  const small = rounds(12, 100);
+  assert.equal(cutPoint(small, 1, 8), 1 + 2 * 4, "small rounds: the newest 8 kept, as before");
+  assert.equal(cutPoint(small, 1, 8, 180000), 1 + 2 * 4);
+  assert.equal(cutPoint(rounds(9, 100), 1, 8, 180000), -1, "no more than keep + 1 small rounds: nothing yet");
+  const big = rounds(5, 100000);
+  assert.equal(cutPoint(big, 1, 8, 180000), 1 + 2 * 4, "big rounds: only the newest that fit (here one) kept");
+  assert.equal(cutPoint(rounds(1, 900000), 1, 8, 180000), -1, "one huge round: nothing older to summarize");
+  // A 40-round job reading a 100,000-character file each round: every request stays bounded.
+  const page = "p".repeat(100000);
+  let k = 0, notes = 0, most = 0;
+  await runCoder({
+    send: async (q) => {
+      if (!q.tools || !q.tools.length) return say("SUMMARY");
+      most = Math.max(most, JSON.stringify(q.messages).length);
+      k++;
+      return k <= 40 ? say("", [call("read", { path: "big" + k + ".txt" }, "r" + k)]) : say("Done.");
+    },
+    emit: (e) => { if (e.type === "note" && /^Compacted/.test(e.text)) notes++; },
+    exec: async () => ({ code: 0, output: page }),
+  }, { text: "read them all", maxRounds: 60 });
+  assert.equal(k, 41);
+  assert.ok(notes > 3 && notes <= 10, notes + " summaries");
+  assert.ok(most < COMPACT_AT + 2 * 110000, "the biggest request was " + most + " characters");
+});
+
+test("CD219 the review (2026-11-08): a chat with no history (new, or rewound to its very start) follows none of the files read before, so a rewind's changes are never put down to a command; Next.js's catch-all routes ([...slug]) are @-mentionable, a .. part never; a PARTIAL view's \"about X KB of Y KB\" counts bytes on both sides", async () => {
+  const { runCoder, mentionedPaths } = await import("../container/coder-agent.mjs");
+  const { fileMentions } = await import("../src/coder-routes.mjs");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { execSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-rewound-"));
+  const followDir = await mkdtemp(join(tmpdir(), "coder-rewound-follow-"));
+  const env = { ...process.env, CODER_SEEN_DIR: followDir };
+  const sh = (command) => { try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", env }) }; } catch (e) { return { code: 1, output: String(e.stdout || "") }; } };
+  const exec = machine(dir, sh, env);
+  await writeFile(join(dir, "a.js"), "const a = 1;\n");
+  await writeFile(join(dir, "b.js"), "const b = 1;\n");
+  let k = 0;
+  const first = await runCoder({ seen: true, exec, emit: () => {}, send: async () => (++k === 1 ? say("", [call("read", { path: "a.js" }, "r1")]) : say("Done.")) }, { text: "read a" });
+  assert.equal(first.status, "done");
+  // Rewind to the very start: the chat's history is empty, and the code goes back (a.js changes).
+  await writeFile(join(dir, "a.js"), "const a = 0;\n");
+  let k2 = 0;
+  const second = await runCoder({ seen: true, exec, emit: () => {}, send: async () => (++k2 === 1 ? say("", [call("read", { path: "b.js" }, "r1")]) : k2 === 2 ? say("", [call("bash", { command: "echo hi" }, "b2")]) : say("Done.")) }, { messages: [], text: "again" });
+  assert.equal(second.messages.find((m) => m.tool_call_id === "b2").content, "exit code 0\nhi\n", "a.js is not put down to echo");
+  // @-mentions: [...slug] is a name; a .. part is refused in both copies.
+  const ask = "see @pages/[...slug].tsx and @app/[[...all]]/page.tsx, not @a/../b.js";
+  assert.deepEqual(mentionedPaths(ask), ["pages/[...slug].tsx", "app/[[...all]]/page.tsx"]);
+  assert.equal(fileMentions(ask), "\n\n(The owner pointed at these files: pages/[...slug].tsx, app/[[...all]]/page.tsx.)");
+  // "about X KB of Y KB": bytes on both sides (é is 2 bytes).
+  await writeFile(join(dir, "wide.txt"), Array.from({ length: 2000 }, (_, i) => "row " + i + " " + "é".repeat(60)).join("\n"));
+  const r = (await exec({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path: "wide.txt" } })).toString("base64") })).output;
+  const m = /\[PARTIAL view: lines 1-(\d+) of 2000 \(about (\d+) KB of (\d+) KB\)/.exec(r);
+  assert.ok(m, r.slice(-200));
+  const lines = Number(m[1]), got = Number(m[2]), all = Number(m[3]);
+  assert.equal(got, Math.round(Buffer.byteLength(Array.from({ length: lines }, (_, i) => "row " + i + " " + "é".repeat(60)).join("\n") + "\n") / 1024));
+  assert.equal(all, Math.round(Buffer.byteLength(Array.from({ length: 2000 }, (_, i) => "row " + i + " " + "é".repeat(60)).join("\n")) / 1024));
 });

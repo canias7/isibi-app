@@ -91,10 +91,10 @@ export const READ_MAX_BYTES = 20 * 1024 * 1024;
 export const EDIT_MAX_BYTES = 5 * 1024 * 1024;
 async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it") {
   const st = await stat(abs);
-  if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
+  if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; " + tooBig);
   const fh = await openFile(abs, "r");
-  try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0)) fail(rel + " is a binary file (not text); use bash to work with it"); } finally { await fh.close(); }
+  try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0)) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file"); } finally { await fh.close(); }
 }
 // ── PICTURES, PDFs AND NOTEBOOKS (owner item 1, 2026-11-07), like Claude Code's Read (its docs: it
 // "reads images (PNG, JPG, …) and presents them visually", "reads PDFs via the pages parameter (max 20
@@ -176,14 +176,14 @@ const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1,
 const withPics = (text, pictures) => (pictures.length ? PICS_MARK + JSON.stringify({ text, pictures: pictures.map((p) => ({ type: p.type, data: p.data })) }) : text);
 async function fileSize(abs, rel, max) {
   const st = await stat(abs);
-  if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
+  if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool");
   return st.size;
 }
 
 async function readPicture(abs, rel, kind) {
   const st = await stat(abs);
-  if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
+  if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   if (st.size > PIC_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, over the 128 MB a picture may be: make a smaller copy with bash (e.g. convert, or crop the part you need) and read that");
   const size = st.size;
   const p = await asPicture(await readFile(abs), kind, PIC_ONE_MAX);
@@ -269,6 +269,27 @@ async function readNotebook(raw, rel) {
   return withPics(text, pictures);
 }
 
+/**
+ * FILES READ REFUSES BY THEIR KIND (Claude Code's docs: "Read refuses a file whose extension it treats as binary, such as
+ * .xlsx, .parquet, .heic, or .zip. … the error suggests … a shell command or script that reads the format"), each with a
+ * way to read it. Any other file is refused as binary when its start holds a NUL byte (plainText).
+ */
+const BINARY_KINDS = [
+  [["zip", "jar", "war", "whl", "apk", "ipa", "nupkg"], "list it with `unzip -l FILE`, or print one file in it with `unzip -p FILE path/inside`"],
+  [["tar", "gz", "tgz", "bz2", "xz", "zst", "7z", "rar"], "list it with `tar -tf FILE` (`7z l FILE` for 7z and rar), or print a compressed text file with `zcat` or `xzcat`"],
+  [["xlsx", "xlsm", "xls", "ods"], "read it with a script, e.g. python3 with openpyxl or pandas (pip install them if they are missing)"],
+  [["docx", "doc", "odt", "pptx", "ppt", "odp"], "read its text with a script, e.g. python3 with python-docx or python-pptx (for a .docx, `unzip -p FILE word/document.xml` also works)"],
+  [["parquet", "avro", "orc", "feather", "arrow"], "read it with a script, e.g. python3 with pandas and pyarrow, or duckdb"],
+  [["heic", "heif", "avif", "psd"], "make a PNG of it with a command (ImageMagick: `convert FILE /tmp/out.png`; for HEIC also heif-convert), then read the PNG"],
+  [["sqlite", "sqlite3"], "open it with `sqlite3 FILE .tables`, then query it"],
+  [["mp3", "m4a", "wav", "flac", "ogg", "aac", "mp4", "mov", "avi", "mkv", "webm"], "look at it with `ffprobe FILE`; for a video, take a frame as a picture with ffmpeg and read that"],
+  [["exe", "dll", "so", "dylib", "o", "a", "class", "pyc", "wasm", "iso", "dmg"], "see what it is with `file FILE`, or its text parts with `strings FILE | head -n 50`"],
+  [["ttf", "otf", "woff", "woff2", "eot"], "it is a font: see what it is with `file FILE`"],
+];
+const BINARY_HOW = new Map(BINARY_KINDS.flatMap(([exts, how]) => exts.map((e) => ["." + e, how])));
+/** A path in single quotes, for a command shown to Coder. */
+const shq = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
+
 export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars }) {
   const { abs, rel } = await inside(path, { mustExist: true });
   // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
@@ -277,6 +298,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const ext = extname(abs).toLowerCase();
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
   if (ext === ".pdf") return readPdf(abs, rel, pages);
+  if (kind.isFile() && BINARY_HOW.has(ext)) fail(rel + " is a binary file (" + ext.slice(1).toUpperCase() + "), not text, so read does not open it: " + BINARY_HOW.get(ext).replace(/FILE/g, shq(rel)));
   if (ext === ".ipynb") {
     await plainText(abs, rel, NOTEBOOK_MAX_BYTES, "read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
     const nb = await readNotebook(await readFile(abs, "utf8"), rel);
@@ -318,7 +340,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   return body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
-    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(used) + " of " + kb(size) + "). Read more with " + next + "]");
+    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + "]");
 }
 
 export async function toolWrite({ path, content }) {
@@ -551,8 +573,11 @@ async function remember(abs, buf) {
  * { followed, changed: [{ path } | { path, gone: true }] }, and the files brought up to date. A file only touched (the
  * same bytes) is no change; one grown past 256 KB is a change, and is not followed after.
  */
-export async function toolChanged() {
+export async function toolChanged({ reset = false } = {}) {
   const dir = seenDir();
+  // A CHAT WITH NO HISTORY (new, or Rewind went back to its very start; the review, 2026-11-08): what Coder read before
+  // is no longer in its conversation, so none of it is followed (else a rewind's changes were put down to a command).
+  if (dir && reset === true) { await seenSave(dir, []).catch(() => {}); return JSON.stringify({ followed: 0, changed: [] }); }
   const list = dir ? await seenList(dir) : [];
   const keep = [], changed = [];
   let dirty = false;

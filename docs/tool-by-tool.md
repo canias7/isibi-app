@@ -108,6 +108,21 @@ Fixed (test CD207, CD208; 217 pass):
   - Claude Code's background commands keep running between messages, and Claude Code wakes up when one ends (test 1). Coder stops them when a message ends.
   - After a summary, Claude Code "reminds Claude which ones [background commands] are still running so it doesn't start a duplicate".
 
+**Double-checked, everything at once** (the owner: "double check everything we have with that tool"):
+- **Every rule, run for real:** a checklist ran the actual read tool as Coder's machine runs it (as its own user, in a project folder) on 24 cases: line numbers, the PARTIAL view and parts that join up exactly, the 256 KB refusal, a part that doesn't fit, allow_large, empty files, an offset past the end, long lines, pictures (and one over 128 MB), PDFs (short, over 10 pages, 20 at a time, password, not a PDF), notebooks with plots, folders, binary files, pipes, null bytes, paths outside the project, an @-mentioned folder, and a command changing a file. 24 of 24 match.
+- **The docs, read again word for word** (tools reference, context window, common workflows, memory). Two new differences, fixed (test CD216):
+  - Claude Code "refuses a file whose extension it treats as binary, such as .xlsx, .parquet, .heic, or .zip", and its error suggests "a shell command or script that reads the format". Coder now does the same, with a way to read each kind.
+  - "Read only reads files, not directories. Claude lists directory contents with a shell command such as ls": Coder's message now says to list a folder with glob or ls.
+- **A gap found:** Claude Code re-reads up to five files "right after compaction", and that includes /compact. Coder did it only after a summary in the middle of a job. Now every summary made between messages (/compact, a long chat summarized, Rewind's summaries) names the files its part worked on, and the next job reads them again, once (tests CD214, CD215).
+- **A fresh review of the code** (a separate reviewer, not shown my reasoning) found five real problems, all from read now giving much bigger answers. All fixed (tests CD217, CD218, CD219):
+  - **A chat could lose its whole memory:** a job that read a lot went over the saved chat's size cap, and the cap then kept nothing. Now the saved chat keeps each answer to 12,000 characters (Coder reads a file again when it needs it; Grok still gets every read whole while it works), and the cap never drops a job.
+  - **A long job's requests could grow without end:** its summaries always kept the newest 8 steps whole, which big reads made too big, and stopped after 3. Now they keep the newest steps only up to 40% of the room, up to 10 times a job. A test job that reads a 100,000-character file 40 times now keeps every request under 670,000 characters (the reviewer measured 5.4 million in a longer job on the earlier code).
+  - **A rewind to a chat's very start** could make Coder's next command be blamed for the rewind's changes. Now a chat with no history follows none of the old files.
+  - **The chat's record kept every big read whole** (heavy to load). Now each step's output there is kept to 12,000 characters.
+  - **Next.js paths like `[...slug].tsx`** were not @-mentionable ("..." looked like going up a folder). Now only a real `..` part is refused.
+  - Also: the PARTIAL view's "about X KB of Y KB" now counts bytes on both sides.
+- **A correction:** I said Claude Code sent its separate "changed on disk" note probably because my command failed. It did it again after a command that worked, for a file outside the git repository. So that note seems to be for changes its in-command check doesn't catch. Either way it names the file and doesn't show the changes, as Coder's does.
+
 Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a prompt for files outside the working folder, network paths) and its `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS` setting. Coder has no permission prompts or settings. It reads only inside the chat's repositories (its extra ones too), plus its own memory file.
 
 

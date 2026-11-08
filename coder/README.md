@@ -69,12 +69,24 @@ code in **each user's own GitHub**.
    message (`fileMentions`). Notes from the app carry `appNote`, so a long chat's
    summary never counts one as the owner's message.
 
-   **After a job is summarized, Coder re-reads up to five files** it was working
-   on (read, changed, viewed with a command, or @-mentioned), the most recently
-   changed first, like Claude Code (`rereadFiles`; the `mtimes` tool gives their
-   times): each up to 20,000 characters (about 5,000 tokens), a bigger one only
-   named as a "Referenced file". Files the kept steps read already, pictures and
-   files that are gone are skipped. They go with the summary message.
+   **Right after a summary, Coder re-reads up to five files** it was working on
+   (read, changed, viewed with a command, or @-mentioned), the most recently
+   changed first, like Claude Code ("Right after compaction, Claude Code re-reads
+   up to five of the files"; `rereadFiles`; the `mtimes` tool gives their times):
+   each up to 20,000 characters (about 5,000 tokens), a bigger one only named as
+   a "Referenced file". Files the kept steps read already, pictures and files
+   that are gone are skipped. After a job's own summary they go with the summary
+   message. A summary made between messages (`/compact`, a long chat summarized
+   before a job, Rewind's summaries) names the files its part worked on
+   (`filesTouched` in `container/coder-compact.mjs`, kept as the summary's
+   `reread`), and the next job reads them again, once, in a note from the app
+   after the owner's message.
+
+   **What read refuses, as Claude Code's Read does:** a folder ("list what is in
+   it with glob, or a command such as ls"); a file whose kind is binary by its
+   name (`.zip`, `.xlsx`, `.parquet`, `.heic` and others: `BINARY_KINDS`), with a
+   command or script that reads that kind; any other file with a NUL byte in its
+   start; a pipe or a device; a path or pattern with a null byte.
 
    **A command that changes a file Coder read says so** (owner, 2026-11-08: "Yes
    do that too"; Claude Code's docs, "Context Claude Code adds on its own": "A note
@@ -510,7 +522,15 @@ conversation past 300 KB has its older jobs summarized (the owner's newest
 three messages stay whole); if no summary can be made, the oldest part is cut
 as before. Within a job, past 450 KB, the job summarizes its own older steps
 (never between a tool's call and its answer, and never the saved history
-before the job), its newest eight rounds whole, at most three times a job.
+before the job), its newest rounds whole: up to eight, and only up to 40% of
+that room (at least the newest one), so that big reads cannot keep it over the
+room; at most ten times a job (`COMPACT_JOB_MAX`; three before the review of
+2026-11-08). While Coder works, a read gives up to about 100,000 characters,
+but the chat saved between messages keeps each tool's answer and each note of
+the app to 12,000 characters, and a summary to 40,000 (`forSaving`), and the
+chat's record keeps each step's output to 12,000; the saved chat's size cap
+(`capHistory`, 400 KB) cuts only at the owner's messages, and one job over it
+has its answers shortened, never the job dropped (it used to leave nothing).
 `/compact [what to keep]` makes the whole conversation one summary and starts
 no job. Rewind offers Claude Code's choices: Restore code and chat, chat only,
 code only (the code ones only when a later job changed files), Summarize from

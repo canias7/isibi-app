@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read, double-checked (your word: "double check everything we have with that tool")
+
+- **Every read rule, run for real:** 24 cases on the actual tool, run the way Coder's machine runs it. All 24 match Claude Code's docs.
+- **Claude Code's docs, read again word for word.** Two small differences, fixed:
+  - Claude Code refuses files like .zip, .xlsx, .parquet and .heic by their type, and says how to open them. Coder now does the same.
+  - The message for a folder now says to list it with glob or ls, like the docs.
+- **A gap, fixed:** after /compact, or when a long chat gets summarized, Coder now re-reads up to 5 of the files it was working on, like Claude Code. Before, it did that only after a summary in the middle of a job.
+- **A fresh review of the code** (a separate reviewer) found five real problems, all caused by read now giving much bigger answers. All fixed:
+  - **The serious one:** a job that read a lot could make the chat lose its whole memory. The saved chat now keeps each answer shorter (Coder can read a file again), and nothing ever gets dropped whole.
+  - **Also serious:** in a long job that reads a lot, the requests to Grok could grow without limit. They now stay bounded.
+  - A rewind to a chat's very start could make Coder's next command get blamed for the rewind's changes.
+  - The chat's record was storing every big read whole, which would have made long chats slow to load.
+  - Next.js paths like `[...slug].tsx` couldn't be @-mentioned.
+- **A correction:** Claude Code's separate "file changed" note isn't about a command failing. It happened again after a command that worked. Either way, it names the file and doesn't show the changes, same as Coder.
+- Tests CD214 to CD219 are new; each fails on the old code. 228 pass. Live with your next "merge and deploy".
+
 ## 2026-11-08: Tool by tool against Claude Code: 1, read (and the test account's password reset)
 
 - **Your plan:** we go through Coder's tools and environment one by one. You try each in both Coder and Claude Code, and I compare them against Claude Code's actual docs. The running record is [`docs/tool-by-tool.md`](tool-by-tool.md).

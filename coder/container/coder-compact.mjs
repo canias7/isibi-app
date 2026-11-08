@@ -43,9 +43,57 @@ export function summaryRequest(messages, focus = "") {
   ], tools: [] };
 }
 
-/** The message that stands in for what was summarized. `what`: which part ("the earlier jobs", …). */
-export function summaryMessage(text, what) {
-  return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim() };
+/**
+ * The message that stands in for what was summarized. `what`: which part ("the earlier jobs", …). `files`: the files that
+ * part worked on (filesTouched), kept as `reread` until Coder's next job reads the most recently changed of them again.
+ */
+export function summaryMessage(text, what, files = []) {
+  const reread = Array.isArray(files) ? files.filter((p) => typeof p === "string" && p).slice(-REREAD_LIST_MAX) : [];
+  return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}) };
+}
+
+/**
+ * A COMMAND THAT VIEWS ONE FILE, which counts as reading it (Claude Code's tools reference: "cat, nl, bat, batcat,
+ * head, tail, sed -n 'X,Yp', grep, egrep, fgrep, and rg, each run on one file with no pipes or redirects"; its
+ * memory docs: reading "includes viewing the file with a Bash command that counts as a read"): the file, or "".
+ */
+export function viewedFile(command) {
+  const c = String(command || "").trim();
+  if (!c || /[|;&<>`$(){}\n\\]/.test(c)) return ""; // no pipes, redirects, chaining or substitution
+  const words = c.match(/'[^']*'|"[^"]*"|\S+/g) || [];
+  const unq = (w) => w.replace(/^'([^']*)'$/, "$1").replace(/^"([^"]*)"$/, "$1");
+  const [prog, ...args] = words;
+  const plain = (skipValue) => { const out = []; for (let i = 0; i < args.length; i++) { if (skipValue.test(args[i])) { i++; continue; } if (!args[i].startsWith("-")) out.push(unq(args[i])); } return out; };
+  if (["cat", "nl", "bat", "batcat", "head", "tail"].includes(prog)) { const f = plain(/^-[nc]$/); return f.length === 1 ? f[0] : ""; }
+  if (prog === "sed") return args.length === 3 && args[0] === "-n" && /^\d+(,\d+)?p$/.test(unq(args[1])) ? unq(args[2]) : "";
+  if (["grep", "egrep", "fgrep", "rg"].includes(prog)) { const f = plain(/^(-[efmABC]|--regexp|--file|--max-count)$/); return f.length === 2 ? f[1] : ""; }
+  return "";
+}
+
+/**
+ * THE FILES A PART OF THE CONVERSATION WORKED ON, the most recent last: read, edited or written by Coder, viewed with a
+ * command (viewedFile), @-mentioned (the app's note names them in `files`), or named by an earlier summary (`reread`).
+ * Right after a summary, Coder reads the most recently changed of them again, like Claude Code ("Right after
+ * compaction, Claude Code re-reads up to five of the files Claude has read or edited in the session").
+ */
+export const REREAD_LIST_MAX = 50;
+export function filesTouched(messages, max = REREAD_LIST_MAX) {
+  const seen = new Map(); let n = 0;
+  const add = (p) => { const k = typeof p === "string" ? p.trim().replace(/^(\.\/)+/, "") : ""; if (!k || k.length > 500) return; seen.delete(k); seen.set(k, ++n); };
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || typeof m !== "object") continue;
+    if (m.role === "user") { for (const p of Array.isArray(m.reread) ? m.reread : []) add(p); for (const p of Array.isArray(m.files) ? m.files : []) add(p); continue; }
+    if (m.role !== "assistant" || !Array.isArray(m.tool_calls)) continue;
+    for (const c of m.tool_calls) {
+      const f = (c && c.function) || {};
+      let a = null;
+      try { a = typeof f.arguments === "string" ? JSON.parse(f.arguments || "{}") : f.arguments; } catch { a = null; }
+      if (!a || typeof a !== "object") continue;
+      if (["read", "edit", "write"].includes(f.name)) add(a.path);
+      else if (f.name === "bash" && typeof a.command === "string") add(viewedFile(a.command));
+    }
+  }
+  return [...seen.keys()].slice(-max);
 }
 
 /** Is this one of those summary messages? */
@@ -62,11 +110,19 @@ export const isAppNote = (m) => !!m && m.role === "user" && m.appNote === true;
  * the first message that may go (after the owner's message that started the job). -1 when there is
  * not enough to compress.
  */
-export function cutPoint(convo, from, keep = 8) {
+export function cutPoint(convo, from, keep = 8, budget = Infinity) {
   const starts = [];
   for (let i = from; i < convo.length; i++) if (convo[i] && convo[i].role === "assistant") starts.push(i);
-  if (starts.length <= keep + 1) return -1;
-  return starts[starts.length - keep];
+  const n = starts.length;
+  // BY SIZE TOO (the review, 2026-11-08: with reads of up to 100,000 characters, eight rounds alone could be more than
+  // the room, so a long job's requests grew without end): the newest rounds kept whole come to at most `budget`, and
+  // at least the newest one is kept.
+  const fits = (k) => JSON.stringify(convo.slice(starts[n - k])).length <= budget;
+  let k = Math.min(keep, n);
+  while (k > 1 && !fits(k)) k--;
+  if (k === n) return -1; // nothing older to summarize
+  if (k === keep && n <= keep + 1) return -1; // they all fit: wait for more than keep + 1 rounds, as before
+  return starts[n - k];
 }
 
 /**

@@ -18,8 +18,10 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
-import { summaryRequest, summaryMessage, cutPoint } from "./coder-compact.mjs";
-import { commandProblem, capOutput, readTimeout, scrub, splitSetup } from "./coder-checks.mjs";
+import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from "./coder-compact.mjs";
+// A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
+export { viewedFile };
+import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
@@ -40,27 +42,27 @@ export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitud
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 /** A job's conversation past this many characters has its older steps summarized (owner item 3). */
 export const COMPACT_AT = 450_000;
+/** A job summarizes its own steps at most this many times (3 before the review, 2026-11-08: with big reads, too few). */
+export const COMPACT_JOB_MAX = 10;
+/** The newest rounds a summary keeps whole come to at most this share of COMPACT_AT. */
+export const KEEP_SHARE = 0.4;
+/**
+ * THE SAVED CHAT KEEPS LONG ANSWERS SHORT (the review, 2026-11-08): while Coder works, a read gives up to about 100,000
+ * characters (more with allow_large), like Claude Code's Read; the chat saved between messages keeps each tool's answer
+ * and each note of Coder's app to SAVE_ONE_MAX (a summary to SAVE_SUMMARY_MAX), so a job that read a lot no longer
+ * pushes the saved chat past its size (which used to lose all of it). Coder reads a file again when it needs it.
+ */
+export const SAVE_ONE_MAX = 12_000, SAVE_SUMMARY_MAX = 40_000;
+export function forSaving(m) {
+  if (!m || typeof m.content !== "string") return m;
+  const max = isSummary(m) ? SAVE_SUMMARY_MAX : m.role === "tool" || m.appNote === true ? SAVE_ONE_MAX : 0;
+  if (!max || m.content.length <= max) return m;
+  return { ...m, content: m.content.slice(0, max) + "\n[… " + (m.content.length - max).toLocaleString("en-US") + " more characters are left out of the saved chat, to keep it small: read the file again if you need them]" };
+}
 /** Pictures one read may show (owner item 1), and the most a job keeps attached: older ones are let go (read again to see them). */
 export const PICS_PER_READ = 20, PICS_KEEP = 24; // 20: a PDF read's pages (like Claude Code's); 24: a whole read and a few more
 /** And at most this much of them (base64): a request to Grok through Coder's server is at most 30 MB (MODEL_BODY_MAX). */
 export const PICS_KEEP_BYTES = 18_000_000;
-/**
- * A COMMAND THAT VIEWS ONE FILE, which counts as reading it (Claude Code's tools reference: "cat, nl, bat, batcat,
- * head, tail, sed -n 'X,Yp', grep, egrep, fgrep, and rg, each run on one file with no pipes or redirects"; its
- * memory docs: reading "includes viewing the file with a Bash command that counts as a read"): the file, or "".
- */
-export function viewedFile(command) {
-  const c = String(command || "").trim();
-  if (!c || /[|;&<>`$(){}\n\\]/.test(c)) return ""; // no pipes, redirects, chaining or substitution
-  const words = c.match(/'[^']*'|"[^"]*"|\S+/g) || [];
-  const unq = (w) => w.replace(/^'([^']*)'$/, "$1").replace(/^"([^"]*)"$/, "$1");
-  const [prog, ...args] = words;
-  const plain = (skipValue) => { const out = []; for (let i = 0; i < args.length; i++) { if (skipValue.test(args[i])) { i++; continue; } if (!args[i].startsWith("-")) out.push(unq(args[i])); } return out; };
-  if (["cat", "nl", "bat", "batcat", "head", "tail"].includes(prog)) { const f = plain(/^-[nc]$/); return f.length === 1 ? f[0] : ""; }
-  if (prog === "sed") return args.length === 3 && args[0] === "-n" && /^\d+(,\d+)?p$/.test(unq(args[1])) ? unq(args[2]) : "";
-  if (["grep", "egrep", "fgrep", "rg"].includes(prog)) { const f = plain(/^(-[efmABC]|--regexp|--file|--max-count)$/); return f.length === 2 ? f[1] : ""; }
-  return "";
-}
 
 /** Lets go of all but the newest PICS_KEEP pictures that reads opened (pictures the owner sent stay). */
 export function keepPics(convo) {
@@ -107,7 +109,7 @@ export const MENTIONS_MAX = 10, MENTIONS_CHARS = READ_CHARS;
 export function mentionedPaths(text) {
   // Letters, digits and . _ - / plus the ( ) [ ] + ~ @ , that real paths have (Next.js's app/(auth)/page.tsx, pages/[id].tsx).
   const found = [...String(text || "").matchAll(/(?:^|\s)@([\w.()\[\]+~@,/-]+\.\w+|[\w()\[\]+~@,-]+\/[\w.()\[\]+~@,/-]*)/g)].map((m) => tidyPath(m[1]));
-  return [...new Set(found.filter((p) => p && !p.includes("..")))].slice(0, MENTIONS_MAX);
+  return [...new Set(found.filter((p) => p && !p.split("/").includes("..")))].slice(0, MENTIONS_MAX);
 }
 /** A path's end without the full stop, comma or unmatched bracket of the sentence around it ("(and @lib/)"). */
 export function tidyPath(p) {
@@ -141,14 +143,14 @@ const stepId = (k) => k + Math.random().toString(36).slice(2, 9);
 
 /** The files the owner @-mentioned, as the note that goes with their message (or null), each shown as a step. */
 export async function mentionNote(deps, paths, { emit = () => {}, touch = () => {} } = {}) {
-  const parts = [], urls = [], names = [];
+  const parts = [], urls = [], names = [], files = [];
   let left = MENTIONS_CHARS, bytes = 0;
   for (const p of paths) {
     const r = await appTool(deps, "read", { path: p });
     let shownOut = "", part = "";
     if (r.code !== 0) {
       if (NOT_A_FILE.test(r.output)) continue;
-      if (/ is a folder; /.test(r.output)) {
+      if (/ is a folder, not a file/.test(r.output)) {
         const l = await appTool(deps, "listing", { path: p });
         if (l.code !== 0) continue;
         shownOut = capOutput(l.output);
@@ -176,16 +178,17 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
         shownOut = text;
         part = "--- " + p + " ---\n" + text + (lost > 0 ? "\n[" + lost + " of its pictures did not fit here: read it yourself to see them]" : "") + (more ? "\n\n" + more : "");
         touch(p);
+        files.push(p);
       }
     }
     const id = stepId("at");
     emit({ type: "bash", id, tool: "read", verb: "Read", command: scrub(p).slice(0, 300) + " (@-mentioned)" });
-    emit({ type: "result", id, code: 0, output: shownOut });
+    emit({ type: "result", id, code: 0, output: capOutput(shownOut) });
     parts.push(part);
   }
   if (!parts.length) return null;
   return {
-    role: "user", appNote: true,
+    role: "user", appNote: true, ...(files.length ? { files } : {}),
     content: "(Note from Coder's app, not the owner: the files the owner @-mentioned, read into their message for you, as Claude Code does" + (urls.length ? "; the pictures of " + names.join(", ") + " are attached here, in order" : "") + ". Go by them; read one again only if it may have changed.)\n\n" + parts.join("\n\n"),
     ...(urls.length ? { images: urls, readPics: true } : {}),
   };
@@ -196,9 +199,12 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
  * command, and the ones the owner @-mentioned, but not those the steps kept after the summary read already. Pictures
  * are not read again. The text that goes with the summary ("" when there is none), each file shown as a step.
  */
-export async function rereadFiles(deps, kept, touched, emit = () => {}) {
+export const REREAD_LEAD = "(Like Claude Code after a summary: the files you were working on, read again just now as they are now, the most recently changed first.)";
+export async function rereadFiles(deps, kept, touched, emit = () => {}, { lead = REREAD_LEAD, touch = () => {} } = {}) {
   const seen = new Set();
   for (const m of Array.isArray(kept) ? kept : []) {
+    // Files the owner @-mentioned in a kept message are there whole already.
+    if (m && m.role === "user" && Array.isArray(m.files)) for (const p of m.files) seen.add(normPath(p));
     if (!m || m.role !== "assistant") continue;
     for (const c of readCalls(m)) {
       if (!c.args) continue;
@@ -225,10 +231,11 @@ export async function rereadFiles(deps, kept, touched, emit = () => {}) {
     const big = text.length > REREAD_ONE || /\n\[PARTIAL view: /.test(text);
     const id = stepId("rr");
     emit({ type: "bash", id, tool: "read", verb: "Read", command: scrub(f.path).slice(0, 300) + " (again, after the summary)" });
-    emit({ type: "result", id, code: 0, output: big ? "(only named again: over " + REREAD_ONE.toLocaleString("en-US") + " characters)" : text });
+    emit({ type: "result", id, code: 0, output: big ? "(only named again: over " + REREAD_ONE.toLocaleString("en-US") + " characters)" : capOutput(text) });
+    touch(f.path);
     parts.push(big ? "Referenced file " + f.path + " (over " + REREAD_ONE.toLocaleString("en-US") + " characters, so not shown again here: read it again if you need it)" : "--- " + f.path + " ---\n" + text);
   }
-  return parts.length ? "(Like Claude Code after a summary: the files you were working on, read again just now as they are now, the most recently changed first.)\n\n" + parts.join("\n\n") : "";
+  return parts.length ? lead + "\n\n" + parts.join("\n\n") : "";
 }
 const normPath = (p) => String(p || "").trim().replace(/^(\.\/)+/, "");
 
@@ -240,8 +247,8 @@ const normPath = (p) => String(p || "").trim().replace(/^(\.\/)+/, "");
  * other way (a command in the background, or between messages: an undo, a rewind) gets no note, and is not put down to
  * Coder's next command either. Only on a machine that follows the files (deps.seen).
  */
-export async function changedFiles(deps) {
-  const r = await appTool(deps, "changed", {});
+export async function changedFiles(deps, args = {}) {
+  const r = await appTool(deps, "changed", args);
   try {
     const j = r.code === 0 ? JSON.parse(r.output) : null;
     return j && Array.isArray(j.changed) ? { followed: Number(j.followed) || 0, changed: j.changed.filter((x) => x && typeof x.path === "string" && x.path).slice(0, 100) } : null;
@@ -461,9 +468,12 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE FILES THIS JOB WORKS ON (read, changed, viewed with a command, @-mentioned), the newest last: after a summary
   // the most recently changed of them are read again (rereadFiles).
   const touched = new Map(); let touchN = 0;
-  // FILES THAT MAY HAVE CHANGED ON DISK are looked at only when Coder's machine keeps copies of what Coder read (deps.seen),
-  // and only once there may be some: an earlier message's, or this job's.
-  let followed = Array.isArray(messages) && messages.length > 0;
+  // FILES THAT MAY HAVE CHANGED ON DISK are looked at only on a machine that follows the files Coder read (deps.seen), and
+  // only while some are followed. At the job's start, what changed between messages (an undo, a rewind) gets no note, as
+  // in Claude Code, and is not put down to Coder's first command; a chat with no history (new, or rewound to its very
+  // start) follows nothing it read before (the review, 2026-11-08).
+  let followed = false;
+  if (deps.seen === true) { const ch = await changedFiles(deps, { reset: !(Array.isArray(messages) && messages.length) }); if (ch) followed = ch.followed > 0; }
   const watching = () => deps.seen === true && (followed || touched.size > 0);
   const touch = (p) => { const k = normPath(p); if (!k || k.length > 500) return; touched.delete(k); touched.set(k, ++touchN); if (touched.size > 200) touched.delete(touched.keys().next().value); };
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
@@ -471,6 +481,18 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   if (mentioned.length) {
     const note = await mentionNote(deps, mentioned, { emit, touch });
     if (note) { convo.push(note); keepPics(convo); }
+  }
+  // RIGHT AFTER A SUMMARY MADE BETWEEN MESSAGES (/compact, a long chat summarized before a job, Rewind's summaries), the
+  // files the summarized part worked on (the summary names them: `reread`) are read again, once, like Claude Code
+  // ("Right after compaction, Claude Code re-reads up to five of the files"): up to five, the most recently changed first.
+  let lastSum = -1;
+  for (let i = jobStart - 1; i >= 0; i--) if (isSummary(convo[i])) { lastSum = i; break; }
+  if (lastSum >= 0 && Array.isArray(convo[lastSum].reread) && convo[lastSum].reread.length) {
+    const named = convo[lastSum].reread.filter((p) => typeof p === "string");
+    const { reread: _done, ...asRead } = convo[lastSum];
+    convo[lastSum] = asRead;
+    const again = await rereadFiles(deps, convo.slice(lastSum + 1), new Map(named.map((p, i) => [normPath(p), i + 1])), emit, { touch, lead: "(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)" });
+    if (again) convo.push({ role: "user", appNote: true, content: again });
   }
   const usage = [];
   const started = now();
@@ -493,8 +515,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
-  try { if (typeof deps.watch === "function") deps.watch(() => convo.map(noPics)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(noPics), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const saved = (m) => forSaving(noPics(m));
+  try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -505,8 +528,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
     const room = deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT;
     // Pictures do not count (they are sent beside the text, and a read keeps at most PICS_KEEP of them).
-    if (room && compactions < 3 && JSON.stringify(convo.map(noPics)).length > room) {
-      const cutAt = cutPoint(convo, jobStart + 1, 8);
+    if (room && compactions < COMPACT_JOB_MAX && JSON.stringify(convo.map(noPics)).length > room) {
+      const cutAt = cutPoint(convo, jobStart + 1, 8, Math.floor(room * KEEP_SHARE));
       if (cutAt > 0) {
         let text = "";
         try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt)), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
@@ -521,9 +544,6 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         }
       }
     }
-    // A LATER MESSAGE: what changed between messages (an undo, a rewind) gets no note, as in Claude Code, and is not put
-    // down to Coder's first command: the files are brought up to date first.
-    if (rounds === 1 && watching()) { const ch = await changedFiles(deps); if (ch) followed = ch.followed > 0; }
     let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "") + (context ? "\n\n" + context : "") }, ...convo], tools: github ? GITHUB_TOOLS : CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
@@ -751,7 +771,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
-        emit({ type: "result", id: c.id, code, output: out });
+        // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
+        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args })) || ""); } catch { more = ""; } }

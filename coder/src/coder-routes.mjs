@@ -42,7 +42,7 @@ import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEV
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
-import { summaryMessage } from "../container/coder-compact.mjs";
+import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
@@ -107,7 +107,7 @@ function tidyPath(p) {
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
   // The same paths Coder's machine reads into the message (mentionedPaths in container/coder-agent.mjs); "@src/" is a folder.
-  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w.()\[\]+~@,/-]+\.\w+|[\w()\[\]+~@,-]+\/[\w.()\[\]+~@,/-]*)/g)].map((m) => tidyPath(m[1])).filter((p) => p && !p.includes("..")))].slice(0, 20);
+  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w.()\[\]+~@,/-]+\.\w+|[\w()\[\]+~@,-]+\/[\w.()\[\]+~@,/-]*)/g)].map((m) => tidyPath(m[1])).filter((p) => p && !p.split("/").includes("..")))].slice(0, 20);
   return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ".)" : "";
 }
 // SEVERAL CHATS AT ONCE (owner, 2026-11-05: "no limit"): each chat has its own
@@ -198,7 +198,7 @@ async function endLostJob(env, bucket, uid, meta, note) {
     const saved = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const base = wholeSteps([...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
     const told = [
-      { role: "user", content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
+      { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
       { role: "assistant", content: "Understood: that job was cut off, and its unsaved changes are gone." },
     ];
     await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...base, ...told]));
@@ -279,8 +279,17 @@ export function capHistory(messages, max = HISTORY_MAX) {
   if (!Array.isArray(messages)) return [];
   let out = messages;
   while (out.length && JSON.stringify(out).length > max) {
-    const next = out.findIndex((m, i) => i > 0 && m && m.role === "user");
-    out = next > 0 ? out.slice(next) : [];
+    // At one of the owner's messages (or a summary), never at a note of Coder's app.
+    const next = out.findIndex((m, i) => i > 0 && m && m.role === "user" && m.appNote !== true);
+    if (next > 0) { out = out.slice(next); continue; }
+    // ONE JOB ALONE IS OVER THE SIZE (the review, 2026-11-08: it used to leave nothing at all): its long answers are cut
+    // shorter instead, and only if that is not enough does the job's own record go, keeping the owner's message.
+    for (const keep of [2000, 300]) {
+      out = out.map((m) => (m && (m.role === "tool" || m.appNote === true) && typeof m.content === "string" && m.content.length > keep ? { ...m, content: m.content.slice(0, keep) + "\n[… cut short in the saved chat: read the file again if you need it]" } : m));
+      if (JSON.stringify(out).length <= max) return out;
+    }
+    const first = out.find((m) => m && m.role === "user" && m.appNote !== true && typeof m.content === "string");
+    return first ? [{ ...first, content: first.content.slice(0, 20000) }, { role: "assistant", content: "(The steps of this job were too long to keep in the saved chat.)" }] : [];
   }
   return out;
 }
@@ -592,7 +601,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
       const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
       const ev = { at: Date.now(), type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
-      await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""))]);
+      await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs))]);
       await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, ev].slice(-MAX_EVENTS));
       const next = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: msgs.length }), at: Date.now() };
       await saveMeta(bucket, uid, next);
@@ -961,7 +970,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const ev = { at: Date.now(), type: "note", text: "Summarized conversation: " + (sumWay === "upto" ? "everything above this point" : "this point and everything below it") + " is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
       const evAt = Math.max(0, Math.min(mark.ev, evs.length));
       const nextEvs = [...evs.slice(0, evAt), ev, ...evs.slice(evAt)].slice(-MAX_EVENTS);
-      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : "")), ...msgs.slice(to)]));
+      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to))), ...msgs.slice(to)]));
       await putJson(bucket, keyOf(uid, id, "events.json"), nextEvs);
       const next = { ...meta, marks: marksAfter(meta.marks, { from, to, evAt }), at: Date.now() };
       await saveMeta(bucket, uid, next);
