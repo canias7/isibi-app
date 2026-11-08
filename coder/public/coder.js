@@ -779,8 +779,15 @@
         stepIcon(e) + '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
         tail +
       '</button>' +
+      // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
+      stepPics(r) +
       (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
     '</div>';
+  }
+  /** The small copies of the pictures a step opened: only JPEG data URLs, as Coder's machine makes them. */
+  function stepPics(r) {
+    const list = r && Array.isArray(r.thumbs) ? r.thumbs.filter((u) => typeof u === 'string' && u.length <= 60000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(u)).slice(0, 4) : [];
+    return list.length ? '<div class="cd-cmd-pics">' + list.map((u) => '<img src="' + u + '" alt="The picture Coder opened" loading="lazy">').join('') + '</div>' : '';
   }
 
   function stepsHTML() {
@@ -1011,8 +1018,17 @@
   }
   function mentionMatches() {
     if (!S.mention || !S.files) return [];
-    const q = S.mention.q.toLowerCase();
-    return S.files.list.filter((p) => p.toLowerCase().includes(q)).sort((a, b) => (a.toLowerCase().startsWith(q) ? 0 : 1) - (b.toLowerCase().startsWith(q) ? 0 : 1) || a.length - b.length).slice(0, 8);
+    return rankMentions(S.files.list, S.mention.q);
+  }
+  /**
+   * THE @ LIST'S ORDER (the owner, 2026-11-08: "Fix those 3"; Claude Code 2.1.280: "a file whose name contains the
+   * query now ranks above one that only matches across its folder names"): a file whose name starts with what was
+   * typed, then one whose name has it, then one that matches only through its folders; shorter paths first.
+   */
+  function rankMentions(list, q) {
+    q = String(q || '').toLowerCase();
+    const rank = (p) => { const l = p.toLowerCase(), name = l.slice(l.lastIndexOf('/') + 1); return name.startsWith(q) ? 0 : name.includes(q) ? 1 : 2; };
+    return list.filter((p) => p.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.length - b.length || (a < b ? -1 : 1)).slice(0, 8);
   }
   function mentionHTML() {
     const list = mentionMatches();

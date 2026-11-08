@@ -252,9 +252,17 @@ test("CD208 Claude Code's other reading rules (its memory, tools and errors docs
 // Code's docs for read: @-mentions, the re-read after a summary, and the instruction files at the start.
 const toolsScript = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
 /** Coder's machine as tests run it: the file tools for real, in `dir`; any other command answered by `other`. */
-const machine = (dir, other = () => ({ code: 0, output: "ok" }), env = process.env) => async ({ command }) => {
+const machine = (dir, other = () => ({ code: 0, output: "ok" }), env = process.env) => async ({ command, payload }) => {
   const { execSync } = await import("node:child_process");
   if (!command.startsWith("node --no-warnings " + toolsScript + " ")) return other(command);
+  // A big request travels in a file, as on Coder's machine (server.mjs writes `payload` and names the file).
+  if (typeof payload === "string" && command.includes("@REQUEST")) {
+    const { writeFileSync, mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const f = mkdtempSync(tmpdir() + "/coder-req-") + "/req.json";
+    writeFileSync(f, payload);
+    command = command.replace("@REQUEST", "@" + f);
+  }
   try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20, env }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; }
 };
 
@@ -960,4 +968,97 @@ test("CD226 the second review (2026-11-08), the tools and the machine: a read ne
   const marks = [{ turn: 1, msg: 0 }, { turn: 2, msg: 2 }].map((m) => ({ ...m, msg: m.msg - capped.dropped })).filter((m) => m.msg >= 0);
   assert.deepEqual(marks, [{ turn: 2, msg: 0 }]);
   assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const dropM = capped\.dropped,/);
+});
+
+test("CD227 the picture a read opens is shown in the chat, small, under its step, like Claude Code's (the owner: \"Fix those 3\"): Coder's machine makes a JPEG of at most 320 pixels; Grok still gets the picture itself, the chat's record only the small copy; an @-mentioned picture too; the page shows only JPEG data URLs", async () => {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { PICS_MARK, THUMB_SIDE } = await import("../container/coder-tools.mjs");
+  const { runCoder, THUMB_RE } = await import("../container/coder-agent.mjs");
+  assert.equal(THUMB_SIDE, 320);
+  const dir = await mkdtemp(join(tmpdir(), "coder-thumb-"));
+  execFileSync("convert", ["-size", "2400x1200", "gradient:blue-white", join(dir, "shot.png")]);
+  const run = machine(dir);
+  const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path: "shot.png" } })).toString("base64") })).output;
+  const j = JSON.parse(out.slice(PICS_MARK.length));
+  assert.match(j.thumb, THUMB_RE);
+  assert.ok(j.thumb.length <= 60000);
+  assert.equal(execFileSync("identify", ["-format", "%w %h", "-"], { input: Buffer.from(j.thumb.split(",")[1], "base64") }).toString(), "320 160");
+  // In a job: the step's result has the small copy; Grok gets the picture itself and no copy in the text.
+  let k = 0;
+  const events = [], seen = [];
+  await runCoder({ send: async (q) => { seen.push(q); return ++k === 1 ? say("", [call("read", { path: "shot.png" }, "r1")]) : say("Done."); }, emit: (e) => events.push(e), exec: run }, { text: "look at shot.png" });
+  const result = events.find((e) => e.type === "result" && e.id === "r1");
+  assert.equal(result.thumbs.length, 1);
+  assert.match(result.thumbs[0], THUMB_RE);
+  const toGrok = JSON.stringify(seen[1].messages);
+  assert.ok(!toGrok.includes(result.thumbs[0].slice(30, 90)), "the small copy is for the chat only");
+  assert.ok(seen[1].messages.at(-1).images.length === 1, "Grok sees the picture itself");
+  // An @-mentioned picture shows its small copy too.
+  const ev2 = [];
+  await runCoder({ send: async () => say("Done."), emit: (e) => ev2.push(e), exec: run }, { text: "what is @shot.png", shown: "what is @shot.png" });
+  assert.match(ev2.find((e) => e.type === "result").thumbs[0], THUMB_RE);
+  // The page: only a JPEG data URL becomes a picture.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  function stepPics(r) {"), b = ui.indexOf("\n  }\n", a);
+  const stepPics = new Function("return " + ui.slice(a, b + 4).trim())();
+  assert.equal(stepPics({ thumbs: [result.thumbs[0]] }), '<div class="cd-cmd-pics"><img src="' + result.thumbs[0] + '" alt="The picture Coder opened" loading="lazy"></div>');
+  assert.equal(stepPics({ thumbs: ["javascript:alert(1)", "data:image/svg+xml;base64,PHN2Zz4=", 'data:image/jpeg;base64,AA" onerror="x'] }), "", "nothing else is drawn");
+  assert.equal(stepPics(null), "");
+  assert.match(readFileSync(HERE("public/coder.css"), "utf8"), /\.cd-cmd-pics img \{/);
+});
+
+test("CD228 pictures the owner sends are saved as files Coder can open again (Claude Code 2.1.275: \"they are now saved where Claude can open them as files\"; the owner: \"Fix those 3\"): in the project's .coder-pictures folder, never saved to the branch; Coder is told where; the newest 50 stay; not in a job from GitHub", async () => {
+  const { mkdtemp, readFile, readdir } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const { PICTURES, PICTURES_KEEP } = await import("../container/coder-tools.mjs");
+  const { NEVER_COMMIT } = await import("../container/server.mjs");
+  assert.equal(PICTURES, ".coder-pictures");
+  assert.equal(PICTURES_KEEP, 50);
+  assert.ok(NEVER_COMMIT.includes(".coder-pictures/"), "never committed (the git folder's own ignore list, before every save)");
+  const dir = await mkdtemp(join(tmpdir(), "coder-sent-"));
+  const run = machine(dir);
+  // A small one and a big one (over 100 KB of base64: it travels in a file).
+  const small = execFileSync("convert", ["-size", "40x30", "xc:red", "png:-"]).toString("base64");
+  const big = execFileSync("convert", ["-size", "600x600", "plasma:", "jpeg:-"]).toString("base64");
+  assert.ok(big.length > 100000);
+  const seen = [], events = [];
+  await runCoder({ now: () => Date.UTC(2026, 10, 8, 9, 30, 5), send: async (q) => { seen.push(q); return say("Done."); }, emit: (e) => events.push(e), exec: run }, { text: "what is in these?", images: [{ type: "image/png", data: small }, { type: "image/jpeg", data: big }] });
+  const files = (await readdir(join(dir, ".coder-pictures"))).sort();
+  assert.deepEqual(files, ["20261108-093005-1.png", "20261108-093005-2.jpg"]);
+  assert.equal((await readFile(join(dir, ".coder-pictures", files[0]))).toString("base64"), small);
+  assert.equal((await readFile(join(dir, ".coder-pictures", files[1]))).toString("base64"), big);
+  assert.equal(seen[0].messages[1].content, "what is in these?\n\n(Note from Coder's app: the owner's pictures are also saved as files in the project, which are never saved to the branch: .coder-pictures/20261108-093005-1.png, .coder-pictures/20261108-093005-2.jpg. Read them again with the read tool when you need to, or copy them where the work needs them.)");
+  assert.equal(seen[0].messages[1].images.length, 2, "Grok still sees them with the message");
+  assert.equal(events.find((e) => e.type === "user").text, "what is in these?", "the chat shows what the owner typed");
+  // From GitHub: nothing saved.
+  const dir2 = await mkdtemp(join(tmpdir(), "coder-sent-"));
+  await runCoder({ send: async () => say("Done."), emit: () => {}, exec: machine(dir2) }, { text: "@coder look", github: true, images: [{ type: "image/png", data: small }] });
+  assert.equal((await readdir(dir2)).includes(".coder-pictures"), false);
+  // Only pictures, by a plain name; the newest 50 stay.
+  const tool = async (args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "save_picture", args })).toString("base64") })).output;
+  assert.match(await tool({ name: "../x", type: "image/png", data: small }), /^error: give a picture/);
+  assert.match(await tool({ name: "x", type: "text/html", data: small }), /^error: give a picture/);
+  for (let i = 0; i < 52; i++) await tool({ name: "20261109-0000" + String(i).padStart(2, "0"), type: "image/png", data: small });
+  const left = (await readdir(join(dir, ".coder-pictures"))).sort();
+  assert.equal(left.length, 50);
+  assert.ok(!left.includes("20261108-093005-1.png") && !left.includes("20261108-093005-2.jpg") && left[0] === "20261109-000002.png", "the oldest four of 54 went first");
+});
+
+test("CD229 the @ list puts a file whose name matches first, as Claude Code's does (2.1.280: \"a file whose name contains the query now ranks above one that only matches across its folder names\"; the owner: \"Fix those 3\")", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  function rankMentions(list, q) {"), b = ui.indexOf("\n  }\n", a);
+  const rankMentions = new Function("return " + ui.slice(a, b + 4).trim())();
+  const list = ["cart/index.js", "src/cart.js", "docs/cart-guide.md", "carousel.js", "src/discart.js", "README.md"];
+  assert.deepEqual(rankMentions(list, "cart"), ["src/cart.js", "docs/cart-guide.md", "src/discart.js", "cart/index.js"]);
+  assert.deepEqual(rankMentions(list, "CART"), rankMentions(list, "cart"), "any case");
+  assert.equal(rankMentions(Array.from({ length: 20 }, (_, i) => "f" + i + ".js"), "f").length, 8);
+  assert.match(ui, /return rankMentions\(S\.files\.list, S\.mention\.q\);/);
 });

@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Read: the three changes you asked for (your word: "Fix those 3")
+
+- **The picture Coder opens shows in the chat**, under its "Read" step, like Claude Code. It's a small copy (at most 320 pixels wide), and it's still there when you open the chat again. Grok still gets the whole picture.
+- **Pictures you paste or attach are saved as files** that Coder can open again later in the chat, like Claude Code ("they are now saved where Claude can open them as files"). They go in a `.coder-pictures` folder in the project, which is never saved to your branch, and Coder is told where they are. So it can look at one again, or copy it into the project (say, as a logo). The newest 50 are kept. Before, a picture was gone after the message it came with.
+- **The @ file list puts files whose name matches first**, like Claude Code ("a file whose name contains the query now ranks above one that only matches across its folder names"). Typing `@cart` now lists `src/cart.js` before `cart/index.js`. Names that start with what you typed come first of all.
+- **Why Coder doesn't need full paths, and Claude Code does:** Claude Code runs on your own computer. Claude can read files anywhere on it, and its commands can move to other folders, so a short path like `src/app.js` could point at different files. A full path can only mean one file, so its tools ask for one. Coder's file tools always start in the chat's project folder, never move, and can only open the project's files, so `src/app.js` always means the same file. A full path works in Coder too.
+- Tests CD227 to CD229 are new; each fails on the old code. 238 pass. Checked on the real page, with screenshots. Live with your next "merge and deploy".
+
 ## 2026-11-08: A new rule for tool by tool (your word: "Ok do that")
 
 - While we go through one tool, anything that isn't that tool goes in its own list, marked as outside it, and I ask you before fixing it. Saved in your preferences file, so every session follows it.

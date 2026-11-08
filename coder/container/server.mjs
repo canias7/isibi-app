@@ -674,7 +674,7 @@ export async function giveTree(dir, owner, { root = PROJECT_ROOT } = {}) {
 // NEVER COMMITTED (live test, 2026-11-06: an `npm install` in a job put
 // node_modules and npm's cache on the branch): installed packages and caches go
 // in the git folder's own ignore list (root's folder, not the repo's .gitignore).
-export const NEVER_COMMIT = ["node_modules/", ".npm/", ".cache/", ".yarn/cache/", ".pnpm-store/", "__pycache__/", "*.pyc", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/", "target/debug/", "target/release/"];
+export const NEVER_COMMIT = [".coder-pictures/", "node_modules/", ".npm/", ".cache/", ".yarn/cache/", ".pnpm-store/", "__pycache__/", "*.pyc", ".venv/", "venv/", ".pytest_cache/", ".mypy_cache/", "target/debug/", "target/release/"];
 async function excludeJunk(dir, gitRoot) {
   const file = join(gitDirFor(dir, gitRoot), "info", "exclude");
   await mkdir(dirname(file), { recursive: true });

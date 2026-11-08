@@ -129,7 +129,7 @@ Fixed (test CD207, CD208; 217 pass):
   - **Instructions and memory after a summary** ("Project-root CLAUDE.md and unscoped rules | Re-injected from disk", "Auto memory | Re-injected from disk"; Claude Code 2.1.311 fixed "stale MEMORY.md and CLAUDE.md content right after automatic compaction"). Coder kept the copy made when the message started, so after editing CODER.md or its memory it went on seeing the old one. Now they come fresh from disk after a job's summary.
   - **.epub** (Claude Code 2.1.301 had read it as text): refused as binary by its kind, like .zip.
   - The same already: re-reading an unchanged file gives its content (Claude Code 2.1.317 "Removed the Read tool's 'file unchanged since your last Read' stub"); a big nested instruction file loads only its start (2.1.309); PDF pages drawn in the read's own folder (2.1.312's clash can't happen); reads that would refill the room right after a summary (2.1.307: fixed here by the review's fix 2).
-  - Different on purpose: Claude Code tells Claude "to always pass absolute paths"; Coder's tools always run in the project, so paths from it work (a whole path inside it works too).
+  - Different on purpose: Claude Code tells Claude "to always pass absolute paths"; Coder's tools always run in the project, so paths from it work (a whole path inside it works too). Why (the owner asked, 2026-11-08): Claude Code runs on the user's computer, where Claude may read files anywhere and its commands may change folders, so a path from "here" could mean different files; a whole path means one. Coder's file tools each start fresh in the chat's project folder (a `cd` in a command never moves them) and open only the project's files (its other repositories next to it, its scratch folder and its memory file aside), so `src/app.js` always means one file.
   - For later (tool 2, write): Claude Code won't let Claude overwrite a notebook or a file it read only partly (a PARTIAL view, or a big instruction file it saw only the start of, 2.1.312) without reading it all.
 - **Checked again before merging** (the owner: "double check again against claude code docs before merging"):
   - **Claude Code's changelog further back** (2.1.260 to 2.1.304, word for word). Coder already matched nearly all its read changes; three more, fixed (test CD224):
@@ -142,8 +142,12 @@ Fixed (test CD207, CD208; 217 pass):
     - **security:** the fresh reload of instructions after a summary made the machine's admin read the repo's folders while Coder's commands could still run (now only the memory file and the top-level CODER.md or AGENTS.md, with no folder on the way);
     - **security:** reading a PDF started Python in the project's folder, so a repo's `pypdf.py` would have run (now isolated, and no program a read runs starts there);
     - re-reads after a summary drew pictures and PDFs only to drop them; pictures counted when sizing the steps kept; the crop hint pointed at `/tmp`, which read refused (now a scratch folder, `/tmp/coder-scratch`, that read can open); a WebP's real size wasn't said; a deleted memory file broke the reload; a rewind point could be lost when a saved chat had to be cut down.
-  - **For later, offered to the owner:** Claude Code saves pictures you paste where Claude can open them as files (2.1.275); its @ file list ranks a file-name match above a folder-name match (2.1.280).
+  - **For later, offered to the owner:** Claude Code saves pictures you paste where Claude can open them as files (2.1.275); its @ file list ranks a file-name match above a folder-name match (2.1.280). Done (below).
   - **For later (instruction files):** Claude Code warns when an instruction file is too long, and a CLAUDE.md can import others with `@path`.
+- **The three the owner asked for** (2026-11-08: "Fix those 3"; tests CD227 to CD229, each failing on the old code; checked on the real page with screenshots):
+  - **The picture a read opened shows in the chat**, under its step, as in Claude Code (seen side by side, below). Read's answer carries a small copy (a JPEG at most 320 on its longest side), kept with the chat's record; Grok never gets the small copy.
+  - **The owner's pictures are saved as files** (2.1.275: "Improved pasted and attached images: they are now saved where Claude can open them as files without a permission prompt"): in the project's `.coder-pictures` folder, never saved to the branch, named by when they were sent, the newest 50 kept. A note added to the owner's message tells Coder where. Not in a job from GitHub.
+  - **The @ list ranks file-name matches first** (2.1.280: "a file whose name contains the query now ranks above one that only matches across its folder names"): a name that starts with what was typed, then one that has it, then a match in a folder only; shorter paths first within each.
 - **A correction:** I said Claude Code sent its separate "changed on disk" note probably because my command failed. It did it again after a command that worked, for a file outside the git repository. So that note seems to be for changes its in-command check doesn't catch. Either way it names the file and doesn't show the changes, as Coder's does.
 
 **Which of the fixes above are read, and which are not** (the owner asked, 2026-11-08: "But is this part of that tool?"):
@@ -155,5 +159,5 @@ Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a 
 
 
 **Differences seen side by side:**
-- **Claude Code shows the picture it opened in the chat.** Coder shows the step ("Read test.png") but not the picture. Offered to the owner.
+- **Claude Code shows the picture it opened in the chat.** Coder showed the step ("Read test.png") but not the picture. Fixed (the owner: "Fix those 3"): the picture shows under the step.
 - **Saving:** Claude Code left the files uncommitted until its stop hook asked, then committed and pushed. Coder commits and pushes every job by itself. Same end result.

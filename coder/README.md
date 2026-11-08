@@ -107,6 +107,25 @@ code in **each user's own GitHub**.
    you care about, such as with ImageMagick via Bash, and then read the crop"):
    read's answer gives the picture's real size, the size shown, and how to crop.
 
+   **The picture a read opened shows in the chat** (the owner, 2026-11-08: "Fix
+   those 3"; Claude Code shows it): read's answer carries a small copy (`thumbOf`
+   in `container/coder-tools.mjs`, a JPEG at most 320 on its longest side and
+   60,000 characters), which the agent puts on the step's result (`thumbs`) and the
+   page shows under the step (`stepPics` in `public/coder.js`). The chat's record
+   keeps it; Grok never gets it.
+
+   **The owner's pictures are saved as files Coder can open again** (Claude Code
+   2.1.275: pasted and attached images "are now saved where Claude can open them
+   as files"): each picture of the owner's message goes to the project's
+   `.coder-pictures` folder (`save_picture`, named by when it was sent, the newest
+   50 kept), which is never saved to the branch (`NEVER_COMMIT` in
+   `container/server.mjs`), and a note added to the owner's message says where.
+   Not in a job from GitHub.
+
+   **The @ list puts file-name matches first** (Claude Code 2.1.280): a file whose
+   name starts with what was typed, then one whose name has it, then one where only
+   a folder matches (`rankMentions` in `public/coder.js`).
+
    **Text read opens:** UTF-8, and UTF-16 with a byte-order mark (Claude Code
    2.1.299; edit still refuses those). Pictures are made sRGB (a CMYK JPEG too).
    `file_path`, Claude Code's own name, is taken for `path`. Besides the project,

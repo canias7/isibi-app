@@ -196,7 +196,17 @@ export async function asPicture(buf, kind, budget = PICS_BUDGET) {
 }
 
 const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
-const withPics = (text, pictures) => (pictures.length ? PICS_MARK + JSON.stringify({ text, pictures: pictures.map((p) => ({ type: p.type, data: p.data })) }) : text);
+const withPics = (text, pictures, extra = {}) => (pictures.length ? PICS_MARK + JSON.stringify({ text, pictures: pictures.map((p) => ({ type: p.type, data: p.data })), ...extra }) : text);
+/**
+ * A SMALL COPY OF A PICTURE FOR THE CHAT (the owner, 2026-11-08: "Fix those 3"; Claude Code shows the picture its Read
+ * opened in the chat): a JPEG at most THUMB_SIDE on its longest side, as a data URL, or "" when it cannot be made small.
+ */
+export const THUMB_SIDE = 320, THUMB_MAX = 60_000;
+async function thumbOf(buf, kind) {
+  const r = await runProg("convert", [kind + ":-" + (kind === "gif" || kind === "tiff" ? "[0]" : ""), "-auto-orient", "-colorspace", "sRGB", "-thumbnail", THUMB_SIDE + "x" + THUMB_SIDE + ">", "-strip", "-background", "white", "-flatten", "-quality", "70", "jpeg:-"], { input: buf, timeoutMs: 20_000, max: THUMB_MAX });
+  const u = r.code === 0 && r.out.length ? "data:image/jpeg;base64," + r.out.toString("base64") : "";
+  return u.length <= THUMB_MAX ? u : "";
+}
 async function fileSize(abs, rel, max) {
   const st = await stat(abs);
   if (st.isDirectory()) fail(rel + " is a folder, not a file: list what is in it with glob, or a command such as ls");
@@ -223,8 +233,9 @@ async function readPicture(abs, rel, kind) {
   }
   const shown = p.w && p.h ? p.w + "×" + p.h : "";
   const smaller = real && p.w && p.h && Math.max(real.w, real.h) > Math.max(p.w, p.h);
+  const thumb = await thumbOf(buf, kind);
   return withPics("Picture: " + rel + " (" + (smaller ? real.w + "×" + real.h : shown ? shown : "") + (smaller || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
-    (smaller ? ", made smaller (" + shown + "): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop." : "."), [p]);
+    (smaller ? ", made smaller (" + shown + "): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop." : "."), [p], thumb ? { thumb } : {});
 }
 
 /** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */
@@ -663,7 +674,25 @@ export async function toolChanged({ reset = false } = {}) {
   return JSON.stringify({ followed: keep.length, changed });
 }
 
-export const TOOLS = { lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged };
+/**
+ * THE OWNER'S PICTURES, SAVED AS FILES CODER CAN OPEN AGAIN (the owner, 2026-11-08: "Fix those 3"; Claude Code 2.1.275:
+ * pasted and attached images "are now saved where Claude can open them as files"), for Coder's app only (no tool Grok
+ * has): in the project's PICTURES folder, which is never saved to the branch (NEVER_COMMIT in server.mjs). The newest
+ * PICTURES_KEEP stay; their names start with when they were sent.
+ */
+export const PICTURES = ".coder-pictures", PICTURES_KEEP = 50;
+export async function toolSavePicture({ name, type, data }) {
+  const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[type];
+  if (!ext || typeof name !== "string" || !/^[\w.-]{1,80}$/.test(name) || typeof data !== "string" || !data || !/^[A-Za-z0-9+/]+=*$/.test(data)) fail("give a picture: its name, type and data");
+  const { abs, rel } = await inside(PICTURES + "/" + name + "." + ext);
+  await mkdir(dirname(abs), { recursive: true });
+  await writeFile(abs, Buffer.from(data, "base64"));
+  const all = (await readdir(dirname(abs))).filter((f) => !f.startsWith(".")).sort();
+  for (const f of all.slice(0, Math.max(0, all.length - PICTURES_KEEP))) await unlink(join(dirname(abs), f)).catch(() => {});
+  return rel;
+}
+
+export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
