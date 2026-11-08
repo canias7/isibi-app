@@ -132,6 +132,13 @@ export const CODER_TOOLS = Object.freeze([
   } },
 ]);
 
+// A JOB STARTED FROM GITHUB (@coder, auto-fix) IS NOT OFFERED WHAT IT MAY NOT DO THERE (live test, 2026-11-08:
+// asked on GitHub to undo, Coder first asked which job, then found undo refused). Like Claude Code's GitHub
+// mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", "propose_env", "pr_comments", "undo_last_job", "auto_fix"]);
+export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
+export const GITHUB_NOTE = "THIS JOB WAS STARTED FROM GITHUB. Some things work only in the owner's chat on gofarther.dev, so you have no tools for them here: undoing a job, asking for a key, changing the environment, posting review comments as the owner, and turning auto-fix on or off. If you are asked for one of them, say at once in your answer that it is done in the chat on gofarther.dev; do not ask questions about it first.";
+
 // THE MACHINE'S TOOLS (owner, 2026-11-07: "can we install all the tools we need?").
 // On the full image (Fly.io's machines, `CODER_IMAGE=full`) Coder is told what is
 // installed and how to use it, like a developer who knows their machine. The
@@ -312,7 +319,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       }
     }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (context ? "\n\n" + context : "") }, ...convo], tools: CODER_TOOLS, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "") + (context ? "\n\n" + context : "") }, ...convo], tools: github ? GITHUB_TOOLS : CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only

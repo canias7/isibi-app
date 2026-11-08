@@ -11,6 +11,13 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Two more fixes found by testing everything (not live yet)
+
+- **Each chat keeps its own message box** (page test, recorded): a message that couldn't be sent in one chat was still in the box after opening another chat, with its pictures and line comments, and would have gone to the wrong chat. Now what you typed, attached or commented stays with its chat and comes back when you open it again. A chat you open for the first time starts empty.
+- **No dead ends on GitHub** (live test C, issue #14 on your test repo): you asked `@coder Undo the last job`. Coder asked which job, then said undo can't be done from GitHub. Some things are only for your chat on gofarther.dev on purpose, because anyone can write on GitHub: undo, asking for a key, changing the environment, posting review comments as you, and turning auto-fix on or off. A job started from GitHub is no longer offered those, like Claude Code's GitHub mode, and Coder is told to say straight away that they're done in the chat on gofarther.dev. If it tried one anyway, it's still refused, as before.
+- Tests: CD202 and CD203 are new. 212 tests pass.
+- Live after the next "merge and deploy", with the three fixes below.
+
 ## 2026-11-08: Three fixes found by testing everything (not live yet)
 
 - **Background commands** (live test A, issue #12 on your test repo): when Coder ran a server in the background, its check said "not running" while it ran, and its stop didn't stop it. Coder checked and stopped them from inside its sandbox, where the machine's process numbers mean nothing. Now Coder's own service, which started the command, checks and stops it, with everything it started.
