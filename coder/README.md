@@ -82,6 +82,19 @@ code in **each user's own GitHub**.
    `reread`), and the next job reads them again, once, in a note from the app
    after the owner's message.
 
+   **A PDF's own page count is not trusted** (Claude Code 2.1.317: "Fixed a PDF's
+   own metadata being able to make Read and @-mentions under-count its pages"):
+   poppler goes by the count the file states, so the read tool also counts the
+   pages themselves with pypdf (on Coder's machine), and when the two differ it
+   reads a mended copy (`PDF_PAGES_PY`): a PDF that says 3 pages but has 12 reads
+   as 12; one whose count is too high (poppler gave up) reads from the copy.
+
+   **After a job's summary, Coder's instructions and memory come fresh from disk**
+   (Claude Code's docs: "Project-root CLAUDE.md and unscoped rules | Re-injected
+   from disk", "Auto memory | Re-injected from disk"; its 2.1.311 fixed stale
+   copies): the machine builds Coder's context with `contextFor`, and again from
+   the repository's files and the memory file after a summary (`freshContext`).
+
    **A big picture is shown smaller, and Coder is told so** (Claude Code's docs:
    "Claude may see a downscaled version of a large screenshot … crop the region
    you care about, such as with ImageMagick via Bash, and then read the crop"):

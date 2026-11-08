@@ -541,6 +541,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           // The files it was working on, read again, go with the summary (not a message of the owner's).
           const again = await rereadFiles(deps, convo.slice(jobStart + 2), touched, emit);
           if (again) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + again };
+          // The repo's instructions and the memory, fresh from disk (Coder may have changed them in this job), as Claude
+          // Code re-injects them "from disk" after compaction (deps.freshContext, from Coder's machine).
+          if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) context = c; } catch { /* the one it had stays */ } }
         }
       }
     }

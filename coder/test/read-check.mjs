@@ -25,4 +25,15 @@ read({ path: "anim.gif" });
 const pdf = read({ path: "doc.pdf" });
 if (!pdf.text.includes("--- Page 1 (picture 1) ---\npdf text ok") || !pdf.text.includes("--- Page 2 (picture 2; no text) ---") || pdf.pictures.length !== 2) throw new Error("the PDF's pages (each a picture too): " + pdf.text);
 read({ path: "nb.ipynb" });
+// A PDF THAT SAYS IT HAS 3 PAGES BUT HAS 12 (Claude Code 2.1.317): its pages are counted (this image's pypdf), so the
+// hidden ones are read too.
+const objs = ["", "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [" + Array.from({ length: 12 }, (_, i) => 4 + i * 2 + " 0 R").join(" ") + "] /Count 3 >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+for (let i = 0; i < 12; i++) { const c = "BT /F1 18 Tf 72 720 Td (Page " + (i + 1) + ") Tj ET"; objs[4 + i * 2] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents " + (5 + i * 2) + " 0 R >>"; objs[5 + i * 2] = "<< /Length " + c.length + " >>\nstream\n" + c + "\nendstream"; }
+let liar = "%PDF-1.4\n"; const offs = [];
+for (let id = 1; id < objs.length; id++) { offs[id] = liar.length; liar += id + " 0 obj\n" + objs[id] + "\nendobj\n"; }
+const xref = liar.length;
+liar += "xref\n0 " + objs.length + "\n0000000000 65535 f \n" + offs.slice(1).map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("") + "trailer\n<< /Size " + objs.length + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF\n";
+writeFileSync("liar.pdf", Buffer.from(liar, "latin1"));
+const hidden = read({ path: "liar.pdf", pages: "10-12" });
+if (!/\(the file says 3, but it has 12\)/.test(hidden.text) || !hidden.text.includes("Page 12") || hidden.pictures.length !== 3) throw new Error("the PDF's own page count was trusted: " + hidden.text.slice(0, 300));
 console.log("read ok");

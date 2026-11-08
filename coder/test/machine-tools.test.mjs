@@ -169,7 +169,9 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   for (const s of ["Ruby 3.1, 3.2, 3.3", "Media and documents", "Playwright with its Chromium, from any folder", "Debugging tools", "Docker without admin rights", "PostgreSQL and Redis", "Chrome and chromedriver", "The master key's jobs (step 4)", "...and nothing else", "Java, Maven, Gradle", "Rust", "Go"]) assert.ok(T.includes(s), s);
   // CODER KNOWS ITS TOOLS on the full image.
   for (const w of ["Ubuntu 24.04", "check-tools", "Python 3.12", "uv", "poetry", "pytest", "Node 22", "/opt/node24/bin", "nvm install", "yarn", "pnpm", "bun", "Ruby 3.3", "rbenv local", "PHP 8.3", "Composer", "Java 21", "Maven", "Gradle", "Go.", "Rust", "clippy", "clang", "cmake", "gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only", "yq", "service postgresql start", "service redis-server start", "psql -d postgres", "Docker and docker compose work without admin rights", "/usr/bin/google-chrome", "--no-sandbox", "your home folder, never in the project", "Playwright", "require(\"playwright\")", "ffmpeg", "ImageMagick", "pdftotext", "pandoc", "pandas", "python-docx", "markitdown", "strace", "valgrind"]) assert.ok(MACHINE_TOOLS.includes(w), w);
-  assert.match(read("container/server.mjs"), /const context = \(env\.CODER_IMAGE === "full" \? \(t\.box \? MACHINE_ADMIN : MACHINE_TOOLS\) \+ "\\n\\n" : ""\) \+ style \+ /);
+  // Made by contextFor (at the start, and from disk again after a job's summary: CD222).
+  assert.match(read("container/server.mjs"), /return \(env\.CODER_IMAGE === "full" \? \(t\.box \? MACHINE_ADMIN : MACHINE_TOOLS\) \+ "\\n\\n" : ""\) \+ style \+ /);
+  assert.match(read("container/server.mjs"), /const context = contextFor\(notes, /);
 });
 
 test("CD154 the docker command sends its engine's downloads to Coder's gate where the engine is: today's engine runs in this machine's own network (gate at 127.0.0.1; GitHub's image check: through 10.0.2.2 it was \"network is unreachable\"); an older one, inside its own (this machine is 10.0.2.2 there); containers may reach this machine either way", async () => {

@@ -721,3 +721,67 @@ test("CD220 a big picture is shown smaller, and Coder is told so, with its real 
   const small = await read("small.jpg");
   assert.match(small.text, /^Picture: small\.jpg \(300×200, JPEG, \d+ KB\), shown to you as a picture after these results\.$/);
 });
+
+test("CD221 a PDF's own page count is not trusted (Claude Code 2.1.317: \"Fixed a PDF's own metadata being able to make Read and @-mentions under-count its pages\"): one that says 3 pages but has 12 is read as 12, one whose count is too high is read from a mended copy; .epub is refused as binary, as Claude Code's Read now does", async () => {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { PICS_MARK } = await import("../container/coder-tools.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-pdfcount-"));
+  const run = machine(dir);
+  const read = async (args) => { const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64") })).output; return out.startsWith(PICS_MARK) ? JSON.parse(out.slice(PICS_MARK.length)) : { text: out, pictures: [] }; };
+  await writeFile(join(dir, "book.epub"), "PK");
+  assert.match((await read({ path: "book.epub" })).text, /^error: book\.epub is a binary file \(EPUB\), not text, so read does not open it: list it with `unzip -l 'book\.epub'`/);
+  let tools = true;
+  try { execFileSync("python3", ["-c", "import pypdf"]); execFileSync("pdfinfo", ["-v"], { stdio: "ignore" }); } catch { tools = false; }
+  if (!tools) return; // pypdf and poppler are on Coder's machine (the machine check, test/read-check.mjs, reads one there)
+  const pdf = (pages, count) => {
+    const objs = [];
+    objs[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+    objs[2] = "<< /Type /Pages /Kids [" + pages.map((_, i) => 4 + i * 2 + " 0 R").join(" ") + "] /Count " + count + " >>";
+    objs[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+    pages.forEach((t, i) => { const c = "BT /F1 18 Tf 72 720 Td (" + t + ") Tj ET"; objs[4 + i * 2] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents " + (5 + i * 2) + " 0 R >>"; objs[5 + i * 2] = "<< /Length " + c.length + " >>\nstream\n" + c + "\nendstream"; });
+    let out = "%PDF-1.4\n"; const offs = [];
+    for (let id = 1; id < objs.length; id++) { offs[id] = out.length; out += id + " 0 obj\n" + objs[id] + "\nendobj\n"; }
+    const xref = out.length;
+    out += "xref\n0 " + objs.length + "\n0000000000 65535 f \n" + offs.slice(1).map((o) => String(o).padStart(10, "0") + " 00000 n \n").join("");
+    return Buffer.from(out + "trailer\n<< /Size " + objs.length + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF\n", "latin1");
+  };
+  await writeFile(join(dir, "liar.pdf"), pdf(Array.from({ length: 12 }, (_, i) => "Page " + (i + 1)), 3));
+  await writeFile(join(dir, "over.pdf"), pdf(["Page one", "Page two"], 9));
+  await writeFile(join(dir, "fine.pdf"), pdf(["Only page"], 1));
+  assert.equal((await read({ path: "liar.pdf" })).text, "error: liar.pdf has 12 pages (the file says 3, but it has 12): give pages, e.g. \"1-5\" (at most 20 at a time)");
+  const tail = await read({ path: "liar.pdf", pages: "10-12" });
+  assert.match(tail.text, /^liar\.pdf: PDF, 12 pages \(the file says 3, but it has 12\), pages 10-12; each page is also shown/);
+  assert.match(tail.text, /--- Page 10 \(picture 1\) ---\nPage 10[\s\S]*--- Page 12 \(picture 3\) ---\nPage 12$/);
+  assert.equal(tail.pictures.length, 3, "the hidden pages are seen too");
+  const over = await read({ path: "over.pdf" });
+  assert.match(over.text, /^over\.pdf: PDF, 2 pages \(its page count was broken: read from a mended copy\); each page/);
+  assert.match(over.text, /--- Page 2 \(picture 2\) ---\nPage two$/);
+  const fine = await read({ path: "fine.pdf" });
+  assert.match(fine.text, /^fine\.pdf: PDF, 1 page; each page is also shown to you as a picture after these results, in order\n\n--- Page 1 \(picture 1\) ---\nOnly page$/, "a sound PDF reads as before");
+});
+
+test("CD222 after a job's summary, Coder's instructions and memory come fresh from disk (Claude Code's docs, \"What survives compaction\": \"Project-root CLAUDE.md and unscoped rules | Re-injected from disk\", \"Auto memory | Re-injected from disk\"; its 2.1.311: \"Fixed Claude seeing stale MEMORY.md and CLAUDE.md content right after automatic compaction when those files were edited earlier in the session\")", async () => {
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  let k = 0, summarized = false, fresh = 0;
+  const systems = [];
+  await runCoder({
+    get compactAt() { return k === 12 && !summarized ? 20_000 : 10_000_000; },
+    freshContext: async () => { fresh++; return "CONTEXT FROM DISK: CODER.md now says use tabs"; },
+    send: async (q) => {
+      if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY"); }
+      systems.push(q.messages[0].content); k++;
+      return k <= 12 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done.");
+    },
+    emit: () => {},
+    exec: async () => ({ code: 0, output: "z".repeat(3000) }),
+  }, { text: "go", context: "CONTEXT AT THE START: CODER.md says use spaces" });
+  assert.equal(fresh, 1, "once, after the summary");
+  assert.ok(systems.slice(0, 12).every((c) => c.endsWith("CONTEXT AT THE START: CODER.md says use spaces")));
+  assert.ok(systems.at(-1).endsWith("CONTEXT FROM DISK: CODER.md now says use tabs"), "the next step has it fresh");
+  // On Coder's machine it is made again from the repository's files and the memory file (server.mjs).
+  const src = (await import("node:fs")).readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(src, /freshContext: async \(\) => \{ const now = await repoInstructions\(dir\); later = now\.later; return contextFor\(now\.notes, await readMemory\(memFile\), now\.later\); \}/);
+});

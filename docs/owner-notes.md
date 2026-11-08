@@ -26,6 +26,11 @@ log (81,000 lines) is in git history.
   - Next.js paths like `[...slug].tsx` couldn't be @-mentioned.
 - **A correction:** Claude Code's separate "file changed" note isn't about a command failing. It happened again after a command that worked. Either way, it names the file and doesn't show the changes, same as Coder.
 - Tests CD214 to CD219 are new; each fails on the old code. 228 pass. Live with your next "merge and deploy".
+- **The last check against the docs, everything fresh** (all the pages about reading, and Claude Code's changelog, its newest 15 versions word for word). Read matches everywhere but three places, all fixed:
+  - **A PDF that lies about its page count:** one saying 3 pages but having 12 was read as 3, and Coder never saw the other 9. Claude Code fixed the same thing last week. Now Coder counts the pages itself and reads all 12. A PDF whose count is too high, which Coder couldn't open before, now opens too.
+  - **After a long job is summarized, Coder reloads the repo's instructions (CODER.md) and its memory fresh**, like Claude Code. Before, if Coder had changed them during the job, it kept seeing the old version.
+  - **.epub files** are refused as binary, like .zip, as Claude Code now does.
+  - Tests CD221 and CD222 are new (each fails on the old code). 231 pass, and all 24 rule checks pass on the real tool. The machine check now reads the lying PDF in Coder's own machine image.
 - **One more check against the docs** (your word: "one more time"). One small fix: when a picture is too big, Coder shows a smaller copy, as Claude Code does. Coder's answer used to give only the smaller size, as if it were the real one. Now it says the real size, that it's seeing a smaller copy, and how to crop the part it needs for fine detail, like Claude Code's docs say. Test CD220; 229 pass.
 
 ## 2026-11-08: Tool by tool against Claude Code: 1, read (and the test account's password reset)

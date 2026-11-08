@@ -207,41 +207,70 @@ function pageRange(s, total) {
   return a >= 1 && b >= a && b <= total ? [a, b] : null;
 }
 
+/**
+ * THE PAGES A PDF REALLY HAS (Claude Code 2.1.317: "Fixed a PDF's own metadata being able to make Read and @-mentions
+ * under-count its pages"): poppler goes by the count the file states, so a PDF that says 3 pages but has 12 showed 3.
+ * pypdf (on Coder's machine) counts the pages themselves; when the two differ, a copy with the true count is written
+ * (as dev, in the read's own temporary folder) and read instead. Prints the true count, or nothing when it cannot tell.
+ */
+const PDF_PAGES_PY = [
+  "import sys",
+  "try:",
+  "  import pypdf",
+  "  r = pypdf.PdfReader(sys.argv[1])",
+  "  if r.is_encrypted: sys.exit(0)",
+  "  n = len(r.pages)",
+  "  if n > 0 and n != int(sys.argv[2]):",
+  "    w = pypdf.PdfWriter()",
+  "    for p in r.pages: w.add_page(p)",
+  "    with open(sys.argv[3], 'wb') as f: w.write(f)",
+  "  print(n)",
+  "except Exception:",
+  "  pass",
+].join("\n");
+
 async function readPdf(abs, rel, pages) {
   await fileSize(abs, rel, READ_MAX_BYTES);
   const info = await runProg("pdfinfo", [abs]);
   if (info.code === -2) fail("this machine has no PDF reader (poppler); use bash");
-  const total = Number((/^Pages:\s+(\d+)/m.exec(info.out.toString("utf8")) || [])[1]) || 0;
   if (/incorrect password|encrypted/i.test(info.err || "")) fail(rel + " is password protected; it cannot be read without its password");
-  if (info.code !== 0 || !total) fail(rel + " is not a valid PDF; it could not be opened" + (info.err ? " (" + info.err + ")" : "") + ". If it should be one, try its text with bash (pdftotext)");
-  const asked = String(pages == null ? "" : pages).trim();
-  if (!asked && total > PDF_PAGES_FREE) fail(rel + " has " + total + " pages: give pages, e.g. \"1-5\" (at most " + PDF_PAGES_MAX + " at a time)");
-  const range = asked ? pageRange(asked, total) : [1, total];
-  if (!range) fail("pages must be one page or a range like \"1-5\", within the PDF's " + total + " page" + (total === 1 ? "" : "s"));
-  if (range[1] - range[0] + 1 > PDF_PAGES_MAX) fail("at most " + PDF_PAGES_MAX + " pages at a time: ask for fewer (e.g. \"" + range[0] + "-" + (range[0] + PDF_PAGES_MAX - 1) + "\")");
-  const t = await runProg("pdftotext", ["-f", String(range[0]), "-l", String(range[1]), "-layout", "-enc", "UTF-8", abs, "-"]);
-  if (t.code !== 0) fail(rel + "'s text could not be read" + (t.err ? " (" + t.err + ")" : ""));
-  const texts = t.out.toString("utf8").split("\f");
-  const parts = [rel + ": PDF, " + total + " page" + (total === 1 ? "" : "s") + (asked ? ", pages " + range[0] + "-" + range[1] : "") + "; each page is also shown to you as a picture after these results, in order"];
-  const pictures = []; let budget = PICS_BUDGET; let dir = null;
+  let total = info.code === 0 ? Number((/^Pages:\s+(\d+)/m.exec(info.out.toString("utf8")) || [])[1]) || 0 : 0;
+  const dir = await mkdtemp(join(tmpdir(), "coder-pdf-"));
   try {
+    // A page count that is wrong (too low: pages hidden; too high: poppler gives up) is mended from the pages themselves.
+    let src = abs, stated = 0;
+    const fixed = join(dir, "true.pdf");
+    const c = await runProg("python3", ["-c", PDF_PAGES_PY, abs, String(total), fixed], { timeoutMs: 30_000, max: 1024 });
+    const real = Number(String(c.out || "").trim());
+    if (Number.isInteger(real) && real > 0 && real !== total && (await stat(fixed).then((x) => x.size > 0, () => false))) { stated = total; total = real; src = fixed; }
+    if (!total) fail(rel + " is not a valid PDF; it could not be opened" + (info.err ? " (" + info.err + ")" : "") + ". If it should be one, try its text with bash (pdftotext)");
+    const says = src === abs ? "" : stated ? " (the file says " + stated + ", but it has " + total + ")" : " (its page count was broken: read from a mended copy)";
+    const asked = String(pages == null ? "" : pages).trim();
+    if (!asked && total > PDF_PAGES_FREE) fail(rel + " has " + total + " pages" + says + ": give pages, e.g. \"1-5\" (at most " + PDF_PAGES_MAX + " at a time)");
+    const range = asked ? pageRange(asked, total) : [1, total];
+    if (!range) fail("pages must be one page or a range like \"1-5\", within the PDF's " + total + " page" + (total === 1 ? "" : "s"));
+    if (range[1] - range[0] + 1 > PDF_PAGES_MAX) fail("at most " + PDF_PAGES_MAX + " pages at a time: ask for fewer (e.g. \"" + range[0] + "-" + (range[0] + PDF_PAGES_MAX - 1) + "\")");
+    const t = await runProg("pdftotext", ["-f", String(range[0]), "-l", String(range[1]), "-layout", "-enc", "UTF-8", src, "-"]);
+    if (t.code !== 0) fail(rel + "'s text could not be read" + (t.err ? " (" + t.err + ")" : ""));
+    const texts = t.out.toString("utf8").split("\f");
+    const parts = [rel + ": PDF, " + total + " page" + (total === 1 ? "" : "s") + says + (asked ? ", pages " + range[0] + "-" + range[1] : "") + "; each page is also shown to you as a picture after these results, in order"];
+    const pictures = []; let budget = PICS_BUDGET;
     for (let n = range[0]; n <= range[1]; n++) {
       const text = String(texts[n - range[0]] || "").replace(/[ \t]+$/gm, "").trim();
       // EVERY PAGE AS A PICTURE TOO (the owner, 2026-11-08: "Yes fix that too"), like Claude Code's Read, whose page
       // reads "render pages with pdftoppm": a chart or a layout on a page with text is seen as well, and its text is
       // kept. The pages share the read's room for pictures fairly, so all of them fit (smaller when there are many).
-      if (!dir) dir = await mkdtemp(join(tmpdir(), "coder-pdf-"));
       const share = Math.min(PIC_ONE_MAX, Math.floor(budget / (range[1] - n + 1)));
-      const r = await runProg("pdftoppm", ["-f", String(n), "-l", String(n), "-scale-to", "1400", "-png", "-singlefile", abs, join(dir, "p")]);
+      const r = await runProg("pdftoppm", ["-f", String(n), "-l", String(n), "-scale-to", "1400", "-png", "-singlefile", src, join(dir, "p")]);
       const p = r.code === 0 ? await asPicture(await readFile(join(dir, "p.png")).catch(() => Buffer.alloc(0)), "png", share) : { why: "it could not be drawn" };
       if (p.why) { parts.push("--- Page " + n + " (not shown as a picture: " + p.why + (text ? "" : "; no text") + ") ---" + (text ? "\n" + text : "")); continue; }
       pictures.push(p); budget -= p.data.length;
       parts.push("--- Page " + n + " (picture " + pictures.length + (text ? "" : "; no text") + ") ---" + (text ? "\n" + text : ""));
     }
-  } finally { if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {}); }
-  let text = parts.join("\n\n");
-  if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the rest of these pages did not fit; read fewer pages at a time]";
-  return withPics(text, pictures);
+    let text = parts.join("\n\n");
+    if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the rest of these pages did not fit; read fewer pages at a time]";
+    return withPics(text, pictures);
+  } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
 /** A JUPYTER NOTEBOOK as its cells with their outputs (pictures in them shown); null when it is not one. */
@@ -283,7 +312,7 @@ async function readNotebook(raw, rel) {
  * way to read it. Any other file is refused as binary when its start holds a NUL byte (plainText).
  */
 const BINARY_KINDS = [
-  [["zip", "jar", "war", "whl", "apk", "ipa", "nupkg"], "list it with `unzip -l FILE`, or print one file in it with `unzip -p FILE path/inside`"],
+  [["zip", "jar", "war", "whl", "apk", "ipa", "nupkg", "epub"], "list it with `unzip -l FILE`, or print one file in it with `unzip -p FILE path/inside`"],
   [["tar", "gz", "tgz", "bz2", "xz", "zst", "7z", "rar"], "list it with `tar -tf FILE` (`7z l FILE` for 7z and rar), or print a compressed text file with `zcat` or `xzcat`"],
   [["xlsx", "xlsm", "xls", "ods"], "read it with a script, e.g. python3 with openpyxl or pandas (pip install them if they are missing)"],
   [["docx", "doc", "odt", "pptx", "ppt", "odp"], "read its text with a script, e.g. python3 with python-docx or python-pptx (for a .docx, `unzip -p FILE word/document.xml` also works)"],
