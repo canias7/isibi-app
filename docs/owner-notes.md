@@ -61,6 +61,7 @@ log (81,000 lines) is in git history.
   - **So Coder now does the same:** a command that changed a file Coder read says so in its result: "This command changed 1 file you read before: a.js. Read it again before editing."
   - A file changed any other way (in the background, or between messages) gets no note, like Claude Code, and is never blamed on Coder's next command.
   - My first version also showed the changed lines in those other cases. Your tests showed Claude Code doesn't, so I took that out.
+  - Then Claude Code gave me its note in my own session: after a command of mine changed a file I had read (and ended with an error), it said the file "changed on disk since you last read it… The changes are not shown here". So its note names the file and doesn't show the lines, as Coder's now does.
   - Coder's machine keeps only each file's time, size and a fingerprint (no copies), for up to 100 files a chat.
   - Test CD213 is new (it fails on the old code). 222 pass, and I checked it as the machine's own user too. Live with your next "merge and deploy".
   - **Noted for the bash tool:** Claude Code's background commands keep running between messages, and it wakes up when one ends. Coder stops them when a message ends.
