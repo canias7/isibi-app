@@ -230,3 +230,35 @@ Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a 
   - **Against the docs** (the owner: "look up in the docs"): "By default one call returns at most 25,000 tokens … and refuses a whole file over 256 KB" (Coder: 100,000 characters, as it cannot count Grok's tokens first; the same 256 KB); "the first page of the file, with a `PARTIAL view` notice saying how much of the file it received and how to read more with `offset` and `limit`" (Coder's says that); Grep is named for the errors over 256 KB or a part over the limit (Coder's say "search it with grep"); "Reading an empty file returns a notice that the file exists but its contents are empty, and an `offset` past the last line returns a notice giving the file's line count" (Coder's do). How lines are counted, the "Warning:" wording and the extra sentences of the real note are not in the docs.
   - **Added** (the owner: "ok yes"): the PARTIAL note ends with "Do not answer from this part alone if the answer may be further in the file." (`PARTIAL_HINT`), as Claude Code's real note does ("Do NOT answer from this page alone if the answer may be further in the file"). CD204 checks it.
 - **Outside read, seen in the recording (2:07), done on the owner's word** ("do it like this"): the line over a group of steps said "5 steps" and "a command failed" when the failed step was a read. Claude Code's docs and changelog name each kind in a collapsed group ("Ran 3 shell commands", "Read N files", "Searched for", "Listed N directories"; "a call that did not run" must not read as if it ran) but never show a failure's words. Now the line names each kind in the order they came ("Ran 1 command, read 4 files"; `groupWords` in `public/coder.js`) and what failed by its kind ("a read failed", "2 edits failed", "2 steps failed" for mixed kinds). Test CD236.
+
+---
+
+## 2. write (Claude Code: Write)
+
+**Claude Code's docs** (tools reference, "Write tool behavior"; errors):
+- "creates a new file or overwrites an existing one with the full content provided. It doesn't append or merge."
+- Reading first: older models always; "Newer models can overwrite a file they never read this session"; but "Jupyter notebooks, and files Claude has read only partially with a `PARTIAL view` notice, require the read on every model." Not for new files. "Viewing the file with Bash also satisfies this requirement."
+- Files that are not valid UTF-8: the docs say Write may replace one "unless the new content contains U+FFFD".
+- Links: "Refusing to write <path>: it is a symbolic link. Write to the link's target path instead".
+
+**Tried side by side, for real** (the owner: "Compare it to claude code write ones and make sure they need fixing pls"; Claude Code 2.1.319's own Write, run by a helper in this session; Coder's write tool run as its machine runs it, on the same files):
+
+| Case | Claude Code | Coder before |
+|---|---|---|
+| A new file | written: "File created successfully at: /home/user/cc-test3/newfile.txt" | written |
+| A plain file not read | written: "The file /home/user/cc-test3/plain.txt has been updated successfully." | written |
+| A file read only partly (a PARTIAL view) | refused: "File has not been read yet. Read it first before writing to it." | **written: the 389 lines it never saw were lost** |
+| A notebook not read | refused, the same words | **written** |
+| A file in an old encoding (Windows-1252) | refused, even with the right text: "File is not valid UTF-8: … These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. … To replace the whole file with new UTF-8 text anyway, delete it first, then Write it." (stricter than its docs) | **written: "�" saved over the real "é"** |
+| A UTF-16 file | kept UTF-16 (its byte-order mark, two bytes a letter) | **made UTF-8** |
+| A path that is a link | refused: "Refusing to write /home/user/cc-test3/link.txt: it is a symbolic link. Write to the link's target path instead: /home/user/cc-test3/target.txt." | **written through: target.txt changed** |
+| A file inside a linked folder | written | written |
+
+**Fixed** (the owner: "just use the same GitHub account … " then on with write; tests CD243, CD244 and CD245, each failing on the old code; 254 pass, and the 24 real read checks):
+- A file read only partly, or a notebook not read in this chat: "error: big.txt has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first." (`WRITE_NOT_READ`). Read marks a PARTIAL view in the chat's record of files (`markPartial`); any later read, a write or an edit clears it. A notebook's read now counts as reading it (it did not before: the test found that).
+- Not valid UTF-8: refused, nothing written, with Claude Code's ways out (a command that keeps the encoding, asking the owner, or deleting the file first).
+- UTF-16 (either byte order): kept, with its byte-order mark.
+- A path that is a link: "error: Refusing to write link.txt: it is a symbolic link. Write to the link's target path instead: target.txt."
+- Read's note on old encodings now says "Write refuses it, and edit would save the � …" (edit is tool 3).
+- **Not changed, offered:** the words after a write ("wrote a.txt (2 lines)"; Claude Code: "File created successfully at: …" / "The file … has been updated successfully.").
+- **Kept, on purpose:** at most about 90,000 characters a call (how much Grok sends in one answer); the docs give no limit.

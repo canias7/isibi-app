@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Write (tool 2): Claude Code's checks, after trying both for real
+
+- **GitHub account:** testing stays on `canias7` (your word: "just use the same GitHub account, i let it all the repos"). Coder's app can now reach all of its repositories. The account made today with cristiananias7@gmail.com isn't connected.
+- **Tried for real, side by side:** Claude Code's own Write and Coder's write, on the same files. Five differences, all where Coder could lose or change something by mistake:
+  - **A file Coder read only part of:** Claude Code refuses to replace it until it's read; Coder replaced it, and the 389 lines it never saw were gone.
+  - **A notebook Coder hadn't read:** the same.
+  - **A file in an old text format:** Claude Code refuses any write over it; Coder saved "�" over the real "é".
+  - **A UTF-16 file:** Claude Code keeps it UTF-16; Coder changed it.
+  - **A shortcut (link):** Claude Code refuses and names the real file; Coder changed the real file without knowing.
+- **Now Coder does what Claude Code does** in all five. A new file, a file not read yet, and a file inside a linked folder are written as before, as in Claude Code.
+- Tests CD243 to CD245 (each fails on the old code); all 254 pass, and the 24 real read checks.
+- **Not changed, your call:** the words after a write ("wrote a.txt (2 lines)"; Claude Code says "File created successfully at: …").
+- Next: merge, deploy and test write live in the browser, on your word.
+
 ## 2026-11-08: Read: a note on files saved in an old text format (your word: "Yea fix that")
 
 - **Found while checking write:** when a file is saved in an old text format (like Windows-1252, common for older Windows files), letters like "é" can't be read and show as "�". Claude Code's read then adds a note saying so, and that edit and write shouldn't be used on it. Coder's read said nothing, so Coder didn't know, and its write then saved "�" over the real letters.

@@ -177,6 +177,14 @@ code in **each user's own GitHub**.
    edit and write would save that over them, so change it with a command that keeps
    its encoding (iconv), or ask the owner about converting it (`NOT_UTF8_NOTE`).
 
+   **Write has Claude Code's checks** (tried side by side with Claude Code's own
+   Write): it won't replace a file Coder read only part of (a PARTIAL view) or a
+   notebook it hasn't read ("… has not been read yet. Read it first before writing
+   to it"); it won't replace a file that isn't valid UTF-8 (nothing is written; a
+   command that keeps the encoding, or asking the owner, or deleting it first); it
+   keeps a UTF-16 file UTF-16; and it refuses a path that is a link, naming its
+   target. A new file, or a plain one not read, is written as before.
+
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the
    new working directory carries over to later Bash commands as long as it stays

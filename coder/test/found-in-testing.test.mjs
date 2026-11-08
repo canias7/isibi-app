@@ -1220,7 +1220,7 @@ test("CD241 read says when a file is not valid UTF-8 (an old encoding such as Wi
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  assert.match(NOT_UTF8_NOTE, /^\[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. Its undecodable bytes show above as U\+FFFD \(�\)\. Edit and write would save the � in their place and lose those bytes for good, so do not use them on it: change it with a command that keeps its encoding \(iconv\), or ask the owner whether to convert it to UTF-8\.\]$/);
+  assert.match(NOT_UTF8_NOTE, /^\[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. Its undecodable bytes show above as U\+FFFD \(�\)\. Write refuses it, and edit would save the � in their place and lose those bytes for good, so do not use edit on it either: change it with a command that keeps its encoding \(iconv\), or ask the owner whether to convert it to UTF-8\.\]$/);
   const dir = await mkdtemp(join(tmpdir(), "coder-enc-"));
   const run = machine(dir);
   const read = async (path, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path, ...args } })).toString("base64") })).output;
@@ -1255,4 +1255,82 @@ test("CD242 a missing file is named with the folder a short path counts from, as
   assert.equal(steps.filter((e) => e.type === "bash").length, 0);
   assert.ok(!first.messages.some((m) => m.appNote), "no note for a path that is not a file");
   assert.equal(mentionNote === undefined || typeof mentionNote === "function", true);
+});
+
+test("CD243 write does not replace a file Coder read only part of (a PARTIAL view), nor a notebook it has not read, as Claude Code's Write (tried side by side, 2026-11-08: \"File has not been read yet. Read it first before writing to it.\"); once read, it may; a new file, or a plain one not read, is written as before; nothing is checked where no files are followed", async () => {
+  const { WRITE_NOT_READ } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(WRITE_NOT_READ, "has not been read yet. Read it first before writing to it");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wread-"));
+  const follow = await mkdtemp(join(tmpdir(), "coder-wread-follow-"));
+  const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const big = Array.from({ length: 1500 }, (_, i) => "line " + (i + 1) + " " + "w".repeat(80)).join("\n") + "\n";
+  await writeFile(join(dir, "big.txt"), big);
+  assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1500/);
+  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: big.txt has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
+  assert.equal(await readFile(join(dir, "big.txt"), "utf8"), big, "untouched");
+  await tool("read", { path: "big.txt", offset: 1000 });
+  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "wrote big.txt (2 lines)", "read again: allowed");
+  // A notebook: not before it is read; then yes.
+  await writeFile(join(dir, "nb.ipynb"), JSON.stringify({ cells: [], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+  assert.equal(await tool("write", { path: "nb.ipynb", content: "{}" }), "error: nb.ipynb has not been read yet. Read it first before writing to it: a notebook is read before it is replaced, so no cell or output is lost.");
+  await tool("read", { path: "nb.ipynb" });
+  assert.match(await tool("write", { path: "nb.ipynb", content: "{\"cells\": []}" }), /^wrote nb\.ipynb/);
+  // A new file, and a plain file not read: written.
+  assert.match(await tool("write", { path: "new.txt", content: "a\n" }), /^wrote new\.txt/);
+  await writeFile(join(dir, "plain.txt"), "old\n");
+  assert.match(await tool("write", { path: "plain.txt", content: "new\n" }), /^wrote plain\.txt/);
+  // A machine that follows nothing: no check.
+  await writeFile(join(dir, "nb2.ipynb"), "{}");
+  const bare = machine(dir);
+  assert.match((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path: "nb2.ipynb", content: "{}" } })).toString("base64") })).output, /^wrote nb2\.ipynb/);
+});
+
+test("CD244 write does not replace a file that is not valid UTF-8 (an old encoding, or binary): nothing is written, as Claude Code's Write (tried side by side: \"File is not valid UTF-8 … so nothing was written … delete it first, then Write it\"); deleted first, it may; a UTF-16 file keeps its UTF-16 (little- or big-endian, with its byte-order mark), as there", async () => {
+  const { mkdtemp, writeFile, readFile, unlink } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wenc-"));
+  const run = machine(dir);
+  const write = async (path, content) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path, content } })).toString("base64") })).output;
+  const old = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+  await writeFile(join(dir, "old.txt"), old);
+  assert.equal(await write("old.txt", "café\n"), "error: old.txt is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+  assert.deepEqual(await readFile(join(dir, "old.txt")), old, "untouched");
+  await unlink(join(dir, "old.txt"));
+  assert.match(await write("old.txt", "café\n"), /^wrote old\.txt/, "deleted first: a new file");
+  assert.equal(await readFile(join(dir, "old.txt"), "utf8"), "café\n");
+  // UTF-16, both ways round.
+  await writeFile(join(dir, "le.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("old\n", "utf16le")]));
+  assert.match(await write("le.txt", "nëw\n"), /^wrote le\.txt/);
+  assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("nëw\n", "utf16le")]));
+  const be = Buffer.from("old\n", "utf16le"); be.swap16();
+  await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
+  assert.match(await write("be.txt", "nëw\n"), /^wrote be\.txt/);
+  const want = Buffer.from("nëw\n", "utf16le"); want.swap16();
+  assert.deepEqual(await readFile(join(dir, "be.txt")), Buffer.concat([Buffer.from([0xfe, 0xff]), want]));
+  // A UTF-8 file stays UTF-8.
+  await writeFile(join(dir, "u8.txt"), "olé\n");
+  assert.match(await write("u8.txt", "nëw\n"), /^wrote u8\.txt/);
+  assert.equal(await readFile(join(dir, "u8.txt"), "utf8"), "nëw\n");
+});
+
+test("CD245 write refuses a path that is itself a link and names its target, as Claude Code's Write (tried side by side: \"Refusing to write …/link.txt: it is a symbolic link. Write to the link's target path instead: …/target.txt.\"); the target is untouched; a file inside a linked folder is written, as there", async () => {
+  const { mkdtemp, writeFile, readFile, symlink, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wlink-"));
+  const run = machine(dir);
+  const write = async (path, content) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path, content } })).toString("base64") })).output;
+  await writeFile(join(dir, "target.txt"), "target\n");
+  await symlink("target.txt", join(dir, "link.txt"));
+  assert.equal(await write("link.txt", "via link\n"), "error: Refusing to write link.txt: it is a symbolic link. Write to the link's target path instead: target.txt.");
+  assert.equal(await readFile(join(dir, "target.txt"), "utf8"), "target\n");
+  await mkdir(join(dir, "real"));
+  await symlink("real", join(dir, "linked"));
+  assert.match(await write("linked/new.txt", "x\n"), /^wrote linked\/new\.txt/);
+  assert.equal(await readFile(join(dir, "real", "new.txt"), "utf8"), "x\n");
 });
