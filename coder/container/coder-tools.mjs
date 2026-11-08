@@ -408,8 +408,10 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   if (kind.isFile() && BINARY_HOW.has(ext)) fail(rel + " is a binary file (" + ext.slice(1).toUpperCase() + "), not text, so read does not open it: " + BINARY_HOW.get(ext).replace(/FILE/g, shq(rel)));
   if (ext === ".ipynb") {
     await plainText(abs, rel, NOTEBOOK_MAX_BYTES, "read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
-    const nb = await readNotebook(await readFile(abs, "utf8"), rel);
-    if (nb !== null) return nb;
+    const nbBuf = await readFile(abs);
+    const nb = await readNotebook(nbBuf.toString("utf8"), rel);
+    // Read, so write may replace it now (as Claude Code's Write, once a notebook is read), and a change to it is told.
+    if (nb !== null) { await remember(abs, nbBuf); return nb; }
   }
   await plainText(abs, rel, READ_MAX_BYTES, undefined, { utf16: true });
   const buf = await readFile(abs);
@@ -454,6 +456,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const body = rows.join("\n");
   if (last >= total) return body + oldText;
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
+  if (!asked) await markPartial(abs); // write will not replace it until the rest is read
   return body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
     : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText;
@@ -471,14 +474,47 @@ export const PARTIAL_HINT = "Do not answer from this part alone if the answer ma
  * then saved the � over the real letters. Coder's edit and write do not refuse such a file (yet), so the note says
  * what they would do.
  */
-export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD (�). Edit and write would save the � in their place and lose those bytes for good, so do not use them on it: change it with a command that keeps its encoding (iconv), or ask the owner whether to convert it to UTF-8.]";
+export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD (�). Write refuses it, and edit would save the � in their place and lose those bytes for good, so do not use edit on it either: change it with a command that keeps its encoding (iconv), or ask the owner whether to convert it to UTF-8.]";
 
+/**
+ * WRITE, WITH CLAUDE CODE'S CHECKS (the owner, 2026-11-08: "Compare it to claude code write ones and make sure they need
+ * fixing"; each tried side by side with Claude Code's real Write, 2.1.319):
+ * - a path that is itself a link is refused, its target named ("Refusing to write …/link.txt: it is a symbolic link.
+ *   Write to the link's target path instead: …/target.txt."); a file inside a linked folder is written, as there;
+ * - a file read only partly (a PARTIAL view), or a notebook not read in this chat, is not replaced until it is read
+ *   ("File has not been read yet. Read it first before writing to it."): Coder replaced them, losing what it never saw;
+ * - a file that is not valid UTF-8 (an old encoding, or binary) is not replaced ("File is not valid UTF-8: … nothing was
+ *   written …"): Coder saved the U+FFFD read showed over the real letters; and a UTF-16 file keeps its UTF-16.
+ * A new file, or one not read (not a notebook), is written as before, as Claude Code's newer models do.
+ */
+export const WRITE_NOT_READ = "has not been read yet. Read it first before writing to it";
+const UTF8_HEAD = 8 * 1024 * 1024;
 export async function toolWrite({ path, content }) {
   const { abs, rel } = await inside(path);
   if (typeof content !== "string") fail("give the file's content");
+  let st = null;
+  try { st = await lstat(abs); } catch { st = null; }
+  if (st && st.isSymbolicLink()) {
+    let to = "";
+    try { to = showPath(await realpath(abs)); } catch { to = ""; }
+    fail("Refusing to write " + rel + ": it is a symbolic link. Write to the link's target path instead" + (to ? ": " + to : "") + ".");
+  }
+  let bytes = Buffer.from(content);
+  if (st && st.isFile()) {
+    const seen = await seenEntry(abs);
+    if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
+    if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
+    // Its encoding, from its first 8 MB (a character cut at the end of that part is not counted against it).
+    let old = await readFile(abs);
+    if (old.length > UTF8_HEAD) { old = old.subarray(0, UTF8_HEAD); let k = old.length; while (k > 0 && old[k - 1] >= 0x80) k--; old = old.subarray(0, k); }
+    const u = utf16Of(old);
+    if (!u && !isUtf8(old)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+    if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
+    if (u === "be") { const b = Buffer.from(content, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
+  }
   await mkdir(dirname(abs), { recursive: true });
-  await writeFile(abs, content);
-  await remember(abs, Buffer.from(content));
+  await writeFile(abs, bytes);
+  await remember(abs, bytes);
   return "wrote " + rel + " (" + content.split("\n").length + " lines)";
 }
 
@@ -712,6 +748,26 @@ async function remember(abs, buf) {
     while (list.length > SEEN_FILES) { const old = list.shift(); await unlink(marksFile(dir, old.abs)).catch(() => {}); }
     await seenSave(dir, list);
   } catch { /* never costs the tool */ }
+}
+/**
+ * A FILE CODER READ ONLY PART OF (a PARTIAL view): marked, so write does not replace it until it is read again (any
+ * other read, a write or an edit of it makes a new record, without the mark), as Claude Code's Write refuses a file
+ * read "only partially with a PARTIAL view notice".
+ */
+async function markPartial(abs) {
+  const dir = seenDir();
+  if (!dir) return;
+  try {
+    const list = await seenList(dir);
+    const x = list.find((e) => e.abs === abs);
+    if (x) { x.partial = true; await seenSave(dir, list); }
+  } catch { /* never costs the tool */ }
+}
+/** What this chat knows of a file: its record, null when it was not read, written or edited, undefined when nothing is followed. */
+async function seenEntry(abs) {
+  const dir = seenDir();
+  if (!dir) return undefined;
+  return (await seenList(dir)).find((e) => e.abs === abs) || null;
 }
 /**
  * THE LINES A CHANGE TOUCHED, shown as read shows lines, with CHANGE_AROUND lines either side (Claude Code's note, tried
