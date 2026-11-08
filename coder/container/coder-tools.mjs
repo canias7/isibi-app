@@ -435,8 +435,13 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   return body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
-    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + "]");
+    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]");
 }
+/**
+ * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT
+ * answer from this page alone if the answer may be further in the file"): Grok reads the rest before answering.
+ */
+export const PARTIAL_HINT = "Do not answer from this part alone if the answer may be further in the file.";
 
 export async function toolWrite({ path, content }) {
   const { abs, rel } = await inside(path);

@@ -79,7 +79,7 @@ test("CD204 read gives about 100,000 characters of whole lines a call, like Clau
   // About 200 KB: a PARTIAL view, then parts asked for with offset and limit, which join up exactly.
   await writeFile(join(dir, "mid.txt"), Array.from({ length: 2000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
   const first = read({ path: "mid.txt" });
-  const pm = /\n\[PARTIAL view: lines 1-(\d+) of 2000 \(about \d+ KB of \d+ KB\)\. Read more with offset (\d+) and limit (\d+)\]$/.exec(first);
+  const pm = /\n\[PARTIAL view: lines 1-(\d+) of 2000 \(about \d+ KB of \d+ KB\)\. Read more with offset (\d+) and limit (\d+)\. Do not answer from this part alone if the answer may be further in the file\.\]$/.exec(first); // the last sentence: Claude Code\'s note says it too (the owner, 2026-11-08: "ok yes")
   assert.ok(pm, first.slice(-200));
   assert.equal(Number(pm[2]), Number(pm[1]) + 1);
   let body = first.slice(0, pm.index), offset = 1, seen = 0, parts = 0, limit = Number(pm[3]);
