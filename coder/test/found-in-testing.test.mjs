@@ -1273,20 +1273,20 @@ test("CD243 write does not replace a file Coder read only part of (a PARTIAL vie
   assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: big.txt has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
   assert.equal(await readFile(join(dir, "big.txt"), "utf8"), big, "untouched");
   await tool("read", { path: "big.txt", offset: 1000 });
-  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "wrote big.txt (2 lines)", "read again: allowed");
+  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "The file big.txt has been updated successfully. (file state is current in your context — no need to Read it back)", "read again: allowed");
   // A notebook: not before it is read; then yes.
   await writeFile(join(dir, "nb.ipynb"), JSON.stringify({ cells: [], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
   assert.equal(await tool("write", { path: "nb.ipynb", content: "{}" }), "error: nb.ipynb has not been read yet. Read it first before writing to it: a notebook is read before it is replaced, so no cell or output is lost.");
   await tool("read", { path: "nb.ipynb" });
-  assert.match(await tool("write", { path: "nb.ipynb", content: "{\"cells\": []}" }), /^wrote nb\.ipynb/);
+  assert.match(await tool("write", { path: "nb.ipynb", content: "{\"cells\": []}" }), /^The file nb\.ipynb has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   // A new file, and a plain file not read: written.
-  assert.match(await tool("write", { path: "new.txt", content: "a\n" }), /^wrote new\.txt/);
+  assert.match(await tool("write", { path: "new.txt", content: "a\n" }), /^File created successfully at: new\.txt \(file state is current in your context — no need to Read it back\)$/);
   await writeFile(join(dir, "plain.txt"), "old\n");
-  assert.match(await tool("write", { path: "plain.txt", content: "new\n" }), /^wrote plain\.txt/);
+  assert.match(await tool("write", { path: "plain.txt", content: "new\n" }), /^The file plain\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   // A machine that follows nothing: no check.
   await writeFile(join(dir, "nb2.ipynb"), "{}");
   const bare = machine(dir);
-  assert.match((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path: "nb2.ipynb", content: "{}" } })).toString("base64") })).output, /^wrote nb2\.ipynb/);
+  assert.match((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path: "nb2.ipynb", content: "{}" } })).toString("base64") })).output, /^The file nb2\.ipynb has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
 });
 
 test("CD244 write does not replace a file that is not valid UTF-8 (an old encoding, or binary): nothing is written, as Claude Code's Write (tried side by side: \"File is not valid UTF-8 … so nothing was written … delete it first, then Write it\"); deleted first, it may; a UTF-16 file keeps its UTF-16 (little- or big-endian, with its byte-order mark), as there", async () => {
@@ -1301,20 +1301,20 @@ test("CD244 write does not replace a file that is not valid UTF-8 (an old encodi
   assert.equal(await write("old.txt", "café\n"), "error: old.txt is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
   assert.deepEqual(await readFile(join(dir, "old.txt")), old, "untouched");
   await unlink(join(dir, "old.txt"));
-  assert.match(await write("old.txt", "café\n"), /^wrote old\.txt/, "deleted first: a new file");
+  assert.match(await write("old.txt", "café\n"), /^File created successfully at: old\.txt \(file state is current in your context — no need to Read it back\)$/, "deleted first: a new file");
   assert.equal(await readFile(join(dir, "old.txt"), "utf8"), "café\n");
   // UTF-16, both ways round.
   await writeFile(join(dir, "le.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("old\n", "utf16le")]));
-  assert.match(await write("le.txt", "nëw\n"), /^wrote le\.txt/);
+  assert.match(await write("le.txt", "nëw\n"), /^The file le\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("nëw\n", "utf16le")]));
   const be = Buffer.from("old\n", "utf16le"); be.swap16();
   await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
-  assert.match(await write("be.txt", "nëw\n"), /^wrote be\.txt/);
+  assert.match(await write("be.txt", "nëw\n"), /^The file be\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   const want = Buffer.from("nëw\n", "utf16le"); want.swap16();
   assert.deepEqual(await readFile(join(dir, "be.txt")), Buffer.concat([Buffer.from([0xfe, 0xff]), want]));
   // A UTF-8 file stays UTF-8.
   await writeFile(join(dir, "u8.txt"), "olé\n");
-  assert.match(await write("u8.txt", "nëw\n"), /^wrote u8\.txt/);
+  assert.match(await write("u8.txt", "nëw\n"), /^The file u8\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   assert.equal(await readFile(join(dir, "u8.txt"), "utf8"), "nëw\n");
 });
 
@@ -1331,7 +1331,7 @@ test("CD245 write refuses a path that is itself a link and names its target, as 
   assert.equal(await readFile(join(dir, "target.txt"), "utf8"), "target\n");
   await mkdir(join(dir, "real"));
   await symlink("real", join(dir, "linked"));
-  assert.match(await write("linked/new.txt", "x\n"), /^wrote linked\/new\.txt/);
+  assert.match(await write("linked/new.txt", "x\n"), /^File created successfully at: linked\/new\.txt \(file state is current in your context — no need to Read it back\)$/);
   assert.equal(await readFile(join(dir, "real", "new.txt"), "utf8"), "x\n");
 });
 
@@ -1386,4 +1386,121 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.ok(page.includes("<code>" + T.PICTURES + "</code>"));
   assert.equal(A.REREAD_FILES, 5);
   assert.ok(page.includes("up to five files"));
+});
+
+test("CD249 write does not replace a file that has changed since Coder read or wrote it, as Claude Code's Write (tried for real, 2026-11-08, second pass: \"File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.\"), whether a command or something in the background changed it; only its time changing is no change; once read again, or once the note after a command has shown the change, it may", async () => {
+  const { WRITE_CHANGED } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile, readFile, utimes } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(WRITE_CHANGED, "has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wchanged-"));
+  const follow = await mkdtemp(join(tmpdir(), "coder-wchanged-follow-"));
+  const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const later = async (f) => { const t = new Date(Date.now() + 5000); await utimes(join(dir, f), t, t); };
+  const refused = (f) => "error: " + f + " has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it.";
+  // Read, then changed: refused, and untouched.
+  await writeFile(join(dir, "a.txt"), "one\ntwo\n");
+  await tool("read", { path: "a.txt" });
+  await writeFile(join(dir, "a.txt"), "one\ntwo\nthree\n");
+  assert.equal(await tool("write", { path: "a.txt", content: "new\n" }), refused("a.txt"));
+  assert.equal(await readFile(join(dir, "a.txt"), "utf8"), "one\ntwo\nthree\n");
+  // The same length, other bytes, a newer time: still a change.
+  await writeFile(join(dir, "s.txt"), "abc\n");
+  await tool("read", { path: "s.txt" });
+  await writeFile(join(dir, "s.txt"), "xyz\n"); await later("s.txt");
+  assert.equal(await tool("write", { path: "s.txt", content: "new\n" }), refused("s.txt"));
+  // Read again: allowed.
+  await tool("read", { path: "a.txt" });
+  assert.match(await tool("write", { path: "a.txt", content: "new\n" }), /^The file a\.txt has been updated successfully\./);
+  // Only its time changed: allowed (Claude Code's own write went through after `touch -m`).
+  await writeFile(join(dir, "t.txt"), "same\n");
+  await tool("read", { path: "t.txt" });
+  await later("t.txt");
+  assert.match(await tool("write", { path: "t.txt", content: "new\n" }), /^The file t\.txt has been updated successfully\./);
+  // A file Coder wrote, then changed: refused; once the note after the command has shown the change: allowed.
+  assert.match(await tool("write", { path: "w.txt", content: "mine\n" }), /^File created successfully at: w\.txt/);
+  await writeFile(join(dir, "w.txt"), "mine\nchanged by a command\n");
+  assert.equal(await tool("write", { path: "w.txt", content: "again\n" }), refused("w.txt"));
+  const note = JSON.parse(await tool("changed", {}));
+  assert.deepEqual(note.changed.map((c) => c.path).sort(), ["s.txt", "w.txt"], "s.txt too: changed, and not read again");
+  assert.match(await tool("write", { path: "w.txt", content: "again\n" }), /^The file w\.txt has been updated successfully\./);
+  assert.equal(await readFile(join(dir, "w.txt"), "utf8"), "again\n");
+  // Never read: no record, so nothing to compare (as before).
+  await writeFile(join(dir, "n.txt"), "x\n");
+  assert.match(await tool("write", { path: "n.txt", content: "y\n" }), /^The file n\.txt has been updated successfully\./);
+  // A machine that follows nothing: no check.
+  await writeFile(join(dir, "b.txt"), "b\n");
+  const bare = machine(dir);
+  const bareTool = async (name, args) => (await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  await bareTool("read", { path: "b.txt" });
+  await writeFile(join(dir, "b.txt"), "b changed\n");
+  assert.match(await bareTool("write", { path: "b.txt", content: "z\n" }), /^The file b\.txt has been updated successfully\./);
+});
+
+test("CD250 a file read only partly stays so after a command shows it (cat, head), as in Claude Code (tried for real, 2026-11-08, second pass: after its PARTIAL read, `cat` and `head -5` of the file, its Write still said \"File has not been read yet. Read it first before writing to it.\"); Coder took the command for a whole read, so write could replace lines it never saw; reading the rest still clears it", async () => {
+  const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wcat-"));
+  const follow = await mkdtemp(join(tmpdir(), "coder-wcat-follow-"));
+  const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const big = Array.from({ length: 1500 }, (_, i) => "line " + (i + 1) + " " + "w".repeat(80)).join("\n") + "\n";
+  await writeFile(join(dir, "big.txt"), big);
+  assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1500/);
+  assert.equal(await tool("seen", { path: "big.txt" }), "followed", "`cat big.txt` was run");
+  assert.match(await tool("write", { path: "big.txt", content: "short\n" }), /^error: big\.txt has not been read yet\. Read it first before writing to it: you read only part of it \(a PARTIAL view\)/);
+  assert.equal(await readFile(join(dir, "big.txt"), "utf8"), big, "untouched");
+  // A command that changes it after: still part-read, and its change still noted.
+  await writeFile(join(dir, "big.txt"), big + "one more\n");
+  assert.equal(JSON.parse(await tool("changed", {})).changed.length, 1);
+  assert.match(await tool("write", { path: "big.txt", content: "short\n" }), /^error: big\.txt has not been read yet/);
+  // Reading the rest clears it.
+  await tool("read", { path: "big.txt", offset: 1000 });
+  assert.match(await tool("write", { path: "big.txt", content: "short\n" }), /^The file big\.txt has been updated successfully\./);
+  // A file read whole and then shown by a command: followed as before.
+  await writeFile(join(dir, "small.txt"), "a\n");
+  await tool("seen", { path: "small.txt" });
+  assert.match(await tool("write", { path: "small.txt", content: "b\n" }), /^The file small\.txt has been updated successfully\./);
+});
+
+test("CD251 write's other ways, as Claude Code's Write (tried for real, 2026-11-08, second pass): its words (\"File created successfully at: …\" and \"The file … has been updated successfully.\", with \"(file state is current in your context — no need to Read it back)\"; Coder said \"wrote a.txt (2 lines)\" for one line), a UTF-8 file's byte-order mark kept, a folder named as one, a file's mode kept, and Grok told to use edit for part of a file", async () => {
+  const { WRITE_FRESH } = await import("../container/coder-tools.mjs");
+  const { CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  const { mkdtemp, writeFile, readFile, mkdir, chmod, stat } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(WRITE_FRESH, " (file state is current in your context — no need to Read it back)");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wways-"));
+  const run = machine(dir);
+  const write = async (path, content) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path, content } })).toString("base64") })).output;
+  // The words.
+  assert.equal(await write("new/sub/x.txt", "one line\n"), "File created successfully at: new/sub/x.txt (file state is current in your context — no need to Read it back)");
+  assert.equal(await write("new/sub/x.txt", "two\nlines\n"), "The file new/sub/x.txt has been updated successfully. (file state is current in your context — no need to Read it back)");
+  assert.equal(await write("new/sub/x.txt", ""), "The file new/sub/x.txt has been updated successfully. (file state is current in your context — no need to Read it back)");
+  assert.equal((await readFile(join(dir, "new/sub/x.txt"))).length, 0, "empty content: an empty file");
+  // A UTF-8 byte-order mark is kept (Claude Code: `357 273 277 n e w \n`), and never doubled.
+  await writeFile(join(dir, "bom.txt"), Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69, 0x0a]));
+  await write("bom.txt", "new\n");
+  assert.deepEqual(await readFile(join(dir, "bom.txt")), Buffer.from([0xef, 0xbb, 0xbf, 0x6e, 0x65, 0x77, 0x0a]));
+  await write("bom.txt", "﻿new\n");
+  assert.deepEqual(await readFile(join(dir, "bom.txt")), Buffer.from([0xef, 0xbb, 0xbf, 0x6e, 0x65, 0x77, 0x0a]));
+  await writeFile(join(dir, "plain.txt"), "hi\n");
+  await write("plain.txt", "new\n");
+  assert.deepEqual(await readFile(join(dir, "plain.txt")), Buffer.from("new\n"), "no mark where there was none");
+  // A folder (Claude Code: "/home/user/cc-test5/afolder is a directory, not a file. To create a file inside it, include the file name in file_path.").
+  await mkdir(join(dir, "afolder"));
+  assert.equal(await write("afolder", "x\n"), "error: " + join(dir, "afolder") + " is a directory, not a file. To create a file inside it, include the file name in path.");
+  // A script keeps its mode (Claude Code's run.sh stayed 755); line endings are as given (its CRLF file came back "x\ny\n").
+  await writeFile(join(dir, "run.sh"), "#!/bin/sh\necho hi\n"); await chmod(join(dir, "run.sh"), 0o755);
+  await writeFile(join(dir, "crlf.txt"), "a\r\nb\r\n");
+  await write("run.sh", "#!/bin/sh\necho new\n");
+  await write("crlf.txt", "x\ny\n");
+  assert.equal((await stat(join(dir, "run.sh"))).mode & 0o777, 0o755);
+  assert.equal(await readFile(join(dir, "crlf.txt"), "utf8"), "x\ny\n");
+  // What Grok is told (Claude Code's: "creating a new file, or fully replacing one you've already Read … For partial changes, use Edit instead.").
+  const says = CODER_TOOLS.find((t) => t.function.name === "write").function.description;
+  assert.match(says, /^Write a whole file: a new one, or one you have read, replaced in full \(it is not appended to or merged\)\. For a change to part of a file, use edit instead\./);
 });

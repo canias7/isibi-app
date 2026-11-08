@@ -11,6 +11,19 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Write, second pass: all of Claude Code's Write, then copied (your words: "first of all, we gotta go look on Claude Code's write tool and see what it does and see what ours does … after we copy or use what they do, then we can actually start testing it")
+
+- **Saved as a standing rule** in owner-preferences: for each tool, first see everything Claude Code's tool does and what Coder's does, copy what Claude Code's does, and only then test it live.
+- **Tried for real with Claude Code's own Write**, the cases the first pass didn't cover. Five more differences:
+  1. **A file that changed after Coder read it** (a command, or something running in the background, changed it): Claude Code refuses ("File has been modified since read … Read it again"); Coder wrote over the change. Same for a file it wrote itself and a command then changed.
+  2. **A file read only in part, then shown with `cat` or `head`:** Claude Code still refuses; Coder took the `cat` as reading it all, so it could replace lines it never saw.
+  3. **A file with a hidden UTF-8 marker at its start** (a byte-order mark, common on Windows): Claude Code keeps it; Coder dropped it.
+  4. **Writing to a folder's name:** Claude Code says "… is a directory, not a file. To create a file inside it, include the file name"; Coder gave a raw system error.
+  5. **Its words:** Claude Code says "File created successfully at: …" or "The file … has been updated successfully.", then "(file state is current in your context — no need to Read it back)". Coder said "wrote a.txt (2 lines)", with the wrong count.
+- **The same in both already:** new folders made as needed, a script stays runnable, line endings as given, an empty file, writing after reading again, and only the file's time changing.
+- **Now Coder does what Claude Code does in all five.** Tests CD249 to CD251 (each fails on the old code); all 260 pass, and the 24 real read checks.
+- Next: test write live in the browser after the next merge and deploy, on your word.
+
 ## 2026-11-08: The docs: only read, on their own page, linked from the landing page (your words: "Just make the docs for what we have tested right now, which is the read tool. That's it." and "put it on the landing page … don't put it inside the coding")
 
 - **Out of Coder:** the Docs link in Coder's sidebar is gone.

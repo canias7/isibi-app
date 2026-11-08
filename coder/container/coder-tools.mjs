@@ -500,6 +500,24 @@ export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses an old enco
  * A new file, or one not read (not a notebook), is written as before, as Claude Code's newer models do.
  */
 export const WRITE_NOT_READ = "has not been read yet. Read it first before writing to it";
+/**
+ * WRITE, SECOND PASS (the owner, 2026-11-08: "first of all, we gotta go look on Claude Code's write tool and see what it
+ * does and see what ours does. And then … after we copy or use what they do, then we can actually start testing it"; each
+ * tried for real with Claude Code's own Write, 2.1.319):
+ * - a file read or written in this chat that has changed since, and not been shown again, is not replaced ("File has been
+ *   modified since read, either by the user or by a linter. Read it again before attempting to write it."), whether a
+ *   command or something in the background changed it; only its time changing (the same bytes) is not a change; once
+ *   read again, or once the note after a command has shown the change, it may be;
+ * - a file read only partly stays so after a command shows it (`cat`, `head`): Claude Code still said "File has not been
+ *   read yet" (its `cat` of 141 KB came back cut); Coder took the command for a whole read;
+ * - a UTF-8 file that starts with a byte-order mark keeps it;
+ * - a folder: "<path> is a directory, not a file. To create a file inside it, include the file name in file_path.";
+ * - its words: "File created successfully at: <path>" and "The file <path> has been updated successfully.", each with
+ *   "(file state is current in your context — no need to Read it back)". Coder said "wrote a.txt (2 lines)", counting
+ *   the line break at the end as one more line.
+ */
+export const WRITE_CHANGED = "has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it";
+export const WRITE_FRESH = " (file state is current in your context — no need to Read it back)";
 const UTF8_HEAD = 8 * 1024 * 1024;
 export async function toolWrite({ path, content }) {
   const { abs, rel } = await inside(path);
@@ -511,11 +529,14 @@ export async function toolWrite({ path, content }) {
     try { to = showPath(await realpath(abs)); } catch { to = ""; }
     fail("Refusing to write " + rel + ": it is a symbolic link. Write to the link's target path instead" + (to ? ": " + to : "") + ".");
   }
+  if (st && st.isDirectory()) fail(abs + " is a directory, not a file. To create a file inside it, include the file name in path.");
   let bytes = Buffer.from(content);
   if (st && st.isFile()) {
     const seen = await seenEntry(abs);
     if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
     if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
+    // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
+    if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
     // Its encoding, from its first 8 MB (a character cut at the end of that part is not counted against it).
     let old = await readFile(abs);
     if (old.length > UTF8_HEAD) { old = old.subarray(0, UTF8_HEAD); let k = old.length; while (k > 0 && old[k - 1] >= 0x80) k--; old = old.subarray(0, k); }
@@ -523,11 +544,12 @@ export async function toolWrite({ path, content }) {
     if (!u && !isUtf8(old)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
     if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
     if (u === "be") { const b = Buffer.from(content, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
+    if (!u && old[0] === 0xef && old[1] === 0xbb && old[2] === 0xbf && !content.startsWith("\ufeff")) bytes = Buffer.concat([old.subarray(0, 3), bytes]);
   }
   await mkdir(dirname(abs), { recursive: true });
   await writeFile(abs, bytes);
   await remember(abs, bytes);
-  return "wrote " + rel + " (" + content.split("\n").length + " lines)";
+  return (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH;
 }
 
 export async function toolEdit({ path, old_string, new_string, replace_all = false }) {
@@ -852,7 +874,11 @@ export async function toolSeen({ path }) {
   const { abs } = await inside(String(path || ""), { mustExist: true });
   const st = await stat(abs);
   if (!st.isFile() || st.size > READ_WHOLE_MAX) return "not followed";
+  // Read only partly before (a PARTIAL view): still so, as in Claude Code (its `cat` of the file did not count as reading
+  // the rest: "File has not been read yet"), so write does not replace the lines Coder never saw.
+  const was = await seenEntry(abs);
   await remember(abs, await readFile(abs));
+  if (was && was.partial) await markPartial(abs);
   return "followed";
 }
 

@@ -184,6 +184,15 @@ code in **each user's own GitHub**.
    command that keeps the encoding, or asking the owner, or deleting it first); it
    keeps a UTF-16 file UTF-16; and it refuses a path that is a link, naming its
    target. A new file, or a plain one not read, is written as before.
+   Second pass (each tried for real with Claude Code's own Write): it won't replace
+   a file that changed since Coder read or wrote it and hasn't been shown again
+   ("… has been modified since read … Read it again before attempting to write it";
+   only its time changing is no change, and the note after a command counts as
+   showing it); a file read only in part stays so after `cat` or `head`; a UTF-8
+   byte-order mark is kept; a folder is named as one; and it answers in Claude
+   Code's words ("File created successfully at: …" / "The file … has been updated
+   successfully.", then "(file state is current in your context — no need to Read
+   it back)").
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

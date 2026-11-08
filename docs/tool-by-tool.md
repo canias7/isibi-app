@@ -263,6 +263,36 @@ Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a 
 - **Not changed, offered:** the words after a write ("wrote a.txt (2 lines)"; Claude Code: "File created successfully at: …" / "The file … has been updated successfully.").
 - **Kept, on purpose:** at most about 90,000 characters a call (how much Grok sends in one answer); the docs give no limit.
 
+**Second pass, the whole tool** (the owner: "first of all, we gotta go look on Claude Code's write tool and see what it does and see what ours does … after we copy or use what they do, then we can actually start testing it"). The cases the first pass didn't cover, each tried with Claude Code 2.1.319's own Write (in /home/user/cc-test5; the part-read cases by a helper, with its own read record), then with Coder's:
+
+| Case | Claude Code | Coder before |
+|---|---|---|
+| Read, then changed by a command | refused: "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it." | **written over the change** |
+| Read, then changed in the background (20 seconds later) | refused, the same words | **written** |
+| Written by it, then changed by a command | refused, the same words | **written** |
+| The same, once the "changed on disk" note had shown the change | written | written |
+| Read again after the change | written | written |
+| Only its time changed (`touch -m`), the same bytes | written | written |
+| Read only partly, then `cat` of it (141 KB, its output cut) | refused: "File has not been read yet. Read it first before writing to it." | **written: `cat` counted as reading it all** |
+| Read only partly, then `head -5` of it | refused, the same words | **written** |
+| New file in folders that don't exist | "File created successfully at: /home/user/cc-test5/new/sub/x.txt (file state is current in your context — no need to Read it back)" | written, "wrote new/sub/x.txt (2 lines)" (one line) |
+| An existing file | "The file /home/user/cc-test5/run.sh has been updated successfully. (file state is current in your context — no need to Read it back)" | "wrote run.sh (3 lines)" |
+| Empty content | the file emptied; "… has been updated successfully. …" | emptied; "(1 lines)" |
+| A UTF-8 file with a byte-order mark | kept: `357 273 277 n e w \n` | **dropped** |
+| A folder | "/home/user/cc-test5/afolder is a directory, not a file. To create a file inside it, include the file name in file_path." | "EISDIR: illegal operation on a directory, open '…'" |
+| A script's mode (755) | kept | kept |
+| A CRLF file, given LF | written as given (`x \n y \n`) | written as given |
+
+**Copied** (tests CD249, CD250 and CD251, each failing on the old code; 260 pass, and the 24 real read checks):
+- Changed since read: "error: a.txt has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it." (`WRITE_CHANGED`; Claude Code's "by the user or by a linter" told as what can change a file on Coder's machine). A file's record (its time, size and fingerprint) is compared; only its time changing is no change. Reading it again, or the note after a command (which records what it showed), clears it.
+- A part-read file stays part-read after a command shows it (`toolSeen` keeps the mark).
+- A UTF-8 byte-order mark is kept, never doubled.
+- A folder: "error: /…/afolder is a directory, not a file. To create a file inside it, include the file name in path."
+- The words: "File created successfully at: x.txt" / "The file x.txt has been updated successfully.", each with " (file state is current in your context — no need to Read it back)" (`WRITE_FRESH`). No count, so no wrong count.
+- What Grok is told: "Write a whole file: a new one, or one you have read, replaced in full (it is not appended to or merged). For a change to part of a file, use edit instead. …" (Claude Code's: "creating a new file, or fully replacing one you've already Read … For partial changes, use Edit instead."; its "Overwriting an existing file you haven't Read will fail" is not so for either, so not copied).
+- **Kept, on purpose:** paths named from the project (Claude Code names full paths; Coder's tools all take and name project paths), and the 90,000 characters a call.
+- **For edit (tool 3):** Claude Code's Edit has the same "modified since read" check and the same "(file state is current …)" words.
+
 **Live in the browser** (deploy 69, recording 16; five messages to Coder on gofarther.dev, canias7/testingforclaude):
 - A file read only partly: "error: part.txt has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first." A notebook not read: "error: nb.ipynb has not been read yet. Read it first before writing to it: a notebook is read before it is replaced, so no cell or output is lost." Once read: "wrote nb.ipynb (1 lines)".
 - An old encoding: refused, nothing written (`od -c old.txt`: `c a f 351 …`, still Latin-1). UTF-16: "wrote u16.txt (2 lines)", and `od -c` shows `377 376 n \0 e \0 …` (its byte-order mark, two bytes a letter). A link: "error: Refusing to write link.txt: it is a symbolic link. Write to the link's target path instead: target.txt." (target.txt still "target original"). A linked folder and a plain file not read: written.

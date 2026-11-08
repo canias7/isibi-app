@@ -186,7 +186,7 @@ test("CD233 grep and glob search another repository of the chat by a short path 
   // With the commands in src: a short path counts from there, files are named by their full path.
   assert.match(tool("read", { path: "a.js" }, { CODER_CWD: join(main, "src") }), /^1\tmain code/);
   assert.equal(tool("read", { path: "b.js" }, { CODER_CWD: join(main, "src") }), "FAILED error: no such file: " + join(main, "src", "b.js") + ". Note: your current working directory is " + join(main, "src") + ".");
-  assert.match(tool("write", { path: "c.js", content: "x\n" }, { CODER_CWD: join(main, "src") }), new RegExp("^wrote " + join(main, "src", "c.js")));
+  assert.match(tool("write", { path: "c.js", content: "x\n" }, { CODER_CWD: join(main, "src") }), new RegExp("^File created successfully at: " + join(main, "src", "c\\.js") + " \\(file state is current"));
   if (hasRg) assert.equal(tool("grep", { pattern: "main" }, { CODER_CWD: join(main, "src") }), "./a.js:1:main code");
   // Still never outside the project, wherever the commands are.
   assert.equal(tool("read", { path: "../../etc/hostname" }, { CODER_CWD: join(main, "src") }), "FAILED error: that path is outside the project");
