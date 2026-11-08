@@ -15,6 +15,7 @@ on:
       - "coder/test/machine-tools.sh"
       - "coder/test/room-check.mjs"
       - "coder/test/sandbox-check.mjs"
+      - "coder/test/read-check.mjs"
       - "coder/test/sandbox.test.mjs"
       - "coder/test/room.test.mjs"
       - "coder/test/root-safety.test.mjs"

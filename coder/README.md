@@ -31,6 +31,24 @@ code in **each user's own GitHub**.
    own branch `coder/<project>` with its tools (read, edit, write, grep, glob,
    bash, web search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
    and finishes by answering in words.
+
+   **read opens pictures, PDFs and notebooks too** (owner item 1, 2026-11-08), like
+   Claude Code's Read ("reads images (PNG, JPG, …) and presents them visually",
+   PDFs "via the pages parameter (max 20 pages per request; required for PDFs over
+   10 pages)", and "Jupyter notebooks (.ipynb) as cells with outputs"). Grok takes
+   only JPG and PNG pictures, and a tool answers only in text (xAI's docs), so the
+   read tool (`container/coder-tools.mjs`, as `dev`) makes any other picture a PNG,
+   and a big one smaller (1600 on its longest side, then smaller should it not fit
+   in what the machine passes on), through ImageMagick fed on stdin with the kind
+   named, never a file name; a PDF gives each page's text (poppler's `pdftotext`)
+   and draws a page with no text (`pdftoppm`) as a picture; a notebook gives its
+   cells, printed text, results, errors and plots. The pictures follow a mark
+   (`PICS_MARK`, which has a NUL in it, so no text file can hold it) that the
+   agent takes only from read's answer: Grok gets the read's text as its answer,
+   then, after the round's answers, a note from Coder's app with the pictures
+   attached. A job keeps at most 8 attached (`PICS_KEEP`); the saved chat keeps a
+   note in their place, and they never count toward a long job's summary.
+   `test/read-check.mjs` tries it in Coder's own image (the machine check).
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.

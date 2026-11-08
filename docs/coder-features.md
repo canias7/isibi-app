@@ -69,7 +69,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 
 ## F. How Coder works
 
-30. **Its tools**: read, edit, write, search, the code helper (lsp), commands, web pages and web search, background commands, a to-do list. Who: me. Status: To test.
+30. **Its tools**: read, edit, write, search, the code helper (lsp), commands, web pages and web search, background commands, a to-do list. `read` also opens pictures (a screenshot Coder takes, say), PDFs by page, and Jupyter notebooks (your pick 1, 2026-11-08). Who: me. Status: To test.
 31. **Instruction files**: `CODER.md` (or `AGENTS.md` when there's no CODER.md), rules in `.coder/rules` for some paths only, a subfolder's own file; plus a memory kept between chats (item 10). Who: me. Status: To test.
 32. **Security check on each edit**: a warning to Coder when it writes risky code (item 12). Who: me. Status: To test.
 33. **Review and Security review** of the chat's changes (the buttons, or ask Coder). Who: you. Status: To test.
@@ -103,7 +103,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 
 48. Your Grok key never enters Coder's machine; each machine has its own lock; your keys' values are hidden in the chat; the code is never stored with us (only on GitHub and the chat's machine).
 49. The buttons on GitHub: deploy, the machine's image check, the desktop and phone builds, and the old app's cleanup (which needs your word each time).
-50. 201 automatic tests, plus 18 machine-admin tests, run before every deploy.
+50. 205 automatic tests, plus 18 machine-admin tests, run before every deploy.
 
 ---
 
