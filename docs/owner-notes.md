@@ -11,6 +11,11 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: A standing rule: test everything in the browser (your word: "we need to test everything in the browser bro, pls, remember that")
+
+- **The rule, saved** in CLAUDE.md and the preferences file, so every session follows it: every feature and fix is tried live on gofarther.dev in the browser, with Grok, and recorded. Automated tests and checks on my side are not enough on their own.
+- **For read, that means one more recorded test:** the parts tried so far only by automated tests or the 24 checks on my side (big pictures, PDFs, notebooks, binary files, UTF-16, your saved pictures, the @ list order, and the rest), plus the two fixes waiting on the branch. Then the same in Claude Code, to compare.
+
 ## 2026-11-08: The read comparison, Coder's side, live (your word: "Ok merge and deploy")
 
 - **Live:** the read changes and the folder change went live. The deploy took three tries: the first stopped at its own tests (GitHub's machine had no ripgrep), and the second hit a timeout on Fly.io's download server; the third worked.
