@@ -42,7 +42,7 @@ import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEV
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
-import { summaryMessage } from "../container/coder-compact.mjs";
+import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
@@ -98,10 +98,17 @@ export async function readEnv(env, bucket, uid, repo) {
     return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: (Array.isArray(v.secrets) ? v.secrets : []).map(normSecret).filter(Boolean), network: normNetwork(v.network) };
   } catch { return none; }
 }
+/** A path's end without the full stop, comma or unmatched bracket of the sentence around it (as tidyPath in container/coder-agent.mjs). */
+function tidyPath(p) {
+  p = String(p).replace(/[.,]+$/, "");
+  for (const [o, c] of [["(", ")"], ["[", "]"]]) while (p.endsWith(c) && p.split(c).length > p.split(o).length) p = p.slice(0, -1).replace(/[.,]+$/, "");
+  return p;
+}
 /** @path mentions in a message, as a note for Coder. */
 export function fileMentions(text) {
-  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w./-]+\.[\w]+|[\w-]+\/[\w./-]+)/g)].map((m) => m[1]).filter((p) => !p.includes("..")))].slice(0, 20);
-  return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ". Read them first.)" : "";
+  // The same paths Coder's machine reads into the message (mentionedPaths in container/coder-agent.mjs); "@src/" is a folder.
+  const paths = [...new Set([...String(text).matchAll(/(?:^|\s)@([\w.()\[\]+~@,/-]+\.\w+|[\w()\[\]+~@,-]+\/[\w.()\[\]+~@,/-]*)/g)].map((m) => tidyPath(m[1])).filter((p) => p && !p.split("/").includes("..")))].slice(0, 20);
+  return paths.length ? "\n\n(The owner pointed at these files: " + paths.join(", ") + ".)" : "";
 }
 // SEVERAL CHATS AT ONCE (owner, 2026-11-05: "no limit"): each chat has its own
 // container and a user may have any number working at once. CODER_MAX_RUNNING
@@ -191,7 +198,7 @@ async function endLostJob(env, bucket, uid, meta, note) {
     const saved = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     const base = wholeSteps([...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
     const told = [
-      { role: "user", content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
+      { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
       { role: "assistant", content: "Understood: that job was cut off, and its unsaved changes are gone." },
     ];
     await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...base, ...told]));
@@ -268,14 +275,26 @@ export const STALE_MS = 15 * 60 * 1000;
 export const START_GRACE_MS = 8 * 60 * 1000;
 /** How much conversation Coder keeps (the audit): the oldest is dropped first, starting again at a message from the user. */
 export const HISTORY_MAX = 400 * 1024;
-export function capHistory(messages, max = HISTORY_MAX) {
-  if (!Array.isArray(messages)) return [];
-  let out = messages;
+export function capHistory(messages, max = HISTORY_MAX) { return capHistoryInfo(messages, max).messages; }
+/** capHistory, and how many of the messages went from the front (`dropped`): Rewind's marks move up by that many. */
+export function capHistoryInfo(messages, max = HISTORY_MAX) {
+  if (!Array.isArray(messages)) return { messages: [], dropped: 0 };
+  let out = messages, dropped = 0;
   while (out.length && JSON.stringify(out).length > max) {
-    const next = out.findIndex((m, i) => i > 0 && m && m.role === "user");
-    out = next > 0 ? out.slice(next) : [];
+    // At one of the owner's messages (or a summary), never at a note of Coder's app.
+    const next = out.findIndex((m, i) => i > 0 && m && m.role === "user" && m.appNote !== true);
+    if (next > 0) { out = out.slice(next); dropped += next; continue; }
+    // ONE JOB ALONE IS OVER THE SIZE (the review, 2026-11-08: it used to leave nothing at all): its long answers are cut
+    // shorter instead, and only if that is not enough does the job's own record go, keeping the owner's message.
+    for (const keep of [2000, 300]) {
+      out = out.map((m) => (m && (m.role === "tool" || m.appNote === true) && typeof m.content === "string" && m.content.length > keep ? { ...m, content: m.content.slice(0, keep) + "\n[… cut short in the saved chat: read the file again if you need it]" } : m));
+      if (JSON.stringify(out).length <= max) return { messages: out, dropped };
+    }
+    // The owner's message stays where Rewind's mark for it now points (the second review, 2026-11-08: the mark was lost).
+    const at = out.findIndex((m) => m && m.role === "user" && m.appNote !== true && typeof m.content === "string");
+    return at >= 0 ? { messages: [{ ...out[at], content: out[at].content.slice(0, 20000) }, { role: "assistant", content: "(The steps of this job were too long to keep in the saved chat.)" }], dropped: dropped + at } : { messages: [], dropped: messages.length };
   }
-  return out;
+  return { messages: out, dropped };
 }
 /** WHAT "UNDO" WOULD UNDO (owner, 2026-11-06, "3"): the chat's last commit, and whether the last job made it. */
 export function lastJobFor(meta) {
@@ -585,7 +604,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
       const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
       const ev = { at: Date.now(), type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
-      await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""))]);
+      await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs))]);
       await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, ev].slice(-MAX_EVENTS));
       const next = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: msgs.length }), at: Date.now() };
       await saveMeta(bucket, uid, next);
@@ -683,7 +702,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -861,17 +880,20 @@ export async function handleCoder(request, env, ctx, deps) {
       for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
       hideIn(fresh, await hiddenValues(env, bucket, uid, meta));
-      const kept = capHistory(s.result.messages);
+      const capped = capHistoryInfo(s.result.messages), kept = capped.messages;
       await putJson(bucket, keyOf(uid, id, "messages.json"), kept);
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
       await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
       // The oldest history may have been trimmed: Rewind's marks move with it.
-      const dropM = (Array.isArray(s.result.messages) ? s.result.messages.length : 0) - kept.length, dropE = allEvents.length - keptEvents.length;
+      const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
       const asked = fresh.filter((e) => e && ["question", "secret", "envchange"].includes(e.type)).at(-1);
-      const ended = { ...meta, saved: meta.turn, pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
+      // next message's commands too ("This includes commands Claude runs in response to your later messages").
+      const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
+      const ended = { ...meta, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
@@ -954,7 +976,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const ev = { at: Date.now(), type: "note", text: "Summarized conversation: " + (sumWay === "upto" ? "everything above this point" : "this point and everything below it") + " is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
       const evAt = Math.max(0, Math.min(mark.ev, evs.length));
       const nextEvs = [...evs.slice(0, evAt), ev, ...evs.slice(evAt)].slice(-MAX_EVENTS);
-      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : "")), ...msgs.slice(to)]));
+      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to))), ...msgs.slice(to)]));
       await putJson(bucket, keyOf(uid, id, "events.json"), nextEvs);
       const next = { ...meta, marks: marksAfter(meta.marks, { from, to, evAt }), at: Date.now() };
       await saveMeta(bucket, uid, next);

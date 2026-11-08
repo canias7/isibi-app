@@ -11,6 +11,137 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Coder remembers the folder after a `cd`, the Claude Code way (your word: "lets do it the claude code way")
+
+This is part of tool 5 (bash), done now on your word; it changes read too.
+
+- **A `cd` now carries over** to Coder's next commands, and to the next message's too, like Claude Code. It only happens when the command works and stays inside the project (or the chat's other repositories). I tried these rules in Claude Code first: a command that failed didn't move it.
+- **Outside the project** (say `cd /tmp`), the next command starts back in the project folder, and the result says "Shell cwd was reset to …", Claude Code's own words.
+- **A command in the background never moves it.** If it tried, the result says "Session cwd remains …", as Claude Code's does.
+- **Coder's file tools follow it:** a short path opens from that folder, and searches run from there, as in Claude Code.
+- **Coder is told where it is** at the start of each message and whenever it moves, and to give its file tools full paths, like Claude Code. While it's in another folder, the files you @-mention and the files it re-reads are named by their full path, so a short path never points at the wrong file.
+- **To turn it off:** add `CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` to the chat's environment variables (Environment, Environment variables). Then every command starts in the project folder, as before. Claude Code's own setting is `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`.
+- **Outside bash, fixed because it's the same lines:** grep and glob, asked to search one of the chat's other repositories by a short path (like `../docs`), searched the project's own folder instead. Checked on the old code.
+- **Safety:** a folder's name can't add lines to what Coder is told (line breaks are taken out).
+- Tests CD230 to CD235 are new; each fails on the old code. All 244 tests and the 24 real read checks pass. Checked on the real page with a screenshot. Live with your next "merge and deploy".
+
+## 2026-11-08: Read: the three changes you asked for (your word: "Fix those 3")
+
+- **The picture Coder opens shows in the chat**, under its "Read" step, like Claude Code. It's a small copy (at most 320 pixels wide), and it's still there when you open the chat again. Grok still gets the whole picture.
+- **Pictures you paste or attach are saved as files** that Coder can open again later in the chat, like Claude Code ("they are now saved where Claude can open them as files"). They go in a `.coder-pictures` folder in the project, which is never saved to your branch, and Coder is told where they are. So it can look at one again, or copy it into the project (say, as a logo). The newest 50 are kept. Before, a picture was gone after the message it came with.
+- **The @ file list puts files whose name matches first**, like Claude Code ("a file whose name contains the query now ranks above one that only matches across its folder names"). Typing `@cart` now lists `src/cart.js` before `cart/index.js`. Names that start with what you typed come first of all.
+- **Why Claude Code asks for full paths and Coder doesn't** (corrected: my first answer said it was because Claude Code runs on your computer, and you caught it: "Not true cuz claude code is local and cloud both"). Claude Code asks for full paths on your computer and in the cloud alike: it's the same program in both. Its docs don't say why. What they do say is that a `cd` in one of its commands carries over to its later commands, and that it can work in more than one folder. So "the folder it's in" changes during a chat, and a full path is the only kind that always means the same file. In Coder, every command and every file tool starts in the project folder, and a `cd` lasts for that one command only. So `src/app.js` always means the same file. A full path works in Coder too.
+- **Double-checked for real** (your word: "Double check if that information is true"):
+  - **Claude Code**, in this session (which runs in the cloud): after a `cd`, the next command was still in the new folder, and the same short path, `README.md`, opened two different files before and after the `cd`. One thing I'd said wasn't quite right: Claude Code is *told* to use full paths, but a short path still works. It opens from whatever folder Claude Code is in at that moment.
+  - **Coder**, on its real machine code: after `cd src`, the next command was back in the project folder, and `README.md` opened the project's top file. A full path inside the project works; one outside it is refused.
+  - **Claude Code's docs**, all of them (227 of 228 pages; the one that wouldn't download is about Claude in Slack): none says why it wants full paths. They do name a setting, `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`, that makes every Claude Code command start in the project folder, which is how Coder always works.
+- **Outside read, for tool 5 (bash), not fixed:** that last point is a real difference in commands. In Claude Code, `cd src` in one command still holds in the next. In Coder, the next command starts back in the project folder. I'll bring it up when we get to bash.
+- Tests CD227 to CD229 are new; each fails on the old code. 238 pass. Checked on the real page, with screenshots. Live with your next "merge and deploy".
+
+## 2026-11-08: A new rule for tool by tool (your word: "Ok do that")
+
+- While we go through one tool, anything that isn't that tool goes in its own list, marked as outside it, and I ask you before fixing it. Saved in your preferences file, so every session follows it.
+- If a tool's change breaks something elsewhere, I may fix it with the tool, but I'll say plainly that it's outside the tool and why.
+- The read page in [`docs/tool-by-tool.md`](tool-by-tool.md) now splits today's fixes into three lists: read itself; outside read but broken by read's bigger answers; and outside read, fixed while I was there.
+
+## 2026-11-08: Read, checked again before merging (your word: "double check again against claude code docs before merging")
+
+- **Claude Code's changelog, further back** (45 more versions, word for word). Coder already matched nearly all of its read changes. Three more, fixed:
+  - **Windows text files (UTF-16)** open now; Coder refused them as binary.
+  - **CMYK JPEG pictures** (a print colour format) are converted so Grok can open them.
+  - If Grok says `file_path` (Claude Code's own name) instead of `path`, read still works.
+- **From the docs:** comments in CODER.md (`<!-- like this -->`) now stay out of what Grok sees, like Claude Code. Reading the file still shows them.
+- **A second fresh review of the newest code** found nine real problems, all fixed. The two security ones:
+  - reloading the instructions after a summary could be tricked by a background command into reading a file from outside the project;
+  - reading a PDF would have run a repo's own Python file named `pypdf.py`.
+  The other seven: long jobs on a big chat summarizing almost every step; wasted re-reads of pictures; the crop hint pointing to a folder read couldn't open (now a scratch folder it can); a WebP's real size; a deleted memory file; and a lost rewind point in a rare case.
+- **For you to decide later:** Claude Code saves pictures you paste so Claude can open them again as files; its @ file list puts file-name matches first.
+- Tests CD223 to CD226 are new, and each fails on the old code. 235 pass, all 24 rule checks pass on the real tool, and the machine check passes.
+
+## 2026-11-08: Read, double-checked (your word: "double check everything we have with that tool")
+
+- **Every read rule, run for real:** 24 cases on the actual tool, run the way Coder's machine runs it. All 24 match Claude Code's docs.
+- **Claude Code's docs, read again word for word.** Two small differences, fixed:
+  - Claude Code refuses files like .zip, .xlsx, .parquet and .heic by their type, and says how to open them. Coder now does the same.
+  - The message for a folder now says to list it with glob or ls, like the docs.
+- **A gap, fixed:** after /compact, or when a long chat gets summarized, Coder now re-reads up to 5 of the files it was working on, like Claude Code. Before, it did that only after a summary in the middle of a job.
+- **A fresh review of the code** (a separate reviewer) found five real problems, all caused by read now giving much bigger answers. All fixed:
+  - **The serious one:** a job that read a lot could make the chat lose its whole memory. The saved chat now keeps each answer shorter (Coder can read a file again), and nothing ever gets dropped whole.
+  - **Also serious:** in a long job that reads a lot, the requests to Grok could grow without limit. They now stay bounded.
+  - A rewind to a chat's very start could make Coder's next command get blamed for the rewind's changes.
+  - The chat's record was storing every big read whole, which would have made long chats slow to load.
+  - Next.js paths like `[...slug].tsx` couldn't be @-mentioned.
+- **A correction:** Claude Code's separate "file changed" note isn't about a command failing. It happened again after a command that worked. Either way, it names the file and doesn't show the changes, same as Coder.
+- Tests CD214 to CD219 are new; each fails on the old code. 228 pass. Live with your next "merge and deploy".
+- **The last check against the docs, everything fresh** (all the pages about reading, and Claude Code's changelog, its newest 15 versions word for word). Read matches everywhere but three places, all fixed:
+  - **A PDF that lies about its page count:** one saying 3 pages but having 12 was read as 3, and Coder never saw the other 9. Claude Code fixed the same thing last week. Now Coder counts the pages itself and reads all 12. A PDF whose count is too high, which Coder couldn't open before, now opens too.
+  - **After a long job is summarized, Coder reloads the repo's instructions (CODER.md) and its memory fresh**, like Claude Code. Before, if Coder had changed them during the job, it kept seeing the old version.
+  - **.epub files** are refused as binary, like .zip, as Claude Code now does.
+  - Tests CD221 and CD222 are new (each fails on the old code). 231 pass, and all 24 rule checks pass on the real tool. The machine check now reads the lying PDF in Coder's own machine image.
+- **One more check against the docs** (your word: "one more time"). One small fix: when a picture is too big, Coder shows a smaller copy, as Claude Code does. Coder's answer used to give only the smaller size, as if it were the real one. Now it says the real size, that it's seeing a smaller copy, and how to crop the part it needs for fine detail, like Claude Code's docs say. Test CD220; 229 pass.
+
+## 2026-11-08: Tool by tool against Claude Code: 1, read (and the test account's password reset)
+
+- **Your plan:** we go through Coder's tools and environment one by one. You try each in both Coder and Claude Code, and I compare them against Claude Code's actual docs. The running record is [`docs/tool-by-tool.md`](tool-by-tool.md).
+- **Tool 1, read:** right in both runs with the real Coder:
+  - GitHub (issue #18);
+  - Coder's real page in a browser on my side (recording 9).
+  - Every answer was right (line 250, the picture, the PDF page with only a circle).
+- **Found by reading the code:** Coder's read gave 400 lines, then cut its answer to 12,000 characters with the middle dropped. On a long file, Coder could miss the middle. Claude Code's Read gives up to 25,000 tokens a call, about 100,000 characters.
+- **Changed after the test, as you said:** read now gives the whole file when it fits (up to about 100,000 characters), and a longer one in parts, whole lines only, never cut in the middle. Test CD204 is new; 213 tests pass. It goes live with your next "merge and deploy".
+- **Double-checked against Claude Code's docs, word for word** (your word). Seven more differences are fixed, and now read is the same as Claude Code's Read:
+  - a file too big for one read: the first part, with "PARTIAL view" saying how much it got and exactly how to read the next part;
+  - a whole file over 256 KB: refused, with what to do instead (read a part, or search);
+  - a part asked for that's too big: refused;
+  - "allow_large": the whole file in one go when truly needed, sized to the room left in the job;
+  - an empty file now says it's empty, and an offset past the end gives the line count;
+  - pictures up to 128 MB, not 20;
+  - notebooks up to 100 MB, with a clear error instead of a cut when they're too big.
+  - Test CD205 is new; 214 tests pass. Live with your next "merge and deploy".
+  - **PDFs, on your "Yes fix that too":** Coder now looks at every PDF page as a picture too, like Claude Code, and keeps each page's text. A chart on a page with text is seen now.
+    - Up to 20 pages a read, all sent to Grok. xAI's docs set no limit on images per request.
+    - To make room, Coder's machine now passes up to 8 MB for a file tool's answer (commands keep 1 MB).
+    - Coder keeps the newest 24 pictures in a job (was 8), and at most 18 MB of them, under the 30 MB a Grok request may be.
+    - It costs a bit more Grok per PDF, as you agreed.
+    - Test CD206 is new, and the PDF and picture tests are updated. 215 tests pass, and the machine's own read check passes too.
+- **Second pass over Claude Code's docs for read** (your word): this time every page that talks about reading files, not only the Read section. Five more fixes:
+  - a pipe or a device is refused at once (Coder used to wait on it);
+  - viewing one file with `cat`, `head` and the like counts as reading it, so its folder's instructions load;
+  - a folder's instruction file is taken up to 40,000 characters (8,000 before), with a note to read the rest;
+  - those instructions load again after a long job is summarized;
+  - a password-protected PDF says so.
+  - Tests CD207 and CD208 are new; 217 pass.
+- **On your "Yea add all of that and go look at the docs again":**
+  - **@-mentioned files go into your message**, like Claude Code. Coder sees the file at once, with that folder's instructions.
+    - A picture is shown, a folder comes as its list of files, and a file too big for one read is named only.
+    - Each shows in the chat as "Read src/app.js (@-mentioned)".
+    - Paths like `pages/[id].tsx` work too.
+  - **After a long job is summarized, Coder re-reads up to 5 files it was working on**, the most recently changed first, like Claude Code. A big one is only named.
+  - **The repo's instruction files at the start:** up to 100,000 characters in all (was 20,000). Past that, Coder is told which file goes on and to read the rest.
+  - **Third pass over the docs** (errors, settings, hooks and five more pages). Two small fixes:
+    - a clear message for a "null byte" in a path;
+    - "is not a valid PDF" for a file that isn't one.
+  - Tests CD209 to CD212 are new, and each fails on the old code. 221 pass.
+- **On your "Yes do that too": a command that changes a file Coder read now says so**, like Claude Code.
+  - Claude Code's docs say only one line about this, so we checked what Claude Code really does, with your two tests in Claude Code:
+    - **Test 1:** a background command changed notes.txt from apple to banana, then ended. Claude Code woke up by itself and was told only that the command had ended, nothing about the file. Claude read the file again on its own.
+    - **Test 2:** the command changed the file, then kept running. At your next message, Claude said it got no note at all.
+    - And in my own session, a command of mine that changed a file I had read got: "This command modified 1 file you've previously read … Call Read before editing."
+  - **So Coder now does the same:** a command that changed a file Coder read says so in its result: "This command changed 1 file you read before: a.js. Read it again before editing."
+  - A file changed any other way (in the background, or between messages) gets no note, like Claude Code, and is never blamed on Coder's next command.
+  - My first version also showed the changed lines in those other cases. Your tests showed Claude Code doesn't, so I took that out.
+  - Then Claude Code gave me its note in my own session: after a command of mine changed a file I had read (and ended with an error), it said the file "changed on disk since you last read it… The changes are not shown here". So its note names the file and doesn't show the lines, as Coder's now does.
+  - Coder's machine keeps only each file's time, size and a fingerprint (no copies), for up to 100 files a chat.
+  - Test CD213 is new (it fails on the old code). 222 pass, and I checked it as the machine's own user too. Live with your next "merge and deploy".
+  - **Noted for the bash tool:** Claude Code's background commands keep running between messages, and it wakes up when one ends. Coder stops them when a message ends.
+- **Browser tests on my side:** I can now open a real browser here that you can watch from your app (the "browser" preview), signed in to gofarther.dev as the test account. Signing in still needs the emailed code from you.
+- **The test account's password (live data, on your word "reset it"):**
+  - cristiananias7@gmail.com was refusing the password you remember. Supabase itself said it was wrong, from your phone too.
+  - Nothing in Coder changes passwords, and the account hadn't signed in since Nov 6.
+  - I set it back to the password you gave me in the chat.
+  - Coder had no scrambled copy to clear: copies are only made at a sign-in, and there hadn't been one since that feature shipped.
+  - Please change it once we're done testing, since it was in the chat.
+
 ## 2026-11-08: Merged and deployed: the fixes found by testing everything, and all passed live
 
 - You said "merge and deploy". Deploy run #61 passed: all 212 tests, the machine-admin tests, Coder's new machine image, and the site's own check. Live since 02:43.

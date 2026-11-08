@@ -55,9 +55,10 @@ function connect(proc) {
   };
 }
 
+// A place in a file: from `root`, or by its full path when `root` is null (the commands are in another folder).
 const fmtLoc = (root, l) => {
   const uri = l.uri || l.targetUri; const r = l.range || l.targetSelectionRange || l.targetRange;
-  let p = uri; try { p = relative(root, fileURLToPath(uri)) || p; } catch { /* keep the uri */ }
+  let p = uri; try { p = root ? relative(root, fileURLToPath(uri)) || p : fileURLToPath(uri); } catch { /* keep the uri */ }
   return p + ":" + (r.start.line + 1) + ":" + (r.start.character + 1);
 };
 
@@ -65,7 +66,7 @@ const fmtLoc = (root, l) => {
  * `{ action: definition|references|hover|diagnostics, path, line, column }` → text.
  * line and column count from 1, like the read tool's line numbers.
  */
-export async function runLsp({ action, path, abs, line, column }, root = process.cwd()) {
+export async function runLsp({ action, path, abs, line, column }, root = process.cwd(), shownFrom = root) {
   const s = serverFor(path);
   if (!s) throw new Error("no language server for " + (extname(path) || "that file") + " (LSP covers JavaScript/TypeScript and Python)");
   if (!["definition", "references", "hover", "diagnostics"].includes(action)) throw new Error("action is one of: definition, references, hover, diagnostics");
@@ -100,7 +101,7 @@ export async function runLsp({ action, path, abs, line, column }, root = process
       }
       const r = await c.request(action === "definition" ? "textDocument/definition" : "textDocument/references", { textDocument: { uri }, position: pos, ...(action === "references" ? { context: { includeDeclaration: true } } : {}) });
       const list = Array.isArray(r) ? r : r ? [r] : [];
-      return list.length ? list.slice(0, 100).map((l) => fmtLoc(root, l)).join("\n") : "nothing found at " + path + ":" + (pos.line + 1) + ":" + (pos.character + 1) + " (point line and column at a name)";
+      return list.length ? list.slice(0, 100).map((l) => fmtLoc(shownFrom, l)).join("\n") : "nothing found at " + path + ":" + (pos.line + 1) + ":" + (pos.character + 1) + " (point line and column at a name)";
     })()]);
   } finally { try { proc.kill("SIGKILL"); } catch { /* gone */ } }
 }

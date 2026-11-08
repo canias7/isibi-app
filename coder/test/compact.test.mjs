@@ -184,3 +184,46 @@ test("CD168 the page: Rewind's choices like Claude Code's (the code ones only wh
   assert.match(ui, /if \(\(pick === 'both' \|\| pick === 'chat' \|\| pick === 'sumfrom'\) && said && !S\.draft\) S\.draft = said;/);
   assert.match(ui, /if \(r\.data\.compacted\) \{ S\.project = r\.data\.project; S\.events = S\.events\.slice\(0, base\)\.concat\(r\.data\.events \|\| \[\]\); syncEntry\(\); return draw\(true\); \}/);
 });
+
+test("CD214 every summary made between messages names the files its part worked on (read, edited, written, viewed with a command, @-mentioned, or named by an earlier summary), so Coder's next job reads the most recently changed of them again, like Claude Code (\"Right after compaction, Claude Code re-reads up to five of the files Claude has read or edited\"): /compact, a long chat summarized before a job, and Rewind's summaries", async () => {
+  const { filesTouched, summaryMessage, REREAD_LIST_MAX } = await import("../container/coder-compact.mjs");
+  const { compactHistory } = await import("../src/coder-summary.mjs");
+  const tc = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const worked = [
+    { role: "user", content: "ask 1" },
+    { role: "user", appNote: true, files: ["docs/a.md"], content: "(Note from Coder's app, not the owner: the files the owner @-mentioned…)" },
+    { role: "assistant", content: "", tool_calls: [tc("read", { path: "./src/a.js" }, "1"), tc("bash", { command: "cat src/b.js" }, "2"), tc("bash", { command: "cat src/b.js | wc -l" }, "3")] },
+    { role: "tool", tool_call_id: "1", content: "…" }, { role: "tool", tool_call_id: "2", content: "…" }, { role: "tool", tool_call_id: "3", content: "…" },
+    { role: "assistant", content: "", tool_calls: [tc("edit", { path: "src/c.js", old_string: "a", new_string: "b" }, "4"), tc("write", { path: "src/a.js", content: "x" }, "5"), tc("grep", { pattern: "x" }, "6")] },
+    { role: "tool", tool_call_id: "4", content: "…" }, { role: "tool", tool_call_id: "5", content: "…" }, { role: "tool", tool_call_id: "6", content: "…" },
+    { role: "assistant", content: "Done." },
+  ];
+  // The most recent last; a file named again moves to the end; a search or a piped command is not a file it worked on.
+  assert.deepEqual(filesTouched(worked), ["docs/a.md", "src/b.js", "src/c.js", "src/a.js"]);
+  assert.deepEqual(filesTouched([summaryMessage("S", "x", ["old.js", "src/c.js"]), ...worked.slice(2)]), ["old.js", "src/b.js", "src/c.js", "src/a.js"], "an earlier summary's files carry on");
+  assert.equal(REREAD_LIST_MAX, 50);
+  assert.equal(filesTouched(Array.from({ length: 60 }, (_, i) => ({ role: "assistant", content: "", tool_calls: [tc("read", { path: "f" + i }, "r" + i)] }))).length, 50);
+  assert.deepEqual(summaryMessage("S", "x"), { role: "user", content: summaryMessage("S", "x").content }, "no files: as before");
+  assert.deepEqual(summaryMessage("S", "x", ["a.js"]).reread, ["a.js"]);
+  // A long chat summarized before a job.
+  const big = [];
+  for (let t = 1; t <= 5; t++) big.push({ role: "user", content: "ask " + t }, { role: "assistant", content: "", tool_calls: [tc("read", { path: "file" + t + ".js" }, "c" + t)] }, { role: "tool", tool_call_id: "c" + t, content: "w".repeat(80_000) }, { role: "assistant", content: "ok" });
+  const sq = await compactHistory(big, async () => "THE SUMMARY");
+  assert.ok(sq.to > 0);
+  assert.deepEqual(sq.messages[0].reread, ["file1.js", "file2.js"], "the files of the summarized jobs, not of the three kept");
+  // /compact and Rewind's summaries, on the Worker.
+  const c = await chat();
+  const msgs = [];
+  for (let t = 1; t <= 3; t++) msgs.push({ role: "user", content: "ask " + t }, { role: "assistant", content: "", tool_calls: [tc("read", { path: "f" + t + ".js" }, "c" + t)] }, { role: "tool", tool_call_id: "c" + t, content: "…" }, { role: "assistant", content: "answer " + t });
+  const evs = [], marks = [];
+  for (let t = 1; t <= 3; t++) { marks.push({ turn: t, ev: evs.length, msg: (t - 1) * 4 }); evs.push({ type: "user", text: "ask " + t }, { type: "done", text: "answer " + t }); }
+  await c.set({ marks }, msgs, evs);
+  assert.equal((await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact" }) })).status, 200);
+  assert.deepEqual(c.read("messages.json")[0].reread, ["f1.js", "f2.js", "f3.js"]);
+  await c.set({ marks }, msgs, evs);
+  await c.go("projects/" + ID + "/rewind", { method: "POST", body: JSON.stringify({ turn: 3, summarize: "upto" }) });
+  assert.deepEqual(c.read("messages.json")[0].reread, ["f1.js", "f2.js"], "Summarize up to here: the files before message 3");
+  await c.set({ marks }, msgs, evs);
+  await c.go("projects/" + ID + "/rewind", { method: "POST", body: JSON.stringify({ turn: 2, summarize: "from" }) });
+  assert.deepEqual(c.read("messages.json").at(-1).reread, ["f2.js", "f3.js"], "Summarize from here: the files from message 2 on");
+});

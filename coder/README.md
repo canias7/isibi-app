@@ -41,14 +41,154 @@ code in **each user's own GitHub**.
    and a big one smaller (1600 on its longest side, then smaller should it not fit
    in what the machine passes on), through ImageMagick fed on stdin with the kind
    named, never a file name; a PDF gives each page's text (poppler's `pdftotext`)
-   and draws a page with no text (`pdftoppm`) as a picture; a notebook gives its
+   and draws every page (`pdftoppm`, 1400 on its longest side) as a picture too,
+   like Claude Code's Read, the pages sharing the read's room (`PICS_BUDGET`, 6 MB;
+   one picture at most `PIC_ONE_MAX`), which Coder's machine passes on for a file
+   tool (`TOOL_OUTPUT_MAX`, 8 MB; a command's output keeps 1 MB); a notebook gives its
    cells, printed text, results, errors and plots. The pictures follow a mark
    (`PICS_MARK`, which has a NUL in it, so no text file can hold it) that the
    agent takes only from read's answer: Grok gets the read's text as its answer,
    then, after the round's answers, a note from Coder's app with the pictures
-   attached. A job keeps at most 8 attached (`PICS_KEEP`); the saved chat keeps a
+   attached. A read shows at most 20 (`PICS_PER_READ`: a PDF read's pages) and a job
+   keeps at most 24 attached (`PICS_KEEP`), and at most 18 MB of them (a request to
+   Grok through Coder's server is at most 30 MB); the saved chat keeps a
    note in their place, and they never count toward a long job's summary.
    `test/read-check.mjs` tries it in Coder's own image (the machine check).
+
+   **@-mentioned files go into the message** (owner, 2026-11-08: "add all of
+   that"), like Claude Code's @, which "includes the content of the file in the
+   conversation when it fits the Read tool's token limit": before Coder starts,
+   Coder's app reads each `@path` of the owner's message (`mentionedPaths` and
+   `mentionNote` in `container/coder-agent.mjs`; at most 10, about 100,000
+   characters in all) and adds a note from the app right after the message: each
+   file whole with its folder's instructions, a picture shown, a folder as its
+   listing (the `listing` tool), and a file too big for one read named only. A
+   path that is not a file of the project (a package name like `@types/node`) is
+   left alone; a job from GitHub reads none. Each shows in the chat as a step,
+   "Read src/app.js (@-mentioned)". The Worker still names the paths in the
+   message (`fileMentions`). Notes from the app carry `appNote`, so a long chat's
+   summary never counts one as the owner's message.
+
+   **Right after a summary, Coder re-reads up to five files** it was working on
+   (read, changed, viewed with a command, or @-mentioned), the most recently
+   changed first, like Claude Code ("Right after compaction, Claude Code re-reads
+   up to five of the files"; `rereadFiles`; the `mtimes` tool gives their times):
+   each up to 20,000 characters (about 5,000 tokens), a bigger one only named as
+   a "Referenced file". Files the kept steps read already, pictures and files
+   that are gone are skipped, and so are pictures, PDFs, notebooks and binary
+   kinds (`notTextKind`), before they are read; the files read again come to at
+   most 10% of the room. After a job's own summary they go with the summary
+   message. A summary made between messages (`/compact`, a long chat summarized
+   before a job, Rewind's summaries) names the files its part worked on
+   (`filesTouched` in `container/coder-compact.mjs`, kept as the summary's
+   `reread`), and the next job reads them again, once, in a note from the app
+   after the owner's message.
+
+   **A PDF's own page count is not trusted** (Claude Code 2.1.317: "Fixed a PDF's
+   own metadata being able to make Read and @-mentions under-count its pages"):
+   poppler goes by the count the file states, so the read tool also counts the
+   pages themselves with pypdf (on Coder's machine), and when the two differ it
+   reads a mended copy (`PDF_PAGES_PY`): a PDF that says 3 pages but has 12 reads
+   as 12; one whose count is too high (poppler gave up) reads from the copy.
+
+   **After a job's summary, Coder's instructions and memory come fresh from disk**
+   (Claude Code's docs: "Project-root CLAUDE.md and unscoped rules | Re-injected
+   from disk", "Auto memory | Re-injected from disk"; its 2.1.311 fixed stale
+   copies): the machine builds Coder's context with `contextFor`, and again after
+   a summary (`freshContext`) with the memory file and the repository's top-level
+   CODER.md or AGENTS.md (`topNotes`): only files with no folder on the way, as
+   Coder's commands may still run then (a folder could be swapped for a link); the
+   rest stays as read before any command ran. Block-level HTML comments in the
+   instruction files are left out as they load (`withoutComments`; Claude Code's
+   CLAUDE.md does the same), and a note to read the rest names the file's own line.
+
+   **A big picture is shown smaller, and Coder is told so** (Claude Code's docs:
+   "Claude may see a downscaled version of a large screenshot … crop the region
+   you care about, such as with ImageMagick via Bash, and then read the crop"):
+   read's answer gives the picture's real size, the size shown, and how to crop.
+
+   **The picture a read opened shows in the chat** (the owner, 2026-11-08: "Fix
+   those 3"; Claude Code shows it): read's answer carries a small copy (`thumbOf`
+   in `container/coder-tools.mjs`, a JPEG at most 320 on its longest side and
+   60,000 characters), which the agent puts on the step's result (`thumbs`) and the
+   page shows under the step (`stepPics` in `public/coder.js`). The chat's record
+   keeps it; Grok never gets it.
+
+   **The owner's pictures are saved as files Coder can open again** (Claude Code
+   2.1.275: pasted and attached images "are now saved where Claude can open them
+   as files"): each picture of the owner's message goes to the project's
+   `.coder-pictures` folder (`save_picture`, named by when it was sent, the newest
+   50 kept), which is never saved to the branch (`NEVER_COMMIT` in
+   `container/server.mjs`), and a note added to the owner's message says where.
+   Not in a job from GitHub.
+
+   **The @ list puts file-name matches first** (Claude Code 2.1.280): a file whose
+   name starts with what was typed, then one whose name has it, then one where only
+   a folder matches (`rankMentions` in `public/coder.js`).
+
+   **Text read opens:** UTF-8, and UTF-16 with a byte-order mark (Claude Code
+   2.1.299; edit still refuses those). Pictures are made sRGB (a CMYK JPEG too).
+   `file_path`, Claude Code's own name, is taken for `path`. Besides the project,
+   the file tools may use a scratch folder, `/tmp/coder-scratch` (`SCRATCH`), for
+   crops and conversions, which is never saved to the branch. The programs a read
+   runs (ImageMagick, poppler, Python for a PDF's pages) never start in the
+   project's folder, and Python runs isolated (`-I`), so a read never runs the
+   repository's code.
+
+   **What read refuses, as Claude Code's Read does:** a folder ("list what is in
+   it with glob, or a command such as ls"); a file whose kind is binary by its
+   name (`.zip`, `.xlsx`, `.parquet`, `.heic` and others: `BINARY_KINDS`), with a
+   command or script that reads that kind; any other file with a NUL byte in its
+   start; a pipe or a device; a path or pattern with a null byte.
+
+   **A command that changes a file Coder read says so** (owner, 2026-11-08: "Yes
+   do that too"; Claude Code's docs, "Context Claude Code adds on its own": "A note
+   when a file Claude read earlier changes on disk"). The docs say no more, so
+   Coder does what Claude Code was seen doing: its own commands got "[This command
+   modified 1 file you've previously read: … Call Read before editing.]", and in
+   the owner's two tests in Claude Code, a file changed by a command in the
+   background, then between messages, got no note at all. For each text file
+   Coder reads, writes or edits (up to 256 KB; at most 100 a chat, the oldest let
+   go first) the file tools keep its time, size and a fingerprint of its bytes (no
+   copy) in the chat's own folder beside its memory (`/srv/coder-memory/<chat>.seen`,
+   made by root and handed to `dev`, kept between messages: `CODER_SEEN_DIR`). After
+   each command, the `changed` tool says which of them changed (`changedFiles` in
+   `container/coder-agent.mjs`), and the command's result ends with "[This command
+   changed 1 file you read before: a.js. Read it again before editing.]". What
+   changed any other way (a command in the background; between messages, an undo
+   or a rewind) gets no note, and is taken in first so it is never put down to
+   Coder's next command. Coder's own writes and edits are no news, and a file only
+   touched (the same bytes) is no change.
+
+   **A `cd` carries over to the next commands, the Claude Code way** (the owner,
+   2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the
+   new working directory carries over to later Bash commands as long as it stays
+   inside the project directory or an additional working directory … This includes
+   commands Claude runs in response to your later messages"). Each of Grok's
+   commands starts in the folder the last one left (`t.cwd` in `container/server.mjs`;
+   its shell goes there itself, as `dev`, after starting in the project's folder,
+   so root never enters a folder `dev` can change). A command not asked to run in the
+   background prints, last, the folder it ended in (an EXIT trap that writes it in
+   base64 behind `CWD_MARK` and a random part, only on exit code 0, as tried in
+   Claude Code); `execIn` takes that line out of the output (found after a cut too)
+   and the service keeps the folder while it is inside the project or one of the
+   chat's other repositories (`cwdInside`), else goes back to the project's folder
+   with Claude Code's "Shell cwd was reset to <dir>". A command in the background
+   never moves it ("Session cwd remains <dir>; …" when it had a cd, `CWD_WORDS`), and
+   monitor never shows its folder line (`noCwdMarks`). Grok's file tools get the
+   folder (`CODER_CWD`): a short path counts from it, grep and glob search there and
+   list from there (`searchIn`), and files are named by full path there; the chat's
+   steps still name them from the project (`projectPath`), and the app's notes use
+   full paths while the folder is elsewhere (`sayPath`). Grok is told the folder in
+   its context (WHERE YOUR COMMANDS RUN) and in a result when it changes, and the
+   file tools' `path` asks for a full path, as Claude Code's do. The job's end gives
+   the folder (`result.cwd`), the Worker keeps it with the chat (`meta.cwd`) and
+   sends it with the next message (`cwd`); a chat with no history starts in the
+   project's folder. `CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` in the chat's
+   environment variables (read before `safeVars`, which keeps `CODER_` names from
+   the commands) makes every command start in the project's folder, like Claude
+   Code's `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`. Folder names are told to Grok
+   without control characters (`saidDir`). Tests: `test/cwd.test.mjs`.
 
    **Coder asks with a card of up to 4 questions** (`ask_user`; owner pick 4,
    2026-11-08), like Claude Code's AskUserQuestion: each question with a header
@@ -433,7 +573,11 @@ file, and a subfolder's own `CODER.md` (else its `AGENTS.md`) once Coder works
 on a file under it: with that tool's answer, once a job (`laterNotes`). Coder is
 told at the start which ones wait for which files. All are read by root before
 any of the AI's commands run; `node_modules`, `.git` and build folders are not
-searched.
+searched. At the start they come to at most 100,000 characters in all
+(`NOTES_MAX`; Claude Code loads each CLAUDE.md whole), and one that loads later
+to 40,000 (`NOTE_ONE_MAX`, Claude Code's limit for such a file); past either, the
+file is named with a note to read the rest with the read tool, never cut without
+a word.
 
 **A security check on each edit** (owner, 2026-11-07, item 12; like Claude
 Code's security-guidance check on each file edit, with no model call:
@@ -461,7 +605,18 @@ conversation past 300 KB has its older jobs summarized (the owner's newest
 three messages stay whole); if no summary can be made, the oldest part is cut
 as before. Within a job, past 450 KB, the job summarizes its own older steps
 (never between a tool's call and its answer, and never the saved history
-before the job), its newest eight rounds whole, at most three times a job.
+before the job). What a summary leaves comes to at most 70% of the room
+(`KEEP_SHARE`): the chat before the job and the owner's message, the summary,
+the files read again (at most 10%, `REREAD_SHARE`), and the newest rounds whole,
+which get what is left (up to eight, at least the newest one); pictures never
+count. When a summary cannot bring the job back under its room (the chat before
+it is near the room), none is made again until the job has grown by a tenth of
+it. At most thirty times a job (`COMPACT_JOB_MAX`). While Coder works, a read gives up to about 100,000 characters,
+but the chat saved between messages keeps each tool's answer and each note of
+the app to 12,000 characters, and a summary to 40,000 (`forSaving`), and the
+chat's record keeps each step's output to 12,000; the saved chat's size cap
+(`capHistory`, 400 KB) cuts only at the owner's messages, and one job over it
+has its answers shortened, never the job dropped (it used to leave nothing).
 `/compact [what to keep]` makes the whole conversation one summary and starts
 no job. Rewind offers Claude Code's choices: Restore code and chat, chat only,
 code only (the code ones only when a later job changed files), Summarize from
