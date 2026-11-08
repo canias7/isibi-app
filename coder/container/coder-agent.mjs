@@ -41,16 +41,24 @@ const fn = (name, description, properties, required) => ({ type: "function", fun
 /** A job's conversation past this many characters has its older steps summarized (owner item 3). */
 export const COMPACT_AT = 450_000;
 /** Pictures one read may show (owner item 1), and the most a job keeps attached: older ones are let go (read again to see them). */
-export const PICS_PER_READ = 6, PICS_KEEP = 8;
+export const PICS_PER_READ = 20, PICS_KEEP = 24; // 20: a PDF read's pages (like Claude Code's); 24: a whole read and a few more
+/** And at most this much of them (base64): a request to Grok through Coder's server is at most 30 MB (MODEL_BODY_MAX). */
+export const PICS_KEEP_BYTES = 18_000_000;
 /** Lets go of all but the newest PICS_KEEP pictures that reads opened (pictures the owner sent stay). */
 export function keepPics(convo) {
-  let kept = 0;
+  let kept = 0, bytes = 0;
   for (let i = convo.length - 1; i >= 0; i--) {
     const m = convo[i];
     if (!m || m.readPics !== true || !Array.isArray(m.images)) continue;
-    const room = Math.max(0, PICS_KEEP - kept);
-    if (m.images.length <= room) { kept += m.images.length; continue; }
-    const keep = m.images.slice(m.images.length - room);
+    // The newest first, while they fit in both PICS_KEEP and PICS_KEEP_BYTES.
+    let room = 0;
+    for (let j = m.images.length - 1; j >= 0; j--) {
+      const len = String(m.images[j]).length;
+      if (kept + room + 1 > PICS_KEEP || bytes + len > PICS_KEEP_BYTES) break;
+      bytes += len; room++;
+    }
+    if (room === m.images.length) { kept += room; continue; }
+    const keep = room ? m.images.slice(m.images.length - room) : [];
     kept += keep.length;
     const base = String(m.content || "").replace(/ \[Only the last \d+ of them are still attached\.\]$/, "");
     convo[i] = keep.length ? { ...m, images: keep, content: base + " [Only the last " + keep.length + " of them are still attached.]" } : { role: m.role, content: base + " [No longer attached: read the file again to see it.]", readPics: true };
@@ -74,7 +82,7 @@ export const CODER_MAX_MS = 45 * 60 * 1000;
 
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
-  fn("read", "Read a file in the project, like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, a page with no text shown as a picture; pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
+  fn("read", "Read a file in the project, like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly (read it first) and appear once, unless replace_all is true. Use this instead of sed.", { path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
   fn("write", "Write a whole file (new, or replacing everything in it). At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),

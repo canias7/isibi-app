@@ -19,7 +19,7 @@ const MAGICK = has("convert"), POPPLER = has("pdftotext") && has("pdfinfo") && h
 
 /** The read tool, as Coder's machine runs it: { code, text, pictures }. */
 function read(dir, args) {
-  const r = spawnSync("node", ["--no-warnings", TOOLS, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: dir, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+  const r = spawnSync("node", ["--no-warnings", TOOLS, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: dir, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
   const out = String(r.stdout || "");
   if (!out.startsWith(T.PICS_MARK)) return { code: r.status, text: out, pictures: [] };
   const j = JSON.parse(out.slice(T.PICS_MARK.length));
@@ -93,24 +93,29 @@ test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF, W
   assert.match(read(dir, { path: "/etc/hostname" }).text, /^error: that path is outside the project/);
 });
 
-test("CD194 read opens a PDF like Claude Code's Read: each page's text, a page with no text (a scan) shown as a picture; pages \"1-5\" picks pages, at most 20 at a time, and is needed past 10 pages; anything else is refused with what to do", { skip: !(POPPLER && MAGICK) && "poppler or ImageMagick is not installed here (both are on Coder's machine)" }, async () => {
+test("CD194 read opens a PDF like Claude Code's Read: each page's text, and every page shown as a picture too (the owner, 2026-11-08: \"Yes fix that too\"), sharing the read's room so all of up to 20 pages fit; pages \"1-5\" picks pages, at most 20 at a time, and is needed past 10 pages; anything else is refused with what to do", { skip: !(POPPLER && MAGICK) && "poppler or ImageMagick is not installed here (both are on Coder's machine)" }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "coder-pdf-"));
   await writeFile(join(dir, "doc.pdf"), makePdf(["Hello from page one", null, "And page three"]));
   const doc = read(dir, { path: "doc.pdf" });
   assert.equal(doc.code, 0, doc.text);
-  assert.equal(doc.text, "doc.pdf: PDF, 3 pages\n\n--- Page 1 ---\nHello from page one\n\n--- Page 2 (no text: shown to you as picture 1 after these results) ---\n\n--- Page 3 ---\nAnd page three");
-  assert.equal(doc.pictures.length, 1);
-  const page = T.picSize(pngOf(doc.pictures[0]));
-  assert.ok(page.w > 700 && page.w < 900 && page.h > 1000, "the page, drawn at 100 dpi: " + JSON.stringify(page));
+  assert.equal(doc.text, "doc.pdf: PDF, 3 pages; each page is also shown to you as a picture after these results, in order\n\n--- Page 1 (picture 1) ---\nHello from page one\n\n--- Page 2 (picture 2; no text) ---\n\n--- Page 3 (picture 3) ---\nAnd page three");
+  assert.equal(doc.pictures.length, 3, "every page, the ones with text too");
+  const page = T.picSize(Buffer.from(doc.pictures[0].data, "base64"));
+  assert.deepEqual(page, { w: 1082, h: 1400 }, "a letter page drawn 1400 on its longest side: " + JSON.stringify(page));
   // ONE PAGE, or a range.
-  assert.equal(read(dir, { path: "doc.pdf", pages: "3" }).text, "doc.pdf: PDF, 3 pages, pages 3-3\n\n--- Page 3 ---\nAnd page three");
-  assert.equal(read(dir, { path: "doc.pdf", pages: "1-2" }).pictures.length, 1);
+  assert.equal(read(dir, { path: "doc.pdf", pages: "3" }).text, "doc.pdf: PDF, 3 pages, pages 3-3; each page is also shown to you as a picture after these results, in order\n\n--- Page 3 (picture 1) ---\nAnd page three");
+  assert.equal(read(dir, { path: "doc.pdf", pages: "1-2" }).pictures.length, 2);
   // PAST 10 PAGES, pages is needed; at most 20 at a time.
   await writeFile(join(dir, "long.pdf"), makePdf(Array.from({ length: 25 }, (_, i) => "Long page " + (i + 1))));
   assert.equal(read(dir, { path: "long.pdf" }).text, 'error: long.pdf has 25 pages: give pages, e.g. "1-5" (at most 20 at a time)');
   assert.equal(read(dir, { path: "long.pdf", pages: "2-22" }).text, 'error: at most 20 pages at a time: ask for fewer (e.g. "2-21")');
   const some = read(dir, { path: "long.pdf", pages: "24-25" });
-  assert.equal(some.text, "long.pdf: PDF, 25 pages, pages 24-25\n\n--- Page 24 ---\nLong page 24\n\n--- Page 25 ---\nLong page 25");
+  assert.equal(some.text, "long.pdf: PDF, 25 pages, pages 24-25; each page is also shown to you as a picture after these results, in order\n\n--- Page 24 (picture 1) ---\nLong page 24\n\n--- Page 25 (picture 2) ---\nLong page 25");
+  // 20 PAGES AT ONCE, the most: all 20 as pictures, within the read's room, each at most PIC_ONE_MAX.
+  const twenty = read(dir, { path: "long.pdf", pages: "1-20" });
+  assert.equal(twenty.pictures.length, 20, twenty.text.slice(0, 300));
+  assert.ok(twenty.pictures.reduce((n, p) => n + p.data.length, 0) <= T.PICS_BUDGET && twenty.pictures.every((p) => p.data.length <= T.PIC_ONE_MAX));
+  assert.match(twenty.text, /--- Page 20 \(picture 20\) ---\nLong page 20$/);
   for (const bad of ["0", "26", "5-3", "one", "1-2-3"]) assert.equal(read(dir, { path: "long.pdf", pages: bad }).text, 'error: pages must be one page or a range like "1-5", within the PDF\'s 25 pages', bad);
   // NOT A PDF after all.
   await writeFile(join(dir, "fake.pdf"), "not a pdf");
@@ -190,14 +195,22 @@ test("CD196 the agent shows read's pictures to Grok: the read's answer is its te
   assert.equal(savedNote.images, undefined);
   assert.ok(!JSON.stringify(out.messages).includes(pic(1).data), "no picture in the saved history");
 
-  // AT MOST 8 PICTURES STAY ATTACHED in a job: the oldest are let go, with a note to read again.
-  assert.equal(PICS_KEEP, 8);
+  // AT MOST 24 PICTURES STAY ATTACHED in a job (a 20-page PDF read and a few more; the owner, 2026-11-08: every PDF
+  // page a picture, like Claude Code), and at most PICS_KEEP_BYTES of them: the oldest are let go, with a note.
+  const { PICS_KEEP_BYTES } = await import("../container/coder-agent.mjs");
+  assert.deepEqual([PICS_KEEP, PICS_KEEP_BYTES], [24, 18_000_000]);
   const convo = [{ role: "user", content: "owner", images: ["data:image/png;base64,AAAA"] }];
-  for (let i = 0; i < 4; i++) convo.push({ role: "user", content: "(Note from Coder's app, not the owner: read " + i + ")", images: ["p" + i + "a", "p" + i + "b", "p" + i + "c"], readPics: true });
+  const read3 = (i, k = 3, size = 4) => ({ role: "user", content: "(Note from Coder's app, not the owner: read " + i + ")", images: Array.from({ length: k }, (_, j) => "p" + i + j + "x".repeat(size)), readPics: true });
+  convo.push(read3(0), read3(1, 4));
+  for (let i = 2; i < 9; i++) convo.push(read3(i));
   keepPics(convo);
-  assert.deepEqual(convo.map((m) => (m.images || []).length), [1, 0, 2, 3, 3], "the owner's own picture stays; reads keep their newest 8");
+  assert.deepEqual(convo.map((m) => (m.images || []).length), [1, 0, 3, 3, 3, 3, 3, 3, 3, 3], "the owner's own picture stays; reads keep their newest 24");
   assert.match(convo[1].content, / \[No longer attached: read the file again to see it\.\]$/);
-  assert.match(convo[2].content, / \[Only the last 2 of them are still attached\.\]$/);
+  assert.match(convo[2].content, / \[Only the last 3 of them are still attached\.\]$/);
   keepPics(convo);
   assert.equal(convo[2].content.match(/Only the last/g).length, 1, "said once");
+  // BY SIZE TOO: pictures of 5,000,000 characters each, so only 3 fit in 18,000,000.
+  const big = [read3("a", 2, 5_000_000), read3("b", 2, 5_000_000)];
+  keepPics(big);
+  assert.deepEqual(big.map((m) => (m.images || []).length), [1, 2], "the newest that fit, by size");
 });

@@ -100,11 +100,15 @@ async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) 
 // never starts with the mark: each of its lines starts with its number.
 export const PICS_MARK = "\u0000coder-pictures\u0000";
 /** All of one read's pictures, as base64: the machine passes on at most 1 MB of a command's output. */
-export const PICS_BUDGET = 900_000;
+// What one read's pictures may come to (base64): up to 20 PDF pages, each as a picture, under what Coder's machine
+// passes on for a file tool's answer (TOOL_OUTPUT_MAX, 8 MB, in server.mjs).
+export const PICS_BUDGET = 6_000_000;
+/** One picture at most (base64), as before: a job keeps up to 24, and a request to Grok through Coder's server is at most 30 MB. */
+export const PIC_ONE_MAX = 900_000;
 /** A PDF's pages: at most this many at a time, and `pages` is needed past PDF_PAGES_FREE (as Claude Code's Read). */
 export const PDF_PAGES_MAX = 20, PDF_PAGES_FREE = 10;
 /** The text of a PDF's pages, or a notebook's cells, in one read. */
-export const READ_TEXT_MAX = 40_000;
+export const READ_TEXT_MAX = READ_CHARS;
 /** The picture kinds read shows, by the file's ending (ImageMagick is told which: it never guesses from the contents). */
 export const PIC_KINDS = { ".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".gif": "gif", ".webp": "webp", ".bmp": "bmp", ".tif": "tiff", ".tiff": "tiff" };
 /** A picture's longest side once shown (a bigger one is made smaller first; then smaller still should it not fit). */
@@ -177,7 +181,7 @@ async function readPicture(abs, rel, kind) {
   if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
   if (st.size > PIC_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, over the 128 MB a picture may be: make a smaller copy with bash (e.g. convert, or crop the part you need) and read that");
   const size = st.size;
-  const p = await asPicture(await readFile(abs), kind);
+  const p = await asPicture(await readFile(abs), kind, PIC_ONE_MAX);
   if (p.why) fail(rel + " cannot be shown: " + p.why);
   return withPics("Picture: " + rel + " (" + (p.w && p.h ? p.w + "×" + p.h + ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results.", [p]);
 }
@@ -204,19 +208,21 @@ async function readPdf(abs, rel, pages) {
   const t = await runProg("pdftotext", ["-f", String(range[0]), "-l", String(range[1]), "-layout", "-enc", "UTF-8", abs, "-"]);
   if (t.code !== 0) fail(rel + "'s text could not be read" + (t.err ? " (" + t.err + ")" : ""));
   const texts = t.out.toString("utf8").split("\f");
-  const parts = [rel + ": PDF, " + total + " page" + (total === 1 ? "" : "s") + (asked ? ", pages " + range[0] + "-" + range[1] : "")];
+  const parts = [rel + ": PDF, " + total + " page" + (total === 1 ? "" : "s") + (asked ? ", pages " + range[0] + "-" + range[1] : "") + "; each page is also shown to you as a picture after these results, in order"];
   const pictures = []; let budget = PICS_BUDGET; let dir = null;
   try {
     for (let n = range[0]; n <= range[1]; n++) {
       const text = String(texts[n - range[0]] || "").replace(/[ \t]+$/gm, "").trim();
-      if (text) { parts.push("--- Page " + n + " ---\n" + text); continue; }
-      // A PAGE WITH NO TEXT (a scan, a drawing): shown as a picture, while they fit in one read.
+      // EVERY PAGE AS A PICTURE TOO (the owner, 2026-11-08: "Yes fix that too"), like Claude Code's Read, whose page
+      // reads "render pages with pdftoppm": a chart or a layout on a page with text is seen as well, and its text is
+      // kept. The pages share the read's room for pictures fairly, so all of them fit (smaller when there are many).
       if (!dir) dir = await mkdtemp(join(tmpdir(), "coder-pdf-"));
-      const r = await runProg("pdftoppm", ["-f", String(n), "-l", String(n), "-r", "100", "-png", "-singlefile", abs, join(dir, "p")]);
-      const p = r.code === 0 ? await asPicture(await readFile(join(dir, "p.png")).catch(() => Buffer.alloc(0)), "png", budget) : { why: "it could not be drawn" };
-      if (p.why) { parts.push("--- Page " + n + " (no text; not shown: " + (pictures.length ? "too many pictures for one read, read this page alone" : p.why) + ") ---"); continue; }
+      const share = Math.min(PIC_ONE_MAX, Math.floor(budget / (range[1] - n + 1)));
+      const r = await runProg("pdftoppm", ["-f", String(n), "-l", String(n), "-scale-to", "1400", "-png", "-singlefile", abs, join(dir, "p")]);
+      const p = r.code === 0 ? await asPicture(await readFile(join(dir, "p.png")).catch(() => Buffer.alloc(0)), "png", share) : { why: "it could not be drawn" };
+      if (p.why) { parts.push("--- Page " + n + " (not shown as a picture: " + p.why + (text ? "" : "; no text") + ") ---" + (text ? "\n" + text : "")); continue; }
       pictures.push(p); budget -= p.data.length;
-      parts.push("--- Page " + n + " (no text: shown to you as picture " + pictures.length + " after these results) ---");
+      parts.push("--- Page " + n + " (picture " + pictures.length + (text ? "" : "; no text") + ") ---" + (text ? "\n" + text : ""));
     }
   } finally { if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {}); }
   let text = parts.join("\n\n");
@@ -243,7 +249,7 @@ async function readNotebook(raw, rel) {
       const d = o.data && typeof o.data === "object" ? o.data : {};
       const img = d["image/png"] ? ["png", d["image/png"]] : d["image/jpeg"] ? ["jpeg", d["image/jpeg"]] : null;
       if (img) {
-        const p = budget > 0 ? await asPicture(Buffer.from(str(img[1]).replace(/\s+/g, ""), "base64"), img[0], budget) : { why: "too many pictures for one read" };
+        const p = budget > 0 ? await asPicture(Buffer.from(str(img[1]).replace(/\s+/g, ""), "base64"), img[0], Math.min(PIC_ONE_MAX, budget)) : { why: "too many pictures for one read" };
         if (p.why) parts.push("[picture output, not shown: " + p.why + "]");
         else { pictures.push(p); budget -= p.data.length; parts.push("[picture output: shown to you as picture " + pictures.length + " after these results]"); }
         continue;

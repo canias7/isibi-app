@@ -37,6 +37,8 @@ export { globMatch };
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
+// A FILE TOOL'S ANSWER (read: up to 20 PDF pages, each as a picture, like Claude Code's Read; the owner, 2026-11-08: "Yes fix that too"); a command's output keeps RAW_OUTPUT_MAX.
+export const TOOL_OUTPUT_MAX = 8 * 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
 const RUN_UID = process.env.CODER_RUN_UID ? Number(process.env.CODER_RUN_UID) : undefined;
 const RUN_GID = process.env.CODER_RUN_GID ? Number(process.env.CODER_RUN_GID) : undefined;
@@ -57,7 +59,7 @@ let bgCount = 0;
  * `home`: the AI's home (the service gives it one; a test may not, and then it is `dir`). `uid: null` runs it as root, with root's own PATH only (cleanEnv).
  * `room`: in the sealed room (coder-room.mjs), as the AI's user, whose only ways out are Coder's gate and, with Full access, the room's own link.
  */
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null } = {}) {
+export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false;
     const env = { ...(extraEnv || {}), ...(uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir)), ...(box ? { CODER_SANDBOX: "1" } : {}) };
@@ -69,7 +71,7 @@ export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_
       : room && Number.isInteger(uid)
       ? spawn("nsenter", roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
       : spawn("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
-    const take = (b) => { if (out.length < RAW_OUTPUT_MAX) out += b.toString("utf8"); else cut = true; };
+    const take = (b) => { if (out.length < outMax) out += b.toString("utf8"); else cut = true; };
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
     const answer = (r) => { if (!answered) { answered = true; done(r); } };
@@ -92,7 +94,7 @@ export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_
       answer({ code: -1, background: true, pid: p.pid, log, timedOut: true, output: out.slice(-4000) + "\n[still running in the background after " + timeoutS + "s. Its output goes on in " + log + " (read it with: tail -n 50 " + log + "; it ends with \"[finished, exit code N]\" when done)]" });
     }, Math.max(1, timeoutS) * 1000);
     p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
-    p.on("close", (code) => { clearTimeout(t); answer({ code: typeof code === "number" ? code : -1, output: out + (cut ? "\n[output cut at 1 MB]" : ""), timedOut }); });
+    p.on("close", (code) => { clearTimeout(t); answer({ code: typeof code === "number" ? code : -1, output: out + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : ""), timedOut }); });
   });
 }
 
@@ -1681,7 +1683,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             command = command.replace("@REQUEST", "@" + f);
           }
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : {}) });
           if (r && r.background && r.pid) t.bg.add(r.pid);
           return r;
         },

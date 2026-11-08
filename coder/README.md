@@ -41,12 +41,17 @@ code in **each user's own GitHub**.
    and a big one smaller (1600 on its longest side, then smaller should it not fit
    in what the machine passes on), through ImageMagick fed on stdin with the kind
    named, never a file name; a PDF gives each page's text (poppler's `pdftotext`)
-   and draws a page with no text (`pdftoppm`) as a picture; a notebook gives its
+   and draws every page (`pdftoppm`, 1400 on its longest side) as a picture too,
+   like Claude Code's Read, the pages sharing the read's room (`PICS_BUDGET`, 6 MB;
+   one picture at most `PIC_ONE_MAX`), which Coder's machine passes on for a file
+   tool (`TOOL_OUTPUT_MAX`, 8 MB; a command's output keeps 1 MB); a notebook gives its
    cells, printed text, results, errors and plots. The pictures follow a mark
    (`PICS_MARK`, which has a NUL in it, so no text file can hold it) that the
    agent takes only from read's answer: Grok gets the read's text as its answer,
    then, after the round's answers, a note from Coder's app with the pictures
-   attached. A job keeps at most 8 attached (`PICS_KEEP`); the saved chat keeps a
+   attached. A read shows at most 20 (`PICS_PER_READ`: a PDF read's pages) and a job
+   keeps at most 24 attached (`PICS_KEEP`), and at most 18 MB of them (a request to
+   Grok through Coder's server is at most 30 MB); the saved chat keeps a
    note in their place, and they never count toward a long job's summary.
    `test/read-check.mjs` tries it in Coder's own image (the machine check).
 

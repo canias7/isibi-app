@@ -6,7 +6,7 @@ import { writeFileSync } from "node:fs";
 
 const MARK = "\u0000coder-pictures\u0000";
 const read = (args) => {
-  const out = String(spawnSync("node", ["--no-warnings", "/app/coder-tools.mjs", Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 }).stdout || "");
+  const out = String(spawnSync("node", ["--no-warnings", "/app/coder-tools.mjs", Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }).stdout || "");
   if (!out.startsWith(MARK)) throw new Error("no pictures for " + args.path + ": " + out.slice(0, 300));
   const j = JSON.parse(out.slice(MARK.length));
   if (!j.pictures.length || !j.pictures.every((p) => /^image\/(png|jpeg)$/.test(p.type) && p.data.length > 50)) throw new Error("bad pictures for " + args.path);
@@ -23,6 +23,6 @@ writeFileSync("nb.ipynb", JSON.stringify({ nbformat: 4, nbformat_minor: 5, metad
 if (!/^Picture: shot\.png \(1600×800, PNG, /.test(read({ path: "shot.png" }).text)) throw new Error("the screenshot was not made smaller");
 read({ path: "anim.gif" });
 const pdf = read({ path: "doc.pdf" });
-if (!pdf.text.includes("pdf text ok") || !pdf.text.includes("--- Page 2 (no text: shown to you as picture 1")) throw new Error("the PDF's pages: " + pdf.text);
+if (!pdf.text.includes("--- Page 1 (picture 1) ---\npdf text ok") || !pdf.text.includes("--- Page 2 (picture 2; no text) ---") || pdf.pictures.length !== 2) throw new Error("the PDF's pages (each a picture too): " + pdf.text);
 read({ path: "nb.ipynb" });
 console.log("read ok");

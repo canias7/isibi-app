@@ -157,3 +157,31 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
     assert.match(read({ path: "big.bmp" }), /^\u0000coder-pictures\u0000[\s\S]*Picture: big\.bmp \(\d+×\d+, BMP, 2\d\.\d MB\)/);
   }
 });
+
+test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a file tool's answer of up to 8 MB (a command's output still 1 MB), the agent takes up to 20 pictures a read and keeps the newest 24 in a job", async () => {
+  // The owner, 2026-11-08: "Yes fix that too" (Claude Code's Read draws every PDF page with pdftoppm; Coder drew only
+  // pages with no text, and its machine passed 1 MB of a tool's answer, the agent 6 pictures a read, 8 a job).
+  const { execIn, TOOL_OUTPUT_MAX } = await import("../container/server.mjs");
+  const { mkdtemp, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(TOOL_OUTPUT_MAX, 8 * 1024 * 1024);
+  const dir = await mkdtemp(join(tmpdir(), "coder-out-"));
+  const cmd = "head -c 3000000 /dev/zero | tr '\\0' a";
+  const plain = await execIn(dir, cmd, 60, { kill: true });
+  assert.ok(plain.output.length < 1.2e6 && plain.output.endsWith("\n[output cut at 1 MB]"), "a command: 1 MB, as before");
+  const tool = await execIn(dir, cmd, 60, { kill: true, outMax: TOOL_OUTPUT_MAX });
+  assert.equal(tool.output.length, 3_000_000, "a file tool's answer: all 3 MB");
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{\}\)/, "the job's file tools get it");
+  // The agent: 20 pictures from one read reach Grok, all of them.
+  const { runCoder, PICS_PER_READ, PICS_KEEP } = await import("../container/coder-agent.mjs");
+  const { PICS_MARK } = await import("../container/coder-tools.mjs");
+  assert.deepEqual([PICS_PER_READ, PICS_KEEP], [20, 24]);
+  const pics = Array.from({ length: 20 }, (_, i) => ({ type: "image/png", data: Buffer.from("page-" + i).toString("base64") }));
+  const seen = [];
+  const steps = [say("", [call("read", { path: "doc.pdf", pages: "1-20" }, "r1")]), say("Done.")];
+  await runCoder({ send: async (req) => { seen.push(JSON.parse(JSON.stringify(req))); return steps[Math.min(seen.length - 1, 1)]; }, emit: () => {}, exec: async () => ({ code: 0, output: PICS_MARK + JSON.stringify({ text: "doc.pdf: PDF, 20 pages", pictures: pics }) }) }, { text: "read the PDF" });
+  const note = seen[1].messages.find((m) => Array.isArray(m.images));
+  assert.equal(note.images.length, 20, "all 20 pages reach Grok");
+});

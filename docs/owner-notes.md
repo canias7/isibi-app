@@ -29,7 +29,12 @@ log (81,000 lines) is in git history.
   - pictures up to 128 MB, not 20;
   - notebooks up to 100 MB, with a clear error instead of a cut when they're too big.
   - Test CD205 is new; 214 tests pass. Live with your next "merge and deploy".
-  - **One left for you to decide:** Claude Code looks at every PDF page as a picture. Coder reads each page's text, and looks only at pages with no text. Matching it means more pictures sent to Grok per PDF, which costs a little more.
+  - **PDFs, on your "Yes fix that too":** Coder now looks at every PDF page as a picture too, like Claude Code, and keeps each page's text. A chart on a page with text is seen now.
+    - Up to 20 pages a read, all sent to Grok. xAI's docs set no limit on images per request.
+    - To make room, Coder's machine now passes up to 8 MB for a file tool's answer (commands keep 1 MB).
+    - Coder keeps the newest 24 pictures in a job (was 8), and at most 18 MB of them, under the 30 MB a Grok request may be.
+    - It costs a bit more Grok per PDF, as you agreed.
+    - Test CD206 is new, and the PDF and picture tests are updated. 215 tests pass, and the machine's own read check passes too.
 - **Browser tests on my side:** I can now open a real browser here that you can watch from your app (the "browser" preview), signed in to gofarther.dev as the test account. Signing in still needs the emailed code from you.
 - **The test account's password (live data, on your word "reset it"):**
   - cristiananias7@gmail.com was refusing the password you remember. Supabase itself said it was wrong, from your phone too.

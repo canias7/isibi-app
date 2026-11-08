@@ -52,10 +52,10 @@ The right answers: line 250 is 220956, a red square with TEST, and page 2 is a b
 | Images refused only over 128 MB, resized | the same (refused over 20 MB before) |
 | Notebooks: "more than 256 KB, or more than the token limit, returns an error", how to read part with a command; files up to 100 MB | the same (it cut the text at 40,000 characters and refused files over 20 MB before) |
 | Folders and binary files refused | the same |
-| PDFs: pages drawn with `pdftoppm`, so Claude sees every page | **different, the owner's call:** Coder gives each page's text, and a picture only of pages with no text. A page with text and a chart: Claude Code sees the chart, Coder doesn't. |
+| PDFs: pages drawn with `pdftoppm`, so Claude sees every page | **the same since the owner's "Yes fix that too":** every page is drawn as a picture (1400 px on its longest side), and its text is kept too. Up to 20 pages a read all reach Grok: they share the read's room, and Coder's machine now passes up to 8 MB for a file tool's answer. |
 | Long lines: not in the docs | Coder cuts a line at 2,000 characters (as Claude Code's own tool description long has) |
 
-Tests CD204 and CD205 (both fail on the earlier code). 214 pass.
+Tests CD204, CD205 and CD206 (all fail on the earlier code), CD194 and CD196 updated. 215 pass. The machine-image check (`test/read-check.mjs`) passes with it too.
 
 **Differences seen side by side:**
 - **Claude Code shows the picture it opened in the chat.** Coder shows the step ("Read test.png") but not the picture. Offered to the owner.
