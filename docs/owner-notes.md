@@ -11,6 +11,13 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Desktop app: "Try again" with no internet no longer leaves a blank window
+
+- Found by running the real desktop app on my side (recorded): with no internet, the app shows its "Can't reach Go Farther" page, as it should. But pressing **Try again** while still offline left the window **blank**, with no button. The page was loaded again, but the window stopped drawing it.
+- Now Try again first checks that Go Farther answers. Still offline: the page stays and says "Still can't reach it. Go Farther opens by itself when your internet is back." And it does: when the computer comes back online, Go Farther opens on its own.
+- I tested this on Linux, on a virtual screen. A Mac or Windows computer may not have gone blank, but the fix avoids the failing reload either way.
+- Tests: D3 and D4 are new in the desktop app's tests (4 pass). It's in the next desktop build (the build button); the website doesn't change.
+
 ## 2026-11-08: Two more fixes found by testing everything (not live yet)
 
 - **Each chat keeps its own message box** (page test, recorded): a message that couldn't be sent in one chat was still in the box after opening another chat, with its pictures and line comments, and would have gone to the wrong chat. Now what you typed, attached or commented stays with its chat and comes back when you open it again. A chat you open for the first time starts empty.

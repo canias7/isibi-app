@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-zzGkEHagv27WBmgxMFGuF1RZqbqUiBAu9MlKm/nqwjU='; connect-src https://gofarther.dev" />
   <title>Go Farther</title>
   <style>
     html, body { height: 100%; margin: 0; }
@@ -12,6 +12,7 @@
     h1 { font-size: 18px; margin: 0 0 6px; }
     p { color: #6b6a66; margin: 0 0 18px; }
     a { display: inline-block; background: #0d1b2a; color: #fff; text-decoration: none; border-radius: 999px; padding: 9px 18px; font-weight: 600; }
+    .still { margin: 14px 0 0; font-size: 13px; }
   </style>
 </head>
 <body>
@@ -19,7 +20,26 @@
     <div class="logo">GF</div>
     <h1>Can't reach Go Farther</h1>
     <p>Check your internet connection, then try again.</p>
-    <a href="https://gofarther.dev/">Try again</a>
+    <a href="https://gofarther.dev/" id="again">Try again</a>
+    <p class="still" id="still" hidden>Still can't reach it. Go Farther opens by itself when your internet is back.</p>
   </div>
+  <script>
+// TRY AGAIN ONLY WHEN GO FARTHER ANSWERS (test, 2026-11-08: "Try again" while still offline left the
+// window blank). Still offline: this page stays and says so. Back online: Go Farther opens by itself.
+(() => {
+  const HOME = "https://gofarther.dev/";
+  const again = document.getElementById("again"), still = document.getElementById("still");
+  let trying = false;
+  async function tryAgain(e) {
+    if (e) e.preventDefault();
+    if (trying) return;
+    trying = true; again.textContent = "Trying…";
+    try { await fetch(HOME, { mode: "no-cors", cache: "no-store" }); location.href = HOME; }
+    catch { again.textContent = "Try again"; still.hidden = false; trying = false; }
+  }
+  again.addEventListener("click", tryAgain);
+  window.addEventListener("online", () => tryAgain());
+})();
+</script>
 </body>
 </html>
