@@ -59,7 +59,7 @@ test("CD203 each chat keeps its own message box: what was typed, its pictures an
   assert.match(ui, /delete S\.drafts\[id\];/);
 });
 
-test("CD204 read gives the whole file when it fits, about 100,000 characters of whole lines a call, like Claude Code's Read (\"at most 25,000 tokens\"); a longer file comes in parts that join up exactly; the agent never cuts a read, while other tools' output is still cut", async () => {
+test("CD204 read gives about 100,000 characters of whole lines a call, like Claude Code's Read (\"at most 25,000 tokens\"): a whole file that fits comes whole; a longer one (under 256 KB) gives its first part as a PARTIAL view saying how to read more, and the parts join up exactly; the agent never cuts a read, while other tools' output is still cut", async () => {
   // Tool-by-tool comparison with Claude Code (2026-11-08): Coder's read gave 400 lines, then its answer was cut to
   // 12,000 characters with the middle dropped, so line 250 of a 500-line file was not shown.
   const { execFileSync } = await import("node:child_process");
@@ -71,28 +71,33 @@ test("CD204 read gives the whole file when it fits, about 100,000 characters of 
   const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
   const read = (args) => execFileSync("node", ["--no-warnings", script, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: dir, maxBuffer: 8 << 20 }).toString();
   const num = (n) => 100000 + ((n * 7919) % 900000);
-  await writeFile(join(dir, "long.txt"), Array.from({ length: 500 }, (_, i) => "line " + (i + 1) + ": " + num(i + 1) + " " + "x".repeat(60)).join("\n"));
+  await writeFile(join(dir, "long.txt"), Array.from({ length: 500 }, (_, i) => "line " + (i + 1) + ": " + num(i + 1) + " " + "x".repeat(60)).join("\n") + "\n");
   const whole = read({ path: "long.txt" });
   assert.ok(whole.includes("   250\tline 250: " + num(250) + " "), "line 250 is there");
-  assert.ok(whole.includes("   500\tline 500: "), "and the last line");
-  assert.doesNotMatch(whole, /more lines|characters not shown/);
-  // A file of about 300,000 characters: parts of whole lines, each under READ_CHARS, that join up exactly.
-  await writeFile(join(dir, "big.txt"), Array.from({ length: 3000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
-  let offset = 1, seen = 0, parts = 0;
+  assert.ok(whole.endsWith("   500\tline 500: " + num(500) + " " + "x".repeat(60)), "and the last line, with no blank line after the file's last newline");
+  assert.doesNotMatch(whole, /PARTIAL|read more|characters not shown/);
+  // About 200 KB: a PARTIAL view, then parts asked for with offset and limit, which join up exactly.
+  await writeFile(join(dir, "mid.txt"), Array.from({ length: 2000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
+  const first = read({ path: "mid.txt" });
+  const pm = /\n\[PARTIAL view: lines 1-(\d+) of 2000 \(about \d+ KB of \d+ KB\)\. Read more with offset (\d+) and limit (\d+)\]$/.exec(first);
+  assert.ok(pm, first.slice(-200));
+  assert.equal(Number(pm[2]), Number(pm[1]) + 1);
+  let body = first.slice(0, pm.index), offset = 1, seen = 0, parts = 0, limit = Number(pm[3]);
   for (;;) {
-    const out = read({ path: "big.txt", offset });
-    const m = /\n\[(\d+) more lines: read again with offset (\d+)\]$/.exec(out);
-    const body = m ? out.slice(0, m.index) : out;
     assert.ok(body.length <= READ_CHARS, "part " + parts + " is " + body.length + " characters");
     const rows = body.split("\n");
     assert.equal(Number(rows[0].split("\t")[0]), offset, "a part starts where the last one stopped");
     rows.forEach((r, i) => assert.equal(r, String(offset + i).padStart(6) + "\trow " + (offset + i) + " " + "y".repeat(92), "whole lines only"));
     seen += rows.length; parts++;
-    if (!m) break;
-    assert.equal(Number(m[1]), 3000 - seen); offset = Number(m[2]);
+    if (seen >= 2000) break;
+    offset = seen + 1;
+    const out = read({ path: "mid.txt", offset, limit }); // what the last notice said: it fits, exactly
+    const m = /\n\[lines \d+-\d+ of 2000; read more with offset (\d+) and limit (\d+)\]$/.exec(out);
+    body = m ? out.slice(0, m.index) : out;
+    if (m) { assert.equal(Number(m[1]), offset + body.split("\n").length); limit = Number(m[2]); }
   }
-  assert.equal(seen, 3000); assert.ok(parts >= 3 && parts <= 4, parts + " parts");
-  assert.match(read({ path: "big.txt", offset: 5, limit: 10 }), /^\s+5\trow 5 [\s\S]*\n\s+14\trow 14 y+\n\[2986 more lines: read again with offset 15\]$/, "limit asks for fewer lines");
+  assert.equal(seen, 2000); assert.ok(parts >= 2 && parts <= 3, parts + " parts");
+  assert.match(read({ path: "mid.txt", offset: 5, limit: 10 }), /^\s+5\trow 5 [\s\S]*\n\s+14\trow 14 y+\n\[lines 5-14 of 2000; read more with offset 15 and limit \d+\]$/, "limit asks for fewer lines");
   // In the agent: a read of about 60,000 characters reaches Grok whole; a command's output is still cut.
   const { runCoder, CODER_TOOLS } = await import("../container/coder-agent.mjs");
   const big = Array.from({ length: 600 }, (_, i) => String(i + 1).padStart(6) + "\tline " + (i + 1) + " " + "z".repeat(90)).join("\n");
@@ -102,5 +107,53 @@ test("CD204 read gives the whole file when it fits, about 100,000 characters of 
   const result = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
   assert.ok(result("r1").includes("   300\tline 300 ") && !/characters not shown/.test(result("r1")), "the read is whole");
   assert.match(result("b1"), /characters not shown/, "a command's long output is still cut, as before");
-  assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "read")), /the whole file when it fits \(up to about 100,000 characters a call, like Claude Code's Read\)/);
+  assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "read")), /up to about 100,000 characters a call: a longer file gives its first part \(PARTIAL view\) and how to read more with offset and limit; a whole file over 256 KB is refused \(read a part, or grep\); allow_large reads all of it/);
+});
+
+test("CD205 the rest of Claude Code's Read rules: an empty file and an offset past the end say so; a whole file over 256 KB, or a part asked for that does not fit, is refused with what to do instead; allow_large reads it all in one call, sized by Coder (never by Grok) to the room left in the job; pictures up to 128 MB; a notebook over 256 KB is an error with how to read some of its cells", async () => {
+  // The owner, 2026-11-08: "Double check it against claude code docs before going to the next one".
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const T = await import("../container/coder-tools.mjs");
+  assert.deepEqual([T.READ_WHOLE_MAX, T.READ_LARGE_CHARS, T.PIC_MAX_BYTES, T.NOTEBOOK_MAX_BYTES, T.NOTEBOOK_CELLS_MAX], [256 * 1024, 400000, 128 * 1048576, 100 * 1048576, 256 * 1024]);
+  const dir = await mkdtemp(join(tmpdir(), "coder-read2-"));
+  const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const read = (args) => { try { return execFileSync("node", ["--no-warnings", script, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: dir, maxBuffer: 8 << 20 }).toString(); } catch (e) { return "FAILED " + String(e.stdout || e.stderr || e.message); } };
+  await writeFile(join(dir, "empty.txt"), "");
+  assert.equal(read({ path: "empty.txt" }), "empty.txt exists, but it is empty.");
+  await writeFile(join(dir, "two.txt"), "a\nb\n");
+  assert.equal(read({ path: "two.txt" }), "     1\ta\n     2\tb", "the last newline makes no extra line");
+  assert.equal(read({ path: "two.txt", offset: 9 }), "two.txt has 2 lines: offset 9 is past its end.");
+  // Over 256 KB: a whole read is refused, with what to do instead.
+  await writeFile(join(dir, "big.txt"), Array.from({ length: 3000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
+  assert.match(read({ path: "big.txt" }), /^FAILED [\s\S]*big\.txt is 29\d KB, over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large/);
+  assert.match(read({ path: "big.txt", offset: 1, limit: 3000 }), /^FAILED [\s\S]*lines 1-3000 of big\.txt come to more than about 100,000 characters: ask for fewer lines \(limit\), search with grep, or set allow_large/, "a part asked for that does not fit");
+  assert.match(read({ path: "big.txt", offset: 2990, limit: 5 }), /^\s+2990\trow 2990 [\s\S]*\n\[lines 2990-2994 of 3000; read more with offset 2995 and limit 6\]$/, "a part that fits");
+  // allow_large: the whole file in one call when Coder gives the room; without room, the usual size, as a PARTIAL view.
+  const all = read({ path: "big.txt", allow_large: true, max_chars: 400000 });
+  assert.ok(all.endsWith("  3000\trow 3000 " + "y".repeat(92)) && !/PARTIAL/.test(all), "all 3000 lines in one call");
+  assert.match(read({ path: "big.txt", allow_large: true }), /\n\[PARTIAL view: lines 1-\d+ of 3000/);
+  await writeFile(join(dir, "huge.txt"), Array.from({ length: 5000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
+  const most = read({ path: "huge.txt", allow_large: true, max_chars: 99999999 });
+  const hm = /\n\[PARTIAL view: lines 1-(\d+) of 5000 [^\n]*\]$/.exec(most);
+  assert.ok(hm && most.slice(0, hm.index).length <= T.READ_LARGE_CHARS && Number(hm[1]) > 3500, "never more than READ_LARGE_CHARS in one call, however much room is claimed");
+  // Coder's agent sets max_chars for an allow_large read (the room left), and drops one Grok tries to set itself.
+  const { runCoder, COMPACT_AT } = await import("../container/coder-agent.mjs");
+  const sentArgs = [];
+  let n = 0;
+  const steps = [say("", [call("read", { path: "big.txt", max_chars: 999999 }, "r1"), call("read", { path: "big.txt", allow_large: true }, "r2")]), say("Done.")];
+  await runCoder({ send: async () => steps[Math.min(n++, 1)], emit: () => {}, exec: async ({ command }) => { const b = command.split(" ").pop(); if (!b.startsWith("@")) sentArgs.push(JSON.parse(Buffer.from(b, "base64").toString()).args); return { code: 0, output: "ok" }; } }, { text: "read big.txt" });
+  assert.equal(sentArgs[0].max_chars, undefined, "Grok cannot size its own read");
+  assert.ok(sentArgs[1].max_chars > 0 && sentArgs[1].max_chars < COMPACT_AT, "Coder sizes an allow_large read to the room left: " + sentArgs[1].max_chars);
+  // A notebook whose cells come to over 256 KB: an error, with how to read some of its cells.
+  await writeFile(join(dir, "nb.ipynb"), JSON.stringify({ cells: [{ cell_type: "code", source: "print(1)", outputs: [{ output_type: "stream", name: "stdout", text: "z".repeat(300 * 1024) }] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+  assert.match(read({ path: "nb.ipynb" }), /^FAILED [\s\S]*nb\.ipynb's cells come to 30\d KB, more than one read takes: read some of its cells with bash, e.g\. jq '\.cells\[0:10\]' nb\.ipynb/);
+  // A picture over 20 MB (the old limit) is read now: made smaller, as Claude Code does (when ImageMagick is here).
+  let hasConvert = true; try { execFileSync("convert", ["-version"]); } catch { hasConvert = false; }
+  if (hasConvert) {
+    execFileSync("convert", ["-size", "2700x2700", "xc:red", join(dir, "big.bmp")]);
+    assert.match(read({ path: "big.bmp" }), /^\u0000coder-pictures\u0000[\s\S]*Picture: big\.bmp \(\d+×\d+, BMP, 2\d\.\d MB\)/);
+  }
 });

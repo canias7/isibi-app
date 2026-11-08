@@ -24,6 +24,16 @@ import { isIP, BlockList } from "node:net";
 // file when it fits; a longer one comes in parts, read on with offset (limit asks for fewer lines).
 export const READ_CHARS = 100_000;
 export const READ_LINES_MAX = 100_000;
+// ALL OF CLAUDE CODE'S READ RULES (its tools reference, read again 2026-11-08 at the owner's word "double check it
+// against claude code docs"): a whole-file read over 256 KB is refused (read a part, or grep); a part asked for with
+// offset/limit that does not fit is refused too; allow_large reads the whole file, or a long range, in one call,
+// "sized against the room left" (Coder's agent says how much: max_chars, at most READ_LARGE_CHARS); pictures up to
+// 128 MB (they are made smaller anyway); notebooks up to 100 MB, and an error when their cells come to over 256 KB.
+export const READ_WHOLE_MAX = 256 * 1024;
+export const READ_LARGE_CHARS = 400_000;
+export const PIC_MAX_BYTES = 128 * 1024 * 1024;
+export const NOTEBOOK_MAX_BYTES = 100 * 1024 * 1024;
+export const NOTEBOOK_CELLS_MAX = 256 * 1024;
 export const OUT_MAX = 30000;
 export const WEB_MAX = 100_000;
 const ROOT = process.cwd();
@@ -74,10 +84,10 @@ async function inside(p, { mustExist = false } = {}) {
 // THE AUDIT (2026-11-05): huge files would fill the memory, and binary ones come out as garbage (and editing corrupts them).
 export const READ_MAX_BYTES = 20 * 1024 * 1024;
 export const EDIT_MAX_BYTES = 5 * 1024 * 1024;
-async function plainText(abs, rel, max) {
+async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it") {
   const st = await stat(abs);
   if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
-  if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; use bash (head, tail, sed -n) for parts of it");
+  if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; " + tooBig);
   const fh = await openFile(abs, "r");
   try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0)) fail(rel + " is a binary file (not text); use bash to work with it"); } finally { await fh.close(); }
 }
@@ -163,7 +173,10 @@ async function fileSize(abs, rel, max) {
 }
 
 async function readPicture(abs, rel, kind) {
-  const size = await fileSize(abs, rel, READ_MAX_BYTES);
+  const st = await stat(abs);
+  if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
+  if (st.size > PIC_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, over the 128 MB a picture may be: make a smaller copy with bash (e.g. convert, or crop the part you need) and read that");
+  const size = st.size;
   const p = await asPicture(await readFile(abs), kind);
   if (p.why) fail(rel + " cannot be shown: " + p.why);
   return withPics("Picture: " + rel + " (" + (p.w && p.h ? p.w + "×" + p.h + ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results.", [p]);
@@ -239,34 +252,56 @@ async function readNotebook(raw, rel) {
       else if (d["text/html"] != null) parts.push("[html output]\n" + str(d["text/html"]).slice(0, 2000));
     }
   }
-  let text = parts.join("\n\n");
-  if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the notebook is longer; use bash (jq) for the rest]";
+  const text = parts.join("\n\n");
+  if (Buffer.byteLength(text) > NOTEBOOK_CELLS_MAX || text.length > READ_CHARS) fail(rel + "'s cells come to " + kb(Buffer.byteLength(text)) + ", more than one read takes: read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
   return withPics(text, pictures);
 }
 
-export async function toolRead({ path, offset = 1, limit = 0, pages = "" }) {
+export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars }) {
   const { abs, rel } = await inside(path, { mustExist: true });
   const ext = extname(abs).toLowerCase();
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
   if (ext === ".pdf") return readPdf(abs, rel, pages);
+  if (ext === ".ipynb") {
+    await plainText(abs, rel, NOTEBOOK_MAX_BYTES, "read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
+    const nb = await readNotebook(await readFile(abs, "utf8"), rel);
+    if (nb !== null) return nb;
+  }
   await plainText(abs, rel, READ_MAX_BYTES);
   const text = await readFile(abs, "utf8");
-  if (ext === ".ipynb") { const nb = await readNotebook(text, rel); if (nb !== null) return nb; }
+  if (!text.length) return rel + " exists, but it is empty.";
   const lines = text.split("\n");
-  const from = Math.max(1, Number(offset) || 1);
-  const want = Math.min(Math.max(0, Math.floor(Number(limit) || 0)) || READ_LINES_MAX, READ_LINES_MAX);
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
+  const total = lines.length;
+  const asked = (offset !== undefined && offset !== null && offset !== "") || Number(limit) > 0;
+  const from = Math.max(1, Math.floor(Number(offset) || 1));
+  if (from > total) return rel + " has " + total + " line" + (total === 1 ? "" : "s") + ": offset " + from + " is past its end.";
+  const large = allow_large === true;
+  const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), READ_CHARS), READ_LARGE_CHARS) : READ_CHARS;
+  const size = Buffer.byteLength(text);
+  if (!asked && !large && size > READ_WHOLE_MAX) fail(rel + " is " + kb(size) + ", over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large when you truly need all of it at once");
+  const want = Number(limit) > 0 ? Math.min(Math.floor(Number(limit)), READ_LINES_MAX) : READ_LINES_MAX;
+  const end = Math.min(total, from - 1 + want);
+  const rowOf = (i) => String(i + 1).padStart(6) + "\t" + (lines[i].length > 2000 ? lines[i].slice(0, 2000) + "…" : lines[i]);
+  // How many lines from index `start` fit in one usual read: the limit to suggest next (exact, as lines differ).
+  const fitting = (start) => { let u = 0, k = 0; for (let i = start; i < total && k < READ_LINES_MAX; i++) { const r = rowOf(i).length + 1; if (k && u + r > READ_CHARS) break; u += r; k++; } return k; };
   const rows = [];
   let used = 0;
-  for (let i = from - 1; i < lines.length && rows.length < want; i++) {
-    const l = lines[i];
-    const row = String(i + 1).padStart(6) + "\t" + (l.length > 2000 ? l.slice(0, 2000) + "…" : l);
-    if (rows.length && used + row.length + 1 > READ_CHARS) break; // whole lines only, never a cut in the middle
+  for (let i = from - 1; i < end; i++) {
+    const row = rowOf(i);
+    if (rows.length && used + row.length + 1 > cap) break; // whole lines only, never a cut in the middle
     rows.push(row);
     used += row.length + 1;
   }
-  const n = rows.length;
-  const more = from - 1 + n < lines.length ? "\n[" + (lines.length - (from - 1 + n)) + " more lines: read again with offset " + (from + n) + "]" : "";
-  return (rows.join("\n") || "(empty file)") + more;
+  const last = from - 1 + rows.length;
+  // A part that was asked for and does not fit is refused, as in Claude Code; a whole-file read gets its first part.
+  if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
+  const body = rows.join("\n");
+  if (last >= total) return body;
+  const next = "offset " + (last + 1) + " and limit " + fitting(last);
+  return body + (asked
+    ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
+    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(used) + " of " + kb(size) + "). Read more with " + next + "]");
 }
 
 export async function toolWrite({ path, content }) {

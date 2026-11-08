@@ -20,6 +20,16 @@ log (81,000 lines) is in git history.
   - Every answer was right (line 250, the picture, the PDF page with only a circle).
 - **Found by reading the code:** Coder's read gave 400 lines, then cut its answer to 12,000 characters with the middle dropped. On a long file, Coder could miss the middle. Claude Code's Read gives up to 25,000 tokens a call, about 100,000 characters.
 - **Changed after the test, as you said:** read now gives the whole file when it fits (up to about 100,000 characters), and a longer one in parts, whole lines only, never cut in the middle. Test CD204 is new; 213 tests pass. It goes live with your next "merge and deploy".
+- **Double-checked against Claude Code's docs, word for word** (your word). Seven more differences are fixed, and now read is the same as Claude Code's Read:
+  - a file too big for one read: the first part, with "PARTIAL view" saying how much it got and exactly how to read the next part;
+  - a whole file over 256 KB: refused, with what to do instead (read a part, or search);
+  - a part asked for that's too big: refused;
+  - "allow_large": the whole file in one go when truly needed, sized to the room left in the job;
+  - an empty file now says it's empty, and an offset past the end gives the line count;
+  - pictures up to 128 MB, not 20;
+  - notebooks up to 100 MB, with a clear error instead of a cut when they're too big.
+  - Test CD205 is new; 214 tests pass. Live with your next "merge and deploy".
+  - **One left for you to decide:** Claude Code looks at every PDF page as a picture. Coder reads each page's text, and looks only at pages with no text. Matching it means more pictures sent to Grok per PDF, which costs a little more.
 - **Browser tests on my side:** I can now open a real browser here that you can watch from your app (the "browser" preview), signed in to gofarther.dev as the test account. Signing in still needs the emailed code from you.
 - **The test account's password (live data, on your word "reset it"):**
   - cristiananias7@gmail.com was refusing the password you remember. Supabase itself said it was wrong, from your phone too.
