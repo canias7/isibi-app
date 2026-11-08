@@ -16,7 +16,8 @@ How each item was tested:
 The recordings: 1 sign-in, page, GitHub, chats · 2 Stop, closing the tab, question cards · 3 environments ·
 4 changes, pull request, Rewind, Undo, read-only · 4b /compact, the message box, read-only · 5 auto-fix,
 code review settings, notifications, install, sign out · 5b settings kept, sign out · 6 the desktop app ·
-7 the live tests, filmed on GitHub (each result outlined, with its item number).
+7 the live tests, filmed on GitHub (each result outlined, with its item number) · 8 the live retest of the
+fixes after the deploy (issue #17).
 
 **Totals:** 44 passed. 4 passed as far as Claude can go and need you for the last step (4, 42, 43, 44: a
 switch, or a real phone). 2 weren't tested (45 desktop notifications, 47 the phone app). 6 problems were
@@ -74,7 +75,8 @@ found and fixed (the list at the end).
     **Passed** (live, issue #12: `check-tools` said 60 ok, none missing).
 20. **Admin sandbox**: `sudo` works for anything inside it, and `apt-get install` works; the machine itself stays safe.
     **Passed** (live, issue #12), with two problems found and fixed: programs in /usr/games couldn't be run by
-    name, and background commands couldn't be checked or stopped (fixes 1 and 2).
+    name, and background commands couldn't be checked or stopped (fixes 1 and 2). Both **passed live after
+    the deploy** (issue #17).
 21. **The sealed network room**: all of Coder's internet goes through the gate that follows your network setting.
     **Passed** (the machine check on every deploy proves the wall). This round's live chat was on Full, and both
     sites got through, as they should. Trusted and None weren't tried again this round.
@@ -90,7 +92,8 @@ found and fixed (the list at the end).
     **Passed** (live, issue #13: the next chat started from the saved copy and the setup didn't run again).
     It had failed on 2026-11-07 and was fixed.
 26. **Network access**: None, Trusted (Claude Code's list, with the "www." sites), Full, or your own allowed sites (item 7).
-    **Passed** (page, recording 3; live on Full). Found and fixed: on Full, Coder couldn't tell you its setting (fix 3).
+    **Passed** (page, recording 3; live on Full). Found and fixed: on Full, Coder couldn't tell you its setting (fix 3),
+    which **passed live after the deploy** (issue #17: "NETWORK: FULL").
 27. **Variables** (settings every command sees). **Passed** (page, recording 3).
 28. **Secrets**: keys Coder's server adds to requests for a site; they never enter the machine. Coder can ask you for one with a secure card.
     **Passed** (page, recording 3).
@@ -101,7 +104,8 @@ found and fixed (the list at the end).
 
 30. **Its tools**: read, edit, write, search, the code helper (lsp), commands, web pages and web search, background commands, a to-do list. `read` also opens pictures (a screenshot Coder takes, say), PDFs by page, and Jupyter notebooks (your pick 1).
     **Passed** (live, issue #12: its to-do list, glob, grep, lsp, a screenshot it took and read exactly, a PDF
-    page that was only a red circle, web search, web_fetch). Background commands: fix 2.
+    page that was only a red circle, web search, web_fetch). Background commands: fix 2, **passed live after the
+    deploy** (issue #17: seen running, then really stopped).
 31. **Instruction files**: `CODER.md` (or `AGENTS.md` when there's no CODER.md), rules in `.coder/rules` for some paths only, a subfolder's own file; plus a memory kept between chats (item 10).
     **Passed** (live, issues #14 and #15): it followed the root CODER.md, was shown `src/CODER.md` when it
     opened a file in `src/`, and a new chat remembered your favourite colour. AGENTS.md and `.coder/rules`:
@@ -117,7 +121,8 @@ found and fixed (the list at the end).
 36. **Undo the last job** (ask Coder).
     **Passed** (page, recording 4: the last job's commit was reverted). Live, issue #14: it asked first, since the
     last job had changed nothing. Then undo turned out not to be allowed from GitHub, which is on purpose. Fix 5
-    stops it offering undo there.
+    stops it offering undo there, and **passed live after the deploy** (issue #17: Coder answered at once that
+    undo is done in the chat on gofarther.dev).
 
 ## G. Saving work
 
@@ -170,11 +175,11 @@ found and fixed (the list at the end).
 
 ## Found and fixed by the full test (2026-11-08)
 
-1. Programs in /usr/games (like `cowsay`) couldn't be run by name. *Live after "merge and deploy".*
-2. Background commands: Coder's check said "not running" while a server ran, and its stop didn't stop it. *Live after "merge and deploy".*
-3. On Full network access, Coder couldn't tell you its setting. *Live after "merge and deploy".*
-4. A message that couldn't be sent in one chat stayed in the box when you opened another chat. *Live after "merge and deploy".*
-5. On GitHub, asking for undo led to a question, then to "not available from GitHub". GitHub jobs are no longer offered what they can't do. *Live after "merge and deploy".*
+1. Programs in /usr/games (like `cowsay`) couldn't be run by name. *Live since the 2026-11-08 deploy (run #61); passed the live retest (issue #17, recording 8).*
+2. Background commands: Coder's check said "not running" while a server ran, and its stop didn't stop it. *Live since the 2026-11-08 deploy (run #61); passed the live retest (issue #17, recording 8).*
+3. On Full network access, Coder couldn't tell you its setting. *Live since the 2026-11-08 deploy (run #61); passed the live retest (issue #17, recording 8).*
+4. A message that couldn't be sent in one chat stayed in the box when you opened another chat. *Live since the 2026-11-08 deploy (run #61); checked on the page (recording 4b) and by its test.*
+5. On GitHub, asking for undo led to a question, then to "not available from GitHub". GitHub jobs are no longer offered what they can't do. *Live since the 2026-11-08 deploy (run #61); passed the live retest (issue #17, recording 8).*
 6. Desktop app: Try again with no internet left a blank window. *In the next desktop build.*
 
 Also corrected: two of Claude's own test mistakes. The first recording 4 said "pull request opened" too early,
@@ -183,6 +188,7 @@ and the test browser put the sign-in back after Sign out. Both were redone (reco
 ## Small things noticed, not changed
 
 - A command you stopped still shows a ✓.
+- After `stop_job`, the background command's log ends "[finished, exit code null]" ("stopped" would be clearer).
 - Download patch's file name repeats the repository's name (`public-demo-public-demo-….patch`).
 - `gh pr list` without `--repo` first says "no git remotes found"; `gh pr` is refused anyway (use `gh api`).
 - Sign out signs you out on every device (phone, desktop app, other browsers), which is Supabase's default.

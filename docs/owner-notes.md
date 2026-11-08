@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Merged and deployed: the fixes found by testing everything, and all passed live
+
+- You said "merge and deploy". Deploy run #61 passed: all 212 tests, the machine-admin tests, Coder's new machine image, and the site's own check. Live since 02:43.
+- **Live retest with the real Coder** (issue #17 on your test repo, filmed as recording 8). All four passed:
+  - **Programs in /usr/games:** `cowsay hi` runs by its name.
+  - **Background commands:** monitor saw the server running, and curl got 200. After stop_job, monitor said "not running", and curl couldn't connect, so it really stopped.
+  - **Network setting:** Coder quoted "NETWORK: FULL. This chat's environment allows any site on the internet…".
+  - **Undo on GitHub:** answered at once: "Undoing a job is done in the chat on gofarther.dev, not from GitHub." No question card, no dead end.
+- **Each chat's own message box** is live too. The site serves the new page code; it was checked on the page (recording 4b) and by its test.
+- **The desktop app's offline fix** arrives with the next desktop build (the build button).
+- A small one noticed, not changed: after stop_job, the log ends "[finished, exit code null]". "Stopped" would read better.
+
 ## 2026-11-08: Everything tested, one by one, and recorded (your word: "u test it all yourself one by one , record it pls")
 
 - **Recorded:** 8 videos of the page and the desktop app, plus a ninth that films the live GitHub threads and stops at each result. Items checked only by the automatic tests can't be filmed (2, 48–50), and 45 and 47 weren't tested.
