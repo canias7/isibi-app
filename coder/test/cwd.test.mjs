@@ -182,10 +182,10 @@ test("CD233 grep and glob search another repository of the chat by a short path 
     // As before in the project's own folder.
     assert.equal(tool("grep", { pattern: "readme" }), "./README.md:1:main readme");
   }
-  assert.equal(tool("read", { path: "src/b.js" }), "FAILED error: no such file: src/b.js");
+  assert.equal(tool("read", { path: "src/b.js" }), "FAILED error: no such file: src/b.js. Note: your current working directory is " + main + ".");
   // With the commands in src: a short path counts from there, files are named by their full path.
   assert.match(tool("read", { path: "a.js" }, { CODER_CWD: join(main, "src") }), /^1\tmain code/);
-  assert.equal(tool("read", { path: "b.js" }, { CODER_CWD: join(main, "src") }), "FAILED error: no such file: " + join(main, "src", "b.js"));
+  assert.equal(tool("read", { path: "b.js" }, { CODER_CWD: join(main, "src") }), "FAILED error: no such file: " + join(main, "src", "b.js") + ". Note: your current working directory is " + join(main, "src") + ".");
   assert.match(tool("write", { path: "c.js", content: "x\n" }, { CODER_CWD: join(main, "src") }), new RegExp("^wrote " + join(main, "src", "c.js")));
   if (hasRg) assert.equal(tool("grep", { pattern: "main" }, { CODER_CWD: join(main, "src") }), "./a.js:1:main code");
   // Still never outside the project, wherever the commands are.

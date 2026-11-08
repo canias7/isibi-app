@@ -1234,3 +1234,25 @@ test("CD241 read says when a file is not valid UTF-8 (an old encoding such as Wi
   await writeFile(join(dir, "big-old.txt"), Buffer.concat(Array.from({ length: 2000 }, (_, i) => Buffer.concat([Buffer.from("line " + (i + 1) + " caf"), Buffer.from([0xe9]), Buffer.from(" " + "x".repeat(80) + "\n")]))));
   assert.match(await read("big-old.txt"), /\n\[PARTIAL view: lines 1-\d+ of 2000 [^\]]+\]\n\[This file is not valid UTF-8: /);
 });
+
+test("CD242 a missing file is named with the folder a short path counts from, as Claude Code's Read says it (tried side by side, 2026-11-08: \"File does not exist. Note: your current working directory is /home/user/cc-test4.\"); an @-mention of a path that is not a file is still left alone", async () => {
+  const { mentionNote } = await import("../container/coder-agent.mjs").catch(() => ({}));
+  const { mkdtemp, writeFile, mkdir, realpath } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "coder-missing-")));
+  await mkdir(join(dir, "src")); await writeFile(join(dir, "src", "a.js"), "a\n");
+  const run = machine(dir);
+  const read = async (path, env = {}) => (await machine(dir, undefined, { ...process.env, ...env })({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64") })).output;
+  assert.equal(await read("missing.txt"), "error: no such file: missing.txt. Note: your current working directory is " + dir + ".");
+  assert.equal(await read("b.js", { CODER_CWD: join(dir, "src") }), "error: no such file: " + join(dir, "src", "b.js") + ". Note: your current working directory is " + join(dir, "src") + ".");
+  assert.equal(typeof run, "function");
+  // The @ check still knows it for what it is (a package name like @types/node is not a file): no step, no note.
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const steps = [];
+  let first = null;
+  await runCoder({ exec: machine(dir), emit: (e) => steps.push(e), send: async (q) => { first = first || q; return say("Done."); } }, { text: "look at @types/node please" });
+  assert.equal(steps.filter((e) => e.type === "bash").length, 0);
+  assert.ok(!first.messages.some((m) => m.appNote), "no note for a path that is not a file");
+  assert.equal(mentionNote === undefined || typeof mentionNote === "function", true);
+});

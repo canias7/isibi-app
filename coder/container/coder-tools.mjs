@@ -46,6 +46,8 @@ const ROOT = process.cwd();
  * tools name files by their full paths (grep and glob: from the folder searched, as Claude Code's do). Every path is
  * still kept inside the project by `inside`.
  */
+/** A missing file, named, with the folder a short path counts from (as Claude Code's Read says it). */
+export const missingFile = (shown) => "no such file: " + shown + ". Note: your current working directory is " + BASE + ".";
 const BASE = (() => { const c = process.env.CODER_CWD; return c && isAbsolute(c) && !c.includes("\0") ? resolve(c) : ROOT; })();
 
 class ToolError extends Error {}
@@ -98,7 +100,10 @@ async function inside(p, { mustExist = false } = {}) {
       break;
     } catch (e) {
       if (e instanceof ToolError) throw e;
-      if (mustExist) fail("no such file: " + shown);
+      // WHERE A SHORT PATH STARTS, said with it (the owner, 2026-11-08: "Ok do those fixes too"; Claude Code's Read,
+      // tried side by side: "File does not exist. Note: your current working directory is /home/user/cc-test4."), so a
+      // path given from the wrong folder is seen as such.
+      if (mustExist) fail(missingFile(shown));
       const up = dirname(probe);
       if (up === probe) break;
       probe = up;

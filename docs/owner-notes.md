@@ -16,6 +16,8 @@ log (81,000 lines) is in git history.
 - **Found while checking write:** when a file is saved in an old text format (like Windows-1252, common for older Windows files), letters like "é" can't be read and show as "�". Claude Code's read then adds a note saying so, and that edit and write shouldn't be used on it. Coder's read said nothing, so Coder didn't know, and its write then saved "�" over the real letters.
 - **Now Coder's read adds the same note**, with how to change such a file safely (a command that keeps its format, or asking you about converting it). Normal files get no note.
 - Test CD241 (fails on the old code); all 250 pass. Live with the next merge and deploy.
+- **A missing file, now with where Coder is** (your word: "Ok do those fixes too"): Claude Code says "File does not exist. Note: your current working directory is …", so a wrong folder is easy to spot. Coder said only "no such file". Now it adds the same note. Test CD242; all 251 pass.
+- Checked the same in both: file names with spaces and accents, SVG files, and links that stay inside the project. Windows line endings go with edit (tool 3).
 
 ## 2026-11-08: Coder keeps /tmp from one message to the next, like Claude Code (your word: "Fix that too")
 
