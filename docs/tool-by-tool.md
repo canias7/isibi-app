@@ -262,3 +262,8 @@ Different on purpose: Claude Code's permission rules (`Read(...)` deny rules, a 
 - Read's note on old encodings now says "Write refuses it, and edit would save the � …" (edit is tool 3).
 - **Not changed, offered:** the words after a write ("wrote a.txt (2 lines)"; Claude Code: "File created successfully at: …" / "The file … has been updated successfully.").
 - **Kept, on purpose:** at most about 90,000 characters a call (how much Grok sends in one answer); the docs give no limit.
+
+**Live in the browser** (deploy 69, recording 16; five messages to Coder on gofarther.dev, canias7/testingforclaude):
+- A file read only partly: "error: part.txt has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first." A notebook not read: "error: nb.ipynb has not been read yet. Read it first before writing to it: a notebook is read before it is replaced, so no cell or output is lost." Once read: "wrote nb.ipynb (1 lines)".
+- An old encoding: refused, nothing written (`od -c old.txt`: `c a f 351 …`, still Latin-1). UTF-16: "wrote u16.txt (2 lines)", and `od -c` shows `377 376 n \0 e \0 …` (its byte-order mark, two bytes a letter). A link: "error: Refusing to write link.txt: it is a symbolic link. Write to the link's target path instead: target.txt." (target.txt still "target original"). A linked folder and a plain file not read: written.
+- **Found:** the count after a write takes the line break at the end for one more line ("(2 lines)" for one line; "(1 lines)"). With the wording, the owner's call.

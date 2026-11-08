@@ -1351,21 +1351,28 @@ test("CD246 a step's name writes out characters that cannot be seen (the owner, 
   assert.match(events.find((e) => e.type === "result" && e.id === "r1").output, /cannot contain null bytes/);
 });
 
-test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section for it in the frontend of our website\"): /docs is plain HTML and CSS (no script, so the page's safety rules let it work as it is), every link in its list goes to a section that is there, the sidebar opens it, and the numbers it gives are the ones Coder really uses", async () => {
+test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section for it in the frontend of our website\", then \"put it on the landing page … don't put it inside the coding\" and \"Just make the docs for what we have tested right now, which is the read tool. That's it.\"): its own page, /docs, linked from the landing page's top bar and not from inside Coder; only read on it; plain HTML and CSS (no script, so the page's safety rules let it work as it is); every link in its list goes to a part that is there; and the numbers it gives are the ones Coder really uses", async () => {
   const page = readFileSync(HERE("public/docs.html"), "utf8");
   const css = readFileSync(HERE("public/docs.css"), "utf8");
+  const landing = readFileSync(HERE("public/index.html"), "utf8");
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  // On the landing page, by Sign in; not in Coder's sidebar.
+  assert.match(landing, /<header class="gf-top">[\s\S]*<a class="gf-doclink" id="gfDocs" href="\/docs">Docs<\/a><button type="button" class="gf-signin" id="gfSignin">Sign in<\/button>[\s\S]*<\/header>/);
+  assert.doesNotMatch(ui, /\/docs|cdSideDocs/, "not inside Coder");
+  // Only the tools tested so far: read.
+  const sections = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(sections, ["read"]);
+  for (const other of ["Write", "Edit", "Bash", "Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
+  // Plain HTML and CSS, its links all go somewhere.
   assert.doesNotMatch(page, /<script|\son[a-z]+=|javascript:/i, "no script of any kind (script-src 'self' would refuse an inline one)");
   assert.match(page, /<link rel="stylesheet" href="\/docs\.css" \/>/);
   for (const href of [...page.matchAll(/<link rel="stylesheet" href="([^"]+)"/g)].map((m) => m[1])) assert.ok(href.startsWith("/") || href.startsWith("https://fonts.googleapis.com/"), href + " is allowed by style-src");
   assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
-  const ids = new Set([...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]));
-  for (const want of ["what", "chats", "tools", "read", "write"]) assert.ok(ids.has(want), "section #" + want);
+  const ids = new Set([...page.matchAll(/ id="([a-z-]+)"/g)].map((m) => m[1]));
   const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
-  assert.ok(links.length >= 7);
-  for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a section that is there");
+  assert.equal(links.length, 8);
+  for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a part that is there");
   assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
-  assert.match(ui, /<a class="gf-nav" id="cdSideDocs" href="\/docs" target="_blank" rel="noopener">' \+ SIDE_ICON\.book \+ 'Docs<\/a>/);
   // The numbers, from the code itself.
   const T = await import("../container/coder-tools.mjs");
   const A = await import("../container/coder-agent.mjs");
@@ -1374,12 +1381,9 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.ok(page.includes("A file over <b>" + T.READ_WHOLE_MAX / 1024 + " KB</b>"));
   assert.ok(page.includes("up to <b>" + n(T.PIC_SIDES[0]) + " pixels</b>"));
   assert.ok(page.includes("up to " + T.PIC_MAX_BYTES / 1048576 + " MB"));
+  assert.ok(page.includes("PNG, JPEG, GIF, WebP, BMP and TIFF") && Object.keys(T.PIC_KINDS).length === 8);
   assert.ok(page.includes("Up to " + T.PDF_PAGES_FREE + " pages are read whole") && page.includes("at most <b>" + T.PDF_PAGES_MAX + " pages</b> at a time"));
+  assert.ok(page.includes("<code>" + T.PICTURES + "</code>"));
   assert.equal(A.REREAD_FILES, 5);
   assert.ok(page.includes("up to five files"));
-  const writeSays = A.CODER_TOOLS.find((t) => t.function.name === "write").function.description;
-  const most = writeSays.match(/At most about ([\d,]+) characters per call/)[1];
-  assert.ok(page.includes("Up to about <b>" + most + " characters</b> at a time"));
-  assert.match(ui, /\(S\.project\.repos \|\| \[\]\)\.length < 3/);
-  assert.ok(page.includes("up to three more repositories"));
 });

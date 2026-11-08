@@ -935,7 +935,6 @@
   // THE SIDEBAR: New chat, Repositories, and Recents (the chats).
   const SIDE_ICON = {
     plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
-    book: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/></svg>',
   };
   function drawSide() {
     const sd = S.side;
@@ -943,9 +942,7 @@
     const ready = S.github && S.github.connected;
     sd.tools.innerHTML =
       '<button type="button" class="gf-nav" id="cdSideNew"' + (ready ? '' : ' disabled') + '>' + SIDE_ICON.plus + 'New chat</button>' +
-      '<button type="button" class="gf-nav" id="cdSideRepos"' + (ready ? '' : ' disabled') + '>' + ICON.gh.replace('width="16" height="16"', 'width="18" height="18"') + 'Repositories</button>' +
-      // CODER'S DOCS (the owner, 2026-11-08: "start making a section for it in the frontend of our website"): always there.
-      '<a class="gf-nav" id="cdSideDocs" href="/docs" target="_blank" rel="noopener">' + SIDE_ICON.book + 'Docs</a>';
+      '<button type="button" class="gf-nav" id="cdSideRepos"' + (ready ? '' : ' disabled') + '>' + ICON.gh.replace('width="16" height="16"', 'width="18" height="18"') + 'Repositories</button>';
     const cur = S.project && S.phase === 'chat' ? S.project.id : '';
     sd.recents.innerHTML = S.projects.length ? S.projects.map((x) =>
       '<div class="gf-item' + (x.id === cur ? ' on' : '') + '" data-chat="' + esc(x.id) + '" role="button" tabindex="0" title="' + esc((x.title || 'New chat') + ' · ' + x.repo) + '">' +

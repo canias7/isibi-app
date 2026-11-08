@@ -1,5 +1,5 @@
 /* CODER'S DOCS (the owner, 2026-11-08): the app's look (its off-white, navy and Inter), a list of sections on the
-   left, the text on the right; on a phone, the list sits above the text. */
+   left, the text on the right; on a phone, the list sits above the text. Reached from the landing page's top bar. */
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: #faf9f7; color: #0d1b2a; font: 15px/1.65 Inter, -apple-system, system-ui, sans-serif; }
@@ -21,27 +21,16 @@ code { font: 13px/1.5 "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospa
 .dc-navhead:first-child { margin-top: 0; }
 .dc-nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 8px; color: #0d1b2a; text-decoration: none; font-size: 14px; }
 .dc-nav a:hover { background: #ece9e3; }
+.dc-nav a.dc-sub { padding: 4px 10px 4px 22px; font-size: 13px; color: #4b5563; }
 
 .dc-main { flex: 1; min-width: 0; max-width: 760px; padding: 28px 0 60px; }
 .dc-main section { padding-top: 8px; margin-bottom: 36px; scroll-margin-top: 70px; }
 .dc-main h1 { margin: 0 0 10px; font-size: 30px; letter-spacing: -.02em; }
 .dc-main h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding-top: 18px; border-top: 1px solid #ece8e1; font-size: 22px; letter-spacing: -.01em; }
-.dc-main h3 { margin: 22px 0 6px; font-size: 16px; }
+.dc-main h3 { margin: 22px 0 6px; font-size: 16px; scroll-margin-top: 70px; }
 .dc-main ul { margin: 6px 0 0; padding-left: 20px; }
 .dc-main li { margin: 5px 0; }
 .dc-lead { font-size: 16px; color: #374151; }
-
-.dc-b { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; line-height: 1.6; white-space: nowrap; }
-.dc-ok { color: #0f766e; background: #effaf7; border: 1px solid #b7e0d9; }
-.dc-now { color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; }
-.dc-next { color: #6b7280; background: #f4f2ee; border: 1px solid #e0dbd2; }
-
-.dc-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; background: #fff; border: 1px solid #ece8e1; border-radius: 12px; overflow: hidden; }
-.dc-table th, .dc-table td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #f0ede7; vertical-align: top; }
-.dc-table th { font-size: 12px; font-weight: 600; color: #6b7280; background: #fbfaf8; }
-.dc-table tr:last-child td { border-bottom: 0; }
-
-.dc-foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid #ece8e1; color: #6b7280; font-size: 13px; }
 
 /* PHONES: the list of sections above the text, in a row that scrolls sideways. */
 @media (max-width: 760px) {
@@ -49,9 +38,8 @@ code { font: 13px/1.5 "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospa
   .dc-wrap { display: block; padding: 0 16px; }
   .dc-nav { position: static; width: auto; max-height: none; display: flex; gap: 6px; overflow-x: auto; padding: 12px 0 4px; border-bottom: 1px solid #ece8e1; }
   .dc-navhead { display: none; }
+  .dc-nav a.dc-sub { padding: 5px 12px; font-size: 13px; color: #0d1b2a; }
   .dc-nav a { flex: none; background: #fff; border: 1px solid #ece8e1; border-radius: 999px; padding: 5px 12px; font-size: 13px; }
-  .dc-nav a .dc-b { display: none; }
   .dc-main { padding-top: 16px; }
   .dc-main h1 { font-size: 26px; }
-  .dc-table th:nth-child(2), .dc-table td:nth-child(2) { display: none; }
 }

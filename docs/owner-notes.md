@@ -11,6 +11,23 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: The docs: only read, on their own page, linked from the landing page (your words: "Just make the docs for what we have tested right now, which is the read tool. That's it." and "put it on the landing page … don't put it inside the coding")
+
+- **Out of Coder:** the Docs link in Coder's sidebar is gone.
+- **On the landing page:** a "Docs" link in the top bar, next to Sign in. It opens the docs page, gofarther.dev/docs; its "Open Coder" button comes back.
+- **Only read on it:** the page is now "Coder docs" with the Read tool only (text files, pictures, PDFs, notebooks, what read won't open, @ mentions, what Coder is told on its own), with that list down the side. Write and the other tools, the tools table and the "Testing" badges are gone; each tool is added once its live test passes.
+- Test CD248 checks all of that (the link on the landing page and not in Coder, only read on the page, no script, every link goes somewhere, and every number matches Coder's code); all 257 pass. Live with the next merge and deploy, on your word; then tried in the browser.
+
+## 2026-11-08: Write (tool 2) and read's two display points, tested live in the browser (recording 16)
+
+- **Deploy 69** (with write's checks and read's two display points) went live, then five messages to Coder on gofarther.dev, in a new chat on canias7/testingforclaude, filmed:
+  1. **Writing over a file read only in part: refused**, with "has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view) …". **A notebook not read: refused** the same way.
+  2. **An old-format file: refused**, nothing written (it still holds "café" in its old format). **A UTF-16 file: written and still UTF-16.** **A link: refused**, naming its target, and the target was untouched. **A file inside a linked folder, and a plain file not read: written.**
+  3. **The notebook, once read: written.**
+  4. **A hidden character in a file name now shows:** "Read notes\0.txt" (it took a second try: the first time, Grok typed the six letters \u0000 instead of the character).
+  5. **A PDF's pages and a notebook's chart now show under their step,** small: the three pages of doc.pdf and the orange chart.
+- **Found, for your call with the wording:** after a write, Coder says "wrote u16.txt (2 lines)" for a one-line file (it counts the line break at the end as a line), and "(1 lines)". Claude Code gives no count ("File created successfully at: …" / "The file … has been updated successfully.").
+
 ## 2026-11-08: Coder's docs page, gofarther.dev/docs (your word: "start making a section for it in the frontend of our website")
 
 - **A new page, gofarther.dev/docs,** in the app's own look: a list of sections on the left, the text on the right; on a phone, the list sits above the text as a row of buttons.
