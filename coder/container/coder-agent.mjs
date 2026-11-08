@@ -21,6 +21,7 @@
 import { summaryRequest, summaryMessage, cutPoint } from "./coder-compact.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
+import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_TEXT_MAX } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -39,10 +40,27 @@ export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitud
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 /** A job's conversation past this many characters has its older steps summarized (owner item 3). */
 export const COMPACT_AT = 450_000;
+/** Pictures one read may show (owner item 1), and the most a job keeps attached: older ones are let go (read again to see them). */
+export const PICS_PER_READ = 6, PICS_KEEP = 8;
+/** Lets go of all but the newest PICS_KEEP pictures that reads opened (pictures the owner sent stay). */
+export function keepPics(convo) {
+  let kept = 0;
+  for (let i = convo.length - 1; i >= 0; i--) {
+    const m = convo[i];
+    if (!m || m.readPics !== true || !Array.isArray(m.images)) continue;
+    const room = Math.max(0, PICS_KEEP - kept);
+    if (m.images.length <= room) { kept += m.images.length; continue; }
+    const keep = m.images.slice(m.images.length - room);
+    kept += keep.length;
+    const base = String(m.content || "").replace(/ \[Only the last \d+ of them are still attached\.\]$/, "");
+    convo[i] = keep.length ? { ...m, images: keep, content: base + " [Only the last " + keep.length + " of them are still attached.]" } : { role: m.role, content: base + " [No longer attached: read the file again to see it.]", readPics: true };
+  }
+  return convo;
+}
 /** The file tools after which the service may add something for that file (afterFile). */
 export const FILE_HOOK_TOOLS = new Set(["read", "edit", "write"]);
 export const RUN_TOOLS = {
-  read: { verb: "Read", label: (a) => a.path + (a.offset ? " from line " + a.offset : "") },
+  read: { verb: "Read", label: (a) => a.path + (a.pages ? " pages " + a.pages : a.offset ? " from line " + a.offset : "") },
   write: { verb: "Wrote", label: (a) => a.path },
   edit: { verb: "Edited", label: (a) => a.path },
   grep: { verb: "Searched", label: (a) => JSON.stringify(a.pattern || "") + (a.path && a.path !== "." ? " in " + a.path : "") },
@@ -55,7 +73,8 @@ export const CODER_MAX_ROUNDS = 60;
 export const CODER_MAX_MS = 45 * 60 * 1000;
 
 export const CODER_TOOLS = Object.freeze([
-  fn("read", "Read a file in the project, with line numbers (400 lines at a time; use offset for more). Use this instead of cat.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, ["path"]),
+  // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
+  fn("read", "Read a file in the project. Text: with line numbers (400 lines at a time; use offset for more). Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, a page with no text shown as a picture; pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly (read it first) and appear once, unless replace_all is true. Use this instead of sed.", { path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
   fn("write", "Write a whole file (new, or replacing everything in it). At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: { type: "string" }, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
@@ -75,7 +94,9 @@ export const CODER_TOOLS = Object.freeze([
   // read 2026-11-06; owner: "Finish all this"): the findings as line comments.
   fn("pr_comments", "Post review findings as comments on the lines of this chat's pull request, like a reviewer on GitHub. Use it ONLY when the owner asks for the review (or comments) on the pull request. Give every finding at once: path (from the repo's root), line (in the new version of the file, a line the pull request changed), body (the problem and a one-line fix). They are posted when your turn ends.", { summary: { type: "string" }, comments: { type: "array", items: { type: "object", properties: { path: { type: "string" }, line: { type: "integer" }, body: { type: "string" } }, required: ["path", "line", "body"] } } }, ["summary", "comments"]),
   fn("undo_last_job", "Undo the last job that changed files in this chat: its commit is reverted on the branch and pushed when your turn ends. Use it only when the owner asks to undo or revert. Like Claude Code: if it is not clear what they mean (your last job changed no files, or they might mean something else, such as an environment change or a saved key), ask first with ask_user; when they choose that job, call it with confirmed: true. Do not make other changes in the same turn. Your turn ends here.", { confirmed: { type: "boolean", description: "true only after the owner chose undoing that job on your question card" } }, []),
-  fn("ask_user", "Ask the owner ONE question, like Claude Code's, when you truly cannot choose for them (which of two designs, whether to delete something, what they meant). Give 2 to 4 options, each with a short label (1 to 5 words) and a one-line description of what it means or what happens. If you recommend one, put it first and add \" (Recommended)\" to its label. The owner can also choose Other and type their own answer, or Skip. multi_select: true when they may choose several. Your turn ends there; their answer comes back as the next message. Do not use it for things you can decide yourself.", { question: { type: "string" }, options: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "1 to 5 words" }, description: { type: "string", description: "one line: what it means or what happens" } }, required: ["label"] } }, multi_select: { type: "boolean" } }, ["question", "options"]),
+  // UP TO 4 QUESTIONS IN ONE CARD (owner pick 4, 2026-11-08), like Claude Code's AskUserQuestion (1 to 4
+  // questions, each with a short header chip, 2 to 4 options and multi-select; Other is always there).
+  fn("ask_user", "Ask the owner 1 to 4 questions at once, like Claude Code's, when you truly cannot choose for them (which of two designs, whether to delete something, what they meant). Put related questions in one call. Each question: its text, a header (at most 12 characters, shown as a chip, e.g. \"Database\"), 2 to 4 options, each with a short label (1 to 5 words) and a one-line description of what it means or what happens, and multi_select: true when they may choose several. If you recommend an option, put it first and add \" (Recommended)\" to its label. The owner can always choose Other and type their own answer, or Skip. Your turn ends there; their answers come back as the next message. Do not use it for things you can decide yourself.", { questions: { type: "array", description: "1 to 4 questions", items: { type: "object", properties: { question: { type: "string" }, header: { type: "string", description: "at most 12 characters" }, options: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "1 to 5 words" }, description: { type: "string", description: "one line: what it means or what happens" } }, required: ["label"] } }, multi_select: { type: "boolean" } }, required: ["question", "options"] } } }, ["questions"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   { type: "function", function: {
     name: "bash",
@@ -138,6 +159,7 @@ The project lives in the current folder. You work like a developer at a terminal
 HOW YOU WORK
 - Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 1 MB at once), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
+- read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
@@ -162,7 +184,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - While working, a short line before a group of steps says what you are doing; no running commentary on every command.
 - API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, call request_secret for that exact host RIGHT AWAY (e.g. api.stripe.com, prefix Bearer). Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key. Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY). After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment (every chat using it gets it) and only sent to that host, and that they can remove it in Environment → Network secrets.
 - THIS CHAT'S ENVIRONMENT (like Claude Code's: named, picked before the chat's first message, used by every chat that picks it; network list, keys, setup script, variables) is changed only with propose_env, which the owner approves on a card. If it is the Default environment (chats in all the owner's repos use it), what only this repo needs (its own setup script) goes in a NEW environment instead (kind new_environment, named after the repo), like Claude Code; changes every chat would want (a common package site) may go on Default. (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; only lines you ran yourself in this chat and saw work, like Claude Code; (b) when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script); if you have a fix you ran yourself and saw work, propose it at the end of your work; carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless they ask; (c) when a request was "Blocked by this repo's network list" (the environment's list) (curl shows it as "CONNECT tunnel failed, response 403"), propose allow_host for that exact host. Apart from (b), never tell the owner to edit settings themselves instead.
-- When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user with 2 to 4 options.
+- When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user: 1 to 4 questions in one card, each with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
 - If you are told the owner is coming back after a break, start your answer with a one-line recap of where this chat stands (under 400 characters), then answer.`;
 
@@ -276,7 +298,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     // A LONG JOB IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact "when the context
     // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
     const room = deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT;
-    if (room && compactions < 3 && JSON.stringify(convo).length > room) {
+    // Pictures do not count (they are sent beside the text, and a read keeps at most PICS_KEEP of them).
+    if (room && compactions < 3 && JSON.stringify(convo.map(noPics)).length > room) {
       const cutAt = cutPoint(convo, jobStart + 1, 8);
       if (cutAt > 0) {
         let text = "";
@@ -328,6 +351,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
 
     for (const c of calls) if (c.name === "bash" && c.args && typeof c.args.command === "string") for (const m of c.args.command.matchAll(INSTALL_RE)) installs.add(m[1]);
+    // THE PICTURES THIS ROUND'S READS OPENED (owner item 1): a tool answers in text only (xAI's docs), so
+    // they go to Grok right after the round's answers, as a note from Coder's app with them attached.
+    const roundPics = [];
     for (let i = 0; i < calls.length; i++) {
       const c = calls[i];
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
@@ -444,15 +470,24 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "envchange", ...change, reason });
         return end("done", { summary: lastSaid || (kind === "allow_host" ? "asked to allow " + change.host : kind === "new_environment" ? "proposed a new environment, " + change.name : "proposed a new setup script") });
       } else if (c.name === "ask_user") {
-        // A QUESTION FOR THE OWNER: the turn ends here; their pick is the next message.
-        const question = scrub(String(c.args.question || "")).trim().slice(0, 500);
+        // QUESTIONS FOR THE OWNER: the turn ends here; their answers are the next message. 1 to 4 of them
+        // (owner pick 4, like Claude Code); the single question of before (question, options) is still taken.
+        const raw = Array.isArray(c.args.questions) && c.args.questions.length ? c.args.questions : [{ question: c.args.question, header: c.args.header, options: c.args.options, multi_select: c.args.multi_select }];
         // Each choice: a label and a one-line description (owner, "2", like Claude Code); plain strings still work.
-        const options = (Array.isArray(c.args.options) ? c.args.options : []).map((o) => (o && typeof o === "object" ? { label: scrub(String(o.label || "")).trim().slice(0, 120), description: scrub(String(o.description || "")).trim().slice(0, 300) } : { label: scrub(String(o == null ? "" : o)).trim().slice(0, 120), description: "" })).filter((o) => o.label).slice(0, 4);
-        if (!question || options.length < 2) { reply("error: give a question and 2 to 4 options, each with a label and a one-line description"); continue; }
-        reply("asked the owner; their answer comes as the next message");
+        const one = (q) => {
+          if (!q || typeof q !== "object") return null;
+          const text = scrub(String(q.question || "")).trim().slice(0, 500);
+          const options = (Array.isArray(q.options) ? q.options : []).map((o) => (o && typeof o === "object" ? { label: scrub(String(o.label || "")).trim().slice(0, 120), description: scrub(String(o.description || "")).trim().slice(0, 300) } : { label: scrub(String(o == null ? "" : o)).trim().slice(0, 120), description: "" })).filter((o) => o.label).slice(0, 4);
+          const header = scrub(String(q.header || "")).replace(/\s+/g, " ").trim().slice(0, 20);
+          return text && options.length >= 2 ? { text, ...(header ? { header } : {}), options, ...(q.multi_select === true ? { multi: true } : {}) } : null;
+        };
+        const qs = raw.slice(0, 4).map(one);
+        if (raw.length > 4 || !qs.length || qs.some((q) => !q)) { reply("error: give 1 to 4 questions, each with its text and 2 to 4 options (a label and a one-line description each)"); continue; }
+        reply("asked the owner; their answer" + (qs.length > 1 ? "s come" : " comes") + " as the next message");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner a question first" });
-        emit({ type: "question", text: question, options, ...(c.args.multi_select === true ? { multi: true } : {}) });
-        return end("done", { summary: lastSaid || question });
+        // The first question as before (what older readers show), and all of them when there are several.
+        emit({ type: "question", ...qs[0], ...(qs.length > 1 ? { questions: qs } : {}) });
+        return end("done", { summary: lastSaid || qs.map((q) => q.text).join(" ") });
       } else if (RUN_TOOLS[c.name]) {
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
         const spec = RUN_TOOLS[c.name];
@@ -466,8 +501,20 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
-        let out = capOutput(String((r && r.output) || ""));
+        let raw = String((r && r.output) || "");
         const code = r && Number.isInteger(r.code) ? r.code : -1;
+        // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
+        // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
+        let pics = [];
+        if (c.name === "read" && code === 0 && raw.startsWith(PICS_MARK)) {
+          try {
+            const j = JSON.parse(raw.slice(PICS_MARK.length));
+            raw = String((j && j.text) || "");
+            pics = (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ);
+          } catch { raw = "error: the picture could not be read"; pics = []; }
+        }
+        let out = capOutput(raw, c.name === "read" && /^\S[^\n]*: (PDF|Jupyter notebook), /.test(raw) ? READ_TEXT_MAX : undefined);
+        if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         emit({ type: "result", id: c.id, code, output: out });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
@@ -523,6 +570,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words)");
+    }
+    if (roundPics.length) {
+      const n = roundPics.reduce((a, p) => a + p.urls.length, 0);
+      convo.push({ role: "user", content: "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });
+      keepPics(convo);
     }
   }
 }

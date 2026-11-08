@@ -7,8 +7,9 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
-import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile } from "node:fs/promises";
-import { resolve, dirname, relative, isAbsolute, sep } from "node:path";
+import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm } from "node:fs/promises";
+import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { lookup } from "node:dns/promises";
 import { lookup as lookupCb } from "node:dns";
@@ -75,10 +76,177 @@ async function plainText(abs, rel, max) {
   const fh = await openFile(abs, "r");
   try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0)) fail(rel + " is a binary file (not text); use bash to work with it"); } finally { await fh.close(); }
 }
-export async function toolRead({ path, offset = 1, limit = READ_LINES }) {
+// ── PICTURES, PDFs AND NOTEBOOKS (owner item 1, 2026-11-07), like Claude Code's Read (its docs: it
+// "reads images (PNG, JPG, …) and presents them visually", "reads PDFs via the pages parameter (max 20
+// pages per request; required for PDFs over 10 pages)" and "reads Jupyter notebooks (.ipynb) as cells
+// with outputs"). Grok takes JPG and PNG pictures (xAI's docs, read 2026-11-07), so any other kind is
+// made a PNG first, and a big one smaller. A tool answers in text, so its pictures follow a mark that
+// the agent takes them from (coder-agent.mjs), to show Grok beside the answer. A text file's answer
+// never starts with the mark: each of its lines starts with its number.
+export const PICS_MARK = "\u0000coder-pictures\u0000";
+/** All of one read's pictures, as base64: the machine passes on at most 1 MB of a command's output. */
+export const PICS_BUDGET = 900_000;
+/** A PDF's pages: at most this many at a time, and `pages` is needed past PDF_PAGES_FREE (as Claude Code's Read). */
+export const PDF_PAGES_MAX = 20, PDF_PAGES_FREE = 10;
+/** The text of a PDF's pages, or a notebook's cells, in one read. */
+export const READ_TEXT_MAX = 40_000;
+/** The picture kinds read shows, by the file's ending (ImageMagick is told which: it never guesses from the contents). */
+export const PIC_KINDS = { ".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".gif": "gif", ".webp": "webp", ".bmp": "bmp", ".tif": "tiff", ".tiff": "tiff" };
+/** A picture's longest side once shown (a bigger one is made smaller first; then smaller still should it not fit). */
+export const PIC_SIDES = [1600, 1200, 800];
+
+/** Runs a program (no shell) with `input` on its stdin: { code, out (Buffer), err }; code -2 when it is not installed. */
+function runProg(cmd, args, { input = null, timeoutMs = 40_000, max = 30 * 1024 * 1024 } = {}) {
+  return new Promise((done) => {
+    let p;
+    try { p = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"] }); } catch { return done({ code: -2, out: Buffer.alloc(0), err: "" }); }
+    const out = [], err = []; let size = 0, over = false;
+    const timer = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, timeoutMs);
+    p.stdout.on("data", (b) => { size += b.length; if (size > max) { over = true; try { p.kill("SIGKILL"); } catch { /* gone */ } } else out.push(b); });
+    p.stderr.on("data", (b) => { if (err.length < 20) err.push(b); });
+    p.on("error", (e) => { clearTimeout(timer); done({ code: e && e.code === "ENOENT" ? -2 : -1, out: Buffer.alloc(0), err: String((e && e.message) || e) }); });
+    p.on("close", (code) => { clearTimeout(timer); done({ code: over ? -1 : code, out: Buffer.concat(out), err: Buffer.concat(err).toString("utf8").replace(/\s+/g, " ").trim().slice(0, 300) }); });
+    p.stdin.on("error", () => { /* it stopped reading */ });
+    p.stdin.end(input || undefined);
+  });
+}
+
+/** A PNG's or JPEG's width and height, from its first bytes (null for anything else). */
+export function picSize(b) {
+  if (!Buffer.isBuffer(b) || b.length < 24) return null;
+  if (b.readUInt32BE(0) === 0x89504e47) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+  for (let i = 2; i + 9 < b.length; ) {
+    if (b[i] !== 0xff) { i++; continue; }
+    const m = b[i + 1];
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+    if ((m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) || (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
+/**
+ * A PICTURE AS GROK TAKES IT: { type, data (base64), w, h, bytes } within `budget` base64 characters, or { why }.
+ * Through ImageMagick, from stdin with its kind named (never a file name it could read more into); without
+ * ImageMagick, a PNG or JPEG as it is when it fits.
+ */
+export async function asPicture(buf, kind, budget = PICS_BUDGET) {
+  const done = (type, b) => ({ type, data: b.toString("base64"), ...(picSize(b) || {}), bytes: b.length });
+  const first = kind === "gif" || kind === "tiff" ? "[0]" : "";
+  for (const side of PIC_SIDES) {
+    for (const to of kind === "jpeg" ? ["jpeg"] : ["png", "jpeg"]) {
+      const r = await runProg("convert", [kind + ":-" + first, "-auto-orient", "-resize", side + "x" + side + ">", "-strip", ...(to === "jpeg" ? ["-background", "white", "-flatten", "-quality", "85"] : []), to + ":-"], { input: buf });
+      if (r.code === -2) {
+        if ((kind === "png" || kind === "jpeg") && Math.ceil(buf.length / 3) * 4 <= budget) return done("image/" + kind, buf);
+        return { why: kind === "png" || kind === "jpeg" ? "it is too big to show without ImageMagick" : "this machine cannot turn a " + kind.toUpperCase() + " into a PNG (no ImageMagick)" };
+      }
+      if (r.code !== 0 || !r.out.length) return { why: "it could not be opened as a picture" + (r.err ? " (" + r.err + ")" : "") };
+      if (Math.ceil(r.out.length / 3) * 4 <= budget) return done("image/" + to, r.out);
+    }
+  }
+  return { why: "it is too big to show, even made smaller" };
+}
+
+const kb = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+const withPics = (text, pictures) => (pictures.length ? PICS_MARK + JSON.stringify({ text, pictures: pictures.map((p) => ({ type: p.type, data: p.data })) }) : text);
+async function fileSize(abs, rel, max) {
+  const st = await stat(abs);
+  if (st.isDirectory()) fail(rel + " is a folder; use glob to list it");
+  if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool");
+  return st.size;
+}
+
+async function readPicture(abs, rel, kind) {
+  const size = await fileSize(abs, rel, READ_MAX_BYTES);
+  const p = await asPicture(await readFile(abs), kind);
+  if (p.why) fail(rel + " cannot be shown: " + p.why);
+  return withPics("Picture: " + rel + " (" + (p.w && p.h ? p.w + "×" + p.h + ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results.", [p]);
+}
+
+/** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */
+function pageRange(s, total) {
+  const m = /^\s*(\d{1,5})\s*(?:[-–]\s*(\d{1,5})\s*)?$/.exec(String(s));
+  if (!m) return null;
+  const a = Number(m[1]), b = m[2] ? Number(m[2]) : a;
+  return a >= 1 && b >= a && b <= total ? [a, b] : null;
+}
+
+async function readPdf(abs, rel, pages) {
+  await fileSize(abs, rel, READ_MAX_BYTES);
+  const info = await runProg("pdfinfo", [abs]);
+  if (info.code === -2) fail("this machine has no PDF reader (poppler); use bash");
+  const total = Number((/^Pages:\s+(\d+)/m.exec(info.out.toString("utf8")) || [])[1]) || 0;
+  if (info.code !== 0 || !total) fail(rel + " could not be opened as a PDF" + (info.err ? " (" + info.err + ")" : ""));
+  const asked = String(pages == null ? "" : pages).trim();
+  if (!asked && total > PDF_PAGES_FREE) fail(rel + " has " + total + " pages: give pages, e.g. \"1-5\" (at most " + PDF_PAGES_MAX + " at a time)");
+  const range = asked ? pageRange(asked, total) : [1, total];
+  if (!range) fail("pages must be one page or a range like \"1-5\", within the PDF's " + total + " page" + (total === 1 ? "" : "s"));
+  if (range[1] - range[0] + 1 > PDF_PAGES_MAX) fail("at most " + PDF_PAGES_MAX + " pages at a time: ask for fewer (e.g. \"" + range[0] + "-" + (range[0] + PDF_PAGES_MAX - 1) + "\")");
+  const t = await runProg("pdftotext", ["-f", String(range[0]), "-l", String(range[1]), "-layout", "-enc", "UTF-8", abs, "-"]);
+  if (t.code !== 0) fail(rel + "'s text could not be read" + (t.err ? " (" + t.err + ")" : ""));
+  const texts = t.out.toString("utf8").split("\f");
+  const parts = [rel + ": PDF, " + total + " page" + (total === 1 ? "" : "s") + (asked ? ", pages " + range[0] + "-" + range[1] : "")];
+  const pictures = []; let budget = PICS_BUDGET; let dir = null;
+  try {
+    for (let n = range[0]; n <= range[1]; n++) {
+      const text = String(texts[n - range[0]] || "").replace(/[ \t]+$/gm, "").trim();
+      if (text) { parts.push("--- Page " + n + " ---\n" + text); continue; }
+      // A PAGE WITH NO TEXT (a scan, a drawing): shown as a picture, while they fit in one read.
+      if (!dir) dir = await mkdtemp(join(tmpdir(), "coder-pdf-"));
+      const r = await runProg("pdftoppm", ["-f", String(n), "-l", String(n), "-r", "100", "-png", "-singlefile", abs, join(dir, "p")]);
+      const p = r.code === 0 ? await asPicture(await readFile(join(dir, "p.png")).catch(() => Buffer.alloc(0)), "png", budget) : { why: "it could not be drawn" };
+      if (p.why) { parts.push("--- Page " + n + " (no text; not shown: " + (pictures.length ? "too many pictures for one read, read this page alone" : p.why) + ") ---"); continue; }
+      pictures.push(p); budget -= p.data.length;
+      parts.push("--- Page " + n + " (no text: shown to you as picture " + pictures.length + " after these results) ---");
+    }
+  } finally { if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {}); }
+  let text = parts.join("\n\n");
+  if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the rest of these pages did not fit; read fewer pages at a time]";
+  return withPics(text, pictures);
+}
+
+/** A JUPYTER NOTEBOOK as its cells with their outputs (pictures in them shown); null when it is not one. */
+async function readNotebook(raw, rel) {
+  let nb = null;
+  try { nb = JSON.parse(raw); } catch { return null; }
+  if (!nb || !Array.isArray(nb.cells)) return null;
+  const str = (x) => (Array.isArray(x) ? x.join("") : x == null ? "" : String(x));
+  const plain = (x) => str(x).replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
+  const parts = [rel + ": Jupyter notebook, " + nb.cells.length + " cell" + (nb.cells.length === 1 ? "" : "s")];
+  const pictures = []; let budget = PICS_BUDGET;
+  for (const [i, c] of nb.cells.entries()) {
+    if (!c || typeof c !== "object") continue;
+    parts.push("--- Cell " + (i + 1) + " (" + String(c.cell_type || "code") + (Number.isInteger(c.execution_count) ? ", run " + c.execution_count : "") + (typeof c.id === "string" && c.id ? ", id " + c.id.slice(0, 40) : "") + ") ---\n" + str(c.source));
+    for (const o of Array.isArray(c.outputs) ? c.outputs : []) {
+      if (!o || typeof o !== "object") continue;
+      if (o.output_type === "stream") { parts.push("[" + String(o.name || "stdout") + "]\n" + plain(o.text)); continue; }
+      if (o.output_type === "error") { parts.push("[error] " + String(o.ename || "") + ": " + String(o.evalue || "") + "\n" + plain(Array.isArray(o.traceback) ? o.traceback.join("\n") : "")); continue; }
+      const d = o.data && typeof o.data === "object" ? o.data : {};
+      const img = d["image/png"] ? ["png", d["image/png"]] : d["image/jpeg"] ? ["jpeg", d["image/jpeg"]] : null;
+      if (img) {
+        const p = budget > 0 ? await asPicture(Buffer.from(str(img[1]).replace(/\s+/g, ""), "base64"), img[0], budget) : { why: "too many pictures for one read" };
+        if (p.why) parts.push("[picture output, not shown: " + p.why + "]");
+        else { pictures.push(p); budget -= p.data.length; parts.push("[picture output: shown to you as picture " + pictures.length + " after these results]"); }
+        continue;
+      }
+      if (d["text/plain"] != null) parts.push("[output]\n" + plain(d["text/plain"]));
+      else if (d["text/html"] != null) parts.push("[html output]\n" + str(d["text/html"]).slice(0, 2000));
+    }
+  }
+  let text = parts.join("\n\n");
+  if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the notebook is longer; use bash (jq) for the rest]";
+  return withPics(text, pictures);
+}
+
+export async function toolRead({ path, offset = 1, limit = READ_LINES, pages = "" }) {
   const { abs, rel } = await inside(path, { mustExist: true });
+  const ext = extname(abs).toLowerCase();
+  if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
+  if (ext === ".pdf") return readPdf(abs, rel, pages);
   await plainText(abs, rel, READ_MAX_BYTES);
   const text = await readFile(abs, "utf8");
+  if (ext === ".ipynb") { const nb = await readNotebook(text, rel); if (nb !== null) return nb; }
   const lines = text.split("\n");
   const from = Math.max(1, Number(offset) || 1);
   const n = Math.min(Math.max(1, Number(limit) || READ_LINES), 2000);
@@ -263,8 +431,12 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
       else req = JSON.parse(Buffer.from(arg, "base64").toString("utf8"));
     } catch { req = null; }
     const fn = req && TOOLS[req.tool];
-    if (!fn) { process.stdout.write("error: unknown tool"); process.exit(2); }
-    try { process.stdout.write(String(await fn(req.args || {}))); process.exit(0); }
-    catch (e) { process.stdout.write("error: " + String((e && e.message) || e).slice(0, 600)); process.exit(1); }
+    // Exits once all of it is written: a pipe takes a big answer (a picture) in parts, and exiting at once cut it off.
+    const say = (text, code) => process.stdout.write(text, () => process.exit(code));
+    if (!fn) return say("error: unknown tool", 2);
+    let text;
+    try { text = String(await fn(req.args || {})); }
+    catch (e) { return say("error: " + String((e && e.message) || e).slice(0, 600), 1); }
+    say(text, 0);
   })();
 }

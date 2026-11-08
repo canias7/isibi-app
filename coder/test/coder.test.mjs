@@ -2181,15 +2181,15 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
   // The card: a header with the question, rows with a radio (or checkbox), title and explanation, the first already chosen, Other with a box, Skip and Submit, "Needs your input".
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, picked: multi \|\| !opts\.length \? \[\] : \[opts\[0\]\.label\], other: '' \}/, "the recommended (first) choice is already chosen, and kept across redraws");
-  assert.match(ui, /<input type="' \+ kind \+ '" name="cdq' \+ i \+ '" value="' \+ esc\(o\.label\) \+ '"/);
+  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, qs, answers: qs\.map\(\(q\) => \(\{ picked: q\.multi \|\| !q\.options\.length \? \[\] : \[q\.options\[0\]\.label\], other: '' \}\)\) \}/, "the recommended (first) choice is already chosen, and kept across redraws");
+  assert.match(ui, /<input type="' \+ kind \+ '" name="' \+ name \+ '" value="' \+ esc\(o\.label\) \+ '"/);
   assert.match(ui, /<b>' \+ esc\(o\.label\) \+ '<\/b>' \+ \(o\.description \? '<small>' \+ esc\(o\.description\) \+ '<\/small>' : ''\)/);
   assert.match(ui, /<b>Other<\/b>' \+ \(live \? '<input type="text" class="cd-ask-in" placeholder="Type your own answer"/);
-  assert.match(ui, /data-ask-skip="' \+ i \+ '">Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '">Submit <kbd>Ctrl ↵<\/kbd><\/button>/);
+  assert.match(ui, /data-ask-skip="' \+ i \+ '">Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '">Submit' \+ \(many \? ' answers' : ''\) \+ ' <kbd>Ctrl ↵<\/kbd><\/button>/);
   assert.match(ui, /<div class="cd-ask-wait">Needs your input<\/div>/);
   assert.match(ui, /if \(e\.key === 'Enter' && \(e\.ctrlKey \|\| e\.metaKey\)\) \{ e\.preventDefault\(\); askSend\(\); \}/);
-  assert.match(ui, /send\('I skipped your question\. Decide for yourself and go on\.'\)/);
-  assert.match(ui, /a\.picked\.map\(\(v\) => \(v === '__other' \? a\.other\.trim\(\) : v\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together");
+  assert.match(ui, /'I skipped your question\. Decide for yourself and go on\.'/);
+  assert.match(ui, /x\.picked\.map\(\(v\) => \(v === '__other' \? x\.other\.trim\(\) : v\.replace\(\/\\s\*\\\(Recommended\\\)\$\/i, ''\)\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together (test/questions.test.mjs tries it)");
   assert.match(ui, /typeof o === 'string' \? \{ label: o, description: '' \}/, "questions in older chats still show");
   const css = readFileSync(HERE("public/coder.css"), "utf8");
   for (const c of [".cd-ask-row{", ".cd-ask-t small{", ".cd-ask-in{", ".cd-ask-btns{", ".cd-ask-go{", ".cd-ask-wait{"]) assert.ok(css.includes(c), c);

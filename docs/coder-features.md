@@ -42,7 +42,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 15. **Stop** a running job. Who: you. Status: To test.
 16. **A job keeps going when you close the tab**, and the chat is saved as it goes (a lost machine keeps its steps).
     Test: send a long task, close the tab, come back later. Who: you. Status: To test.
-17. **Question cards**: Coder asks with choices; your pick is your answer. Who: you. Status: To test.
+17. **Question cards**: Coder asks up to 4 questions in one card (your pick 4, 2026-11-08), each with choices, Other and sometimes several picks; one Submit sends all the answers. Who: you. Status: To test.
 
 ## D. Coder's machine
 
@@ -52,7 +52,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
     Who: me. Status: **Passed** (live test, 2026-11-07: `sudo whoami` = root, cowsay installed).
 21. **The sealed network room**: all of Coder's internet goes through the gate that follows your network setting. Who: me. Status: To test.
 22. **A copy of the repository that failed is made again** (the bug the live test found). Who: me.
-    Status: **Passed** (2026-11-07, issue #9: the files and git came back). The test found one leftover, now fixed (live after the next deploy): the setup's own file in that chat was pushed as Coder's work.
+    Status: **Passed** (2026-11-07, issue #9: the files and git came back). The test found one leftover, now fixed (live since the 2026-11-07 deploy): the setup's own file in that chat was pushed as Coder's work.
 
 ## E. Environments
 
@@ -60,7 +60,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 24. **Setup script**: runs on a new machine; system packages install as admin.
     Who: me. Status: **Passed** (live test, 2026-11-07: the script ran).
 25. **The environment's saved copy of its setup**: the next new chat starts from it and skips the setup (item 1 of the list).
-    Test: two new chats in one environment. Who: me. Status: **Failed** (2026-11-07, issues #10 and #11: the second chat started before Fly.io had finished the first chat's copy; Coder tried it anyway and quietly used an empty disk). Fixed: only a finished copy is used, the chat says when a copy can't be used and why, and the copy is of the disk as the setup left it. Test again after the next deploy (one chat makes the copy; once Fly has finished it, a second chat skips the setup).
+    Test: two new chats in one environment. Who: me. Status: **Failed** (2026-11-07, issues #10 and #11: the second chat started before Fly.io had finished the first chat's copy; Coder tried it anyway and quietly used an empty disk). Fixed (live since the 2026-11-07 deploy): only a finished copy is used, the chat says when a copy can't be used and why, and the copy is of the disk as the setup left it. To test again (one chat makes the copy; once Fly has finished it, a second chat skips the setup).
 26. **Network access**: None, Trusted (Claude Code's list, with the "www." sites), Full, or your own allowed sites (item 7).
     Who: me. Status: To test.
 27. **Variables** (settings every command sees). Who: you. Status: To test.
@@ -69,7 +69,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 
 ## F. How Coder works
 
-30. **Its tools**: read, edit, write, search, the code helper (lsp), commands, web pages and web search, background commands, a to-do list. Who: me. Status: To test.
+30. **Its tools**: read, edit, write, search, the code helper (lsp), commands, web pages and web search, background commands, a to-do list. `read` also opens pictures (a screenshot Coder takes, say), PDFs by page, and Jupyter notebooks (your pick 1, 2026-11-08). Who: me. Status: To test.
 31. **Instruction files**: `CODER.md` (or `AGENTS.md` when there's no CODER.md), rules in `.coder/rules` for some paths only, a subfolder's own file; plus a memory kept between chats (item 10). Who: me. Status: To test.
 32. **Security check on each edit**: a warning to Coder when it writes risky code (item 12). Who: me. Status: To test.
 33. **Review and Security review** of the chat's changes (the buttons, or ask Coder). Who: you. Status: To test.
@@ -103,7 +103,7 @@ Status words: **Passed**, **Failed** (then fixed and tested again), **To test**.
 
 48. Your Grok key never enters Coder's machine; each machine has its own lock; your keys' values are hidden in the chat; the code is never stored with us (only on GitHub and the chat's machine).
 49. The buttons on GitHub: deploy, the machine's image check, the desktop and phone builds, and the old app's cleanup (which needs your word each time).
-50. 201 automatic tests, plus 18 machine-admin tests, run before every deploy.
+50. 207 automatic tests, plus 18 machine-admin tests, run before every deploy.
 
 ---
 

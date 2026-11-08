@@ -11,6 +11,32 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Coder can ask up to 4 questions in one card (your pick 4)
+
+- Like Claude Code: when Coder truly needs you to choose, it can now ask 1 to 4 related questions in one card instead of one at a time.
+- Each question has a small label (like "Database"), its choices with a one-line explanation, and Other to type your own. Some questions let you tick several. The recommended choice comes first and is already picked.
+- One **Submit answers** sends everything as one message, one line per question (like "Database: Postgres"). **Skip** lets Coder decide.
+- Notifications say how many questions are waiting. On GitHub (@coder) they're numbered, and you answer them all in one comment.
+- Old one-question cards in your chats still look and work the same.
+- Live after the next deploy. Screenshots are in the chat.
+- Tests: CD197 and CD198 are new; CD84 updated. 207 tests pass.
+
+## 2026-11-08: Coder can now see pictures, PDFs and notebooks it opens (your pick 1)
+
+- Coder's `read` used to open only text. Now it also opens what Claude Code's Read opens:
+  - **Pictures** (PNG, JPG, GIF, WebP, BMP, TIFF). For example, Coder can take a screenshot of a page it built and look at it. Grok only takes JPG and PNG, so other kinds are turned into PNG first, and big ones are made smaller.
+  - **PDFs**, page by page, with Claude Code's rules: at most 20 pages at a time, and you must say which pages for a PDF over 10 pages. A page with no text (a scan) is shown to Coder as a picture.
+  - **Jupyter notebooks**: each cell with its output, including charts as pictures.
+- A job keeps the 8 newest pictures it opened; older ones are let go (Coder can open them again). Saved chats keep a note instead of the picture, so they stay small.
+- Fixed on the way: Coder's file tools could cut off a very long answer. They now finish writing before they stop.
+- Live after the next deploy. The machine check on GitHub also tries it inside Coder's real machine.
+- Tests: CD193-CD196 are new. 205 tests pass.
+
+## 2026-11-07: Merged and deployed: the saved-copy fix (#25) and the kept leave-out list (#22)
+
+- You said "merge and deploy first": both fixes are live on gofarther.dev. The deploy's tests and GitHub's check of Coder's machine both passed.
+- Next: you want to test everything a different way; you'll say how.
+
 ## 2026-11-07: Testing: #25 failed (the setup's saved copy), found why, fixed
 
 - **What I tested:** two new chats in one environment, through your test repository (issues #10 and #11). The second chat should have skipped the setup by starting from the first chat's saved copy. It didn't: the setup ran again.
