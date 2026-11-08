@@ -11,6 +11,41 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-08: Everything tested, one by one, and recorded (your word: "u test it all yourself one by one , record it pls")
+
+- **The results are in [`docs/coder-features.md`](coder-features.md)**, item by item, each with how it was tested:
+  - **live:** the real Coder through @coder on your test repo, issues #12 to #16 and pull request #16;
+  - **page:** the real page and server code on my side, with stand-ins for sign-in, GitHub and Grok, because the code is emailed and I can't sign in;
+  - **app:** the real desktop app, filmed.
+- **44 of 50 passed.** 4 passed as far as I can go and need you for the last step. 2 weren't tested: desktop notifications (they need signing in inside the app) and the phone app (no phone here).
+- **6 problems found and fixed**, in the entries below:
+  - background commands;
+  - /usr/games;
+  - "Full" network not said;
+  - the message box carrying over between chats;
+  - dead ends on GitHub;
+  - the desktop app's blank window.
+- **Live highlights:**
+  - 60 of 60 tools ok;
+  - sudo and apt-get work;
+  - the machine keeps its files and installs while asleep;
+  - a screenshot and a PDF page read exactly;
+  - the eval warning;
+  - the next chat started from the setup's saved copy (#25 passes now);
+  - CODER.md in the root and in `src/` followed;
+  - memory carried to a new chat;
+  - review and security review;
+  - a 2-question card on GitHub;
+  - a draft pull request (#16);
+  - your GitHub login isn't on the machine (only a placeholder).
+- **Needs you, for the last steps:**
+  - on gofarther.dev, Repositories, turn on Code review for testingforclaude (Manual is enough), then I'll ask `@coder review` on pull request #16;
+  - in the chat that made pull request #16, press Auto-fix;
+  - on your phone or in Chrome, turn on notifications and press "Send a test";
+  - install from the Home Screen.
+- My own mistakes, corrected: the first recording 4 said a pull request had opened when none had (my stand-in for Grok never asked for one), and my test browser put the sign-in back after Sign out. Both were redone.
+- A question for you: **Sign out ends your sign-in on every device** (phone, desktop app, other browsers). That's Supabase's default. Claude's apps sign out only the device you're on. I haven't changed it.
+
 ## 2026-11-08: Desktop app: "Try again" with no internet no longer leaves a blank window
 
 - Found by running the real desktop app on my side (recorded): with no internet, the app shows its "Can't reach Go Farther" page, as it should. But pressing **Try again** while still offline left the window **blank**, with no button. The page was loaded again, but the window stopped drawing it.
