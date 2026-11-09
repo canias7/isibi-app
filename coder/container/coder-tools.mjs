@@ -889,7 +889,37 @@ export async function toolPageFile({ path }) {
   return JSON.stringify({ path: rel, size: st.size, html: (await readFile(abs)).toString("utf8") });
 }
 
-export const TOOLS = { page_file: toolPageFile, save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen };
+/**
+ * GLOOPY'S FILES (owner, 2026-11-09: "4"; Grok Bot reads "images, audio, video, PDFs, Office documents, CSV, JSON..." you
+ * attach, and its files "appear as cards in the conversation"), for the service only (no tool Grok has), run as `dev`:
+ * `save_file` puts a file the owner gave into the folder's files/ (never over another: "name (2).pdf"); `send_file`
+ * reads one Gloopy made, from inside its folder (never through a link out of it), at most FILE_SEND_MAX.
+ */
+export const FILES_DIR = "files", FILE_SEND_MAX = 5 * 1024 * 1024;
+const fileName = (n) => typeof n === "string" && /^[^/\\\0\n\r]{1,120}$/.test(n) && !n.startsWith(".") && n.trim() === n;
+export async function toolSaveFile({ name, data }) {
+  if (!fileName(name) || typeof data !== "string" || !/^[A-Za-z0-9+/]*=*$/.test(data)) fail("give a file: its name and data");
+  const dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let n = 1; n < 100; n++) {
+    const { abs, rel } = await inside(join(ROOT, FILES_DIR, n === 1 ? name : stem + " (" + n + ")" + ext));
+    await mkdir(dirname(abs), { recursive: true });
+    let fh;
+    try { fh = await openFile(abs, "wx"); } catch (e) { if (e && e.code === "EEXIST") continue; throw e; }
+    try { await fh.writeFile(Buffer.from(data, "base64")); } finally { await fh.close(); }
+    return relative(ROOT, abs) || rel;
+  }
+  fail("too many files named " + name);
+}
+export async function toolSendFile({ path }) {
+  const { abs, rel } = await inside(path, { mustExist: true });
+  const st = await lstat(abs);
+  if (!st.isFile()) fail(rel + " is not a file");
+  if (st.size > FILE_SEND_MAX) fail(rel + " is " + (st.size / 1048576).toFixed(1) + " MB; a file you send is at most " + FILE_SEND_MAX / 1048576 + " MB (make it smaller, or split it)");
+  if (!st.size) fail(rel + " is empty");
+  return JSON.stringify({ path: rel, name: abs.split(sep).pop(), size: st.size, data: (await readFile(abs)).toString("base64") });
+}
+
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

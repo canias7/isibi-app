@@ -11,6 +11,26 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's files, in and out (your word: "2, 4")
+
+- **Attach files, like Grok Bot.** In Gloopy's chat the clip now takes documents too: PDF, Word, Excel, PowerPoint, text, CSV and other data files, sound, video and zip files. Pictures work as before.
+  - Each file is sent to Coder's Worker straight away (up to 25 MB, 10 per message) and shows as a chip until you send.
+  - Program files (.exe and the like) are refused.
+- **Gloopy finds your files in its folder.** When your message arrives, Coder's service puts its files into Gloopy's folder (files/), and Gloopy is told where.
+  - It reads them with tools already on its computer. One command turns a PDF, Word, Excel or PowerPoint file into text.
+  - What's in a file is information to it, never orders.
+- **Gloopy hands you files, like Grok Bot's file cards and dots' Outputs.** A new `files` tool sends you a file it made: a document, spreadsheet, slide deck, PDF, CSV or zip, up to 5 MB.
+  - You get a card with the file's name, size and **Download**.
+  - The file always downloads; it never opens inside the page.
+  - Files you attached show on your message and download the same way.
+- **Kept for you, safely:**
+  - Up to 100 files or 300 MB in all; the oldest go first.
+  - Only you (signed in), or your own Gloopy while it's working on your message, can get at a file.
+  - Gloopy can fetch an older file back into its folder.
+  - Gloopy can only send files from inside its own folder, never through a link that leads out of it.
+- **Your settings screen** can list and remove files later (that's your frontend).
+- Not tried live with Grok yet. Tests GL59–GL62 are new; GL61 runs on Gloopy's real machine service. All 317 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy starts work from events: webhooks (your word: "2, 4"; files in and out come next)
 
 - **Webhooks, like Grok Bot's routines started by a call:** Gloopy can set up a web address that starts a task whenever a service calls it. That can be GitHub (a push, a new issue), a form, a store, a script, or Zapier, Make or IFTTT, which can pass on an email or a Slack message.

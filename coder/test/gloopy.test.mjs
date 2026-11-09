@@ -153,11 +153,13 @@ test("GL7 (2026-11-09) your Gloopy: made the first time with no GitHub, not one 
     assert.match(seen.at(-1).messages[0].content, /YOUR NOTES ABOUT THE OWNER, kept between conversations, in .*MEMORY\.md:\nName: Ana/);
     assert.deepEqual(outside, [], "no call to GitHub or anywhere else");
     // Coder's own buttons are not Gloopy's.
-    for (const action of ["pr", "undo", "changes", "env", "files"]) {
+    for (const action of ["pr", "undo", "changes", "env"]) {
       const r = await go("projects/" + GLOOPY_ID + "/" + action, { method: action === "pr" || action === "undo" ? "POST" : "GET" });
       assert.equal(r.status, 400, action);
       assert.match((await r.json()).error, /^Gloopy has no /);
     }
+    // (files is Gloopy's own since 2026-11-09, "4": its files kept, never the repository's file list Coder's @ uses.)
+    assert.deepEqual(await (await go("projects/" + GLOOPY_ID + "/files")).json(), { ok: true, files: [] });
   } finally { srv.close(); }
 });
 
@@ -2537,4 +2539,207 @@ test("GL58 (2026-11-09) on the page: a webhook's card shows its address, and its
   assert.match(ui, /e\.kind === 'schedule' \|\| e\.kind === 'webhook' \? '' : '<button type="button" class="cd-card-no" data-approve="always"/);
   const { pushesFor } = await import("../src/coder-push.mjs");
   assert.deepEqual(pushesFor([{ type: "hook", id: "h1", name: "x" }], { kind: "gloopy", title: "Gloopy", at: Date.now() }), [], "no notification for a card that needs nothing");
+});
+
+// ── FILES IN AND OUT (owner, 2026-11-09: "4") ─────────────────────────────
+// A bucket that keeps bytes as bytes (the files themselves), and text as text (their lists).
+function bytesBucket() {
+  const m = new Map();
+  const ab = (v) => (typeof v === "string" ? new TextEncoder().encode(v) : v);
+  return { m, async get(k) { if (!m.has(k)) return null; const v = m.get(k); return { text: async () => (typeof v === "string" ? v : Buffer.from(v).toString("utf8")), arrayBuffer: async () => { const b = ab(v); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); } }; },
+    async put(k, v) { m.set(k, typeof v === "string" ? v : v instanceof Uint8Array ? new Uint8Array(v) : new Uint8Array(v)); }, async delete(k) { m.delete(k); },
+    async list({ prefix = "" } = {}) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; } };
+}
+
+test("GL59 (2026-11-09) the Worker keeps Gloopy's files: the owner attaches documents (never programs; at most 25 MB) and downloads them, always saved, never opened in the page; a message carries its attachments to Gloopy's machine; only that person's running Gloopy job may fetch one, or hand one over (at most 5 MB)", async () => {
+  const F = await import("../src/gloopy-files.mjs");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { egressPass } = await import("../src/coder-egress.mjs");
+  const bucket = bytesBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  const machine = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); machine.push({ path: u.pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json", ...(init.headers || {}) } }), env, {}, deps);
+  const upload = (name, bytes, type = "application/octet-stream") => handleCoder(new Request("https://coder.gofarther.dev/api/coder/projects/" + GLOOPY_ID + "/files", { method: "PUT", headers: { Authorization: "Bearer ok", "content-type": type, "x-file-name": encodeURIComponent(name) }, body: bytes }), env, {}, deps);
+  // The names kept, and the kinds: documents, data, text, pictures, sound and video, zip; never programs.
+  assert.equal(F.cleanName("../../etc/Trip budget.xlsx"), "Trip budget.xlsx");
+  assert.equal(F.cleanName("a​\u0000b.pdf"), "ab.pdf");
+  assert.equal(F.cleanName(".hidden.csv"), "hidden.csv");
+  for (const bad of ["setup.exe", "run.dmg", "app.apk", "noending", "lib.so"]) assert.equal(F.cleanName(bad), "", bad);
+  assert.equal(F.cleanName("x".repeat(200) + ".docx").length, 120);
+  await go("gloopy");
+  // 1. Attached by the owner.
+  const PDF = new TextEncoder().encode("%PDF-1.4 a made-up report about Lisbon trips");
+  let r = await upload("Lisbon report.pdf", PDF, "application/pdf");
+  assert.equal(r.status, 200, await r.clone().text());
+  const f1 = (await r.json()).file;
+  assert.match(f1.id, F.FILE_ID);
+  assert.deepEqual({ ...f1, id: "" }, { id: "", name: "Lisbon report.pdf", size: PDF.length, dir: "in" });
+  r = await upload("setup.exe", new Uint8Array([77, 90]));
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /^That kind of file can't be attached/);
+  assert.equal((await upload("empty.txt", new Uint8Array(0))).status, 400);
+  assert.match((await F.keepFile(bucket, "u1", { name: "big.zip", bytes: new Uint8Array(25 * 1048576 + 1), dir: "in" })).error, /over 25 MB/);
+  // The list (with Gloopy's GET too), and a download: always saved as its own name, never opened in the page.
+  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/files")).json()).files.map((x) => [x.id, x.name, x.dir]), [[f1.id, "Lisbon report.pdf", "in"]]);
+  assert.deepEqual((await (await go("gloopy")).json()).files.map((x) => x.name), ["Lisbon report.pdf"]);
+  r = await go("projects/" + GLOOPY_ID + "/files/" + f1.id);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("content-type"), "application/octet-stream");
+  assert.equal(r.headers.get("content-disposition"), "attachment; filename=\"Lisbon report.pdf\"; filename*=UTF-8''Lisbon%20report.pdf");
+  assert.equal(r.headers.get("x-content-type-options"), "nosniff");
+  assert.match(r.headers.get("content-security-policy"), /^sandbox/);
+  assert.deepEqual(new Uint8Array(await r.arrayBuffer()), PDF);
+  assert.equal((await go("projects/" + GLOOPY_ID + "/files/fnosuchfile1")).status, 404);
+  // 2. A message with it: its machine gets the attachment (and the list kept), never the bytes; with no words, a line says so.
+  r = await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "", files: [f1.id] }) });
+  assert.equal(r.status, 200, await r.clone().text());
+  const turn = machine.find((x) => x.path === "/turn").body;
+  assert.deepEqual(turn.attached, [{ id: f1.id, name: "Lisbon report.pdf", size: PDF.length }]);
+  assert.deepEqual(turn.files.map((x) => x.id), [f1.id]);
+  assert.equal(turn.text, "(see the attached file)");
+  assert.ok(!JSON.stringify(turn).includes("made-up report"));
+  // 3. Only that person's running Gloopy job, with its own pass, gets a file or hands one over.
+  const turnNo = JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/meta.json")).turn;
+  const pass = await egressPass(env, "u1/" + GLOOPY_ID, turnNo);
+  const job = { "x-coder-chat": "u1/" + GLOOPY_ID, "x-coder-turn": String(turnNo), "x-coder-egress": pass };
+  const asJob = (path, init) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, init), env, {}, { ...deps, authUser: async () => null });
+  r = await asJob("gloopy-file-get", { method: "POST", headers: { "content-type": "application/json", ...job }, body: JSON.stringify({ id: f1.id }) });
+  assert.equal(r.status, 200);
+  assert.equal(decodeURIComponent(r.headers.get("x-file-name")), "Lisbon report.pdf");
+  assert.deepEqual(new Uint8Array(await r.arrayBuffer()), PDF);
+  assert.equal((await asJob("gloopy-file-get", { method: "POST", headers: { "content-type": "application/json", ...job, "x-coder-egress": "nope" }, body: JSON.stringify({ id: f1.id }) })).status, 403);
+  assert.equal((await asJob("gloopy-file-get", { method: "POST", headers: { "content-type": "application/json", ...job }, body: JSON.stringify({ id: "fnosuchfile1" }) })).status, 404);
+  const CSV = new TextEncoder().encode("day,cost\nSat,120\nSun,80\n");
+  r = await asJob("gloopy-file-put", { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent("Trip budget.csv"), ...job }, body: CSV });
+  assert.equal(r.status, 200, await r.clone().text());
+  const out = await r.json();
+  assert.deepEqual({ ...out, id: "" }, { ok: true, id: "", name: "Trip budget.csv", size: CSV.length });
+  assert.deepEqual((await F.readFiles(bucket, "u1")).map((x) => [x.name, x.dir]), [["Trip budget.csv", "out"], ["Lisbon report.pdf", "in"]]);
+  assert.equal((await asJob("gloopy-file-put", { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": "evil.exe", ...job }, body: new Uint8Array([1]) })).status, 400);
+  assert.equal((await asJob("gloopy-file-put", { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": "big.pdf", "content-length": String(5 * 1048576 + 1), ...job }, body: new Uint8Array(5 * 1048576 + 1) })).status, 413);
+  // Once that job has ended, its pass gets nothing.
+  bucket.m.set("coder/u1/" + GLOOPY_ID + "/meta.json", JSON.stringify({ ...JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/meta.json")), status: "idle" }));
+  assert.equal((await asJob("gloopy-file-get", { method: "POST", headers: { "content-type": "application/json", ...job }, body: JSON.stringify({ id: f1.id }) })).status, 403);
+  // 4. A message names only files that are kept; at most 10.
+  assert.match((await (await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "x", files: ["fnosuchfile1"] }) })).json()).error, /One of those files is gone: attach it again\./);
+  assert.match((await (await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "x", files: Array(11).fill(f1.id) }) })).json()).error, /At most 10 files with one message\./);
+  // 5. Taken away; past FILES_MAX the oldest goes, and its bytes with it.
+  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/files", { method: "POST", body: JSON.stringify({ remove: f1.id }) })).json()).files.map((x) => x.name), ["Trip budget.csv"]);
+  assert.equal(bucket.m.has("coder/u1/gloopy/files/" + f1.id), false);
+  for (let i = 0; i < F.FILES_MAX; i++) await F.keepFile(bucket, "u1", { name: "n" + i + ".txt", bytes: new Uint8Array([65]), dir: "in" });
+  const all = await F.readFiles(bucket, "u1");
+  assert.equal(all.length, F.FILES_MAX);
+  assert.ok(!all.some((x) => x.name === "Trip budget.csv"), "the oldest went");
+  assert.equal([...bucket.m.keys()].filter((k) => k.startsWith("coder/u1/gloopy/files/")).length, F.FILES_MAX, "and its bytes");
+});
+
+test("GL60 (2026-11-09) Gloopy's files tool: the owner's attachments are put in files/ before it starts (it is told where); it sends files it made (the owner gets a card with Download), gets kept ones back, and lists them; Coder has no such tool", async () => {
+  const { gloopyContext, FILES_TOOL } = await import("../container/gloopy-agent.mjs");
+  assert.ok(GLOOPY_TOOL_NAMES.includes("files"));
+  assert.match(FILES_TOOL.function.description, /send: hand the owner a file you made in your work folder \(a document, spreadsheet, slide deck, PDF, CSV, picture or zip; at most 5 MB\): they get a card with Download\./);
+  assert.match(GLOOPY_SYSTEM, /Files the owner attaches are put in files\/ in your work folder \(their message says which\)\. markitdown <file> turns a PDF, Word, Excel or PowerPoint file into text/);
+  const DATA = Buffer.from("%PDF made-up").toString("base64");
+  const run = async (steps, extra = {}, opt = {}) => {
+    const ev = [], ran = [], puts = [];
+    const exec = async ({ command }) => {
+      ran.push(command);
+      const req = command.includes("@") && !command.includes(" @/") ? null : JSON.parse(Buffer.from(command.split(" ").pop(), "base64").toString("utf8"));
+      if (opt.exec) return opt.exec(req, command);
+      if (req && req.tool === "save_file") return { code: 0, output: "files/" + req.args.name };
+      if (req && req.tool === "send_file") return req.args.path === "too-big.zip" ? { code: 1, output: "too-big.zip is 6.0 MB; a file you send is at most 5 MB (make it smaller, or split it)" } : { code: 0, output: JSON.stringify({ path: req.args.path, name: req.args.path.split("/").pop(), size: 1200, data: Buffer.from("day,cost").toString("base64") }) };
+      return { code: 0, output: "" };
+    };
+    const files = { get: async (id) => (id === "f000000000001" || id === "f000000000002" ? { name: "x", data: DATA } : null), put: async ({ name, data }) => { puts.push({ name, data }); if (name === "fail.pdf") throw new Error("Coder's Worker could not keep it"); return { id: "f00000000000" + (puts.length + 2), name, size: Buffer.from(data, "base64").length }; } };
+    const g = scripted(steps);
+    const out = await runCoder({ send: g.send, exec, files, emit: (e) => ev.push(e) }, { text: "Sum this up", ...GLOOPY, ...extra });
+    return { out, ev, g, ran, puts, said: (id) => (out.messages.find((m) => m.tool_call_id === id) || {}).content };
+  };
+  // Attachments: put in files/ first, and the owner's message says where; the chat shows them on that message.
+  let { ev, g, said, puts } = await run([say("Done.")], { attached: [{ id: "f000000000001", name: "Lisbon report.pdf", size: 1258291 }, { id: "f0000000000zz", name: "Gone.docx", size: 10 }] });
+  assert.deepEqual(ev[0].files, [{ id: "f000000000001", name: "Lisbon report.pdf", size: 1258291 }, { id: "f0000000000zz", name: "Gone.docx", size: 10 }]);
+  assert.match(g.seen[0].messages.at(-1).content, /\n\n\(Note from Gloopy's app: the owner attached a file, now in your work folder: files\/Lisbon report\.pdf \(1\.2 MB\)\. markitdown turns a PDF, Word, Excel or PowerPoint file into text\. These could not be put in your folder: Gone\.docx; tell the owner\.\)$/);
+  // Send: a card with Download; another name if asked; refused past 5 MB, outside its folder, or when the Worker says no.
+  ({ ev, said, puts } = await run([say("", [call("files", { action: "send", path: "out/budget.csv", name: "Trip budget.csv" }, "s1"), call("files", { action: "send", path: "too-big.zip" }, "s2"), call("files", { action: "send", path: "fail.pdf" }, "s3"), call("files", { action: "send" }, "s4")]), say("Here it is.")]));
+  assert.deepEqual(puts.map((p) => p.name), ["Trip budget.csv", "fail.pdf"]);
+  assert.deepEqual({ ...ev.find((e) => e.type === "file"), at: 0 }, { type: "file", at: 0, id: "f000000000003", name: "Trip budget.csv", size: 8 });
+  assert.equal(said("s1"), "sent: the owner has “Trip budget.csv” (1 KB) as a card with Download, and it is kept (id f000000000003).");
+  assert.equal(ev.find((e) => e.type === "result" && e.id === "s1").label, "Sent you “Trip budget.csv”");
+  assert.equal(said("s2"), "error: too-big.zip is 6.0 MB; a file you send is at most 5 MB (make it smaller, or split it)");
+  assert.equal(said("s3"), "error: Coder's Worker could not keep it");
+  assert.equal(said("s4"), "error: give path: the file to send (make it first in your work folder)");
+  // Get one kept from before; list them.
+  const kept = [{ id: "f000000000002", name: "Old notes.docx", size: 2048, dir: "in", at: Date.UTC(2026, 10, 8) }, { id: "f000000000009", name: "Plan.pdf", size: 4096, dir: "out" }];
+  ({ said } = await run([say("", [call("files", { action: "get", id: "f000000000002" }, "g1"), call("files", { action: "get", id: "f0000000000no" }, "g2"), call("files", { action: "list" }, "l1")]), say("Got it.")], { files: kept }));
+  assert.equal(said("g1"), "put in your work folder: files/Old notes.docx");
+  assert.equal(said("g2"), "error: no file has that id (FILES lists them)");
+  assert.equal(said("l1"), "- f000000000002 · Old notes.docx · 2 KB · from the owner\n- f000000000009 · Plan.pdf · 4 KB · you sent it");
+  assert.match(gloopyContext({ memFile: "/m.md", files: kept }), /FILES \(kept for you: the owner's attachments and the files you sent; files get puts one in files\/\): \n- f000000000002 · Old notes\.docx · 2 KB · from the owner · 2026-11-08\n- f000000000009 · Plan\.pdf · 4 KB · you sent it/);
+  // Coder has no such tool.
+  const c = scripted([say("", [call("files", { action: "list" }, "f1")]), say("Done.")]);
+  const co = await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x" });
+  assert.match(co.messages.find((m) => m.tool_call_id === "f1").content, /^error: no such tool: files/);
+});
+
+test("GL61 (2026-11-09) files on Gloopy's machine, for real: the owner's attachment is fetched with the job's pass and put in files/ before Gloopy starts; Gloopy makes a file with its own tools and sends it, read from inside its folder; a path outside it, or a link out of it, is refused", async () => {
+  const { createApp } = await import("../container/server.mjs");
+  const { symlink, readFile: rf } = await import("node:fs/promises");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-fw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-fg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-fm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-fb-")) };
+  // A stand-in for Coder's Worker: it hands over one attachment and keeps what Gloopy sends, with this job's pass only.
+  const PDF = Buffer.from("%PDF-1.4 made-up Lisbon report");
+  const got = [];
+  const worker = http.createServer((req, res) => {
+    let b = []; req.on("data", (c) => b.push(c)); req.on("end", () => {
+      const body = Buffer.concat(b);
+      if (req.headers["x-coder-egress"] !== "PASS-1" || req.headers["x-coder-chat"] !== "u1/gloopy-main") { res.writeHead(403); return res.end("{}"); }
+      if (req.url === "/api/coder/gloopy-file-get") { const id = JSON.parse(body.toString()).id; if (id !== "f000000000001") { res.writeHead(404); return res.end("{}"); } res.writeHead(200, { "x-file-name": encodeURIComponent("Lisbon report.pdf") }); return res.end(PDF); }
+      if (req.url === "/api/coder/gloopy-file-put") { got.push({ name: decodeURIComponent(req.headers["x-file-name"]), body }); res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify({ ok: true, id: "f00000000000" + (got.length + 1), name: decodeURIComponent(req.headers["x-file-name"]), size: body.length })); }
+      res.writeHead(404); res.end("{}");
+    });
+  });
+  const W = await listen(worker);
+  const steps = [
+    say("", [call("bash", { command: "cat 'files/Lisbon report.pdf'" }, "b1"), call("write", { path: "out/budget.csv", content: "day,cost\nSat,120\n" }, "w1")]),
+    say("", [call("bash", { command: "ln -s /etc/hostname out/link.txt" }, "b2")]),
+    say("", [call("files", { action: "send", path: "out/budget.csv", name: "Trip budget.csv" }, "s1"), call("files", { action: "send", path: "/etc/hostname" }, "s2"), call("files", { action: "send", path: "out/link.txt" }, "s3")]),
+    say("Here's your budget."),
+  ];
+  let n = 0;
+  const seen = [];
+  const srv = http.createServer(createApp({ ...roots, send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)]; } }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", agent: "gloopy", text: "Make a budget from this", shown: "Make a budget from this", messages: [], egress: { url: W + "/api/coder/egress", chat: "u1/gloopy-main", turn: 1, pass: "PASS-1" }, attached: [{ id: "f000000000001", name: "Lisbon report.pdf", size: PDF.length }], files: [] }) });
+    let st;
+    for (let i = 0; i < 300; i++) { st = await (await fetch(base + "/state?project=gloopy-main&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.equal(st.result.status, "done", JSON.stringify(st.result).slice(0, 500));
+    const msg = (id) => st.result.messages.find((m) => m.tool_call_id === id).content;
+    // The attachment was in its folder before it started, and its message said where.
+    assert.match(seen[0].messages.at(-1).content, /the owner attached a file, now in your work folder: files\/Lisbon report\.pdf \(1 KB\)/);
+    assert.match(msg("b1"), /%PDF-1\.4 made-up Lisbon report/);
+    assert.deepEqual(st.events.find((e) => e.type === "user").files, [{ id: "f000000000001", name: "Lisbon report.pdf", size: PDF.length }]);
+    // Sent: read from inside its folder, handed to the Worker with the job's pass; the owner gets a card.
+    assert.deepEqual(got.map((x) => [x.name, x.body.toString()]), [["Trip budget.csv", "day,cost\nSat,120\n"]]);
+    assert.match(msg("s1"), /^sent: the owner has “Trip budget\.csv” \(1 KB\) as a card with Download/);
+    assert.ok(st.events.some((e) => e.type === "file" && e.name === "Trip budget.csv"));
+    // Outside its folder, or through a link out of it: refused, nothing sent.
+    assert.match(msg("s2"), /^error: that path is outside the project/);
+    assert.match(msg("s3"), /^error: (that path leads outside the project|out\/link\.txt is not a file)/);
+    assert.equal(got.length, 1);
+  } finally { srv.close(); worker.close(); }
+});
+
+test("GL62 (2026-11-09) on the page: in Gloopy's chat the clip attaches documents too (sent to the Worker at once, shown as chips until the message goes); a message shows its files; a file Gloopy made is a card with Download, saved as a file, never opened in the page", async () => {
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /accept="' \+ \(GLOOPY \? 'image\/png,image\/jpeg,image\/webp,image\/gif,\.pdf,\.doc,\.docx,\.xls,\.xlsx,\.ppt,\.pptx,/);
+  assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/files', \{ method: 'PUT', raw: f \}\);/);
+  assert.match(ui, /\.\.\.\(raw \? \{ 'content-type': raw\.type \|\| 'application\/octet-stream', 'x-file-name': encodeURIComponent\(raw\.name \|\| 'file'\) \}/);
+  assert.match(ui, /if \(\(S\.attach \|\| \[\]\)\.some\(\(f\) => f\.up\)\) return note\('Wait for the file to finish attaching\.'\);/);
+  assert.match(ui, /\.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\)/);
+  assert.match(ui, /else if \(e\.type === 'file'\) \{[\s\S]{0,700}data-file-get="' \+ esc\(e\.id\) \+ '" data-file-name="' \+ esc\(e\.name \|\| 'file'\) \+ '">Download<\/button>/);
+  assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/files\/' \+ encodeURIComponent\(id\), \{ file: name \}\);/);
+  assert.match(ui, /const a = document\.createElement\('a'\); a\.href = href; a\.download = name;/);
+  assert.match(ui, /Array\.isArray\(e\.files\) && e\.files\.length \? '<div class="cd-user-files">'/);
 });

@@ -1524,7 +1524,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, browserRoot = null, vaultFetch = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1844,9 +1844,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // Gloopy's webhooks, as the Worker keeps them (2026-11-09): in its context, and for its webhook tool, with the public
     // address they are called at (the Worker's own, as its egress says).
     const webhooks = gloopy && Array.isArray(body.webhooks) ? body.webhooks.filter((x) => x && typeof x === "object").slice(0, 10) : [];
+    // The files kept for Gloopy (2026-11-09): the owner's attachments and the ones it sent, newest first.
+    const fileList = gloopy && Array.isArray(body.files) ? body.files.filter((x) => x && typeof x.id === "string").slice(0, 30) : [];
     let hookBase = "/api/coder/gloopy-hook/";
     try { if (body.egress && typeof body.egress.url === "string" && /^https?:\/\//.test(body.egress.url)) hookBase = new URL(body.egress.url).origin + "/api/coder/gloopy-hook/"; } catch { /* the relative address */ }
-    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser, schedules, permissions, rules: Array.isArray(body.rules) ? body.rules : [], pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], savedCards: Array.isArray(body.savedCards) ? body.savedCards.filter((x) => typeof x === "string").slice(0, 10) : [], webhooks });
+    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser, schedules, permissions, rules: Array.isArray(body.rules) ? body.rules : [], pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], savedCards: Array.isArray(body.savedCards) ? body.savedCards.filter((x) => typeof x === "string").slice(0, 10) : [], webhooks, files: fileList });
     const lastSend = async () => { if (sender) await sender.flush(); };
     // A SAVED LOGIN (2026-11-09; src/gloopy-vault.mjs): this service asks Coder's Worker for the one login of the site the
     // browser is on, with this job's own pass, and types it into the page itself; nothing of it reaches the AI.
@@ -1860,6 +1862,25 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const done = await browserHub().fill({ site, userRef, passRef, submitRef, username: String(login.username || ""), password: login.password });
       return { ok: true, still: done.still === true, title: String(done.title || "").slice(0, 300), url: String(done.url || "").slice(0, 500) };
     };
+    // GLOOPY'S FILES (2026-11-09: "4"; src/gloopy-files.mjs): this service fetches an attachment of the owner's, or hands
+    // over a file Gloopy made, to and from Coder's Worker with this job's own pass; Gloopy's commands never hold the pass.
+    const jobHeaders = eg ? { "x-coder-chat": String(eg.chat || ""), "x-coder-turn": String(eg.turn || ""), "x-coder-egress": String(eg.pass || "") } : null;
+    const filesAt = (path) => new URL(eg.url).origin + "/api/coder/" + path;
+    const files = gloopy && eg && typeof eg.url === "string" && /^https?:\/\//.test(eg.url) ? {
+      get: async (fid) => {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-file-get"), { method: "POST", headers: { "content-type": "application/json", ...jobHeaders }, body: JSON.stringify({ id: fid }) }).catch(() => null);
+        if (!r || !r.ok) return null;
+        let name = "";
+        try { name = decodeURIComponent(r.headers.get("x-file-name") || ""); } catch { name = ""; }
+        return { name, data: Buffer.from(await r.arrayBuffer()).toString("base64") };
+      },
+      put: async ({ name, data }) => {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-file-put"), { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(String(name || "")), ...jobHeaders }, body: Buffer.from(String(data || ""), "base64") }).catch(() => null);
+        const out = r ? await r.json().catch(() => null) : null;
+        if (!r || !r.ok || !out || !out.id) throw new Error((out && out.error) || "Coder's Worker could not keep it");
+        return { id: String(out.id), name: String(out.name || name), size: Number(out.size) || 0 };
+      },
+    } : null;
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
     // THE COPY IS SAVED NOW (above: takeCopy): a setup that ran on this fresh disk and worked, with all it
@@ -1949,8 +1970,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         },
         emit: (e) => { t.events.push(e); },
         // Gloopy's browser, through this service (its own user); the sign-in's filling is never the AI's.
+        ...(files ? { files } : {}),
         ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); }, signInSaved: (x) => { notWhileOwner(); return signInSaved(x); } } } : {}),
-      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], webhooks, hookBase, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
+      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], webhooks, hookBase, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, a sign-in, or a card), for /gloopy/approve,

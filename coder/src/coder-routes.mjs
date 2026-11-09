@@ -42,6 +42,7 @@ import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEV
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent } from "./gloopy-schedules.mjs";
+import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX } from "../container/gloopy-check.mjs";
@@ -392,6 +393,9 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── A CALL TO ONE OF GLOOPY'S WEBHOOKS (2026-11-09; src/gloopy-webhooks.mjs): from any service, with the webhook's key
   // (or its signature); it starts a Gloopy run with the webhook's task and what the call carried, as data. ──
   if (parts[0] === "gloopy-hook" && parts.length === 2 && request.method === "POST") return gloopyHookCall(request, env, ctx, deps, bucket, parts[1]);
+  // ── GLOOPY'S FILES, FOR ITS MACHINE (2026-11-09; src/gloopy-files.mjs): with the running job's own pass, as the vault's;
+  // an attachment of the owner's to put in its folder, or a file Gloopy hands over. ──
+  if ((parts[0] === "gloopy-file-get" || parts[0] === "gloopy-file-put") && parts.length === 1 && request.method === "POST") return gloopyJobFile(request, env, bucket, parts[0] === "gloopy-file-put");
 
   // ── THE GITHUB SIGN-IN'S RETURN: a plain visit from GitHub, with no sign-in
   // header; the signed state says whose it is. ──
@@ -578,7 +582,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -650,6 +654,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "logins") return gloopyLogins(g);
     if (action === "cards") return gloopyCards(g);
     if (action === "webhooks") return gloopyWebhooks(g);
+    if (action === "files") return gloopyFiles(g);
     // A key from Gloopy's card (2026-11-09) goes through Coder's own key route, into Gloopy's own store (GLOOPY_ENV).
     if (action !== "stop" && action !== "secret") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
@@ -1371,7 +1376,13 @@ async function gloopyMessage(g) {
   const text = String(body.text || "").trim();
   const pics = checkImages(body.images);
   if (pics.error) return json({ error: pics.error }, 400);
-  if (!text && !pics.images.length) return json({ error: "write something first" }, 400);
+  // FILES ATTACHED (2026-11-09: "4"): ones the owner sent here first (the page does), at most ATTACH_MAX.
+  const asked = Array.isArray(body.files) ? body.files.filter((x) => typeof x === "string").slice(0, ATTACH_MAX + 1) : [];
+  if (asked.length > ATTACH_MAX) return json({ error: "At most " + ATTACH_MAX + " files with one message." }, 400);
+  const kept = asked.length ? await readFiles(bucket, uid) : [];
+  const attached = asked.map((fid) => kept.find((x) => x.id === fid)).filter(Boolean);
+  if (attached.length !== asked.length) return json({ error: "One of those files is gone: attach it again." }, 400);
+  if (!text && !pics.images.length && !attached.length) return json({ error: "write something first" }, 400);
   if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
   if (meta.status === "running") return json({ error: "Gloopy is still working on the last message" }, 409);
   const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(text);
@@ -1432,7 +1443,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1743,19 +1754,49 @@ async function gloopyPages(g) {
  * x-coder-turn, x-coder-egress, as the Worker's egress), only while the owner allows saved logins, only the login for the
  * one site asked. Anything else: refused, saying nothing.
  */
-async function gloopyVaultAsk(request, env, bucket) {
+/**
+ * WHOSE RUNNING GLOOPY JOB A REQUEST IS FROM (2026-11-09): its own pass (x-coder-chat, x-coder-turn, x-coder-egress, as
+ * the Worker's egress), for that person's Gloopy chat, while that very job runs. Answers the person's id, or "".
+ */
+async function gloopyJob(request, env, bucket) {
   const h = request.headers;
   const chat = String(h.get("x-coder-chat") || ""), turn = String(h.get("x-coder-turn") || "");
   const m = /^([\w-]{1,100})\/gloopy-main$/.exec(chat);
-  const no = () => json({ error: "not allowed" }, 403);
-  if (!m || !/^\d{1,9}$/.test(turn)) return no();
+  if (!m || !/^\d{1,9}$/.test(turn)) return "";
   const want = await egressPass(env, chat, turn), got = String(h.get("x-coder-egress") || "");
   let diff = want && want.length === got.length ? 0 : 1;
   for (let i = 0; !diff && i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
-  if (diff) return no();
-  const uid = m[1];
-  const meta = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
-  if (!isGloopy(meta) || meta.status !== "running" || String(meta.turn) !== turn) return no();
+  if (diff) return "";
+  const meta = await getJson(bucket, keyOf(m[1], GLOOPY_ID, "meta.json"), null);
+  return isGloopy(meta) && meta.status === "running" && String(meta.turn) === turn ? m[1] : "";
+}
+
+/**
+ * GLOOPY'S FILES, FOR ITS MACHINE (2026-11-09: "4"): with its running job's own pass. `get` { id }: one of that person's
+ * kept files (the bytes, its name in x-file-name); `put`: a file Gloopy hands over (its name in x-file-name, at most
+ * FILE_OUT_MAX), kept for the owner's Download. Anything else: refused, saying nothing.
+ */
+async function gloopyJobFile(request, env, bucket, put) {
+  const uid = await gloopyJob(request, env, bucket);
+  if (!uid) return json({ error: "not allowed" }, 403);
+  if (put) {
+    const len = Number(request.headers.get("content-length") || 0);
+    if (len > FILE_OUT_MAX) return json({ error: "That file is over " + FILE_OUT_MAX / 1048576 + " MB." }, 413);
+    let name = "";
+    try { name = decodeURIComponent(String(request.headers.get("x-file-name") || "")); } catch { name = ""; }
+    const r = await keepFile(bucket, uid, { name, bytes: new Uint8Array(await request.arrayBuffer()), dir: "out" });
+    return r.error ? json({ error: r.error }, 400) : json({ ok: true, id: r.id, name: r.name, size: r.size });
+  }
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const f = await fileOf(bucket, uid, String(body.id || ""));
+  if (!f) return json({ error: "no such file" }, 404);
+  return new Response(f.body, { status: 200, headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(f.item.name), "cache-control": "no-store" } });
+}
+
+async function gloopyVaultAsk(request, env, bucket) {
+  const no = () => json({ error: "not allowed" }, 403);
+  const uid = await gloopyJob(request, env, bucket);
+  if (!uid) return no();
   if ((await readPermissions(bucket, uid)).login !== "allow") return no();
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const it = loginFor(await readLogins(env, bucket, uid), body.site);
@@ -1810,6 +1851,33 @@ async function gloopyHookCall(request, env, ctx, deps, bucket, hook) {
   if (!queueEvent(sd, { hook, name: w.name, task: w.task, data, at: now })) return no(429, "Too many calls are waiting for Gloopy already. Try again in a few minutes.");
   await writeSchedules(bucket, uid, rec.email, sd);
   return json({ ok: true, queued: true }, 202);
+}
+
+/**
+ * GLOOPY'S FILES, FOR THE PAGE (2026-11-09: "4"): PUT a file to attach to the next message (its bytes; its name in
+ * x-file-name; at most FILE_IN_MAX); GET the list, or GET files/<id> to download one (always saved, never opened in the
+ * page); POST { remove: id } takes one away.
+ */
+async function gloopyFiles(g) {
+  const { request, bucket, uid, url } = g;
+  const sub = url.pathname.split("/").filter(Boolean)[5] || "";
+  if (request.method === "PUT") {
+    const len = Number(request.headers.get("content-length") || 0);
+    if (len > FILE_IN_MAX) return json({ error: "That file is over " + FILE_IN_MAX / 1048576 + " MB." }, 413);
+    let name = "";
+    try { name = decodeURIComponent(String(request.headers.get("x-file-name") || "")); } catch { name = ""; }
+    const r = await keepFile(bucket, uid, { name, bytes: new Uint8Array(await request.arrayBuffer()), dir: "in" });
+    return r.error ? json({ error: r.error }, r.error.includes("MB") ? 413 : 400) : json({ ok: true, file: { id: r.id, name: r.name, size: r.size, dir: r.dir } });
+  }
+  if (request.method === "GET" && sub) {
+    const f = await fileOf(bucket, uid, sub);
+    return f ? fileDownload(f.item, f.body) : json({ error: "That file is gone." }, 404);
+  }
+  if (request.method === "GET") return json({ ok: true, files: filesForTurn(await readFiles(bucket, uid)) });
+  if (request.method !== "POST") return json({ error: "Gloopy has no files " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  if (typeof body.remove !== "string" || !(await removeFile(bucket, uid, body.remove))) return json({ error: "No file has that id." }, 404);
+  return json({ ok: true, files: filesForTurn(await readFiles(bucket, uid)) });
 }
 
 /**

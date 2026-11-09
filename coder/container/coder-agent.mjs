@@ -179,6 +179,10 @@ async function appTool(deps, tool, args) {
  * path with one does not pass for another (the owner, 2026-11-08: "Do this pls"; a read of "notes\\0.txt" showed as
  * "Read notes.txt").
  */
+/** A file's size in words: "1.2 MB", "40 KB". */
+const sizeWords = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+/** At most this many files Gloopy sends in one message. */
+const FILES_PER_TURN = 10;
 export const visibleChars = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, (c) => ({ "\0": "\\0", "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] || "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0"));
 /** The small copy of a picture the chat shows under a Read step (the owner, 2026-11-08: "Fix those 3"): a JPEG data URL. */
 export const THUMB_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/;
@@ -526,7 +530,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/" } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], files: keptFiles = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -554,7 +558,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     convo.push({ role: "user", content: text.trim(), ...(pics.length ? { images: pics.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
     // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it.
     // A scheduled run of Gloopy's (2026-11-09) opens with a note in the chat, not as the owner's own message.
-    emit({ type: opening === "note" ? "note" : "user", text: (typeof shown === "string" && shown.trim() ? shown : text).trim(), ...(pics.length ? { images: pics.length } : {}) });
+    emit({ type: opening === "note" ? "note" : "user", text: (typeof shown === "string" && shown.trim() ? shown : text).trim(), ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, 10).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
   }
   // THE OWNER'S PICTURES, SAVED AS FILES CODER CAN OPEN AGAIN (the owner, 2026-11-08: "Fix those 3"; Claude Code 2.1.275:
   // pasted and attached images "are now saved where Claude can open them as files"): in the project's .coder-pictures
@@ -571,6 +575,19 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const one = saved.length === 1;
       convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Coder's app: the owner's picture" + (one ? " is" : "s are") + " also saved as " + (one ? "a file" : "files") + " in the project, which " + (one ? "is" : "are") + " never saved to the branch: " + saved.map((x) => sayPath(deps, x)).join(", ") + ". Read " + (one ? "it" : "them") + " again with the read tool when you need to, or copy " + (one ? "it" : "them") + " where the work needs " + (one ? "it" : "them") + ".)" };
     }
+  }
+  // THE OWNER'S ATTACHED FILES (2026-11-09: "4"; src/gloopy-files.mjs): fetched by Coder's service with this job's pass and
+  // put in files/ in Gloopy's folder by a step run as `dev`; Gloopy is told where, in the owner's message.
+  const toAttach = Array.isArray(attached) ? attached.slice(0, 10) : [];
+  if (toAttach.length && deps.files && typeof deps.files.get === "function" && convo[jobStart] && convo[jobStart].role === "user") {
+    const put = [], missed = [];
+    for (const f of toAttach) {
+      const got = await deps.files.get(String(f.id || "")).catch(() => null);
+      const r = got && got.data ? await appTool(deps, "save_file", { name: String(f.name || got.name || "file").slice(0, 120), data: got.data }) : null;
+      const path = r && r.code === 0 ? r.output.trim() : "";
+      if (path && !path.includes("\n")) put.push(path + " (" + sizeWords(Number(f.size) || 0) + ")"); else missed.push(plain(String(f.name || "a file")));
+    }
+    convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Gloopy's app: " + (put.length ? "the owner attached " + (put.length === 1 ? "a file" : put.length + " files") + ", now in your work folder: " + put.join(", ") + ". markitdown turns a PDF, Word, Excel or PowerPoint file into text." : "") + (missed.length ? (put.length ? " " : "") + "These could not be put in your folder: " + missed.join(", ") + "; tell the owner." : "") + ")" };
   }
   // THE FILES THIS JOB WORKS ON (read, changed, viewed with a command, @-mentioned), the newest last: after a summary
   // the most recently changed of them are read again (rereadFiles).
@@ -617,6 +634,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const scheduleRemovals = [], scheduleAdds = [];
   // Gloopy's webhooks it set up and stopped in this turn (the Worker keeps them; it applies these when the turn ends).
   const webhookAdds = [], webhookRemovals = [];
+  // How many files Gloopy has sent in this turn.
+  let filesSent = 0;
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
@@ -723,7 +742,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -1052,6 +1071,46 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "result", id: c.id, code: 0, output: report.slice(0, MAX_OUTPUT_CHARS), label: "Helpers finished: " + list.map((t) => t.name).join(", ").slice(0, 200) });
         reply(report);
         if (runs.some((r) => r.status === "stopped")) { emit({ type: "stopped" }); return end("stopped"); }
+      } else if (c.name === "files") {
+        // FILES IN AND OUT (owner, 2026-11-09: "4"; Grok Bot's file cards, dots' Outputs): a file Gloopy made is read as
+        // `dev` from inside its folder (coder-tools.mjs send_file, never through a link out of it) and handed to the
+        // Worker by Coder's service with this job's pass; the owner gets a card with Download. One kept from before is
+        // put back in files/ the same way an attachment is.
+        const args = c.args || {};
+        const act = ["send", "get", "list"].includes(args.action) ? args.action : "";
+        const kept = (Array.isArray(keptFiles) ? keptFiles : []).filter((x) => x && /^f[a-z0-9]{12}$/.test(String(x.id || "")));
+        emit({ type: "bash", id: c.id, tool: "files", verb: act === "send" ? "Sent you a file" : act === "get" ? "Got a file" : "Looked at files", command: act === "send" ? plain(String(args.name || args.path || "")).slice(0, 120) : act === "get" ? plain(String(args.id || "")).slice(0, 30) : "" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!act) { no("error: action is send, get or list"); continue; }
+        if (act === "list") { const out = kept.length ? kept.map((f) => "- " + f.id + " · " + plain(String(f.name || "")) + " · " + sizeWords(Number(f.size) || 0) + " · " + (f.dir === "out" ? "you sent it" : "from the owner")).join("\n") : "no files kept yet"; emit({ type: "result", id: c.id, code: 0, output: out }); reply(out); continue; }
+        if (!deps.files) { no("error: files can't be passed on from this computer right now"); continue; }
+        if (act === "get") {
+          const f = kept.find((x) => x.id === String(args.id || ""));
+          if (!f) { no("error: no file has that id (FILES lists them)"); continue; }
+          const got = await deps.files.get(f.id).catch(() => null);
+          const r = got && got.data ? await appTool(deps, "save_file", { name: String(f.name || got.name || "file").slice(0, 120), data: got.data }) : null;
+          const path = r && r.code === 0 ? r.output.trim() : "";
+          if (!path || path.includes("\n")) { no("error: " + (r ? r.output.trim().replace(/^error:\s*/, "").slice(0, 300) || "it could not be put in your folder" : "it could not be fetched")); continue; }
+          emit({ type: "result", id: c.id, code: 0, output: "Put in " + path, label: "Got “" + plain(String(f.name || "")).slice(0, 80) + "”" });
+          reply("put in your work folder: " + path);
+          continue;
+        }
+        if (filesSent >= FILES_PER_TURN) { no("error: at most " + FILES_PER_TURN + " files in one message"); continue; }
+        if (typeof args.path !== "string" || !args.path.trim()) { no("error: give path: the file to send (make it first in your work folder)"); continue; }
+        let r;
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "send_file", args: { path: args.path } })).toString("base64"), timeoutS: 60, tool: true, here: true }); }
+        catch (e) { r = { code: -1, output: String((e && e.message) || e) }; }
+        let file = null;
+        try { file = r && r.code === 0 ? JSON.parse(r.output) : null; } catch { file = null; }
+        if (!file || typeof file.data !== "string") { no("error: " + String((r && r.output) || "the file could not be read").trim().replace(/^error:\s*/, "").slice(0, 300)); continue; }
+        const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 120) : String(file.name || "");
+        let sent;
+        try { sent = await deps.files.put({ name, data: file.data }); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 300)); continue; }
+        filesSent++;
+        emit({ type: "result", id: c.id, code: 0, output: "Sent " + sent.name + " (" + sizeWords(sent.size) + ")", label: "Sent you “" + plain(sent.name).slice(0, 80) + "”" });
+        emit({ type: "file", id: sent.id, name: plain(sent.name).slice(0, 120), size: sent.size });
+        reply("sent: the owner has “" + sent.name + "” (" + sizeWords(sent.size) + ") as a card with Download, and it is kept (id " + sent.id + ").");
+        continue;
       } else if (c.name === "webhook") {
         // STARTING WORK FROM EVENTS (owner, 2026-11-09: "2"; Grok Bot's routines started by a call to their web address,
         // dots' event-triggered work): a webhook is kept by the Worker when the turn ends (or once the owner allows it on
