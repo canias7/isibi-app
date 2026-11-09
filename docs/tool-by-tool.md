@@ -512,3 +512,13 @@ Not part of edit's comparison: Claude Code's terminal groups only reads and sear
 2. A long line on the card wraps, so its "…" is in view: tried on the real page with the live test's 380-character `.npmrc` line, no sideways scrolling, four rows, the "…" inside the card. CD268.
 
 The /docs page has an Edit section now (what you see, how edit finds the text, when the file changed, files Coder asks about, when edit says no, what stays as it was); CD248 checks its numbers against the code.
+
+**Live after deploy 74** (recording 20; the owner, 2026-11-09: "Ok,merge"): a new chat on canias7/testingforclaude with Grok 4.7.
+
+| # | What | Coder, live | |
+|---|---|---|---|
+| 1 | A file with Windows endings (`printf 'first\r\nsecond\r\nthird\r\n'`), edited | the change under the step `-first`, `-second`, `+FIRST`, `+SECOND`, `+inserted`, ` third`, with no `\r` in it or in a copy of it; `od -c`: `F I R S T \r \n S E C O N D \r \n i n s e r t e d \r \n t h i r d \r \n`; edit's words as Claude Code's, "(file state is current …)" after Grok had read it whole | fixed |
+| 2 | `.npmrc`, a 380-character line: Don't allow | the card wraps it onto 4 rows, the "…" inside the card, no sideways scrolling; not changed | fixed |
+| 3 | gofarther.dev/docs | Read, Write and Edit; Edit's six parts in the list | live |
+
+Seen once, outside edit: the setup's saved copy could not be made ("Fly.io did not start saving it in time"). The setup ran because a copy only serves the Coder version that made it (`cacheUsable`: `c.image !== s.image`), and deploy 74 is a new one; the next new chat runs the setup and tries again. The first time in the recorded live tests (seven saved, two used).

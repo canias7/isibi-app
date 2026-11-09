@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit: both fixes and the docs page checked live after deploy 74 (your words: "Ok,merge" and "Ok let me know when it's done")
+
+- **Deploy 74** passed. Coder's machine built fine this time.
+- **Live on gofarther.dev with Grok** (recording 20), in a new chat on your test repository:
+  1. **Windows line endings:** the file was edited and kept its Windows endings. The change under the step had no hidden character, and a copy of it came out clean (`-first`, `-second`, `+FIRST`, `+SECOND`, `+inserted`, ` third`). Edit's words matched Claude Code's.
+  2. **A long line on the card:** for `.npmrc` with a 380-character line, the card wrapped it onto 4 rows with the "…" in view, and no sideways scrolling. After Don't allow, Coder left the file as it was.
+  3. **Docs:** gofarther.dev/docs has the Edit section, after Read and Write.
+- **Seen once, not part of edit:** the chat said the setup's saved copy couldn't be made this time ("Fly.io did not start saving it in time"). The setup ran because a saved copy only works for the Coder version that made it, and deploy 74 is a new version. The next new chat runs the setup and tries again. It's the first time I've seen it in the recorded tests. I can look into it whenever you want.
+
 ## 2026-11-09: Edit: the two things the live test found are fixed, and the docs page has an Edit section (your words: "Yes fix")
 
 - **Windows line endings:** the change shown under an edit (and on the card for a protected file) has no hidden character on its lines any more, so copying it gives the lines as they are, with no blank lines between them. Claude Code works the change out the same way. A line whose ending was the only thing that changed isn't counted as changed either. Write shares this, so it's fixed there too.
