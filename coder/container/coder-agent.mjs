@@ -758,7 +758,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     // THE PICTURES THIS ROUND'S READS OPENED (owner item 1): a tool answers in text only (xAI's docs), so
     // they go to Grok right after the round's answers, as a note from Coder's app with them attached.
     const roundPics = [];
-    const roundNotes = [];
+    const roundNotes = [], roundShown = [];
     for (let i = 0; i < calls.length; i++) {
       const c = calls[i];
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
@@ -797,7 +797,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (vf) { touch(projectPath(deps, vf)); if (deps.seen === true) await appTool(deps, "seen", { path: typeof deps.where === "function" ? deps.where(vf) : vf }); try { viewed = String((await deps.afterFile({ tool: "read", args: { path: typeof deps.where === "function" ? deps.where(vf) : vf } })) || ""); } catch { viewed = ""; } await markShownStart(deps, viewed); }
         // A COMMAND THAT CHANGED FILES CODER HAD READ says so (like Claude Code's "This command modified …").
         let moved = "";
-        if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); } } }
+        if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) { roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); if (typeof x.lines === "string") roundShown.push(x.path); } } } }
         reply((bg ? (job ? "[running in the background as " + job + ": read it with monitor, end it with stop_job]\n" : "") + out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)")) + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : ""));
       } else if (c.name === "monitor" || c.name === "stop_job") {
         // A BACKGROUND JOB: read its log, or stop it (as `dev`, like any command).
@@ -1044,6 +1044,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words)");
     }
     if (roundNotes.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your last commands:\n" + roundNotes.join("\n\n") + ")" });
+    // Those whose lines the note showed may be written over from now on (toolChanged `shown`), as in Claude Code.
+    if (roundShown.length && deps.seen === true) await appTool(deps, "changed", { shown: roundShown });
     if (roundPics.length) {
       const n = roundPics.reduce((a, p) => a + p.urls.length, 0);
       convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });

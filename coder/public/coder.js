@@ -729,21 +729,31 @@
   }
   function blocks(text) {
     const out = [];
+    // A NUMBERED LIST KEEPS ITS OWN NUMBERS, AND ITEMS WITH A BLANK LINE BETWEEN THEM ARE ONE LIST (live test, 2026-11-09:
+    // Grok wrote "2) …", "3) …", "4) …" for the owner's steps 2 to 4, a blank line between each, and the page showed
+    // "1." "1." "1."; the owner: "Yes fix that"). As Markdown has it (CommonMark): a list starts at its first item's
+    // number, and an item after a blank line carries the list on; a paragraph or a code block between them ends it.
+    const ol = (lines) => {
+      const items = lines.map((l) => '<li>' + inline(l.replace(/^\s*\d{1,3}[.)]\s+/, '')) + '</li>');
+      const last = out[out.length - 1];
+      if (last && typeof last === 'object') last.items.push(...items);
+      else out.push({ start: parseInt(/^\s*(\d{1,3})/.exec(lines[0])[1], 10), items });
+    };
     for (const block of String(text).trim().split(/\n{2,}/)) {
       const lines = block.split('\n');
       const bullet = (l) => /^\s*[-*•]\s+/.test(l), num = (l) => /^\s*\d{1,3}[.)]\s+/.test(l);
       if (lines.every(bullet)) out.push('<ul>' + lines.map((l) => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>');
-      else if (lines.every(num)) out.push('<ol>' + lines.map((l) => '<li>' + inline(l.replace(/^\s*\d{1,3}[.)]\s+/, '')) + '</li>').join('') + '</ol>');
+      else if (lines.every(num)) ol(lines);
       else if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) out.push('<h4>' + inline(lines[0].replace(/^#{1,4}\s+/, '')) + '</h4>');
       else {
         // A paragraph followed by its own list (no blank line between them).
         const first = lines.findIndex((l) => bullet(l) || num(l));
         if (first > 0 && lines.slice(first).every(bullet)) { out.push('<p>' + lines.slice(0, first).map(inline).join('<br>') + '</p>'); out.push('<ul>' + lines.slice(first).map((l) => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>'); }
-        else if (first > 0 && lines.slice(first).every(num)) { out.push('<p>' + lines.slice(0, first).map(inline).join('<br>') + '</p>'); out.push('<ol>' + lines.slice(first).map((l) => '<li>' + inline(l.replace(/^\s*\d{1,3}[.)]\s+/, '')) + '</li>').join('') + '</ol>'); }
+        else if (first > 0 && lines.slice(first).every(num)) { out.push('<p>' + lines.slice(0, first).map(inline).join('<br>') + '</p>'); ol(lines.slice(first)); }
         else out.push('<p>' + lines.map(inline).join('<br>') + '</p>');
       }
     }
-    return out.join('');
+    return out.map((x) => (typeof x === 'object' ? '<ol' + (x.start === 1 ? '' : ' start="' + x.start + '"') + '>' + x.items.join('') + '</ol>' : x)).join('');
   }
   function prose(t) {
     const parts = String(t || '').split(/```[a-zA-Z0-9_-]*\n?/);
@@ -842,12 +852,20 @@
     return list.length ? '<div class="cd-cmd-pics">' + list.map((u) => '<img src="' + u + '" alt="The picture Coder opened" loading="lazy">').join('') + '</div>' : '';
   }
 
+  // THE FILE A READ, WRITE OR EDIT STEP IS ABOUT, for the group line's count: its line without what a read adds after the
+  // name (" from line 1112", " pages 1-5", " (@-mentioned)", " (again, after the summary)").
+  function stepFile(e) {
+    if (!/^(read|write|edit)$/.test(e.tool || '')) return '';
+    return String(e.command || '').replace(/ \((?:@-mentioned|again, after the summary)\)$/, '').replace(/ (?:pages \S+|from line \d+)$/, '');
+  }
   /**
    * THE LINE OVER A GROUP OF STEPS, AS CLAUDE CODE WRITES IT (the owner, 2026-11-08: "do it like this … 'Ran 1 command,
    * read 4 files'"; Claude Code names each kind in a collapsed group, in its docs and changelog: "Ran 3 shell commands",
    * "Read N files", "Searched for", "Listed N directories"): each kind with how many, in the order they first came, and
    * what failed by its kind ("a read failed": the line said "a command failed" for a failed read). `steps`: [{ tool,
-   * failed }], a step with no tool being a command.
+   * failed, file }], a step with no tool being a command. A FILE IS COUNTED ONCE (live test, 2026-11-09: "Wrote 6 files"
+   * for five, calc.py written twice; the owner: "Yes fix that"): Claude Code's group line counts the different files
+   * (its `readFilePaths`, a set), not the steps; a step with no `file` counts as one.
    */
   function groupWords(steps) {
     const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
@@ -855,7 +873,10 @@
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
       const key = w[0] + '|' + w[1];
-      said.set(key, { w, n: (said.has(key) ? said.get(key).n : 0) + 1 });
+      const had = said.get(key) || { w, n: 0, files: new Set() };
+      if (!s.file || !had.files.has(s.file)) had.n++;
+      if (s.file) had.files.add(s.file);
+      said.set(key, had);
       if (s.failed) bad.set(w[3], (bad.get(w[3]) || 0) + 1);
     }
     const line = [...said.values()].map(({ w, n }) => (w[1] ? w[0] + ' ' + n + ' ' + (n === 1 ? w[1] : w[2]) : w[0] + (n === 1 ? '' : ' ' + n + ' times'))).join(', ');
@@ -880,7 +901,7 @@
         const gk = 'g' + String(group[0][0].id || group[0][1]);
         const shut = !!S.open[gk];
         // The line names each kind of step and what failed, as Claude Code's does (groupWords).
-        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool || '', failed: stateOf(e, i) === 'bad' })));
+        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool || '', failed: stateOf(e, i) === 'bad', file: stepFile(e) })));
         out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
           '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + esc(words.line) + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (words.failed ? '<span class="cd-bad">' + esc(words.failed) + '</span>' : '') + '</button>' +
           (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +

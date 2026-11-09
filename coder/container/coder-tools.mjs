@@ -631,7 +631,9 @@ export async function toolWrite(args) {
     fail("Refusing to write " + rel + ": it is a symbolic link. Write to the link's target path instead" + (to ? ": " + to : "") + ".");
   }
   if (await brokenLinkOnTheWay(abs)) fail("Refusing to write " + rel + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
-  if (st && st.isDirectory()) fail(abs + " is a directory, not a file. To create a file inside it, include the file name in path.");
+  // Named as Grok gave it, as every other write message names it (live, deploy 70: "error: /data/work/…/afolder is a
+  // directory" beside "Refusing to write link.txt"; Claude Code echoes the path it was given, always a full one there).
+  if (st && st.isDirectory()) fail(rel + " is a directory, not a file. To create a file inside it, include the file name in path.");
   let bytes = Buffer.from(content);
   let oldText = null; // a new file; the text it had, for the chat's view of the change
   if (st && st.isFile()) {
@@ -639,6 +641,7 @@ export async function toolWrite(args) {
     if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
     if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
     if (seen && seen.start) fail(rel + ": " + WRITE_START);
+    if (seen && seen.stale) fail(rel + " " + WRITE_CHANGED + ".");
     // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
     if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
     // Its encoding, from its first 8 MB (a character cut at the end of that part is not counted against it).
@@ -985,8 +988,17 @@ function changedLines(was, buf) {
  * { followed, changed: [{ path } | { path, gone: true }] }, and the files brought up to date. A file only touched (the
  * same bytes) is no change; one grown past 256 KB is a change, and is not followed after.
  */
-export async function toolChanged({ reset = false } = {}) {
+export async function toolChanged({ reset = false, shown = null } = {}) {
   const dir = seenDir();
+  // THE CHANGES CODER'S NOTE HAS NOW SHOWN GROK (its lines, after the round): no longer "changed and not shown", so write
+  // may replace them, as Claude Code's Write may once its "changed on disk" note has shown the change.
+  if (dir && Array.isArray(shown)) {
+    const want = new Set(shown.map(String)), list = await seenList(dir);
+    let n = 0;
+    for (const x of list) if (x.stale && want.has(showPath(x.abs))) { delete x.stale; n++; }
+    if (n) await seenSave(dir, list).catch(() => {});
+    return JSON.stringify({ shown: n });
+  }
   // A CHAT WITH NO HISTORY (new, or Rewind went back to its very start; the review, 2026-11-08): what Coder read before
   // is no longer in its conversation, so none of it is followed (else a rewind's changes were put down to a command).
   if (dir && reset === true) {
@@ -1013,7 +1025,11 @@ export async function toolChanged({ reset = false } = {}) {
       changed.push({ path, ...changedLines(await readFile(marksFile(dir, x.abs), "utf8").catch(() => ""), buf) });
       await writeFile(marksFile(dir, x.abs), marksOf(buf)).catch(() => {});
     }
-    keep.push({ ...x, mtime: st.mtimeMs, size: st.size, hash });
+    // CHANGED AND NOT SHOWN YET (live test, 2026-11-09: Grok changed mod.txt with a command and wrote over it in the same
+    // answer, and write let it through, as this record was already up to date; Claude Code's Write, tried in the same
+    // case, said "File has been modified since read"): write refuses it until the note after the round shows the change
+    // (`shown`) or Grok reads it again. Only its time changing (the same bytes) is no change.
+    keep.push({ ...x, mtime: st.mtimeMs, size: st.size, hash, ...(hash !== x.hash ? { stale: true } : {}) });
   }
   if (dirty) await seenSave(dir, keep).catch(() => {});
   return JSON.stringify({ followed: keep.length, changed });
