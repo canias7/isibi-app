@@ -353,7 +353,7 @@ test("CD303 (the live test after deploy 75) after a pause, Coder's machine wakes
   assert.deepEqual(woken, [4242, 77]);
   assert.match(serverSrc(), /resumeAI\(p\.procs, \{ boxPid: boxKept \? boxKept\.pid : 0 \}\); wakeStarters\(live\); finish\(\);/);
   const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
-  assert.match(init, /\nwhile :; do sleep 3600 & wait \$!; done\n$/, "the sandbox's first process collects what ends in it");
+  assert.match(init, /\nset \+e\nwhile :; do sleep 3600 & wait \$! \|\| true; done\n$/, "the sandbox's first process collects what ends in it, and never ends");
 });
 
 test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Session trailer and attribution.sessionUrl) each commit Coder makes for a chat ends with a Coder-Chat: <link> trailer, its undo's commit too, and its pull requests end \"Made with Coder: <link>\"; off when the environment sets CODER_CHAT_LINK=false", async () => {

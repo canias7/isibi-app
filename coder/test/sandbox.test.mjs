@@ -141,12 +141,16 @@ test("CD301 (the live test after deploy 75) a background command in the admin sa
     let out = "", closed = false;
     job.stdout.on("data", (b) => { out += b; }); job.on("close", () => { closed = true; });
     await wait(500);
-    // Paused, as at a turn's end while root saves to GitHub: its starter stops itself too.
+    // Paused, as at a turn's end while root saves to GitHub (quietly(): pause, end what is not kept, resume): its starter
+    // stops itself too.
     const p = await F.pauseAI({ uid: 1001, gid: 1001, boxPid: box.pid, box: [S.SBX_BASE, S.SBX_BASE + S.SBX_RANGE] });
     assert.equal(p.ok, true, p.why);
     for (let i = 0; i < 50 && state(job.pid) !== "T"; i++) await wait(20);
     assert.equal(state(job.pid), "T", "nsenter stopped itself with its command");
     assert.equal(p.procs.has(job.pid), false, "and is none of the AI's processes, so resumeAI does not wake it");
+    // What is not kept is ended: the sandbox's first process's own sleep among it (the retest after deploy 76: with
+    // `set -e` that ended the first process, and so everything in the sandbox).
+    assert.ok((await F.endOthers(p.procs, new Set([job.pid]), { spare: new Set([box.pid]) })) >= 1);
     F.resumeAI(p.procs, { boxPid: box.pid });
     await wait(3500);
     assert.equal(/done/.test(out), true, "the command went on after the pause and finished");
@@ -155,6 +159,8 @@ test("CD301 (the live test after deploy 75) a background command in the admin sa
     wakeStarters([{ pid: job.pid }]);
     for (let i = 0; i < 100 && !closed; i++) await wait(20);
     assert.equal(closed, true, "woken, it collects its command: the output closes and the command is seen to end");
+    assert.equal(job.exitCode, 0, "it ended by itself, not killed");
+    assert.equal(state(box.pid) !== "gone" && state(box.pid) !== "Z", true, "the sandbox's first process lives on");
     // What a command leaves behind is collected by the sandbox's first process when it ends.
     await inBox(box, proj, "(sleep 0.3 &) ; true");
     await wait(1200);
@@ -198,7 +204,7 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.doesNotMatch(init, /requiretty/);
   assert.match(init, /> "\$R\/etc\/coder-sandbox"/);
   assert.match(init, /pivot_root \. \.coder-outside\ncd \/\numount -l \/\.coder-outside/);
-  assert.match(init, /echo ready\n(?:#[^\n]*\n)*while :; do sleep 3600 & wait \$!; done\n$/, "its first process collects what ends in it (the live test after deploy 75)");
+  assert.match(init, /echo ready\n(?:#[^\n]*\n)*set \+e\nwhile :; do sleep 3600 & wait \$! \|\| true; done\n$/, "its first process collects what ends in it, and never ends (the live tests after deploys 75 and 76)");
   // /tmp is the sandbox's own layer's, kept between jobs (never a fresh tmpfs again); /run and /dev/shm last one job.
   assert.doesNotMatch(init, /tmpfs "\$R\/tmp"/);
   assert.match(init, /^chmod 1777 "\$R\/tmp"/m);

@@ -11,15 +11,25 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-09: Coder's commits and pull requests link back to the chat (your words: "yes i want that")
+## 2026-11-09: Merged and deployed (deploy 76, your word: "merge"); the retest found one more problem, fixed
 
-Not live yet: it waits for your word to merge, with the fixes below.
+- **Live after deploy 76, checked in a new chat:**
+  - The page noticed by itself that Coder was being told the command ended.
+  - Coder read the background command's output file with its read tool.
+  - The step showed how the command ended.
+  - The chat link is on GitHub: Coder's commit ends with `Coder-Chat: https://gofarther.dev/?chat=testingforclaude-i8s6bnxs`.
+- **The problem (my mistake in deploy 76):** the background command was killed at the end of Coder's turn, after 5 seconds.
+  - Cause: the sandbox's new first process (the loop that clears finished processes) runs under "stop at the first error". The pause ends that loop's own `sleep`, so its `wait` failed and the loop exited. When a sandbox's first process ends, everything in the sandbox ends with it, the background command included.
+  - Fix: the loop now never stops (test CD301 now does exactly what the machine does, and checks the command ends by itself and the sandbox lives on).
+  - Not live yet: it needs your word to merge. All 315 tests pass.
+
+## 2026-11-09: Coder's commits and pull requests link back to the chat (your words: "yes i want that")
 
 - **Every commit Coder makes for a chat now ends with a line linking to that chat**, like Claude Code's `Claude-Session:` line: `Coder-Chat: https://gofarther.dev/?chat=…`. Its undo's commit has it too. On GitHub you can click from any change straight to the chat that made it.
 - **Pull requests Coder opens end with "Made with Coder:" and the chat's link.**
 - **Only you can open the link** (signed in); anyone else gets the sign-in page.
 - **To turn it off** for an environment: add `CODER_CHAT_LINK=false` in Environment, then Environment variables (Claude Code's setting for this is `attribution.sessionUrl`).
-- **Tests:** CD304 (a real commit and its trailer, the switch, every save, undo and pull request). All 315 tests pass.
+- **Tests:** CD304 (a real commit and its trailer, the switch, every save, undo and pull request). Live since deploy 76.
 
 ## 2026-11-09: Merged and deployed the bash work (your words: "merge and deploy"); the live test so far, and fixes waiting
 

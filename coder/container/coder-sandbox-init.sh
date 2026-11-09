@@ -75,4 +75,7 @@ echo ready
 # ITS FIRST PROCESS COLLECTS WHAT ENDS IN IT (the live test after deploy 75): a process a command leaves behind becomes this
 # one's child when that command ends, and with `sleep infinity` here it stayed a zombie for good when it ended (a zombie
 # keeps its process group looking alive). Bash collects every child of its own that ends, one handed to it too.
-while :; do sleep 3600 & wait $!; done
+# NEVER ENDS (the retest after deploy 76): with `set -e`, the pause ending its sleep made `wait` fail and this script
+# exit; the sandbox's first process ending ends everything in it, the background command too.
+set +e
+while :; do sleep 3600 & wait $! || true; done
