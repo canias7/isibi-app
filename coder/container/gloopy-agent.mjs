@@ -12,7 +12,7 @@ import { BROWSER_ACTIONS } from "./gloopy-browser.mjs";
  */
 export const BROWSER_TOOL = Object.freeze({ type: "function", function: {
   name: "browser",
-  description: "Your own web browser, on your computer. It stays open between steps and stays signed in to a site once signed in. Each step answers with the page's title and address, an outline of the page in which every element has a number (ref, like e12 or f2e12), and a screenshot of what is in view. Actions: open (url), look (the page as it is now), click (ref), type (ref and text; submit: true presses Enter after), press (key: Enter, Escape, Tab, ArrowDown, PageDown, Control+A…), select (ref and option: a choice in a list), scroll (direction down or up), back. Use only numbers from the latest outline: they change whenever the page does. Use it for sites web_fetch cannot read and for anything you have to click through (search forms, menus, filters). It never types into a password field: when a site needs a sign-in, ask the owner. Never press anything that buys, books, sends, posts, signs up or deletes without the owner's yes.",
+  description: "Your own web browser, on your computer. It stays open between steps and stays signed in to a site once signed in. Each step answers with the page's title and address, an outline of the page in which every element has a number (ref, like e12 or f2e12), and a screenshot of what is in view. Actions: open (url), look (the page as it is now), click (ref), type (ref and text; submit: true presses Enter after), press (key: Enter, Escape, Tab, ArrowDown, PageDown, Control+A…), select (ref and option: a choice in a list), scroll (direction down or up), back. Use only numbers from the latest outline: they change whenever the page does. Use it for sites web_fetch cannot read and for anything you have to click through (search forms, menus, filters). It never types into a password field: when a site needs the owner to sign in, use sign_in. Steps that could change something (a click, a choice, a submit, Enter) are checked first: most go ahead; some wait for the owner's OK on a card (your turn then ends, and their answer is the next message), and some are left to the owner.",
   parameters: { type: "object", properties: {
     action: { type: "string", enum: [...BROWSER_ACTIONS] },
     url: { type: "string", description: "open: the address" },
@@ -25,9 +25,26 @@ export const BROWSER_TOOL = Object.freeze({ type: "function", function: {
   }, required: ["action"] },
 } });
 
-/** The tools Gloopy is offered: Coder's file, command and web tools and its cards, and its browser; none of Coder's GitHub or environment tools. */
-export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit", "grep", "glob", "web_fetch", "browser", "monitor", "stop_job", "ask_user", "todo", "notify"]);
-export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)), BROWSER_TOOL]);
+/**
+ * THE OWNER SIGNS IN THROUGH A PRIVATE FORM (owner, 2026-11-09: "Ok do that"; Grok Bot's Secure Form, dots' private
+ * sign-in): a card in the chat; what the owner types goes straight into the page; Gloopy never sees it.
+ */
+export const SIGN_IN_TOOL = Object.freeze({ type: "function", function: {
+  name: "sign_in",
+  description: "Ask the owner to sign in to the site open in your browser, through a private form: they type their username and password on a card, and it goes straight into the page's fields (you never see it). Give the numbers of the page's password field, of its username or email field (when there is one on this page) and of its sign-in button (when there is one), from the latest outline, and one sentence on why you need to sign in. Your turn ends here; the next message says how it went. Use it only when the job needs the owner's account on that site. Never ask for passwords in the chat.",
+  parameters: { type: "object", properties: {
+    password_ref: { type: "string", description: "the password field's number, e.g. e7" },
+    username_ref: { type: "string", description: "the username or email field's number, when the page has one" },
+    submit_ref: { type: "string", description: "the sign-in button's number, when the page has one (otherwise Enter is pressed)" },
+    reason: { type: "string", description: "one sentence: why you need to sign in" },
+  }, required: ["password_ref", "reason"] },
+} });
+
+/** The tools Gloopy is offered: Coder's file, command and web tools and its cards, its browser and its sign-in card; none of Coder's GitHub or environment tools. */
+export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit", "grep", "glob", "web_fetch", "browser", "sign_in", "monitor", "stop_job", "ask_user", "todo", "notify"]);
+export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)), BROWSER_TOOL, SIGN_IN_TOOL]);
+/** The tools that need a browser on the machine. */
+export const BROWSER_TOOL_NAMES = Object.freeze(["browser", "sign_in"]);
 
 export const GLOOPY_SYSTEM = `You are Gloopy, the owner's own AI assistant on gofarther.dev: a friendly little yellow character with your own Linux computer in the cloud. You work for one person, the owner.
 
@@ -38,7 +55,8 @@ WHAT YOU DO
 HOW YOU WORK
 - Your tools: bash (run commands on your computer), read, write, edit, grep and glob (files on your computer), web search (built into you: use it for anything current), web_fetch (a separate reader answers your question from one web page), browser (your own web browser: open sites, look, click, type, scroll), todo (a checklist the owner sees, for bigger jobs), ask_user (questions for the owner, as a card), notify (a notification on the owner's phone or computer), monitor and stop_job (commands left running in the background).
 - For a quick fact, search; to read one page, web_fetch; to use a site (search forms, filters, menus, pages behind buttons, prices that change), your browser. Look at the outline and the screenshot before each click, and say what you found with the page's address.
-- When a site needs a sign-in, ask the owner: you never type passwords.
+- When a site needs the owner's account, use sign_in: they sign in on a private card and you never see the password. Never type passwords yourself, and never ask for them in the chat.
+- Some browser steps (a click, a choice, a submit) are checked first; one that could buy, send, book, post, sign up or delete waits for the owner's OK on a card. If the owner says no, don't try it another way: say what you would have done, and stop.
 - Your commands start in your work folder. Files there may not be kept from one day to the next yet: put what the owner needs in your answer itself (text, tables, links).
 - Check before you say something is true: give a link for each fact you looked up, and say plainly what you could not find or check. Never make up results, prices, dates, names or quotes.
 

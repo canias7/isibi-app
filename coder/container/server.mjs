@@ -26,7 +26,8 @@ import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSyn
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
-import { GLOOPY_SYSTEM, GLOOPY_TOOLS, gloopyContext } from "./gloopy-agent.mjs";
+import { GLOOPY_SYSTEM, GLOOPY_TOOLS, BROWSER_TOOL_NAMES, gloopyContext } from "./gloopy-agent.mjs";
+import { makeBrowserHub } from "./gloopy-browser.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
@@ -1523,7 +1524,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, browserRoot = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1555,6 +1556,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const binds = [{ src: root, mode: "rw", mine: true }, ...(home ? [{ src: home, mode: "rw", mine: true }] : []), { src: memRoot, mode: "rw", mine: true }, { src: gitRoot, mode: "ro" }, { src: bgRoot, mode: "ro" }, { src: proxyDir, mode: "ro" }];
     return (await startSandbox({ ...up, binds })) || noBox(sandboxWhy());
   };
+  // GLOOPY'S BROWSER (owner, 2026-11-09: "Ok do that": approvals and the private sign-in form; gloopy-browser.mjs): run by
+  // this service as its own user (the image's gloopyweb), in a folder only that user can read (on the kept disk when there
+  // is one), so the AI's commands, as dev or in the admin sandbox, can neither drive it past the checks nor read its
+  // sign-ins. Started the first time a Gloopy turn uses it; it keeps running between turns (it is not dev's).
+  const webUid = env.GLOOPY_WEB_UID && Number.isInteger(Number(env.GLOOPY_WEB_UID)) ? Number(env.GLOOPY_WEB_UID) : null;
+  const webGid = env.GLOOPY_WEB_GID && Number.isInteger(Number(env.GLOOPY_WEB_GID)) ? Number(env.GLOOPY_WEB_GID) : webUid;
+  let hub = null;
+  const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env }));
+  // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), until they answer or a turn starts.
+  const pending = new Map();
   async function startTurn(body, { copy = "" } = {}) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
@@ -1568,6 +1579,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     }
     const cur = turns.get(project);
     if (cur && cur.running) return [409, { error: "busy" }];
+    pending.delete(project);
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
     const t = { running: true, stop: false, events: [], result: null, bg: new Set(), started: Date.now() };
     turns.set(project, t);
@@ -1906,9 +1918,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => x.function.name !== "browser"), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
+        // Gloopy's browser, through this service (its own user); the sign-in's filling is never the AI's.
+        ...(gloopy && hasBrowser ? { browser: { act: (a) => browserHub().act(a), describe: (ref) => browserHub().describe(ref) } } : {}),
+      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+        // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), for /gloopy/approve or /gloopy/signin.
+        .then(() => { const r = t.result; if (gloopy && r && (r.approvalRequest || r.signinRequest)) pending.set(project, r.approvalRequest ? { kind: "approval", ...r.approvalRequest } : { kind: "signin", ...r.signinRequest }); })
         .finally(() => {
           // THE TURN IS OVER: nothing it started keeps running, and its logs go.
           killAll(t);
@@ -2022,6 +2038,30 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!t || !t.result || t.claimed) return send(200, { ok: false });
         t.claimed = true;
         return send(200, { ok: true });
+      }
+      // GLOOPY'S CARDS, ANSWERED (2026-11-09): the browser step the owner allowed, done now by this service, or the owner's
+      // sign-in from the private form, typed into the page here and never kept or said. Only what this chat's last turn
+      // asked for, and once.
+      if (url.pathname === "/gloopy/approve" && req.method === "POST") {
+        const project = String(body.project || ""), p = pending.get(project);
+        if (!p || p.kind !== "approval" || p.id !== body.id) return send(409, { error: "nothing is waiting for an OK" });
+        pending.delete(project);
+        if (body.allow !== true) return send(200, { done: false, denied: true });
+        try {
+          const r = await browserHub().act(p.args);
+          const line = (k) => ((new RegExp("^" + k + ": (.*)$", "m").exec(r.text) || [])[1] || "").slice(0, 500);
+          return send(200, { done: true, did: line("Did"), title: line("Page"), url: line("Address") });
+        } catch (e) { return send(200, { done: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      if (url.pathname === "/gloopy/signin" && req.method === "POST") {
+        const project = String(body.project || ""), p = pending.get(project);
+        if (!p || p.kind !== "signin" || p.id !== body.id) return send(409, { error: "no sign-in is waiting" });
+        pending.delete(project);
+        if (body.skip === true) return send(200, { skipped: true });
+        try {
+          const r = await browserHub().fill({ userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || "") });
+          return send(200, { ok: true, still: r.still === true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
+        } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
       }
       if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
       // THE ENVIRONMENT'S COPY IS SAVED (or could not be): the job waiting for it goes on.

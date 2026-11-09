@@ -874,21 +874,7 @@ export async function toolSavePicture({ name, type, data }) {
   return rel;
 }
 
-/**
- * GLOOPY'S BROWSER (owner, 2026-11-09; gloopy-browser.mjs): one action in its own browser, which keeps running between
- * actions. The answer is the page's title, address and numbered outline, and its screenshot as a picture for the AI (and
- * a small copy for the chat), as a picture read's is.
- */
-export async function toolBrowser(args) {
-  const { browserAct } = await import("./gloopy-browser.mjs");
-  let r;
-  try { r = await browserAct(args || {}); } catch (e) { fail(String((e && e.message) || e)); }
-  const pictures = r.shot ? [{ type: "image/jpeg", data: r.shot }] : [];
-  const thumbs = pictures.length ? await thumbsOf(pictures) : [];
-  return withPics(r.text, pictures, thumbs.length ? { thumbs } : {});
-}
-
-export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, browser: toolBrowser };
+export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

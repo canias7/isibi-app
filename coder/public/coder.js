@@ -778,7 +778,7 @@
     read: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6', edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     write: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM12 18v-6M9 15h6', grep: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     glob: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', lsp: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
   function stepIcon(e) {
@@ -819,7 +819,7 @@
    * failed }], a step with no tool being a command.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -908,6 +908,28 @@
           (host ? '<p class="cd-secret-p">Adds ' + esc(e.host) + ' to the sites Coder may reach in the environment ' + esc(envName) + ', for every chat that uses it. You can remove it in Environment.</p>'
             : '<p class="cd-secret-p">The whole new script, run on Coder\'s machine before it starts, in every chat that uses ' + esc(envName) + ' (it cannot read your variables or keys):</p><pre class="cd-envchange-pre">' + esc(e.script) + '</pre>') +
           (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">Decline</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">Approve</button></div>' : '') + '</div>');
+      }
+      else if (e.type === 'approval') {
+        // A BROWSER STEP WAITING FOR YOUR OK (Gloopy, 2026-11-09; like Grok Bot's approval cards and dots' Auto-review):
+        // the step, the site and why it asks; Allow once, Always allow (a rule for steps like it) or Deny. Live on the last card.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const step = String(e.step || '');
+        out.push('<div class="cd-secret cd-approve"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Gloopy wants to ' + esc(step.charAt(0).toLowerCase() + step.slice(1)) + '</b>' +
+          (e.site ? '<p class="cd-secret-how">On <code>' + esc(e.site) + '</code></p>' : '') +
+          (e.why ? '<p class="cd-secret-why">' + esc(e.why) + '</p>' : '') +
+          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">Deny</button><button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button><button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">Allow once</button></div>' : '') + '</div>');
+      }
+      else if (e.type === 'signin') {
+        // THE PRIVATE SIGN-IN FORM (Gloopy, 2026-11-09; like Grok Bot's Secure Form and dots' private sign-in): what you type
+        // goes straight into Gloopy's browser on that site. Never kept in this page's state; the box is emptied once sent.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Sign in to ' + esc(e.site || 'the site') + '</b>' +
+          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it isn’t saved.</p>' +
+          (live ? (e.user ? '<label class="cd-secret-l" for="cdSignUser">' + esc(e.user) + '</label><input id="cdSignUser" class="cd-secret-in" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">' : '') +
+            '<label class="cd-secret-l" for="cdSignPass">Password</label><input id="cdSignPass" class="cd-secret-in" type="password" autocomplete="off">' +
+            (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') +
+            '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-signin="' + esc(e.id) + '" disabled>Sign in</button></div>' : '') + '</div>');
       }
       else if (e.type === 'secret') {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
@@ -1266,6 +1288,36 @@
       if (r.status !== 200) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
       S.envChangeMsg = ''; if (S.env) S.env = r.data;
       send(x.kind === 'allow_host' ? 'I allowed ' + x.host + '.' : 'I approved the new setup script.');
+    });
+    // GLOOPY'S CARDS (2026-11-09): the answer goes to the Worker, then a short message starts Gloopy's next turn.
+    const cardPath = (a) => '/projects/' + encodeURIComponent(S.project.id) + '/' + a;
+    const cardAnswer = async (id, a, body, failed) => {
+      const r = await call(cardPath(a), { method: 'POST', body: JSON.stringify({ id, ...body }) });
+      if (r.status !== 200) { S.cardMsg = { id, text: (r.data && r.data.error) || failed }; draw(); return; }
+      S.cardMsg = null; if (r.data && r.data.project) S.project = r.data.project;
+      send((r.data && r.data.said) || 'Answered.');
+    };
+    on('[data-approve]', 'click', (e) => {
+      const d = e.currentTarget.dataset;
+      if (!S.project) return;
+      root.querySelectorAll('[data-approve]').forEach((b) => { b.disabled = true; });
+      cardAnswer(d.card, 'approve', { decision: d.approve }, 'Your answer could not be sent.');
+    });
+    on('#cdSignPass', 'input', (e) => { const b = root.querySelector('[data-signin]'); if (b) b.disabled = !e.currentTarget.value; });
+    on('#cdSignPass', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = root.querySelector('[data-signin]'); if (b && !b.disabled) b.click(); } });
+    on('[data-signin]', 'click', (e) => {
+      const id = e.currentTarget.dataset.signin, user = root.querySelector('#cdSignUser'), pass = root.querySelector('#cdSignPass');
+      const password = pass ? pass.value : '';
+      if (!password || !S.project) return;
+      e.currentTarget.disabled = true;
+      // The password leaves the box as it is sent: it is never kept in this page's state.
+      if (pass) pass.value = '';
+      cardAnswer(id, 'signin', { username: user ? user.value : '', password }, 'The sign-in could not be sent.');
+    });
+    on('[data-signin-skip]', 'click', (e) => {
+      if (!S.project) return;
+      e.currentTarget.disabled = true;
+      cardAnswer(e.currentTarget.dataset.signinSkip, 'signin', { skip: true }, 'Your answer could not be sent.');
     });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });

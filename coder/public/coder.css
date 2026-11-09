@@ -259,9 +259,12 @@
 .cd-secret-err{color:#b3261e;font-size:13px;text-align:left;margin:8px 4px 0}
 .cd-secret-btns{display:flex;gap:10px;margin-top:16px}
 .cd-secret-btns button{flex:1;font:inherit;font-size:15px;font-weight:600;border-radius:999px;padding:11px 0;cursor:pointer}
-.cd-secret-no{border:1px solid #d9d6cf;background:#fff;color:#1f1e1d}
-.cd-secret-save{border:1px solid #1f1e1d;background:#1f1e1d;color:#fff}
-.cd-secret-save:disabled{background:#a9a7a1;border-color:#a9a7a1;cursor:default}
+.cd-secret-no,.cd-card-no{border:1px solid #d9d6cf;background:#fff;color:#1f1e1d}
+.cd-secret-save,.cd-card-yes{border:1px solid #1f1e1d;background:#1f1e1d;color:#fff}
+.cd-secret-save:disabled,.cd-card-yes:disabled{background:#a9a7a1;border-color:#a9a7a1;cursor:default}
+.cd-card-no:disabled{opacity:.5;cursor:default}
+/* Three answers on a phone (Gloopy's approval card): a little more room for each word. */
+@media (max-width: 640px) { .cd-approve .cd-secret-btns { gap: 8px; } .cd-approve .cd-secret-btns button { font-size: 14px; padding: 11px 4px; } }
 
 /* Pictures in the chat box and in your messages; @ file suggestions. */
 .cd-compose{position:relative}

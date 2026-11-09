@@ -11,6 +11,30 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's private sign-in card and its approvals (your word: "Ok do that")
+
+- **The private sign-in card** (like Grok Bot's Secure Form and dots' private sign-in): when a site needs you signed in, Gloopy asks with a card in the chat: "Sign in to runway-shoes.example", why it needs it, then Email, Password, and "Not now" or "Sign in" (Enter works too). What you type goes straight into Gloopy's browser on that site. It isn't saved anywhere, isn't shown in the chat, and Gloopy and Grok never see it. Your message then says "Signed in to runway-shoes.example" (or "Tried to sign in…" if the site showed its sign-in form again), and Gloopy carries on.
+- **A check before each step that could change something:** before Gloopy clicks, chooses from a list, or presses Enter to send something, a separate quick call to Grok looks at the step, the page, your last messages and your rules. It answers one of three ways:
+  - **Go ahead:** the step only moves through the site, or it's plainly what you asked for and costs nothing.
+  - **Ask you first:** buying, booking, sending, posting, signing up, deleting, changing account settings, or anything it can't tell is safe.
+  - **Yours to do:** card details, password changes, CAPTCHAs. Gloopy tells you what to do instead.
+  - Looking around (opening, looking, scrolling, going back, typing without sending) is never checked.
+- **Spending:** each checked step costs one extra small Grok call (low effort, no tools, no web search). It's counted with the message's usage. Looking around costs nothing extra.
+- **The approval card:** "Gloopy wants to click the button “Place order”", the site, and why ("This would place the order and charge €72…"). Three buttons:
+  - **Allow once:** done right away by Gloopy's computer, then Gloopy is told what happened.
+  - **Always allow:** the same, and it also saves a rule ("Click the button “Place order” on runway-shoes.example") the checks follow from then on. At most 20 such rules; the oldest goes.
+  - **Deny:** not done, and Gloopy is told not to try it another way.
+  - If you allow a step but the page changed meanwhile, your OK holds for that same step once more. Your phone gets a notification for both cards ("Gloopy needs your OK", "Gloopy asks you to sign in").
+- **Safer underneath:**
+  - Gloopy's browser now runs as its own user on Gloopy's computer, driven only by Coder's service. Gloopy's own commands can't drive it past the checks or read its sign-ins.
+  - Anything typed in a password box is blanked out of everything Gloopy sees.
+  - Hidden characters are taken out of what the cards say, so a page can't make a step read as something else.
+- **Found while testing, fixed:** the cards' buttons first shared the style names of Coder's key card. Pressing "Deny" would also have sent "I declined the secret for undefined." Each card's buttons now have their own names, and in the browser each button sends exactly its answer and one message. On a phone, "Always allow" was squeezed in its button; it now has room.
+- **Tried for real here,** on a made-up shop with a stand-in for Grok, from the Worker through Gloopy's computer to a real Chrome. Gloopy asked to sign in, the sign-in went in, it went to place the order, the check asked first, and once allowed the order was placed. The password never appeared in anything sent to Grok, in the chat or in storage.
+- **Your call (design):** the "Asked you first" step shows a ✓, like any finished step. And there's no page yet to see or remove your rules, or to add "always ask first" rules yourself. The checks already follow them; a rules page could come with Gloopy's settings.
+- **Not live yet.** To try it on gofarther.dev with the real Grok: merge and deploy (your word), then a recorded test in the browser. That spends Grok calls, so it needs your OK too.
+- Tests GL15–GL20 (GL19 is the full real run); GL11 and GL12 were rewritten for the new browser service. All 275 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's first new tool: its own browser (your word: "look at the docs of grok bot and dots and start doing the stuff, lets start with tools first")
 
 - **What both have that Gloopy didn't** (from their docs): its own browser; a private sign-in form; approvals with your own rules; schedules (and waking itself up); memory tools; pages; helpers working in parallel; handing coding to a coding agent. Only Grok Bot: images and videos, its own email address, reading X. Only dots: research on its own in the background. Connected apps stay for the end. Started with the browser.

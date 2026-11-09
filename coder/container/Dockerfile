@@ -61,6 +61,11 @@ RUN useradd -m -u 1001 dev && mkdir -p /work && chown root:root /work && chmod 7
 RUN npm install -g --no-fund --no-audit typescript@5 typescript-language-server pyright \
  && npm cache clean --force
 ENV CODER_RUN_UID=1001 CODER_RUN_GID=1001
+# GLOOPY'S BROWSER (owner, 2026-11-09: approvals and the private sign-in form): a user of its own, apart from the AI's
+# (`dev`). Only Coder's service starts and drives it (gloopy-browser.mjs), and its sign-ins are in a folder only it can
+# read, so the AI's commands cannot use them past the service's checks.
+RUN useradd -M -u 1002 -s /usr/sbin/nologin gloopyweb && mkdir -p /srv/gloopy-browser && chown 1002:1002 /srv/gloopy-browser && chmod 700 /srv/gloopy-browser
+ENV GLOOPY_WEB_UID=1002 GLOOPY_WEB_GID=1002
 
 # ── RUBY 3.1, 3.2 AND 3.3, the versions Claude Code's machine has, each built
 # from ruby-lang.org's source (checked against its sum) in its own step, side by side.
@@ -217,7 +222,7 @@ FROM ${CODER_IMAGE} AS app
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.
-COPY package.json server.mjs coder-agent.mjs gloopy-agent.mjs gloopy-browser.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs coder-sandbox.mjs coder-sandbox-init.sh coder-globs.mjs coder-security.mjs coder-compact.mjs ./
+COPY package.json server.mjs coder-agent.mjs gloopy-agent.mjs gloopy-browser.mjs gloopy-check.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs coder-sandbox.mjs coder-sandbox-init.sh coder-globs.mjs coder-security.mjs coder-compact.mjs ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]

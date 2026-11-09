@@ -1,14 +1,21 @@
 // GLOOPY'S BROWSER (owner, 2026-11-09: "look at the docs of grok bot and dots and start doing the stuff, lets start with
 // tools first"). Both give their agent a browser on its own cloud computer, which stays signed in to sites and which the
-// owner can watch and take over. This is Gloopy's: Playwright's Chromium with a profile of its own in Gloopy's home (so a
-// site's sign-in stays), kept running on Gloopy's machine by a small local server (`serve`), because a page's numbered
-// outline (Playwright's ariaSnapshot in "ai" mode: "button "Go" [ref=e5]") belongs to the page that made it. The browser
-// tool (coder-tools.mjs, as the AI's own user) asks it for one action at a time; each answer is the page's title, its
-// address, its outline and a screenshot. Gloopy never types into a password field: signing in is the owner's (a private
-// login form comes next, as in Grok Bot and dots).
+// owner can watch and take over. This is Gloopy's: Playwright's Chromium with a profile of its own (so a site's sign-in
+// stays), kept running by a small local server (`serve`), because a page's numbered outline (Playwright's ariaSnapshot in
+// "ai" mode: "button "Go" [ref=e5]") belongs to the page that made it.
+//
+// ITS OWN USER, DRIVEN ONLY BY CODER'S SERVICE (owner, 2026-11-09: "Ok do that", approvals and the private sign-in form):
+// the browser runs as the machine's `gloopyweb` user, in a folder only that user can read, and its control socket is in
+// that folder. The AI's commands run as `dev` (or in the admin sandbox, which does not see that folder), so they can
+// neither drive the signed-in browser past the service's checks (approvals) nor read its sign-ins. The service asks it
+// for one action at a time (makeBrowserHub); each answer is the page's title, its address, its outline and a screenshot.
+// Two actions are the service's own and never the AI's: `describe` (what an element is, for the check before an action)
+// and `fill` (the owner's sign-in, typed into the page from the private form; the AI never sees it). Whatever is in a
+// password field is blanked out of every outline.
 import http from "node:http";
-import { spawn } from "node:child_process";
-import { mkdir, rm, open as openFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, chownSync, chmodSync, openSync, closeSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -24,10 +31,11 @@ const SETTLE_MS = 800;
 export const KEY_RE = /^(?:(?:Control|Shift|Alt|Meta)\+){0,3}(?:[A-Za-z0-9]|Enter|Escape|Tab|Backspace|Delete|Space|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|PageUp|PageDown|Home|End|F[1-9]|F1[0-2])$/;
 // An element's number in the outline: e12, or f2e12 once the page has changed (Playwright numbers each new outline so).
 export const REF_RE = /^(?:f\d{1,5})?e\d{1,6}$/;
-export const PASSWORD_REFUSED = "that is a password field: you never type passwords. Ask the owner to sign in to this site themselves (say which site and why); a private sign-in form for this is coming.";
-export const browserDir = (home) => join(home, ".gloopy-browser");
+export const PASSWORD_REFUSED = "that is a password field: you never type passwords. When a site needs the owner to sign in, use sign_in: the owner types the password into a private form and it goes straight into the page.";
 /** Said when the machine has no browser (Coder's small image, on Cloudflare's backup machines). */
 export const NO_BROWSER = "there is no browser on this computer (it is a small backup machine): use your web search and web_fetch instead, and tell the owner the browser was not available.";
+/** What a password field holds, as every outline shows it. */
+export const BLANKED = "••••••";
 
 /**
  * THE ADDRESS TO OPEN: http or https only (a bare name gets https://, a local one http://), never the machine's own
@@ -45,22 +53,34 @@ export function pageAddress(raw) {
   return u.href;
 }
 
-/** What was asked, checked: { action, url?, ref?, text?, submit?, key?, option?, direction? }; throws with what to fix. */
+const needRef = (x, field = "ref") => {
+  const ref = String((x && x[field]) || "").trim();
+  if (!REF_RE.test(ref)) throw new Error("give " + field + ": the number of the element in the page's outline, like e12 or f2e12 (look first if you have no outline)");
+  return ref;
+};
+
+/** What the AI asked, checked: { action, url?, ref?, text?, submit?, key?, option?, direction? }; throws with what to fix. */
 export function checkAsk(a) {
   const x = a && typeof a === "object" ? a : {};
   const action = String(x.action || "");
   if (!BROWSER_ACTIONS.includes(action)) throw new Error("action is one of: " + BROWSER_ACTIONS.join(", "));
   const out = { action };
   if (action === "open") out.url = pageAddress(x.url);
-  if (["click", "type", "select"].includes(action)) {
-    const ref = String(x.ref || "").trim();
-    if (!REF_RE.test(ref)) throw new Error("give ref: the number of the element in the page's outline, like e12 or f2e12 (look first if you have no outline)");
-    out.ref = ref;
-  }
+  if (["click", "type", "select"].includes(action)) out.ref = needRef(x);
   if (action === "type") { if (typeof x.text !== "string") throw new Error("give text: what to type"); out.text = x.text.slice(0, 5000); out.submit = x.submit === true; }
   if (action === "press") { const key = String(x.key || "").trim(); if (!KEY_RE.test(key)) throw new Error("give key: one key like Enter, Escape, Tab, ArrowDown or PageDown (Control+A for a shortcut)"); out.key = key; }
   if (action === "select") { if (typeof x.option !== "string" || !x.option) throw new Error("give option: the choice to pick, as the outline shows it"); out.option = x.option.slice(0, 500); }
   if (action === "scroll") out.direction = x.direction === "up" ? "up" : "down";
+  return out;
+}
+
+/**
+ * NOTHING IN A PASSWORD FIELD REACHES THE AI (found 2026-11-09: Playwright's outline shows a password field's value as
+ * it shows any other's). Each value is blanked in the outline's line for that field, and anywhere else it appears.
+ */
+export function redactPasswords(text, values) {
+  let out = String(text);
+  for (const v of [...new Set((values || []).filter((x) => typeof x === "string" && x))]) out = out.split(v).join(BLANKED);
   return out;
 }
 
@@ -69,6 +89,10 @@ function loadPlaywright() {
   const dirs = [...String(process.env.NODE_PATH || "").split(":"), "/opt/node22/lib/node_modules"].filter(Boolean);
   for (const d of dirs) { try { return createRequire(join(d, "noop.js"))("playwright"); } catch { /* not there */ } }
   return createRequire(import.meta.url)("playwright");
+}
+/** Whether this machine has Playwright and its Chromium (only the full image does). */
+export function hasBrowser() {
+  try { const pw = loadPlaywright(); return existsSync(pw.chromium.executablePath()); } catch { return false; }
 }
 
 /** An error from Playwright, in a line the AI can act on. */
@@ -97,9 +121,16 @@ export async function serve(dir) {
     await page.waitForLoadState("networkidle", { timeout: 2500 }).catch(() => {});
     await page.waitForTimeout(SETTLE_MS);
   };
+  // What is in the page's password fields now, in every frame (to blank it out of what is reported).
+  const passwords = async () => {
+    const out = [];
+    for (const f of page.frames()) { try { out.push(...(await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean)))); } catch { /* a frame that went away */ } }
+    return out;
+  };
   const report = async (did) => {
     const title = await page.title().catch(() => "");
     let outline = await page.locator("body").ariaSnapshot({ mode: "ai", timeout: 10000 }).catch((e) => "(the page's outline could not be read: " + plainError(e, {}) + ")");
+    outline = redactPasswords(outline, await passwords());
     let cut = "";
     if (outline.length > OUTLINE_MAX) { outline = outline.slice(0, OUTLINE_MAX); cut = "\n[the outline goes on past " + OUTLINE_MAX.toLocaleString("en-US") + " characters; the screenshot shows what is in view: scroll and look to see more]"; }
     const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000 }).catch(() => null);
@@ -108,27 +139,53 @@ export async function serve(dir) {
     return { text: "Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, shot: shot ? shot.toString("base64") : "" };
   };
   const target = (ref) => page.locator("aria-ref=" + ref);
-  // An element's name as a person would say it ("Go", "Search"), for the words of what was done.
-  const nameOf = (ref) => target(ref).evaluate((n) => String(n.getAttribute("aria-label") || n.getAttribute("title") || n.innerText || n.getAttribute("placeholder") || n.getAttribute("name") || n.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 80), null, { timeout: 8000 }).catch(() => "");
-  const quote = (t, max = 60) => "\u201c" + String(t).replace(/\s+/g, " ").trim().slice(0, max) + (String(t).length > max ? "\u2026" : "") + "\u201d";
+  // An element as a person would say it ("Go", "Search"), and what it is: for the words of what was done, and the check.
+  const about = (ref) => target(ref).evaluate((n) => ({
+    name: String(n.getAttribute("aria-label") || n.getAttribute("title") || n.innerText || n.value || n.getAttribute("placeholder") || n.getAttribute("name") || n.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 120),
+    tag: n.tagName.toLowerCase(), type: String(n.getAttribute("type") || "").toLowerCase(), role: String(n.getAttribute("role") || ""),
+    password: n instanceof HTMLInputElement && n.type === "password",
+    form: !!(n.form || (n.closest && n.closest("form"))), formAction: String((n.form && n.form.action) || ""), href: String(n.href || ""),
+  }), null, { timeout: 8000 });
+  const quote = (t, max = 60) => "“" + String(t).replace(/\s+/g, " ").trim().slice(0, max) + (String(t).length > max ? "…" : "") + "”";
   const run = async (ask) => {
-    const name = ask.ref ? await nameOf(ask.ref) : "";
-    const it = name ? quote(name) : ask.ref;
+    const el = ask.ref ? await about(ask.ref) : null;
+    const it = el && el.name ? quote(el.name) : ask.ref;
     const did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back" }[ask.action];
     if (ask.action === "open") await page.goto(ask.url, { waitUntil: "domcontentloaded", timeout: 30000 });
     else if (ask.action === "click") await target(ask.ref).click({ timeout: 8000 });
     else if (ask.action === "type") {
-      const el = target(ask.ref);
-      const pw = await el.evaluate((n) => n instanceof HTMLInputElement && n.type === "password", null, { timeout: 8000 });
-      if (pw) throw new Error(PASSWORD_REFUSED);
-      await el.fill(ask.text, { timeout: 8000 });
-      if (ask.submit) await el.press("Enter", { timeout: 8000 });
+      if (el.password) throw new Error(PASSWORD_REFUSED);
+      await target(ask.ref).fill(ask.text, { timeout: 8000 });
+      if (ask.submit) await target(ask.ref).press("Enter", { timeout: 8000 });
     } else if (ask.action === "press") await page.keyboard.press(ask.key);
     else if (ask.action === "select") await target(ask.ref).selectOption({ label: ask.option }, { timeout: 8000 }).catch(() => target(ask.ref).selectOption(ask.option, { timeout: 8000 }));
     else if (ask.action === "scroll") await page.mouse.wheel(0, ask.direction === "up" ? -700 : 700);
     else if (ask.action === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 20000 });
     await settle();
     return report(did);
+  };
+  // THE SERVICE'S OWN: what an element is (none: the one with the focus), and where the page is.
+  const describe = async (x) => {
+    const ref = x.ref ? needRef(x) : "";
+    const el = ref ? await about(ref) : await page.evaluate(() => { const n = document.activeElement; return n && n !== document.body ? { name: String(n.getAttribute("aria-label") || n.innerText || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 120), tag: n.tagName.toLowerCase(), type: String(n.getAttribute("type") || "").toLowerCase(), role: String(n.getAttribute("role") || ""), password: n instanceof HTMLInputElement && n.type === "password", form: !!(n.form || n.closest("form")), formAction: String((n.form && n.form.action) || ""), href: String(n.href || "") } : null; });
+    let host = "";
+    try { host = new URL(page.url()).host; } catch { host = ""; }
+    return { element: el, url: page.url(), host, title: await page.title().catch(() => "") };
+  };
+  // THE OWNER'S SIGN-IN, from the private form: typed into the page here, then sent; never reported back.
+  const fill = async (x) => {
+    const passRef = needRef(x, "passRef"), userRef = x.userRef ? needRef(x, "userRef") : "", submitRef = x.submitRef ? needRef(x, "submitRef") : "";
+    if (typeof x.password !== "string" || !x.password) throw new Error("no password was given");
+    const pw = await about(passRef);
+    if (!pw.password) throw new Error("the field asked for is not a password field");
+    if (userRef) await target(userRef).fill(String(x.username || ""), { timeout: 8000 });
+    await target(passRef).fill(x.password, { timeout: 8000 });
+    if (submitRef) await target(submitRef).click({ timeout: 8000 }); else await target(passRef).press("Enter", { timeout: 8000 });
+    await settle();
+    // Still showing a password field (the site's form again, or the same one): the sign-in most likely did not go through.
+    let still = false;
+    for (const f of page.frames()) { try { if (await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].some((i) => i.offsetParent !== null))) still = true; } catch { /* a frame that went away */ } }
+    return { ok: true, url: page.url(), title: await page.title().catch(() => ""), still };
   };
   let last = Date.now(), busy = Promise.resolve();
   const sock = join(dir, "ctl.sock");
@@ -140,12 +197,14 @@ export async function serve(dir) {
     req.on("end", () => {
       // One action at a time, in the order asked.
       busy = busy.then(async () => {
-        let out;
-        if (req.url === "/ping") out = { ok: true };
-        else {
-          let ask = null;
-          try { ask = checkAsk(JSON.parse(body)); out = await run(ask); } catch (e) { out = { error: e && e.message === PASSWORD_REFUSED ? PASSWORD_REFUSED : plainError(e, ask || {}) }; }
-        }
+        let out, ask = null;
+        try {
+          const x = req.url === "/ping" ? null : JSON.parse(body || "{}");
+          if (!x) out = { ok: true };
+          else if (x.action === "describe") out = await describe(x);
+          else if (x.action === "fill") out = await fill(x);
+          else { ask = checkAsk(x); out = await run(ask); }
+        } catch (e) { out = { error: e && e.message === PASSWORD_REFUSED ? PASSWORD_REFUSED : plainError(e, ask || {}) }; }
         last = Date.now();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify(out));
@@ -172,33 +231,59 @@ function ask(sock, path, body, timeoutMs) {
   });
 }
 
+/** THE CHAT'S SMALL COPY OF A SCREENSHOT (a JPEG data URL, at most 320 pixels on a side), or "" (no ImageMagick). */
+export function thumbOf(b64) {
+  if (!b64) return "";
+  const r = spawnSync("convert", ["jpeg:-", "-thumbnail", "320x320>", "-strip", "-quality", "70", "jpeg:-"], { input: Buffer.from(b64, "base64"), timeout: 10000, maxBuffer: 1 << 20 });
+  const u = r.status === 0 && r.stdout && r.stdout.length ? "data:image/jpeg;base64," + r.stdout.toString("base64") : "";
+  return u.length <= 60_000 ? u : "";
+}
+
+/** The browser's own environment: nothing of the service's (no keys), only what Chromium and Playwright need. */
+export function browserEnv(dir, env = process.env) {
+  return {
+    HOME: dir, LANG: "C.UTF-8", PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    NODE_PATH: env.NODE_PATH || "/opt/node22/lib/node_modules",
+    ...(env.PLAYWRIGHT_BROWSERS_PATH || existsSync("/opt/pw-browsers") ? { PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers" } : {}),
+  };
+}
+
 /**
- * ONE BROWSER ACTION (the browser tool): the browser is started the first time (in the background, as the AI's own
- * user), then asked. Answers { text, shot } (shot: a JPEG screenshot, base64), or throws with what went wrong.
+ * GLOOPY'S BROWSER, AS CODER'S SERVICE DRIVES IT: started the first time (as `uid`/`gid` when given: the machine's
+ * `gloopyweb`), in `dir` (made here, only that user's). `act`: one of the AI's actions; `describe` and `fill`: the
+ * service's own. Each answers what the browser said, or throws with what went wrong.
  */
-export async function browserAct(args, { home = process.env.HOME || "/tmp", timeoutMs = ACT_MS, startMs = START_MS } = {}) {
-  const want = checkAsk(args);
-  const dir = browserDir(home);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS, startMs = START_MS, env = process.env } = {}) {
   const sock = join(dir, "ctl.sock");
-  let r = await ask(sock, "/act", want, timeoutMs);
-  if (r && r.down) {
-    try { loadPlaywright(); } catch { throw new Error(NO_BROWSER); }
-    const log = await openFile(join(dir, "browser.log"), "a");
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log.fd, log.fd], env: process.env });
+  const start = async () => {
+    if (!hasBrowser()) throw new Error(NO_BROWSER);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (uid !== null) chownSync(dir, uid, gid ?? uid);
+    chmodSync(dir, 0o700);
+    const log = openSync(join(dir, "browser.log"), "a", 0o600);
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log, log], env: browserEnv(dir, env), ...(uid !== null ? { uid, gid: gid ?? uid } : {}) });
     child.unref();
-    await log.close();
+    closeSync(log);
     const until = Date.now() + startMs;
-    let up = false;
-    while (!up && Date.now() < until) { await new Promise((ok) => setTimeout(ok, 300)); const p = await ask(sock, "/ping", {}, 2000); up = !!(p && p.ok); }
-    if (!up) throw new Error("the browser could not be started on your computer (" + dir + "/browser.log says why)");
-    r = await ask(sock, "/act", want, timeoutMs);
-  }
-  if (!r || r.down) throw new Error("the browser stopped answering");
-  if (r.error) throw new Error(r.error);
-  return { text: String(r.text || ""), shot: typeof r.shot === "string" ? r.shot : "" };
+    while (Date.now() < until) { await new Promise((ok) => setTimeout(ok, 300)); const p = await ask(sock, "/ping", {}, 2000); if (p && p.ok) return; }
+    throw new Error("the browser could not be started (" + join(dir, "browser.log") + " says why)");
+  };
+  const call = async (body) => {
+    let r = await ask(sock, "/act", body, timeoutMs);
+    if (r && r.down) { await start(); r = await ask(sock, "/act", body, timeoutMs); }
+    if (!r || r.down) throw new Error("the browser stopped answering");
+    if (r.error) throw new Error(r.error);
+    return r;
+  };
+  return {
+    act: async (args) => { const r = await call(checkAsk(args)); const shot = typeof r.shot === "string" ? r.shot : ""; return { text: String(r.text || ""), shot, thumb: thumbOf(shot) }; },
+    describe: (ref) => call({ action: "describe", ...(ref ? { ref } : {}) }),
+    fill: ({ userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", userRef, passRef, submitRef, username, password }),
+    // Only when it is running already (no browser is started to be told nothing).
+    running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
+  };
 }
 
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1] && process.argv[2] === "serve") {
-  serve(process.argv[3] || browserDir(process.env.HOME || "/tmp")).catch((e) => { console.error("gloopy browser: " + String((e && e.message) || e)); process.exit(1); });
+  serve(process.argv[3]).catch((e) => { console.error("gloopy browser: " + String((e && e.message) || e)); process.exit(1); });
 }

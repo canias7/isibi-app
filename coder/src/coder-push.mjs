@@ -151,6 +151,8 @@ export function pushesFor(events, meta, now = Date.now()) {
     if (!e || typeof e !== "object") continue;
     if (e.type === "notify" && e.text) out.push({ kind: "decides", title: who + tail, body: e.text });
     else if (e.type === "question") out.push({ kind: "actions", title: who + " needs your answer" + tail, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
+    else if (e.type === "approval") out.push({ kind: "actions", title: who + " needs your OK" + tail, body: String(e.step || "") + (e.site ? " on " + e.site : "") + (e.why ? ": " + e.why : "") });
+    else if (e.type === "signin") out.push({ kind: "actions", title: who + " asks you to sign in" + tail, body: "To " + String(e.site || "a site") + (e.reason ? ": " + e.reason : "") });
     else if (e.type === "secret") out.push({ kind: "actions", title: who + " needs a key" + tail, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
     else if (e.type === "envchange") out.push({ kind: "actions", title: who + " asks to change the environment" + tail, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
     else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: who + " finished" + tail, body: e.text || "" });
