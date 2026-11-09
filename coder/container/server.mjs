@@ -1838,7 +1838,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // Gloopy's schedules, as the Worker keeps them (2026-11-09): in its context, and for its schedule tool.
     const schedules = gloopy && Array.isArray(body.schedules) ? body.schedules.filter((x) => x && typeof x === "object").slice(0, 20) : [];
     const permissions = gloopy && body.permissions && typeof body.permissions === "object" ? body.permissions : null;
-    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser, schedules, permissions });
+    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser, schedules, permissions, rules: Array.isArray(body.rules) ? body.rules : [] });
     const lastSend = async () => { if (sender) await sender.flush(); };
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;

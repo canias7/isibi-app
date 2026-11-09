@@ -7,6 +7,7 @@ import { CODER_TOOLS } from "./coder-agent.mjs";
 import { BROWSER_ACTIONS } from "./gloopy-browser.mjs";
 import { scheduleLine } from "./gloopy-schedule.mjs";
 import { permissionLines } from "./gloopy-permissions.mjs";
+import { cleanRules, RULE_WORDS } from "./gloopy-check.mjs";
 
 /**
  * GLOOPY'S BROWSER (owner, 2026-11-09: "start doing the stuff, lets start with tools first"; Grok Bot's and dots' agents
@@ -126,7 +127,7 @@ export const GLOOPY_NOTES_MAX = 25000;
  * `machine`: the machine's tools text (Coder's MACHINE_TOOLS on the full image), or "". `browser`: false on a machine with no
  * browser (Coder's small image), where Gloopy is not offered it.
  */
-export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], permissions = null } = {}) {
+export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], permissions = null, rules = [] } = {}) {
   const notes = String(memory || "").slice(0, GLOOPY_NOTES_MAX);
   const day = new Date(now).toISOString().slice(0, 10);
   return [
@@ -139,6 +140,7 @@ export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir 
     "NETWORK: your computer can reach any site on the internet.",
     browser ? "" : "YOUR BROWSER is not on this computer right now (it is a small backup machine): use your web search and web_fetch instead, and say so if the job needed the browser.",
     "YOUR PERMISSIONS (the owner's settings for what you may do on your own):\n" + permissionLines(permissions),
+    "THE OWNER'S CUSTOM RULES (their own words; a rule that fits comes before the settings above, and a Never rule always wins): " + (cleanRules(rules).length ? "\n" + cleanRules(rules).map((r) => "- " + RULE_WORDS[r.mode] + ": " + r.text).join("\n") : "none."),
     "YOUR SCHEDULES (approved by the owner; schedule list says more): " + (Array.isArray(schedules) && schedules.length ? "\n" + schedules.slice(0, 20).map(scheduleLine).join("\n") : "none."),
   ].filter(Boolean).join("\n\n");
 }

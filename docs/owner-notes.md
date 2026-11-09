@@ -11,6 +11,19 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Custom rules for Gloopy, in your own words (your word: "add on the settings a custom rules for Gloopy ... like allow buying or whatever it is")
+
+- **What they are:** besides the fixed list, your own rules in your own words, each Always allow, Ask first or Never, like Grok Bot's Custom Rules. For example:
+  - "Allow buying on runway-shoes.example"
+  - "Ask before anything on my bank"
+  - "Never email my boss"
+- **How they work:**
+  - A **Never** rule always wins, even with everything on Always allow (it means the step before a browser click gets checked). After it, an **Ask first** rule always asks. Then come the list's settings.
+  - Gloopy is told your rules, so it follows them outside its browser too (an email, a schedule).
+- **"Always allow" on a card** still saves a rule, now with an id, so the settings screen can list and remove it.
+- **For the settings screen (at the end):** a route lists, adds, changes and removes rules (`/api/coder/projects/gloopy-main/rules`). At most 20 of each kind, each up to 300 characters. They also come with Gloopy's tab data.
+- Test GL38 is new; GL15 and GL18 now match the new wording and ids. All 293 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's permissions: Ask, Always allow or Deny (your word: "a list of things, and then have ask, deny, and always allow ... the default for testing ... always allow")
 
 - **Both have this:**

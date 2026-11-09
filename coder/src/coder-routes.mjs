@@ -43,6 +43,7 @@ import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName,
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn } from "./gloopy-schedules.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, cleanPermissions } from "../container/gloopy-permissions.mjs";
+import { cleanRules, RULES_MAX } from "../container/gloopy-check.mjs";
 import { cleanSchedule, whenLocal } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -148,8 +149,16 @@ const gloopyNotesKey = (uid, id) => ["coder", uid, "gloopy", id + ".md"].join("/
 /** WHAT GLOOPY MAY DO ON ITS OWN (owner, 2026-11-09: Ask, Always allow or Deny for each kind; gloopy-permissions.mjs). */
 const gloopyPermsKey = (uid) => ["coder", uid, "gloopy", "permissions.json"].join("/");
 const readPermissions = async (bucket, uid) => cleanPermissions(await getJson(bucket, gloopyPermsKey(uid), {}));
-/** THE OWNER'S RULES FOR GLOOPY'S CHECKS (2026-11-09: "ask first" / "allow", like Grok Bot's Custom Rules), kept here. */
+/** THE OWNER'S CUSTOM RULES FOR GLOOPY (2026-11-09: Always allow, Ask first or Never, in their own words), kept here. */
 const gloopyRulesKey = (uid) => ["coder", uid, "gloopy", "rules.json"].join("/");
+const newRuleId = () => "r" + crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+/** The rules, each with its id (one is given to a rule kept before ids were). */
+async function readRules(bucket, uid) {
+  const raw = await getJson(bucket, gloopyRulesKey(uid), []);
+  const list = cleanRules(raw).map((r) => ({ id: r.id || newRuleId(), text: r.text, mode: r.mode }));
+  if (Array.isArray(raw) && raw.some((r) => !r || typeof r.id !== "string")) await putJson(bucket, gloopyRulesKey(uid), list);
+  return list;
+}
 export function newGloopy(now = Date.now()) {
   return { id: GLOOPY_ID, kind: "gloopy", name: "Gloopy", repo: "", title: "Gloopy", base: "", branch: "", turn: 0, saved: 0, status: "idle", pr: null, at: now };
 }
@@ -556,7 +565,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await getJson(bucket, gloopyRulesKey(uid), []), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -623,6 +632,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "screen" && request.method === "POST") return gloopyTakeOver(g);
     if (action === "schedules") return gloopySchedules(g);
     if (action === "permissions") return gloopyPermissions(g);
+    if (action === "rules") return gloopyRules(g);
     if (action !== "stop") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
 
@@ -1388,7 +1398,7 @@ async function gloopyMessage(g) {
   const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
   const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
   const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, marks };
-  const rules = await getJson(bucket, gloopyRulesKey(uid), []);
+  const rules = await readRules(bucket, uid);
   await saveMeta(bucket, uid, next);
   await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
   const notStarted = async () => {
@@ -1508,13 +1518,12 @@ async function gloopyCard(g, action) {
   } else if (action === "approve") {
     const decision = ["once", "always", "deny"].includes(body.decision) ? body.decision : "deny";
     if (decision === "always") {
-      const rules = await getJson(bucket, gloopyRulesKey(uid), []);
       const text = (p.step + " on " + site).slice(0, 1000);
-      const list = (Array.isArray(rules) ? rules : []).filter((r) => !(r && r.mode === "allow" && r.text === text));
-      // At most 20 allow rules: the oldest goes.
-      const allows = list.filter((r) => r && r.mode === "allow");
-      const dropped = allows.length >= 20 ? allows[0] : null;
-      await putJson(bucket, gloopyRulesKey(uid), [...list.filter((r) => r !== dropped), { text, mode: "allow", at: Date.now() }]);
+      const list = (await readRules(bucket, uid)).filter((r) => !(r.mode === "allow" && r.text === text));
+      // At most RULES_MAX allow rules: the oldest goes.
+      const allows = list.filter((r) => r.mode === "allow");
+      const dropped = allows.length >= RULES_MAX ? allows[0] : null;
+      await putJson(bucket, gloopyRulesKey(uid), [...list.filter((r) => r !== dropped), { id: newRuleId(), text, mode: "allow" }]);
     }
     let r = null;
     try { r = await post("/gloopy/approve", { project: id, id: p.id, allow: decision !== "deny" }).then((x) => x.json()); } catch { r = null; }
@@ -1585,6 +1594,42 @@ async function gloopyPermissions(g) {
   const next = cleanPermissions({ ...now, ...set });
   await putJson(bucket, gloopyPermsKey(uid), next);
   return out(next);
+}
+
+/**
+ * THE OWNER'S CUSTOM RULES, FOR THE SETTINGS SCREEN (owner, 2026-11-09: "add on the settings a custom rules for Gloopy";
+ * Grok Bot's Custom Rules): in their own words ("Allow buying on runway-shoes.example", "Never email my boss"), each
+ * Always allow, Ask first or Never. GET lists them; POST { add: { text, mode } }, { change: { id, text?, mode? } } or
+ * { remove: id }. Gloopy follows them from its next message: its browser's check, and its own instructions.
+ */
+async function gloopyRules(g) {
+  const { request, bucket, uid } = g;
+  let list = await readRules(bucket, uid);
+  const out = (l) => json({ ok: true, rules: l, modes: ["allow", "ask", "deny"], max: RULES_MAX });
+  if (request.method === "GET") return out(list);
+  if (request.method !== "POST") return json({ error: "Gloopy has no rules " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const words = (t) => String(t == null ? "" : t).replace(/\s+/g, " ").replace(/[\p{Cf}\p{Cc}]/gu, "").trim();
+  const okMode = (m) => ["allow", "ask", "deny"].includes(m);
+  const full = (mode, l) => l.filter((r) => r.mode === mode).length >= RULES_MAX;
+  if (body.add && typeof body.add === "object") {
+    const text = words(body.add.text), mode = body.add.mode;
+    if (!text || text.length > 300 || !okMode(mode)) return json({ error: "Write the rule in a few words (at most 300 characters), and choose allow, ask or deny." }, 400);
+    if (full(mode, list)) return json({ error: "There are " + RULES_MAX + " rules of that kind already: remove one first." }, 400);
+    list = [...list, { id: newRuleId(), text, mode }];
+  } else if (body.change && typeof body.change === "object") {
+    const it = list.find((r) => r.id === String(body.change.id || ""));
+    if (!it) return json({ error: "No rule has that id." }, 404);
+    const text = body.change.text === undefined ? it.text : words(body.change.text), mode = body.change.mode === undefined ? it.mode : body.change.mode;
+    if (!text || text.length > 300 || !okMode(mode)) return json({ error: "Write the rule in a few words (at most 300 characters), and choose allow, ask or deny." }, 400);
+    if (mode !== it.mode && full(mode, list)) return json({ error: "There are " + RULES_MAX + " rules of that kind already: remove one first." }, 400);
+    list = list.map((r) => (r === it ? { id: it.id, text, mode } : r));
+  } else if (typeof body.remove === "string") {
+    if (!list.some((r) => r.id === body.remove)) return json({ error: "No rule has that id." }, 404);
+    list = list.filter((r) => r.id !== body.remove);
+  } else return json({ error: "Give add, change or remove." }, 400);
+  await putJson(bucket, gloopyRulesKey(uid), list);
+  return out(list);
 }
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */

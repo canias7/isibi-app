@@ -534,7 +534,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // WHAT GLOOPY MAY DO ON ITS OWN (owner, 2026-11-09; gloopy-permissions.mjs): Ask, Always allow or Deny for each kind
   // of action. Everything allowed and no "ask first" rule: browser steps go ahead with no check at all.
   const perms = cleanPermissions(permsIn);
-  const noCheck = allAllowed(perms) && !rules.some((r) => r.mode === "ask");
+  const noCheck = allAllowed(perms) && !rules.some((r) => r.mode === "ask" || r.mode === "deny");
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -894,7 +894,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules });
           if (v.usage) usage.push(v.usage);
           const d = decide(v, perms);
-          if (d === "deny") { no("not done: the owner's settings never allow this (" + permissionLabel(v.kind) + "): " + step + ". Don't do it another way; tell the owner it is turned off in Gloopy's settings."); continue; }
+          if (d === "deny") { no("not done: " + (v.rule === "deny" ? "one of the owner's rules says never to do this" : "the owner's settings never allow this (" + permissionLabel(v.kind) + ")") + ": " + step + ". Don't do it another way; tell the owner it is turned off in Gloopy's settings."); continue; }
           if (d === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Use handoff to ask the owner to do it in your browser on " + (about.host || "the site") + " (say exactly what to do), or tell them what to do, and stop."); continue; }
           if (d === "ask") {
             const id = "ap" + Math.random().toString(36).slice(2, 10);
