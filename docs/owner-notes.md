@@ -32,6 +32,7 @@ log (81,000 lines) is in git history.
   - when write says no;
   - what stays as it was.
   - Its numbers come from the code (90,000 characters a call; the protected files), and test CD248 checks them.
+- **Live with deploy 72 (your "Ok"), checked in the browser:** the retest chat's list now reads 2, 3, 4, 5, with item 5's three lines inside it. gofarther.dev/docs shows Write beside Read, with its five parts in the side menu, and fits a phone (375 px wide, no sideways scroll).
 
 ## 2026-11-09: The page: numbered lists keep their numbers; the group line counts files (your words: "Yes fix that")
 
