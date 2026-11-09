@@ -214,6 +214,11 @@ code in **each user's own GitHub**.
    write asks the owner first on a card (event `writeask`; Allow sends "I allowed
    Coder to change <path>.", which lets that file through for the chat); from GitHub
    they are not written.
+   After each write of a JavaScript, TypeScript or Python file, the language server
+   reports the new errors and warnings (`newProblems` in `coder-lsp.mjs`): to Grok as
+   Claude Code's "new diagnostics" note, to the chat as "Found N new diagnostic issues
+   in 1 file". (Showing a write while Grok writes it can't be done: xAI sends a tool
+   call whole, at the end.)
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

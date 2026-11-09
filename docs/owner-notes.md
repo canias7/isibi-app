@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Write: the two extras (your words: "can we do those small optional extras that you said? Yeah, I want it")
+
+- **Mistake-check after each write: done.** Like Claude Code with its language server add-ons: after Coder writes a JavaScript, TypeScript or Python file, the language server checks it, and any *new* errors or warnings go straight to Grok, which fixes them. Under the step the chat shows "Found 1 new diagnostic issue in 1 file"; tap it to see the problem itself, e.g. `✘ [Line 5:25] "rate" is not defined`.
+  - Only new problems are reported (ones the file already had before the write aren't).
+  - It adds a couple of seconds to each write of a code file (the server starts, checks, and stops). Other files aren't checked.
+  - Your secret values are hidden in these messages too when the chat is saved.
+  - Tried on Coder's real page with the real Python language server (screenshot sent).
+- **Watching a long file appear while it's written: can't be done with Grok.** xAI's own docs say "With streaming, the function call is returned in whole in a single chunk, not streamed across chunks": Grok hands over a whole write (all its text) at once, at the end, so there's nothing to show before then. Claude Code can do it because Claude sends a tool's text as it goes. If xAI changes this, Coder can add it.
+- Test CD259 (fails on the old code), with a stand-in language server so the tests don't depend on what's installed; all 268 pass, and the 24 real read checks.
+
 ## 2026-11-09: Write: Coder asks you before changing a protected file (your word: "Okay, yes, yes, do that")
 
 - **Like Claude Code:** before Coder writes a file that can make code run on your computer, or change how the project is built, it stops and shows a card: "Allow Coder to change .husky/pre-commit?", with the lines it would write, and **Allow** / **Don't allow**.

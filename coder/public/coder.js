@@ -783,6 +783,8 @@
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
       stepChange(r, key) +
+      // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
+      stepProblems(r, key) +
       (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
     '</div>';
   }
@@ -822,6 +824,16 @@
       (folded ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show ' + folded + ' more line' + (folded === 1 ? '' : 's') + '</button>'
         : open && all.length > CHANGE_FIRST ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show less</button>' : '') +
       (open && more ? '<p class="cd-wchg-note">' + more + ' more line' + (more === 1 ? '' : 's') + ' not shown here: See changes has the whole file.</p>' : '') +
+    '</div>';
+  }
+  /** "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them). */
+  function stepProblems(r, key) {
+    const list = r && Array.isArray(r.problems) ? r.problems.filter((p) => p && typeof p.message === 'string').slice(0, 20) : [];
+    if (!list.length) return '';
+    const all = Math.max(list.length, Number.isInteger(r.problemsAll) ? r.problemsAll : 0);
+    const k = key + ':problems', open = !!S.open[k];
+    return '<div class="cd-probs"><button type="button" class="cd-probs-row" data-problems="' + esc(k) + '">Found ' + all + ' new diagnostic issue' + (all === 1 ? '' : 's') + ' in 1 file<span>' + (open ? 'Hide' : 'Show') + '</span></button>' +
+      (open ? '<pre class="cd-probs-list">' + list.map((p) => (p.severity === 'warning' ? '⚠' : '✘') + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '')).join('\n') + (all > list.length ? '\n… and ' + (all - list.length) + ' more' : '') + '</pre>' : '') +
     '</div>';
   }
   /** The small copies of the pictures a step opened: only JPEG data URLs, as Coder's machine makes them. */
@@ -1236,6 +1248,7 @@
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     on('.cd-wchg-more', 'click', (e) => { const k = e.currentTarget.dataset.change; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-probs-row', 'click', (e) => { const k = e.currentTarget.dataset.problems; S.open[k] = !S.open[k]; draw(); });
     // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply).
     const askSend = () => { const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
     const askOf = (el) => { const one = el.closest('.cd-ask-one'); return S.ask && one ? S.ask.answers[Number(one.dataset.q)] : null; };

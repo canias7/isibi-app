@@ -611,12 +611,12 @@ function writeInputs(args) {
     else if (got[ours] === a[other]) said.push("`" + other + "` repeated `" + ours + "` and was ignored.");
     else fail("write failed due to the following issue: An unexpected parameter `" + other + "` was provided");
   }
-  for (const k of Object.keys(a)) if (!["path", "content", "show_change"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
+  for (const k of Object.keys(a)) if (!["path", "content", "show_change", "check"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
   return { ...got, note: said.length ? "\n\nNote: write's parameters are named `path` and `content`. " + said.slice(0, 10).join(" ") : "" };
 }
 export async function toolWrite(args) {
   const { path, content, note: namesNote } = writeInputs(args);
-  const show_change = !!(args && args.show_change === true);
+  const show_change = !!(args && args.show_change === true), check = !!(args && args.check === true);
   const { abs, rel: inRel } = await inside(path, { tool: "write" });
   // NAMED IN FULL OUTSIDE THE PROJECT'S OWN FOLDER (Claude Code 2.1.304: "Fixed Write results … showing a file outside the
   // working directory as `../../…`; they now show `~/…` or the full path"): a file in one of the chat's other repositories
@@ -657,10 +657,19 @@ export async function toolWrite(args) {
   await remember(abs, bytes);
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
-  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote;
+  // NEW PROBLEMS THE LANGUAGE SERVER FINDS (coder-lsp.mjs newProblems), when Coder's app asks (`check`), as Claude Code's
+  // language server plugins give Claude "the errors and warnings the server reports" after each write.
+  let problems = null;
+  if (check && oldText !== undefined) {
+    const { newProblems } = await import("./coder-lsp.mjs");
+    problems = await newProblems({ path: rel, abs, before: oldText, after: content.replace(/^\ufeff/, "") }, ROOT).catch(() => null);
+  }
+  let problemsSaid = "";
+  if (problems && problems.length) { const { problemsNote } = await import("./coder-lsp.mjs"); problemsSaid = "\n\n" + problemsNote(rel, problems); }
+  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote + problemsSaid;
   if (show_change !== true) return text;
   const change = await writeChange(oldText, content.replace(/^\ufeff/, "")).catch(() => null);
-  return change ? WRITE_MARK + JSON.stringify({ text, change }) : text;
+  return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
 }
 
 export async function toolEdit({ path, old_string, new_string, replace_all = false }) {

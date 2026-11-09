@@ -178,6 +178,7 @@ export function hideIn(events, values) {
   if (values.length) for (const ev of events) {
     for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") ev[f] = hide(ev[f]);
     if (ev && ev.change && Array.isArray(ev.change.lines)) ev.change.lines = ev.change.lines.map(hide);
+    if (ev && Array.isArray(ev.problems)) ev.problems = ev.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || "") } : p));
   }
   return events;
 }

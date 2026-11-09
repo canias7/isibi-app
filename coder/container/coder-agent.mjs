@@ -243,7 +243,7 @@ export function readAnswer(raw) {
  */
 export function writeAnswer(raw) {
   raw = String(raw || "");
-  if (!raw.startsWith(WRITE_MARK)) return { text: raw, change: null };
+  if (!raw.startsWith(WRITE_MARK)) return { text: raw, change: null, problems: [], problemsAll: 0 };
   try {
     const j = JSON.parse(raw.slice(WRITE_MARK.length));
     const c = j && j.change, n = (x) => (Number.isInteger(x) && x >= 0 ? x : 0);
@@ -252,8 +252,11 @@ export function writeAnswer(raw) {
       lines: (Array.isArray(c.lines) ? c.lines : []).filter((l) => typeof l === "string").slice(0, WRITE_SHOW_LINES).map((l) => scrub(l.slice(0, 1001))),
       ...(n(c.more) ? { more: n(c.more) } : {}), ...(c.big === true ? { big: true } : {}),
     } : null;
-    return { text: String((j && j.text) || ""), change };
-  } catch { return { text: "The file was written.", change: null }; }
+    const problems = (Array.isArray(j && j.problems) ? j.problems : []).filter((p) => p && typeof p.message === "string").slice(0, 20).map((p) => ({
+      severity: p.severity === "warning" ? "warning" : "error", line: n(p.line), column: n(p.column), message: scrub(p.message.slice(0, 300)), code: scrub(String(p.code || "").slice(0, 60)),
+    }));
+    return { text: String((j && j.text) || ""), change, problems, problemsAll: Math.max(problems.length, n(j && j.problemsAll)) };
+  } catch { return { text: "The file was written.", change: null, problems: [], problemsAll: 0 }; }
 }
 /** Errors that mean "not a file of this project" (a mention that is not one is left alone). */
 const NOT_A_FILE = /^error: (give a path|no such file|that path (is|leads) outside the project|the \.git folder|the path cannot contain)/;
@@ -959,7 +962,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         // WHAT A WRITE CHANGED is asked for, for the chat only (writeAnswer).
-        const reqArgs = c.name === "write" ? { ...given, show_change: true } : args;
+        // And whether it made new problems, by the language server (Claude Code's plugins: "Found N new diagnostic issues").
+        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: true } : args;
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args: reqArgs })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
@@ -972,9 +976,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
-        let pics = [], thumbs = [], change = null;
+        let pics = [], thumbs = [], change = null, problems = [], problemsAll = 0;
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
-        if (c.name === "write" && code === 0) ({ text: raw, change } = writeAnswer(raw));
+        if (c.name === "write" && code === 0) ({ text: raw, change, problems, problemsAll } = writeAnswer(raw));
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
@@ -984,7 +988,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
-        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}) });
+        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }

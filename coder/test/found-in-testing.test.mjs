@@ -1803,3 +1803,55 @@ test("CD258 a protected file is written only once the owner allows it, on a card
   const pushed = pushesFor([{ type: "writeask", path: ".npmrc" }], { title: "shop" });
   assert.ok(JSON.stringify(pushed).includes("Coder asks to change a protected file") && JSON.stringify(pushed).includes("Allow it to change .npmrc?"), JSON.stringify(pushed));
 });
+
+test("CD259 after each write of a file a language server takes, the new errors and warnings go to Grok and their count to the chat, as Claude Code's language server plugins give Claude \"the errors and warnings the server reports\" after each write and show \"Found N new diagnostic issues in M files\" (the owner, 2026-11-09: \"can we do those small optional extras that you said? Yeah, I want it\"); only new ones, matched without lines; nothing when no server takes the file, or none is installed", async () => {
+  const { newProblems, problemsNote, PROBLEMS_SHOWN } = await import("../container/coder-lsp.mjs");
+  const { WRITE_MARK } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const fake = new URL("./fixtures/fake-lsp/", import.meta.url).pathname;
+  const PATH = fake + ":" + process.env.PATH;
+  const dir = await mkdtemp(join(tmpdir(), "coder-problems-"));
+  // The check itself, with the stand-in server (as pyright-langserver).
+  const withPath = async (f) => { const was = process.env.PATH; process.env.PATH = PATH; try { return await f(); } finally { process.env.PATH = was; } };
+  const changed = await withPath(() => newProblems({ path: "app.py", abs: join(dir, "app.py"), before: "x = 1\nBAD one\nINFO\n", after: "y = 2\nBAD one\nBAD two\nWARN\nINFO\n" }, dir));
+  assert.deepEqual(changed, [
+    { severity: "error", line: 3, column: 1, message: "bad thing: BAD two", code: "fake-bad", source: "Fake" },
+    { severity: "warning", line: 4, column: 1, message: "a warning", code: "", source: "Fake" },
+  ], "BAD one was there before (now one line lower): not new; a hint is never reported");
+  assert.deepEqual(await withPath(() => newProblems({ path: "n.py", abs: join(dir, "n.py"), before: null, after: "BAD\n" }, dir)), [{ severity: "error", line: 1, column: 1, message: "bad thing: BAD", code: "fake-bad", source: "Fake" }]);
+  assert.equal(await newProblems({ path: "a.go", abs: join(dir, "a.go"), after: "x" }, dir), null, "no server takes it");
+  assert.equal(await withPath(() => newProblems({ path: "a.ts", abs: join(dir, "a.ts"), after: "x" }, dir)), null, "not installed: no typescript-language-server here");
+  assert.equal(problemsNote("app.py", changed), "<new-diagnostics>The following new diagnostic issues were detected:\n\napp.py:\n  ✘ [Line 3:1] bad thing: BAD two [fake-bad] (Fake)\n  ⚠ [Line 4:1] a warning (Fake)\n</new-diagnostics>");
+  assert.equal(problemsNote("app.py", []), "");
+  const many = Array.from({ length: 25 }, (_, i) => ({ severity: "error", line: i + 1, column: 1, message: "m" + i, code: "", source: "" }));
+  assert.match(problemsNote("x.py", many), new RegExp("\\n  … and " + (25 - PROBLEMS_SHOWN) + " more\\n</new-diagnostics>$"));
+  // Through write, when Coder's app asks: Grok's answer ends with the note; the chat gets the list.
+  const run = machine(dir, undefined, { ...process.env, PATH });
+  const write = async (args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args })).toString("base64") })).output;
+  await writeFile(join(dir, "w.py"), "ok = 1\n");
+  const raw = await write({ path: "w.py", content: "ok = 1\nBAD here\n", show_change: true, check: true });
+  const j = JSON.parse(raw.slice(WRITE_MARK.length));
+  assert.equal(j.text, "The file w.py has been updated successfully. (file state is current in your context — no need to Read it back)\n\n<new-diagnostics>The following new diagnostic issues were detected:\n\nw.py:\n  ✘ [Line 2:1] bad thing: BAD here [fake-bad] (Fake)\n</new-diagnostics>");
+  assert.deepEqual(j.problems, [{ severity: "error", line: 2, column: 1, message: "bad thing: BAD here", code: "fake-bad", source: "Fake" }]);
+  assert.match(await write({ path: "clean.py", content: "fine = 1\n", check: true }), /^File created successfully at: clean\.py \(file state is current in your context — no need to Read it back\)$/, "no new problems: nothing said");
+  assert.match(await write({ path: "notes.md", content: "BAD\n", check: true }), /^File created successfully at: notes\.md \(file state[^\n]*\)$/, "no server for Markdown");
+  assert.match(await write({ path: "plain.py", content: "BAD\n" }), /^File created successfully at: plain\.py \(file state[^\n]*\)$/, "not asked: no check");
+  // Through Coder's app: Grok is told, the chat shows the count, and the owner's values are hidden in it when saved.
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const events = [];
+  let k = 0;
+  const out = await runCoder({ exec: machine(dir, undefined, { ...process.env, PATH }), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("write", { path: "job.py", content: "BAD sk-secret-123\n" }, "w1")]) : say("Done.")) }, { text: "write job.py" });
+  assert.match(out.messages.find((m) => m.role === "tool" && m.tool_call_id === "w1").content, /\n\n<new-diagnostics>The following new diagnostic issues were detected:\n\njob\.py:\n  ✘ \[Line 1:1\] bad thing: BAD sk-secret-123 \[fake-bad\] \(Fake\)\n<\/new-diagnostics>$/);
+  const shown = events.find((e) => e.type === "result" && e.id === "w1");
+  assert.deepEqual(shown.problems, [{ severity: "error", line: 1, column: 1, message: "bad thing: BAD sk-secret-123", code: "fake-bad" }]);
+  assert.equal(shown.problemsAll, 1);
+  const { hideIn } = await import("../src/coder-routes.mjs");
+  assert.equal(hideIn([shown], ["sk-secret-123"])[0].problems[0].message, "bad thing: BAD [hidden]");
+  // The chat: the line, and the list a tap away.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /stepChange\(r, key\) \+\n[^\n]*\n\s+stepProblems\(r, key\) \+/);
+  assert.match(ui, /">Found ' \+ all \+ ' new diagnostic issue' \+ \(all === 1 \? '' : 's'\) \+ ' in 1 file/);
+  assert.match(ui, /on\('\.cd-probs-row', 'click'/);
+});
