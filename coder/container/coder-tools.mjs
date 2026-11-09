@@ -540,6 +540,12 @@ export const WRITE_SHOW_LINES = 120, WRITE_SHOW_CHARS = 8000, WRITE_DIFF_MAX = 2
 /** A text's lines as read counts them: the last line break ends a line, it is not one more. */
 const textLines = (t) => { if (t === "") return []; const a = t.split("\n"); if (a[a.length - 1] === "") a.pop(); return a; };
 async function writeChange(oldText, newText) {
+  // A WINDOWS FILE'S LINES WITHOUT THEIR HIDDEN "\r" (live test, 2026-11-09: copying the change under the step gave a blank
+  // line after each line; the owner: "Yes fix"): the texts are compared with their line endings set aside, as Claude
+  // Code's change is (its own record of the same edit: "-first", "+FIRST"), so a line whose ending alone changed is not
+  // counted as changed either.
+  const lf = (t) => (typeof t === "string" ? t.replace(/\r\n/g, "\n") : t);
+  oldText = lf(oldText); newText = lf(newText);
   const keep = (rows, add, del, kind) => {
     const lines = []; let used = 0;
     for (const l of rows) {

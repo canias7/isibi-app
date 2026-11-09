@@ -36,10 +36,17 @@
       <a class="dc-sub" href="#write-asks">Files Coder asks you about</a>
       <a class="dc-sub" href="#write-no">When write says no</a>
       <a class="dc-sub" href="#write-kept">What stays as it was</a>
+      <a href="#edit">Edit</a>
+      <a class="dc-sub" href="#edit-see">What you see</a>
+      <a class="dc-sub" href="#edit-finds">How edit finds the text</a>
+      <a class="dc-sub" href="#edit-changed">When the file changed</a>
+      <a class="dc-sub" href="#edit-asks">Files Coder asks you about</a>
+      <a class="dc-sub" href="#edit-no">When edit says no</a>
+      <a class="dc-sub" href="#edit-kept">What stays as it was</a>
     </nav>
     <main class="dc-main">
       <h1>Coder docs</h1>
-      <p class="dc-lead">How Coder's tools work: read and write so far, with more on the way.</p>
+      <p class="dc-lead">How Coder's tools work: read, write and edit so far, with more on the way.</p>
 
       <section id="read">
         <h2>Read</h2>
@@ -128,6 +135,50 @@
         <ul>
           <li>A file in UTF-16 stays UTF-16, and a UTF-8 file's hidden marker at its start (a byte-order mark) stays.</li>
           <li>A script stays runnable, and line endings are written as given.</li>
+        </ul>
+      </section>
+
+      <section id="edit">
+        <h2>Edit</h2>
+        <p class="dc-lead">Edit changes part of a file: it finds a piece of text that's in the file once, and puts new text in its place. For a new file, or one replaced whole, Coder uses write.</p>
+
+        <h3 id="edit-see">What you see</h3>
+        <ul>
+          <li>Under each edit, what changed: lines taken out in red, lines added in green, with the counts on the step, such as <code>+3 &minus;2</code>. The first lines show; tap for the rest.</li>
+          <li>For JavaScript, TypeScript and Python files, a language server checks the file right after the edit, as after a write. New mistakes show as <code>Found 1 new diagnostic issue in 1 file</code>, and Coder is told about them, so it can fix them.</li>
+          <li>After an edit in a folder with its own <code>CODER.md</code> (or <code>AGENTS.md</code>), Coder is shown that file, so it follows that folder's instructions.</li>
+        </ul>
+
+        <h3 id="edit-finds">How edit finds the text</h3>
+        <ul>
+          <li>The text has to match the file exactly, spaces and indentation included, and be in it once. If it's in the file more than once, edit says how many times, and Coder adds more of the text around it, or changes every place at once.</li>
+          <li>Line endings don't get in the way: text with ordinary line endings finds the same text in a file with Windows ones.</li>
+          <li>Straight quotes find curly ones (&ldquo; &rdquo; &lsquo; &rsquo;), and the new text gets curly quotes too.</li>
+          <li>With no old text, edit makes a new file, and the folders it goes in. On a file that already has text in it, it says the file already exists.</li>
+        </ul>
+
+        <h3 id="edit-changed">When the file changed</h3>
+        <ul>
+          <li>If the file changed since Coder read it, and the text being changed is still in it once, the edit goes ahead, and Coder is told the file has other changes it hasn't seen. If the text isn't in it once any more, Coder reads the file again first.</li>
+        </ul>
+
+        <h3 id="edit-asks">Files Coder asks you about</h3>
+        <ul>
+          <li>The same files as write. The card shows the lines edit would take out and put in, and <b>Allow</b> or <b>Don't allow</b>. A very long line is cut short, with <code>&hellip;</code> at its end. In a job started from GitHub, Coder doesn't change them.</li>
+        </ul>
+
+        <h3 id="edit-no">When edit says no</h3>
+        <ul>
+          <li>A file in an old text format, a shortcut (link) to another file, a folder's name, or a name with a hidden character in it: the same as write.</li>
+          <li>A file that isn't text, such as a picture: Coder uses a command or a script made for that kind of file.</li>
+          <li>A notebook (<code>.ipynb</code>): a change to its text can break its cells, so Coder replaces it whole with write, or changes a cell with a short script.</li>
+          <li>A file over <b>256 MB</b>: Coder works on parts of it with commands.</li>
+        </ul>
+
+        <h3 id="edit-kept">What stays as it was</h3>
+        <ul>
+          <li>The file's line endings (in a file with mixed ones, every line gets the kind most of its lines have), a UTF-16 file's format, and a byte-order mark.</li>
+          <li>A script stays runnable, and a read-only file stays read-only.</li>
         </ul>
       </section>
     </main>

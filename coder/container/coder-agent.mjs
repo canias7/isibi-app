@@ -953,7 +953,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           reply((c.name === "edit" ? "not edited yet: " : "not written yet: ") + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, " + (c.name === "edit" ? "make the edit" : "write it") + " again.");
           for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a protected file first" });
           // What it would do: a write's lines; an edit's old lines taken out and new ones put in.
-          const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split("\n") : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
+          // A Windows line ending is not part of the line shown (live test, 2026-11-09: a hidden "\r" on each line).
+          const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split(/\r?\n/) : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
           const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : args.content);
           // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
           // dialog sometimes showing a changed line cut short with no indication"); the owner's values hidden before the cut,

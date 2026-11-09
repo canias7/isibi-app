@@ -505,3 +505,10 @@ Tests: CD263 (every case, Claude Code's words and the bytes on disk), CD264 (the
 2. On the protected-file card, a long line with no spaces runs past the card's right edge, so its "…" is seen only by scrolling sideways (le-8-card.png).
 
 Not part of edit's comparison: Claude Code's terminal groups only reads and searches (its `collapsed_read_search`), so there is no Claude Code group line for edits to compare Coder's "Edited N files" with.
+
+**Both fixed** (the owner, 2026-11-09: "Yes fix"):
+
+1. The change is worked out with line endings set aside, as Claude Code's is: no hidden `\r` on its lines, under the step or on the card, and a line whose ending alone changed (a mixed-endings file made the file's own) is not counted as changed. Write shares it. Tried on the real page: the change box and a copy of it have no `\r` (`-first`, `-second`, `+FIRST`, `+SECOND`, `+inserted`, ` third`). CD267.
+2. A long line on the card wraps, so its "…" is in view: tried on the real page with the live test's 380-character `.npmrc` line, no sideways scrolling, four rows, the "…" inside the card. CD268.
+
+The /docs page has an Edit section now (what you see, how edit finds the text, when the file changed, files Coder asks about, when edit says no, what stays as it was); CD248 checks its numbers against the code.

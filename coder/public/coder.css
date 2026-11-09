@@ -169,6 +169,9 @@
 .cd-dl-add { background: #e9f7ef; color: #0f5132; }
 /* An edit's change on the card for a protected file (edit, tool 3): one line each, coloured edge to edge. */
 .cd-writeask .cd-envchange-pre .cd-wl { display: block; margin: 0 -12px; padding: 0 12px; white-space: pre-wrap; }
+/* A LONG LINE ON THE CARD WRAPS, so the "…" that shows it was cut is in view (live test, 2026-11-09: a 380-character line
+   ran past the card's right edge and its "…" was seen only by scrolling sideways; the owner: "Yes fix"). */
+.cd-writeask .cd-envchange-pre { overflow-wrap: anywhere; }
 .cd-dl-del { background: #fdecea; color: #842029; }
 .cd-dl-hunk { color: #8a857d; }
 
