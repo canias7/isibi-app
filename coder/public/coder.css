@@ -263,6 +263,37 @@
 .cd-secret-save,.cd-card-yes{border:1px solid #1f1e1d;background:#1f1e1d;color:#fff}
 .cd-secret-save:disabled,.cd-card-yes:disabled{background:#a9a7a1;border-color:#a9a7a1;cursor:default}
 .cd-card-no:disabled{opacity:.5;cursor:default}
+/* GLOOPY'S BROWSER, LIVE (2026-11-09): the view under Gloopy's bar; an orange edge while you have control. */
+.cd-web-btn { display: inline-flex; align-items: center; gap: 6px; }
+.cd-web { max-width: 900px; margin: 12px auto 0; width: calc(100% - 40px); border: 1px solid #e6e2db; border-radius: 14px; background: #fff; overflow: hidden; }
+.cd-web-bar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-bottom: 1px solid #efece7; font-size: 13px; }
+.cd-web-st { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: #1f1e1d; white-space: nowrap; }
+.cd-web-st i { width: 8px; height: 8px; border-radius: 50%; background: #a9a7a1; }
+.cd-web-st.is-work i { background: #2f9e44; box-shadow: 0 0 0 3px rgba(47,158,68,.18); }
+.cd-web-st.is-you i { background: #e8590c; box-shadow: 0 0 0 3px rgba(232,89,12,.18); }
+.cd-web-addr { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6b7280; }
+.cd-web-mini { border: 1px solid #d9d6cf; background: #fff; border-radius: 999px; padding: 3px 10px; font: 600 12px Inter, system-ui, sans-serif; cursor: pointer; }
+.cd-web-x { border: 0; background: none; font-size: 22px; line-height: 1; padding: 0 4px; color: #6b7280; cursor: pointer; }
+.cd-web-screen { display: flex; justify-content: center; background: #f4f2ee; outline: none; }
+.cd-web-screen img { display: block; max-width: 100%; max-height: 52vh; width: auto; height: auto; user-select: none; -webkit-user-select: none; }
+.cd-web-screen.is-you { box-shadow: inset 0 0 0 3px #e8590c; }
+.cd-web-screen.is-you img { cursor: pointer; }
+.cd-web-screen.is-you:focus-visible { box-shadow: inset 0 0 0 4px #e8590c; }
+.cd-web-empty { margin: 0; padding: 44px 20px; text-align: center; color: #6b7280; font-size: 14px; }
+.cd-web-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-top: 1px solid #efece7; }
+.cd-web-in { flex: 1 1 200px; min-width: 0; font: inherit; font-size: 14px; border: 1px solid #d9d6cf; border-radius: 999px; padding: 7px 12px; outline: none; }
+.cd-web-in:focus { border-color: #1f1e1d; }
+.cd-web-tools button { border: 1px solid #d9d6cf; background: #fff; color: #1f1e1d; border-radius: 999px; padding: 6px 11px; font: 600 13px Inter, system-ui, sans-serif; cursor: pointer; }
+.cd-web-foot { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 14px; border-top: 1px solid #efece7; }
+.cd-web-foot p { flex: 1; margin: 0; font-size: 13px; color: #6b7280; }
+.cd-web-foot .cd-web-err { color: #b42318; }
+.cd-web-foot button { border-radius: 999px; padding: 9px 18px; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
+@media (max-width: 640px) { .cd-web { width: calc(100% - 20px); margin-top: 8px; } .cd-web-screen img { max-height: 40vh; } .cd-web-foot { flex-wrap: wrap; } }
+/* While you have control (and on a phone, while the view is open), the view takes the chat's place, so no cut-off strip of
+   the chat shows under it; the message box stays at the bottom. Closing the view (×) brings the chat back. */
+.cd:has(.cd-web-screen.is-you) > .cd-log { display: none; }
+.cd:has(.cd-web-screen.is-you) > .cd-composewrap { margin-top: auto; }
+@media (max-width: 640px) { .cd:has(.cd-web) > .cd-log { display: none; } .cd:has(.cd-web) > .cd-composewrap { margin-top: auto; } .cd:has(.cd-web) .cd-web-screen img { max-height: 46vh; } }
 /* Three answers on a phone (Gloopy's approval card): a little more room for each word. */
 @media (max-width: 640px) { .cd-approve .cd-secret-btns { gap: 8px; } .cd-approve .cd-secret-btns button { font-size: 14px; padding: 11px 4px; } }
 

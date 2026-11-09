@@ -95,7 +95,9 @@ test("GL6 (2026-11-09) on Coder's machine, a Gloopy turn gets Gloopy's instructi
     assert.match(sys, /NETWORK: your computer can reach any site on the internet\./);
     assert.doesNotMatch(sys, /NETWORK: NONE|THE REPO'S|YOUR MEMORY FOR THIS REPO/, "nothing of Coder's repo context");
     // Not the full image (no Chrome or Playwright): no browser, and Gloopy is told so.
-    assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), GLOOPY_TOOL_NAMES.filter((n) => n !== "browser" && n !== "sign_in").sort());
+    const { BROWSER_TOOL_NAMES } = await import("../container/gloopy-agent.mjs");
+    assert.deepEqual(BROWSER_TOOL_NAMES, ["browser", "sign_in", "handoff"]);
+    assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), GLOOPY_TOOL_NAMES.filter((n) => !BROWSER_TOOL_NAMES.includes(n)).sort());
     assert.match(sys, /YOUR BROWSER is not on this computer right now/);
     assert.ok(!st.events.some((e) => e.tool === "setup"), "no setup script ran");
     assert.equal(st.result.memory, "Name: Ana", "the notes come back for the Worker to keep");
@@ -422,7 +424,7 @@ test("GL16 (2026-11-09) the job loop checks a step that could change something: 
   g = withChecks([say("", [call("browser", { action: "click", ref: "e5" }, "c4")]), say("Please pay on the site yourself.")], [{ decision: "handoff", why: "Paying with your card is yours to do." }]);
   out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b }, { text: "buy them", ...GLOOPY });
   assert.deepEqual(b.acted, []);
-  assert.match(out.messages.find((m) => m.tool_call_id === "c4").content, /^not done: this step is the owner's own to do \(Paying with your card is yours to do\.\)\. Tell the owner in a few words what to do on shop\.example, and stop\.$/);
+  assert.match(out.messages.find((m) => m.tool_call_id === "c4").content, /^not done: this step is the owner's own to do \(Paying with your card is yours to do\.\)\. Use handoff to ask the owner to do it in your browser on shop\.example \(say exactly what to do\), or tell them what to do, and stop\.$/);
   assert.equal(out.approvalRequest, undefined);
   // The owner's OK for a step that could not be done then: that same step goes ahead once, unchecked; the next is checked.
   b = fakeBrowser(ELS);
@@ -696,4 +698,313 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   const meta = { kind: "gloopy", title: "Gloopy", at: Date.now() };
   assert.deepEqual(pushesFor([{ type: "approval", step: STEP_ORDER, site: "shop.example", why: "This would place the order." }], meta).map((p) => [p.kind, p.title, p.body]), [["actions", "Gloopy needs your OK", STEP_ORDER + " on shop.example: This would place the order."]]);
   assert.deepEqual(pushesFor([{ type: "signin", site: "shop.example", reason: "To see your orders" }], meta).map((p) => [p.kind, p.title, p.body]), [["actions", "Gloopy asks you to sign in", "To shop.example: To see your orders"]]);
+});
+
+// ── WATCHING GLOOPY'S BROWSER LIVE, AND TAKING OVER (owner, 2026-11-09: "Ok you can start") ──
+// A page with a "robot check" at a known spot, and a search box.
+function robotSite() {
+  const pages = {
+    "/": '<title>Robot check</title><style>body{margin:0;font-family:sans-serif}#b{position:absolute;left:100px;top:100px;width:220px;height:80px}#q{position:absolute;left:100px;top:300px;width:300px;height:40px}</style><button id=b onclick="location=\'/passed\'">I am not a robot</button><form action=/search><input id=q name=q aria-label=Search></form>',
+    "/passed": "<title>Passed</title><h1>Thanks, human</h1>",
+    "/search": "<title>Search</title><h1>Searched</h1>",
+  };
+  return http.createServer((req, res) => { const [p, q = ""] = req.url.split("?"); res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); res.end((pages[p] || "nope") + (q ? "<p>" + decodeURIComponent(q.replace(/\+/g, " ")) + "</p>" : "")); });
+}
+
+test("GL21 (2026-11-09) the owner's input is checked: a click inside the page, 1 to 1000 characters typed, one key, a scroll, or Back", async () => {
+  const { checkInput, OWNER_INPUTS, VIEW } = await import("../container/gloopy-browser.mjs");
+  assert.deepEqual(OWNER_INPUTS, ["click", "type", "key", "scroll", "back"]);
+  assert.deepEqual(checkInput({ kind: "click", x: 210.6, y: 140.2, text: "ignored" }), { kind: "click", x: 211, y: 140 });
+  assert.deepEqual(checkInput({ kind: "type", text: "red shoes" }), { kind: "type", text: "red shoes" });
+  assert.deepEqual(checkInput({ kind: "key", key: "Control+A" }), { kind: "key", key: "Control+A" });
+  assert.deepEqual(checkInput({ kind: "scroll", dy: 99999 }), { kind: "scroll", dy: 3000 });
+  assert.deepEqual(checkInput({ kind: "back", x: 1 }), { kind: "back" });
+  for (const bad of [{ kind: "click", x: -1, y: 5 }, { kind: "click", x: VIEW.width, y: 5 }, { kind: "click", y: 5 }, { kind: "type", text: "" }, { kind: "type", text: "x".repeat(1001) }, { kind: "key", key: "rm -rf /" }, { kind: "scroll", dy: 0 }, { kind: "drag" }, null]) assert.throws(() => checkInput(bad), JSON.stringify(bad));
+});
+
+test("GL22 (2026-11-09) the live view and the owner's hands, for real (where Chromium is installed): a look never starts the browser; taking over does; an unchanged page is not sent again; clicks land where the owner clicked; typing, keys, scrolling and Back work", async (t) => {
+  const { makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  const { spawnSync } = await import("node:child_process");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const srv = robotSite(), base = await listen(srv);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-live-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    assert.deepEqual(await hub.screen(), { off: true }, "a look does not start it");
+    assert.equal(await hub.running(), false);
+    const w = await hub.wake();
+    assert.ok(w.shot && w.hash, "taking over starts it");
+    await hub.act({ action: "open", url: base + "/" });
+    const s1 = await hub.screen();
+    assert.deepEqual([s1.title, s1.w, s1.h], ["Robot check", 1280, 800]);
+    assert.ok(Buffer.from(s1.shot, "base64").subarray(0, 2).equals(Buffer.from([0xff, 0xd8])), "a JPEG");
+    const same = await hub.screen({ since: s1.hash });
+    assert.deepEqual(same, { url: base + "/", title: "Robot check", same: true, hash: s1.hash }, "unchanged: no picture sent again");
+    const c = await hub.input({ kind: "click", x: 210, y: 140 });
+    assert.deepEqual([c.title, c.url], ["Passed", base + "/passed"], "the click landed on the button");
+    assert.ok(c.shot, "with the page after it");
+    await hub.input({ kind: "back" });
+    await hub.input({ kind: "click", x: 250, y: 320 });
+    await hub.input({ kind: "type", text: "red shoes" });
+    const k = await hub.input({ kind: "key", key: "Enter" });
+    assert.equal(k.url, base + "/search?q=red+shoes");
+    assert.ok((await hub.input({ kind: "scroll", dy: 400 })).hash);
+  } finally { srv.close(); spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
+});
+
+test("GL23 (2026-11-09) handoff: Gloopy hands its browser to the owner for a step only they can do; the turn ends on a card; Coder has no such tool", async () => {
+  const events = [];
+  const b = fakeBrowser({ focus: null });
+  const g = scripted([say("", [call("handoff", { reason: "x" }, "h0")]), say("The shop wants a person.", [call("handoff", { task: "Solve the robot check,\u200b then press Continue", reason: "The site asks for a person to tick the box." }, "h1"), call("browser", { action: "look" }, "h2")]), say("SHOULD NOT BE ASKED")]);
+  const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b, emit: (e) => events.push(e) }, { text: "order the shoes", ...GLOOPY });
+  assert.match(out.messages.find((m) => m.tool_call_id === "h0").content, /^error: give task: what the owner should do in your browser/);
+  assert.equal(g.seen.length, 2, "the turn ended on the card");
+  const card = events.find((e) => e.type === "handoff");
+  assert.match(card.id, /^ho[a-z0-9]+$/);
+  assert.deepEqual({ ...card, id: "", at: 0 }, { type: "handoff", id: "", at: 0, task: "Solve the robot check, then press Continue", reason: "The site asks for a person to tick the box.", site: "shop.example", url: "https://shop.example/cart" });
+  assert.deepEqual(out.handoffRequest, { id: card.id, task: "Solve the robot check, then press Continue", site: "shop.example", url: "https://shop.example/cart" });
+  assert.equal(events.find((e) => e.type === "bash" && e.id === "h1").verb, "Asked you to take over");
+  assert.equal(events.find((e) => e.type === "result" && e.id === "h1").label, "Asked you to take over: Solve the robot check, then press Continue");
+  assert.match(out.messages.find((m) => m.tool_call_id === "h1").content, /^asked the owner to do this in your browser: Solve the robot check, then press Continue\. Your turn ends here; the next message says how it went and where the page is now\.$/);
+  assert.equal(out.messages.find((m) => m.tool_call_id === "h2").content, "not run: you handed your browser to the owner first");
+  assert.deepEqual(b.acted, []);
+  // No browser: said. Coder: no such tool.
+  const n = scripted([say("", [call("handoff", { task: "x", reason: "y" }, "h3")]), say("Done.")]);
+  assert.match((await runCoder({ send: n.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go", ...GLOOPY })).messages.find((m) => m.tool_call_id === "h3").content, /^error: there is no browser on this computer/);
+  const c = scripted([say("", [call("handoff", { task: "x", reason: "y" }, "h4")]), say("Done.")]);
+  assert.match((await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }), browser: b }, { text: "go" })).messages.find((m) => m.tool_call_id === "h4").content, /^error: no such tool: handoff/);
+  const { HANDOFF_TOOL } = await import("../container/gloopy-agent.mjs");
+  assert.deepEqual(HANDOFF_TOOL.function.parameters.required, ["task", "reason"]);
+  assert.match(HANDOFF_TOOL.function.description, /Not for signing in with a password: use sign_in for that\./);
+  assert.match(GLOOPY_SYSTEM, /use handoff: they take over your browser, do it, and hand it back/);
+});
+
+test("GL24 (2026-11-09) on Gloopy's machine: no browser on the small image; a look never starts it; the owner takes over only while Gloopy isn't working, uses it only while they have control, and their next message hands it back", async (t) => {
+  const { createApp } = await import("../container/server.mjs");
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  const { spawnSync } = await import("node:child_process");
+  const mk = async (p) => ({ root: await mkdtemp(join(tmpdir(), p + "w-")), gitRoot: await mkdtemp(join(tmpdir(), p + "g-")), memRoot: await mkdtemp(join(tmpdir(), p + "m-")), bgRoot: await mkdtemp(join(tmpdir(), p + "b-")) });
+  const on = async (app) => { const srv = http.createServer(app); await new Promise((r) => srv.listen(0, r)); return { srv, base: "http://127.0.0.1:" + srv.address().port }; };
+  const get = (base, path) => fetch(base + path).then(async (r) => [r.status, await r.json()]);
+  const post = (base, path, body) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", ...body }) }).then(async (r) => [r.status, await r.json()]);
+  // The small image (Cloudflare's backup machines): no browser at all.
+  const small = await on(createApp({ ...(await mk("gl-ss")), send: async () => say("Hi.") }));
+  try {
+    assert.deepEqual(await get(small.base, "/gloopy/screen?project=gloopy-main"), [200, { none: true }]);
+    assert.deepEqual(await post(small.base, "/gloopy/control", { take: true }), [200, { none: true }]);
+  } finally { small.srv.close(); }
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const site = robotSite(), siteBase = await listen(site);
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl-sf-")), "browser");
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const seen = [];
+  const steps = [say("", [call("browser", { action: "look" }, "l1")]), say("I looked.")];
+  const full = await on(createApp({ ...(await mk("gl-sf")), env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, send: async (req) => { seen.push(req); if (seen.length === 1) await gate; return steps[Math.min(seen.length - 1, steps.length - 1)]; } }));
+  try {
+    assert.deepEqual(await get(full.base, "/gloopy/screen?project=gloopy-main"), [200, { off: true, control: false, working: false }], "a look does not start the browser");
+    assert.deepEqual(await post(full.base, "/gloopy/input", { kind: "click", x: 1, y: 1 }), [409, { error: "Take over first." }]);
+    let [st, r] = await post(full.base, "/gloopy/control", { take: true });
+    assert.equal(st, 200);
+    assert.deepEqual([r.control, r.working, !!r.shot], [true, false, true], "taking over starts it");
+    [st, r] = await post(full.base, "/gloopy/input", { kind: "key", key: "Control+L" });
+    assert.deepEqual([st, r.control], [200, true]);
+    assert.equal((await get(full.base, "/gloopy/screen?project=gloopy-main"))[1].control, true);
+    // The owner's message hands the browser back; while Gloopy works, the owner can only watch.
+    assert.equal((await fetch(full.base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", agent: "gloopy", text: "look at the page", messages: [] }) })).status, 200);
+    [st, r] = await get(full.base, "/gloopy/screen?project=gloopy-main");
+    assert.deepEqual([r.control, r.working], [false, true]);
+    assert.deepEqual(await post(full.base, "/gloopy/control", { take: true }), [409, { error: "Gloopy is working in its browser. Stop it first, then take over." }]);
+    assert.equal((await post(full.base, "/gloopy/input", { kind: "click", x: 1, y: 1 }))[0], 409);
+    release();
+    let s;
+    for (let i = 0; i < 200; i++) { s = await (await fetch(full.base + "/state?project=gloopy-main&since=0")).json(); if (s.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.equal(s.result.status, "done");
+    assert.match(s.result.messages.find((m) => m.tool_call_id === "l1").content, /^Did: Looked at the page\n/, "Gloopy has its browser back");
+    [st, r] = await post(full.base, "/gloopy/control", { take: false });
+    assert.deepEqual([st, r.control, r.had], [200, false, false]);
+  } finally {
+    full.srv.close(); site.close();
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]);
+  }
+});
+
+test("GL25 (2026-11-09) the Worker: the live view never wakes a sleeping computer; taking over is refused while Gloopy works and is remembered for Gloopy's next message; only the input's own fields go to the machine and none is kept; the handoff card hands the browser back", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const machine = [];
+  let answer = {}, awake = false;
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), awake: async (name) => { machine.push({ awakeAsked: name }); return awake; },
+    container: () => ({ fetch: async (req) => {
+      const u = new URL(req.url), body = req.method === "POST" ? await req.json() : null;
+      machine.push({ path: u.pathname + (u.search || ""), body });
+      return Response.json(answer[u.pathname] || { ok: true }, { status: (answer[u.pathname] && answer[u.pathname].status) || 200 });
+    } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const meta = () => JSON.parse(bucket.m.get(metaKey));
+  const setMeta = (o) => bucket.m.set(metaKey, JSON.stringify({ ...meta(), ...o }));
+  const screen = (q = "") => go("projects/" + GLOOPY_ID + "/screen" + q);
+  const act = (body) => go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify(body) });
+  const g0 = await (await go("gloopy")).json();
+  assert.equal(g0.browser, false, "no browser without Fly.io's machines (the full image)");
+  const flyEnv = { CODER_MACHINES: "fly", FLY_API_TOKEN: "t".repeat(20), CODER_FLY_APP: "gofarther-coder", CODER_FLY_IMAGE: "registry.fly.io/gofarther-coder:v1" };
+  Object.assign(env, flyEnv);
+  assert.equal((await (await go("gloopy")).json()).browser, true, "with them, Gloopy has its browser");
+  // Asleep: a look says so, and Gloopy's computer is not asked (so not woken).
+  let r = await (await screen()).json();
+  assert.deepEqual(r, { ok: true, asleep: true });
+  assert.deepEqual(machine, [{ awakeAsked: "u1-" + GLOOPY_ID }]);
+  // Awake: the look goes to the machine, with only the picture's mark it already has.
+  awake = true; machine.length = 0;
+  answer = { "/gloopy/screen": { url: "https://shop.example/", title: "Shop", same: true, hash: "abc123", control: false, working: false } };
+  r = await (await screen("?since=abc123%3Cscript%3E")).json();
+  assert.deepEqual(r, { ok: true, url: "https://shop.example/", title: "Shop", same: true, hash: "abc123", control: false, working: false });
+  assert.equal(machine.at(-1).path, "/gloopy/screen?project=" + GLOOPY_ID + "&since=abc123c");
+  // Taking over: not while Gloopy works.
+  setMeta({ status: "running" });
+  machine.length = 0;
+  r = await act({ take: true });
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).error, /Stop it first, then take over/);
+  assert.equal((await act({ input: { kind: "click", x: 1, y: 1 } })).status, 409);
+  assert.deepEqual(machine.filter((x) => x.path), [], "the machine is not asked");
+  // Taken over: remembered, so Gloopy hears of it.
+  setMeta({ status: "idle" });
+  answer = { "/gloopy/control": { control: true, working: false, url: "https://shop.example/", title: "Shop", shot: "AAAA", hash: "h1" } };
+  r = await (await act({ take: true })).json();
+  assert.deepEqual([r.ok, r.control], [true, true]);
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: true } });
+  assert.equal(meta().used, true);
+  // The owner's input: only its own fields go to the machine.
+  answer = { "/gloopy/input": { control: true, url: "https://shop.example/", title: "Shop", shot: "BBBB", hash: "h2" } };
+  await act({ input: { kind: "click", x: 10, y: 20, text: 5, extra: "nope" } });
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/input", body: { project: GLOOPY_ID, kind: "click", x: 10, y: 20 } });
+  await act({ input: { kind: "type", text: "4242 4242 4242 4242" } });
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, kind: "type", text: "4242 4242 4242 4242" });
+  await act({ input: { kind: "key", key: "Enter" } });
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, kind: "key", key: "Enter" });
+  answer = { "/gloopy/input": { status: 409, error: "Take over first." } };
+  r = await act({ input: { kind: "scroll", dy: 300 } });
+  assert.deepEqual([r.status, (await r.json()).error], [409, "Take over first."]);
+  // Gloopy's next message: told the owner used its browser, once.
+  answer = {};
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "carry on" }) });
+  const turn = machine.filter((x) => x.path === "/turn").at(-1).body;
+  assert.equal(turn.messages.at(-1).content, "(Note from Gloopy's app, not the owner: the owner took over your browser since your last message. The page may have changed: look at it before you go on.)");
+  assert.equal(turn.messages.at(-1).appNote, true);
+  assert.equal(meta().used, false);
+  // THE HANDOFF CARD: Done hands the browser back, and says where the page is now.
+  setMeta({ status: "idle", saved: meta().turn, waiting: "handoff", pending: { kind: "handoff", id: "ho1", task: "Solve the robot check", site: "shop.example" }, used: true });
+  assert.equal((await go("projects/" + GLOOPY_ID + "/approve", { method: "POST", body: JSON.stringify({ id: "ho1", decision: "once" }) })).status, 409, "not an approval");
+  assert.equal((await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho2", done: true }) })).status, 409, "another card");
+  answer = { "/gloopy/control": { control: false, had: true, url: "https://shop.example/passed", title: "Passed" } };
+  r = await (await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho1", done: true }) })).json();
+  assert.equal(r.said, "Done: Solve the robot check");
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: false } });
+  assert.equal(r.project.note, "(Note from Gloopy's app, not the owner: the owner says they did this in your browser: Solve the robot check. Your browser's page is now “Passed” at https://shop.example/passed. Look at it before you go on, to see whether it was done.)");
+  assert.deepEqual([r.project.pending, r.project.used], [null, false], "its note says it all");
+  // Not now.
+  setMeta({ waiting: "handoff", pending: { kind: "handoff", id: "ho3", task: "Solve the robot check", site: "shop.example" } });
+  r = await (await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho3", skip: true }) })).json();
+  assert.equal(r.said, "Not now: Solve the robot check");
+  assert.match(r.project.note, /the owner chose not to do this in your browser now: Solve the robot check\./);
+  // Nothing the owner typed is kept.
+  for (const [k, v] of bucket.m) assert.ok(!v.includes("4242"), "kept in " + k);
+});
+
+test("GL26 (2026-11-09) all of it, for real (where Chromium is installed): Gloopy meets a robot check and hands over; you watch, take over, click the box yourself and hand it back; Gloopy carries on from where the page is", async (t) => {
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { spawnSync } = await import("node:child_process");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { createApp } = await import("../container/server.mjs");
+  const site = robotSite(), siteBase = await listen(site), host = new URL(siteBase).host;
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl-ho-")), "browser");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-hw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-hg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-hm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-hb-")) };
+  const seen = [];
+  const steps = [
+    () => say("", [call("browser", { action: "open", url: siteBase + "/" }, "o1")]),
+    () => say("The shop wants to know I'm a person.", [call("handoff", { task: "Tick “I am not a robot”", reason: "The shop asks a person to do it." }, "h1")]),
+    (req) => { assert.match(JSON.stringify(req.messages), /the owner says they did this in your browser: Tick “I am not a robot”\. Your browser's page is now “Passed” at http:\/\/127\.0\.0\.1:\d+\/passed\./); return say("Thanks! I'm past the check."); },
+  ];
+  let n = 0;
+  const srv = http.createServer(createApp({ ...roots, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)](req); } }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), awake: async () => true,
+    container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const until = async () => { let st; for (let i = 0; i < 600; i++) { st = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json(); if (!st.running) return st; await new Promise((r) => setTimeout(r, 50)); } return st; };
+  const message = async (text) => { const r = await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text }) }); assert.equal(r.status, 200, await r.clone().text()); return until(); };
+  const events = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json"));
+  const screen = (body) => go("projects/" + GLOOPY_ID + "/screen", body ? { method: "POST", body: JSON.stringify(body) } : {}).then((r) => r.json());
+  try {
+    await go("gloopy");
+    let st = await message("Buy the red shoes");
+    const ho = events().find((e) => e.type === "handoff");
+    assert.deepEqual([ho.task, ho.site, ho.reason], ["Tick “I am not a robot”", host, "The shop asks a person to do it."]);
+    assert.deepEqual(st.project.pending, { kind: "handoff", id: ho.id, task: "Tick “I am not a robot”", site: host });
+    // You watch: the page as it is, and the same picture is not sent twice.
+    const look = await screen();
+    assert.deepEqual([look.title, look.control, look.working, !!look.shot], ["Robot check", false, false, true]);
+    assert.equal((await screen()).title, "Robot check");
+    // You take over and click the box yourself (where the picture shows it).
+    let r = await screen({ take: true });
+    assert.equal(r.control, true);
+    r = await screen({ input: { kind: "click", x: 210, y: 140 } });
+    assert.deepEqual([r.title, r.control], ["Passed", true]);
+    // You hand it back: Gloopy hears that you did it and where the page is, and carries on.
+    r = await (await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: ho.id, done: true }) })).json();
+    assert.equal(r.said, "Done: Tick “I am not a robot”");
+    assert.equal((await screen()).control, false, "the browser is Gloopy's again");
+    st = await message(r.said);
+    assert.ok(events().some((e) => e.type === "done" && e.text === "Thanks! I'm past the check."));
+    assert.equal(st.project.pending, null);
+  } finally {
+    srv.close(); site.close();
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]);
+  }
+});
+
+test("GL27 (2026-11-09) on the page: Gloopy's Browser button (only with a browser), the live view, Take over, Hand it back, the handoff card; the view pauses on its own; a message hands the browser back; the notification", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { pushesFor } = await import("../src/coder-push.mjs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8"), routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(ui, /S\.webOK = g\.data\.browser === true;/);
+  assert.match(ui, /\(S\.webOK && S\.project \? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"'/);
+  assert.match(ui, /const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 \* 60 \* 1000, WEB_HOLD_MS = 15 \* 60 \* 1000;/);
+  assert.match(ui, /if \(!S\.running && !w\.working && quiet > \(w\.control \? WEB_HOLD_MS : WEB_WATCH_MS\)\) \{ const b = webShape\(\); w\.paused = true; return webPaint\(b\); \}/, "it pauses on its own");
+  assert.match(ui, /if \(!S\.root\.hidden && document\.visibilityState === 'visible'\) \{/, "and looks only while it can be seen");
+  assert.match(ui, /\(w\.hash \? '\?since=' \+ encodeURIComponent\(w\.hash\) : ''\)/, "an unchanged page is not sent again");
+  assert.match(ui, /'<button type="button" class="cd-card-yes" id="cdWebTake"' \+ \(w\.working \|\| S\.running \|\| w\.none \? ' disabled' : ''\) \+ '>Take over<\/button>'/);
+  assert.match(ui, /\(ho \? 'Done, hand it back' : 'Hand it back'\)/);
+  assert.match(ui, /const x = Math\.floor\(\(\(e\.clientX - r\.left\) \/ r\.width\) \* img\.naturalWidth\), y = Math\.floor\(\(\(e\.clientY - r\.top\) \/ r\.height\) \* img\.naturalHeight\);/, "a click lands where it was made");
+  assert.match(ui, /if \(S\.web && S\.web\.control\) S\.web\.control = false;/, "a message hands the browser back");
+  assert.match(ui, /else if \(e\.type === 'handoff'\) \{[\s\S]{0,600}<b class="cd-secret-t">Gloopy needs you in its browser<\/b>/);
+  assert.match(ui, /data-handoff-skip="' \+ esc\(e\.id\) \+ '">Not now<\/button><button type="button" class="cd-card-yes" data-handoff-open="' \+ esc\(e\.id\) \+ '"/);
+  assert.match(ui, /handoff: \['asked you to take over', '', '', 'handoff'\]/);
+  assert.match(css, /\.cd-web-screen\.is-you \{ box-shadow: inset 0 0 0 3px #e8590c; \}/, "an orange edge while you have control");
+  // Found in the screenshots: a cut-off strip of the chat showed under the view; while you have control (and on a phone,
+  // while the view is open) the view takes the chat's place.
+  assert.match(css, /\.cd:has\(\.cd-web-screen\.is-you\) > \.cd-log \{ display: none; \}/);
+  assert.match(css, /@media \(max-width: 640px\) \{ \.cd:has\(\.cd-web\) > \.cd-log \{ display: none; \}/);
+  assert.match(routes, /const awake = typeof deps\.awake === "function" \? \(\) => deps\.awake\(uid \+ "-" \+ id\) : flyOn\(env\) \? \(\) => flyAwake\(env, uid \+ "-" \+ id\) : null;/, "on Fly.io, from Coder's record of the machine");
+  assert.deepEqual(pushesFor([{ type: "handoff", task: "Tick “I am not a robot”", site: "shop.example" }], { kind: "gloopy", title: "Gloopy", at: Date.now() }).map((p) => [p.kind, p.title, p.body]), [["actions", "Gloopy needs you in its browser", "Tick “I am not a robot” on shop.example"]]);
+});
+
+test("GL28 (2026-11-09) whether Gloopy's computer is awake comes from Coder's own record of it, so the live view never wakes it", async () => {
+  const { flyAwake, flyNames } = await import("../src/coder-fly.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_MACHINES: "fly", FLY_API_TOKEN: "t".repeat(20), CODER_FLY_APP: "gofarther-coder", CODER_FLY_IMAGE: "registry.fly.io/gofarther-coder:v1", CODER_BUCKET: bucket };
+  assert.equal(await flyAwake(env, "u1-gloopy-main"), false, "no machine yet");
+  const { key } = await flyNames("u1-gloopy-main");
+  bucket.m.set(key, JSON.stringify({ id: "m1", stopped: true }));
+  assert.equal(await flyAwake(env, "u1-gloopy-main"), false, "asleep");
+  bucket.m.set(key, JSON.stringify({ id: "m1", stopped: false }));
+  assert.equal(await flyAwake(env, "u1-gloopy-main"), true, "awake");
+  assert.equal(await flyAwake({ ...env, CODER_MACHINES: "" }, "u1-gloopy-main"), false, "not on Fly.io: no browser");
 });

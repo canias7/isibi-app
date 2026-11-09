@@ -40,7 +40,7 @@ import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
-import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
+import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
@@ -550,7 +550,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await getJson(bucket, gloopyRulesKey(uid), []) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await getJson(bucket, gloopyRulesKey(uid), []), browser: flyOn(env) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -607,10 +607,14 @@ export async function handleCoder(request, env, ctx, deps) {
 
   // GLOOPY'S CHAT: its own turns and their end (no GitHub, no environment), and Stop as a chat's; nothing of Coder's else.
   if (isGloopy(meta)) {
-    const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn };
+    // Whether Gloopy's computer is awake, from Coder's own record of it (never by asking it, which would wake it).
+    const awake = typeof deps.awake === "function" ? () => deps.awake(uid + "-" + id) : flyOn(env) ? () => flyAwake(env, uid + "-" + id) : null;
+    const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn, awake };
     if (action === "message" && request.method === "POST") return gloopyMessage(g);
     if (action === "state" && request.method === "GET") return gloopyState(g);
-    if ((action === "approve" || action === "signin") && request.method === "POST") return gloopyCard(g, action);
+    if ((action === "approve" || action === "signin" || action === "handoff") && request.method === "POST") return gloopyCard(g, action);
+    if (action === "screen" && request.method === "GET") return gloopyScreen(g);
+    if (action === "screen" && request.method === "POST") return gloopyTakeOver(g);
     if (action !== "stop") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
 
@@ -1350,8 +1354,10 @@ async function gloopyMessage(g) {
     return json({ ok: true, project: next, events: [ev], compacted: true });
   }
   let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-  // WHAT HAPPENED TO THE LAST CARD (a step the owner allowed or not, a sign-in), said to Gloopy just before this message.
-  if (typeof meta.note === "string" && meta.note) messages = [...(Array.isArray(messages) ? messages : []), { role: "user", appNote: true, content: meta.note }];
+  // WHAT HAPPENED TO THE LAST CARD (a step the owner allowed or not, a sign-in, a handoff), and the owner having taken over
+  // Gloopy's browser meanwhile: said to Gloopy just before this message.
+  const notes = [...(typeof meta.note === "string" && meta.note ? [meta.note] : []), ...(meta.used === true ? [GLOOPY_USED_NOTE] : [])];
+  if (notes.length) messages = [...(Array.isArray(messages) ? messages : []), ...notes.map((content) => ({ role: "user", appNote: true, content }))];
   // A long chat is summarized, not cut (as Coder's).
   let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
   const squeezed = await compactHistory(messages, summarizeFn);
@@ -1370,7 +1376,7 @@ async function gloopyMessage(g) {
   const memory = no ? (await no.text()).slice(0, MEMORY_MAX) : "";
   const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
   const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
-  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", marks };
+  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, marks };
   const rules = await getJson(bucket, gloopyRulesKey(uid), []);
   await saveMeta(bucket, uid, next);
   await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
@@ -1440,9 +1446,9 @@ async function gloopyState(g) {
     await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
     const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
-    const asked = fresh.filter((e) => e && ["question", "approval", "signin"].includes(e.type)).at(-1);
+    const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff"].includes(e.type)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
-    const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : null;
+    const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
     const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
     const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
     await saveMeta(bucket, uid, ended);
@@ -1466,7 +1472,8 @@ async function gloopyCard(g, action) {
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const p = meta.pending && typeof meta.pending === "object" ? meta.pending : null;
   if (meta.status === "running") return json({ error: "Gloopy is still working on the last message" }, 409);
-  if (!p || p.kind !== (action === "approve" ? "approval" : "signin") || p.id !== String(body.id || "")) return json({ error: action === "approve" ? "Nothing is waiting for your OK." : "No sign-in is waiting." }, 409);
+  const kind = { approve: "approval", signin: "signin", handoff: "handoff" }[action];
+  if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser." }[action] }, 409);
   const site = String(p.site || "the site");
   let note = "", said = "", grant = "";
   if (action === "approve") {
@@ -1485,6 +1492,14 @@ async function gloopyCard(g, action) {
     if (decision === "deny") { note = "(Note from Gloopy's app, not the owner: the owner said no to: " + p.step + " on " + site + ". It was not done. Don't try it another way: say what you would have done, and stop or go on without it.)"; said = "Denied: " + p.step; }
     else if (r && r.done) { note = "(Note from Gloopy's app, not the owner: the owner allowed" + (decision === "always" ? " (from now on, too)" : " (this once)") + ": " + p.step + " on " + site + ". It was done: " + String(r.did || p.step) + ". Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step; }
     else { note = "(Note from Gloopy's app, not the owner: the owner allowed: " + p.step + " on " + site + ", but it could not be done (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; if you still need to do it, try again: the owner's OK holds for this same step, once.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step; grant = String(p.step || ""); }
+  } else if (action === "handoff") {
+    // THE OWNER DID THE STEP IN GLOOPY'S BROWSER (or not): the browser is Gloopy's again, and Gloopy hears where it is.
+    let r = null;
+    try { r = await post("/gloopy/control", { project: id, take: false }).then((x) => x.json()); } catch { r = null; }
+    const task = String(p.task || "the step");
+    const where = r && r.url ? " Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url).slice(0, 500) + "." : "";
+    if (body.skip === true) { note = "(Note from Gloopy's app, not the owner: the owner chose not to do this in your browser now: " + task + "." + where + " Go on without it, or say plainly what you could not do.)"; said = "Not now: " + task; }
+    else { note = "(Note from Gloopy's app, not the owner: the owner says they did this in your browser: " + task + "." + where + " Look at it before you go on, to see whether it was done.)"; said = "Done: " + task; }
   } else if (body.skip === true) {
     try { await post("/gloopy/signin", { project: id, id: p.id, skip: true }); } catch { /* nothing to undo */ }
     note = "(Note from Gloopy's app, not the owner: the owner chose not to sign in to " + site + " now. Go on without it, or say plainly what you could not do.)";
@@ -1499,7 +1514,47 @@ async function gloopyCard(g, action) {
     else note = "(Note from Gloopy's app, not the owner: the owner's sign-in to " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in again only if the sign-in form is still there.)";
     said = r && r.ok && !r.still ? "Signed in to " + site : "Tried to sign in to " + site;
   }
-  const next = { ...meta, pending: null, waiting: null, note, grant, at: Date.now() };
+  // A handoff done says where the browser is now, so the plainer "the owner used your browser" note is not needed too.
+  const next = { ...meta, pending: null, waiting: null, note, grant, ...(action === "handoff" && body.skip !== true ? { used: false } : {}), at: Date.now() };
   await saveMeta(bucket, uid, next);
   return json({ ok: true, said, project: next });
+}
+
+/** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */
+const GLOOPY_USED_NOTE = "(Note from Gloopy's app, not the owner: the owner took over your browser since your last message. The page may have changed: look at it before you go on.)";
+
+/**
+ * THE OWNER'S LIVE VIEW OF GLOOPY'S BROWSER (owner, 2026-11-09: "Ok you can start"; Grok Bot's computer preview, dots'
+ * Open computer): the page as it is now, from Gloopy's machine. A machine that is asleep is not woken for a look (its
+ * browser is closed anyway): it says so.
+ */
+async function gloopyScreen(g) {
+  const { url, id, call, awake } = g;
+  if (awake && !(await awake().catch(() => true))) return json({ ok: true, asleep: true });
+  const since = String(url.searchParams.get("since") || "").replace(/[^a-f0-9]/g, "").slice(0, 40);
+  let r = null;
+  try { r = await call("/gloopy/screen?project=" + id + (since ? "&since=" + since : ""), { method: "GET" }); } catch { r = null; }
+  const out = r && r.ok ? await r.json().catch(() => null) : null;
+  return out ? json({ ok: true, ...out }) : json({ error: "Gloopy's computer could not be reached." }, 502);
+}
+
+/**
+ * THE OWNER TAKES OVER GLOOPY'S BROWSER, uses it, and hands it back (Grok Bot's Take control, dots' Take over and Return
+ * control). { take: true | false } or { input: { kind: click | type | key | scroll | back, ... } }. Not while Gloopy is
+ * working; nothing the owner types is kept here. Taking over is remembered, so Gloopy hears of it with the next message.
+ */
+async function gloopyTakeOver(g) {
+  const { request, bucket, uid, id, meta, post } = g;
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const input = body.input && typeof body.input === "object" ? body.input : null;
+  if ((body.take === true || input) && meta.status === "running") return json({ error: "Gloopy is working in its browser. Stop it first, then take over." }, 409);
+  // Only what each kind needs (a number left out stays out, so the machine refuses a click with no point).
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const ask = input ? { project: id, kind: String(input.kind || "").slice(0, 10), x: num(input.x), y: num(input.y), dy: num(input.dy), ...(typeof input.text === "string" ? { text: input.text.slice(0, 1000) } : {}), ...(typeof input.key === "string" ? { key: input.key.slice(0, 40) } : {}) } : { project: id, take: body.take === true };
+  let r = null;
+  try { r = await post(input ? "/gloopy/input" : "/gloopy/control", ask); } catch { r = null; }
+  const out = r ? await r.json().catch(() => null) : null;
+  if (!out) return json({ error: "Gloopy's computer could not be reached." }, 502);
+  if (body.take === true && r.ok && out.control === true && meta.used !== true) await saveMeta(bucket, uid, { ...meta, used: true });
+  return json({ ok: r.ok, ...out }, r.ok ? 200 : r.status);
 }

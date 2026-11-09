@@ -11,6 +11,32 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Watch Gloopy's browser live, and take over (your word: "Ok you can start")
+
+- **Tools vs features (you asked):** a tool is something the AI itself calls, like `browser` or `sign_in`. Watching live and taking over is mostly an app feature for you, plus one new tool for Gloopy: `handoff`.
+- **The Browser button** on Gloopy's chat opens a live view of its browser under the bar. You see the page, its title and address, and whether Gloopy is using it. The button only shows where Gloopy has a browser (the full machine, on Fly.io).
+- **Watching:** while Gloopy works, the picture refreshes about once a second. You can't take over while it's working; stop it first.
+- **Taking over:** "Take over" makes the browser yours, and an orange edge shows it.
+  - Click on the picture to click the page. Type on it, or in the "Type into the page" box.
+  - Buttons for Enter, Tab, ⌫, scrolling and Back (handy on a phone).
+  - "Hand it back" when you're done; your next message also hands it back. Gloopy's own browser steps are refused while you have it.
+- **The new handoff tool:** for a step only you can do (a CAPTCHA, a passkey or single sign-on, a code sent to you, card details), Gloopy shows a card: "Gloopy needs you in its browser", with what to do.
+  - "Open browser" takes over at once. "Done, hand it back" answers the card, and Gloopy carries on from where the page is. "Not now" works too.
+  - When the check says a step is yours to do, Gloopy is now told to use this.
+  - Your phone gets "Gloopy needs you in its browser".
+- **Gloopy is told what happened:** after a handoff, where the page is now. If you took over on your own, its next message says you used its browser.
+- **Spending:** no Grok calls. The view only looks while it's worth it: while Gloopy works, while you use it (up to 15 minutes without a touch), and for 2 minutes after you open it. Then it pauses with a Refresh button. It never wakes Gloopy's computer when it's asleep (its browser is closed then anyway), and an unchanged page isn't sent again.
+- **Private:** nothing you type in the view is kept anywhere. Only the click, the text or the key goes to Gloopy's computer.
+- **Found in the screenshots, fixed:** a cut-off strip of the chat showed under the view. While you have control, and on a phone while the view is open, the view now takes the chat's place; × brings the chat back.
+- **Tried here:**
+  - A real run through the Worker, Gloopy's computer and a real Chrome, with a stand-in for Grok: Gloopy met a "person check" and handed over. A click on the picture landed on the box, the browser was handed back, and Gloopy carried on.
+  - In the browser: each button sends exactly its own action. The view looks about every 0.8 seconds and stops when closed. Closing it while you have control hands the browser back.
+- **Known limits (your call):**
+  - What you type into ordinary fields (not password boxes) stays visible to Gloopy if it's still on the page when Gloopy looks again, so do only the step asked.
+  - The view is a picture refreshed about once a second, not video.
+  - You can't take over while Gloopy works; stop it first.
+- Tests GL21–GL28 (GL22, GL24 and GL26 drive a real browser). All 283 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's private sign-in card and its approvals (your word: "Ok do that")
 
 - **The private sign-in card** (like Grok Bot's Secure Form and dots' private sign-in): when a site needs you signed in, Gloopy asks with a card in the chat: "Sign in to runway-shoes.example", why it needs it, then Email, Password, and "Not now" or "Sign in" (Enter works too). What you type goes straight into Gloopy's browser on that site. It isn't saved anywhere, isn't shown in the chat, and Gloopy and Grok never see it. Your message then says "Signed in to runway-shoes.example" (or "Tried to sign in…" if the site showed its sign-in form again), and Gloopy carries on.

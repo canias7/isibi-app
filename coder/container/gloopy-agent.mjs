@@ -40,11 +40,25 @@ export const SIGN_IN_TOOL = Object.freeze({ type: "function", function: {
   }, required: ["password_ref", "reason"] },
 } });
 
-/** The tools Gloopy is offered: Coder's file, command and web tools and its cards, its browser and its sign-in card; none of Coder's GitHub or environment tools. */
-export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit", "grep", "glob", "web_fetch", "browser", "sign_in", "monitor", "stop_job", "ask_user", "todo", "notify"]);
-export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)), BROWSER_TOOL, SIGN_IN_TOOL]);
+/**
+ * THE OWNER TAKES OVER FOR A STEP (owner, 2026-11-09: "Ok you can start"; Grok Bot "hands you the computer" for single
+ * sign-on, a passkey, a CAPTCHA or a code on another device; dots' "browser handoff"): a card in the chat; the owner opens
+ * Gloopy's browser, takes over, does the step, and hands it back.
+ */
+export const HANDOFF_TOOL = Object.freeze({ type: "function", function: {
+  name: "handoff",
+  description: "Hand your browser to the owner for a step only they can do on the site open in it: a CAPTCHA you cannot get past, a passkey or single sign-on, a code sent to their phone or email, an approval on another device or a QR code, card or bank details, or a site that wants a person. Say exactly what to do, in a few words (\"Solve the CAPTCHA, then press Continue\"), and one sentence on why. They see your browser live, take over, do it and hand it back. Your turn ends here; the next message says how it went and where the page is now. Not for signing in with a password: use sign_in for that.",
+  parameters: { type: "object", properties: {
+    task: { type: "string", description: "what the owner should do in your browser, in a few words" },
+    reason: { type: "string", description: "one sentence: why you need them for it" },
+  }, required: ["task", "reason"] },
+} });
+
+/** The tools Gloopy is offered: Coder's file, command and web tools and its cards, its browser, its sign-in card and its handoff; none of Coder's GitHub or environment tools. */
+export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit", "grep", "glob", "web_fetch", "browser", "sign_in", "handoff", "monitor", "stop_job", "ask_user", "todo", "notify"]);
+export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)), BROWSER_TOOL, SIGN_IN_TOOL, HANDOFF_TOOL]);
 /** The tools that need a browser on the machine. */
-export const BROWSER_TOOL_NAMES = Object.freeze(["browser", "sign_in"]);
+export const BROWSER_TOOL_NAMES = Object.freeze(["browser", "sign_in", "handoff"]);
 
 export const GLOOPY_SYSTEM = `You are Gloopy, the owner's own AI assistant on gofarther.dev: a friendly little yellow character with your own Linux computer in the cloud. You work for one person, the owner.
 
@@ -56,6 +70,7 @@ HOW YOU WORK
 - Your tools: bash (run commands on your computer), read, write, edit, grep and glob (files on your computer), web search (built into you: use it for anything current), web_fetch (a separate reader answers your question from one web page), browser (your own web browser: open sites, look, click, type, scroll), todo (a checklist the owner sees, for bigger jobs), ask_user (questions for the owner, as a card), notify (a notification on the owner's phone or computer), monitor and stop_job (commands left running in the background).
 - For a quick fact, search; to read one page, web_fetch; to use a site (search forms, filters, menus, pages behind buttons, prices that change), your browser. Look at the outline and the screenshot before each click, and say what you found with the page's address.
 - When a site needs the owner's account, use sign_in: they sign in on a private card and you never see the password. Never type passwords yourself, and never ask for them in the chat.
+- When a step needs the owner themselves (a CAPTCHA, a passkey or single sign-on, a code sent to them, card details), use handoff: they take over your browser, do it, and hand it back. The owner can also watch your browser live and take over at any time; if the page changed when you look again, they may have used it.
 - Some browser steps (a click, a choice, a submit) are checked first; one that could buy, send, book, post, sign up or delete waits for the owner's OK on a card. If the owner says no, don't try it another way: say what you would have done, and stop.
 - Your commands start in your work folder. Files there may not be kept from one day to the next yet: put what the owner needs in your answer itself (text, tables, links).
 - Check before you say something is true: give a link for each fact you looked up, and say plainly what you could not find or check. Never make up results, prices, dates, names or quotes.

@@ -464,6 +464,16 @@ async function removeMachine(env, id, volume, deps) {
   if (volume) await flyApi(env, "/apps/" + s.app + "/volumes/" + volume, { method: "DELETE", ...deps });
 }
 
+/**
+ * IS A CHAT'S MACHINE AWAKE? From Coder's own record only, so asking never wakes it (Gloopy's live view, 2026-11-09:
+ * a machine asleep has no browser running, and a look is no reason to wake it).
+ */
+export async function flyAwake(env, name) {
+  if (!flyOn(env)) return false;
+  const rec = await readRec(env.CODER_BUCKET, (await flyNames(name)).key);
+  return !!rec && !rec.stopped;
+}
+
 /** A REMOVED CHAT's machine and disk go too. */
 export async function dropFlyMachine(env, name, deps0 = {}) {
   if (!flyOn(env)) return;

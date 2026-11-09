@@ -1566,6 +1566,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env }));
   // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), until they answer or a turn starts.
   const pending = new Map();
+  // THE OWNER HAS TAKEN OVER GLOOPY'S BROWSER (owner, 2026-11-09: "Ok you can start"; Grok Bot's Take control, dots'
+  // Take over): only while no Gloopy turn runs; Gloopy's browser steps are refused meanwhile, and the owner's next message
+  // hands it back (Grok Bot: "tell the Bot to continue").
+  let ownerControl = null;
+  const notWhileOwner = () => { if (ownerControl) throw new Error("the owner has taken over your browser: wait for their next message before you use it"); };
   async function startTurn(body, { copy = "" } = {}) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
@@ -1580,6 +1585,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const cur = turns.get(project);
     if (cur && cur.running) return [409, { error: "busy" }];
     pending.delete(project);
+    // The owner's message hands the browser back to Gloopy.
+    if (body.agent === "gloopy") ownerControl = null;
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
     const t = { running: true, stop: false, events: [], result: null, bg: new Set(), started: Date.now() };
     turns.set(project, t);
@@ -1919,7 +1926,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         },
         emit: (e) => { t.events.push(e); },
         // Gloopy's browser, through this service (its own user); the sign-in's filling is never the AI's.
-        ...(gloopy && hasBrowser ? { browser: { act: (a) => browserHub().act(a), describe: (ref) => browserHub().describe(ref) } } : {}),
+        ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); } } } : {}),
       }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
@@ -2052,6 +2059,33 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const line = (k) => ((new RegExp("^" + k + ": (.*)$", "m").exec(r.text) || [])[1] || "").slice(0, 500);
           return send(200, { done: true, did: line("Did"), title: line("Page"), url: line("Address") });
         } catch (e) { return send(200, { done: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // THE OWNER'S LIVE VIEW OF GLOOPY'S BROWSER, and the owner taking over (2026-11-09): only on a machine with a browser
+      // (the full image); a look never starts the browser; the owner's clicks and typing only while they have control and
+      // Gloopy is not working.
+      if (["/gloopy/screen", "/gloopy/control", "/gloopy/input"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
+      const working = !!(t && t.running);
+      if (url.pathname === "/gloopy/screen" && req.method === "GET") {
+        try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "" })), control: !!ownerControl, working }); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: !!ownerControl, working }); }
+      }
+      if (url.pathname === "/gloopy/control" && req.method === "POST") {
+        if (body.take !== true) {
+          const had = !!ownerControl;
+          ownerControl = null;
+          let where = {};
+          try { if (await browserHub().running()) { const d = await browserHub().describe(""); where = { url: String(d.url || ""), title: String(d.title || "") }; } } catch { where = {}; }
+          return send(200, { control: false, had, ...where });
+        }
+        if (working) return send(409, { error: "Gloopy is working in its browser. Stop it first, then take over." });
+        try { const r = await browserHub().wake(); ownerControl = { since: Date.now() }; return send(200, { ...r, control: true, working: false }); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: false }); }
+      }
+      if (url.pathname === "/gloopy/input" && req.method === "POST") {
+        if (!ownerControl) return send(409, { error: "Take over first." });
+        if (working) { ownerControl = null; return send(409, { error: "Gloopy is working in its browser." }); }
+        try { return send(200, { ...(await browserHub().input(body)), control: true, working: false }); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: true }); }
       }
       if (url.pathname === "/gloopy/signin" && req.method === "POST") {
         const project = String(body.project || ""), p = pending.get(project);

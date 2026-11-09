@@ -594,8 +594,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const started = now();
   let rounds = 0;
   let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
-  // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, or the owner's sign-in through the private form.
-  let approvalRequest = null, signinRequest = null;
+  // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
+  // or a step the owner does themselves in Gloopy's browser.
+  let approvalRequest = null, signinRequest = null, handoffRequest = null;
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
@@ -615,7 +616,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -702,7 +703,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -882,7 +883,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           const g = granted.indexOf(step);
           const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step." }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules });
           if (v.usage) usage.push(v.usage);
-          if (v.decision === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Tell the owner in a few words what to do on " + (about.host || "the site") + ", and stop."); continue; }
+          if (v.decision === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Use handoff to ask the owner to do it in your browser on " + (about.host || "the site") + " (say exactly what to do), or tell them what to do, and stop."); continue; }
           if (v.decision === "ask") {
             const id = "ap" + Math.random().toString(36).slice(2, 10);
             emit({ type: "result", id: c.id, code: 0, output: "Waiting for your OK: " + step, label: "Asked you first: " + step });
@@ -920,6 +921,26 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "signin", id, site, url: pass.url || "", reason: plain(scrub(String(args.reason || ""))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
+      } else if (c.name === "handoff") {
+        // THE OWNER TAKES OVER FOR A STEP (2026-11-09; Grok Bot "hands you the computer", dots' browser handoff): a card;
+        // the owner opens Gloopy's browser, does the step and hands it back. The turn ends here.
+        const args = c.args || {};
+        const task = plain(scrub(String(args.task || ""))).slice(0, 200);
+        emit({ type: "bash", id: c.id, tool: "handoff", verb: "Asked you to take over", command: "" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        const hub = deps.browser;
+        if (!hub || typeof hub.describe !== "function") { no("error: there is no browser on this computer"); continue; }
+        if (!task) { no("error: give task: what the owner should do in your browser, in a few words"); continue; }
+        let where;
+        try { where = await hub.describe(""); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+        const id = "ho" + Math.random().toString(36).slice(2, 10);
+        const site = where.host || "";
+        emit({ type: "result", id: c.id, code: 0, output: "Asked you to " + task.charAt(0).toLowerCase() + task.slice(1), label: "Asked you to take over: " + task });
+        reply("asked the owner to do this in your browser: " + task + ". Your turn ends here; the next message says how it went and where the page is now.");
+        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you handed your browser to the owner first" });
+        emit({ type: "handoff", id, task, reason: plain(scrub(String(args.reason || ""))).slice(0, 300), site, url: where.url || "" });
+        handoffRequest = { id, task, site, url: where.url || "" };
+        return end("done", { summary: lastSaid || "asked the owner to take over the browser: " + task });
       } else if (RUN_TOOLS[c.name]) {
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
         const spec = RUN_TOOLS[c.name];

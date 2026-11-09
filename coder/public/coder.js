@@ -46,6 +46,8 @@
     openFiles: {},  // which files are open in See changes
     comments: [],   // [{ file, line, quote, text }] from See changes
     commenting: null, // { file, line, quote } while writing one
+    webOK: false,   // Gloopy: its machine has a browser (the full image, on Fly.io)
+    web: null,      // Gloopy: the live view of its browser, while open (webOpen)
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -128,6 +130,7 @@
     if (g.status === 404) { S.phase = 'off'; return draw(); }
     if (g.status === 403) { S.phase = 'error'; S.error = 'Gloopy is not open to this account yet.'; return draw(); }
     if (g.status !== 200 || !g.data || !g.data.gloopy) { S.phase = 'error'; S.error = (g.data && g.data.error) || 'Gloopy could not be reached.'; return draw(); }
+    S.webOK = g.data.browser === true;
     return openProject(g.data.gloopy.id);
   }
 
@@ -612,6 +615,8 @@
     const pics = (S.pics || []).slice();
     if ((!text && !comments.length && !pics.length) || !S.project || S.running || S.sending) return;
     S.comments = []; S.pics = []; S.mention = null;
+    // Your message hands Gloopy's browser back to it (its machine does so as the turn starts).
+    if (S.web && S.web.control) S.web.control = false;
     S.sending = true; S.error = ''; S.draft = ''; S.unsent = text;
     const base = S.events.length;
     S.events.push({ type: 'user', text: text || (pics.length ? '(see the picture)' : '(comments on the changes)'), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}) });
@@ -719,6 +724,7 @@
 
   // ── DRAWING ───────────────────────────────────────────────────────────────
   const ICON = {
+    web: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01"/></svg>',
     cloud: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z"/></svg>',
     globe: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
     lock: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2"/></svg>',
@@ -778,7 +784,7 @@
     read: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6', edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     write: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM12 18v-6M9 15h6', grep: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     glob: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', lsp: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', handoff: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M9 14l2 2 4-4', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
   function stepIcon(e) {
@@ -819,7 +825,7 @@
    * failed }], a step with no tool being a command.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], handoff: ['asked you to take over', '', '', 'handoff'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -931,6 +937,16 @@
             (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') +
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-signin="' + esc(e.id) + '" disabled>Sign in</button></div>' : '') + '</div>');
       }
+      else if (e.type === 'handoff') {
+        // A STEP ONLY YOU CAN DO, IN GLOOPY'S BROWSER (2026-11-09; Grok Bot hands you the computer, dots' browser handoff):
+        // Open browser takes over at once; "Done, hand it back" answers it there.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        out.push('<div class="cd-secret cd-handoff"><div class="cd-secret-icon">' + ICON.web.replace('width="16" height="16"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Gloopy needs you in its browser</b>' +
+          '<p class="cd-secret-how">' + esc(e.task || '') + (e.site ? ' · <code>' + esc(e.site) + '</code>' : '') + '</p>' +
+          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+          '<p class="cd-secret-p">Open Gloopy’s browser, do only this step, then hand it back. Gloopy sees the page again after.</p>' +
+          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-handoff-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-handoff-open="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + '>Open browser</button></div>' : '') + '</div>');
+      }
       else if (e.type === 'secret') {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
@@ -962,7 +978,163 @@
     return '<div class="cd-head">' +
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       '<span class="cd-gl-av" aria-hidden="true">' + gloopyFig(26) + '</span><b class="cd-title-bar">' + esc((S.project && S.project.title) || 'Gloopy') + '</b>' +
-    '</div>';
+      (S.webOK && S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"' + (S.web ? ' aria-pressed="true"' : '') + '>' + ICON.web + 'Browser' + (S.web && S.web.control ? ' · You' : S.running ? ' · Live' : '') + '</button>' : '') +
+    '</div>' + (S.web ? webHTML() : '');
+  }
+
+  // GLOOPY'S BROWSER, LIVE (owner, 2026-11-09: "Ok you can start"; Grok Bot's computer preview and Take control, dots'
+  // Open computer, Take over and Return control): the page in Gloopy's browser as it is now, refreshed while you watch,
+  // and yours to use once you take over (clicks, typing, keys, scrolling, Back), until you hand it back or send a message.
+  // It looks only while it is worth it: while Gloopy works, while you use it (up to 15 minutes without a touch) and for 2
+  // minutes after you open it; then it pauses, so it never keeps Gloopy's computer awake for nothing. A look never wakes
+  // a computer that is asleep (its browser is closed then).
+  const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 * 60 * 1000, WEB_HOLD_MS = 15 * 60 * 1000;
+  const webPath = () => '/projects/' + encodeURIComponent(S.project.id) + '/screen';
+  const webHandoff = () => (S.project && S.project.pending && S.project.pending.kind === 'handoff' ? S.project.pending : null);
+  function webHTML() {
+    const w = S.web;
+    const st = w.control ? ['is-you', 'You have control'] : w.working || S.running ? ['is-work', 'Gloopy is using it'] : w.asleep ? ['', 'Asleep'] : w.off ? ['', 'Closed'] : ['', 'Gloopy isn’t using it'];
+    const host = (() => { try { return w.url && /^https?:/.test(w.url) ? new URL(w.url).host : ''; } catch (e) { return ''; } })();
+    const empty = w.none ? 'Gloopy’s browser isn’t on this computer.'
+      : w.asleep ? 'Gloopy’s computer is asleep. Its browser opens when Gloopy uses it, or when you take over.'
+      : w.off ? 'Gloopy’s browser is closed. It opens when Gloopy uses it, or when you take over.'
+      : !w.shot ? (w.error ? 'The browser could not be shown: ' + w.error : 'Opening…') : '';
+    const ho = webHandoff();
+    return '<div class="cd-web" id="cdWebPanel">' +
+      '<div class="cd-web-bar"><span class="cd-web-st ' + st[0] + '"><i></i>' + st[1] + '</span>' +
+        '<span class="cd-web-addr" id="cdWebAddr" title="' + esc(w.url || '') + '">' + esc(w.title || '') + (host ? ' · ' + esc(host) : '') + '</span>' +
+        (w.paused ? '<button type="button" class="cd-web-mini" id="cdWebResume">Refresh</button>' : '') +
+        '<button type="button" class="cd-web-x" id="cdWebClose" aria-label="Close the browser view">×</button></div>' +
+      '<div class="cd-web-screen' + (w.control ? ' is-you' : '') + '" id="cdWebScreen"' + (w.control ? ' tabindex="0" aria-label="Gloopy’s browser: click to use it, type to type into it"' : '') + '>' +
+        (empty ? '<p class="cd-web-empty">' + esc(empty) + '</p>' : '<img id="cdWebImg" src="' + esc(w.shot) + '" alt="Gloopy’s browser" draggable="false">') + '</div>' +
+      (w.control ? '<div class="cd-web-tools"><input id="cdWebType" class="cd-web-in" type="text" placeholder="Type into the page" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webBox || '') + '">' +
+        '<button type="button" id="cdWebSend">Type</button><button type="button" data-web-key="Enter">Enter</button><button type="button" data-web-key="Tab">Tab</button><button type="button" data-web-key="Backspace" aria-label="Backspace">⌫</button>' +
+        '<button type="button" data-web-scroll="-600" aria-label="Scroll up">↑</button><button type="button" data-web-scroll="600" aria-label="Scroll down">↓</button><button type="button" id="cdWebBack">Back</button></div>' : '') +
+      '<div class="cd-web-foot">' + (w.msg ? '<p class="cd-web-err">' + esc(w.msg) + '</p>' : w.control ? '<p>Click on the page to use it. ' + (ho ? 'Do only this: ' + esc(ho.task) + '.' : 'Gloopy sees the page again when you hand it back.') + '</p>' : w.working || S.running ? '<p>You’re watching. To take over, stop Gloopy first.</p>' : '<p>Take over to use Gloopy’s browser yourself, then hand it back.</p>') +
+        (w.control ? '<button type="button" class="cd-card-yes" id="cdWebGive">' + (ho ? 'Done, hand it back' : 'Hand it back') + '</button>'
+          : '<button type="button" class="cd-card-yes" id="cdWebTake"' + (w.working || S.running || w.none ? ' disabled' : '') + '>Take over</button>') +
+      '</div></div>';
+  }
+  function webOpen(take) {
+    if (!S.project) return;
+    S.web = { url: '', title: '', shot: '', hash: '', control: false, working: false, touched: Date.now(), msg: '' };
+    draw();
+    if (take) webTake(); else webTick();
+  }
+  function webClose() {
+    if (S.webTimer) clearTimeout(S.webTimer);
+    S.webTimer = 0;
+    // Closing the view while you have control hands the browser back.
+    if (S.web && S.web.control && S.project) call(webPath(), { method: 'POST', body: JSON.stringify({ take: false }) });
+    S.web = null; S.webBox = ''; draw();
+  }
+  // What the machine said about the browser, kept for the view; a new picture only when it changed.
+  function webTake_(d) {
+    const w = S.web;
+    if (!w || !d) return;
+    w.asleep = d.asleep === true; w.off = d.off === true; w.none = d.none === true;
+    w.error = d.error ? String(d.error) : '';
+    if (typeof d.control === 'boolean') w.control = d.control;
+    w.working = d.working === true;
+    if (typeof d.url === 'string') w.url = d.url;
+    if (typeof d.title === 'string') w.title = d.title;
+    if (d.shot) { w.shot = 'data:image/jpeg;base64,' + d.shot; w.hash = d.hash || ''; }
+    if (w.asleep || w.off || w.none) { w.shot = ''; w.hash = ''; }
+  }
+  // Paints the new picture in place when only it changed (no redraw while you type or click); redraws otherwise.
+  function webPaint(before) {
+    const w = S.web;
+    if (!w) return;
+    const shape = [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running].join('|');
+    const img = S.root && S.root.querySelector('#cdWebImg');
+    if (before === shape && img) {
+      if (img.getAttribute('src') !== w.shot) img.setAttribute('src', w.shot);
+      const a = S.root.querySelector('#cdWebAddr');
+      if (a) { let host = ''; try { host = /^https?:/.test(w.url) ? new URL(w.url).host : ''; } catch (e) { host = ''; } a.textContent = (w.title || '') + (host ? ' · ' + host : ''); a.title = w.url || ''; }
+      return;
+    }
+    draw();
+  }
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running].join('|') : ''; };
+  async function webTick() {
+    if (S.webTimer) clearTimeout(S.webTimer);
+    S.webTimer = 0;
+    const w = S.web;
+    if (!w || !S.project || !S.root || !S.root.isConnected) return;
+    const quiet = Date.now() - w.touched;
+    if (!S.running && !w.working && quiet > (w.control ? WEB_HOLD_MS : WEB_WATCH_MS)) { const b = webShape(); w.paused = true; return webPaint(b); }
+    if (!S.root.hidden && document.visibilityState === 'visible') {
+      const b = webShape();
+      const r = await call(webPath() + (w.hash ? '?since=' + encodeURIComponent(w.hash) : ''));
+      if (S.web !== w) return;
+      if (r.status === 200) webTake_(r.data); else w.error = (r.data && r.data.error) || 'Gloopy’s computer could not be reached.';
+      webPaint(b);
+    }
+    S.webTimer = setTimeout(webTick, WEB_EVERY_MS);
+  }
+  async function webTake() {
+    const w = S.web;
+    if (!w) return;
+    w.msg = ''; w.touched = Date.now(); w.paused = false;
+    const b = webShape();
+    w.msg = 'Taking over…'; webPaint(b);
+    const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: true }) });
+    if (S.web !== w) return;
+    w.msg = r.status === 200 && !(r.data && r.data.error) ? '' : (r.data && r.data.error) || 'Gloopy’s browser could not be taken over.';
+    if (r.status === 200) webTake_(r.data);
+    draw();
+    const sc = S.root && S.root.querySelector('#cdWebScreen');
+    if (sc && w.control) sc.focus();
+    webTick();
+  }
+  // Hand it back: a handoff Gloopy is waiting on is answered (and its words start Gloopy's next turn); otherwise the
+  // browser is simply Gloopy's again, and Gloopy hears of it with your next message.
+  async function webGive() {
+    const w = S.web;
+    if (!w) return;
+    const ho = webHandoff();
+    if (ho) {
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/handoff', { method: 'POST', body: JSON.stringify({ id: ho.id, done: true }) });
+      if (r.status !== 200) { w.msg = (r.data && r.data.error) || 'Your answer could not be sent.'; return draw(); }
+      if (r.data && r.data.project) S.project = r.data.project;
+      w.control = false; w.touched = Date.now();
+      draw();
+      return send((r.data && r.data.said) || 'Done.');
+    }
+    const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: false }) });
+    if (S.web !== w) return;
+    w.control = false; w.touched = Date.now(); w.msg = r.status === 200 ? '' : (r.data && r.data.error) || '';
+    draw(); webTick();
+  }
+  // Your click, typing, key, scroll or Back, in order; the picture after it comes back with the answer.
+  function webInput(input) {
+    const w = S.web;
+    if (!w || !w.control) return;
+    w.touched = Date.now();
+    S.webQueue = (S.webQueue || Promise.resolve()).then(async () => {
+      if (S.web !== w || !w.control) return;
+      const b = webShape();
+      const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ input }) });
+      if (S.web !== w) return;
+      if (r.status === 200 && !(r.data && r.data.error)) { w.msg = ''; webTake_(r.data); }
+      else { w.msg = (r.data && r.data.error) || 'That did not reach Gloopy’s browser.'; if (r.status === 409) w.control = false; }
+      webPaint(b);
+    });
+  }
+  // Keys typed on the page itself: letters go together (a short pause sends them); Enter, Tab, arrows and the like one by one.
+  const WEB_KEYS = new Set(['Enter', 'Tab', 'Backspace', 'Delete', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End']);
+  function webKey(e) {
+    const w = S.web;
+    if (!w || !w.control) return;
+    const flush = () => { if (S.webTyped) { const t = S.webTyped; S.webTyped = ''; webInput({ kind: 'type', text: t }); } };
+    if ((e.ctrlKey || e.metaKey) && /^[a-z]$/i.test(e.key)) { e.preventDefault(); flush(); return webInput({ kind: 'key', key: (e.ctrlKey ? 'Control+' : 'Meta+') + e.key.toUpperCase() }); }
+    if (WEB_KEYS.has(e.key)) { e.preventDefault(); flush(); return webInput({ kind: 'key', key: e.key }); }
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      S.webTyped = (S.webTyped || '') + e.key;
+      if (S.webTypeTimer) clearTimeout(S.webTypeTimer);
+      S.webTypeTimer = setTimeout(flush, 250);
+    }
   }
   function gloopySide(sd) {
     if (!sd || !sd.tools || !sd.tools.isConnected) return;
@@ -1226,12 +1398,14 @@
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
+    const webFocus = document.activeElement && ['cdWebScreen', 'cdWebType'].includes(document.activeElement.id) ? document.activeElement.id : '';
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+    if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
   }
 
   function grow(t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
@@ -1319,6 +1493,41 @@
       e.currentTarget.disabled = true;
       cardAnswer(e.currentTarget.dataset.signinSkip, 'signin', { skip: true }, 'Your answer could not be sent.');
     });
+    on('[data-handoff-open]', 'click', () => { if (S.web) webTake(); else webOpen(true); });
+    on('[data-handoff-skip]', 'click', (e) => {
+      if (!S.project) return;
+      e.currentTarget.disabled = true;
+      cardAnswer(e.currentTarget.dataset.handoffSkip, 'handoff', { skip: true }, 'Your answer could not be sent.');
+    });
+    // GLOOPY'S BROWSER, LIVE: open or close the view; take over and hand back; your clicks, typing, keys and scrolling.
+    on('#cdWeb', 'click', () => (S.web ? webClose() : webOpen(false)));
+    on('#cdWebClose', 'click', webClose);
+    on('#cdWebResume', 'click', () => { if (S.web) { S.web.paused = false; S.web.touched = Date.now(); webTick(); draw(); } });
+    on('#cdWebTake', 'click', webTake);
+    on('#cdWebGive', 'click', webGive);
+    on('#cdWebImg', 'click', (e) => {
+      const w = S.web, img = e.currentTarget;
+      if (!w || !w.control || !img.naturalWidth) return;
+      const r = img.getBoundingClientRect();
+      const x = Math.floor(((e.clientX - r.left) / r.width) * img.naturalWidth), y = Math.floor(((e.clientY - r.top) / r.height) * img.naturalHeight);
+      const sc = root.querySelector('#cdWebScreen'); if (sc) sc.focus();
+      webInput({ kind: 'click', x, y });
+    });
+    on('#cdWebScreen', 'keydown', webKey);
+    on('#cdWebScreen', 'wheel', (e) => {
+      if (!S.web || !S.web.control) return;
+      e.preventDefault();
+      S.webWheel = (S.webWheel || 0) + e.deltaY;
+      if (S.webWheelTimer) return;
+      S.webWheelTimer = setTimeout(() => { const dy = Math.round(S.webWheel); S.webWheel = 0; S.webWheelTimer = 0; if (dy) webInput({ kind: 'scroll', dy }); }, 200);
+    });
+    const webTypeBox = () => { const box = root.querySelector('#cdWebType'); const t = box ? box.value : ''; if (!t) return; box.value = ''; S.webBox = ''; webInput({ kind: 'type', text: t.slice(0, 1000) }); };
+    on('#cdWebType', 'input', (e) => { S.webBox = e.currentTarget.value; });
+    on('#cdWebSend', 'click', webTypeBox);
+    on('#cdWebType', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); webTypeBox(); } });
+    on('[data-web-key]', 'click', (e) => webInput({ kind: 'key', key: e.currentTarget.dataset.webKey }));
+    on('[data-web-scroll]', 'click', (e) => webInput({ kind: 'scroll', dy: Number(e.currentTarget.dataset.webScroll) }));
+    on('#cdWebBack', 'click', () => webInput({ kind: 'back' }));
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
     on('.cd-secret-save', 'click', async (e) => {

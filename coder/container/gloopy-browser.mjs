@@ -12,6 +12,11 @@
 // Two actions are the service's own and never the AI's: `describe` (what an element is, for the check before an action)
 // and `fill` (the owner's sign-in, typed into the page from the private form; the AI never sees it). Whatever is in a
 // password field is blanked out of every outline.
+//
+// THE OWNER WATCHES AND TAKES OVER (owner, 2026-11-09: "Ok you can start"; Grok Bot's "Open computer, Take control",
+// dots' "Take over, Return control"): `screen` is the page as it is now, for the owner's live view (never the AI's), taken
+// at once even while an action runs; the owner's own clicks, typing, keys, scrolling and Back (`input`) are the
+// service's, sent only while the owner has control (server.mjs).
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, chownSync, chmodSync, openSync, closeSync } from "node:fs";
@@ -19,6 +24,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 export const BROWSER_ACTIONS = Object.freeze(["open", "look", "click", "type", "press", "select", "scroll", "back"]);
 /** The most of a page's outline one answer carries (a big page's goes on past it; the screenshot shows what is in view). */
@@ -36,6 +42,8 @@ export const PASSWORD_REFUSED = "that is a password field: you never type passwo
 export const NO_BROWSER = "there is no browser on this computer (it is a small backup machine): use your web search and web_fetch instead, and tell the owner the browser was not available.";
 /** What a password field holds, as every outline shows it. */
 export const BLANKED = "••••••";
+/** What the owner can do in the browser once they have taken over. */
+export const OWNER_INPUTS = Object.freeze(["click", "type", "key", "scroll", "back"]);
 
 /**
  * THE ADDRESS TO OPEN: http or https only (a bare name gets https://, a local one http://), never the machine's own
@@ -72,6 +80,25 @@ export function checkAsk(a) {
   if (action === "select") { if (typeof x.option !== "string" || !x.option) throw new Error("give option: the choice to pick, as the outline shows it"); out.option = x.option.slice(0, 500); }
   if (action === "scroll") out.direction = x.direction === "up" ? "up" : "down";
   return out;
+}
+
+/**
+ * THE OWNER'S OWN INPUT, checked: a click at a point of the page (its pixels, as in the screenshot), text typed where the
+ * focus is, one key, a scroll, or Back. Throws with what is wrong.
+ */
+export function checkInput(a) {
+  const x = a && typeof a === "object" ? a : {};
+  const kind = String(x.kind || "");
+  if (!OWNER_INPUTS.includes(kind)) throw new Error("kind is one of: " + OWNER_INPUTS.join(", "));
+  if (kind === "click") {
+    const px = Number(x.x), py = Number(x.y);
+    if (!Number.isFinite(px) || !Number.isFinite(py) || px < 0 || py < 0 || px >= VIEW.width || py >= VIEW.height) throw new Error("click inside the page");
+    return { kind, x: Math.round(px), y: Math.round(py) };
+  }
+  if (kind === "type") { if (typeof x.text !== "string" || !x.text || x.text.length > 1000) throw new Error("type 1 to 1000 characters"); return { kind, text: x.text }; }
+  if (kind === "key") { const key = String(x.key || ""); if (!KEY_RE.test(key)) throw new Error("that key cannot be pressed"); return { kind, key }; }
+  if (kind === "scroll") { const dy = Math.round(Number(x.dy)); if (!Number.isFinite(dy) || !dy) throw new Error("scroll up or down"); return { kind, dy: Math.max(-3000, Math.min(3000, dy)) }; }
+  return { kind };
 }
 
 /**
@@ -187,6 +214,27 @@ export async function serve(dir) {
     for (const f of page.frames()) { try { if (await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].some((i) => i.offsetParent !== null))) still = true; } catch { /* a frame that went away */ } }
     return { ok: true, url: page.url(), title: await page.title().catch(() => ""), still };
   };
+  // THE OWNER'S LIVE VIEW: the page as it is now (a JPEG), with its address and title; nothing new when it has not changed
+  // since the one they have (`since`). A moment when no picture can be taken (a page being loaded) gives none.
+  const screen = async (x) => {
+    const where = { url: page.url(), title: await page.title().catch(() => "") };
+    const shot = await page.screenshot({ type: "jpeg", quality: 60, timeout: 5000 }).catch(() => null);
+    if (!shot) return { ...where, same: true };
+    const hash = createHash("sha1").update(shot).digest("hex").slice(0, 16);
+    return x && x.since === hash ? { ...where, same: true, hash } : { ...where, hash, shot: shot.toString("base64"), w: VIEW.width, h: VIEW.height };
+  };
+  // THE OWNER'S OWN CLICKS, TYPING, KEYS, SCROLLING AND BACK, while they have control; then the page as it is.
+  const input = async (x) => {
+    const i = checkInput(x);
+    if (i.kind === "click") await page.mouse.click(i.x, i.y);
+    else if (i.kind === "type") await page.keyboard.type(i.text);
+    else if (i.kind === "key") await page.keyboard.press(i.key);
+    else if (i.kind === "scroll") await page.mouse.wheel(0, i.dy);
+    else if (i.kind === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+    await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(350);
+    return screen({});
+  };
   let last = Date.now(), busy = Promise.resolve();
   const sock = join(dir, "ctl.sock");
   await rm(sock, { force: true });
@@ -195,6 +243,13 @@ export async function serve(dir) {
     let body = "";
     req.on("data", (c) => { if (body.length < 100_000) body += c; });
     req.on("end", () => {
+      // The owner's live view is answered at once, even while an action runs.
+      if (req.url === "/screen") {
+        let x = {};
+        try { x = JSON.parse(body || "{}"); } catch { x = {}; }
+        screen(x).then((out) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(out)); }, (e) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ error: plainError(e, {}) })); });
+        return;
+      }
       // One action at a time, in the order asked.
       busy = busy.then(async () => {
         let out, ask = null;
@@ -203,6 +258,7 @@ export async function serve(dir) {
           if (!x) out = { ok: true };
           else if (x.action === "describe") out = await describe(x);
           else if (x.action === "fill") out = await fill(x);
+          else if (x.action === "input") out = await input(x);
           else { ask = checkAsk(x); out = await run(ask); }
         } catch (e) { out = { error: e && e.message === PASSWORD_REFUSED ? PASSWORD_REFUSED : plainError(e, ask || {}) }; }
         last = Date.now();
@@ -281,6 +337,13 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     fill: ({ userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", userRef, passRef, submitRef, username, password }),
     // Only when it is running already (no browser is started to be told nothing).
     running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
+    // THE OWNER'S LIVE VIEW: { shot, hash, url, title } (or { same: true } when unchanged since `since`); { off: true } when
+    // the browser is not running (it is not started for a look).
+    screen: async ({ since = "" } = {}) => { const r = await ask(sock, "/screen", { since: String(since || "").slice(0, 40) }, 10_000); if (r && r.down) return { off: true }; if (r && r.error) throw new Error(r.error); return r; },
+    // THE OWNER TAKES OVER: the browser started if it is not running, then the page as it is.
+    wake: async () => { const p = await ask(sock, "/ping", {}, 2000); if (!p || !p.ok) await start(); const r = await ask(sock, "/screen", {}, 10_000); if (r && (r.down || r.error)) throw new Error(r.error || "the browser stopped answering"); return r; },
+    // The owner's own click, typing, key, scroll or Back; then the page as it is.
+    input: (x) => call({ action: "input", ...checkInput(x) }),
   };
 }
 
