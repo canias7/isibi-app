@@ -11,6 +11,13 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Checked live: after a failed try, the next new chat saves the setup's copy, and the one after uses it (your words: "can you check that, the next new chat runs the setup and tries again")
+
+- **Chat 1** (recording 20, right after deploy 74): the setup ran, because a saved copy only works for the Coder version that made it. Saving the new copy failed: "Fly.io did not start saving it in time". Coder waits up to 80 seconds for Fly.io to start, then lets the job go on, and that time Fly.io hadn't started.
+- **Chat 2** (recording 21, a new chat in the same environment): the setup ran again, and this time "Setup: Fly.io is saving a copy of the setup's result…". So the message was right: the next chat tried again, and it worked.
+- **Chat 3** (8 minutes later): "Setup: this chat started from the environment's saved copy (made 2026-11-09 06:45 UTC), so the setup script did not run again."
+- **One thing to know:** in chat 3, `setup-ran.txt` (which the setup writes inside the project folder) wasn't there. That's how it was built on 2026-11-07: every chat gets a fresh copy of the repository, and the saved copy keeps what the setup put on the machine and in the home folder. Claude Code's docs say to use the setup script for tools on the machine, and to run project installs like `npm install` at the start of each session ("Use a setup script to provision the VM itself … Use a SessionStart hook for project setup … like `npm install`").
+
 ## 2026-11-09: Edit: both fixes and the docs page checked live after deploy 74 (your words: "Ok,merge" and "Ok let me know when it's done")
 
 - **Deploy 74** passed. Coder's machine built fine this time.
