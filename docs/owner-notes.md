@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Bash (tool 4): Claude Code's docs read first (your words: "Yes start on bash, look at claude code docs first")
+
+- **Read:** every page of Claude Code's docs that names its Bash tool, and the 395 changelog entries about it. The full list and the side-by-side with Coder are in `docs/tool-by-tool.md`, section 4.
+- **Coder already has:** the same time limits (2 minutes, up to 10), `cd` carrying over the same way, commands in the background, a slow command moved to the background instead of stopped, secrets kept out of commands, and a command that shows a file counting as a read.
+- **Claude Code has, Coder doesn't (or does differently):**
+  - background commands keep running after the answer, and Claude is told when they finish (Coder stops them at the end of the turn);
+  - long output is saved to a file instead of cut;
+  - writes by a command (`>`, `tee`) to protected files are asked about;
+  - a fuller dangerous-`rm` check;
+  - a short plain description of each command;
+  - `grep` with no matches isn't a failure;
+  - a clear full-disk message;
+  - pictures in output;
+  - running a command yourself with `!`.
+- **Next:** try the same commands in Claude Code and in Coder, then copy.
+
 ## 2026-11-09: Checked live: after a failed try, the next new chat saves the setup's copy, and the one after uses it (your words: "can you check that, the next new chat runs the setup and tries again")
 
 - **Chat 1** (recording 20, right after deploy 74): the setup ran, because a saved copy only works for the Coder version that made it. Saving the new copy failed: "Fly.io did not start saving it in time". Coder waits up to 80 seconds for Fly.io to start, then lets the job go on, and that time Fly.io hadn't started.

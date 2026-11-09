@@ -522,3 +522,39 @@ The /docs page has an Edit section now (what you see, how edit finds the text, w
 | 3 | gofarther.dev/docs | Read, Write and Edit; Edit's six parts in the list | live |
 
 Seen once, outside edit: the setup's saved copy could not be made ("Fly.io did not start saving it in time"). The setup ran because a copy only serves the Coder version that made it (`cacheUsable`: `c.image !== s.image`), and deploy 74 is a new one; the next new chat runs the setup and tries again. The first time in the recorded live tests (seven saved, two used).
+
+---
+
+## 4. bash (Claude Code: Bash)
+
+**Claude Code's docs** (the owner, 2026-11-09: "Yes start on bash, look at claude code docs first"; the 228 pages fetched that day, every page naming Bash read: the tools reference's "Bash tool behavior", env-vars, settings, permissions, permission modes (protected and critical paths), sandboxing, interactive mode, hooks (the tool's fields), the cloud docs, and the changelog's 395 Bash entries from 1.0.18 to 2.1.319):
+
+- **Inputs:** `command`, `description` (what the command does in plain words, not the command echoed: 2.1.267), `timeout` (milliseconds; a value over the maximum is cut to it, not refused), `run_in_background` (and `dangerouslyDisableSandbox` with the local sandbox). `command_description` is taken for `description` (2.1.295). The tool description says output "is displayed to the model, not reliably to the user" (2.1.224).
+- **Each command a separate process.** A `cd` carries over (cloud sessions too, across messages: 2.1.265) while it stays inside the working folders; past them "Shell cwd was reset to <dir>"; `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` turns it off. Environment variables don't persist (`CLAUDE_ENV_FILE` or a SessionStart hook does that); aliases and functions from the shell startup file do (a snapshot).
+- **Timeouts:** 2 minutes by default, up to 10 (`BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS`); the cloud sets none of its own. A command still running at its timeout moves to the background, "unless the command starts with `sleep`": "Command did not complete within its 120s timeout and was moved to the background", then the task id and the output file. A `cd` in it never carries over: "Session cwd remains <dir>; directory changes made by the backgrounded command do not apply to subsequent commands."
+- **Background commands** (`run_in_background`): a task id and an output file Claude reads with Read (TaskOutput removed, 2.1.277). One the main conversation started "keeps running after a final response, until it exits, is stopped, or reaches its time limit"; Claude is told when it ends (2.1.0, 2.1.257: also when you stop it), and doesn't poll or sleep meanwhile (2.1.300). In a cloud session the time limit is 30 minutes, or the `timeout` given with it up to 2 hours, then "Background command "<description>" was stopped after reaching its background time limit". A moved command gets 30 minutes from the move. Killed past 5 GB of output.
+- **Output:** a command that worked: up to about 30,000 characters inline; past that "the path of a file saved to the session directory … plus a preview of up to the first 2,000 characters, and Claude reads or searches the file when it needs the rest". A failure: up to about 10,000 characters, "a head-and-tail excerpt … with no file path". Exit code 1 is a valid result for `grep`, `rg`, `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff` and `git grep`; for any other command it is a failure. A command printing a picture as a data URL comes back as a picture (`isImage`; 2.1.72).
+- **Safety checks on a command:** writes by `>`, `>>`, `2>` and `tee` are checked against the protected paths (`.git`, `.husky`, `.vscode`, `.npmrc`, `.envrc`, shell startup files … the list in permission modes) and the working folders. Critical-path removals (`rm`/`rmdir` of the root, a top-level folder, the home folder, the working folder or its parents, `rm -rf "$DIR"/*`, `rm -rf "$(pwd)"`, inside `bash -c '…'` or `$(…)`) are never approved by a rule; "This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed." Commands over 10,000 characters always ask.
+- **Full disk** (2.1.305, 2.1.309): "a Bash command cut off by a full disk now says so and names the folder to free up"; before running, "the disk is full and … nothing ran".
+- **Also:** a command that views one file counts as reading it (2.1.89, 2.1.293, 2.1.295); a formatter changing files Claude read is noted (2.1.89); a `gh` rate-limit hint (2.1.116); a blocked network request names the host and the reason (2.1.224, 2.1.251); the files a command changed can be listed with their diff (`bashEditDiffEnabled`, beta); you can run a command yourself with `!` (its output goes into the conversation and Claude answers it).
+- **Not for Coder:** the local sandbox's settings, PowerShell and Windows, the memory cgroup, permission rules and modes (the owner, 2026-11-09: asking modes "later").
+
+**Coder's bash today** (coder-agent.mjs, coder-checks.mjs, server.mjs):
+
+| | Claude Code | Coder | |
+|---|---|---|---|
+| Inputs | `command`, `description`, `timeout` (ms), `run_in_background` | `command`, `timeout_s`, `run_in_background`; no description (the step shows the command) | differs |
+| Timeouts | 2 min default, 10 max | 120 s default, 600 max | same |
+| `cd` | carries over; "Shell cwd was reset to"; "Session cwd remains" | the same, and its own switch | same |
+| At the timeout | moved to the background, except `sleep`; "Command did not complete within its 120s timeout and was moved to the background" | moved to the background, `sleep` too; "[still running in the background after 120s …]" | differs |
+| Background after the answer | keeps running (cloud: 30 min, up to 2 h), Claude told when it ends | every background job stopped when the turn ends; `monitor` to look | missing |
+| Output | ~30,000 characters inline, more saved to a file with a 2,000-character preview; failures ~10,000, head and tail | 12,000 characters, the first 60% and the last 40%; the middle lost | differs |
+| Exit code 1 | not a failure for grep, rg, find, diff, test, git diff, git grep | every non-zero exit a failure (red "exit 1") | differs |
+| Protected files | `>`, `>>`, `2>`, `tee` targets asked about | written without asking (live: bash made `.npmrc`) | missing |
+| `rm` | critical paths, variables, `$(…)`, `bash -c` | `/`, `~`, `$HOME`, `..` | fewer |
+| Long commands | over 10,000 characters asked about | over 8,000 refused | differs |
+| Full disk | said in words, the folder named | the raw error | missing |
+| Pictures in output | a data URL comes back as a picture | text | missing |
+| Secrets | kept out of commands (cloud) | kept out | same |
+| A file shown by a command | counts as a read | counts as a read | same |
+| Your own command (`!`) | yes | no | missing |
