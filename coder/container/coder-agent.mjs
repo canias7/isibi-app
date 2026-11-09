@@ -25,7 +25,8 @@ import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_C
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { needsCheck, stepWords, gloopyCheck, cleanRules, plain } from "./gloopy-check.mjs";
+import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide } from "./gloopy-check.mjs";
+import { cleanPermissions, allAllowed, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES } from "./gloopy-schedule.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -521,7 +522,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user" } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -530,6 +531,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const rules = cleanRules(rulesIn);
   // A step the owner allowed that could not be done then: it goes ahead once, without asking again.
   const granted = (Array.isArray(grantedIn) ? grantedIn : []).filter((x) => typeof x === "string" && x);
+  // WHAT GLOOPY MAY DO ON ITS OWN (owner, 2026-11-09; gloopy-permissions.mjs): Ask, Always allow or Deny for each kind
+  // of action. Everything allowed and no "ask first" rule: browser steps go ahead with no check at all.
+  const perms = cleanPermissions(permsIn);
+  const noCheck = allAllowed(perms) && !rules.some((r) => r.mode === "ask");
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -881,15 +886,17 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (!hub || typeof hub.act !== "function") { no("error: there is no browser on this computer: use your web search and web_fetch instead"); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
-        if (needsCheck(args)) {
+        if (needsCheck(args) && !noCheck) {
           let about;
           try { about = await hub.describe(args.action === "press" ? "" : String(args.ref || "")); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
           const step = stepWords(args, about);
           const g = granted.indexOf(step);
-          const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step." }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules });
+          const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules });
           if (v.usage) usage.push(v.usage);
-          if (v.decision === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Use handoff to ask the owner to do it in your browser on " + (about.host || "the site") + " (say exactly what to do), or tell them what to do, and stop."); continue; }
-          if (v.decision === "ask") {
+          const d = decide(v, perms);
+          if (d === "deny") { no("not done: the owner's settings never allow this (" + permissionLabel(v.kind) + "): " + step + ". Don't do it another way; tell the owner it is turned off in Gloopy's settings."); continue; }
+          if (d === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Use handoff to ask the owner to do it in your browser on " + (about.host || "the site") + " (say exactly what to do), or tell them what to do, and stop."); continue; }
+          if (d === "ask") {
             const id = "ap" + Math.random().toString(36).slice(2, 10);
             emit({ type: "result", id: c.id, code: 0, output: "Waiting for your OK: " + step, label: "Asked you first: " + step });
             reply("waiting for the owner's OK to: " + step + " (" + v.why + "). Your turn ends here; their answer comes as the next message.");
@@ -952,7 +959,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (mine.length - scheduleRemovals.length + scheduleAdds.length >= SCHEDULES_MAX) { no("error: you have " + SCHEDULES_MAX + " schedules already: stop one first (schedule list shows them)"); continue; }
         const first = nextRun(spec, now());
         if (first === null) { no("error: that schedule would never run (its last day has passed)"); continue; }
-        if (Number.isFinite(spec.once)) {
+        // The owner's settings (2026-11-09): wake-ups and repeating schedules are each Always allow, Ask or Deny.
+        const mode = Number.isFinite(spec.once) ? perms.wake : perms.schedule;
+        if (mode === "deny") { no("not done: the owner's settings never allow " + (Number.isFinite(spec.once) ? "wake-ups" : "repeating schedules") + ". Tell the owner it is turned off in Gloopy's settings."); continue; }
+        if (Number.isFinite(spec.once) && mode === "allow") {
           // A WAKE-UP (owner, 2026-11-09: "just automatically wake up"; dots "can decide when to pause and wake up to
           // continue"): kept with no card, at least WAKE_MIN_MINUTES ahead, at most WAKEUPS_MAX waiting.
           if (first - now() < WAKE_MIN_MINUTES * 60_000 - 1000) { no("error: come back at least " + WAKE_MIN_MINUTES + " minutes from now"); continue; }
@@ -962,6 +972,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           const at = whenLocal(first, spec.tz);
           emit({ type: "result", id: c.id, code: 0, output: "Coming back " + at + " (" + spec.tz + "): " + spec.task.slice(0, 300), label: "Will come back " + at.replace(", ", " at ") + ": " + spec.name });
           reply("kept (no card needed): at " + at + " (" + spec.tz + ") a message with this task comes to you, and you work on it on your own. Say in your answer when you will be back.");
+          continue;
+        }
+        if (!Number.isFinite(spec.once) && mode === "allow") {
+          // A REPEATING SCHEDULE THE OWNER'S SETTINGS ALLOW: kept with no card (the testing default, 2026-11-09).
+          scheduleAdds.push(spec);
+          emit({ type: "result", id: c.id, code: 0, output: "Scheduled: " + whenWords(spec) + ". First run: " + whenLocal(first, spec.tz) + ".", label: "Scheduled “" + spec.name + "” " + whenWords(spec) });
+          reply("kept (the owner's settings allow repeating schedules): “" + spec.name + "” runs " + whenWords(spec) + ", first on " + whenLocal(first, spec.tz) + ". Tell the owner, and that they can ask you to stop it any time.");
           continue;
         }
         const id = "ap" + Math.random().toString(36).slice(2, 10);

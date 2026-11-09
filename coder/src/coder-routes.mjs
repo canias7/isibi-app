@@ -41,7 +41,8 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
-import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addWakeups } from "./gloopy-schedules.mjs";
+import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn } from "./gloopy-schedules.mjs";
+import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanSchedule, whenLocal } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -144,6 +145,9 @@ const MAX_EVENTS = 4000;
 export const GLOOPY_ID = "gloopy-main";
 export const isGloopy = (meta) => !!meta && meta.kind === "gloopy";
 const gloopyNotesKey = (uid, id) => ["coder", uid, "gloopy", id + ".md"].join("/");
+/** WHAT GLOOPY MAY DO ON ITS OWN (owner, 2026-11-09: Ask, Always allow or Deny for each kind; gloopy-permissions.mjs). */
+const gloopyPermsKey = (uid) => ["coder", uid, "gloopy", "permissions.json"].join("/");
+const readPermissions = async (bucket, uid) => cleanPermissions(await getJson(bucket, gloopyPermsKey(uid), {}));
 /** THE OWNER'S RULES FOR GLOOPY'S CHECKS (2026-11-09: "ask first" / "allow", like Grok Bot's Custom Rules), kept here. */
 const gloopyRulesKey = (uid) => ["coder", uid, "gloopy", "rules.json"].join("/");
 export function newGloopy(now = Date.now()) {
@@ -552,7 +556,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await getJson(bucket, gloopyRulesKey(uid), []), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await getJson(bucket, gloopyRulesKey(uid), []), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -618,6 +622,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "screen" && request.method === "GET") return gloopyScreen(g);
     if (action === "screen" && request.method === "POST") return gloopyTakeOver(g);
     if (action === "schedules") return gloopySchedules(g);
+    if (action === "permissions") return gloopyPermissions(g);
     if (action !== "stop") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
 
@@ -1393,7 +1398,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1454,10 +1459,11 @@ async function gloopyState(g) {
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
     const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff"].includes(e.type)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
-    // Schedules Gloopy stopped in this turn come off now, and the wake-ups it set are kept (no card: owner, 2026-11-09).
+    // Schedules Gloopy stopped in this turn come off now, and the ones it set are kept when the owner's settings allow
+    // them with no card (2026-11-09).
     const stopped = Array.isArray(s.result.scheduleRemovals) ? s.result.scheduleRemovals.filter((x) => typeof x === "string") : [];
     const wakes = Array.isArray(s.result.scheduleAdds) ? s.result.scheduleAdds : [];
-    if (stopped.length || wakes.length) { const sd = await readSchedules(bucket, uid); sd.items = sd.items.filter((x) => !stopped.includes(x.id)); addWakeups(sd, wakes, Date.now()); await writeSchedules(bucket, uid, user.email, sd); }
+    if (stopped.length || wakes.length) { const sd = await readSchedules(bucket, uid); sd.items = sd.items.filter((x) => !stopped.includes(x.id)); addFromTurn(sd, wakes, await readPermissions(bucket, uid), Date.now()); await writeSchedules(bucket, uid, user.email, sd); }
     const asks = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" ? cleanSchedule(s.result.approvalRequest.schedule) : null;
     const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
     const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
@@ -1559,6 +1565,26 @@ async function gloopySchedules(g) {
   sd.items = sd.items.filter((x) => x !== it);
   await writeSchedules(bucket, uid, user.email, sd);
   return json({ ok: true, removed: it.id, schedules: schedulesForTurn(sd) });
+}
+
+/**
+ * WHAT GLOOPY MAY DO ON ITS OWN, FOR THE SETTINGS SCREEN (owner, 2026-11-09: "a list of things, and then have ask, deny,
+ * and always allow"; the screen itself comes at the end). GET: the list, the owner's choice for each, and the default
+ * (Always allow while testing). POST { set: { buy: "ask", ... } }: changed; Gloopy follows them from its next message.
+ */
+async function gloopyPermissions(g) {
+  const { request, bucket, uid } = g;
+  const now = await readPermissions(bucket, uid);
+  const out = (p) => json({ ok: true, permissions: p, list: PERMISSIONS, modes: MODES, default: DEFAULT_MODE });
+  if (request.method === "GET") return out(now);
+  if (request.method !== "POST") return json({ error: "Gloopy has no permissions " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const set = body.set && typeof body.set === "object" ? body.set : {};
+  const bad = Object.entries(set).find(([k, v]) => !PERMISSION_KEYS.includes(k) || !MODES.includes(v));
+  if (bad || !Object.keys(set).length) return json({ error: "Give set: one or more of " + PERMISSION_KEYS.join(", ") + ", each ask, allow or deny." }, 400);
+  const next = cleanPermissions({ ...now, ...set });
+  await putJson(bucket, gloopyPermsKey(uid), next);
+  return out(next);
 }
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */

@@ -11,6 +11,7 @@
 // LATE_MS, then skipped (said in the chat).
 
 import { cleanSchedule, nextRun, whenWords, whenLocal, SCHEDULES_MAX, RUNS_PER_DAY, WAKEUPS_MAX } from "../container/gloopy-schedule.mjs";
+import { cleanPermissions } from "../container/gloopy-permissions.mjs";
 
 /** Gloopy's chat (src/coder-routes.mjs GLOOPY_ID). */
 export const GLOOPY_CHAT = "gloopy-main";
@@ -77,6 +78,24 @@ export function addWakeups(data, specs, now = Date.now()) {
     if (!s || !Number.isFinite(s.once) || !(s.once > now)) continue;
     if (data.items.filter((x) => Number.isFinite(x.once)).length >= WAKEUPS_MAX || data.items.length >= SCHEDULES_MAX) break;
     try { addSchedule(data, s, now).self = true; kept++; } catch { break; }
+  }
+  return kept;
+}
+
+/**
+ * WHAT A TURN ASKED TO KEEP, BY THE OWNER'S SETTINGS AS KEPT HERE (2026-11-09; never as the machine says): wake-ups when
+ * "Wake-ups" is Always allow, repeating schedules when "Repeating schedules" is (anything else came as a card instead).
+ */
+export function addFromTurn(data, specs, perms, now = Date.now()) {
+  const p = cleanPermissions(perms);
+  const list = (Array.isArray(specs) ? specs : []).filter((x) => x && typeof x === "object").slice(0, SCHEDULES_MAX);
+  let kept = p.wake === "allow" ? addWakeups(data, list.filter((x) => Number.isFinite(x.once)), now) : 0;
+  if (p.schedule === "allow") {
+    for (const raw of list.filter((x) => !Number.isFinite(x.once))) {
+      const s = cleanSchedule(raw);
+      if (!s || data.items.length >= SCHEDULES_MAX) continue;
+      try { addSchedule(data, s, now); kept++; } catch { /* its time has passed */ }
+    }
   }
   return kept;
 }

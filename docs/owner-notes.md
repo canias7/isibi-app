@@ -11,6 +11,36 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's permissions: Ask, Always allow or Deny (your word: "a list of things, and then have ask, deny, and always allow ... the default for testing ... always allow")
+
+- **Both have this:**
+  - Grok Bot's "Custom Rules": you describe an action and choose "Ask first" or "Allow automatically".
+  - dots' "Custom rules", with four choices: do it without asking, do it only when you say so, ask first, or hand it to you.
+- **Gloopy's list** (one setting each: Ask, Always allow or Deny):
+  - Buy or pay
+  - Book or reserve
+  - Send messages or emails
+  - Post or publish
+  - Sign up or subscribe
+  - Delete or cancel
+  - Change account settings
+  - Share your personal details
+  - Repeating schedules
+  - Wake-ups
+- **What each setting means:**
+  - **Ask:** a card each time (Allow once, Always allow, Deny).
+  - **Always allow:** Gloopy goes ahead and says what it did.
+  - **Deny:** Gloopy doesn't do it, not even another way, and says it's turned off.
+- **For testing, everything is Always allow** (your word). That means no cards, and no extra check call before browser steps, so it's faster and spends less. Repeating schedules are kept with no card too.
+  - The sign-in card and the "Gloopy needs you in its browser" card still come. Those aren't permissions: only you can type your password or solve a CAPTCHA.
+- **Careful while testing:** with everything on Always allow, Gloopy may buy, send or delete without asking. It's still told to do only what you asked for, and to ask when something can't be undone and it isn't sure. Test with accounts where that's OK.
+- **At the end:** the settings screen (your way), and the default switches to Ask (one line in `coder/container/gloopy-permissions.mjs`). The pieces are ready:
+  - The list and your current choices come with Gloopy's tab data.
+  - A route reads and changes them: `/api/coder/projects/gloopy-main/permissions`.
+  - Gloopy follows your choices from its next message.
+- **How it works underneath:** your choices are kept on Coder's Worker and sent with each message. When anything is on Ask or Deny, the check before a browser step also names the kind of step ("buy", "send"…), and your setting for that kind decides. Your own "ask first" rules always ask, and Deny wins over an "Always allow" from a card. Gloopy sees the list in its instructions, and the Worker keeps a schedule only if the settings it holds allow it.
+- Tests GL36 and GL37 are new; GL15, GL16, GL19, GL30 and GL32 now switch some settings to Ask to test the cards. All 292 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's wake-ups are automatic now (your word: "No, what about just automatically wake up")
 
 - **What a wake-up is:** Gloopy only works when a message comes in. A wake-up is a message it sends itself for later: "come back at 22:30 and check the price again". At that time it starts working on its own, with no message from you.
