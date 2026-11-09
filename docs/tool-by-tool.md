@@ -464,3 +464,17 @@ Next (the owner's order): Coder's edit side by side, then what to copy, then liv
 | Files up to about 1 GiB | 256 MB (one JavaScript string holds about 512 MB) |
 
 Tests: CD263 (every case, Claude Code's words and the bytes on disk), CD264 (the card, the change, old_str and the security check, the description), CD265 (the card's lines on the page), all failing on the old code; CD36, CD224, CD252 and the file-tools test changed to the new words. Tried on a local copy of the page (the edit's change under its step; the card for `.husky/pre-commit`).
+
+**Second docs pass** (the owner, 2026-11-09: "What else on the edit tool from claude code docs you havent seen"): every page searched again for edits in general (diffs, rewind, checkpoints, line counts, read-only files), not only the word Edit, and the cases left untried, tried:
+
+| Claude Code | Coder's edit now |
+|---|---|
+| A command that views a file counts as reading it: `cat`, `nl`, `bat`, `batcat`, `head`, `tail`, `sed -n 'X,Yp'`, `grep`, `egrep`, `fgrep`, `rg`, one file, no pipes; one that printed none of it doesn't (tools reference) | the same already (`viewedFile`; only a command that succeeded) |
+| Path-scoped rules and nested CLAUDE.md load when a file is read, written or edited (memory, context window) | the same already (`.coder/rules` with `paths:`, a subfolder's CODER.md, through `afterFile`) |
+| After a summary, up to five files read or edited are read again (context window) | the same already (`REREAD_FILES`, edits counted by `filesTouched`) |
+| The memory-file error after any change to it (errors: "Memory index is over its read limit") | the same (`memoryNote` in edit's answer) |
+| "Fixed Write and Edit stalling for up to 5 seconds … and reporting 0 lines changed, when changing thousands of lines" | tried: 6,000 lines changed with `replace_all` in 0.09 s, "+6000 −6000", 120 lines kept for the chat |
+| A read-only file is changed anyway ("`CLAUDE_CODE_PERFORCE_MODE` … instead of silently overwriting them"; as root here it was, and stayed read-only) | **"error: EACCES: permission denied, open '…/ro.txt'"** (as `dev`), nothing changed: to the owner |
+| "Fixed the file edit permission dialog sometimes showing a changed line cut short with no indication" | **the card cuts a line at 300 characters with no "…"** (write's card too): to the owner |
+| Diffs read with `+` and `-` for screen readers (accessibility) | the same: each changed line keeps its `+` or `-` |
+| Not edit itself, not in Coder: hooks around edits (format on save), `Edit(path)` permission rules, the asking modes (the owner: later), the IDE's side-by-side diff, the `/diff` panel per turn and the session's +N −M totals (Coder: See changes), checkpoints (Coder: Rewind), Perforce mode, telemetry | |

@@ -11,6 +11,27 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit, a second pass through Claude Code's docs (your words: "What else on the edit tool from claude code docs you havent seen")
+
+- **Searched every page again** for edits in general (diffs, rewind, checkpoints, line counts, read-only files), not only the word "Edit", and tried the cases I hadn't tried.
+- **Already the same in Coder:**
+  - the commands that count as viewing a file (`cat`, `head`, `grep` …);
+  - folder rules and a subfolder's instruction file loading when a file is edited;
+  - files read *or edited* being read again after a summary;
+  - the memory-file warning.
+  - A 6,000-line change takes 0.09 seconds and shows the right counts (Claude Code had a bug there).
+- **Two small new ones, waiting on your word:**
+  - **A read-only file:** Coder fails with a raw "permission denied". Claude Code changes it anyway and keeps it read-only.
+  - **The Allow card** cuts a long line at 300 characters with no "…". Claude Code fixed the same thing in its approval prompt.
+- **In Claude Code but outside edit:**
+  - hooks around edits (format on save);
+  - permission rules;
+  - the asking modes (your "later");
+  - the IDE's side-by-side diff;
+  - per-turn diff panels and session +/− totals (Coder has See changes);
+  - checkpoints (Coder has Rewind);
+  - Perforce mode and telemetry.
+
 ## 2026-11-09: Edit (tool 3), step 3: Coder's edit now works like Claude Code's (your words: "Notebook for later, but yea do this")
 
 - **Fixed: it damaged files in old text formats.** "café" became "caf�" for good. Now such a file is refused and left exactly as it was.
