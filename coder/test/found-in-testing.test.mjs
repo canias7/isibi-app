@@ -1363,10 +1363,10 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   // On the landing page, by Sign in; not in Coder's sidebar.
   assert.match(landing, /<header class="gf-top">[\s\S]*<a class="gf-doclink" id="gfDocs" href="\/docs">Docs<\/a><button type="button" class="gf-signin" id="gfSignin">Sign in<\/button>[\s\S]*<\/header>/);
   assert.doesNotMatch(ui, /\/docs|cdSideDocs/, "not inside Coder");
-  // Only the tools tested so far: read.
+  // Only the tools tested so far: read, then write (live, deploys 70 and 71; the owner, 2026-11-09: "Yes").
   const sections = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(sections, ["read"]);
-  for (const other of ["Write", "Edit", "Bash", "Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
+  assert.deepEqual(sections, ["read", "write"]);
+  for (const other of ["Edit", "Bash", "Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
   // Plain HTML and CSS, its links all go somewhere.
   assert.doesNotMatch(page, /<script|\son[a-z]+=|javascript:/i, "no script of any kind (script-src 'self' would refuse an inline one)");
   assert.match(page, /<link rel="stylesheet" href="\/docs\.css" \/>/);
@@ -1374,7 +1374,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
   const ids = new Set([...page.matchAll(/ id="([a-z-]+)"/g)].map((m) => m[1]));
   const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
-  assert.equal(links.length, 8);
+  assert.equal(links.length, 14);
   for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a part that is there");
   assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
   // The numbers, from the code itself.
@@ -1390,6 +1390,14 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.ok(page.includes("<code>" + T.PICTURES + "</code>"));
   assert.equal(A.REREAD_FILES, 5);
   assert.ok(page.includes("up to five files"));
+  // Write's, from the code too: the size Grok is told, the words under a step, the files asked about.
+  const agentSrc = readFileSync(HERE("container/coder-agent.mjs"), "utf8");
+  const per = /At most about ([\d,]+) characters per call/.exec(agentSrc);
+  assert.ok(per && page.includes("Up to about <b>" + per[1] + " characters</b>"), "the size write's description gives");
+  assert.match(ui, /new diagnostic issue/);
+  assert.ok(page.includes("<code>Found 1 new diagnostic issue in 1 file</code>"));
+  for (const d of [".husky", ".vscode", ".devcontainer"]) assert.ok(A.PROTECTED_DIRS.includes(d) && page.includes("<code>" + d + "</code>"), d);
+  for (const f of [".envrc", ".npmrc", ".pre-commit-config.yaml", ".mcp.json"]) assert.ok(A.PROTECTED_FILES.includes(f) && page.includes("<code>" + f + "</code>"), f);
 });
 
 test("CD249 write does not replace a file that has changed since Coder read or wrote it, as Claude Code's Write (tried for real, 2026-11-08, second pass: \"File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.\"), whether a command or something in the background changed it; only its time changing is no change; once read again, or once the note after a command has shown the change, it may", async () => {
@@ -1928,4 +1936,24 @@ test("CD261 the page keeps a numbered list's own numbers, with blank lines betwe
   assert.equal(groupWords([step("edit", "a.js", true), step("edit", "a.js")]).failed, "an edit failed", "what failed is still each step");
   assert.equal(stepFile({ tool: "bash", command: "cat a.js" }), "");
   assert.equal(stepFile({ tool: "read", command: "notes from line 5.txt" }), "notes from line 5.txt", "only an ending the page adds is taken off");
+});
+
+test("CD262 a list item carries on over the lines under it that have no mark of their own, as Markdown has it (the live retest after deploy 71: Grok's \"5) `…`\" with two more lines under it showed \"5)\" as plain text, as a block was a list only when every line had a mark)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(HERE("public/coder.js"), "utf8");
+  const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const prose = new Function("esc", grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
+  // Grok's answer, word for word (the retest chat, 2026-11-09).
+  const said = "2) `error: mod.txt has been modified since read.`\n\n3) `The file mod.txt has been updated successfully.`\n\n4) `error: afolder is a directory, not a file.`\n\n5) `File created successfully at: twice.txt`\n`The file twice.txt has been updated successfully.`\n`File created successfully at: other.txt`";
+  assert.equal(prose(said), '<ol start="2"><li><code>error: mod.txt has been modified since read.</code></li><li><code>The file mod.txt has been updated successfully.</code></li><li><code>error: afolder is a directory, not a file.</code></li><li><code>File created successfully at: twice.txt</code><br><code>The file twice.txt has been updated successfully.</code><br><code>File created successfully at: other.txt</code></li></ol>');
+  // Bullets too; a line under its lead line; a change of kind starts a new list.
+  assert.equal(prose("- a\n  more of a\n- b"), "<ul><li>a<br>more of a</li><li>b</li></ul>");
+  assert.equal(prose("Lead:\n1. a\nmore\n2. b"), "<p>Lead:</p><ol><li>a<br>more</li><li>b</li></ol>");
+  assert.equal(prose("1) a\n- b\n2) c"), '<ol><li>a</li></ol><ul><li>b</li></ul><ol start="2"><li>c</li></ol>');
+  // As before: plain paragraphs, headings, lists that are lists on every line.
+  assert.equal(prose("one\ntwo"), "<p>one<br>two</p>");
+  assert.equal(prose("## Notes"), "<h4>Notes</h4>");
+  assert.equal(prose("1. x\n2. y"), "<ol><li>x</li><li>y</li></ol>");
+  assert.doesNotMatch(prose("1) a\n<img src=x onerror=alert(1)>"), /<img/);
 });

@@ -11,6 +11,28 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Deploy 71: write's fixes live and retested; one more list case fixed; Write on the docs page
+
+- **Deploy 71 took three tries.** Ubuntu's own download server (`archive.ubuntu.com`, run by Canonical) was down or very slow for about 50 minutes. Building a new version of Coder's machine downloads its tools from there.
+  - The chat kept working the whole time: running chats don't need that server.
+  - The third try went through once the server was steady again.
+- **Retested live on gofarther.dev with Grok** (recording 18), in the test chat:
+  - **A command and a write over the same file in one answer:** the write is now refused, as in Claude Code: "error: mod.txt has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it."
+  - **After Coder's note had shown the change,** the next write went through without reading the file again (as in Claude Code).
+  - **A folder:** "error: afolder is a directory, not a file. …", named the short way.
+  - **The group line:** three writes to two files said "Wrote 2 files".
+  - **Numbered list:** it started at Grok's own "2".
+- **Found in the retest, and fixed:** Grok's item "5)" had two more lines under it, with no blank line between them. The page showed "5)" as plain text, because it only took a block as a list when every line started with a number.
+  - Now lines under an item belong to it, as Markdown has it.
+  - Test CD262 uses Grok's exact answer and fails on the old page.
+- **The docs page now has Write**, beside Read. It covers:
+  - what you see under each write;
+  - when Coder reads a file first;
+  - the files Coder asks you about;
+  - when write says no;
+  - what stays as it was.
+  - Its numbers come from the code (90,000 characters a call; the protected files), and test CD248 checks them.
+
 ## 2026-11-09: The page: numbered lists keep their numbers; the group line counts files (your words: "Yes fix that")
 
 - **Numbered lists:** Grok numbered its answer's items "2)", "3)", "4)" (your steps 2 to 4), with a blank line between each. The page drew each one as its own list starting at 1, so it showed "1." "1." "1." and lost the real numbers.
