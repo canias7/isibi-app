@@ -576,7 +576,7 @@
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
-    S.project = r.data.project; S.events = r.data.events || [];
+    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || [];
     S.running = S.project.status === 'running';
     S.background = undefined; startBgWatch();
     S.envInfo = null; loadEnvInfo();
@@ -595,7 +595,20 @@
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
     const pics = (S.pics || []).slice();
-    if ((!text && !comments.length && !pics.length) || !S.project || S.running || S.sending) return;
+    if ((!text && !comments.length && !pics.length) || !S.project || S.sending) return;
+    // WHILE CODER WORKS, A MESSAGE WAITS FOR IT (Claude Code's queue): shown in grey at the end of the chat, with ✕ to take it
+    // back, until Coder reads it, which it does once its running tool calls finish; what is left goes out when it is done.
+    if (S.running) {
+      if (pics.length || comments.length || !text) { S.error = 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
+      S.sending = true; S.error = '';
+      const id = S.project.id;
+      const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text }) });
+      S.sending = false;
+      if (!S.project || S.project.id !== id) return;
+      if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; S.draft = ''; return draw(true); }
+      S.error = (q.data && q.data.error) || 'The message was not sent.';
+      return draw();
+    }
     S.comments = []; S.pics = []; S.mention = null;
     S.sending = true; S.error = ''; S.draft = ''; S.unsent = text;
     const base = S.events.length;
@@ -659,6 +672,7 @@
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
       if (Array.isArray(r.data.background)) S.background = r.data.background;
+      if (Array.isArray(r.data.queue)) S.queue = r.data.queue;
       S.progress = r.data.progress || null;
       S.running = !!r.data.running;
       syncEntry();
@@ -673,7 +687,7 @@
   async function reloadChat(id) {
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
-    S.project = r.data.project; S.events = r.data.events || [];
+    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || [];
     S.running = S.project.status === 'running';
     S.background = undefined;
     syncEntry(); draw(true);
@@ -1034,7 +1048,15 @@
     });
     flush();
     if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
+    out.push(queueHTML());
     return out.join('');
+  }
+  // MESSAGES WAITING FOR CODER (Claude Code: "Sent and queued messages show in gray until Claude starts responding to them";
+  // on the web, "To take a queued message back, click the ✕ on it"): at the end of the chat until Coder reads them.
+  function queueHTML() {
+    const read = new Set(S.events.filter((e) => e.type === 'user' && e.qid).map((e) => e.qid));
+    const list = (Array.isArray(S.queue) ? S.queue : []).filter((q) => q && q.qid && !read.has(q.qid));
+    return list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running ? (q.shell ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
   }
 
   // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
@@ -1245,7 +1267,7 @@
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working… you can close this tab' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="Attach a picture" title="Attach a picture (or paste one)">' + ICON.clip + '</button><input type="file" id="cdFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>' +
         (S.running
-          ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
+          ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
       // SHELL MODE (tool 4, part 3, like Claude Code's "! npm test"): the box says so while the message starts with "!".
@@ -1396,6 +1418,17 @@
     // command's own "I allowed Coder to run command …"), checked again on the machine.
     on('[data-runask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskOk)]; if (x && typeof x.allow === 'string' && /^(I allowed Coder to (change .+|run command [0-9a-f]{8})\.\n?)+$/.test(x.allow + '\n')) { e.currentTarget.disabled = true; send(x.allow); } });
     on('[data-bg-stop]', 'click', (e) => { stopBg(e.currentTarget.dataset.bgStop, e.currentTarget); });
+    on('[data-unqueue]', 'click', async (e) => {
+      const qid = e.currentTarget.dataset.unqueue, id = S.project && S.project.id;
+      if (!id) return;
+      e.currentTarget.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(id) + '/queue', { method: 'POST', body: JSON.stringify({ remove: qid }) });
+      if (!S.project || S.project.id !== id) return;
+      if (r.status === 200 && r.data && r.data.ok) { S.queue = r.data.queue || []; S.draft = String(r.data.text || '') + (S.draft ? '\n' + S.draft : ''); S.error = ''; }
+      else { S.error = (r.data && r.data.error) || 'It could not be taken back.'; if (r.data && Array.isArray(r.data.queue)) S.queue = r.data.queue; }
+      draw();
+      const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+    });
     on('[data-bg-move]', 'click', async (e) => {
       const b = e.currentTarget, id = S.project && S.project.id;
       if (!id) return;

@@ -277,7 +277,8 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.equal(created.project.branch, "coder/" + id);
     // A TURN, then the push and the pull request.
     assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "make a page" }) })).status, 200);
-    assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "again" }) })).status, 409);
+    // (A message while Coder works now waits for it, queue.test.mjs; pictures still wait for the job's end.)
+    assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "again", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] }) })).status, 409);
     let got;
     for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(got.project.status, "idle");
@@ -293,7 +294,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.deepEqual([made.ok, made.number, made.project.pr], [true, 1, { url: "https://github.com/ana/shop/pull/1", number: 1 }]);
     assert.ok(ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"));
     // THE CODE IS NEVER STORED WITH US: only the chat, the connection and the project's meta.
-    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile|environments)\.json$|^coder\/[\w-]+\/environments\/[a-z0-9-]+\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
+    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile|environments|queue)\.json$|^coder\/[\w-]+\/environments\/[a-z0-9-]+\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
     assert.doesNotMatch([...bucket.m.values()].join(""), /<h1>Hi<\/h1>\\n"\s*}/);
   } finally { await close(); }
 });

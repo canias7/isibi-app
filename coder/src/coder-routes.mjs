@@ -51,6 +51,21 @@ import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, i
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
+/**
+ * MESSAGES SENT WHILE CODER WORKS (Claude Code: "Type a message and press Enter while Claude is working. Claude Code queues
+ * the message instead of interrupting the turn, and lists the queued entries in the conversation until it sends them"): at
+ * most this many wait at once, kept with the chat (queue.json).
+ */
+export const QUEUE_MAX = 20;
+const newQid = () => "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+/** The first of what waits to go out when a turn ends: a `!` command alone, or the messages up to the next one (Claude Code: queued commands "run one at a time", messages go out "in the order you typed them"). */
+export function nextQueued(queue) {
+  const q = Array.isArray(queue) ? queue : [];
+  if (!q.length) return [];
+  if (q[0].shell) return [q[0]];
+  const cut = q.findIndex((x) => x.shell);
+  return cut < 0 ? q.slice() : q.slice(0, cut);
+}
 // IMAGES IN THE CHAT (owner, 2026-11-05, "16"): up to 4 pictures a message, each up to 1.5 MB.
 export const MAX_IMAGES = 4;
 /** After this long away from a chat, Coder starts its answer with a one-line recap (owner, 2026-11-05). */
@@ -589,7 +604,7 @@ export async function handleCoder(request, env, ctx, deps) {
   const summarizeFn = (m, f) => (typeof deps.summarize === "function" ? deps.summarize(m, f) : summarize(env, m, f, { fetchFn }));
   const action = parts[2] || "";
 
-  if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []) });
+  if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []) });
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -610,7 +625,21 @@ export async function handleCoder(request, env, ctx, deps) {
     if (pics.error) return json({ error: pics.error }, 400);
     if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
-    if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
+    if (meta.status === "running") {
+      // QUEUED WHILE CODER WORKS (Claude Code's queue): the owner's message, or `!` command, typed in the page; not a review,
+      // a /compact, pictures or line comments, nor anything from GitHub. A message goes to the running job at once (Coder
+      // reads it when its running tool calls finish, in this turn); a command waits for the job's end. What is left when
+      // the job ends goes out next, by itself (the state route below).
+      const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
+      if (!queueable) return json({ error: pics.images.length || notes ? "Coder is still working: send pictures or line comments once it is done" : "Coder is still working on the last message" }, 409);
+      const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+      if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
+      const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}) };
+      const waiting = [...queue, entry];
+      await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+      if (!entry.shell) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
+      return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
+    }
     // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
     // optional focus instructions"): the conversation so far becomes one summary for Coder; no job runs.
     const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(said);
@@ -923,14 +952,49 @@ export async function handleCoder(request, env, ctx, deps) {
       if (background.length) await watchBackground(bucket, { uid, email: user.email, id }).catch(() => {});
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
       await dropLive(bucket, uid, id).catch(() => {});
-      return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
+      // WHAT THE OWNER SENT WHILE IT WORKED AND CODER DID NOT READ (Claude Code: "When the turn ends with messages still
+      // queued, they go out without another key press, in the order you typed them"): the next message starts now, and the
+      // page loads the chat to follow it.
+      const read = new Set(Array.isArray(s.result.readQueued) ? s.result.readQueued : []);
+      let waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !read.has(q.qid));
+      await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+      const first = nextQueued(waiting);
+      if (first.length) {
+        const headers = new Headers(request.headers); headers.set("content-type", "application/json");
+        const r2 = await handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + "/message", { method: "POST", headers, body: JSON.stringify({ text: first.map((q) => q.text).join("\n\n"), fromQueue: true }) }), env, ctx, deps).catch(() => null);
+        if (r2 && r2.status === 200) {
+          const sent = new Set(first.map((q) => q.qid));
+          waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid));
+          await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+          const nowMeta = await getJson(bucket, metaKey, ended);
+          return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: nowMeta, queue: waiting, reload: true });
+        }
+      }
+      return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended, queue: waiting });
     }
     // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
     // was open): the page loads the saved chat, which has the save's own lines.
     const elsewhere = !!s.result && !s.running && meta.status !== "running";
     // THE RUNNING COMMAND'S LAST LINES (Claude Code 1.0.48), for the page only: never saved with the chat.
     const progress = s.running && s.progress && Array.isArray(s.progress.lines) ? { at: Number(s.progress.at) || 0, lines: s.progress.lines.slice(-5).map((l) => String(l).slice(0, 300)) } : null;
-    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), ...(progress ? { progress } : {}), ...(elsewhere ? { reload: true } : {}) });
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), ...(progress ? { progress } : {}), ...(elsewhere ? { reload: true } : {}) });
+  }
+
+  // TAKE BACK A MESSAGE WAITING FOR CODER (Claude Code: "To take a queued message back, click the ✕ on it. The text returns to
+  // the message box … If Claude has already read the message, it stays in the conversation").
+  if (action === "queue" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+    const q = queue.find((x) => x && x.qid === String(body.remove || ""));
+    if (!q) return json({ ok: false, error: "That message is no longer waiting: Coder has it.", queue }, 409);
+    if (!q.shell && meta.status === "running") {
+      const m = await post("/unqueue", { project: id, qid: q.qid }).then((x) => x.json()).catch(() => null);
+      if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment.", queue }, 502);
+      if (m.read === true) return json({ ok: false, read: true, error: "Coder has already read it, so it stays in the conversation.", queue }, 409);
+    }
+    const left = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((x) => x && x.qid !== q.qid);
+    await putJson(bucket, keyOf(uid, id, "queue.json"), left);
+    return json({ ok: true, removed: true, text: q.text, queue: left });
   }
 
   // THE CHAT'S BACKGROUND COMMANDS (tool 4, part 2, like Claude Code's tasks list): those still running after Coder's

@@ -1788,6 +1788,8 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
   return true;
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
+/** The longest message the owner may send while Coder works (the Worker's own limit for any message). */
+const QUEUE_TEXT_MAX = 20_000;
 /** Nothing of the AI's runs now: they are paused (root's caller holds `quietly`), or they are all ended here. */
 const aiStill = () => (PAUSED ? true : killUser());
 /**
@@ -1871,7 +1873,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // you when it exits"): not started when there is nothing to tell (another turn told it already).
     if (body.wake === true) { checkJobs(); if (!untoldOf(project).length) return [409, { error: "nothing to tell" }]; }
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
-    const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null };
+    const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [] };
     turns.set(project, t);
     // THE CHAT SAVED AS IT GOES (like Claude Code): its steps, the setup's included, go to the Worker every few seconds.
     const live = liveFetch ? liveTarget(body.live) : null;
@@ -2277,6 +2279,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // the background could swap a folder on the way to a rule file for a link): the memory file and the repository's
         // top-level CODER.md or AGENTS.md (topNotes); the rest stays as it was read before any command ran.
         freshContext: async () => contextFor(await topNotes(dir, notes), (await readMemory(memFile)) ?? "", later),
+        // THE OWNER'S MESSAGES SENT WHILE CODER WORKS (Coder's Worker hands them here, /queue): each taken once, in order.
+        queued: () => { const out = t.queue.filter((q) => !q.read); for (const q of out) q.read = true; return out.map((q) => ({ qid: q.qid, text: q.text })); },
         // The file tools follow the files Coder read or changed (CODER_SEEN_DIR), so a command that changes one says so.
         seen: true,
         afterFile: ({ tool, args }) => {
@@ -2296,7 +2300,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             try { const go = await quietly(); if (go) go(); } catch (e) { console.log("coder: the turn's end: " + String((e && e.message) || e).slice(0, 200)); killUser(); }
             await tidyBg(bgDir, project).catch(() => {});
           } finally {
-            t.result = { ...result, background: jobsOf(project) };
+            t.result = { ...result, background: jobsOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid) };
             t.ended = Date.now();
             t.running = false;
           }
@@ -2409,6 +2413,23 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
       if (url.pathname === "/bgstate") { checkJobs(); return send(200, { ok: true, background: jobsOf(project), untold: untoldOf(project).length, running: !!(t && t.running) }); }
+      // A MESSAGE THE OWNER SENT WHILE CODER WORKS (Claude Code's queue): Coder reads it once its running tool calls finish,
+      // in this turn. One that comes when the turn is over is left to Coder's Worker (it goes out as the next message).
+      if (url.pathname === "/queue" && req.method === "POST") {
+        const qid = String(body.qid || ""), text = typeof body.text === "string" ? body.text.slice(0, QUEUE_TEXT_MAX) : "";
+        if (!/^q[0-9a-z]{6,20}$/.test(qid) || !text.trim()) return send(400, { ok: false, why: "bad message" });
+        if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
+        if (!t.queue.some((q) => q.qid === qid)) { t.queue.push({ qid, text, at: Date.now(), read: false }); if (t.queue.length > 50) t.queue.shift(); }
+        return send(200, { ok: true });
+      }
+      // ITS TAKE-BACK (Claude Code: "click the ✕ on it … If Claude has already read the message, it stays in the conversation").
+      if (url.pathname === "/unqueue" && req.method === "POST") {
+        const qid = String(body.qid || "");
+        const q = t && t.queue ? t.queue.find((x) => x.qid === qid) : null;
+        if (q && q.read) return send(200, { ok: true, removed: false, read: true });
+        if (q) t.queue = t.queue.filter((x) => x !== q);
+        return send(200, { ok: true, removed: true });
+      }
       // THE OWNER MOVES THE RUNNING COMMAND TO THE BACKGROUND (the page's "Run in background", Claude Code's Ctrl+B): Coder
       // gets "Command was manually backgrounded by user" and goes on.
       if (url.pathname === "/bgmove" && req.method === "POST") {

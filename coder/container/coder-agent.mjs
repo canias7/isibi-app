@@ -289,6 +289,13 @@ export function shellMessages(command, { output = "", code = 0, background = "" 
   return [{ role: "user", content: "<bash-input>" + String(command) + "</bash-input>" }, { role: "user", content: "<bash-stdout>" + out + "</bash-stdout><bash-stderr>" + err + "</bash-stderr>" }];
 }
 /**
+ * A MESSAGE THE OWNER SENT WHILE CODER WORKED (Claude Code's queue: "if you queue a message while Claude is running tool
+ * calls, Claude Code passes it to Claude as soon as those tool calls finish, within the same turn"), in Claude Code's words
+ * ("The user sent a new message while you were working:" … "This is how Claude Code surfaces messages the user sends
+ * mid-turn …"), with Coder's names.
+ */
+export const queuedNote = (text) => "The owner sent a new message while you were working:\n" + String(text) + "\n\nThis is how Coder's app surfaces messages the owner sends mid-turn — within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.";
+/**
  * GITHUB'S RATE LIMIT, SAID AFTER A gh COMMAND HIT IT (Claude Code 2.1.116: "surfaces a hint when gh commands hit GitHub's API
  * rate limit, so agents can back off instead of retrying"; its words, without its ScheduleWakeup).
  */
@@ -633,6 +640,7 @@ HOW YOU WORK
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
 - Long-running servers and watchers: bash with run_in_background: true, then monitor to read their output (and curl to check a server), stop_job when done. Never use & yourself. A command still running at its time limit keeps running in the background. Background commands keep running after your answer, until they end, you stop them, or they reach their time limit (30 minutes; with run_in_background, the timeout you give, up to 2 hours); you are told when one ends, even after your answer, so do not wait or poll for it.
 - Keep command output small (head, tail, grep): every round costs the owner time.
+- A message the owner sent while you were working comes in the middle of your turn, after your tool results, starting "The owner sent a new message while you were working:". Read it and take it into account as you go on: change course if it asks you to.
 - A command the owner ran themselves (they typed ! in the chat) comes as <bash-input>the command</bash-input>, then <bash-stdout>what it printed</bash-stdout> (<bash-stderr> has its exit code when it failed). Answer it as their message: say what the output means (what failed and how to fix it, when something did). Do not run it again unless they ask.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
@@ -755,6 +763,16 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // can look at them, stop them, and is told when they end.
   const jobs = new Map();
   try { if (deps.bg && typeof deps.bg.kept === "function") for (const k of (await deps.bg.kept()) || []) if (k && typeof k.id === "string" && k.pid) jobs.set(k.id, { pid: k.pid, log: String(k.log || ""), command: String(k.command || ""), desc: String(k.desc || ""), at: Number(k.at) || now(), moved: !!k.moved, cwd: String(k.cwd || ""), done: false }); } catch { /* none */ }
+  // THE OWNER'S MESSAGES SENT WHILE CODER WORKS (deps.queued, from Coder's machine): each taken once.
+  const takeQueued = async () => {
+    let got = [];
+    try { if (typeof deps.queued === "function") got = (await deps.queued()) || []; } catch { got = []; }
+    for (const q of got.filter((x) => x && typeof x.text === "string" && x.text.trim()).slice(0, 20)) {
+      emit({ type: "user", text: q.text.trim(), queued: true, ...(q.qid ? { qid: String(q.qid) } : {}) });
+      convo.push({ role: "user", content: queuedNote(q.text.trim()) });
+    }
+    return got.length;
+  };
   // THIS CHAT'S TIMEOUTS (the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS; the machine works them out).
   const fgMaxS = timeouts && timeouts.maxMs > 0 ? Math.round(timeouts.maxMs / 1000) : MAX_TIMEOUT_S;
   const bgMaxMs = timeouts && timeouts.bgMaxMs > 0 ? timeouts.bgMaxMs : 7_200_000;
@@ -1338,5 +1356,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });
       keepPics(convo);
     }
+    // WHAT THE OWNER SENT WHILE THESE TOOL CALLS RAN (Claude Code's queue): read now, in this turn, each in Claude Code's words;
+    // the chat shows it as the owner's message from here on.
+    await takeQueued();
   }
 }

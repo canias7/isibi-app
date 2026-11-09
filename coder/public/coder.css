@@ -501,3 +501,10 @@
 .cd-bgmove:disabled { opacity: .6; cursor: default; }
 .cd-run-info { margin: -4px 0 6px 30px; font: 12px Inter, system-ui, sans-serif; color: #6b7280; font-variant-numeric: tabular-nums; }
 .cd-progress { margin: 0 0 8px 30px; padding: 6px 10px; background: #f7f5f1; border: 1px solid #eee9e1; border-radius: 8px; font: 12px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8.5em; overflow: hidden; }
+
+/* MESSAGES WAITING FOR CODER (Claude Code's queue): grey, at the end of the chat, each with ✕ to take it back. */
+.cd-queued .cd-bubble { background: #f1efeb; color: #6b7280; border: 1px dashed #d8d3ca; }
+.cd-queued-label { display: flex; justify-content: flex-end; align-items: center; gap: 6px; font: 12px Inter, system-ui, sans-serif; color: #6b7280; margin-bottom: 4px; }
+.cd-queued-x { border: 0; background: transparent; color: #6b7280; font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+.cd-queued-x:hover { background: #ece8e1; color: #0d1b2a; }
+.cd-queue-send { margin-right: 6px; }

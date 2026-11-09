@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Send a message while Coder works (your words: "yeah fix that separately")
+
+Not live yet: it waits for your word to merge, together with the bash work below.
+
+Like Claude Code's message queue (its docs and its own words, checked today):
+
+- **You can now send while Coder works.** The message waits at the end of the chat in grey, marked "Waiting for Coder", with an **✕** to take it back (its words go back into the message box). Both buttons show while Coder works: send, and Stop.
+- **Coder reads it as soon as the step it's running finishes**, in the same job, and changes course if you asked it to. Coder gets it in Claude Code's words ("The owner sent a new message while you were working: …"), and the chat shows it as your message at that point.
+- **Anything still waiting when the job ends goes out next by itself**, in the order you typed it. A `!` command you send meanwhile waits for the job to end, then runs on its own.
+- **Not queued:** pictures and line comments (they wait for the end, as before), `/compact`, and anything from GitHub.
+- **Tests:** CD287–CD289 (the agent, the machine and the Worker); all 300 tests pass. Screenshots taken on my copy of the site.
+
 ## 2026-11-09: Bash (tool 4): parts 2 and 3, and the second check against Claude Code's docs (your words: "do all of those and double check again against the claude code docs pls")
 
 Not live yet: it needs your word to merge and deploy, then I test it all in the browser with Grok and record it.

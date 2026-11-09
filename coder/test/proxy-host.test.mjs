@@ -293,6 +293,7 @@ test("CD286 (tool 4, changelog pass; Claude Code 2.1.224 and 2.1.251: a blocked 
     assert.deepEqual(px.blockedSince(t0), [{ host: "blocked.example.com", why: "not on the network list" }, { host: "plain.example.org", why: "not on the network list" }], "each once");
     assert.deepEqual(px.blockedSince(Date.now() + 1000), [], "only since the command started");
     px.setNetwork({ mode: "none" });
+    await new Promise((ok) => setTimeout(ok, 5));
     const t1 = Date.now();
     await connect(px, "other.example.net:443");
     assert.deepEqual(px.blockedSince(t1), [{ host: "other.example.net", why: "network access is None" }]);
