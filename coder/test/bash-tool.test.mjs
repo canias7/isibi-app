@@ -295,3 +295,106 @@ test("CD280 (tool 4, part 3) the owner's own command, Claude Code's shell mode (
   assert.equal(r.status, "done");
   assert.ok(r.messages.some((m) => m.role === "assistant" && /expects 2 but gets 3/.test(m.content)));
 });
+
+test("CD282 (tool 4, docs pass 2) what persists between commands, as in Claude Code: the shell startup file's aliases, functions, options and PATH (a snapshot taken as each message starts, after the setup script; completion helpers and command-not-found left out, nothing it prints), and the owner's CODER_ENV_FILE (Claude Code's CLAUDE_ENV_FILE) run before each command in the same shell", async () => {
+  const S = await import("../container/server.mjs");
+  assert.equal(S.envFileLine("~/venv/bin/activate", "/work/p"), "if [ -r \"$HOME\"/'venv/bin/activate' ]; then . \"$HOME\"/'venv/bin/activate'; fi\n");
+  assert.equal(S.envFileLine(".coder/env.sh", "/work/p"), "if [ -r '/work/p/.coder/env.sh' ]; then . '/work/p/.coder/env.sh'; fi\n", "one in the project");
+  assert.equal(S.envFileLine("/opt/it's.sh", "/w"), "if [ -r '/opt/it'\\''s.sh' ]; then . '/opt/it'\\''s.sh'; fi\n", "quoted, never expanded");
+  for (const bad of ["", "  ", "a\nb", "x".repeat(1001)]) assert.equal(S.envFileLine(bad, "/w"), "");
+  assert.match(S.SNAPSHOT_READ, /^\{ if \[ -r "\$HOME\/\.cache\/coder\/shell-snapshot\.sh" \]; then \. "\$HOME\/\.cache\/coder\/shell-snapshot\.sh"; fi; \} >\/dev\/null 2>&1\n$/);
+  assert.match(S.SNAPSHOT_TAKE, /case "\$n" in _\[!_\]\*\|command_not_found_handle\) ;;/);
+  // On a machine made here (its commands as this user, with a home of their own): a job uses them.
+  const { createApp } = S;
+  const http = await import("node:http");
+  const root = await mkdtemp(join(tmpdir(), "coder-root-")), home = await mkdtemp(join(tmpdir(), "coder-home-"));
+  const mem = await mkdtemp(join(tmpdir(), "coder-mem-")), git = await mkdtemp(join(tmpdir(), "coder-git-")), bgr = await mkdtemp(join(tmpdir(), "coder-bgr-"));
+  await writeFile(join(home, ".bashrc"), "echo 'Welcome!'\nalias hi='echo hi from an alias'\ngreet() { echo \"hello $1\"; }\n_comp_x() { :; }\nexport PATH=\"$HOME/tools:$PATH\"\n");
+  await mkdir(join(home, "tools"));
+  await writeFile(join(home, "tools", "mytool"), "#!/bin/sh\necho mytool ran\n", { mode: 0o755 });
+  await writeFile(join(home, "env.sh"), "export GREETING=from-env-file\n");
+  const seen = [];
+  let n = 0;
+  const steps = [say("", [call("bash", { command: "hi\ngreet you\nmytool\ntype _comp_x >/dev/null 2>&1 || echo no-completion\necho \"$GREETING\"" }, "s1")]), say("Done.")];
+  const srv = http.createServer(createApp({ root, home, memRoot: mem, gitRoot: git, bgRoot: bgr, send: async (req) => { seen.push(req); return steps[Math.min(n++, 1)]; } }));
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    assert.equal((await post("/turn", { project: "shop-snap", text: "go", messages: [], setup: { vars: { CODER_ENV_FILE: "~/env.sh" } } })).status, 200);
+    let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-snap&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    const out = st.events.find((e) => e.type === "result" && e.id === "s1").output;
+    assert.equal(out, "hi from an alias\nhello you\nmytool ran\nno-completion\nfrom-env-file", out);
+    assert.ok(existsSync(join(home, ".cache", "coder", "shell-snapshot.sh")));
+  } finally { await new Promise((r) => srv.close(r)); }
+});
+
+test("CD283 (tool 4, docs pass 2) the owner moves a running command to the background (the page's \"Run in background\", Claude Code's Ctrl+B): Coder gets \"Command was manually backgrounded by user\" and goes on; a command moved at its timeout with nothing printed yet gets Claude Code's sentence about output held back", async () => {
+  const { createApp } = await import("../container/server.mjs");
+  const { BG_NO_OUTPUT, runCoder } = await import("../container/coder-agent.mjs");
+  assert.equal(BG_NO_OUTPUT, "No output had been read from it when it was moved. A program that buffers its output, or a pipe into one such as tail, can keep the output file empty until the command finishes.");
+  const http = await import("node:http");
+  const root = await mkdtemp(join(tmpdir(), "coder-root-")), mem = await mkdtemp(join(tmpdir(), "coder-mem-")), git = await mkdtemp(join(tmpdir(), "coder-git-")), bgr = await mkdtemp(join(tmpdir(), "coder-bgr-"));
+  let n = 0;
+  const steps = [say("", [call("bash", { command: "echo $$ > pid.txt; echo started; sleep 40", description: "Wait long", timeout: 60000 }, "m1")]), say("Done.")];
+  const seen = [];
+  const srv = http.createServer(createApp({ root, memRoot: mem, gitRoot: git, bgRoot: bgr, send: async (req) => { seen.push(req); return steps[Math.min(n++, 1)]; } }));
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+  let pid = 0;
+  try {
+    assert.deepEqual(await (await post("/bgmove", { project: "shop-move" })).json(), { ok: false, why: "no command of Coder's is running now" });
+    assert.equal((await post("/turn", { project: "shop-move", text: "go", messages: [] })).status, 200);
+    for (let i = 0; i < 100 && !existsSync(join(root, "shop-move", "pid.txt")); i++) await new Promise((ok) => setTimeout(ok, 50));
+    await new Promise((ok) => setTimeout(ok, 200));
+    assert.deepEqual(await (await post("/bgmove", { project: "shop-move" })).json(), { ok: true });
+    let st; for (let i = 0; i < 100; i++) { st = await (await fetch(base + "/state?project=shop-move&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    pid = Number(readFileSync(join(root, "shop-move", "pid.txt"), "utf8"));
+    const told = seen[1].messages.find((m) => m.role === "tool").content;
+    assert.match(told, /^started\nCommand was manually backgrounded by user with ID: job1\. Output is being written to: [^ ]+\. You will be notified when it completes\. If it is still running after 30m in the background, it will be stopped and you will be notified\.$/);
+    assert.ok(st.result.background.some((b) => b.id === "job1"), "it goes on in the background");
+  } finally { if (pid) { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } await new Promise((r) => srv.close(r)); }
+  // Moved at its timeout having printed nothing.
+  n = 0;
+  const r = await runCoder({ send: async () => (n++ ? say("Done.") : say("", [call("bash", { command: "npm run build | tail -5", timeout: 2000 }, "x1")])), exec: async () => ({ code: -1, background: true, pid: 5, log: "/out/bg-1.log", jobId: "job1", output: "", size: 0 }), emit: () => {} }, { text: "go" });
+  assert.match(r.messages.find((m) => m.tool_call_id === "x1").content, /stop it with stop_job\. No output had been read from it when it was moved\. A program that buffers its output, or a pipe into one such as tail, can keep the output file empty until the command finishes\. To check interim output, use read on that file path\.$/);
+});
+
+test("CD284 (tool 4, docs pass 2) the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS set a command's timeouts, as in Claude Code's cloud (Coder keeps a command within its job, and a background one within 2 hours); background commands the machine lost (restarted, or asleep) are said in Claude Code's words", async () => {
+  const S = await import("../container/server.mjs");
+  const A = await import("../container/coder-agent.mjs");
+  assert.deepEqual(S.bashTimeouts({}), { defaultMs: 120000, maxMs: 600000, bgDefaultMs: 1800000, bgMaxMs: 7200000 });
+  assert.deepEqual(S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "300000" }), { defaultMs: 300000, maxMs: 600000, bgDefaultMs: 1800000, bgMaxMs: 7200000 }, "a lower one never shortens the background's");
+  assert.deepEqual(S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "3600000" }), { defaultMs: 2400000, maxMs: 2400000, bgDefaultMs: 3600000, bgMaxMs: 7200000 }, "over 30 minutes: the background's default too");
+  assert.deepEqual(S.bashTimeouts({ BASH_MAX_TIMEOUT_MS: "1200000" }), { defaultMs: 120000, maxMs: 1200000, bgDefaultMs: 1800000, bgMaxMs: 7200000 });
+  assert.deepEqual(S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "9e99", BASH_MAX_TIMEOUT_MS: "x" }), { defaultMs: 2400000, maxMs: 2400000, bgDefaultMs: 7200000, bgMaxMs: 7200000 });
+  assert.equal(S.bgLimitMs(5400000), 5400000);
+  assert.equal(S.bgLimitMs(9e6), 7200000, "2 hours at most");
+  assert.equal(S.bgLimitMs(0, S.bashTimeouts({ BASH_DEFAULT_TIMEOUT_MS: "3600000" })), 3600000);
+  const tmo = { defaultMs: 300000, maxMs: 1200000, bgDefaultMs: 3600000, bgMaxMs: 7200000 };
+  assert.equal(A.commandTimeoutS({}, tmo), 300);
+  assert.equal(A.commandTimeoutS({ timeout: 9999999 }, tmo), 1200);
+  assert.equal(A.commandTimeoutS({ timeout_s: 900 }, tmo), 900);
+  assert.equal(A.commandTimeoutS({}), 120, "without them, Claude Code's defaults");
+  assert.deepEqual([A.durWords(1800000), A.durWords(5400000), A.durWords(7200000)], ["30m", "1h 30m", "2h"]);
+  const execs = [];
+  let n = 0;
+  const r = await A.runCoder({ send: async () => [say("", [call("bash", { command: "npm test" }, "t1"), call("bash", { command: "npm run build", timeout: 9999999 }, "t2")]), say("Done.")][Math.min(n++, 1)], exec: async (o) => { execs.push(o); return o.command === "npm run build" ? { code: -1, background: true, pid: 9, log: "/l/b.log", jobId: "job2", output: "x", size: 1 } : { code: 0, output: "ok" }; }, emit: () => {} }, { text: "go", timeouts: tmo });
+  assert.deepEqual(execs.filter((x) => !x.tool).map((x) => x.timeoutS), [300, 1200]);
+  assert.match(r.messages.find((m) => m.tool_call_id === "t2").content, /If it is still running after 1h in the background, it will be stopped and you will be notified\./);
+  // Lost with the machine.
+  assert.equal(A.lostNote([{ id: "job1", desc: "Start the dev server" }]), "The machine running this chat was restarted before background work reported back: \"Start the dev server\" (task job1). That work is lost — no result or further notification will arrive for it. Re-create it if still needed (a long-running server or watcher that nothing is waiting on does not need restarting now), or tell the owner what was lost.");
+  const http = await import("node:http");
+  const root = await mkdtemp(join(tmpdir(), "coder-root-")), mem = await mkdtemp(join(tmpdir(), "coder-mem-")), git = await mkdtemp(join(tmpdir(), "coder-git-")), bgr = await mkdtemp(join(tmpdir(), "coder-bgr-"));
+  const seen = [];
+  const srv = http.createServer(S.createApp({ root, memRoot: mem, gitRoot: git, bgRoot: bgr, send: async (req) => { seen.push(req); return say("Noted."); } }));
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-lost", text: "go", messages: [], background: [{ id: "job1", desc: "Start the dev server" }, { id: "nope" }] }) });
+    let st; for (let i = 0; i < 100; i++) { st = await (await fetch(base + "/state?project=shop-lost&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.ok(st.events.some((e) => e.type === "note" && e.text === "Coder's machine was restarted before background work reported back: \"Start the dev server\". It is not running any more."));
+    assert.ok(seen[0].messages.some((m) => m.role === "user" && m.content.includes("(task job1). That work is lost")));
+  } finally { await new Promise((ok) => srv.close(ok)); }
+});

@@ -806,6 +806,8 @@
         stepIcon(e) + (desc ? '<span class="cd-cmd-desc">' + esc(desc) + '</span>' : '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>') +
         changeCounts(r) + tail +
       '</button>' +
+      // A COMMAND STILL RUNNING CAN BE MOVED TO THE BACKGROUND (Claude Code's Ctrl+B): Coder goes on, and is told when it ends.
+      (state === 'run' && !e.tool && S.running ? '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>' : '') +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
@@ -1389,6 +1391,13 @@
     // command's own "I allowed Coder to run command …"), checked again on the machine.
     on('[data-runask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskOk)]; if (x && typeof x.allow === 'string' && /^(I allowed Coder to (change .+|run command [0-9a-f]{8})\.\n?)+$/.test(x.allow + '\n')) { e.currentTarget.disabled = true; send(x.allow); } });
     on('[data-bg-stop]', 'click', (e) => { stopBg(e.currentTarget.dataset.bgStop, e.currentTarget); });
+    on('[data-bg-move]', 'click', async (e) => {
+      const b = e.currentTarget, id = S.project && S.project.id;
+      if (!id) return;
+      b.disabled = true; b.textContent = 'Moving…';
+      const r = await call('/projects/' + encodeURIComponent(id) + '/background', { method: 'POST', body: JSON.stringify({ move: true }) });
+      if (!(r.status === 200 && r.data && r.data.ok) && S.project && S.project.id === id) { S.error = (r.data && r.data.error) || 'It could not be moved.'; draw(); }
+    });
     on('[data-runask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskNo)]; if (x) { e.currentTarget.disabled = true; send(x.kind === 'protected' && Array.isArray(x.paths) && x.paths.length ? 'Don\'t change ' + x.paths.join(', ') + '.' : 'Don\'t run that command.'); } });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });

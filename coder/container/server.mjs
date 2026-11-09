@@ -81,6 +81,40 @@ const shellWord = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
  * "unless the command starts with sleep"): stopped at the limit, "Command timed out after Ns", exit code 143.
  */
 export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 * 1024 ** 3, READ_BACK_KEEP = 40_000;
+/**
+ * THE SHELL'S STARTUP FILE, AS CLAUDE CODE TAKES IT (tool 4, docs pass 2; its tools reference: "Aliases and shell functions
+ * defined in your shell startup file are available. At session start, Claude Code sources ~/.zshrc, ~/.bashrc, or ~/.profile
+ * depending on your shell, captures the resulting aliases, functions, and shell options, and applies them to every Bash
+ * command"). At each job's start, after the setup script, an interactive bash of the AI's user (it reads ~/.bashrc) prints
+ * them, only them (between two marks; bash-completion's helpers and Ubuntu's command-not-found hook left out), into a file in
+ * its home, and every command of Coder's (and the owner's own with !) reads that file first, quietly.
+ */
+export const SNAPSHOT_FILE = ".cache/coder/shell-snapshot.sh";
+export const SNAPSHOT_MAX = 256 * 1024;
+/** (Like Claude Code's own script: shell options first, each function by itself, the options set on, aliases, then PATH.) */
+export const SNAPSHOT_TAKE = String.raw`d="$HOME/.cache/coder"; mkdir -p "$d" && f="$d/shell-snapshot.sh" && bash -i -c '
+printf "\n__CODER_SNAP_A__\n"
+shopt -p
+declare -F | while read -r _ _ n; do case "$n" in _[!_]*|command_not_found_handle) ;; *) printf "eval %q >/dev/null 2>&1\n" "$(declare -f -- "$n")";; esac; done
+set -o | while read -r o v; do if [ "$v" = on ]; then case "$o" in history|histexpand|monitor|emacs|vi|interactive-comments) ;; *) echo "set -o $o";; esac; fi; done
+echo "shopt -s expand_aliases"
+alias -p | sed -e "1001,\$d" -e "s/^alias -- /alias /" -e "s/^alias /alias -- /"
+printf "export PATH=%q\n" "$PATH"
+printf "__CODER_SNAP_B__\n"
+' </dev/null 2>/dev/null | sed -n '/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p' | sed '1d;$d' | head -c ` + SNAPSHOT_MAX + String.raw` > "$f.new" && mv -f "$f.new" "$f"`;
+export const SNAPSHOT_READ = '{ if [ -r "$HOME/' + SNAPSHOT_FILE + '" ]; then . "$HOME/' + SNAPSHOT_FILE + '"; fi; } >/dev/null 2>&1\n';
+/**
+ * THE OWNER'S CODER_ENV_FILE (Claude Code's CLAUDE_ENV_FILE: "Path to a shell script whose contents Claude Code runs before
+ * each Bash command in the same shell process, so exports in the file are visible to the command. Use to persist virtualenv
+ * or conda activation across commands"): set in the environment's variables; a full path, ~/ for the AI's home, or one in
+ * the project. The line every command of Coder's starts with ("" when unset or unusable).
+ */
+export function envFileLine(value, project) {
+  const v = String(value ?? "").trim();
+  if (!v || v.length > 1000 || /[\0\n\r]/.test(v)) return "";
+  const path = v.startsWith("~/") ? '"$HOME"/' + shellWord(v.slice(2)) : v.startsWith("/") ? shellWord(v) : shellWord(join(project, v));
+  return "if [ -r " + path + " ]; then . " + path + "; fi\n";
+}
 /** A background command's exit code, by its process id, once it ended (the agent's notice says it, like Claude Code's). */
 export const BG_EXITS = new Map();
 /**
@@ -97,8 +131,24 @@ export const BG_LIMIT_MS = 30 * 60 * 1000, BG_LIMIT_MAX_MS = 2 * 60 * 60 * 1000;
 const JOB_KEEP_MS = 3 * 60 * 60 * 1000;
 /** How often the background commands are looked at (their time limits, their ends). */
 const JOB_CHECK_MS = 5000;
-/** The time limit a background command gets: its timeout given with run_in_background, up to 2 hours; else 30 minutes. */
-export const bgLimitMs = (ms) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Math.min(BG_LIMIT_MAX_MS, Math.max(1000, Math.round(Number(ms)))) : BG_LIMIT_MS);
+/**
+ * A COMMAND'S TIMEOUTS, from the environment's variables as Claude Code reads them (its cloud docs: "To raise the command
+ * timeouts for an environment's sessions, add BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS to its environment
+ * variables"): the default (2 minutes) and the most Coder may ask for (10 minutes; the larger of the two), for a command in
+ * the foreground; a BASH_DEFAULT_TIMEOUT_MS over 30 minutes is also the default time limit in the background ("neither can
+ * shorten a limit"). Coder keeps a foreground command within its job (40 minutes at most) and a background one within 2
+ * hours (Claude Code raises that past 2 hours; Coder's machine stays awake, on the owner's bill, while one runs).
+ */
+export const FG_CAP_MS = 40 * 60 * 1000;
+export function bashTimeouts(vars = {}) {
+  const num = (v) => { const n = Number(String(v ?? "").trim()); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; };
+  const d = num(vars && vars.BASH_DEFAULT_TIMEOUT_MS), m = num(vars && vars.BASH_MAX_TIMEOUT_MS);
+  const defaultMs = Math.max(1000, Math.min(FG_CAP_MS, d || 120_000));
+  const maxMs = Math.max(defaultMs, Math.min(FG_CAP_MS, m || 600_000));
+  return { defaultMs, maxMs, bgDefaultMs: Math.min(BG_LIMIT_MAX_MS, Math.max(BG_LIMIT_MS, d)), bgMaxMs: BG_LIMIT_MAX_MS };
+}
+/** The time limit a background command gets: its timeout given with run_in_background, up to 2 hours; else the default (30 minutes). */
+export const bgLimitMs = (ms, tmo = bashTimeouts()) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Math.min(tmo.bgMaxMs, Math.max(1000, Math.round(Number(ms)))) : tmo.bgDefaultMs);
 /** A process's exit as a shell says it: its code, or 128 + the signal that ended it. */
 const exitOf = (code, signal) => (typeof code === "number" ? code : signal && os.constants.signals[signal] ? 128 + os.constants.signals[signal] : null);
 /** A background command ended: its code and why, once (the first reason given wins: a stop says why before the end comes). */
@@ -180,7 +230,7 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false, onStart = null } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false, onStart = null, prefix = "", onMove = null } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -189,7 +239,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     const g = Number.isInteger(gid) ? gid : uid;
     const nonce = follow ? randomUUID().replace(/-/g, "").slice(0, 16) : "";
     // The command's own shell goes to its folder first, and follows where it ends.
-    command = (typeof start === "string" && start && start !== dir ? "cd -- " + shellWord(start) + " || exit 1\n" : "") + (follow ? cwdTrap(nonce) : "") + command;
+    // (Then what every command of Coder's reads first: the startup file's aliases and functions, the owner's CODER_ENV_FILE.)
+    command = (typeof start === "string" && start && start !== dir ? "cd -- " + shellWord(start) + " || exit 1\n" : "") + (typeof prefix === "string" ? prefix : "") + (follow ? cwdTrap(nonce) : "") + command;
     // IN THE JOB'S ADMIN SANDBOX (coder-sandbox.mjs: as `dev`, with sudo for anything, in the room),
     // else in the room: started by this service (root) in the room's network, then made the AI's user (setpriv) before the command runs.
     const p = box && uid !== null
@@ -233,14 +284,12 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
     const answer = (r) => { if (!answered) { answered = true; done(r); } };
-    const t = setTimeout(async () => {
-      timedOut = true;
-      if (kill || stopAtTimeout) {
-        try { process.kill(-p.pid, stopAtTimeout ? "SIGTERM" : "SIGKILL"); } catch { /* already gone */ }
-        if (stopAtTimeout) setTimeout(() => { try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref?.();
-        return;
-      }
-      // Into the background: the rest of its output goes to a log the AI can read (its output file, when it has one).
+    // Into the background: at its timeout, or when the owner asks (`byUser`: the page's "Run in background", Claude Code's
+    // Ctrl+B). The rest of its output goes to a log the AI can read (its output file, when it has one).
+    let moving = false;
+    const toBackground = async (byUser) => {
+      if (answered || moving) return false;
+      moving = true;
       let log = spill && spillPath && spillPath !== "-" ? spillPath : join(bgDir, "bg-" + (++bgCount) + ".log");
       try {
         p.stdout.removeAllListeners("data"); p.stderr.removeAllListeners("data");
@@ -259,8 +308,20 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
         p.unref();
       } catch { /* the log could not be made: the note still says it runs */ }
       const so = out.length > 4000 ? out.slice(-4000) : out;
-      answer({ code: -1, background: true, pid: p.pid, log, timedOut: true, output: so, size: bytes, ...(box && uid !== null ? { inBox: true } : {}) });
+      answer({ code: -1, background: true, pid: p.pid, log, timedOut: !byUser, ...(byUser ? { byUser: true } : {}), output: so, size: bytes, ...(box && uid !== null ? { inBox: true } : {}) });
+      return true;
+    };
+    const t = setTimeout(async () => {
+      timedOut = true;
+      if (kill || stopAtTimeout) {
+        try { process.kill(-p.pid, stopAtTimeout ? "SIGTERM" : "SIGKILL"); } catch { /* already gone */ }
+        if (stopAtTimeout) setTimeout(() => { try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref?.();
+        return;
+      }
+      await toBackground(false);
     }, Math.max(1, timeoutS) * 1000);
+    // The owner may move it now (only a command that would move at its timeout: never a tool's, never a sleep).
+    if (!kill && !stopAtTimeout && typeof onMove === "function") { try { onMove(() => { if (answered || moving) return false; clearTimeout(t); toBackground(true); return true; }); } catch { /* none */ } }
     p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
     p.on("close", async (code, signal) => {
       clearTimeout(t);
@@ -1889,6 +1950,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // commands, see safeVars.)
     const rawVars = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
     const keepHome = /^(1|true|yes|on)$/i.test(String(rawVars.CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR ?? "").trim());
+    // What every command of Coder's reads first (tool 4, docs pass 2): the shell startup file's snapshot (only where the AI has
+    // a home of its own), then the owner's CODER_ENV_FILE.
+    t.prefix = (home ? SNAPSHOT_READ : "") + envFileLine(rawVars.CODER_ENV_FILE, home0);
+    // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
+    t.tmo = bashTimeouts(rawVars);
     t.cwd = home0; t.cwdWas = "";
     const askedCwd = typeof body.cwd === "string" ? body.cwd.slice(0, 4096) : "";
     if (!keepHome && askedCwd && askedCwd !== home0 && Array.isArray(body.messages) && body.messages.length) {
@@ -1930,6 +1996,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // FULL ACCESS is said too (live test, 2026-11-08: asked which network setting its environment has, Coder
     // could not tell: only the limited ones were described).
     if (!net.limited) netNote = "\n\nNETWORK: FULL. This chat's environment allows any site on the internet (the owner can limit it in Environment, Network access).";
+    // THE COMMANDS' TIMEOUTS, when the environment's variables change them (Claude Code: BASH_DEFAULT_TIMEOUT_MS, BASH_MAX_TIMEOUT_MS).
+    if (t.tmo.defaultMs !== 120_000 || t.tmo.maxMs !== 600_000 || t.tmo.bgDefaultMs !== BG_LIMIT_MS) netNote += "\n\nCOMMAND TIMEOUTS (this chat's environment sets BASH_DEFAULT_TIMEOUT_MS or BASH_MAX_TIMEOUT_MS): a command's timeout is " + t.tmo.defaultMs + " ms by default, at most " + t.tmo.maxMs + " ms; a background command's time limit is " + Math.round(t.tmo.bgDefaultMs / 60000) + " minutes by default, at most " + Math.round(t.tmo.bgMaxMs / 60000) + " minutes.";
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && !githubOn && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); p0.setGithub(false); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
@@ -2030,6 +2098,17 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       : "Your next command starts in " + saidDir(t.cwd) + (t.cwd !== home0 ? " (where an earlier cd left it)" : t.cwdWas ? " (an earlier cd had left it in " + saidDir(t.cwdWas) + ", which is gone or not inside the project now)" : "") +
         ". A cd carries over to your later commands, in this message and the next ones, when the command succeeds and stays inside the project or this chat's other repositories; if it leaves them, the next command starts back in " + home0 + " (\"Shell cwd was reset to\" says so). A command in the background never moves it.") +
       " Give the file tools full paths, as Claude Code does (a short path counts from where your commands start); grep and glob search from there when given no path.";
+    // THE SHELL STARTUP FILE'S ALIASES, FUNCTIONS AND OPTIONS, taken now, after the setup script (see SNAPSHOT_TAKE).
+    if (home) { try { await execIn(dir, SNAPSHOT_TAKE, 20, { bgDir, kill: true, home, room: t.room, box: t.box, onStart: (pid) => t.fg.add(pid) }); } catch { /* commands run without it */ } }
+    // ITS BACKGROUND COMMANDS THAT ENDED SINCE CODER'S LAST ANSWER (Claude Code tells Claude when one ends): told when the job
+    // begins, once. And those this machine no longer knows (Claude Code's cloud docs: when the machine goes, "Claude Code tells
+    // Claude which commands stopped"): the chat's list, as its Worker last saw it, against this machine's.
+    const backgroundNews = () => {
+      checkJobs();
+      const notices = untoldOf(project).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
+      const lost = (Array.isArray(body.background) ? body.background : []).filter((b) => b && /^job\d{1,6}$/.test(String(b.id || "")) && ![...JOBS.values()].some((j) => j.project === project && j.id === b.id)).slice(0, 20).map((b) => ({ id: String(b.id), desc: String(b.desc || b.command || "").slice(0, 200) }));
+      return { notices, lost };
+    };
     const contextFor = (notesNow, memoryNow, laterNow) => {
       const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
       const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
@@ -2045,9 +2124,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const begin = () => {
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
-      // ITS BACKGROUND COMMANDS THAT ENDED SINCE CODER'S LAST ANSWER (Claude Code tells Claude when one ends): told now, once.
-      checkJobs();
-      const notices = untoldOf(project).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
+      const { notices, lost } = backgroundNews();
       runCoder({
         send: via ? coderSend(env, { via }) : sendFn,
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
@@ -2078,8 +2155,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // The turn's own commands, while they run (the owner's Stop ends them; its background ones go on).
           let leader = 0;
           const onStart = (pid) => { leader = pid; t.fg.add(pid); };
+          // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
+          const onMove = (fn) => { t.movable = fn; };
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2094,13 +2173,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (full) r.diskNote = full.inodes ? "Nearly out of inodes: this computer's volume holding " + full.dir + " has " + full.inodes + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE : "Disk full: this computer's volume holding " + full.dir + " has " + full.mb + " MB free, so this command's output may be cut short and its own writes may have failed with \"No space left on device\". " + FREE_SPACE;
           }
           if (leader) t.fg.delete(leader);
+          t.movable = null;
           // IN THE BACKGROUND (asked to, or still running at its timeout): kept on this machine's list, with its time limit
           // (Claude Code in the cloud: its `timeout` with run_in_background, else 30 minutes; a moved one 30 minutes from
           // the move). It goes on after the answer, and Coder is told when it ends.
           if (r && r.background && r.pid && !tool) {
             const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
             const at = Date.now();
-            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at, moved: !inBg, deadline: at + (inBg ? bgLimitMs(limitMs) : BG_LIMIT_MS), box: !!r.inBox, end: null, told: false, stopping: "" });
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at, moved: !inBg, deadline: at + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "" });
             r.jobId = id;
           }
           let told = "";
@@ -2174,7 +2254,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, lost, timeouts: t.tmo, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
@@ -2299,6 +2379,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
       if (url.pathname === "/bgstate") { checkJobs(); return send(200, { ok: true, background: jobsOf(project), untold: untoldOf(project).length, running: !!(t && t.running) }); }
+      // THE OWNER MOVES THE RUNNING COMMAND TO THE BACKGROUND (the page's "Run in background", Claude Code's Ctrl+B): Coder
+      // gets "Command was manually backgrounded by user" and goes on.
+      if (url.pathname === "/bgmove" && req.method === "POST") {
+        const moved = !!(t && t.running && typeof t.movable === "function" && t.movable());
+        return send(200, moved ? { ok: true } : { ok: false, why: "no command of Coder's is running now" });
+      }
       // THE OWNER STOPS ONE (the page's background list, like Claude Code's tasks panel): Coder is told (Claude Code 2.1.257).
       if (url.pathname === "/bgstop" && req.method === "POST") {
         const j = [...JOBS.values()].find((x) => x.project === project && x.id === String(body.id || "") && !x.end);
