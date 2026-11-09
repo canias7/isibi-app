@@ -6,6 +6,8 @@
   'use strict';
   const API = '/api/coder';
   const POLL_MS = 1500;
+  // How often an open chat waiting for the owner asks about its background commands (tool 4, part 2).
+  const BG_POLL_MS = 20000;
   // THE MODEL LIST AND THE USER'S PICK come from the server
   // (2026-11-05: "put it server side"); the page only shows them.
   let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'high' }];
@@ -570,11 +572,13 @@
   async function openProject(id) {
     stopPoll();
     keepDraft(S, S.project && S.project.id, id);
+    stopBgWatch();
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
     S.project = r.data.project; S.events = r.data.events || [];
     S.running = S.project.status === 'running';
+    S.background = undefined; startBgWatch();
     S.envInfo = null; loadEnvInfo();
     S.branches = null; loadBranches();
     loadAllRepos();
@@ -609,7 +613,7 @@
     // /compact (like Claude Code's): the summary is made; no job runs.
     if (r.data.compacted) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); syncEntry(); return draw(true); }
     S.project = r.data.project; S.running = true; syncEntry();
-    S.next = 0;
+    S.next = 0; stopBgWatch();
     startPoll(); draw(true);
   }
 
@@ -652,11 +656,13 @@
       }
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
+      if (Array.isArray(r.data.background)) S.background = r.data.background;
       S.running = !!r.data.running;
       syncEntry();
       draw(fresh.length > 0);
     }
     if (S.running) S.poll = setTimeout(tick, POLL_MS);
+    else { S.background = undefined; startBgWatch(); }
   }
 
   // SAVED ELSEWHERE (another tab, or Coder's every-minute run while no tab was
@@ -666,8 +672,9 @@
     if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
     S.project = r.data.project; S.events = r.data.events || [];
     S.running = S.project.status === 'running';
+    S.background = undefined;
     syncEntry(); draw(true);
-    if (S.running) { S.next = 0; startPoll(); }
+    if (S.running) { S.next = 0; stopBgWatch(); startPoll(); } else startBgWatch();
   }
 
   async function loadChanges() {
@@ -1182,10 +1189,49 @@
     void input;
   }
 
+  // ITS BACKGROUND COMMANDS STILL RUNNING (tool 4, part 2; like Claude Code's background tasks under the prompt, each with a
+  // Stop): they go on after Coder's answer, until they end, are stopped, or reach their time limit; Coder is told when one ends.
+  const bgList = () => (Array.isArray(S.background) ? S.background : S.project && Array.isArray(S.project.background) ? S.project.background : []);
+  const bgAge = (b) => { const s = Math.max(0, Math.round((Date.now() - Number(b.at || Date.now())) / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.round(s / 60) + 'm' : (s / 3600).toFixed(1).replace(/\.0$/, '') + 'h'; };
+  function bgHTML() {
+    const list = bgList();
+    if (!list.length) return '';
+    return '<div class="cd-bg" role="status" aria-label="Background commands"><div class="cd-bg-head">' + list.length + ' background command' + (list.length === 1 ? '' : 's') + ' running</div>' +
+      list.map((b) => '<div class="cd-bg-row"><span class="cd-bg-dot" aria-hidden="true"></span><span class="cd-bg-name" title="' + esc(b.command || '') + '">' + esc(b.desc || b.command || b.id) + '</span><span class="cd-bg-time" title="Running for">' + esc(bgAge(b)) + '</span><button type="button" class="cd-bg-stop" data-bg-stop="' + esc(b.id) + '">Stop</button></div>').join('') + '</div>';
+  }
+  // While the chat is open and waits for the owner, its list is asked for now and then; a turn started to tell Coder (one
+  // ended) is then followed like any.
+  function stopBgWatch() { if (S.bgWatch) clearTimeout(S.bgWatch); S.bgWatch = 0; }
+  function startBgWatch() { stopBgWatch(); if (S.project && !S.running && bgList().length) S.bgWatch = setTimeout(bgTick, BG_POLL_MS); }
+  async function bgTick() {
+    S.bgWatch = 0;
+    if (!S.project || S.running) return;
+    const id = S.project.id;
+    const r = await call('/projects/' + encodeURIComponent(id) + '/background');
+    if (!S.project || S.project.id !== id || S.running) return;
+    if (r.status === 200 && r.data && r.data.ok) {
+      S.background = r.data.background || [];
+      if (r.data.project) S.project = r.data.project;
+      if (r.data.running || (r.data.project && r.data.project.status === 'running')) return reloadChat(id);
+      draw();
+    }
+    startBgWatch();
+  }
+  async function stopBg(job, btn) {
+    const id = S.project && S.project.id;
+    if (!id) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+    const r = await call('/projects/' + encodeURIComponent(id) + '/background', { method: 'POST', body: JSON.stringify({ id: job }) });
+    if (!S.project || S.project.id !== id) return;
+    if (r.status === 200 && r.data && r.data.ok) { S.background = (r.data.background || []).filter((b) => b.id !== job); if (r.data.project) S.project = r.data.project; }
+    else S.error = (r.data && r.data.error) || 'It could not be stopped.';
+    draw(); startBgWatch();
+  }
+
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + mentionHTML() + commentsHTML() + picsHTML() +
+    return '<div class="cd-composewrap">' + bgHTML() + mentionHTML() + commentsHTML() + picsHTML() +
       '<form class="cd-compose" id="cdForm">' +
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working… you can close this tab' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="Attach a picture" title="Attach a picture (or paste one)">' + ICON.clip + '</button><input type="file" id="cdFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>' +
@@ -1338,6 +1384,7 @@
     // A COMMAND'S CARD: Allow sends the words Coder's app gave it (one "I allowed Coder to change …" line a file, or the
     // command's own "I allowed Coder to run command …"), checked again on the machine.
     on('[data-runask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskOk)]; if (x && typeof x.allow === 'string' && /^(I allowed Coder to (change .+|run command [0-9a-f]{8})\.\n?)+$/.test(x.allow + '\n')) { e.currentTarget.disabled = true; send(x.allow); } });
+    on('[data-bg-stop]', 'click', (e) => { stopBg(e.currentTarget.dataset.bgStop, e.currentTarget); });
     on('[data-runask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskNo)]; if (x) { e.currentTarget.disabled = true; send(x.kind === 'protected' && Array.isArray(x.paths) && x.paths.length ? 'Don\'t change ' + x.paths.join(', ') + '.' : 'Don\'t run that command.'); } });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });

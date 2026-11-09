@@ -82,6 +82,13 @@ export async function runWatchedJobs(env, deps, now = Date.now()) {
 export const HOLD_MAX_MS = WATCH_MAX_MS;
 /** An ended job waits at most 30 minutes to be saved (the every-minute run saves it within a minute). */
 export const SAVE_WAIT_MS = 30 * 60 * 1000;
+/**
+ * A BACKGROUND COMMAND STILL RUNNING after Coder's answer keeps its machine awake too (tool 4, part 2: like Claude Code's, it
+ * goes on until it ends, is stopped, or reaches its time limit, 2 hours at most), and one that ended keeps it awake until
+ * Coder is told (the every-minute run starts that turn within a minute or two).
+ */
+export const BG_HOLD_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
+export const TELL_WAIT_MS = 15 * 60 * 1000;
 /** How long the machine has to say whether it is busy: it answers at once unless it is stuck. */
 export const BUSY_PROBE_MS = 5000;
 
@@ -104,5 +111,67 @@ export function holdDecision(state) {
     if (!ms(state.unsavedMs)) return { hold: false, why: "unreadable" };
     if (state.unsavedMs <= SAVE_WAIT_MS) return { hold: true, why: "unsaved" };
   }
-  return { hold: false, why: count(state.working) || count(state.unsaved) ? "stuck" : "idle" };
+  if (count(state.background)) {
+    if (!ms(state.backgroundMs)) return { hold: false, why: "unreadable" };
+    if (state.backgroundMs <= BG_HOLD_MS) return { hold: true, why: "background" };
+  }
+  if (count(state.untold)) {
+    if (!ms(state.untoldMs)) return { hold: false, why: "unreadable" };
+    if (state.untoldMs <= TELL_WAIT_MS) return { hold: true, why: "untold" };
+  }
+  return { hold: false, why: count(state.working) || count(state.unsaved) || count(state.background) || count(state.untold) ? "stuck" : "idle" };
+}
+
+// ── BACKGROUND COMMANDS AFTER THE ANSWER (tool 4, part 2; the owner, 2026-11-09: "do all of those") ──
+// Like Claude Code's: a background command goes on after Coder's answer, until it ends, is stopped, or reaches its time
+// limit, and Coder is told when it ends; with nothing else going on, a turn is started to tell it (Claude Code "re-invokes
+// you when it exits"). A chat whose job ended with background commands still running is on this second list; the
+// every-minute run asks its machine about them (through Coder's own route, as the chat's owner) and starts that turn.
+
+/** Where the list lives: one small record per chat. */
+export const BG_PREFIX = "coder/background-watch/";
+/** A chat stays on it 2 hours and 15 minutes at most (a background command's longest time limit is 2 hours). */
+export const BG_WATCH_MAX_MS = 2 * 60 * 60 * 1000 + 15 * 60 * 1000;
+export const bgKey = (uid, id) => BG_PREFIX + uid + "__" + id + ".json";
+
+/** Put a chat on it (again: the time counts from its last job's end). */
+export async function watchBackground(bucket, { uid, email, id }, now = Date.now()) {
+  await bucket.put(bgKey(uid, id), JSON.stringify({ uid, email: String(email || ""), id, at: now }), { httpMetadata: { contentType: "application/json" } });
+}
+
+/**
+ * EVERY MINUTE: for each chat on the list, its background commands (GET …/background). One that ended and Coder was not told
+ * of, while the chat has no job running: a turn is started to tell it (POST …/message with fromBackground). A chat with none
+ * left leaves the list. Answers `{ checked, woken, left }`.
+ */
+export async function runBackgroundJobs(env, deps, now = Date.now()) {
+  const bucket = env.CODER_BUCKET;
+  const keys = [];
+  let cursor;
+  do {
+    const page = await bucket.list({ prefix: BG_PREFIX, cursor });
+    for (const o of page.objects || []) keys.push(o.key);
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  let checked = 0, woken = 0, left = 0;
+  const one = async (key) => {
+    const rec = await readJson(bucket, key);
+    if (!rec || typeof rec.uid !== "string" || typeof rec.id !== "string" || !(now - Number(rec.at) < BG_WATCH_MAX_MS)) { await bucket.delete(key); left++; return; }
+    const user = { id: rec.uid, email: rec.email };
+    const base = "https://gofarther.dev/api/coder/projects/" + encodeURIComponent(rec.id);
+    const res = await deps.coder(new Request(base + "/background"), user).catch(() => null);
+    const st = res ? await res.json().catch(() => null) : null;
+    checked++;
+    if (res && res.status === 404) { await bucket.delete(key); left++; return; }
+    if (!st || st.ok !== true) return;
+    const running = st.running === true || (st.project && st.project.status === "running");
+    if (Number(st.untold) > 0 && !running) {
+      const r = await deps.coder(new Request(base + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fromBackground: true }) }), user).catch(() => null);
+      if (r && r.status === 200) woken++;
+      return;
+    }
+    if (!(Array.isArray(st.background) && st.background.length) && !(Number(st.untold) > 0)) { await bucket.delete(key); left++; }
+  };
+  for (let i = 0; i < keys.length; i += AT_ONCE) await Promise.all(keys.slice(i, i + AT_ONCE).map((k) => one(k).catch(() => {})));
+  return { checked, woken, left };
 }

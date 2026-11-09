@@ -233,10 +233,33 @@ export function cardLines(command) {
  */
 export const RM_REFUSED = "Permission for this command was denied by a built-in Coder safety check, not by the owner. The check stops removals that can delete far more than intended: a system, home or workspace directory, or a target it cannot resolve, such as a shell variable that, if unset or empty, turns this into `rm -rf /` or `rm -rf /*`. Only a person may approve such a removal, and Coder asks no one about commands. The command was NOT run; do not claim it succeeded. Do not work around the check by splitting, scripting, or re-issuing the removal through another tool or shell: the check exists because a removal like this can destroy the owner's data, and getting past it would not make it safe. If the text below suggests a safe rewrite, run that instead; it goes through the same check. Otherwise finish the rest of the task without this removal, tell the owner what you wanted to delete and why, and leave the removal to them. What was flagged: ";
 /**
- * A BACKGROUND COMMAND'S NOTICE (Claude Code 2.1.319's words for a session whose background commands end with its final
- * response): Coder stops them when the turn ends.
+ * A BACKGROUND COMMAND'S NOTICE (Claude Code 2.1.319's words in a session whose background commands go on after its answer,
+ * as Coder's do now: tool 4, part 2; the owner, 2026-11-09: "do all of those").
  */
-export const BG_NOTICE = "If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that — so do not end your turn to wait for it; if you need its result, wait for it before giving your final response.";
+export const BG_NOTICE = "You will be notified when it completes.";
+/** Said of one moved to the background at its timeout (Claude Code's words in the cloud: 30 minutes from the move). */
+export const BG_MOVED_LIMIT = "If it is still running after 30m in the background, it will be stopped and you will be notified.";
+/** What Coder is told with one stopped at its time limit (Claude Code's words). */
+export const BG_DEADLINE = "If the work in progress still needs it, start it again with `run_in_background` and a longer `timeout`. If it already had the longest `timeout` allowed, do not restart it. Either way, report that it was stopped. The longest `timeout` allowed in this session is 7200000 ms (120 minutes).";
+/**
+ * WHAT CODER IS TOLD WHEN A BACKGROUND COMMAND ENDED (Claude Code 2.1.319's words: 'Background command "Run the tests"
+ * completed (exit code 0)', '… failed with exit code 3', '… was stopped after reaching its background time limit', '… was
+ * stopped'): `said`, the line the chat shows; `note`, what Coder reads, with its output file and id.
+ */
+export function bgEndNotice({ id = "", desc = "", command = "", log = "", code = null, why = "exit" } = {}) {
+  const name = "Background command \"" + (desc || scrub(String(command || "").split("\n")[0]).slice(0, 80)) + "\"";
+  const said = why === "limit" ? name + " was stopped after reaching its background time limit"
+    : why === "owner" || why === "lost" ? name + " was stopped"
+    : code === 0 ? name + " completed (exit code 0)"
+    : Number.isInteger(code) ? name + " failed with exit code " + code
+    : name + " ended";
+  const more = why === "limit" ? " The command was stopped after reaching its background time limit. " + BG_DEADLINE
+    : why === "owner" ? " The owner stopped it before it completed."
+    : why === "lost" ? " Coder's machine had to stop it before it completed (its commands could not be paused while the machine worked on the files). Start it again only if the work still needs it."
+    : "";
+  const where = log ? " Its output is in " + log + (id ? " (ID: " + id + ")" : "") + "." : id ? " (ID: " + id + ")." : "";
+  return { said, note: said + "." + more + where };
+}
 /** How long, the most significant part only (Claude Code: "has been running for 2m"). */
 export const agoWords = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.round(s / 60) + "m" : Math.round(s / 3600) + "h"; };
 /** A timeout Grok asked for: Claude Code's `timeout` in milliseconds, or Coder's own `timeout_s`; one over the most is cut to it, not refused. */
@@ -489,12 +512,12 @@ export const CODER_TOOLS = Object.freeze([
   // and Claude Code 2.1.319's own Bash description, read and tried that day).
   { type: "function", function: {
     name: "bash",
-    description: "Run ONE shell command (bash) and get back what it printed. Each command runs in a separate process. A cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; outside them the next command starts back in the project's folder, and the result says \"Shell cwd was reset to …\". Environment variables do not carry over from one command to the next. What a command prints is shown to you, not reliably to the owner: say in your answer what matters. Give `description`: what the command does, in a few plain words in active voice (\"Run the test suite\", \"Install the packages\"), never the command echoed; the owner sees it in place of the command. `timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is moved to the background and you are told its id and output file (a command that starts with `sleep` is stopped instead). A command that runs on (a dev server, a watcher, a long build) goes in the background with run_in_background: true, never with &: you get its id and output file, and you are told when it ends; read its output with read on that file, stop it with stop_job. A foreground `sleep` of 25 seconds or more is refused. Output past 30,000 characters is saved to a file: you get its path and the first 2,000 characters, and read or grep that file for the rest. Exit code 1 from grep, rg, find, diff, test and git diff or git grep is not a failure. Commands run with no secrets in their environment. Use it for installs, tests, builds, scripts, git status/log/diff; read, write, edit, grep and glob for files.",
+    description: "Run ONE shell command (bash) and get back what it printed. Each command runs in a separate process. A cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; outside them the next command starts back in the project's folder, and the result says \"Shell cwd was reset to …\". Environment variables do not carry over from one command to the next. What a command prints is shown to you, not reliably to the owner: say in your answer what matters. Give `description`: what the command does, in a few plain words in active voice (\"Run the test suite\", \"Install the packages\"), never the command echoed; the owner sees it in place of the command. `timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is moved to the background and you are told its id and output file (a command that starts with `sleep` is stopped instead). A command that runs on (a dev server, a watcher, a long build) goes in the background with run_in_background: true, never with &: you get its id and output file, and you are told when it ends; read its output with read on that file, stop it with stop_job. A background command keeps running after your answer, until it ends, is stopped, or reaches its time limit: 30 minutes, or with run_in_background the `timeout` you give, up to 7200000 (2 hours); you are told when it ends, even after your answer. A foreground `sleep` of 25 seconds or more is refused. Output past 30,000 characters is saved to a file: you get its path and the first 2,000 characters, and read or grep that file for the rest. Exit code 1 from grep, rg, find, diff, test and git diff or git grep is not a failure. Commands run with no secrets in their environment. Use it for installs, tests, builds, scripts, git status/log/diff; read, write, edit, grep and glob for files.",
     parameters: { type: "object", properties: {
       command: { type: "string", description: "The command to run" },
       description: { type: "string", description: "What the command does, in plain words (e.g. \"Run the test suite\"). The owner sees it." },
-      timeout: { type: "integer", description: "Optional timeout in milliseconds (default 120000, at most 600000)" },
-      run_in_background: { type: "boolean", description: "Run it in the background; you are told when it ends" },
+      timeout: { type: "integer", description: "Optional timeout in milliseconds (default 120000, at most 600000). With run_in_background: its time limit in the background (default 1800000, at most 7200000)" },
+      run_in_background: { type: "boolean", description: "Run it in the background: it keeps running after your answer, and you are told when it ends" },
     }, required: ["command"] },
   } },
   // OWNER, 2026-11-05 ("b"): the owner asks for a pull request in the chat,
@@ -564,7 +587,7 @@ HOW YOU WORK
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
-- Long-running servers and watchers: bash with run_in_background: true, then monitor to read their output (and curl to check a server), stop_job when done. Never use & yourself. A command still running at its time limit keeps running in the background. Everything in the background is stopped when your turn ends.
+- Long-running servers and watchers: bash with run_in_background: true, then monitor to read their output (and curl to check a server), stop_job when done. Never use & yourself. A command still running at its time limit keeps running in the background. Background commands keep running after your answer, until they end, you stop them, or they reach their time limit (30 minutes; with run_in_background, the timeout you give, up to 2 hours); you are told when one ends, even after your answer, so do not wait or poll for it.
 - Keep command output small (head, tail, grep): every round costs the owner time.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
@@ -670,7 +693,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -702,6 +725,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const one = saved.length === 1;
       convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Coder's app: the owner's picture" + (one ? " is" : "s are") + " also saved as " + (one ? "a file" : "files") + " in the project, which " + (one ? "is" : "are") + " never saved to the branch: " + saved.map((x) => sayPath(deps, x)).join(", ") + ". Read " + (one ? "it" : "them") + " again with the read tool when you need to, or copy " + (one ? "it" : "them") + " where the work needs " + (one ? "it" : "them") + ".)" };
     }
+  }
+  // BACKGROUND COMMANDS THAT ENDED SINCE CODER'S LAST ANSWER (tool 4, part 2; Claude Code tells Claude when one ends, and a
+  // session with nothing else to do is started to tell it): the chat shows each, and Coder reads them with their output files.
+  const told = (Array.isArray(notices) ? notices : []).filter((x) => x && typeof x === "object").slice(0, 20).map((x) => bgEndNotice(x));
+  if (told.length) {
+    for (const n of told) emit({ type: "note", text: n.said });
+    convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + (told.length === 1 ? "a background command" : told.length + " background commands") + " ended since your last answer.\n" + told.map((n) => n.note).join("\n\n") + (typeof text === "string" && text.trim() ? "" : "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two.") + ")" });
   }
   // THE FILES THIS JOB WORKS ON (read, changed, viewed with a command, @-mentioned), the newest last: after a summary
   // the most recently changed of them are read again (rereadFiles).
@@ -750,8 +780,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // which command failed and to propose a fix on the card.
   let setupNudged = false, saidAll = "";
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
-  // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
+  // BACKGROUND JOBS (bash with run_in_background, or moved there at their timeout): id → { pid, log, command, desc, … }.
+  // THOSE FROM EARLIER MESSAGES still running too (tool 4, part 2: they go on after the answer, like Claude Code's): Coder
+  // can look at them, stop them, and is told when they end.
   const jobs = new Map();
+  try { if (deps.bg && typeof deps.bg.kept === "function") for (const k of (await deps.bg.kept()) || []) if (k && typeof k.id === "string" && k.pid) jobs.set(k.id, { pid: k.pid, log: String(k.log || ""), command: String(k.command || ""), desc: String(k.desc || ""), at: Number(k.at) || now(), moved: !!k.moved, cwd: String(k.cwd || ""), done: false }); } catch { /* none */ }
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
@@ -888,7 +921,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // it, and one not asked to run in the background moves it for the next ones (deps.exec says so). One that starts
         // with sleep is stopped at its timeout, never moved (Claude Code: "unless the command starts with sleep").
         const timeoutS = commandTimeoutS(c.args);
-        try { r = await deps.exec({ command, timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command) }); }
+        // ITS TIME LIMIT IN THE BACKGROUND (Claude Code in the cloud: the `timeout` given with run_in_background, up to 2 hours;
+        // else 30 minutes): the machine stops it then, and Coder is told.
+        const limitMs = !inBg ? 0 : Number(c.args.timeout) > 0 ? Number(c.args.timeout) : Number(c.args.timeout_s) > 0 ? Number(c.args.timeout_s) * 1000 : 0;
+        try { r = await deps.exec({ command, timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // What the result says about the folder, as Claude Code's do ("Shell cwd was reset to …", "Session cwd remains …"),
         // and, for Grok only, where its commands now start (as Claude Code tells Claude its working directory).
@@ -896,14 +932,15 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         const bg = !!(r && r.background);
         let job = "";
-        if (bg && r.pid && r.log) { job = "job" + (jobs.size + 1); jobs.set(job, { pid: r.pid, log: r.log, command, desc, at: now(), moved: !inBg, cwd: where0, done: false }); }
+        // Its id comes from the machine, which numbers a chat's background commands across its messages.
+        if (bg && r.pid && r.log) { job = typeof r.jobId === "string" && /^job\d+$/.test(r.jobId) ? r.jobId : "job" + (1 + Math.max(0, ...[...jobs.keys()].map((k) => Number(k.slice(3)) || 0))); jobs.set(job, { pid: r.pid, log: r.log, command, desc, at: now(), moved: !inBg, cwd: where0, done: false }); }
         // CLAUDE CODE'S RESULT (its words, tried on 2026-11-09): a background command's id and output file; otherwise the
         // output, as bashResultText gives it, with "Exit code N" only for a failure (grep's exit 1 is none).
         let text = "", isError = false, thumbs = [];
         if (r && r.notStarted) { text = String(r.output || ""); isError = true; }
         else if (bg) {
           const sofar = !inBg && r.output ? scrub(noCwdMarks(String(r.output))).replace(/\n?$/, "\n") : "";
-          text = sofar + (inBg ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + ".") + " " + BG_NOTICE + (inBg ? "" : " It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job.") + " To check interim output, use read on that file path.";
+          text = sofar + (inBg ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + ".") + " " + BG_NOTICE + (inBg ? "" : " " + BG_MOVED_LIMIT + " It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job.") + " To check interim output, use read on that file path.";
         } else {
           const em = exitMeaning(command, code);
           isError = em.isError;
@@ -1194,10 +1231,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const st = await jobState(deps, j);
       if (st.alive) continue;
       j.done = true;
-      const ec = Number.isInteger(st.code) ? st.code : await exitFromLog(deps, j.log);
-      const said = "Background command \"" + (j.desc || scrub(j.command.split("\n")[0]).slice(0, 80)) + "\" " + (ec === 0 ? "completed (exit code 0)" : Number.isInteger(ec) ? "failed with exit code " + ec : "ended");
-      emit({ type: "note", text: said });
-      roundNotes.push(said + ". Its output is in " + j.log + " (ID: " + id + ").");
+      const why = typeof st.why === "string" && st.why ? st.why : "exit";
+      const ec = Number.isInteger(st.code) ? st.code : why === "exit" ? await exitFromLog(deps, j.log) : null;
+      const n = bgEndNotice({ id, desc: j.desc, command: j.command, log: j.log, code: ec, why });
+      emit({ type: "note", text: n.said });
+      roundNotes.push(n.note);
+      // Told now: the machine starts no turn of its own for it.
+      try { if (deps.bg && typeof deps.bg.told === "function") await deps.bg.told(j.pid); } catch { /* best effort */ }
     }
     if (roundNotes.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your last commands:\n" + roundNotes.join("\n\n") + ")" });
     // Those whose lines the note showed may be written over from now on (toolChanged `shown`), as in Claude Code.

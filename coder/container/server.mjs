@@ -18,6 +18,7 @@
 // (CODER_RUN_UID), with a bare environment. The token is never written into
 // the repository's settings.
 import http from "node:http";
+import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
@@ -30,7 +31,8 @@ import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt } from "./coder-room.mjs";
-import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy } from "./coder-sandbox.mjs";
+import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
+import { pauseAI, endOthers, resumeAI } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
@@ -82,6 +84,52 @@ export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 *
 /** A background command's exit code, by its process id, once it ended (the agent's notice says it, like Claude Code's). */
 export const BG_EXITS = new Map();
 /**
+ * BACKGROUND COMMANDS THAT OUTLIVE THE ANSWER (tool 4, the owner, 2026-11-09: "do all of those"; Claude Code: one "keeps
+ * running after a final response, until it exits, is stopped, or reaches its time limit", and Claude is told when it
+ * ends). Every background command on this machine, by its process group: { project, id, pid, log, command, desc, cwd, at,
+ * moved, deadline, box, end: null | { code, why: "exit" | "limit" | "owner" | "coder" | "lost", at }, told, stopping }.
+ * THE TIME LIMIT (Claude Code 2.1.285 and 2.1.288, in the cloud: "their `timeout` with `run_in_background`, default 30 min,
+ * max 2 h"; "A moved command gets 30 minutes from the move"): then it is stopped and Coder is told.
+ */
+export const JOBS = new Map();
+export const BG_LIMIT_MS = 30 * 60 * 1000, BG_LIMIT_MAX_MS = 2 * 60 * 60 * 1000;
+/** How long an ended background command is remembered after Coder was told (its log goes with it). */
+const JOB_KEEP_MS = 3 * 60 * 60 * 1000;
+/** How often the background commands are looked at (their time limits, their ends). */
+const JOB_CHECK_MS = 5000;
+/** The time limit a background command gets: its timeout given with run_in_background, up to 2 hours; else 30 minutes. */
+export const bgLimitMs = (ms) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Math.min(BG_LIMIT_MAX_MS, Math.max(1000, Math.round(Number(ms)))) : BG_LIMIT_MS);
+/** A process's exit as a shell says it: its code, or 128 + the signal that ended it. */
+const exitOf = (code, signal) => (typeof code === "number" ? code : signal && os.constants.signals[signal] ? 128 + os.constants.signals[signal] : null);
+/** A background command ended: its code and why, once (the first reason given wins: a stop says why before the end comes). */
+export function jobEnded(pid, code, why = "") {
+  const j = JOBS.get(pid);
+  if (!j || j.end) return;
+  j.end = { code: Number.isInteger(code) ? code : null, why: j.stopping || why || "exit", at: Date.now() };
+}
+/** What the page, the Worker and Coder see of the running ones: newest last. */
+export const jobsOf = (project) => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.stopping).map((j) => ({ id: j.id, desc: j.desc, command: String(j.command || "").split("\n")[0].slice(0, 200), at: j.at, deadline: j.deadline }));
+/** The ones that ended and Coder was not told of yet. */
+export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && j.end && !j.told);
+/** Stop one (its whole process group): asked to stop, then ended 1.5 seconds later (Claude Code 2.1.300). */
+export function stopJob(j, why) {
+  if (!j || j.end) return;
+  if (!j.stopping) j.stopping = why;
+  try { process.kill(-j.pid, "SIGTERM"); } catch { /* gone */ }
+  setTimeout(() => {
+    try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ }
+    setTimeout(() => { if (!j.end && !groupAlive(j.pid)) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); }, 500).unref?.();
+  }, 1500).unref?.();
+}
+/** THE EVERY-FEW-SECONDS LOOK: one past its time limit is stopped; one whose processes are all gone has ended. */
+export function checkJobs(now = Date.now()) {
+  for (const j of JOBS.values()) {
+    if (j.end) { if (j.told && now - j.end.at > JOB_KEEP_MS) JOBS.delete(j.pid); continue; }
+    if (now >= j.deadline && !j.stopping) { stopJob(j, "limit"); continue; }
+    if (!groupAlive(j.pid) && !j.stopping) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null);
+  }
+}
+/**
  * A PICTURE A COMMAND PRINTED AS A DATA URL (Claude Code: "data:image/…;base64," output comes back as a picture), saved
  * as a file in the chat's output folder, so the read tool can make it fit and show it: `{ picture, pictureType }`, or {}.
  */
@@ -126,7 +174,13 @@ export async function keepNewest(dirPath, n) {
     for (const { x } of withTimes.slice(n)) await unlink(join(dirPath, x)).catch(() => {});
   } catch { /* none */ }
 }
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false } = {}) {
+/** WHILE ROOT WORKS WITH THE AI'S COMMANDS PAUSED (quietly, coder-freeze.mjs), a new command of the AI's waits for the end. */
+let PAUSED = null;
+export function execIn(dir, command, timeoutS = 120, opts = {}) {
+  if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
+  return execNow(dir, command, timeoutS, opts);
+}
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false, onStart = null } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -143,6 +197,10 @@ export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_
       : room && Number.isInteger(uid)
       ? spawn("nsenter", roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
       : spawn("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
+    // Its leader's end, as a shell says it (a background command's notice needs it even when its output stays open).
+    let exited = null;
+    p.once("exit", (code, signal) => { exited = exitOf(code, signal); });
+    if (typeof onStart === "function" && p.pid) { try { onStart(p.pid); } catch { /* never costs the command */ } }
     const toSpill = (b) => {
       if (!spill || spillBytes >= SPILL_KEEP) return;
       const part = spillBytes + b.length > SPILL_KEEP ? b.subarray(0, SPILL_KEEP - spillBytes) : b;
@@ -195,11 +253,13 @@ export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_
           w.write(spillDir ? Buffer.concat(early) : out);
         }
         p.stdout.pipe(w, { end: false }); p.stderr.pipe(w, { end: false });
-        p.on("close", (code) => { w.end("\n[finished, exit code " + code + "]\n"); BG_EXITS.set(p.pid, typeof code === "number" ? code : null); if (BG_EXITS.size > 500) BG_EXITS.delete(BG_EXITS.keys().next().value); });
+        const ended = (c) => { BG_EXITS.set(p.pid, c); if (BG_EXITS.size > 500) BG_EXITS.delete(BG_EXITS.keys().next().value); };
+        if (exited !== null) ended(exited); else p.once("exit", (code, signal) => ended(exitOf(code, signal)));
+        p.on("close", (code, signal) => { const c = exitOf(code, signal); w.end("\n[finished, exit code " + c + "]\n"); ended(c); jobEnded(p.pid, c); });
         p.unref();
       } catch { /* the log could not be made: the note still says it runs */ }
       const so = out.length > 4000 ? out.slice(-4000) : out;
-      answer({ code: -1, background: true, pid: p.pid, log, timedOut: true, output: so, size: bytes });
+      answer({ code: -1, background: true, pid: p.pid, log, timedOut: true, output: so, size: bytes, ...(box && uid !== null ? { inBox: true } : {}) });
     }, Math.max(1, timeoutS) * 1000);
     p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
     p.on("close", async (code, signal) => {
@@ -657,7 +717,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // dev's left running while root works in it.
     const bad = await projectDirProblem(dir, root);
     if (bad) return { ok: false, why: bad };
-    if (!killUser()) return { ok: false, why: NOT_STOPPED };
+    if (!aiStill()) return { ok: false, why: NOT_STOPPED };
     // A CLONE THAT NEVER FINISHED (live test, 2026-11-07: a chat's first clone failed after git's folder
     // was made, and every later job took the repository as cloned: Coder's commands found no files at
     // all). A finished clone always has a commit; one without is cleared and made again.
@@ -675,7 +735,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // A NEW CLONE goes in a folder this service makes itself (the audit, 2026-11-06).
     const pd = await makeProjectDir(dir, { root });
     if (pd.why) return { ok: false, why: pd.why };
-    if (!pd.made && !killUser()) return { ok: false, why: NOT_STOPPED };
+    if (!pd.made && !aiStill()) return { ok: false, why: NOT_STOPPED };
     // A clone that fails leaves no git folder behind, so the next job clones again (live test, 2026-11-07).
     const failed = async (why) => { await rm(gitDir, { recursive: true, force: true }).catch(() => {}); return { ok: false, why }; };
     const c = await gitIn(dir, ["init", "-q", "-b", base], o);
@@ -844,7 +904,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   // before anything is read, and nothing of the AI's user runs while root works.
   const bad = await projectDirProblem(dir, root);
   if (bad) return { ok: false, pushed: false, why: bad };
-  if (!killUser()) return { ok: false, pushed: false, why: NOT_STOPPED };
+  if (!aiStill()) return { ok: false, pushed: false, why: NOT_STOPPED };
   await excludeJunk(dir, gitRoot).catch(() => {});
   // ONE LOOK FOR NESTED REPOSITORIES (the audit, 2026-11-06: three looks per
   // save made a big project's push seconds slower and closed no gap): nothing of
@@ -1535,13 +1595,20 @@ const turns = new Map(); // project → { running, stop, events, result, started
  * `workingMs`: how long the oldest working job has run; `unsavedMs`: how long
  * the oldest ended job has waited to be saved.
  */
-export function busyState(map, now = Date.now()) {
+export function busyState(map, now = Date.now(), jobs = JOBS) {
   let working = 0, unsaved = 0, workingMs = 0, unsavedMs = 0;
   for (const t of map.values()) {
     if (t.running) { working++; workingMs = Math.max(workingMs, now - (Number(t.started) || now)); }
     else if (t.result && !t.claimed) { unsaved++; unsavedMs = Math.max(unsavedMs, now - (Number(t.ended) || now)); }
   }
-  return { busy: working + unsaved > 0, working, unsaved, workingMs: Math.max(0, workingMs), unsavedMs: Math.max(0, unsavedMs) };
+  // BACKGROUND COMMANDS STILL RUNNING after Coder's answer (tool 4), and those that ended and Coder is not told of yet
+  // (Coder's Worker starts a turn to tell it): the machine stays awake for them too.
+  let background = 0, untold = 0, backgroundMs = 0, untoldMs = 0;
+  for (const j of jobs.values()) {
+    if (!j.end) { background++; backgroundMs = Math.max(backgroundMs, now - (Number(j.at) || now)); }
+    else if (!j.told) { untold++; untoldMs = Math.max(untoldMs, now - (Number(j.end.at) || now)); }
+  }
+  return { busy: working + unsaved + background + untold > 0, working, unsaved, workingMs: Math.max(0, workingMs), unsavedMs: Math.max(0, unsavedMs), background, untold, backgroundMs: Math.max(0, backgroundMs), untoldMs: Math.max(0, untoldMs) };
 }
 
 /** Stop every background command a turn left running (its whole process group). */
@@ -1577,12 +1644,20 @@ export function safeVars(vars) {
 function groupAlive(pid) {
   try { process.kill(-pid, 0); return true; } catch (e) { return !!(e && e.code === "EPERM"); }
 }
-function killAll(t) {
-  for (const pid of t.bg || []) { try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ } }
-  if (t.bg) t.bg.clear();
-  // EVERYTHING THE AI'S USER STARTED goes too, even what it put in the
-  // background itself with `&` (the audit, 2026-11-05): nothing outlives the job.
-  killUser();
+/** THE TURN'S OWN COMMANDS still running (not its background ones), each with everything it started: ended (the owner's Stop). */
+function endForeground(t) {
+  for (const pid of t.fg || []) { try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ } }
+  if (t.fg) t.fg.clear();
+}
+/**
+ * The chat's background-log folder, emptied but for the logs of the background commands this machine still keeps (`make`:
+ * there afterwards, for a job about to start; else gone when nothing is kept in it, as at a job's end before).
+ */
+async function tidyBg(bgDir, project, { make = false } = {}) {
+  const keep = new Set([...JOBS.values()].filter((j) => j.project === project && typeof j.log === "string" && dirname(j.log) === bgDir).map((j) => basename(j.log)));
+  if (!keep.size) { await rm(bgDir, { recursive: true, force: true }); if (make) await mkdir(bgDir, { recursive: true }); return; }
+  await mkdir(bgDir, { recursive: true });
+  for (const n of await readdir(bgDir).catch(() => [])) if (!keep.has(n)) await rm(join(bgDir, n), { recursive: true, force: true }).catch(() => {});
 }
 /**
  * EVERY PROCESS OF THE AI'S USER, STOPPED (before root touches its files, and
@@ -1625,6 +1700,47 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
   return true;
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
+/** Nothing of the AI's runs now: they are paused (root's caller holds `quietly`), or they are all ended here. */
+const aiStill = () => (PAUSED ? true : killUser());
+/**
+ * NOTHING OF THE AI'S RUNS WHILE ROOT WORKS ON THE CHAT'S FILES (the audit's rule), YET ITS BACKGROUND COMMANDS GO ON (tool
+ * 4, part 2): every process of the AI's is paused (coder-freeze.mjs), and what is not one of its running background
+ * commands is ended meanwhile (`keep: false`: those too); the admin sandbox goes as well unless one of them is in it.
+ * Answers the function that lets them go on (call it once root is done), or null when they could not be stopped, and root
+ * then does nothing. When they cannot all be paused, everything of the AI's is ended as before, its background commands
+ * too (each ends "lost", and Coder is told).
+ */
+export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}) {
+  while (PAUSED) await PAUSED.done;
+  let release = () => {};
+  const mine = { done: new Promise((ok) => { release = ok; }) };
+  PAUSED = mine;
+  const finish = () => { if (PAUSED === mine) PAUSED = null; release(); };
+  checkJobs();
+  const live = keep ? [...JOBS.values()].filter((j) => !j.end && !j.stopping) : [];
+  const endAll = (why) => {
+    for (const j of JOBS.values()) if (!j.end) { j.stopping ||= why; try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ } }
+    const ok = killUser(uid, gid);
+    for (const j of JOBS.values()) if (!j.end) jobEnded(j.pid, null);
+    return ok;
+  };
+  if (!live.length) {
+    if (!endAll(keep ? "lost" : "coder")) { finish(); return null; }
+    return finish;
+  }
+  // The admin sandbox stays only while one of them is in it.
+  const boxKept = BOX && live.some((j) => j.box) ? BOX : null;
+  if (BOX && !boxKept) { BOX.stop(); BOX = null; }
+  const p = await pauseAI({ uid, gid, boxPid: boxKept ? boxKept.pid : 0, box: [SBX_BASE, SBX_BASE + SBX_RANGE] });
+  if (!p.ok) {
+    console.log("coder: the AI's commands could not be paused (" + p.why + "), so all of them were ended");
+    if (!endAll("lost")) { finish(); return null; }
+    return finish;
+  }
+  await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set() });
+  let went = false;
+  return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); finish(); };
+}
 
 export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
@@ -1663,16 +1779,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
     const cur = turns.get(project);
     if (cur && cur.running) return [409, { error: "busy" }];
+    // A TURN THAT ONLY TELLS CODER A BACKGROUND COMMAND ENDED (Coder's Worker starts it, like Claude Code, which "re-invokes
+    // you when it exits"): not started when there is nothing to tell (another turn told it already).
+    if (body.wake === true) { checkJobs(); if (!untoldOf(project).length) return [409, { error: "nothing to tell" }]; }
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
-    const t = { running: true, stop: false, events: [], result: null, bg: new Set(), started: Date.now() };
+    const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null };
     turns.set(project, t);
     // THE CHAT SAVED AS IT GOES (like Claude Code): its steps, the setup's included, go to the Worker every few seconds.
     const live = liveFetch ? liveTarget(body.live) : null;
     const sender = live ? liveSender(t, live, liveFetch) : null;
-    const fail = (status, why) => { if (sender) sender.stop(); t.running = false; turns.delete(project); return [status, { error: why }]; };
-    // Nothing left from before may race root while it prepares the files (the
-    // audit); if it cannot be stopped, the job does not start (2026-11-06).
-    if (!killUser()) return fail(500, NOT_STOPPED);
+    const fail = (status, why) => { if (sender) sender.stop(); if (t.resume) { t.resume(); t.resume = null; } t.running = false; turns.delete(project); return [status, { error: why }]; };
+    // Nothing left from before may race root while it prepares the files (the audit); if it cannot be stopped, the job
+    // does not start (2026-11-06). Its background commands still running are paused meanwhile, not ended (tool 4).
+    t.resume = await quietly();
+    if (!t.resume) return fail(500, NOT_STOPPED);
     // A DISK MADE FROM THE ENVIRONMENT'S SAVED COPY: the other chat's files go first (takeCopy).
     const script0 = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let copied = null;
@@ -1740,11 +1860,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     try {
       await mkdir(memRoot, { recursive: true, mode: 0o755 });
       await mkdir(memDir, { recursive: true });
-      // Nothing of the AI's user is left running from an earlier job (the audit, 2026-11-06).
-      killUser();
+      // Nothing of the AI's user runs (paused above, the audit, 2026-11-06).
       await writeMemory(memFile, typeof body.memory === "string" ? body.memory : "", Number.isInteger(RUN_UID) ? { uid: RUN_UID, gid: RUN_GID ?? RUN_UID } : null);
-      await rm(bgDir, { recursive: true, force: true });
-      await mkdir(bgDir, { recursive: true });
+      // The background logs of before go, but not those of its background commands Coder may still read.
+      await tidyBg(bgDir, project, { make: true });
       // The folder is root's own new folder inside root's /srv/coder-memory: the AI cannot swap it.
       if (Number.isInteger(RUN_UID)) { try { await chown(memDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
       // Root only makes it and hands it over; only the file tools (as dev) read and write in it.
@@ -1818,7 +1937,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // The master key's package installs (step 4) go through the gate when the network is limited.
     if (room) gateForApt(net.limited && px ? "http://127.0.0.1:" + px.port : "");
     // THE JOB'S ADMIN SANDBOX (owner, 2026-11-07: "finish this"), in the room; without the room, none.
-    t.box = BOX = t.room ? await openBox() : null;
+    // One kept from the last message (a background command still runs in it) is used again.
+    if (t.room && !BOX) BOX = await openBox();
+    t.box = t.room ? BOX : null;
+    // ROOT IS DONE PREPARING: the background commands of before go on.
+    if (t.resume) { t.resume(); t.resume = null; }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let setupFailed = null, setupRan = false, setupCopied = null;
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
@@ -1868,7 +1991,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         }
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: net.limited ? proxyEnv : {} });
+          // (The owner's Stop ends it: it is one of the turn's own commands.)
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: net.limited ? proxyEnv : {}, onStart: (pid) => t.fg.add(pid) });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -1921,6 +2045,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const begin = () => {
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
+      // ITS BACKGROUND COMMANDS THAT ENDED SINCE CODER'S LAST ANSWER (Claude Code tells Claude when one ends): told now, once.
+      checkJobs();
+      const notices = untoldOf(project).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
       runCoder({
         send: via ? coderSend(env, { via }) : sendFn,
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
@@ -1928,7 +2055,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
         // tool: CODER_CWD, which its short paths count from). `follow`: a command of Grok's not asked to run in the
         // background, whose folder carries over. `inBg`: one asked to run in the background.
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0 }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -1947,8 +2074,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (ok) t.cwd = ok; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
           }
           const moved = here && t.cwd !== home0;
+          const startedIn = t.cwd;
+          // The turn's own commands, while they run (the owner's Stop ends them; its background ones go on).
+          let leader = 0;
+          const onStart = (pid) => { leader = pid; t.fg.add(pid); };
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -1962,7 +2093,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             const full = diskFull([t.cwd || dir, home || dir, outDir], 10);
             if (full) r.diskNote = full.inodes ? "Nearly out of inodes: this computer's volume holding " + full.dir + " has " + full.inodes + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE : "Disk full: this computer's volume holding " + full.dir + " has " + full.mb + " MB free, so this command's output may be cut short and its own writes may have failed with \"No space left on device\". " + FREE_SPACE;
           }
-          if (r && r.background && r.pid) t.bg.add(r.pid);
+          if (leader) t.fg.delete(leader);
+          // IN THE BACKGROUND (asked to, or still running at its timeout): kept on this machine's list, with its time limit
+          // (Claude Code in the cloud: its `timeout` with run_in_background, else 30 minutes; a moved one 30 minutes from
+          // the move). It goes on after the answer, and Coder is told when it ends.
+          if (r && r.background && r.pid && !tool) {
+            const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
+            const at = Date.now();
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at, moved: !inBg, deadline: at + (inBg ? bgLimitMs(limitMs) : BG_LIMIT_MS), box: !!r.inBox, end: null, told: false, stopping: "" });
+            r.jobId = id;
+          }
           let told = "";
           if (here && !tool && !keepHome) {
             // In the background (asked to, or still running at its time limit): its cd never carries over, as in Claude Code.
@@ -1987,18 +2127,32 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         home: home || DEV_HOME,
         otherRoots: workRoots.slice(1),
         bg: {
-          alive: async (pid) => t.bg.has(pid) && groupAlive(pid),
-          status: async (pid) => (t.bg.has(pid) || BG_EXITS.has(pid) ? (groupAlive(pid) ? { alive: true } : { alive: false, ...(BG_EXITS.has(pid) && BG_EXITS.get(pid) !== null ? { code: BG_EXITS.get(pid) } : {}) }) : { alive: false }),
+          alive: async (pid) => { const j = JOBS.get(pid); return !!j && j.project === project && !j.end && groupAlive(pid); },
+          // Whether it still runs; once it ended, its exit code and why (its time limit, the owner's Stop, …).
+          status: async (pid) => {
+            const j = JOBS.get(pid);
+            if (!j || j.project !== project) return { alive: false };
+            if (!j.end && groupAlive(pid)) return { alive: true };
+            if (!j.end) jobEnded(pid, BG_EXITS.has(pid) ? BG_EXITS.get(pid) : null);
+            return { alive: false, ...(Number.isInteger(j.end.code) ? { code: j.end.code } : {}), why: j.end.why };
+          },
+          // stop_job: asked to stop, then ended (the whole process group); Coder stopped it itself, so no notice follows.
           stop: async (pid) => {
-            if (!t.bg.has(pid)) return false;
+            const j = JOBS.get(pid);
+            if (!j || j.project !== project) return false;
+            if (!j.stopping) j.stopping = "coder";
             try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ }
-            for (let i = 0; i < 10 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
+            for (let i = 0; i < 15 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
             try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
             for (let i = 0; i < 10 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
             const gone = !groupAlive(pid);
-            if (gone) t.bg.delete(pid);
+            if (gone) { jobEnded(pid, BG_EXITS.has(pid) ? BG_EXITS.get(pid) : null); j.told = true; }
             return gone;
           },
+          // Coder was told it ended (in this turn): no turn of its own is started for it.
+          told: (pid) => { const j = JOBS.get(pid); if (j && j.project === project) j.told = true; },
+          // ITS BACKGROUND COMMANDS FROM EARLIER MESSAGES, still running: Coder can look at them, stop them, and is told when they end.
+          kept: () => [...JOBS.values()].filter((j) => j.project === project && !j.end).map((j) => ({ id: j.id, pid: j.pid, log: j.log, command: j.command, desc: j.desc, at: j.at, moved: j.moved, cwd: j.cwd })),
         },
         // AFTER Coder READS OR CHANGES A FILE: the repo's instructions for it (item 10), and for what it
         // wrote, the security check (item 12).
@@ -2020,15 +2174,22 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
-        .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
-        .finally(() => {
-          // THE TURN IS OVER: nothing it started keeps running, and its logs go.
-          killAll(t);
-          rm(bgDir, { recursive: true, force: true }).catch(() => {});
-          t.ended = Date.now();
-          t.running = false;
+        .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+        .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
+        .then(async (result) => {
+          // THE TURN IS OVER: nothing it started keeps running but its background commands (tool 4: like Claude Code's,
+          // they go on after the answer, until they end, are stopped, or reach their time limit), and only their logs stay.
+          // The end is handed out only after (the Worker saves the job then, and root's /push needs nothing of the AI's running).
+          try {
+            try { const go = await quietly(); if (go) go(); } catch (e) { console.log("coder: the turn's end: " + String((e && e.message) || e).slice(0, 200)); killUser(); }
+            await tidyBg(bgDir, project).catch(() => {});
+          } finally {
+            t.result = { ...result, background: jobsOf(project) };
+            t.ended = Date.now();
+            t.running = false;
+          }
         });
     };
     if (hold) {
@@ -2054,6 +2215,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // WHEN THE WORKER LAST ASKED THIS MACHINE FOR SOMETHING (not counting /busy
   // or /health): on Fly.io a machine quiet for 10 minutes is stopped (src/coder-fly.mjs).
   let lastAsked = Date.now();
+  // BACKGROUND COMMANDS PAST THEIR TIME LIMIT are stopped, and those that ended are noted, every few seconds (tool 4).
+  const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } }, JOB_CHECK_MS);
+  if (typeof jobTimer.unref === "function") jobTimer.unref();
   return async function handle(req, res) {
     const url = new URL(req.url, "http://coder");
     // A "STILL WORKING" SIGNAL (Fly.io, 2026-11-07): Fly's front door cuts a
@@ -2127,9 +2291,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         return send(200, { ok: true, applied: true });
       }
       if (url.pathname === "/state") {
-        if (!t) return send(200, { status: "idle", events: [], running: false });
+        const background = jobsOf(project);
+        if (!t) return send(200, { status: "idle", events: [], running: false, background });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
-        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}) });
+        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background });
+      }
+      // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
+      // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
+      if (url.pathname === "/bgstate") { checkJobs(); return send(200, { ok: true, background: jobsOf(project), untold: untoldOf(project).length, running: !!(t && t.running) }); }
+      // THE OWNER STOPS ONE (the page's background list, like Claude Code's tasks panel): Coder is told (Claude Code 2.1.257).
+      if (url.pathname === "/bgstop" && req.method === "POST") {
+        const j = [...JOBS.values()].find((x) => x.project === project && x.id === String(body.id || "") && !x.end);
+        if (!j) return send(200, { ok: false, why: "that background command is not running" });
+        stopJob(j, "owner");
+        return send(200, { ok: true });
       }
       // THE TURN'S END, HANDED OUT ONCE (one process per project: no race).
       if (url.pathname === "/claim" && req.method === "POST") {
@@ -2137,16 +2312,21 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.claimed = true;
         return send(200, { ok: true });
       }
-      if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; killAll(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
+      // THE OWNER'S STOP: the turn's own commands end, its background ones go on (like Claude Code's, which keep running when
+      // you interrupt Claude; they end with the background list's Stop, /bgstop); the turn's end ends anything else of the AI's.
+      if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; endForeground(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
       // THE ENVIRONMENT'S COPY IS SAVED (or could not be): the job waiting for it goes on.
       if (url.pathname === "/go" && req.method === "POST") { const was = !!(t && t.release); if (was) t.release(typeof body.note === "string" ? body.note : ""); return send(200, { ok: true, went: was }); }
       // UNDO A JOB (owner, 2026-11-05, "add 2"): its commit is reverted (a new
       // commit that puts the files back) and saved to the branch. Never a force push.
       if (url.pathname === "/undo" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
-        if (t) killAll(t); else killUser();
         const sha = String(body.sha || "");
         if (!/^[0-9a-f]{7,40}$/.test(sha)) return send(400, { error: "bad commit" });
+        // Nothing of the AI's runs while root works (its background commands are paused, then go on).
+        const go = await quietly();
+        if (!go) return send(500, { ok: false, why: NOT_STOPPED });
+        try {
         const dir = join(root, project);
         const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
         const noPush = body.noPush === true;
@@ -2164,6 +2344,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const told = p.left ? { left: p.left } : {};
         if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
         return send(200, { ok: true, sha: p.sha, ...told });
+        } finally { go(); }
       }
       // A READ-ONLY CHAT'S CHANGES AND ITS PATCH FILE (owner item 5): from this machine's own git, the only place they are.
       if (url.pathname === "/diff" && req.method === "POST") {
@@ -2178,7 +2359,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       if (url.pathname === "/push" && req.method === "POST") {
         if (t && t.running) return send(409, { error: "busy" });
-        if (t) killAll(t); else killUser();
+        const go = await quietly();
+        if (!go) return send(200, { ok: false, pushed: false, why: NOT_STOPPED });
+        try {
         const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), noPush: body.noPush === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
@@ -2189,6 +2372,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           extra.push({ repo: x.repo, ...r });
         }
         return send(200, extra.length ? { ...main, extra } : main);
+        } finally { go(); }
       }
       return send(404, { error: "not found" });
     } catch (e) { return send(500, { error: String((e && e.message) || e).slice(0, 200) }); }

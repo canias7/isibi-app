@@ -44,7 +44,7 @@ import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
-import { watchJob, watchKey } from "./coder-watch.mjs";
+import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
@@ -309,6 +309,10 @@ export function lastJobFor(meta) {
 }
 
 /** A chat's title: the first words of its first message. */
+/** A chat's background commands still running, as its machine lists them (tool 4, part 2), checked: at most 20. */
+export function bgListOf(x) {
+  return (Array.isArray(x) ? x : []).slice(0, 20).filter((b) => b && /^job\d{1,6}$/.test(String(b.id || ""))).map((b) => ({ id: String(b.id), desc: String(b.desc || "").slice(0, 200), command: String(b.command || "").split("\n")[0].slice(0, 200), at: Number(b.at) || 0, deadline: Number(b.deadline) || 0 }));
+}
 export function chatTitle(text) {
   const t = String(text || "").replace(/\s+/g, " ").trim();
   return t.length > 60 ? t.slice(0, 57).replace(/\s+\S*$/, "") + "…" : t;
@@ -590,12 +594,16 @@ export async function handleCoder(request, env, ctx, deps) {
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
-    const said = review ? review.label : String(body.text || "").trim();
+    // A TURN ONLY TO TELL CODER ITS BACKGROUND COMMAND ENDED (tool 4, part 2; Claude Code "re-invokes you when it exits"):
+    // started by the every-minute run (coder-watch.mjs), with no message of the owner's; the machine starts it only when it
+    // has something to tell.
+    const wake = body.fromBackground === true && !review;
+    const said = review ? review.label : wake ? "" : String(body.text || "").trim();
     const notes = commentsText(body.comments);
     const text = notes ? notes + (said ? "\n\n" + said : "") : said;
     const pics = checkImages(body.images);
     if (pics.error) return json({ error: pics.error }, 400);
-    if (!text && !pics.images.length) return json({ error: "write something first" }, 400);
+    if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
     if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
     // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
@@ -705,9 +713,10 @@ export async function handleCoder(request, env, ctx, deps) {
       await dropLive(bucket, uid, id).catch(() => {});
     };
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
+    const wakeOn = wake ? { wake: true } : {};
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, cwd: typeof meta.cwd === "string" ? meta.cwd : "", ...wakeOn, text: wake ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -898,9 +907,13 @@ export async function handleCoder(request, env, ctx, deps) {
       // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
       // next message's commands too ("This includes commands Claude runs in response to your later messages").
       const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
-      const ended = { ...meta, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // ITS BACKGROUND COMMANDS STILL RUNNING (tool 4, part 2): kept with the chat (the page lists them, with Stop), and the
+      // chat goes on the every-minute run's list, which starts a turn to tell Coder when one ends (coder-watch.mjs).
+      const background = bgListOf(s.result.background);
+      const ended = { ...meta, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
+      if (background.length) await watchBackground(bucket, { uid, email: user.email, id }).catch(() => {});
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
       await dropLive(bucket, uid, id).catch(() => {});
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
@@ -908,7 +921,30 @@ export async function handleCoder(request, env, ctx, deps) {
     // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
     // was open): the page loads the saved chat, which has the save's own lines.
     const elsewhere = !!s.result && !s.running && meta.status !== "running";
-    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, ...(elsewhere ? { reload: true } : {}) });
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), ...(elsewhere ? { reload: true } : {}) });
+  }
+
+  // THE CHAT'S BACKGROUND COMMANDS (tool 4, part 2, like Claude Code's tasks list): those still running after Coder's
+  // answer, from its machine, and how many ended that Coder was not told of yet (GET); the owner's Stop on one (POST { id }:
+  // Coder is told, Claude Code 2.1.257). The chat keeps the list, for the page.
+  if (action === "background" && (request.method === "GET" || request.method === "POST")) {
+    let body = {};
+    if (request.method === "POST") { try { body = await request.json(); } catch { body = {}; } }
+    let stopped = null;
+    if (request.method === "POST") {
+      const job = String(body.id || "");
+      if (!/^job\d{1,6}$/.test(job)) return json({ error: "no such background command" }, 400);
+      stopped = await post("/bgstop", { project: id, id: job }).then((r) => r.json()).catch(() => null);
+      if (!stopped || stopped.ok !== true) return json({ error: (stopped && stopped.why) || "Coder's machine could not stop it", project: meta }, 409);
+    }
+    let st = null;
+    try { const r = await call("/bgstate?project=" + id, { method: "GET" }); st = r.ok ? await r.json() : null; } catch { st = null; }
+    if (!st) return json({ ok: false, error: "Coder's machine could not be reached", project: meta }, 502);
+    const background = bgListOf(st.background);
+    const now = await getJson(bucket, metaKey, meta);
+    let saved = now;
+    if (JSON.stringify(bgListOf(now.background)) !== JSON.stringify(background)) { saved = { ...now, background }; await saveMeta(bucket, uid, saved); }
+    return json({ ok: true, background, untold: Number(st.untold) || 0, running: st.running === true, project: saved, ...(stopped ? { stopped: true } : {}) });
   }
 
   // WHAT CODER CHANGED (the "See changes" button): its branch against the main

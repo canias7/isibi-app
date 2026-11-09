@@ -141,15 +141,25 @@ test("CD115 never asleep with work on it, the old builder's way (owner: \"we had
   const W = await import("../src/coder-watch.mjs");
   const now = 10_000_000;
   // What the machine says.
-  assert.deepEqual(busyState(new Map(), now), { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0 });
+  const none = new Map();
+  const zero = { background: 0, untold: 0, backgroundMs: 0, untoldMs: 0 };
+  assert.deepEqual(busyState(new Map(), now, none), { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, ...zero });
   const map = new Map([["a-1", { running: true, started: now - 60_000, events: [] }]]);
-  assert.deepEqual(busyState(map, now), { busy: true, working: 1, unsaved: 0, workingMs: 60_000, unsavedMs: 0 });
+  assert.deepEqual(busyState(map, now, none), { busy: true, working: 1, unsaved: 0, workingMs: 60_000, unsavedMs: 0, ...zero });
   map.set("a-1", { running: false, result: { status: "done" }, started: now - 600_000, ended: now - 90_000, events: [] });
-  assert.deepEqual(busyState(map, now), { busy: true, working: 0, unsaved: 1, workingMs: 0, unsavedMs: 90_000 }, "ended, not saved yet");
+  assert.deepEqual(busyState(map, now, none), { busy: true, working: 0, unsaved: 1, workingMs: 0, unsavedMs: 90_000, ...zero }, "ended, not saved yet");
   map.get("a-1").claimed = true;
-  assert.equal(busyState(map, now).busy, false, "saved: nothing keeps it awake");
+  assert.equal(busyState(map, now, none).busy, false, "saved: nothing keeps it awake");
   map.set("b-2", { running: false, result: null, events: [] });
-  assert.equal(busyState(map, now).busy, false, "a job that never started");
+  assert.equal(busyState(map, now, none).busy, false, "a job that never started");
+  // A BACKGROUND COMMAND still running after the answer (tool 4, part 2), and one that ended that Coder is not told of yet.
+  const jobs = new Map([[11, { at: now - 600_000, end: null }], [12, { at: now - 900_000, end: { at: now - 30_000 }, told: false }], [13, { at: now - 900_000, end: { at: now - 30_000 }, told: true }]]);
+  assert.deepEqual(busyState(map, now, jobs), { busy: true, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, background: 1, untold: 1, backgroundMs: 600_000, untoldMs: 30_000 });
+  assert.deepEqual(W.holdDecision({ background: 1, backgroundMs: 90 * 60_000 }), { hold: true, why: "background" });
+  assert.deepEqual(W.holdDecision({ background: 1, backgroundMs: W.BG_HOLD_MS + 1 }), { hold: false, why: "stuck" }, "past its longest time limit");
+  assert.deepEqual(W.holdDecision({ untold: 1, untoldMs: 60_000 }), { hold: true, why: "untold" });
+  assert.deepEqual(W.holdDecision({ untold: 1, untoldMs: W.TELL_WAIT_MS + 1 }), { hold: false, why: "stuck" });
+  assert.deepEqual(W.holdDecision({ background: 1 }), { hold: false, why: "unreadable" });
   // What Coder's Worker decides from it.
   assert.deepEqual(W.holdDecision(null), { hold: false, why: "no-answer" }, "a machine that does not answer sleeps");
   assert.deepEqual(W.holdDecision({ busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0 }), { hold: false, why: "idle" });
@@ -178,17 +188,19 @@ test("CD116 the machine's /busy is behind its control key like the rest of its p
     assert.equal(r.status, 200);
     const b = await r.json();
     assert.equal(typeof b.busy, "boolean");
-    assert.deepEqual(Object.keys(b).sort(), ["busy", "idleMs", "unsaved", "unsavedMs", "working", "workingMs"]);
+    assert.deepEqual(Object.keys(b).sort(), ["background", "backgroundMs", "busy", "idleMs", "unsaved", "unsavedMs", "untold", "untoldMs", "working", "workingMs"]);
   } finally { await new Promise((r) => srv.close(r)); }
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, bg: new Set\(\), started: Date\.now\(\) \};/);
+  assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, fg: new Set\(\), started: Date\.now\(\), resume: null \};/);
   assert.match(server, /t\.ended = Date\.now\(\);\n\s+t\.running = false;/);
   assert.match(server, /if \(want && req\.headers\["x-coder-key"\] !== want\) return send\(403, \{ error: "not allowed" \}\);[\s\S]{0,300}if \(url\.pathname === "\/busy" && req\.method === "GET"\) return send\(200, \{ \.\.\.busyState\(turns\), idleMs: Math\.max\(0, Date\.now\(\) - lastAsked\) \}\);/, "after the key check");
 });
 
 test("CD117 wiring: before the machine sleeps, Coder's container asks it (with its key, for 5 seconds at most) and stops it only when the decision says so", () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /import \{ runWatchedJobs, holdDecision, BUSY_PROBE_MS \} from "\.\/src\/coder-watch\.mjs";/);
+  assert.match(worker, /import \{ runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS \} from "\.\/src\/coder-watch\.mjs";/);
+  // Every minute too: background commands that ended get Coder told, in a turn of its own (tool 4, part 2).
+  assert.match(worker, /job\(runBackgroundJobs\(env, \{ coder \}\)\.catch\(/);
   assert.match(worker, /async onActivityExpired\(\) \{\n\s+if \(!this\.container\.running\) return;/);
   assert.match(worker, /this\.containerFetch\(new Request\("http:\/\/coder\/busy", \{ headers: this\.controlKey \? \{ "x-coder-key": this\.controlKey \} : \{\} \}\), this\.defaultPort\)/);
   assert.match(worker, /Promise\.race\(\[ask, new Promise\(\(ok\) => setTimeout\(\(\) => ok\(null\), BUSY_PROBE_MS\)\)\]\)/);
@@ -258,4 +270,73 @@ test("CD124 (2026-11-06) two environments used with a repo in the same milliseco
   const list = [{ id: "default", name: "Default", at: 1 }, { id: "shop-1", name: "shop", at: 5, used: 900, repos: ["ana/blog"] }, { id: "testing2-1", name: "testing2", at: 900, repos: ["ana/blog"] }];
   for (let i = 0; i < 5; i++) assert.equal(await envForRepo(fakeBucket(), "u", "ana/blog", list), "testing2-1");
   assert.equal(await envForRepo(fakeBucket(), "u", "ana/blog", [list[0], { ...list[1], used: 901 }, list[2]]), "shop-1", "a later use still wins");
+});
+
+test("CD279 (tool 4, part 2) background commands after the answer, on Coder's Worker: kept with the chat when its job ends (listed for the page) and the chat watched; the page's list from the machine, and its Stop; every minute, a chat whose command ended gets a turn only to tell Coder (none while a job runs; none when nothing ended); a chat with none left leaves the watch", async () => {
+  const W = await import("../src/coder-watch.mjs");
+  const R = await import("../src/coder-routes.mjs");
+  const { handleCoder } = R;
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const uid = "user-1234567890abcdef", id = "shop-b1";
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", CODER_BUCKET: bucket };
+  await saveConnection(env, bucket, uid, { access: "ghu_user" }, "ana");
+  const mk = "coder/" + uid + "/" + id + "/meta.json";
+  await bucket.put(mk, JSON.stringify({ id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 1, saved: 0, status: "running", at: Date.now() }));
+  const job = { id: "job1", desc: "Start the dev server", command: "npm run dev", at: 1000, deadline: 1000 + 30 * 60_000 };
+  let machine = { background: [job], untold: 0, running: false };
+  const turns = [], stops = [];
+  let claimed = false;
+  const box = () => ({ fetch: async (req) => {
+    const u = new URL(req.url), p = u.pathname;
+    if (p === "/state") return Response.json(claimed ? { running: false, events: [], background: machine.background } : { running: false, events: [{ type: "user", text: "go" }], next: 1, result: { status: "done", summary: "Started it.", messages: [], background: [job, { id: "bad id" }] }, background: machine.background });
+    if (p === "/claim") { claimed = true; return Response.json({ ok: true }); }
+    if (p === "/push") return Response.json({ ok: true, pushed: false, sha: "" });
+    if (p === "/bgstate") return Response.json({ ok: true, ...machine });
+    if (p === "/bgstop") { const b = await req.json(); stops.push(b); machine = { ...machine, background: [], untold: 1 }; return Response.json({ ok: true }); }
+    if (p === "/turn") { const b = await req.json(); turns.push(b); return Response.json({ ok: true }); }
+    return Response.json({ ok: true });
+  } });
+  const coder = (req, user) => handleCoder(req, env, {}, { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => user, container: box });
+  const go = (path, init = {}) => coder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), { id: uid, email: "me@x.y" });
+  // The job's end: its background commands kept with the chat (checked), and the chat on the every-minute run's list.
+  const st = await (await go("projects/" + id + "/state?since=0")).json();
+  assert.deepEqual(st.project.background, [job], "kept, a bad entry left out");
+  assert.equal(bucket.m.has(W.bgKey(uid, id)), true, "watched");
+  // The page's list: from the machine.
+  let bg = await (await go("projects/" + id + "/background")).json();
+  assert.deepEqual([bg.ok, bg.background, bg.untold, bg.running], [true, [job], 0, false]);
+  // Nothing ended yet: the every-minute run starts nothing, and keeps watching.
+  let run = await W.runBackgroundJobs(env, { coder });
+  assert.deepEqual(run, { checked: 1, woken: 0, left: 0 });
+  assert.equal(turns.length, 0);
+  // The page's Stop: the machine stops it; the list is saved with the chat.
+  assert.equal((await go("projects/" + id + "/background", { method: "POST", body: JSON.stringify({ id: "job9; rm" }) })).status, 400);
+  bg = await (await go("projects/" + id + "/background", { method: "POST", body: JSON.stringify({ id: "job1" }) })).json();
+  assert.deepEqual(stops, [{ project: id, id: "job1" }]);
+  assert.deepEqual([bg.ok, bg.stopped, bg.background, bg.untold], [true, true, [], 1]);
+  assert.deepEqual(JSON.parse(bucket.m.get(mk)).background, []);
+  // A job running: no turn of its own yet.
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), status: "running", at: Date.now() }));
+  run = await W.runBackgroundJobs(env, { coder });
+  assert.deepEqual([run.woken, turns.length], [0, 0]);
+  // Idle, and one ended that Coder was not told of: a turn only to tell it, with no message of the owner's.
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), status: "idle", saved: 1 }));
+  run = await W.runBackgroundJobs(env, { coder });
+  assert.equal(run.woken, 1);
+  assert.equal(turns.length, 1);
+  assert.deepEqual([turns[0].wake, turns[0].text, turns[0].shown], [true, "", ""]);
+  assert.equal(JSON.parse(bucket.m.get(mk)).status, "running");
+  // An empty message from the page is still refused (only the every-minute run's wake may be empty).
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), status: "idle", saved: 2 }));
+  assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "" }) })).status, 400);
+  // Told, none left: the chat leaves the list.
+  machine = { background: [], untold: 0, running: false };
+  run = await W.runBackgroundJobs(env, { coder });
+  assert.deepEqual([run.woken, run.left], [0, 1]);
+  assert.equal(bucket.m.has(W.bgKey(uid, id)), false);
+  // A record past the longest time limit is dropped unread.
+  await W.watchBackground(bucket, { uid, email: "me@x.y", id }, Date.now() - W.BG_WATCH_MAX_MS - 1);
+  run = await W.runBackgroundJobs(env, { coder });
+  assert.deepEqual([run.checked, run.left], [0, 1]);
 });

@@ -5,7 +5,7 @@
 // zip, and the wiring.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, readdir } from "node:fs/promises";
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -659,24 +659,54 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   assert.equal(await readMemory(mem), "- tests: npm test");
 });
 
-test("CD25 background commands end with the turn, and their logs go", async () => {
+test("CD25 (tool 4, part 2; the owner, 2026-11-09: \"do all of those\") a background command goes on after the turn, like Claude Code's, its log kept and listed; the owner's Stop ends it; the next turn tells Coder, in Claude Code's words, and a turn with nothing to tell is not started", async () => {
   const { remote } = await fakeRemote();
   const r = await roots();
   const root = await mkdtemp(join(tmpdir(), "coder-root-"));
-  const s = scripted([say("", [call("bash", { command: "echo $$ > pid.txt; sleep 30", timeout_s: 1 })]), say("Done.", [])]);
+  const s = scripted([say("", [call("bash", { command: "echo $$ > pid.txt; echo started; sleep 30", timeout: 1000, description: "Wait a while" })]), say("Done.", []), say("It was stopped.", [])]);
   const { base, close } = await serve(createApp({ root, send: s.send, remote, ...r }));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  let pid = 0;
   try {
     const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    const result = async (since = 0) => { let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-bgbg&since=" + since)).json(); if (st.result) return st; await new Promise((ok) => setTimeout(ok, 50)); } return st; };
     assert.equal((await post("/turn", { project: "shop-bgbg", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-bgbg", token: "" })).status, 200);
-    let st;
-    for (let i = 0; i < 100; i++) { st = await (await fetch(base + "/state?project=shop-bgbg&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
-    assert.ok(st.events.some((e) => e.type === "result" && e.background), "the command went to the background");
+    const st = await result();
+    assert.ok(st.events.some((e) => e.type === "result" && e.background && e.job === "job1"), "the command went to the background");
+    pid = Number(readFileSync(join(root, "shop-bgbg", "pid.txt"), "utf8"));
     await new Promise((ok) => setTimeout(ok, 300));
-    const pid = Number(readFileSync(join(root, "shop-bgbg", "pid.txt"), "utf8"));
-    let alive = true; try { process.kill(pid, 0); } catch { alive = false; }
-    assert.equal(alive, false, "the background command outlived the turn");
-    assert.equal(existsSync(join(r.bgRoot, "shop-bgbg")), false, "its logs stayed");
-  } finally { await close(); }
+    assert.equal(alive(pid), true, "it goes on after the turn");
+    // Listed: in the turn's end (the Worker keeps it with the chat), in the state, and for the Worker's every-minute look.
+    assert.deepEqual(st.result.background.map((b) => [b.id, b.desc]), [["job1", "Wait a while"]]);
+    assert.ok(st.result.background[0].deadline - st.result.background[0].at === 30 * 60 * 1000, "moved at its timeout: 30 minutes from the move");
+    assert.deepEqual((await (await fetch(base + "/state?project=shop-bgbg&since=0")).json()).background.map((b) => b.id), ["job1"]);
+    let bs = await (await fetch(base + "/bgstate?project=shop-bgbg")).json();
+    assert.deepEqual([bs.background.length, bs.untold, bs.running], [1, 0, false]);
+    // Its log stays (the turn's other files go).
+    const logs = await readdir(join(r.bgRoot, "shop-bgbg"));
+    assert.deepEqual(logs.filter((x) => x.endsWith(".log")).length, 1);
+    assert.match(readFileSync(join(r.bgRoot, "shop-bgbg", logs.find((x) => x.endsWith(".log"))), "utf8"), /started/);
+    // Nothing to tell yet: a turn only to tell Coder is not started.
+    assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 409);
+    // The owner's Stop on it (the page's list): ended, and Coder is told.
+    assert.equal((await (await post("/bgstop", { project: "shop-bgbg", id: "job1" })).json()).ok, true);
+    for (let i = 0; i < 60 && alive(pid); i++) await new Promise((ok) => setTimeout(ok, 50));
+    assert.equal(alive(pid), false, "stopped");
+    for (let i = 0; i < 60; i++) { bs = await (await fetch(base + "/bgstate?project=shop-bgbg")).json(); if (bs.untold) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.deepEqual([bs.background.length, bs.untold], [0, 1]);
+    assert.equal((await post("/bgstop", { project: "shop-bgbg", id: "job1" }).then((x) => x.json())).ok, false, "not running any more");
+    // The next turn (here one only to tell it): the chat shows the line, Coder reads it with its output file.
+    assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 200);
+    const st2 = await result();
+    assert.ok(st2.events.some((e) => e.type === "note" && e.text === "Background command \"Wait a while\" was stopped"), JSON.stringify(st2.events.filter((e) => e.type === "note")));
+    assert.ok(!st2.events.some((e) => e.type === "user"), "no message of the owner's");
+    const told = JSON.stringify(s.seen[s.seen.length - 1].messages || s.seen[s.seen.length - 1]);
+    assert.match(told, /a background command ended since your last answer/);
+    assert.match(told, /The owner stopped it before it completed\. Its output is in [^ ]+\.log \(ID: job1\)\./);
+    assert.match(told, /The owner sent no message: this turn is only to tell you/);
+    assert.equal((await (await fetch(base + "/bgstate?project=shop-bgbg")).json()).untold, 0, "told once");
+    assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 409);
+  } finally { if (pid && alive(pid)) process.kill(pid, "SIGKILL"); await close(); }
 });
 
 test("CD26 the audit's Worker fixes: the chat list is read from each chat, and a turn's end is handed out once", async () => {

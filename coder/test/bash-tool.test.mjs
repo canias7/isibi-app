@@ -3,7 +3,7 @@
 // quoted as it gave them).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, mkdir, readdir, utimes } from "node:fs/promises";
 import { readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -128,7 +128,8 @@ test("CD273 bash on Coder's machine: output past 30,000 characters goes on in a 
   assert.equal(diskFull(["/x"], 10, { statfs: fs(500) }), null);
   assert.deepEqual(diskFull(["/x"], 10, { statfs: fs(500, 12n) }), { dir: "/x", inodes: 12 });
   // The output folder keeps the newest files only.
-  for (let k = 0; k < 5; k++) await writeFile(join(out, "f" + k + ".txt"), "x");
+  // (Each a second newer than anything before it: files written in the same millisecond would tie.)
+  for (let k = 0; k < 5; k++) { await writeFile(join(out, "f" + k + ".txt"), "x"); const at = new Date(Date.now() + (k + 1) * 1000); await utimes(join(out, "f" + k + ".txt"), at, at); }
   await keepNewest(out, 3);
   assert.equal((await readdir(out)).filter((x) => x.endsWith(".txt")).length, 3);
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
@@ -176,8 +177,8 @@ test("CD274 bash in the agent: Claude Code's inputs (description shown in place 
   assert.equal(reply("b2"), RM_REFUSED + "Dangerous rm operation detected: '\"$DIR\"/*'\n\nIf $DIR is unset or empty, this removes from the filesystem root. Guard it as \"${DIR:?}\"/*, which makes the shell stop with an error instead, or use a literal path. This requires explicit approval and cannot be auto-allowed by permission rules.");
   assert.ok(!execs.some((x) => /sleep 30|rm -rf/.test(x.command)), "neither ran");
   // Background: Claude Code's words, started and moved; the same moved command again is not started.
-  assert.equal(reply("c1"), "Command running in background with ID: job1. Output is being written to: /out/bg-1.log. If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that — so do not end your turn to wait for it; if you need its result, wait for it before giving your final response. To check interim output, use read on that file path.");
-  assert.equal(reply("c2"), "building\nCommand did not complete within its 2s timeout and was moved to the background (ID: job2). Output is being written to: /out/bg-2.log. If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that — so do not end your turn to wait for it; if you need its result, wait for it before giving your final response. It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job. To check interim output, use read on that file path.");
+  assert.equal(reply("c1"), "Command running in background with ID: job1. Output is being written to: /out/bg-1.log. You will be notified when it completes. To check interim output, use read on that file path.");
+  assert.equal(reply("c2"), "building\nCommand did not complete within its 2s timeout and was moved to the background (ID: job2). Output is being written to: /out/bg-2.log. You will be notified when it completes. If it is still running after 30m in the background, it will be stopped and you will be notified. It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job. To check interim output, use read on that file path.");
   assert.match(reply("d1"), /^Not started: this same command, in this directory, was moved to the background and has been running for \d+s \(ID: job2\)\. Its output is being written to: \/out\/bg-2\.log\. Let it finish, or, to run it again now, stop it first with stop_job\.$/);
   // A protected file written by a redirection: the card, the job stops there, nothing after it runs.
   const card = events.find((e) => e.type === "runask");
@@ -223,5 +224,50 @@ test("CD275 bash on the page: a command's description is its step's title and th
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /\["question", "secret", "envchange", "writeask", "runask"\]\.includes\(e\.type\)/);
   assert.match(readFileSync(new URL("../src/coder-push.mjs", import.meta.url), "utf8"), /else if \(e\.type === "runask"\)/);
   const df = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
-  assert.match(df, /coder-shell\.mjs coder-bashcheck\.mjs \.\//, "the image has both new modules");
+  assert.match(df, /coder-shell\.mjs coder-bashcheck\.mjs coder-freeze\.mjs \.\//, "the image has the new modules");
+});
+
+test("CD278 (tool 4, part 2) background commands told of in Claude Code's words when they end, whenever: completed, failed, stopped at the time limit (with Claude Code's advice), stopped by the owner; one from an earlier message is known to Coder (looked at, told of when it ends, the machine told so); a new one's id comes from the machine; what ended between messages is said at the start, and a turn only to tell it says the owner sent nothing", async () => {
+  const { runCoder, bgEndNotice, BG_DEADLINE } = await import("../container/coder-agent.mjs");
+  assert.deepEqual(bgEndNotice({ id: "job3", desc: "Run the tests", log: "/l/bg-3.log", code: 0 }), { said: "Background command \"Run the tests\" completed (exit code 0)", note: "Background command \"Run the tests\" completed (exit code 0). Its output is in /l/bg-3.log (ID: job3)." });
+  assert.equal(bgEndNotice({ desc: "Run the tests", code: 3 }).said, "Background command \"Run the tests\" failed with exit code 3");
+  assert.equal(bgEndNotice({ command: "npm run dev\nmore", why: "exit", code: null }).said, "Background command \"npm run dev\" ended", "no description: the command's first line");
+  const lim = bgEndNotice({ id: "job1", desc: "Watch", log: "/l/1.log", why: "limit" });
+  assert.equal(lim.said, "Background command \"Watch\" was stopped after reaching its background time limit");
+  assert.equal(lim.note, "Background command \"Watch\" was stopped after reaching its background time limit. The command was stopped after reaching its background time limit. " + BG_DEADLINE + " Its output is in /l/1.log (ID: job1).");
+  assert.match(BG_DEADLINE, /^If the work in progress still needs it, start it again with `run_in_background` and a longer `timeout`\. If it already had the longest `timeout` allowed, do not restart it\. Either way, report that it was stopped\. The longest `timeout` allowed in this session is 7200000 ms \(120 minutes\)\.$/);
+  assert.equal(bgEndNotice({ desc: "Watch", why: "owner" }).said, "Background command \"Watch\" was stopped");
+  assert.match(bgEndNotice({ desc: "Watch", why: "owner" }).note, /The owner stopped it before it completed\./);
+  assert.match(bgEndNotice({ desc: "Watch", why: "lost" }).note, /Coder's machine had to stop it before it completed/);
+  // A job from an earlier message, still running: monitor knows it; when it ends Coder is told, and the machine learns that.
+  const events = [], told = [], execs = [];
+  let alive = true, n = 0;
+  const exec = async (o) => { execs.push(o); if (o.inBg) return { code: -1, background: true, pid: 91, log: "/out/bg-9.log", jobId: "job7" }; return { code: 0, output: "ok\n" }; };
+  const bg = { kept: async () => [{ id: "job4", pid: 55, log: "/out/bg-4.log", command: "npm run dev", desc: "Start the dev server", at: 1, moved: false, cwd: "/work/p" }], alive: async (pid) => pid === 55 && alive, stop: async () => true, status: async (pid) => (pid === 55 ? (alive ? { alive: true } : { alive: false, code: 1, why: "exit" }) : { alive: true }), told: async (pid) => { told.push(pid); } };
+  const steps = [
+    say("", [call("monitor", { job: "job4" }, "m1")]),
+    (alive = true, say("", [call("bash", { command: "npm test -- --watch", description: "Watch the tests", run_in_background: true, timeout: 5400000 }, "b1")])),
+    say("", [call("bash", { command: "echo next" }, "b2")]),
+    say("Done."),
+  ];
+  const r = await runCoder({ send: async () => { const s = steps[Math.min(n, steps.length - 1)]; if (n === 2) alive = false; n++; return s; }, exec, emit: (e) => events.push(e), bg, here: () => "/work/p", root: "/work/p" }, { text: "go" });
+  assert.ok(r.messages.some((m) => m.role === "tool" && m.tool_call_id === "m1" && /\[still running\]/.test(m.content)), "the earlier job is known");
+  assert.equal(r.messages.find((m) => m.tool_call_id === "b1").content, "Command running in background with ID: job7. Output is being written to: /out/bg-9.log. You will be notified when it completes. To check interim output, use read on that file path.", "the machine's id");
+  const b1 = execs.find((x) => x.inBg);
+  assert.deepEqual([b1.desc, b1.limitMs], ["Watch the tests", 5400000], "its description and its time limit go to the machine");
+  assert.ok(events.some((e) => e.type === "note" && e.text === "Background command \"Start the dev server\" failed with exit code 1"));
+  assert.deepEqual(told, [55], "the machine is told Coder knows");
+  // Ended between messages: said at the start (the chat's lines, then Coder's note), after the owner's message.
+  const ev2 = [], seen2 = [];
+  await runCoder({ send: async (req) => { seen2.push(req); return say("Noted."); }, exec, emit: (e) => ev2.push(e) }, { text: "and now?", notices: [{ id: "job2", desc: "Build", command: "npm run build", log: "/out/bg-2.log", code: 0, why: "exit" }, { id: "job3", desc: "Watch", log: "/out/bg-3.log", code: null, why: "limit" }] });
+  assert.deepEqual(ev2.filter((e) => e.type === "note").map((e) => e.text), ["Background command \"Build\" completed (exit code 0)", "Background command \"Watch\" was stopped after reaching its background time limit"]);
+  const msgs = seen2[0].messages;
+  const at = msgs.findIndex((m) => m.role === "user" && m.content === "and now?");
+  assert.ok(at >= 0 && /^\(Note from Coder's app, not the owner: 2 background commands ended since your last answer\.\n/.test(msgs[at + 1].content), "right after the owner's message");
+  assert.ok(!/The owner sent no message/.test(msgs[at + 1].content));
+  // A turn only to tell it (Coder's Worker starts one, as Claude Code "re-invokes you when it exits"): no message of the owner's.
+  const ev3 = [], seen3 = [];
+  await runCoder({ send: async (req) => { seen3.push(req); return say("The build finished."); }, exec, emit: (e) => ev3.push(e) }, { text: "", notices: [{ id: "job2", desc: "Build", log: "/out/bg-2.log", code: 0 }] });
+  assert.ok(!ev3.some((e) => e.type === "user"));
+  assert.match(seen3[0].messages.filter((m) => m.role === "user").pop().content, /a background command ended since your last answer\.\nBackground command "Build" completed \(exit code 0\)\. Its output is in \/out\/bg-2\.log \(ID: job2\)\.\nThe owner sent no message: this turn is only to tell you\./);
 });
