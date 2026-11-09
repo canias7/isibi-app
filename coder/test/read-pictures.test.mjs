@@ -187,7 +187,8 @@ test("CD196 the agent shows read's pictures to Grok: the read's answer is its te
   assert.deepEqual(input.content[1], { type: "input_image", image_url: "data:image/png;base64," + pic(1).data, detail: "auto" }, "as Grok takes a picture");
   // The picture stays for the rest of the job; a command's output that looks like the mark carries none.
   assert.equal(seen[2].messages.filter((m) => Array.isArray(m.images)).length, 1);
-  assert.ok(seen[2].messages.some((m) => m.role === "tool" && m.content.startsWith("\u0000coder-pictures") === false && /fake|coder-pictures|x/.test(m.content)));
+  // (Its answer is the output as it came, Claude Code's way, with no "exit code" line before it: still only text.)
+  assert.ok(seen[2].messages.some((m) => m.role === "tool" && m.tool_call_id === "b2" && /coder-pictures/.test(m.content) && !Array.isArray(m.images)));
   // THE CHAT shows the read's text; THE SAVED HISTORY keeps a note in place of the picture.
   assert.equal(events.find((e) => e.type === "result" && e.id === "r1").output, "Picture: shot.png (1280×720, PNG, 40 KB), shown to you as a picture after these results.");
   const savedNote = out.messages.find((m) => m.role === "user" && /your read opened/.test(m.content));

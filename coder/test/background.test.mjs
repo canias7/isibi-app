@@ -37,7 +37,8 @@ test("CD199 the agent asks Coder's service whether a background job runs, and ha
   assert.equal(out("s1"), "[stopped job1]");
   assert.equal(out("m2"), "Serving HTTP on 0.0.0.0 port 8000\n[not running]");
   assert.equal(out("s2"), "[job1 had already ended]");
-  assert.deepEqual(asked, [["alive", 4242], ["alive", 4242], ["stop", 4242], ["alive", 4242], ["alive", 4242]]);
+  // The round's end asks too (a background command that ended is told once, like Claude Code's notice); once stopped, no more.
+  assert.deepEqual(asked, [["alive", 4242], ["alive", 4242], ["alive", 4242], ["alive", 4242], ["stop", 4242], ["alive", 4242], ["alive", 4242]]);
   assert.ok(!sent.some((c) => /kill/.test(c)), "no kill sent as a command: " + JSON.stringify(sent));
   assert.deepEqual(sent.filter((c) => c.startsWith("tail")), ["tail -n 40 /srv/bg/bg-1.log", "tail -n 40 /srv/bg/bg-1.log"]);
 

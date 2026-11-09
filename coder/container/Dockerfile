@@ -217,7 +217,7 @@ FROM ${CODER_IMAGE} AS app
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.
-COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs coder-sandbox.mjs coder-sandbox-init.sh coder-globs.mjs coder-security.mjs coder-compact.mjs ./
+COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs coder-sandbox.mjs coder-sandbox-init.sh coder-globs.mjs coder-security.mjs coder-compact.mjs coder-shell.mjs coder-bashcheck.mjs coder-freeze.mjs ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]

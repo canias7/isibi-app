@@ -175,7 +175,7 @@ test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a f
   const tool = await execIn(dir, cmd, 60, { kill: true, outMax: TOOL_OUTPUT_MAX });
   assert.equal(tool.output.length, 3_000_000, "a file tool's answer: all 3 MB");
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{\}\)/, "the job's file tools get it");
+  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: t\.outLimits\.inlineMax, keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| t\.noBg \}\)/, "the job's file tools get it; its commands save long output to a file");
   // The agent: 20 pictures from one read reach Grok, all of them.
   const { runCoder, PICS_PER_READ, PICS_KEEP } = await import("../container/coder-agent.mjs");
   const { PICS_MARK } = await import("../container/coder-tools.mjs");
@@ -220,7 +220,7 @@ test("CD208 Claude Code's other reading rules (its memory, tools and errors docs
   const out = await runCoder({ send: async () => steps[Math.min(n++, 1)], emit: () => {}, exec: async ({ command }) => (command.includes("missing") ? { code: 1, output: "No such file" } : { code: 0, output: "const a = 1;\n" }), afterFile: async (x) => { asked.push(x); return "THE REPO'S INSTRUCTIONS FOR THIS FILE: src/CODER.md"; } }, { text: "look" });
   const result = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
   assert.deepEqual(asked, [{ tool: "read", args: { path: "src/a.js" } }]);
-  assert.match(result("b1"), /exit code 0\nconst a = 1;\n\n\nTHE REPO'S INSTRUCTIONS FOR THIS FILE: src\/CODER\.md$/);
+  assert.match(result("b1"), /^const a = 1;\n\nTHE REPO'S INSTRUCTIONS FOR THIS FILE: src\/CODER\.md$/);
   assert.doesNotMatch(result("b2") + result("b3"), /INSTRUCTIONS/);
   // A long job summarized: the service is told, so the instructions it had shown load again when needed.
   let compacted = 0, k = 0;
@@ -500,7 +500,8 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   await writeFile(join(dir, "a.js"), "const a = 1;\n");
   await writeFile(join(dir, "b.js"), "const b = 1;\n");
   await writeFile(join(dir, "c.js"), "c = 1\n");
-  const job = (command) => command === "sleep 30" ? { code: -1, background: true, pid: 999999, log: join(dir, "bg.log"), output: "" } : command.includes("tail -n") ? (execSync("printf 'c = 5\\n' > c.js", { cwd: dir }), { code: 0, output: "[not running]" }) : sh(command);
+  // The background command still runs as far as the agent asks (its round-end check, which would tell an ended one).
+  const job = (command) => command === "sleep 30" ? { code: -1, background: true, pid: 999999, log: join(dir, "bg.log"), output: "" } : command.includes("kill -0 999999") ? { code: 0, output: "alive\n" } : command.includes("tail -n") ? (execSync("printf 'c = 5\\n' > c.js", { cwd: dir }), { code: 0, output: "[not running]" }) : sh(command);
   const tools = [];
   const run2 = machine(dir, job, env);
   const exec = async (x) => { const b = x.command.split(" ").pop(); try { tools.push(JSON.parse(Buffer.from(b, "base64").toString("utf8")).tool); } catch { tools.push("bash"); } return run2(x); };
@@ -518,10 +519,10 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   const deps = { seen: true, exec, emit: () => {}, send: async (q) => { seen.push(q); k++; if (k === 5) await writeFile(join(dir, "b.js"), "const b = 9;\n"); return k <= plan.length ? say("", plan[k - 1]) : say("Done."); } };
   const out = await runCoder(deps, { text: "work" });
   const reply = (m, id) => m.find((x) => x.role === "tool" && x.tool_call_id === id).content;
-  assert.equal(reply(out.messages, "b4"), "exit code 0\n(no output)\n[This command changed 1 file you read before: a.js. Read it again before editing.]");
-  assert.equal(reply(out.messages, "b5"), "exit code 0\nnothing\n");
-  assert.equal(reply(out.messages, "b7"), "exit code 0\nhi\n", "b.js changed while Coder was thinking: no note, and not put down to echo");
-  assert.equal(reply(out.messages, "b9"), "exit code 0\nbye\n", "c.js changed while Coder checked on the background command: the same");
+  assert.equal(reply(out.messages, "b4"), "(Bash completed with no output)\n[This command changed 1 file you read before: a.js. Read it again before editing.]");
+  assert.equal(reply(out.messages, "b5"), "nothing");
+  assert.equal(reply(out.messages, "b7"), "hi", "b.js changed while Coder was thinking: no note, and not put down to echo");
+  assert.equal(reply(out.messages, "b9"), "bye", "c.js changed while Coder checked on the background command: the same");
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
   assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
@@ -532,8 +533,8 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   const seen2 = [];
   const out2 = await runCoder({ ...deps, send: async (q) => { seen2.push(q); k2++; return k2 === 1 ? say("", [call("bash", { command: "echo first" }, "f1")]) : k2 === 2 ? say("", [call("edit", { path: "c.js", old_string: "5", new_string: "6" }, "e2"), call("bash", { command: "echo after" }, "f3")]) : say("Done."); } }, { messages: out.messages, text: "next" });
   assert.equal(seen2[0].messages.at(-1).content, "next", "no note before the first step");
-  assert.equal(reply(out2.messages, "f1"), "exit code 0\nfirst\n");
-  assert.equal(reply(out2.messages, "f3"), "exit code 0\nafter\n", "Coder's own edit is no news");
+  assert.equal(reply(out2.messages, "f1"), "first");
+  assert.equal(reply(out2.messages, "f3"), "after", "Coder's own edit is no news");
   // Only on a machine that follows the files: otherwise the job is as before (no extra steps at all).
   tools.length = 0;
   await runCoder({ ...deps, seen: undefined, send: async () => say("Done.") }, { messages: out.messages, text: "again" });
@@ -704,7 +705,7 @@ test("CD219 the review (2026-11-08): a chat with no history (new, or rewound to 
   await writeFile(join(dir, "a.js"), "const a = 0;\n");
   let k2 = 0;
   const second = await runCoder({ seen: true, exec, emit: () => {}, send: async () => (++k2 === 1 ? say("", [call("read", { path: "b.js" }, "r1")]) : k2 === 2 ? say("", [call("bash", { command: "echo hi" }, "b2")]) : say("Done.")) }, { messages: [], text: "again" });
-  assert.equal(second.messages.find((m) => m.tool_call_id === "b2").content, "exit code 0\nhi\n", "a.js is not put down to echo");
+  assert.equal(second.messages.find((m) => m.tool_call_id === "b2").content, "hi", "a.js is not put down to echo");
   // @-mentions: [...slug] is a name; a .. part is refused in both copies.
   const ask = "see @pages/[...slug].tsx and @app/[[...all]]/page.tsx, not @a/../b.js";
   assert.deepEqual(mentionedPaths(ask), ["pages/[...slug].tsx", "app/[[...all]]/page.tsx"]);
@@ -1069,7 +1070,7 @@ test("CD229 the @ list puts a file whose name matches first, as Claude Code's do
   assert.deepEqual(rankMentions(list, "cart"), ["src/cart.js", "docs/cart-guide.md", "src/discart.js", "cart/index.js"]);
   assert.deepEqual(rankMentions(list, "CART"), rankMentions(list, "cart"), "any case");
   assert.equal(rankMentions(Array.from({ length: 20 }, (_, i) => "f" + i + ".js"), "f").length, 8);
-  assert.match(ui, /return rankMentions\(S\.files\.list, S\.mention\.q\);/);
+  assert.match(ui, /return S\.mention\.shell \? shellPathMatches\(S\.files\.list, S\.mention\.q\) : rankMentions\(S\.files\.list, S\.mention\.q\);/);
 });
 
 test("CD236 the line over a group of steps names each kind, as Claude Code's does (the owner: \"do it like this … 'Ran 1 command, read 4 files'\"), and what failed by its kind: a failed read said \"a command failed\" (live comparison, 2026-11-08)", async () => {
@@ -1140,8 +1141,8 @@ test("CD238 a command that shows one file (cat, head, sed -n …) counts as read
   const seen = [];
   const out = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async (q) => { seen.push(q); k++; return k <= plan.length ? say("", plan[k - 1]) : say("Done."); } }, { text: "work" });
   const reply = (id) => out.messages.find((x) => x.role === "tool" && x.tool_call_id === id).content;
-  assert.equal(reply("b1"), "exit code 0\napple\nbanana\ncherry\n");
-  assert.equal(reply("b2"), "exit code 0\n(no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
+  assert.equal(reply("b1"), "apple\nbanana\ncherry");
+  assert.equal(reply("b2"), "(Bash completed with no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
   const notes = seen.at(-1).messages.filter((m) => m.appNote).map((m) => m.content);
   assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
   // The note comes after the round's results (never between a call and its answer), and only once.
@@ -1157,7 +1158,7 @@ test("CD238 a command that shows one file (cat, head, sed -n …) counts as read
   let k2 = 0;
   const plan2 = [[call("bash", { command: "grep zzz other.txt" }, "g1")], [call("bash", { command: "cat notes.txt other.txt" }, "g2")], [call("bash", { command: "echo two > other.txt" }, "g3")]];
   const out2 = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async () => { k2++; return k2 <= plan2.length ? say("", plan2[k2 - 1]) : say("Done."); } }, { messages: out.messages, text: "more" });
-  assert.equal(out2.messages.find((x) => x.role === "tool" && x.tool_call_id === "g3").content, "exit code 0\n(no output)");
+  assert.equal(out2.messages.find((x) => x.role === "tool" && x.tool_call_id === "g3").content, "(Bash completed with no output)");
 });
 
 test("CD239 read gives whole lines, never cut (Claude Code 2.1.319, tried side by side: a 20,000-character line came back whole; Coder cut every line at 2,000 before); a line too big for one read by itself is left for its own read, and that read says so, with allow_large and a command to see part of it", async () => {
@@ -1825,7 +1826,7 @@ test("CD258 a protected file is written only once the owner allows it, on a card
   assert.match(ui, /e\.type === 'writeask'/);
   assert.match(ui, /data-writeask-ok[\s\S]*send\('I allowed Coder to change ' \+ x\.path \+ '\.'\)/);
   assert.match(ui, /data-writeask-no[\s\S]*send\('Don\\'t change ' \+ x\.path \+ '\.'\)/);
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /\["question", "secret", "envchange", "writeask"\]\.includes\(e\.type\)/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /\["question", "secret", "envchange", "writeask", "runask"\]\.includes\(e\.type\)/);
   const { pushesFor } = await import("../src/coder-push.mjs");
   const pushed = pushesFor([{ type: "writeask", path: ".npmrc" }], { title: "shop" });
   assert.ok(JSON.stringify(pushed).includes("Coder asks to change a protected file") && JSON.stringify(pushed).includes("Allow it to change .npmrc?"), JSON.stringify(pushed));

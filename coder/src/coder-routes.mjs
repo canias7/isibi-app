@@ -44,13 +44,28 @@ import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
-import { watchJob, watchKey } from "./coder-watch.mjs";
+import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
 const MAX_TEXT = 20000;
+/**
+ * MESSAGES SENT WHILE CODER WORKS (Claude Code: "Type a message and press Enter while Claude is working. Claude Code queues
+ * the message instead of interrupting the turn, and lists the queued entries in the conversation until it sends them"): at
+ * most this many wait at once, kept with the chat (queue.json).
+ */
+export const QUEUE_MAX = 20;
+const newQid = () => "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+/** The first of what waits to go out when a turn ends: a `!` command alone, or the messages up to the next one (Claude Code: queued commands "run one at a time", messages go out "in the order you typed them"). */
+export function nextQueued(queue) {
+  const q = Array.isArray(queue) ? queue : [];
+  if (!q.length) return [];
+  if (q[0].shell) return [q[0]];
+  const cut = q.findIndex((x) => x.shell);
+  return cut < 0 ? q.slice() : q.slice(0, cut);
+}
 // IMAGES IN THE CHAT (owner, 2026-11-05, "16"): up to 4 pictures a message, each up to 1.5 MB.
 export const MAX_IMAGES = 4;
 /** After this long away from a chat, Coder starts its answer with a one-line recap (owner, 2026-11-05). */
@@ -129,6 +144,33 @@ export function commentsText(list) {
   return lines.length ? "Comments on the changes:\n" + lines.join("\n") : "";
 }
 const settingsKey = (uid) => ["coder", uid, "settings.json"].join("/");
+/**
+ * THE CHAT'S OWN LINK (the page opens a chat from /?chat=<id>, as a notification does): every command of Coder's gets it,
+ * like Claude Code's CLAUDE_CODE_REMOTE_SESSION_ID in a cloud session ("Use this to put a traceable link in PR bodies,
+ * commit messages, Slack posts, or generated reports").
+ */
+export const chatLinkOf = (env, id) => String((env && env.APP_ORIGIN) || "https://gofarther.dev").replace(/\/+$/, "") + "/?chat=" + encodeURIComponent(String(id || ""));
+/**
+ * THE OWNER'S ! COMMANDS, KEPT ON THEIR ACCOUNT FOR EACH REPOSITORY (Claude Code's shell mode: "type a partial command and
+ * press Tab to complete from previous ! commands in the current project"): the page's Tab completes from them, in any chat
+ * of that repository, on any device. The newest SHELL_HIST_MAX a repository, for the SHELL_HIST_REPOS used last.
+ */
+export const SHELL_HIST_MAX = 100, SHELL_HIST_REPOS = 30;
+const shellHistKey = (uid) => ["coder", uid, "shell-history.json"].join("/");
+export async function rememberShell(bucket, uid, repo, cmd) {
+  const c = String(cmd || "").trim().slice(0, 2000), r = String(repo || "");
+  if (!c || !/^[\w.-]+\/[\w.-]+$/.test(r)) return;
+  const all = await getJson(bucket, shellHistKey(uid), {});
+  const was = all && typeof all === "object" && Array.isArray(all[r]) ? all[r].filter((x) => typeof x === "string" && x !== c) : [];
+  const next = { [r]: [c, ...was].slice(0, SHELL_HIST_MAX) };
+  for (const [k, v] of Object.entries(all && typeof all === "object" ? all : {})) if (k !== r && Array.isArray(v) && Object.keys(next).length < SHELL_HIST_REPOS) next[k] = v;
+  await putJson(bucket, shellHistKey(uid), next);
+}
+export async function shellHistoryOf(bucket, uid, repo) {
+  const all = await getJson(bucket, shellHistKey(uid), {});
+  const list = all && typeof all === "object" && Array.isArray(all[String(repo || "")]) ? all[String(repo || "")] : [];
+  return list.filter((x) => typeof x === "string").slice(0, SHELL_HIST_MAX);
+}
 
 const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
 export const MEMORY_MAX = 25000;
@@ -309,6 +351,10 @@ export function lastJobFor(meta) {
 }
 
 /** A chat's title: the first words of its first message. */
+/** A chat's background commands still running, as its machine lists them (tool 4, part 2), checked: at most 20. */
+export function bgListOf(x) {
+  return (Array.isArray(x) ? x : []).slice(0, 20).filter((b) => b && /^job\d{1,6}$/.test(String(b.id || ""))).map((b) => ({ id: String(b.id), desc: String(b.desc || "").slice(0, 200), command: String(b.command || "").split("\n")[0].slice(0, 200), at: Number(b.at) || 0, deadline: Number(b.deadline) || 0 }));
+}
 export function chatTitle(text) {
   const t = String(text || "").replace(/\s+/g, " ").trim();
   return t.length > 60 ? t.slice(0, 57).replace(/\s+\S*$/, "") + "…" : t;
@@ -585,19 +631,43 @@ export async function handleCoder(request, env, ctx, deps) {
   const summarizeFn = (m, f) => (typeof deps.summarize === "function" ? deps.summarize(m, f) : summarize(env, m, f, { fetchFn }));
   const action = parts[2] || "";
 
-  if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []) });
+  if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo) });
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
-    const said = review ? review.label : String(body.text || "").trim();
+    // A TURN ONLY TO TELL CODER ITS BACKGROUND COMMAND ENDED (tool 4, part 2; Claude Code "re-invokes you when it exits"):
+    // started by the every-minute run (coder-watch.mjs), with no message of the owner's; the machine starts it only when it
+    // has something to tell.
+    const wake = body.fromBackground === true && !review;
+    const said = review ? review.label : wake ? "" : String(body.text || "").trim();
+    // THE OWNER'S OWN COMMAND (tool 4, part 3; Claude Code's shell mode: "! npm test" runs it directly, its output goes into
+    // the conversation, and Claude responds to it): a message starting with "!", typed in the page (never from GitHub, where
+    // strangers write), with no pictures or comments. The machine runs it as Coder's commands run.
+    const shell = !review && !wake && body.fromGithub !== true && /^!/.test(said) && !commentsText(body.comments) && !(Array.isArray(body.images) && body.images.length) ? said.replace(/^!\s*/, "") : null;
+    if (shell === "") return json({ error: "write a command after !" }, 400);
     const notes = commentsText(body.comments);
     const text = notes ? notes + (said ? "\n\n" + said : "") : said;
     const pics = checkImages(body.images);
     if (pics.error) return json({ error: pics.error }, 400);
-    if (!text && !pics.images.length) return json({ error: "write something first" }, 400);
+    if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
-    if (meta.status === "running") return json({ error: "Coder is still working on the last message" }, 409);
+    if (shell && body.fromQueue !== true) await rememberShell(bucket, uid, meta.repo, shell).catch(() => {});
+    if (meta.status === "running") {
+      // QUEUED WHILE CODER WORKS (Claude Code's queue): the owner's message, or `!` command, typed in the page; not a review,
+      // a /compact, pictures or line comments, nor anything from GitHub. A message goes to the running job at once (Coder
+      // reads it when its running tool calls finish, in this turn); a command waits for the job's end. What is left when
+      // the job ends goes out next, by itself (the state route below).
+      const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
+      if (!queueable) return json({ error: pics.images.length || notes ? "Coder is still working: send pictures or line comments once it is done" : "Coder is still working on the last message" }, 409);
+      const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+      if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
+      const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}) };
+      const waiting = [...queue, entry];
+      await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+      if (!entry.shell) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
+      return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
+    }
     // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
     // optional focus instructions"): the conversation so far becomes one summary for Coder; no job runs.
     const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(said);
@@ -686,6 +756,9 @@ export async function handleCoder(request, env, ctx, deps) {
     const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
     const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
     const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
+    const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {};
+    // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
+    const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
     // minutes, and Cloudflare stops a request whose tab has closed; the watch
@@ -707,7 +780,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), cwd: typeof meta.cwd === "string" ? meta.cwd : "", ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -894,21 +967,102 @@ export async function handleCoder(request, env, ctx, deps) {
       const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
-      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask"].includes(e.type)).at(-1);
+      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type)).at(-1);
       // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
       // next message's commands too ("This includes commands Claude runs in response to your later messages").
       const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
-      const ended = { ...meta, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // ITS BACKGROUND COMMANDS STILL RUNNING (tool 4, part 2): kept with the chat (the page lists them, with Stop), and the
+      // chat goes on the every-minute run's list, which starts a turn to tell Coder when one ends (coder-watch.mjs).
+      const background = bgListOf(s.result.background);
+      const ended = { ...meta, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
+      if (background.length) await watchBackground(bucket, { uid, email: user.email, id }).catch(() => {});
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
       await dropLive(bucket, uid, id).catch(() => {});
-      return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended });
+      // WHAT THE OWNER SENT WHILE IT WORKED AND CODER DID NOT READ (Claude Code: "When the turn ends with messages still
+      // queued, they go out without another key press, in the order you typed them"): the next message starts now, and the
+      // page loads the chat to follow it.
+      const read = new Set(Array.isArray(s.result.readQueued) ? s.result.readQueued : []);
+      let waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !read.has(q.qid));
+      await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+      const first = nextQueued(waiting);
+      if (first.length) {
+        const headers = new Headers(request.headers); headers.set("content-type", "application/json");
+        const r2 = await handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + "/message", { method: "POST", headers, body: JSON.stringify({ text: first.map((q) => q.text).join("\n\n"), fromQueue: true }) }), env, ctx, deps).catch(() => null);
+        if (r2 && r2.status === 200) {
+          const sent = new Set(first.map((q) => q.qid));
+          waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid));
+          await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+          const nowMeta = await getJson(bucket, metaKey, ended);
+          return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: nowMeta, queue: waiting, reload: true });
+        }
+      }
+      return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended, queue: waiting });
     }
     // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
     // was open): the page loads the saved chat, which has the save's own lines.
     const elsewhere = !!s.result && !s.running && meta.status !== "running";
-    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, ...(elsewhere ? { reload: true } : {}) });
+    // THE RUNNING COMMAND'S LAST LINES (Claude Code 1.0.48), for the page only: never saved with the chat.
+    const progress = s.running && s.progress && Array.isArray(s.progress.lines) ? { at: Number(s.progress.at) || 0, lines: s.progress.lines.slice(-5).map((l) => String(l).slice(0, 300)) } : null;
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), ...(progress ? { progress } : {}), ...(elsewhere ? { reload: true } : {}) });
+  }
+
+  // TAKE BACK A MESSAGE WAITING FOR CODER (Claude Code: "To take a queued message back, click the ✕ on it. The text returns to
+  // the message box … If Claude has already read the message, it stays in the conversation").
+  if (action === "queue" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+    const q = queue.find((x) => x && x.qid === String(body.remove || ""));
+    if (!q) return json({ ok: false, error: "That message is no longer waiting: Coder has it.", queue }, 409);
+    if (!q.shell && meta.status === "running") {
+      const m = await post("/unqueue", { project: id, qid: q.qid }).then((x) => x.json()).catch(() => null);
+      if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment.", queue }, 502);
+      if (m.read === true) return json({ ok: false, read: true, error: "Coder has already read it, so it stays in the conversation.", queue }, 409);
+    }
+    const left = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((x) => x && x.qid !== q.qid);
+    await putJson(bucket, keyOf(uid, id, "queue.json"), left);
+    return json({ ok: true, removed: true, text: q.text, queue: left });
+  }
+
+  // THE CHAT'S BACKGROUND COMMANDS (tool 4, part 2, like Claude Code's tasks list): those still running after Coder's
+  // answer, from its machine, and how many ended that Coder was not told of yet (GET); the owner's Stop on one (POST { id }:
+  // Coder is told, Claude Code 2.1.257). The chat keeps the list, for the page.
+  if (action === "background" && (request.method === "GET" || request.method === "POST")) {
+    // ONE'S OUTPUT (GET ?output=<id>; like Claude Code's tasks list, where a background task shows its output): its last
+    // lines from the machine, with no secrets, and its output file's path, as Coder was told it.
+    const want = request.method === "GET" ? new URL(request.url).searchParams.get("output") : null;
+    if (want !== null) {
+      if (!/^job\d{1,6}$/.test(want)) return json({ error: "no such background command" }, 400);
+      let o = null;
+      try { const r = await call("/bgout?project=" + id + "&id=" + want, { method: "GET" }); o = r.ok ? await r.json() : null; } catch { o = null; }
+      if (!o) return json({ error: "Coder's machine could not be reached" }, 502);
+      if (o.ok !== true) return json({ error: String(o.why || "that background command is not running") }, 404);
+      const ended = o.ended && typeof o.ended === "object" ? { code: Number.isInteger(o.ended.code) ? o.ended.code : null, why: String(o.ended.why || "") } : null;
+      return json({ ok: true, id: want, file: String(o.file || "").slice(0, 300), lines: (Array.isArray(o.lines) ? o.lines : []).slice(-40).map((l) => String(l).slice(0, 300)), ...(ended ? { ended } : {}) });
+    }
+    let body = {};
+    if (request.method === "POST") { try { body = await request.json(); } catch { body = {}; } }
+    // THE OWNER MOVES THE RUNNING COMMAND TO THE BACKGROUND (the page's "Run in background", Claude Code's Ctrl+B).
+    if (request.method === "POST" && body.move === true) {
+      const m = await post("/bgmove", { project: id }).then((r) => r.json()).catch(() => null);
+      return m && m.ok === true ? json({ ok: true, moved: true }) : json({ error: (m && m.why) || "Coder's machine could not move it" }, 409);
+    }
+    let stopped = null;
+    if (request.method === "POST") {
+      const job = String(body.id || "");
+      if (!/^job\d{1,6}$/.test(job)) return json({ error: "no such background command" }, 400);
+      stopped = await post("/bgstop", { project: id, id: job }).then((r) => r.json()).catch(() => null);
+      if (!stopped || stopped.ok !== true) return json({ error: (stopped && stopped.why) || "Coder's machine could not stop it", project: meta }, 409);
+    }
+    let st = null;
+    try { const r = await call("/bgstate?project=" + id, { method: "GET" }); st = r.ok ? await r.json() : null; } catch { st = null; }
+    if (!st) return json({ ok: false, error: "Coder's machine could not be reached", project: meta }, 502);
+    const background = bgListOf(st.background);
+    const now = await getJson(bucket, metaKey, meta);
+    let saved = now;
+    if (JSON.stringify(bgListOf(now.background)) !== JSON.stringify(background)) { saved = { ...now, background }; await saveMeta(bucket, uid, saved); }
+    return json({ ok: true, background, untold: Number(st.untold) || 0, running: st.running === true, project: saved, ...(stopped ? { stopped: true } : {}) });
   }
 
   // WHAT CODER CHANGED (the "See changes" button): its branch against the main

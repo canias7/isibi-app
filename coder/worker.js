@@ -12,7 +12,7 @@ import { handleGit, GIT_PATH } from "./src/coder-git.mjs";
 import { handleModel, MODEL_PATH } from "./src/coder-model-gate.mjs";
 import { runMentionJobs, installationToken } from "./src/coder-mentions.mjs";
 import { runReviewJobs } from "./src/coder-review.mjs";
-import { runWatchedJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
+import { runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
 import { controlKeySync } from "./src/coder-control.mjs";
 import { flyOn, flyBox, runFlyMachines, dropFlyMachine, snapshotChat, cacheUsable, copyState } from "./src/coder-fly.mjs";
 
@@ -81,6 +81,8 @@ export default {
     const job = (p) => { work.push(p); ctx.waitUntil(p); };
     job(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
     job(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
+    // BACKGROUND COMMANDS AFTER THE ANSWER (tool 4, like Claude Code's): Coder is told when one ends, in a turn of its own.
+    job(runBackgroundJobs(env, { coder }).catch((e) => console.log("coder background: " + String((e && e.message) || e).slice(0, 200))));
     // CODE REVIEW (owner item 11, like Claude Code's): the reviews GitHub's news asked for, as Coder's app.
     job(runReviewJobs(env, { token: (i) => installationToken(env, i) }).catch((e) => console.log("coder review: " + String((e && e.message) || e).slice(0, 200))));
     // FLY.IO (2026-11-07): machines with nothing to do for 10 minutes are stopped, old ones removed.

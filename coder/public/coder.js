@@ -6,6 +6,11 @@
   'use strict';
   const API = '/api/coder';
   const POLL_MS = 1500;
+  // How often an open chat waiting for the owner asks about its background commands (tool 4, part 2).
+  const BG_POLL_MS = 20000;
+  // How often a background command's output, opened from its row, is looked at again.
+  const BG_OUT_POLL_MS = 3000;
+  const SHELL_TAKEBACK = 'A ! command comes back only when the message box is empty and nothing else is waiting. Otherwise it runs when Coder is done.';
   // THE MODEL LIST AND THE USER'S PICK come from the server
   // (2026-11-05: "put it server side"); the page only shows them.
   let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'high' }];
@@ -285,7 +290,7 @@
       if (!b || b.status !== 'running' || c.status === 'running') continue;
       if (o.openId === c.id && o.focused) continue;
       const name = c.title || c.repo;
-      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : 'Coder asked you something.' }); }
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : c.waiting === 'runask' ? 'Coder asks to run a command.' : 'Coder asked you something.' }); }
       else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
     }
     return out;
@@ -570,11 +575,13 @@
   async function openProject(id) {
     stopPoll();
     keepDraft(S, S.project && S.project.id, id);
+    stopBgWatch(); stopBgOut(); S.bgOut = null;
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
-    S.project = r.data.project; S.events = r.data.events || [];
+    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : [];
     S.running = S.project.status === 'running';
+    S.background = undefined; startBgWatch();
     S.envInfo = null; loadEnvInfo();
     S.branches = null; loadBranches();
     loadAllRepos();
@@ -588,14 +595,30 @@
   const PR_ASK_DRAFT = 'Create a draft pull request for this branch. Write its title and description from the changes.';
   async function send(text) {
     text = String(text || '').trim();
+    if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
     const pics = (S.pics || []).slice();
-    if ((!text && !comments.length && !pics.length) || !S.project || S.running || S.sending) return;
+    if ((!text && !comments.length && !pics.length) || !S.project || S.sending) return;
+    // WHILE CODER WORKS, A MESSAGE WAITS FOR IT (Claude Code's queue): shown in grey at the end of the chat, with ✕ to take it
+    // back, until Coder reads it, which it does once its running tool calls finish; what is left goes out when it is done.
+    if (S.running) {
+      if (pics.length || comments.length || !text) { S.error = 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
+      S.sending = true; S.error = '';
+      const id = S.project.id;
+      const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text }) });
+      S.sending = false;
+      if (!S.project || S.project.id !== id) return;
+      if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; S.draft = ''; return draw(true); }
+      S.error = (q.data && q.data.error) || 'The message was not sent.';
+      return draw();
+    }
     S.comments = []; S.pics = []; S.mention = null;
     S.sending = true; S.error = ''; S.draft = ''; S.unsent = text;
     const base = S.events.length;
-    S.events.push({ type: 'user', text: text || (pics.length ? '(see the picture)' : '(comments on the changes)'), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}) });
+    // The owner's own command (shell mode) is shown as the machine will show it: "! " and the command.
+    const shellText = /^!/.test(text) && !pics.length && !comments.length && text.replace(/^!\s*/, '') ? '! ' + text.replace(/^!\s*/, '') : '';
+    S.events.push({ type: 'user', text: shellText || text || (pics.length ? '(see the picture)' : '(comments on the changes)'), ...(shellText ? { shell: true } : {}), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}) });
     draw(true);
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), model: S.pick.model, effort: S.pick.effort }) });
     S.sending = false; S.unsent = '';
@@ -609,7 +632,7 @@
     // /compact (like Claude Code's): the summary is made; no job runs.
     if (r.data.compacted) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); syncEntry(); return draw(true); }
     S.project = r.data.project; S.running = true; syncEntry();
-    S.next = 0;
+    S.next = 0; stopBgWatch();
     startPoll(); draw(true);
   }
 
@@ -647,16 +670,20 @@
         const name = S.project.title || S.project.repo;
         for (const e of fresh) {
           if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
-          else if (['question', 'secret', 'envchange', 'writeask'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || (e.type === 'writeask' ? 'Allow it to change ' + e.path + '?' : '') });
+          else if (['question', 'secret', 'envchange', 'writeask', 'runask'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || (e.type === 'writeask' ? 'Allow it to change ' + e.path + '?' : '') });
         }
       }
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
+      if (Array.isArray(r.data.background)) S.background = r.data.background;
+      if (Array.isArray(r.data.queue)) S.queue = r.data.queue;
+      S.progress = r.data.progress || null;
       S.running = !!r.data.running;
       syncEntry();
       draw(fresh.length > 0);
     }
     if (S.running) S.poll = setTimeout(tick, POLL_MS);
+    else { S.background = undefined; startBgWatch(); }
   }
 
   // SAVED ELSEWHERE (another tab, or Coder's every-minute run while no tab was
@@ -664,10 +691,11 @@
   async function reloadChat(id) {
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
-    S.project = r.data.project; S.events = r.data.events || [];
+    S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; if (Array.isArray(r.data.shellHistory)) S.shellHist = r.data.shellHistory;
     S.running = S.project.status === 'running';
+    S.background = undefined;
     syncEntry(); draw(true);
-    if (S.running) { S.next = 0; startPoll(); }
+    if (S.running) { S.next = 0; stopBgWatch(); startPoll(); } else startBgWatch();
   }
 
   async function loadChanges() {
@@ -781,6 +809,9 @@
     const k = e.tool === 'monitor' ? 'monitor_job' : e.tool && STEP_ICON[e.tool] ? e.tool : 'bash';
     return '<span class="cd-sic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + STEP_ICON[k] + '"/></svg></span>';
   }
+  /** How long a running command has run, and its timeout ("12s · timeout 2m"). */
+  const secsWords = (n) => { n = Math.max(0, Math.round(n)); return n < 60 ? n + 's' : n % 60 ? Math.floor(n / 60) + 'm ' + (n % 60) + 's' : n / 60 + 'm'; };
+  const runWords = (e) => 'Running for ' + secsWords((Date.now() - Number(e.at || Date.now())) / 1000) + (Number(e.timeoutS) > 0 ? ' · timeout ' + secsWords(Number(e.timeoutS)) : '');
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
@@ -788,19 +819,26 @@
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
       : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
+      : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>' : '';
+    // A COMMAND'S DESCRIPTION (tool 4, like Claude Code's app: "Run the test suite" in place of the command); the command
+    // itself when the step is opened. A step with none (from before, or Grok gave none) shows its command as before.
+    const desc = !e.tool && typeof e.desc === 'string' && e.desc.trim() ? e.desc.trim() : '';
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
-        stepIcon(e) + '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
+        stepIcon(e) + (desc ? '<span class="cd-cmd-desc">' + esc(desc) + '</span>' : '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>') +
         changeCounts(r) + tail +
       '</button>' +
+      // A COMMAND STILL RUNNING: how long it has run and its timeout (Claude Code 2.1.23), its last lines (1.0.48), and a way to
+      // move it to the background (Claude Code's Ctrl+B): Coder goes on, and is told when it ends.
+      (state === 'run' && !e.tool && S.running ? '<div class="cd-run-info">' + esc(runWords(e)) + '</div>' + (S.progress && Array.isArray(S.progress.lines) && S.progress.lines.length ? '<pre class="cd-progress">' + esc(S.progress.lines.join('\n')) + '</pre>' : '') + (e.noBg ? '' : '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>') : '') +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
       stepChange(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
-      (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
+      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
     '</div>';
   }
   /**
@@ -896,7 +934,11 @@
     for (const e of S.events) if (e.type === 'result' && e.id) results[e.id] = e;
     let lastUser = -1;
     S.events.forEach((e, i) => { if (e.type === 'user') lastUser = i; });
-    const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.background ? 'bg' : r.code === 0 ? 'ok' : 'bad'; };
+    // `ok`: an exit code Claude Code counts as no failure (grep's 1, "No matches found"), so neither a red mark nor a failure.
+    // A BACKGROUND COMMAND THAT ENDED (Coder was told: its line names its id) shows how: ✓, a failure, or stopped.
+    S.bgEnded = {};
+    for (const e of S.events) if (e.type === 'note') { if (e.job && e.end) S.bgEnded[e.job] = e.end; if (Array.isArray(e.jobs)) for (const j of e.jobs) S.bgEnded[j] = { ok: false, label: 'stopped' }; }
+    const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
     const flush = () => {
@@ -919,7 +961,7 @@
       if (e.type === 'result') return;
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
-      if (e.type === 'user') out.push('<div class="cd-user">' + (mark ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble">' + esc(e.text) + '</div></div>');
+      if (e.type === 'user') out.push('<div class="cd-user">' + (mark ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div></div>');
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
@@ -957,6 +999,20 @@
           // ones it puts in in green, as under each edit's step.
           '<pre class="cd-envchange-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
           (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-writeask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-writeask-ok="' + i + '">Allow</button></div>' : '') +
+        '</div>');
+      }
+      else if (e.type === 'runask') {
+        // A COMMAND CODER ASKS TO RUN (tool 4, like Claude Code's prompt for it): one whose > or tee writes a protected file,
+        // or one over 10,000 characters. The command, then Allow or Don't allow, which become the owner's next message.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+        const more = Number.isInteger(e.more) && e.more > 0 ? e.more : 0;
+        const paths = Array.isArray(e.paths) ? e.paths.filter((p) => typeof p === 'string').slice(0, 10) : [];
+        const prot = e.kind === 'protected' && paths.length;
+        out.push('<div class="cd-secret cd-envchange cd-writeask cd-runask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (prot ? 'Allow Coder to change ' + esc(paths.join(', ')) + '?' : 'Allow Coder to run this command?') + '</b>' +
+          '<p class="cd-secret-p">' + (prot ? 'This command writes ' + (paths.length === 1 ? 'a file' : 'files') + ' that can make code run on your computer when you pull the branch, or change how the project is built' : 'This command is over 10,000 characters, more than Coder\'s checks read through') + ', so Coder asks you first (Claude Code does too).' + (e.desc ? ' What it does: ' + esc(e.desc) + '.' : '') + ' The command:</p>' +
+          '<pre class="cd-envchange-pre">' + esc(lines.join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
+          (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-runask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-runask-ok="' + i + '">Allow</button></div>' : '') +
         '</div>');
       }
       else if (e.type === 'envchange') {
@@ -1000,7 +1056,19 @@
     });
     flush();
     if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
+    out.push(queueHTML());
     return out.join('');
+  }
+  // MESSAGES WAITING FOR CODER (Claude Code: "Sent and queued messages show in gray until Claude starts responding to them";
+  // on the web, "To take a queued message back, click the ✕ on it"): at the end of the chat until Coder reads them.
+  // What still waits (one Coder read shows once, as the owner's message).
+  function queuedNow() {
+    const read = new Set(S.events.filter((e) => e.type === 'user' && e.qid).map((e) => e.qid));
+    return (Array.isArray(S.queue) ? S.queue : []).filter((q) => q && q.qid && !read.has(q.qid));
+  }
+  function queueHTML() {
+    const list = queuedNow();
+    return list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running ? (q.shell ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
   }
 
   // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
@@ -1134,7 +1202,7 @@
   }
   function mentionMatches() {
     if (!S.mention || !S.files) return [];
-    return rankMentions(S.files.list, S.mention.q);
+    return S.mention.shell ? shellPathMatches(S.files.list, S.mention.q) : rankMentions(S.files.list, S.mention.q);
   }
   /**
    * THE @ LIST'S ORDER (the owner, 2026-11-08: "Fix those 3"; Claude Code 2.1.280: "a file whose name contains the
@@ -1164,17 +1232,144 @@
     void input;
   }
 
+  // THE ! BOX'S COMPLETION (Claude Code's shell mode: "history-based autocomplete: type a partial command and press Tab to
+  // complete from previous ! commands in the current project"; "live file path autocomplete": a word with a / in it, such
+  // as ./src/ or ~/, lists the files and folders that fit, and Tab takes the one picked).
+  // The earlier commands, newest first: those waiting, this chat's, then the owner's others in the chat's repository (kept on
+  // their account by Coder's Worker, given with the chat: S.shellHist).
+  const bare = (t) => String(t || '').replace(/^!\s*/, '').trim();
+  function rememberShell(text) {
+    const cmd = bare(text);
+    if (cmd) S.shellHist = [cmd, ...(Array.isArray(S.shellHist) ? S.shellHist : []).filter((x) => x !== cmd)].slice(0, 100);
+  }
+  function shellHistory() {
+    const mine = S.events.filter((e) => e.type === 'user' && e.shell).map((e) => bare(e.text)).reverse();
+    const waiting = queuedNow().filter((q) => q.shell).map((q) => bare(q.text)).reverse();
+    const kept = (Array.isArray(S.shellHist) ? S.shellHist : []).filter((x) => typeof x === 'string');
+    return [...new Set([...waiting, ...mine, ...kept].filter(Boolean))];
+  }
+  // Tab: the newest earlier command that starts with what was typed; Tab again, the one before it.
+  function shellTab(input) {
+    const v = input.value, lead = (/^!\s*/.exec(v) || [''])[0];
+    const tab = S.shellTab && S.shellTab.shown === v ? S.shellTab : { typed: bare(v), lead, i: -1 };
+    if (!tab.typed) return false;
+    const found = shellHistory().filter((c) => c.startsWith(tab.typed) && c !== tab.typed);
+    if (!found.length) return false;
+    tab.i = (tab.i + 1) % found.length;
+    tab.shown = tab.lead + found[tab.i];
+    S.shellTab = tab; S.draft = tab.shown; input.value = tab.shown; grow(input);
+    input.setSelectionRange(tab.shown.length, tab.shown.length);
+    return true;
+  }
+  // A path in the ! box: the folders and files right under the folder typed so far (folders first), from the repository's
+  // file list; a folder picked keeps the list open for the next level.
+  function shellPathMatches(list, token) {
+    const dot = token.startsWith('./') ? './' : '';
+    const t = token.slice(dot.length);
+    const cut = t.lastIndexOf('/') + 1, dir = t.slice(0, cut), part = t.slice(cut).toLowerCase();
+    const seen = new Map();
+    for (const p of list) {
+      if (!p.startsWith(dir)) continue;
+      const rest = p.slice(dir.length), k = rest.indexOf('/');
+      const child = k >= 0 ? rest.slice(0, k + 1) : rest;
+      if (child && child.toLowerCase().startsWith(part) && !seen.has(child)) seen.set(child, k >= 0);
+    }
+    return [...seen.entries()].sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1)).slice(0, 8).map(([child]) => dot + dir + child);
+  }
+  function pickShellPath(path) {
+    const at = S.mention ? S.mention.at : -1;
+    if (at < 0) return;
+    const v = S.draft, end = at + S.mention.q.length, folder = path.endsWith('/');
+    S.draft = v.slice(0, at) + path + (folder ? '' : ' ') + v.slice(end);
+    const pos = at + path.length + (folder ? 0 : 1);
+    S.mention = folder ? { at, q: path, shell: true } : null; S.mentionSel = 0;
+    draw();
+    const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); }
+  }
+
+  // ITS BACKGROUND COMMANDS STILL RUNNING (tool 4, part 2; like Claude Code's background tasks under the prompt, each with a
+  // Stop): they go on after Coder's answer, until they end, are stopped, or reach their time limit; Coder is told when one ends.
+  const bgList = () => (Array.isArray(S.background) ? S.background : S.project && Array.isArray(S.project.background) ? S.project.background : []);
+  const bgAge = (b) => { const s = Math.max(0, Math.round((Date.now() - Number(b.at || Date.now())) / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.round(s / 60) + 'm' : (s / 3600).toFixed(1).replace(/\.0$/, '') + 'h'; };
+  function bgHTML() {
+    const list = bgList();
+    if (!list.length) return '';
+    return '<div class="cd-bg" role="status" aria-label="Background commands"><div class="cd-bg-head">' + list.length + ' background command' + (list.length === 1 ? '' : 's') + ' running</div>' +
+      list.map((b) => '<div class="cd-bg-row"><span class="cd-bg-dot" aria-hidden="true"></span><span class="cd-bg-name" title="' + esc(b.command || '') + '">' + esc(b.desc || b.command || b.id) + '</span><span class="cd-bg-time" title="Running for">' + esc(bgAge(b)) + '</span><button type="button" class="cd-bg-stop cd-bg-outbtn" data-bg-out="' + esc(b.id) + '" aria-expanded="' + (S.bgOut && S.bgOut.id === b.id ? 'true' : 'false') + '">' + (S.bgOut && S.bgOut.id === b.id ? 'Hide output' : 'Output') + '</button><button type="button" class="cd-bg-stop" data-bg-stop="' + esc(b.id) + '">Stop</button></div>' + bgOutHTML(b.id)).join('') + '</div>';
+  }
+  // ONE'S OUTPUT, OPENED FROM ITS ROW (like Claude Code's tasks list, where a background task shows its output): its last
+  // lines, newest at the bottom, looked at again every few seconds while open, and the path of its output file (Coder was
+  // told it; ask Coder to read it for the rest).
+  function bgOutHTML(job) {
+    const o = S.bgOut;
+    if (!o || o.id !== job) return '';
+    const body = o.error ? '<div class="cd-bg-outnote">' + esc(o.error) + '</div>'
+      : !o.loaded ? '<div class="cd-bg-outnote">Loading…</div>'
+      : (o.lines.length ? '<pre class="cd-bg-outlines">' + esc(o.lines.join('\n')) + '</pre>' : '<div class="cd-bg-outnote">No output yet.</div>');
+    return '<div class="cd-bg-out">' + body + (o.file ? '<div class="cd-bg-file">Full output: <code>' + esc(o.file) + '</code></div>' : '') + '</div>';
+  }
+  function stopBgOut() { if (S.bgOutTimer) clearTimeout(S.bgOutTimer); S.bgOutTimer = 0; }
+  async function bgOutTick() {
+    stopBgOut();
+    const o = S.bgOut, id = S.project && S.project.id;
+    if (!o || !id) return;
+    const r = await call('/projects/' + encodeURIComponent(id) + '/background?output=' + encodeURIComponent(o.id));
+    if (S.bgOut !== o || !S.project || S.project.id !== id) return;
+    if (r.status === 200 && r.data && r.data.ok) { o.lines = Array.isArray(r.data.lines) ? r.data.lines : []; o.file = String(r.data.file || ''); o.error = ''; }
+    else o.error = (r.data && r.data.error) || 'Its output could not be read.';
+    o.loaded = true;
+    draw();
+    const pre = S.root.querySelector('.cd-bg-outlines'); if (pre) pre.scrollTop = pre.scrollHeight;
+    if (!o.error && bgList().some((b) => b.id === o.id)) S.bgOutTimer = setTimeout(bgOutTick, BG_OUT_POLL_MS);
+  }
+  function toggleBgOut(job) {
+    stopBgOut();
+    if (S.bgOut && S.bgOut.id === job) { S.bgOut = null; return draw(); }
+    S.bgOut = { id: job, lines: [], file: '', loaded: false, error: '' };
+    draw(); bgOutTick();
+  }
+  // While the chat is open and waits for the owner, its list is asked for now and then; a turn started to tell Coder (one
+  // ended) is then followed like any.
+  function stopBgWatch() { if (S.bgWatch) clearTimeout(S.bgWatch); S.bgWatch = 0; }
+  function startBgWatch() { stopBgWatch(); if (S.project && !S.running && bgList().length) S.bgWatch = setTimeout(bgTick, BG_POLL_MS); }
+  async function bgTick() {
+    S.bgWatch = 0;
+    if (!S.project || S.running) return;
+    const id = S.project.id;
+    const r = await call('/projects/' + encodeURIComponent(id) + '/background');
+    if (!S.project || S.project.id !== id || S.running) return;
+    if (r.status === 200 && r.data && r.data.ok) {
+      S.background = r.data.background || [];
+      if (r.data.project) S.project = r.data.project;
+      if (r.data.running || (r.data.project && r.data.project.status === 'running')) return reloadChat(id);
+      draw();
+    }
+    startBgWatch();
+  }
+  async function stopBg(job, btn) {
+    const id = S.project && S.project.id;
+    if (!id) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+    const r = await call('/projects/' + encodeURIComponent(id) + '/background', { method: 'POST', body: JSON.stringify({ id: job }) });
+    if (!S.project || S.project.id !== id) return;
+    if (r.status === 200 && r.data && r.data.ok) { S.background = (r.data.background || []).filter((b) => b.id !== job); if (r.data.project) S.project = r.data.project; }
+    else S.error = (r.data && r.data.error) || 'It could not be stopped.';
+    draw(); startBgWatch();
+  }
+
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + mentionHTML() + commentsHTML() + picsHTML() +
-      '<form class="cd-compose" id="cdForm">' +
+    return '<div class="cd-composewrap">' + bgHTML() + mentionHTML() + commentsHTML() + picsHTML() +
+      '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working… you can close this tab' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="Attach a picture" title="Attach a picture (or paste one)">' + ICON.clip + '</button><input type="file" id="cdFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>' +
         (S.running
-          ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
+          ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
+      // SHELL MODE (tool 4, part 3, like Claude Code's "! npm test"): the box says so while the message starts with "!".
+      '<div class="cd-shellhint" role="note">Shell mode: runs this command on Coder\'s machine, then Coder answers what it printed · Tab completes</div>' +
       '<div class="cd-picks">' +
         (S.project && !S.project.turn && S.branches && S.branches.length && !S.running
           ? '<label class="cd-pick cd-pick-branch" title="Starting branch (picked before the first message)">' + ICON.branch + '<select id="cdBaseSel" aria-label="Starting branch">' + S.branches.map((b) => '<option value="' + esc(b) + '"' + (b === S.project.base ? ' selected' : '') + '>' + esc(b) + '</option>').join('') + '</select></label>'
@@ -1250,12 +1445,15 @@
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
+    // THE BOX KEEPS ITS CURSOR AND SELECTION through a redraw (while Coder works the page redraws every 1.5 seconds, and a
+    // message can be typed then: the queue); only when its text was changed for it does the cursor go to the end.
+    const was = focus ? { v: document.activeElement.value, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
-    if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+    if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); if (was && i.value === was.v) { i.setSelectionRange(was.a, was.b, was.d || 'none'); i.scrollTop = was.top; } else i.setSelectionRange(i.value.length, i.value.length); } }
   }
 
   function grow(t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
@@ -1317,6 +1515,36 @@
     });
     on('[data-writeask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskOk)]; if (x && x.path) { e.currentTarget.disabled = true; send('I allowed Coder to change ' + x.path + '.'); } });
     on('[data-writeask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskNo)]; if (x && x.path) { e.currentTarget.disabled = true; send('Don\'t change ' + x.path + '.'); } });
+    // A COMMAND'S CARD: Allow sends the words Coder's app gave it (one "I allowed Coder to change …" line a file, or the
+    // command's own "I allowed Coder to run command …"), checked again on the machine.
+    on('[data-runask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskOk)]; if (x && typeof x.allow === 'string' && /^(I allowed Coder to (change .+|run command [0-9a-f]{8})\.\n?)+$/.test(x.allow + '\n')) { e.currentTarget.disabled = true; send(x.allow); } });
+    on('[data-bg-stop]', 'click', (e) => { stopBg(e.currentTarget.dataset.bgStop, e.currentTarget); });
+    on('[data-bg-out]', 'click', (e) => { toggleBgOut(e.currentTarget.dataset.bgOut); });
+    on('[data-unqueue]', 'click', async (e) => {
+      const qid = e.currentTarget.dataset.unqueue, id = S.project && S.project.id;
+      if (!id) return;
+      // A WAITING ! COMMAND COMES BACK ONLY INTO AN EMPTY BOX, WITH NOTHING ELSE WAITING (Claude Code's "Take back what you
+      // queued": "Claude Code takes back queued shell commands only when the input box is empty and you have nothing else
+      // queued … Otherwise it leaves them in the queue … and runs them after the turn ends"). Back in the box, its "!" puts
+      // the box in shell mode again.
+      const waiting = queuedNow(), it = waiting.find((q) => q.qid === qid);
+      if (it && it.shell && (String(S.draft || '').trim() || waiting.length > 1)) { S.error = SHELL_TAKEBACK; return draw(); }
+      e.currentTarget.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(id) + '/queue', { method: 'POST', body: JSON.stringify({ remove: qid }) });
+      if (!S.project || S.project.id !== id) return;
+      if (r.status === 200 && r.data && r.data.ok) { S.queue = r.data.queue || []; S.draft = String(r.data.text || '') + (S.draft ? '\n' + S.draft : ''); S.error = ''; }
+      else { S.error = (r.data && r.data.error) || 'It could not be taken back.'; if (r.data && Array.isArray(r.data.queue)) S.queue = r.data.queue; }
+      draw();
+      const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+    });
+    on('[data-bg-move]', 'click', async (e) => {
+      const b = e.currentTarget, id = S.project && S.project.id;
+      if (!id) return;
+      b.disabled = true; b.textContent = 'Moving…';
+      const r = await call('/projects/' + encodeURIComponent(id) + '/background', { method: 'POST', body: JSON.stringify({ move: true }) });
+      if (!(r.status === 200 && r.data && r.data.ok) && S.project && S.project.id === id) { S.error = (r.data && r.data.error) || 'It could not be moved.'; draw(); }
+    });
+    on('[data-runask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskNo)]; if (x) { e.currentTarget.disabled = true; send(x.kind === 'protected' && Array.isArray(x.paths) && x.paths.length ? 'Don\'t change ' + x.paths.join(', ') + '.' : 'Don\'t run that command.'); } });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
     on('.cd-secret-save', 'click', async (e) => {
@@ -1402,7 +1630,7 @@
     on('#cdAttach', 'click', () => { const f = root.querySelector('#cdFile'); if (f) f.click(); });
     on('#cdFile', 'change', (e) => { addPics(e.target.files); e.target.value = ''; });
     on('[data-unpic]', 'click', (e) => { S.pics.splice(Number(e.currentTarget.dataset.unpic), 1); draw(); });
-    on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); pickMention(e.currentTarget.dataset.file); });
+    on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
@@ -1413,10 +1641,13 @@
       grow(input);
       input.addEventListener('input', async () => {
         S.draft = input.value; grow(input);
+        if (form) form.classList.toggle('is-shell', /^!/.test(input.value));
         const before = input.value.slice(0, input.selectionStart);
         const m = /(^|\s)@([\w./-]*)$/.exec(before);
+        // In the ! box, a word with a / in it lists the paths that fit (Claude Code's "live file path autocomplete").
+        const sp = !m && /^!/.test(input.value) ? /(^!\s*|\s)([\w.~@+-]*\/[\w./~@+-]*)$/.exec(before) : null;
         const had = mentionMatches().length;
-        S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : null; S.mentionSel = 0;
+        S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : sp ? { at: before.length - sp[2].length, q: sp[2], shell: true } : null; S.mentionSel = 0;
         if (S.mention) await loadFiles();
         if (had || mentionMatches().length) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
       });
@@ -1424,7 +1655,8 @@
       input.addEventListener('keydown', (e) => {
         const list = mentionMatches();
         if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.mentionSel = ((S.mentionSel || 0) + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; return draw(); }
-        if (list.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); return pickMention(list[Math.min(S.mentionSel || 0, list.length - 1)]); }
+        if (list.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); const pick = list[Math.min(S.mentionSel || 0, list.length - 1)]; return S.mention && S.mention.shell ? pickShellPath(pick) : pickMention(pick); }
+        if (!list.length && e.key === 'Tab' && !e.shiftKey && /^!/.test(input.value) && input.selectionStart === input.value.length && shellTab(input)) { e.preventDefault(); if (form) form.classList.add('is-shell'); return; }
         if (list.length && e.key === 'Escape') { S.mention = null; return draw(); }
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); }
       });

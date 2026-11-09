@@ -512,3 +512,84 @@ Not part of edit's comparison: Claude Code's terminal groups only reads and sear
 2. A long line on the card wraps, so its "…" is in view: tried on the real page with the live test's 380-character `.npmrc` line, no sideways scrolling, four rows, the "…" inside the card. CD268.
 
 The /docs page has an Edit section now (what you see, how edit finds the text, when the file changed, files Coder asks about, when edit says no, what stays as it was); CD248 checks its numbers against the code.
+
+**Live after deploy 74** (recording 20; the owner, 2026-11-09: "Ok,merge"): a new chat on canias7/testingforclaude with Grok 4.7.
+
+| # | What | Coder, live | |
+|---|---|---|---|
+| 1 | A file with Windows endings (`printf 'first\r\nsecond\r\nthird\r\n'`), edited | the change under the step `-first`, `-second`, `+FIRST`, `+SECOND`, `+inserted`, ` third`, with no `\r` in it or in a copy of it; `od -c`: `F I R S T \r \n S E C O N D \r \n i n s e r t e d \r \n t h i r d \r \n`; edit's words as Claude Code's, "(file state is current …)" after Grok had read it whole | fixed |
+| 2 | `.npmrc`, a 380-character line: Don't allow | the card wraps it onto 4 rows, the "…" inside the card, no sideways scrolling; not changed | fixed |
+| 3 | gofarther.dev/docs | Read, Write and Edit; Edit's six parts in the list | live |
+
+Seen once, outside edit: the setup's saved copy could not be made ("Fly.io did not start saving it in time"). The setup ran because a copy only serves the Coder version that made it (`cacheUsable`: `c.image !== s.image`), and deploy 74 is a new one; the next new chat runs the setup and tries again. The first time in the recorded live tests (seven saved, two used).
+
+---
+
+## 4. bash (Claude Code: Bash)
+
+**Claude Code's docs** (the owner, 2026-11-09: "Yes start on bash, look at claude code docs first"; the 228 pages fetched that day, every page naming Bash read: the tools reference's "Bash tool behavior", env-vars, settings, permissions, permission modes (protected and critical paths), sandboxing, interactive mode, hooks (the tool's fields), the cloud docs, and the changelog's 395 Bash entries from 1.0.18 to 2.1.319):
+
+- **Inputs:** `command`, `description` (what the command does in plain words, not the command echoed: 2.1.267), `timeout` (milliseconds; a value over the maximum is cut to it, not refused), `run_in_background` (and `dangerouslyDisableSandbox` with the local sandbox). `command_description` is taken for `description` (2.1.295). The tool description says output "is displayed to the model, not reliably to the user" (2.1.224).
+- **Each command a separate process.** A `cd` carries over (cloud sessions too, across messages: 2.1.265) while it stays inside the working folders; past them "Shell cwd was reset to <dir>"; `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1` turns it off. Environment variables don't persist (`CLAUDE_ENV_FILE` or a SessionStart hook does that); aliases and functions from the shell startup file do (a snapshot).
+- **Timeouts:** 2 minutes by default, up to 10 (`BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS`); the cloud sets none of its own. A command still running at its timeout moves to the background, "unless the command starts with `sleep`": "Command did not complete within its 120s timeout and was moved to the background", then the task id and the output file. A `cd` in it never carries over: "Session cwd remains <dir>; directory changes made by the backgrounded command do not apply to subsequent commands."
+- **Background commands** (`run_in_background`): a task id and an output file Claude reads with Read (TaskOutput removed, 2.1.277). One the main conversation started "keeps running after a final response, until it exits, is stopped, or reaches its time limit"; Claude is told when it ends (2.1.0, 2.1.257: also when you stop it), and doesn't poll or sleep meanwhile (2.1.300). In a cloud session the time limit is 30 minutes, or the `timeout` given with it up to 2 hours, then "Background command "<description>" was stopped after reaching its background time limit". A moved command gets 30 minutes from the move. Killed past 5 GB of output.
+- **Output:** a command that worked: up to about 30,000 characters inline; past that "the path of a file saved to the session directory … plus a preview of up to the first 2,000 characters, and Claude reads or searches the file when it needs the rest". A failure: up to about 10,000 characters, "a head-and-tail excerpt … with no file path". Exit code 1 is a valid result for `grep`, `rg`, `egrep`, `fgrep`, `find`, `diff`, `test`, `[`, `git diff` and `git grep`; for any other command it is a failure. A command printing a picture as a data URL comes back as a picture (`isImage`; 2.1.72).
+- **Safety checks on a command:** writes by `>`, `>>`, `2>` and `tee` are checked against the protected paths (`.git`, `.husky`, `.vscode`, `.npmrc`, `.envrc`, shell startup files … the list in permission modes) and the working folders. Critical-path removals (`rm`/`rmdir` of the root, a top-level folder, the home folder, the working folder or its parents, `rm -rf "$DIR"/*`, `rm -rf "$(pwd)"`, inside `bash -c '…'` or `$(…)`) are never approved by a rule; "This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed." Commands over 10,000 characters always ask.
+- **Full disk** (2.1.305, 2.1.309): "a Bash command cut off by a full disk now says so and names the folder to free up"; before running, "the disk is full and … nothing ran".
+- **Also:** a command that views one file counts as reading it (2.1.89, 2.1.293, 2.1.295); a formatter changing files Claude read is noted (2.1.89); a `gh` rate-limit hint (2.1.116); a blocked network request names the host and the reason (2.1.224, 2.1.251); the files a command changed can be listed with their diff (`bashEditDiffEnabled`, beta); you can run a command yourself with `!` (its output goes into the conversation and Claude answers it).
+- **Not for Coder:** the local sandbox's settings, PowerShell and Windows, the memory cgroup, permission rules and modes (the owner, 2026-11-09: asking modes "later").
+
+**Coder's bash today** (coder-agent.mjs, coder-checks.mjs, server.mjs):
+
+| | Claude Code | Coder | |
+|---|---|---|---|
+| Inputs | `command`, `description`, `timeout` (ms), `run_in_background` | `command`, `timeout_s`, `run_in_background`; no description (the step shows the command) | differs |
+| Timeouts | 2 min default, 10 max | 120 s default, 600 max | same |
+| `cd` | carries over; "Shell cwd was reset to"; "Session cwd remains" | the same, and its own switch | same |
+| At the timeout | moved to the background, except `sleep`; "Command did not complete within its 120s timeout and was moved to the background" | moved to the background, `sleep` too; "[still running in the background after 120s …]" | differs |
+| Background after the answer | keeps running (cloud: 30 min, up to 2 h), Claude told when it ends | every background job stopped when the turn ends; `monitor` to look | missing |
+| Output | ~30,000 characters inline, more saved to a file with a 2,000-character preview; failures ~10,000, head and tail | 12,000 characters, the first 60% and the last 40%; the middle lost | differs |
+| Exit code 1 | not a failure for grep, rg, find, diff, test, git diff, git grep | every non-zero exit a failure (red "exit 1") | differs |
+| Protected files | `>`, `>>`, `2>`, `tee` targets asked about | written without asking (live: bash made `.npmrc`) | missing |
+| `rm` | critical paths, variables, `$(…)`, `bash -c` | `/`, `~`, `$HOME`, `..` | fewer |
+| Long commands | over 10,000 characters asked about | over 8,000 refused | differs |
+| Full disk | said in words, the folder named | the raw error | missing |
+| Pictures in output | a data URL comes back as a picture | text | missing |
+| Secrets | kept out of commands (cloud) | kept out | same |
+| A file shown by a command | counts as a read | counts as a read | same |
+| Your own command (`!`) | yes | no | missing |
+
+**Coder's bash after the copy** (2026-11-09; commits "part 1", "part 2", "part 3", "docs pass 2", "changelog pass"; tests CD267–CD286):
+
+| | Claude Code | Coder now | |
+|---|---|---|---|
+| Inputs | `command`, `description`, `timeout` (ms), `run_in_background` | the same (and `command_description`, `timeout_s`) | same |
+| Timeouts | 2 min default, 10 max; `BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS` | the same, read from the environment's variables (a foreground command kept within Coder's 45-minute turn) | same |
+| `cd` | carries over; "Shell cwd was reset to"; "Session cwd remains" | the same | same |
+| Startup file | aliases, functions, options, PATH of `~/.bashrc` in every command (a snapshot); `CLAUDE_ENV_FILE` | the same (snapshot at each message's start, after the setup script); `CODER_ENV_FILE` | same |
+| At the timeout | moved to the background, except `sleep`, in its words; "No output had been read from it…" | the same | same |
+| You move it (Ctrl+B) | "Command was manually backgrounded by user" | the page's "Run in background" button, the same words | same |
+| Background after the answer | keeps running (cloud: 30 min, `timeout` up to 2 h, moved 30 min from the move); Claude told when it ends, a turn of its own when idle; "stopped after reaching its background time limit" with its advice | the same; the machine paused (not ended) while root works on the files, so the audit's rule holds | same |
+| Background list | `/tasks`, with Stop; Claude told when you stop one | a list above the message box, with Stop; Coder told | same |
+| Lost with the machine | "The container running this session was restarted before background work reported back…" | the same words, for the chat's machine | same |
+| Output | ~30,000 characters inline, more saved to a file with a 2,000-character preview; failures ~10,000, head and tail | the same | same |
+| Exit code 1 | not a failure for grep, rg, find, diff, test, git diff, git grep (background ones too: "completed (exit code 1: No matches found)") | the same | same |
+| Protected files | `>`, `>>`, `2>`, `tee` targets asked about | the same card | same |
+| `rm` | critical paths, variables, `$(…)`, `bash -c`, refused away from a terminal | the same, in its words | same |
+| Long commands | over 10,000 characters asked about | the same | same |
+| Full disk | said in words, the folder named | the same | same |
+| Pictures in output | a data URL comes back as a picture | the same | same |
+| Running command | its last 5 lines, how long it has run beside its timeout | the same, on the page | same |
+| `gh` rate limit | a hint to wait | the same hint | same |
+| Blocked network request | the host and the reason | the same, from Coder's proxy | same |
+| Your own command (`!`) | runs it, adds `<bash-input>`/`<bash-stdout>` to the conversation, Claude answers | the same (never from GitHub) | same |
+| Background output | `/tasks` shows a task's output; its notice names the output file | Output on each row of the list: its last 40 lines (no secrets), and the file's path | same |
+| A background step after it ends | shown as finished | ✓, "✕ exit N", or "stopped" on its step once Coder is told | same |
+| Marks in commands | `CLAUDECODE=1`; in the cloud `CLAUDE_CODE_REMOTE_SESSION_ID` (a link back to the session) | `GOFARTHER_CODER=1`, `GOFARTHER_CODER_CHAT_ID`, `GOFARTHER_CODER_CHAT_URL` (the setup script gets `GOFARTHER_CODER=1`) | same, under Coder's names (asked: also `CLAUDECODE=1`?) |
+| No answer after `!` | `respondToBashCommands: false`; never when the command was moved to the background or stopped (2.1.319's code) | `CODER_RESPOND_TO_BASH_COMMANDS=false`; the same note to Coder; never after a move or a stop | same |
+| Output sizes | `bashOutputMaxChars` (4,000–128,000: inline and read-back); `BASH_MAX_OUTPUT_LENGTH` (up to 150,000: read-back only) | `CODER_BASH_OUTPUT_MAX_CHARS` and `BASH_MAX_OUTPUT_LENGTH`, the same rules | same |
+| Background off | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`: no `run_in_background`, no Ctrl+B, a timed-out command stopped | `CODER_DISABLE_BACKGROUND_TASKS`: the same (no Run in background button) | same |
+| Taking back a queued `!` | only into an empty box with nothing else queued | the same | same |
+| `!` completion | Tab: earlier `!` commands of the project; a word with `/` lists paths | the same (kept on the account per repository, so any device has them) | same |
+| Already the same (checked in this pass) | control characters refused; the snapshot leaves out `_` functions (2.1.319 does too) | | same |
+| Not copied | memory cgroup, PowerShell/Windows, local sandbox, permission rules and modes (the owner: "later"), the per-command file diff (off by default), background limits over 2 h, the "stuck on a prompt" notice (Coder's commands have no keyboard: a prompt ends at once) | | |

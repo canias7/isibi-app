@@ -15,7 +15,13 @@
 //                   the owner sees it.
 
 export const PROJECT_ROOT = "/work";
-export const MAX_COMMAND_CHARS = 8000;
+/**
+ * A COMMAND OVER 10,000 CHARACTERS IS ASKED ABOUT (Claude Code's permissions docs: "Commands longer than 10,000 characters
+ * always prompt because they exceed what the analysis parses"; Coder refused any over 8,000), on a card; one past
+ * COMMAND_HARD_MAX is never run (write long files with the write tool).
+ */
+export const MAX_COMMAND_CHARS = 10_000;
+export const COMMAND_HARD_MAX = 100_000;
 export const MAX_OUTPUT_CHARS = 12000;
 export const DEFAULT_TIMEOUT_S = 120;
 export const MAX_TIMEOUT_S = 600;
@@ -27,8 +33,7 @@ export const SETUP_SCRIPT_MAX = 65536;
 
 // Each: [pattern, why]. Read against the command as typed.
 const REFUSED = [
-  [/\brm\s+(-[a-zA-Z]*\s+)*(\/|~|\/\*|\$HOME)(\s|$)/, "it would delete the whole machine or home folder"],
-  [/\brm\s+(-[a-zA-Z]*\s+)*\.\.(\/|\s|$)/, "it would delete outside the project"],
+  // Removals are read as Claude Code reads them (coder-bashcheck.mjs, dangerousRm), with its words.
   [/:\(\)\s*\{\s*:\|:&\s*\};:/, "it is a fork bomb"],
   [/\b(mkfs|fdisk|parted)\b/, "it formats disks"],
   [/\bdd\s+[^|;&]*of=\/dev\//, "it writes straight to a device"],
@@ -41,10 +46,18 @@ const REFUSED = [
 ];
 
 /** Why this command may not run ("" when it may). */
+/**
+ * A RAW CONTROL CHARACTER IN A COMMAND (Claude Code: its Bash tool refuses "a raw control character other than a tab or
+ * newline": "Command contains control characters that would be hidden in the approval dialog"). In Coder the owner reads
+ * the command in the chat and on its card, where such a character would hide part of it.
+ */
+export const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/;
+export const CONTROL_REFUSED = "Command contains control characters that would be hidden in the approval dialog (in Coder, the chat and the owner's card show the command). Write them as escapes instead, such as printf '\\033[1m' or $'\\r'.";
 export function commandProblem(command) {
   const c = typeof command === "string" ? command : "";
   if (!c.trim()) return "the command is empty";
-  if (c.length > MAX_COMMAND_CHARS) return "the command is over " + MAX_COMMAND_CHARS + " characters; write long files in several steps";
+  if (c.length > COMMAND_HARD_MAX) return "the command is over " + COMMAND_HARD_MAX.toLocaleString("en-US") + " characters; write long files with the write tool, in several steps";
+  if (CONTROL_CHARS.test(c)) return CONTROL_REFUSED;
   for (const [re, why] of REFUSED) if (re.test(c)) return "refused: " + why;
   return "";
 }
@@ -123,6 +136,48 @@ export function scrub(text) {
   let t = String(text == null ? "" : text);
   for (const re of KEYISH) t = t.replace(re, "[hidden]");
   return t;
+}
+
+/**
+ * A COMMAND'S RESULT, AS CLAUDE CODE GIVES IT (its tools reference, Output limits, and Claude Code 2.1.319 itself, tried
+ * on 2026-11-09): a command that worked comes back inline up to 30,000 characters ("(Bash completed with no output)"
+ * when it printed nothing); past that, "<persisted-output>\nOutput too large (38KB). Full output saved to: <file>\n\n
+ * Preview (first 2KB):\n…\n...\n</persisted-output>". A failure is "Exit code N" and its output, up to 10,000
+ * characters; past that the first and last 5,000 of the first 30,000 read back, "... [N characters truncated] ...",
+ * with no file. `isError`: from exitMeaning (grep's exit 1 is no failure).
+ */
+export const BASH_INLINE_MAX = 30_000, BASH_FAIL_MAX = 10_000, BASH_READ_BACK = 30_000, BASH_PREVIEW = 2_000;
+export function kbSize(bytes) {
+  const n = Math.max(0, Number(bytes) || 0);
+  const one = (x) => x.toFixed(1).replace(/\.0$/, "");
+  return n < 1024 ? n + " bytes" : n < 1024 * 1024 ? one(n / 1024) + "KB" : n < 1024 ** 3 ? one(n / 1024 / 1024) + "MB" : one(n / 1024 ** 3) + "GB";
+}
+/**
+ * `inlineMax` and `readBack`: the environment's sizes (Coder's machine, bashOutputLimits; Claude Code's bashOutputMaxChars and
+ * BASH_MAX_OUTPUT_LENGTH), 30,000 each by default. A read-back window smaller than what a command that worked printed keeps
+ * its start, " ... [N lines truncated] ...", as Claude Code 2.1.319 does.
+ */
+export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK }) {
+  // The output's last line break is no part of what is shown (Claude Code, tried: "2c2\n< b\n---\n> c" from diff).
+  const text = scrub(output).replace(/\n+$/, "");
+  const total = Number.isFinite(size) && size !== null ? size : Buffer.byteLength(text);
+  const inline = Number.isInteger(inlineMax) && inlineMax > 0 ? inlineMax : BASH_INLINE_MAX;
+  const back = Number.isInteger(readBack) && readBack > 0 ? readBack : BASH_READ_BACK;
+  if (!isError) {
+    if (!text.length) return "(Bash completed with no output)";
+    if (text.length <= inline && !(file && total > inline)) {
+      if (text.length <= back) return text;
+      const rest = text.slice(back).split("\n").length;
+      return text.slice(0, back) + " ... [" + rest + " lines truncated] ...";
+    }
+    const preview = text.slice(0, BASH_PREVIEW);
+    return file
+      ? "<persisted-output>\nOutput too large (" + kbSize(total) + "). Full output saved to: " + file + "\n\nPreview (first 2KB):\n" + preview + "\n...\n</persisted-output>"
+      : capOutput(text, inline);
+  }
+  const full = "Exit code " + code + "\n" + text.slice(0, back);
+  if (full.length <= BASH_FAIL_MAX) return full.replace(/\n$/, "");
+  return full.slice(0, BASH_FAIL_MAX / 2) + "\n\n... [" + (full.length - BASH_FAIL_MAX) + " characters truncated] ...\n\n" + full.slice(-BASH_FAIL_MAX / 2);
 }
 
 /** What a command printed, bounded: the head and the tail, the cut said. */

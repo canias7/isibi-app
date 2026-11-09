@@ -5,7 +5,7 @@
 // zip, and the wiring.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, readdir } from "node:fs/promises";
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,12 +23,19 @@ const say = (content, calls = []) => ({ message: { role: "assistant", content, .
 const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: async (req) => { seen.push(req); return steps[Math.min(i++, steps.length - 1)]; } }; };
 
 // ── THE CHECKS ───────────────────────────────────────────────────────────────
-test("CD1 dangerous commands are refused with the reason; ordinary ones run", () => {
-  for (const c of ["rm -rf /", "rm -rf ~", "rm -rf ../other", ":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
+test("CD1 dangerous commands are refused with the reason; ordinary ones run", async () => {
+  for (const c of [":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
+  // Removals are read as Claude Code reads them (coder-bashcheck.mjs: its critical paths, in its words); a folder beside the
+  // project is none of them.
+  const { dangerousRm } = await import("../container/coder-bashcheck.mjs");
+  for (const c of ["rm -rf /", "rm -rf ~"]) assert.match(dangerousRm(c, { cwd: "/work/p", home: "/home/dev", workdirs: ["/work/p"] }), /^Dangerous rm operation detected/, c);
+  assert.equal(dangerousRm("rm -rf ../other", { cwd: "/work/p", home: "/home/dev", workdirs: ["/work/p"] }), "");
   // `sudo` reaches only the master key's checked jobs (step 4, 2026-11-07): the machine's own sudo command checks it.
   for (const c of ["ls -la", "rm -rf node_modules", "cat src/App.jsx", "npm test", "grep -rn useState src", "rm -rf ./dist", "sudo apt-get install -y jq"]) assert.equal(commandProblem(c), "", c);
   assert.match(commandProblem(""), /empty/);
-  assert.match(commandProblem("x".repeat(9000)), /over 8000/);
+  // Claude Code asks about a command over 10,000 characters (a card), it does not refuse it; past 100,000, never.
+  assert.equal(commandProblem("x".repeat(12000)), "");
+  assert.match(commandProblem("x".repeat(100_001)), /over 100,000 characters/);
 });
 
 test("CD2 commands run with no secrets in reach; key-shaped text is hidden; long output is cut and says so", async () => {
@@ -82,7 +89,8 @@ test("CD5 a refused command never runs, and the AI is told why", async () => {
   const s = scripted([say("", [call("bash", { command: "rm -rf /" })]), say("ok", [])]);
   await runCoder({ send: s.send, exec: async () => { ran++; return { code: 0, output: "" }; } }, { text: "x" });
   assert.equal(ran, 0);
-  assert.match(JSON.stringify(s.seen[1].messages), /refused: it would delete the whole machine/);
+  // Claude Code's words when its rm check stops a command away from a terminal, then what it flagged.
+  assert.match(JSON.stringify(s.seen[1].messages), /Permission for this command was denied by a built-in Coder safety check, not by the owner\.[^"]*What was flagged: Dangerous rm operation detected: '\/'/);
 });
 
 test("CD6 there is no ask or done tool (the owner removed them): a call to either is refused, and an answer in words finishes", async () => {
@@ -269,7 +277,8 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.equal(created.project.branch, "coder/" + id);
     // A TURN, then the push and the pull request.
     assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "make a page" }) })).status, 200);
-    assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "again" }) })).status, 409);
+    // (A message while Coder works now waits for it, queue.test.mjs; pictures still wait for the job's end.)
+    assert.equal((await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "again", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] }) })).status, 409);
     let got;
     for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(got.project.status, "idle");
@@ -285,7 +294,7 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     assert.deepEqual([made.ok, made.number, made.project.pr], [true, 1, { url: "https://github.com/ana/shop/pull/1", number: 1 }]);
     assert.ok(ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"));
     // THE CODE IS NEVER STORED WITH US: only the chat, the connection and the project's meta.
-    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile|environments)\.json$|^coder\/[\w-]+\/environments\/[a-z0-9-]+\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
+    for (const k of bucket.m.keys()) assert.match(k, /\/(github|index|meta|messages|events|profile|environments|queue)\.json$|^coder\/[\w-]+\/environments\/[a-z0-9-]+\.json$|\/memory\/[A-Za-z0-9._-]+\.md$|^coder\/logins\/[a-z0-9-]+\.json$|^coder\/github-branches\/[\w.-]+\.json$/, k);
     assert.doesNotMatch([...bucket.m.values()].join(""), /<h1>Hi<\/h1>\\n"\s*}/);
   } finally { await close(); }
 });
@@ -496,7 +505,7 @@ test("CD18 a command past its time limit keeps running in the background, its ou
   const r = await execIn(dir, "echo start; sleep 2; echo later", 1, { bgDir });
   assert.equal(r.background, true);
   assert.match(r.output, /start/);
-  const log = /in (\S+\.log)/.exec(r.output)[1];
+  const log = r.log;
   assert.ok(log.startsWith(bgDir));
   await new Promise((ok) => setTimeout(ok, 2500));
   const text = readFileSync(log, "utf8");
@@ -651,24 +660,55 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   assert.equal(await readMemory(mem), "- tests: npm test");
 });
 
-test("CD25 background commands end with the turn, and their logs go", async () => {
+test("CD25 (tool 4, part 2; the owner, 2026-11-09: \"do all of those\") a background command goes on after the turn, like Claude Code's, its log kept and listed; the owner's Stop ends it; the next turn tells Coder, in Claude Code's words, and a turn with nothing to tell is not started", async () => {
   const { remote } = await fakeRemote();
   const r = await roots();
   const root = await mkdtemp(join(tmpdir(), "coder-root-"));
-  const s = scripted([say("", [call("bash", { command: "echo $$ > pid.txt; sleep 30", timeout_s: 1 })]), say("Done.", [])]);
+  const s = scripted([say("", [call("bash", { command: "echo $$ > pid.txt; echo started; sleep 30", timeout: 1000, description: "Wait a while" })]), say("Done.", []), say("It was stopped.", [])]);
   const { base, close } = await serve(createApp({ root, send: s.send, remote, ...r }));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  let pid = 0;
   try {
     const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+    const result = async (since = 0) => { let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-bgbg&since=" + since)).json(); if (st.result) return st; await new Promise((ok) => setTimeout(ok, 50)); } return st; };
     assert.equal((await post("/turn", { project: "shop-bgbg", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-bgbg", token: "" })).status, 200);
-    let st;
-    for (let i = 0; i < 100; i++) { st = await (await fetch(base + "/state?project=shop-bgbg&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
-    assert.ok(st.events.some((e) => e.type === "result" && e.background), "the command went to the background");
+    const st = await result();
+    assert.ok(st.events.some((e) => e.type === "result" && e.background && e.job === "job1"), "the command went to the background");
+    pid = Number(readFileSync(join(root, "shop-bgbg", "pid.txt"), "utf8"));
     await new Promise((ok) => setTimeout(ok, 300));
-    const pid = Number(readFileSync(join(root, "shop-bgbg", "pid.txt"), "utf8"));
-    let alive = true; try { process.kill(pid, 0); } catch { alive = false; }
-    assert.equal(alive, false, "the background command outlived the turn");
-    assert.equal(existsSync(join(r.bgRoot, "shop-bgbg")), false, "its logs stayed");
-  } finally { await close(); }
+    assert.equal(alive(pid), true, "it goes on after the turn");
+    // Listed: in the turn's end (the Worker keeps it with the chat), in the state, and for the Worker's every-minute look.
+    assert.deepEqual(st.result.background.map((b) => [b.id, b.desc]), [["job1", "Wait a while"]]);
+    const span = st.result.background[0].deadline - st.result.background[0].at;
+    assert.ok(span >= 30 * 60 * 1000 + 900 && span < 30 * 60 * 1000 + 5000, "moved at its timeout (1 second in): 30 minutes from the move, its time counted from its start: " + span);
+    assert.deepEqual((await (await fetch(base + "/state?project=shop-bgbg&since=0")).json()).background.map((b) => b.id), ["job1"]);
+    let bs = await (await fetch(base + "/bgstate?project=shop-bgbg")).json();
+    assert.deepEqual([bs.background.length, bs.untold, bs.running], [1, 0, false]);
+    // Its log stays (the turn's other files go).
+    const logs = await readdir(join(r.bgRoot, "shop-bgbg"));
+    assert.deepEqual(logs.filter((x) => x.endsWith(".log")).length, 1);
+    assert.match(readFileSync(join(r.bgRoot, "shop-bgbg", logs.find((x) => x.endsWith(".log"))), "utf8"), /started/);
+    // Nothing to tell yet: a turn only to tell Coder is not started.
+    assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 409);
+    // The owner's Stop on it (the page's list): ended, and Coder is told.
+    assert.equal((await (await post("/bgstop", { project: "shop-bgbg", id: "job1" })).json()).ok, true);
+    for (let i = 0; i < 60 && alive(pid); i++) await new Promise((ok) => setTimeout(ok, 50));
+    assert.equal(alive(pid), false, "stopped");
+    for (let i = 0; i < 60; i++) { bs = await (await fetch(base + "/bgstate?project=shop-bgbg")).json(); if (bs.untold) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.deepEqual([bs.background.length, bs.untold], [0, 1]);
+    assert.equal((await post("/bgstop", { project: "shop-bgbg", id: "job1" }).then((x) => x.json())).ok, false, "not running any more");
+    // The next turn (here one only to tell it): the chat shows the line, Coder reads it with its output file.
+    assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 200);
+    const st2 = await result();
+    assert.ok(st2.events.some((e) => e.type === "note" && e.text === "Background command \"Wait a while\" was stopped"), JSON.stringify(st2.events.filter((e) => e.type === "note")));
+    assert.ok(!st2.events.some((e) => e.type === "user"), "no message of the owner's");
+    const told = JSON.stringify(s.seen[s.seen.length - 1].messages || s.seen[s.seen.length - 1]);
+    assert.match(told, /a background command ended since your last answer/);
+    assert.match(told, /The owner stopped it before it completed\. Its output is in [^ ]+\.log \(ID: job1\)\./);
+    assert.match(told, /The owner sent no message: this turn is only to tell you/);
+    assert.equal((await (await fetch(base + "/bgstate?project=shop-bgbg")).json()).untold, 0, "told once");
+    assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 409);
+  } finally { if (pid && alive(pid)) process.kill(pid, "SIGKILL"); await close(); }
 });
 
 test("CD26 the audit's Worker fixes: the chat list is read from each chat, and a turn's end is handed out once", async () => {
@@ -1179,7 +1219,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     assert.equal(s1.events.filter((e) => e.verb === "Ran setup").length, 1, "setup ran");
     const out = s1.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
     // A variable named PATH never replaces Coder's: the tools' folders, then the system's (2026-11-07).
-    assert.match(out, /set up\nkey=sk-secret-123\npath=[^\n]*\/opt\/node22\/bin:[^\n]*:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin:\/usr\/games:\/usr\/local\/games\n/);
+    assert.match(out, /set up\nkey=sk-secret-123\npath=[^\n]*\/opt\/node22\/bin:[^\n]*:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin:\/usr\/games:\/usr\/local\/games$/);
     assert.doesNotMatch(out, /evil/);
     const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
     assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
@@ -1343,7 +1383,7 @@ test("CD52 steps look like option A without colours: a grey icon per tool, dark 
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   const css = readFileSync(HERE("public/coder.css"), "utf8");
   for (const k of ["bash", "read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "setup", "stop_job", "monitor_job"]) assert.match(ui, new RegExp("\\b" + k + ": '"), k + " has an icon");
-  assert.match(ui, /stepIcon\(e\) \+ '<span class="cd-cmd-verb">'/);
+  assert.match(ui, /stepIcon\(e\) \+ \(desc \? '<span class="cd-cmd-desc">' \+ esc\(desc\) \+ '<\/span>' : '<span class="cd-cmd-verb">'/);
   assert.match(ui, /cd-st-ok" aria-label="done">✓/);
   assert.match(css, /\.cd-sic\{[^}]*background:#f1efea;color:#57534e/, "grey icons, no colours");
 });

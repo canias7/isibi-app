@@ -193,6 +193,10 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // Never a key for package registries or GitHub (Claude Code's docs), whatever a secret lists.
   const ruleFor = (h) => (keyAllowed(h) ? rules.find((r) => r.hosts.some((p) => hostMatches(h, p))) : undefined);
   const allowed = (h) => hostAllowed(h, network, rules.flatMap((r) => r.hosts).filter(keyAllowed));
+  // WHAT THE LIST BLOCKED, AND WHEN (tool 4: Claude Code's command results name the host and the reason when the network
+  // proxy stops a connection, 2.1.224 and 2.1.251): the last 50, for the result of the command that tried.
+  const blocks = [];
+  const blocked = (host, why) => { blocks.push({ host: String(host).replace(/[^a-z0-9.:-]/gi, "").slice(0, 253), why, at: Date.now() }); if (blocks.length > 50) blocks.shift(); };
   // THE TLS SIDE: requests for a secret's site, with its key added the way its type says.
   const inner = http.createServer(async (req, res) => {
     const host = req.socket.coderHost;
@@ -208,7 +212,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     // A path outside the secret's prefixes, or one with a "." or ".." part
     // (plainPath), gets no key, and when the site is reachable only because of
     // that secret, it is not reachable at all.
-    if (!pathOk && !hostAllowed(host, network, [])) { res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host + " (outside the secret's paths)")); }
+    if (!pathOk && !hostAllowed(host, network, [])) { blocked(host, "a path outside its saved key's paths"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host + " (outside the secret's paths)")); }
     const s = pathOk ? rule : null;
     if (s && s.egress) return toEgress(req, res, host, target);
     const headers = { ...req.headers, host };
@@ -252,7 +256,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     // URL reader lets "a_b.example.com", "x..example.com" and port 0 through.
     const host = proxyHost(u.hostname), port = u.port ? Number(u.port) : 80;
     if (!host || !(port >= 1 && port <= 65535)) { res.writeHead(400); return res.end("bad request"); }
-    if (!allowed(host)) { res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host)); }
+    if (!allowed(host)) { blocked(host, network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host)); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     let up;
     try { up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
@@ -271,7 +275,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const t = connectTarget(req.url);
     if (!t) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     const { host, port } = t;
-    if (!allowed(host) && !githubHere(host)) { const b = BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
+    if (!allowed(host) && !githubHere(host)) { blocked(host, network.mode === "none" ? "network access is None" : "not on the network list"); const b = BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     sock.on("error", () => {});
     if (port === 443 && (ruleFor(host) || githubHere(host))) {
       let ctx; try { ctx = contextFor(host); } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
@@ -296,6 +300,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   const port = server.address().port;
   return {
     port, caFile, bundleFile, siteDir,
+    /** The hosts the list blocked since `at` (ms), each once, with why. */
+    blockedSince: (at) => { const seen = new Map(); for (const b of blocks) if (b.at >= at && !seen.has(b.host)) seen.set(b.host, b.why); return [...seen].map(([host, why]) => ({ host, why })); },
     /**
      * The owner's secrets for this job: [{ hosts, paths, headers: [{ name, value }], raws }]
      * (header values already have their prefix), or the older [{ host, header, value, raw }].

@@ -280,3 +280,26 @@ test("CD97 audit (2026-11-06): hostMatches matches only real DNS names; the netw
     assert.deepEqual(readdirSync(px.siteDir), [], "no secret, so no certificate was made");
   } finally { await px.close(); echo.close(); web.close(); }
 });
+
+test("CD286 (tool 4, changelog pass; Claude Code 2.1.224 and 2.1.251: a blocked network request names the host and the reason) the proxy remembers what its list blocked, and when, so the command that tried says it", async () => {
+  const base = await mkdtemp(join(tmpdir(), "coder-pxh-"));
+  const px = await startProxy({ dir: join(base, "px") });
+  try {
+    px.setNetwork({ mode: "custom", hosts: ["allowed.example.com"], defaults: false });
+    const t0 = Date.now();
+    assert.match(await connect(px, "blocked.example.com:443"), /^HTTP\/1\.1 403 Forbidden/);
+    assert.match(await get(px, "http://plain.example.org/x"), /^HTTP\/1\.1 403/);
+    assert.match(await connect(px, "blocked.example.com:443"), /^HTTP\/1\.1 403 Forbidden/);
+    assert.deepEqual(px.blockedSince(t0), [{ host: "blocked.example.com", why: "not on the network list" }, { host: "plain.example.org", why: "not on the network list" }], "each once");
+    assert.deepEqual(px.blockedSince(Date.now() + 1000), [], "only since the command started");
+    px.setNetwork({ mode: "none" });
+    await new Promise((ok) => setTimeout(ok, 5));
+    const t1 = Date.now();
+    await connect(px, "other.example.net:443");
+    assert.deepEqual(px.blockedSince(t1), [{ host: "other.example.net", why: "network access is None" }]);
+  } finally { px.close && px.close(); }
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /netNote = "Blocked by this chat's network list while this command ran: " \+ b\.slice\(0, 10\)\.map\(\(x\) => x\.host \+ " \(" \+ x\.why \+ "\)"\)\.join\(", "\)/);
+  const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.match(agent, /if \(r && typeof r\.netNote === "string" && r\.netNote\) text \+= "\\n\\n" \+ r\.netNote;/);
+});

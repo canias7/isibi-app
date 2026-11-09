@@ -306,7 +306,10 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
       const s = await c.done("shop-fff1");
       assert.ok(s.events.some((e) => e.tool === "setup"), "the setup ran");
       assert.ok(s.events.some((e) => e.type === "note" && /^Setup: the environment's saved copy could not be used here \((it was made for another setup script or network setting|it was made by an older version of Coder|it is over seven days old)\), so the setup script runs here\.$/.test(e.text)), "and the chat says why");
-      assert.deepEqual(await readdir(c.dirs.home), [], "the other setup's home is gone");
+      // (Only this job's snapshot of the shell's startup file is there: tool 4, docs pass 2.)
+      assert.deepEqual(await readdir(c.dirs.home), [".cache"], "the other setup's home is gone");
+      assert.deepEqual(await readdir(join(c.dirs.home, ".cache")), ["coder"]);
+      assert.deepEqual(await readdir(join(c.dirs.home, ".cache", "coder")), ["shell-snapshot.sh"]);
       assert.equal(existsSync(join(c.data, ".coder-admin")), false, "and its admin layer");
     } finally { await c.close(); }
   }

@@ -96,5 +96,5 @@ test("CD141 the service runs the AI's commands in the room (as the AI's user), f
   assert.match(s, /const gate = list\.length \|\| net\.limited \? await proxyFor\(\) : null;\n\s+t\.room = await enterRoom\(gate, net\.limited\);\n\s+gateForApt\(net\.limited && gate \? "http:\/\/127\.0\.0\.1:" \+ gate\.port : ""\);/, "a change of setting mid-job: the room (and apt) follow at once");
   assert.match(s, /if \(room\) gateForApt\(net\.limited && px \? "http:\/\/127\.0\.0\.1:" \+ px\.port : ""\);/, "the master key's apt goes through the gate when the network is limited");
   assert.match(s, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, /, "the real service uses the room");
-  assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), /coder-room\.mjs coder-room-forward\.mjs coder-sandbox\.mjs coder-sandbox-init\.sh coder-globs\.mjs coder-security\.mjs coder-compact\.mjs \.\//);
+  assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), /coder-room\.mjs coder-room-forward\.mjs coder-sandbox\.mjs coder-sandbox-init\.sh coder-globs\.mjs coder-security\.mjs coder-compact\.mjs coder-shell\.mjs coder-bashcheck\.mjs coder-freeze\.mjs \.\//);
 });

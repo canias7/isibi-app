@@ -11,6 +11,121 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Bash: the last things from Claude Code's docs (your words: "what about claude code docs , we got everything ?")
+
+Not live yet: it waits for your word to merge, with the rest of the bash work.
+
+I went through Claude Code's docs again, and its own code (version 2.1.319), and copied what was still missing:
+
+- **See a background command's output.** Each row in the background list now has an **Output** button: its last 40 lines, updated every few seconds, and the path of its full output file (ask Coder to read it for the rest). Secrets are hidden.
+- **A background step now shows how it ended.** Before, the step stayed "running" after the command finished. Now it shows ✓, "✕ exit N", or "stopped" once Coder is told.
+- **Tab in the `!` box.** Type the start of a command and press Tab: it fills in an earlier `!` command (Tab again for the one before). They are kept on your account for each repository, so any chat or device has them. Typing a word with a `/` in it lists the files and folders there.
+- **Taking back a waiting `!` command** now works like Claude Code's: it comes back only into an empty box with nothing else waiting. Otherwise it stays and runs when Coder is done, and the page says why.
+- **Every command knows it runs in Coder.** `GOFARTHER_CODER=1`, plus the chat's id and link (`GOFARTHER_CODER_CHAT_ID`, `GOFARTHER_CODER_CHAT_URL`), like Claude Code's `CLAUDECODE=1` and its session link. A script or a report can link back to the chat.
+- **Three new settings**, set in the environment's variables (Environment, then Environment variables):
+  - `CODER_RESPOND_TO_BASH_COMMANDS=false`: your `!` commands run and show their output, and Coder stays quiet until your next message. Claude Code also never answers a `!` command that was moved to the background or stopped, so Coder now does the same.
+  - `CODER_BASH_OUTPUT_MAX_CHARS` (4,000 to 128,000) and `BASH_MAX_OUTPUT_LENGTH` (up to 150,000): how much command output Coder reads, as in Claude Code.
+  - `CODER_DISABLE_BACKGROUND_TASKS=1`: no background commands at all. A command still running at its time limit is stopped, and the "Run in background" button is gone.
+- **Found while taking the screenshots, and fixed:** while Coder works, the page refreshes every 1.5 seconds, and each refresh moved the text cursor in the message box to the end. Now that you can type while Coder works, that mattered. The cursor and any selection now stay put.
+- **Already the same, no change needed:** commands with hidden control characters are refused, and the shell snapshot leaves out the same helper functions Claude Code's does.
+- **Not copied:** Claude Code's notice for a command stuck waiting for typed input. Coder's commands have no keyboard, so such a prompt ends at once instead of getting stuck.
+- **Tests:** CD291–CD299; all 310 pass. Screenshots taken on my copy of the site.
+
+## 2026-11-09: Send a message while Coder works (your words: "yeah fix that separately")
+
+Not live yet: it waits for your word to merge, together with the bash work below.
+
+Like Claude Code's message queue (its docs and its own words, checked today):
+
+- **You can now send while Coder works.** The message waits at the end of the chat in grey, marked "Waiting for Coder", with an **✕** to take it back (its words go back into the message box). Both buttons show while Coder works: send, and Stop.
+- **Coder reads it as soon as the step it's running finishes**, in the same job, and changes course if you asked it to. Coder gets it in Claude Code's words ("The owner sent a new message while you were working: …"), and the chat shows it as your message at that point.
+- **Anything still waiting when the job ends goes out next by itself**, in the order you typed it. A `!` command you send meanwhile waits for the job to end, then runs on its own.
+- **Not queued:** pictures and line comments (they wait for the end, as before), `/compact`, and anything from GitHub.
+- **Tests:** CD287–CD289 (the agent, the machine and the Worker); all 300 tests pass. Screenshots taken on my copy of the site.
+
+## 2026-11-09: Bash (tool 4): parts 2 and 3, and the second check against Claude Code's docs (your words: "do all of those and double check again against the claude code docs pls")
+
+Not live yet: it needs your word to merge and deploy, then I test it all in the browser with Grok and record it.
+
+**Part 2: background commands keep running after Coder's answer**, like Claude Code's:
+
+- A command Coder starts in the background (a dev server, a watcher, a long build) keeps running after its answer, until it ends, is stopped, or reaches its time limit: 30 minutes, or the time Coder asks for, up to 2 hours (Claude Code's limits in the cloud). One moved to the background because it was slow gets 30 minutes from the move.
+- **Coder is told when one ends**, in Claude Code's words ("Background command "Start the dev server" completed (exit code 0)"). If Coder is idle, a short turn starts by itself just to tell it, as Claude Code does. You see the line in the chat and Coder's answer to it.
+- **The chat lists them** above the message box, each with how long it has run and a **Stop** button. Coder is told when you stop one.
+- **Your Stop button on a running turn** now stops only that turn's own commands; background ones keep going (Claude Code works the same way).
+- **The safety rule from the audit still holds:** nothing of the AI's may run while the machine's own code works on the chat's files (saving to GitHub, undo, preparing a message). Before, that was done by ending everything at the end of each turn. Now everything of the AI's is **paused** for that moment and resumed afterwards; anything that isn't a kept background command is ended. I tested the pause for real against programs that keep spawning new processes, threads, and a constant file writer: nothing ran or wrote while paused, 5 runs out of 5. If a pause ever fails, everything is ended as before.
+- The machine stays awake while a background command runs (2 hours at most), so it isn't put to sleep under it.
+- If the machine was restarted or slept while one ran, Coder is told at your next message that the work was lost, in Claude Code's words.
+
+**Part 3: run a command yourself with `!`**, like Claude Code's shell mode:
+
+- Start a message with `!`, e.g. `! npm test`. The box turns orange and says "Shell mode". The command runs on Coder's machine, the chat shows what it printed, and Coder then answers it (explains the failure, for example), as Claude Code does.
+- Not possible from GitHub comments (strangers can write there), and not with pictures attached.
+
+**Second check against Claude Code's docs and changelog** found these, now copied:
+
+- Aliases, functions and PATH from the machine's `~/.bashrc` are in every command (Claude Code's "shell snapshot"), so tools a setup script installed into `.bashrc` (nvm, for example) just work.
+- A variable you can set in Environment: `CODER_ENV_FILE`, a script run before every command (Claude Code's `CLAUDE_ENV_FILE`), e.g. to activate a Python virtualenv.
+- `BASH_DEFAULT_TIMEOUT_MS` and `BASH_MAX_TIMEOUT_MS` in Environment variables change the command time limits, as in Claude Code's cloud (Coder keeps a command within its 45-minute turn, and a background one within 2 hours).
+- A **Run in background** button on a running command (Claude Code's Ctrl+B): Coder moves on and is told when it ends.
+- A running command shows how long it has run, its time limit, and its last 5 lines.
+- A background `grep` that finds nothing counts as finished, not failed. A `gh` command that hits GitHub's rate limit gets Claude Code's hint to wait. When the network list blocks a site during a command, the result names the site and why.
+- Coder is reminded which background commands are still running at each message, so it won't start a second copy.
+
+**Not copied (on purpose):** the memory cap (Linux control groups), PowerShell and Windows, the local sandbox, permission rules and asking modes (you said "later"), and Claude Code's per-command file diff (it's off by default there). Background time limits above 2 hours aren't allowed in Coder, because the machine stays on your bill while one runs.
+
+**Tests:** CD276–CD286 added, and the old "background commands end with the turn" test rewritten; all 297 tests pass.
+
+## 2026-11-09: Bash (tool 4): Claude Code's ways copied, part 1 (your words: "do all of those and double check again against the claude code docs pls")
+
+Copied from Claude Code's docs, from Claude Code itself (its own program text, and real tries of its Bash tool on my side, so the words are its own), into Coder:
+
+- **A short description of each command:** Grok now writes "Run the test suite", and the chat shows that instead of the raw command. Open the step to see the command and its output.
+- **`grep` that finds nothing isn't an error:** neither is `diff` with differences, nor `find` or `test` giving exit 1 (Claude Code's own list). No red mark, and it doesn't count as a failed step.
+- **Long output is no longer cut and lost:** up to 30,000 characters are shown. Past that, the whole output is saved to a file on Coder's machine, and Grok gets the path and the first 2,000 characters, in Claude Code's exact words. A failed command shows its start and end, as Claude Code does.
+- **Protected files written by a command** (`> .npmrc`, `tee .envrc`) now get the same Allow / Don't allow card as write and edit. One Allow covers both.
+- **The dangerous-delete check is Claude Code's:** the machine's root, top-level folders, the home folder, the project and the folders above it, `rm -rf "$DIR"/*` with an empty variable, `rm -rf "$(pwd)"`, inside `bash -c` and `find -exec`… Coder refuses them, with Claude Code's own explanation. Claude Code refuses them too when no one is at a terminal to ask.
+- **Commands over 10,000 characters** get a card instead of being refused (Claude Code asks about them).
+- **`sleep`:** a foreground `sleep` of 25 seconds or more is refused, and a command starting with `sleep` is stopped at its time limit instead of moved to the background. Both are Claude Code's rules, found by trying it.
+- **The same slow command twice:** Coder won't start a second copy of a command that's still running in the background.
+- **Full disk:** Coder says so plainly and names the folder to free up, in Claude Code's words.
+- **A picture printed by a command** (as a data URL) comes back to Grok as a picture, and a small copy shows in the chat.
+- **A background command that ends while Coder is still working** is reported once, in Claude Code's words ("… completed (exit code 0)", "… failed with exit code 3").
+- **Tests:** CD267–CD275, and all 286 tests pass.
+- **Still to come:** background commands that keep running after Coder's answer (with Coder told when they end), running a command yourself with `!`, and the second pass through Claude Code's docs.
+
+## 2026-11-09: Bash (tool 4): Claude Code's docs read first (your words: "Yes start on bash, look at claude code docs first")
+
+- **Read:** every page of Claude Code's docs that names its Bash tool, and the 395 changelog entries about it. The full list and the side-by-side with Coder are in `docs/tool-by-tool.md`, section 4.
+- **Coder already has:** the same time limits (2 minutes, up to 10), `cd` carrying over the same way, commands in the background, a slow command moved to the background instead of stopped, secrets kept out of commands, and a command that shows a file counting as a read.
+- **Claude Code has, Coder doesn't (or does differently):**
+  - background commands keep running after the answer, and Claude is told when they finish (Coder stops them at the end of the turn);
+  - long output is saved to a file instead of cut;
+  - writes by a command (`>`, `tee`) to protected files are asked about;
+  - a fuller dangerous-`rm` check;
+  - a short plain description of each command;
+  - `grep` with no matches isn't a failure;
+  - a clear full-disk message;
+  - pictures in output;
+  - running a command yourself with `!`.
+- **Next:** try the same commands in Claude Code and in Coder, then copy.
+
+## 2026-11-09: Checked live: after a failed try, the next new chat saves the setup's copy, and the one after uses it (your words: "can you check that, the next new chat runs the setup and tries again")
+
+- **Chat 1** (recording 20, right after deploy 74): the setup ran, because a saved copy only works for the Coder version that made it. Saving the new copy failed: "Fly.io did not start saving it in time". Coder waits up to 80 seconds for Fly.io to start, then lets the job go on, and that time Fly.io hadn't started.
+- **Chat 2** (recording 21, a new chat in the same environment): the setup ran again, and this time "Setup: Fly.io is saving a copy of the setup's result…". So the message was right: the next chat tried again, and it worked.
+- **Chat 3** (8 minutes later): "Setup: this chat started from the environment's saved copy (made 2026-11-09 06:45 UTC), so the setup script did not run again."
+- **One thing to know:** in chat 3, `setup-ran.txt` (which the setup writes inside the project folder) wasn't there. That's how it was built on 2026-11-07: every chat gets a fresh copy of the repository, and the saved copy keeps what the setup put on the machine and in the home folder. Claude Code's docs say to use the setup script for tools on the machine, and to run project installs like `npm install` at the start of each session ("Use a setup script to provision the VM itself … Use a SessionStart hook for project setup … like `npm install`").
+
+## 2026-11-09: Edit: both fixes and the docs page checked live after deploy 74 (your words: "Ok,merge" and "Ok let me know when it's done")
+
+- **Deploy 74** passed. Coder's machine built fine this time.
+- **Live on gofarther.dev with Grok** (recording 20), in a new chat on your test repository:
+  1. **Windows line endings:** the file was edited and kept its Windows endings. The change under the step had no hidden character, and a copy of it came out clean (`-first`, `-second`, `+FIRST`, `+SECOND`, `+inserted`, ` third`). Edit's words matched Claude Code's.
+  2. **A long line on the card:** for `.npmrc` with a 380-character line, the card wrapped it onto 4 rows with the "…" in view, and no sideways scrolling. After Don't allow, Coder left the file as it was.
+  3. **Docs:** gofarther.dev/docs has the Edit section, after Read and Write.
+- **Seen once, not part of edit:** the chat said the setup's saved copy couldn't be made this time ("Fly.io did not start saving it in time"). The setup ran because a saved copy only works for the Coder version that made it, and deploy 74 is a new version. The next new chat runs the setup and tries again. It's the first time I've seen it in the recorded tests. I can look into it whenever you want.
+
 ## 2026-11-09: Edit: the two things the live test found are fixed, and the docs page has an Edit section (your words: "Yes fix")
 
 - **Windows line endings:** the change shown under an edit (and on the card for a protected file) has no hidden character on its lines any more, so copying it gives the lines as they are, with no blank lines between them. Claude Code works the change out the same way. A line whose ending was the only thing that changed isn't counted as changed either. Write shares this, so it's fixed there too.
