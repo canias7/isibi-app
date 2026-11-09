@@ -23,7 +23,7 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from 
 export { viewedFile };
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
+import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -197,6 +197,24 @@ export function readAnswer(raw) {
     const thumb = thumbs[0] || "";
     return { text: String((j && j.text) || ""), pics: (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ), thumb, thumbs };
   } catch { return { text: "error: the picture could not be read", pics: [], thumb: "", thumbs: [] }; }
+}
+/**
+ * A WRITE'S ANSWER: its text for Grok, and what it changed for the chat (WRITE_MARK, coder-tools.mjs), checked again here
+ * (numbers, at most WRITE_SHOW_LINES lines of at most 1,001 characters, key-shaped text hidden), or none.
+ */
+export function writeAnswer(raw) {
+  raw = String(raw || "");
+  if (!raw.startsWith(WRITE_MARK)) return { text: raw, change: null };
+  try {
+    const j = JSON.parse(raw.slice(WRITE_MARK.length));
+    const c = j && j.change, n = (x) => (Number.isInteger(x) && x >= 0 ? x : 0);
+    const change = c && (c.kind === "create" || c.kind === "update") ? {
+      kind: c.kind, add: n(c.add), del: n(c.del),
+      lines: (Array.isArray(c.lines) ? c.lines : []).filter((l) => typeof l === "string").slice(0, WRITE_SHOW_LINES).map((l) => scrub(l.slice(0, 1001))),
+      ...(n(c.more) ? { more: n(c.more) } : {}), ...(c.big === true ? { big: true } : {}),
+    } : null;
+    return { text: String((j && j.text) || ""), change };
+  } catch { return { text: "The file was written.", change: null }; }
 }
 /** Errors that mean "not a file of this project" (a mention that is not one is left alone). */
 const NOT_A_FILE = /^error: (give a path|no such file|that path (is|leads) outside the project|the \.git folder|the path cannot contain)/;
@@ -439,7 +457,7 @@ The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN,
 
 HOW YOU WORK
 - Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
-- Use read, edit, write, grep and glob for files (write takes up to about 1 MB at once), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
+- Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
@@ -870,6 +888,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // `file_path`, Claude Code's own name for it, is taken for `path` (Claude Code 2.1.292: Read "ignore[s] a few
         // stray parameters instead of failing the call"; its Grep "accepts file_path for path").
         if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
+        // And its write's `file_text` or `file_content` for `content` (Claude Code's changelog: "Fixed Write calls failing
+        // validation when a model sends `path`, `file_text`, `file_content` … instead of `file_path` and `content`").
+        if (c.name === "write" && typeof args.content !== "string") { const alt = [args.file_text, args.file_content].find((x) => typeof x === "string"); if (alt !== undefined) args.content = alt; }
         // READ'S ROOM (like Claude Code's allow_large, "sized against the room left in the session's context
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
@@ -879,11 +900,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
-        const b64 = Buffer.from(JSON.stringify({ tool: c.name, args })).toString("base64");
+        // WHAT A WRITE CHANGED is asked for, for the chat only (writeAnswer).
+        const reqArgs = c.name === "write" ? { ...args, show_change: true } : args;
+        const b64 = Buffer.from(JSON.stringify({ tool: c.name, args: reqArgs })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args }) } : {}) }); }
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -891,8 +914,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
-        let pics = [], thumbs = [];
+        let pics = [], thumbs = [], change = null;
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
+        if (c.name === "write" && code === 0) ({ text: raw, change } = writeAnswer(raw));
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
@@ -902,7 +926,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
-        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}) });
+        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }

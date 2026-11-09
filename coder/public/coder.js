@@ -777,11 +777,51 @@
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
         stepIcon(e) + '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
-        tail +
+        changeCounts(r) + tail +
       '</button>' +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
+      // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
+      stepChange(r, key) +
       (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
+    '</div>';
+  }
+  /**
+   * WHAT A WRITE CHANGED, AS CLAUDE CODE SHOWS IT (the owner, 2026-11-09: "Go ahead and do those"; Claude Code: "Wrote N
+   * lines to …" with the new file's lines, "N additions and M removals" with the diff of a replaced one, folded with "+N
+   * lines" to open): the counts on the step's line, and under it the first CHANGE_FIRST lines, numbered, the rest a tap
+   * away. A new file's lines as they are; a change's with what it added and took out. Only text, never markup.
+   */
+  const CHANGE_FIRST = 8;
+  function changeOf(r) { const c = r && r.change; return c && typeof c === 'object' && (c.kind === 'create' || c.kind === 'update') ? c : null; }
+  function changeCounts(r) {
+    const c = changeOf(r);
+    if (!c || c.big) return '';
+    const add = Number.isInteger(c.add) ? c.add : 0, del = Number.isInteger(c.del) ? c.del : 0;
+    return '<span class="cd-wcount"><span class="cd-add">+' + add + '</span>' + (c.kind === 'update' ? '<span class="cd-del">−' + del + '</span>' : '') + '</span>';
+  }
+  function stepChange(r, key) {
+    const c = changeOf(r);
+    if (!c) return '';
+    if (c.big) return '<div class="cd-wchg"><p class="cd-wchg-note">Too big to show here: See changes has this file.</p></div>';
+    const all = (Array.isArray(c.lines) ? c.lines : []).filter((l) => typeof l === 'string').slice(0, 120);
+    if (!all.length) return '';
+    const k = key + ':change', open = !!S.open[k];
+    const shown = open ? all : all.slice(0, CHANGE_FIRST);
+    let o = 0, n = c.kind === 'create' ? 1 : 0;
+    const rows = shown.map((l) => {
+      const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(l);
+      if (h) { o = Number(h[1]); n = Number(h[2]); return '<span class="cd-dl-hunk">' + esc(l) + '</span>'; }
+      if (c.kind === 'create') return '<span class="cd-wl"><i>' + (n++) + '</i>' + esc(l.slice(1)) + '</span>';
+      const kind = l[0] === '+' ? 'add' : l[0] === '-' ? 'del' : l[0] === '\\' ? 'note' : 'same';
+      const num = kind === 'add' ? n++ : kind === 'del' ? o++ : kind === 'note' ? '' : (o++, n++);
+      return '<span class="cd-wl' + (kind === 'add' ? ' cd-dl-add' : kind === 'del' ? ' cd-dl-del' : '') + '"><i>' + num + '</i>' + esc(l) + '</span>';
+    }).join('');
+    const folded = all.length - shown.length, more = Number.isInteger(c.more) && c.more > 0 ? c.more : 0;
+    return '<div class="cd-wchg"><pre>' + rows + '</pre>' +
+      (folded ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show ' + folded + ' more line' + (folded === 1 ? '' : 's') + '</button>'
+        : open && all.length > CHANGE_FIRST ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show less</button>' : '') +
+      (open && more ? '<p class="cd-wchg-note">' + more + ' more line' + (more === 1 ? '' : 's') + ' not shown here: See changes has the whole file.</p>' : '') +
     '</div>';
   }
   /** The small copies of the pictures a step opened: only JPEG data URLs, as Coder's machine makes them. */
@@ -1183,6 +1223,7 @@
     on('[data-review-level]', 'change', (e) => saveReview(e.currentTarget.dataset.reviewLevel, { level: e.currentTarget.value }));
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-wchg-more', 'click', (e) => { const k = e.currentTarget.dataset.change; S.open[k] = !S.open[k]; draw(); });
     // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply).
     const askSend = () => { const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
     const askOf = (el) => { const one = el.closest('.cd-ask-one'); return S.ask && one ? S.ask.answers[Number(one.dataset.q)] : null; };

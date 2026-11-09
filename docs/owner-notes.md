@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Write: what Claude Code's Write has that Coder's didn't (your words: "not only compare what we have, but also like what we don't have", then "Go ahead and do those")
+
+- **Each write now shows what it wrote, right under its step,** like Claude Code:
+  - a **new file** shows its first 8 lines, numbered, and "+17" (its line count) on the step;
+  - a **replaced file** shows what changed: lines taken out in red, lines added in green, and "+5 −2" on the step;
+  - "Show N more lines" opens the rest (up to 120 lines; See changes has every line), and "Show less" folds it again.
+  - Grok isn't sent any of it, just as Claude Code's AI isn't. Anything shaped like a key is hidden.
+- **Claude Code's other names for write's inputs now work:** `file_text` and `file_content` (and `file_path`, which already did).
+- **Writing the memory file checks its size,** like Claude Code: over what Coder loads of it (25,000 bytes), Grok is told to shorten it; near that, or over 200 lines, a note.
+  - On your list: Claude Code only loads the first 200 lines of its memory; Coder loads all of it up to 25,000 bytes.
+- **Claude Code's own security rules file** (`.claude/security-patterns.yaml`, `.yml` or `.json`) is now read too, so a repo set up for Claude Code gets its checks in Coder.
+- **One limit for write:** Grok was told 90,000 characters in one place and "about 1 MB" in another; now 90,000 in both.
+- **Not done, your call:** showing a long file while Grok is still writing it, and checking for errors after each write with the language server.
+- Tests CD254 to CD256 (each fails on the old code); all 265 pass, and the 24 real read checks. Screenshots from Coder's real page (stand-in Grok) sent.
+
 ## 2026-11-09: Write, docs pass: Claude Code's docs on Write, compared with Coder's (your words: "look on Claude Code Docs and go look for the right writing tool and compare to ours")
 
 - **Read every page of Claude Code's docs that mentions Write** (fetched fresh today; nothing about Write changed since yesterday), plus its changelog. Almost everything already matched after yesterday's two passes. Three more differences, now copied:

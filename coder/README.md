@@ -199,6 +199,12 @@ code in **each user's own GitHub**.
    the tool ("write path cannot contain null bytes …"); and a link on the way in a
    loop or leading nowhere is refused before any folder is made ("where it leads on
    disk could not be determined …").
+   What Claude Code's Write has that Coder's didn't: the chat shows under each write
+   what it wrote (a new file's lines, a replaced file's diff, +N −M on the step; the
+   tool's `show_change` and `WRITE_MARK`, read by the agent's `writeAnswer`, never sent
+   to Grok); `file_text` and `file_content` are taken for `content`; a write to the
+   memory file is measured against what Coder loads of it (`memoryNote`); and Claude
+   Code's `.claude/security-patterns.*` files are read beside Coder's own.
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

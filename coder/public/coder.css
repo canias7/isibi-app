@@ -114,6 +114,17 @@
 /* The picture a Read step opened, small, under the step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's). */
 .cd-cmd-pics { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px 21px; }
 .cd-cmd-pics img { display: block; max-width: min(260px, 100%); max-height: 180px; border: 1px solid #ebe7e0; border-radius: 8px; background: #fff; }
+/* WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09): numbered lines, folded after the first few. */
+.cd-wcount { display: inline-flex; align-items: center; margin-left: 2px; }
+.cd-wcount .cd-add, .cd-wcount .cd-del { margin-left: 6px; font-size: 12.5px; }
+.cd-wchg { margin: 0 0 8px 21px; border: 1px solid #ebe7e0; border-radius: 8px; background: #fbfaf8; overflow: hidden; }
+.cd-wchg pre { margin: 0; padding: 6px 0; font: 12px/1.55 "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; }
+.cd-wchg pre span { display: block; padding: 0 12px 0 0; white-space: pre; }
+.cd-wchg .cd-dl-hunk { padding-left: 12px; }
+.cd-wl i { display: inline-block; min-width: 3.4em; padding-right: 12px; text-align: right; color: #a19c94; font-style: normal; user-select: none; }
+.cd-wchg-more { display: block; width: 100%; border: 0; border-top: 1px solid #efece7; background: #fff; padding: 6px 12px; font: 500 12.5px Inter, system-ui, sans-serif; color: #0f766e; cursor: pointer; text-align: left; }
+.cd-wchg-more:hover { background: #f7f5f1; }
+.cd-wchg-note { margin: 0; padding: 6px 12px; border-top: 1px solid #efece7; font-size: 12.5px; color: #6b7280; }
 .cd-cmd .cd-out { margin: 4px 0 8px; border: 1px solid #ebe7e0; border-radius: 10px; background: #fff; color: #4b5563; max-height: 260px; }
 .cd-group-head { display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0; font: 14px Inter, system-ui, sans-serif; color: #8a857d; cursor: pointer; }
 .cd-group-head:hover { color: #4b5563; }

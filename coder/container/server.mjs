@@ -1053,12 +1053,15 @@ export function laterNotes(later, dir, path, shown) {
 }
 /**
  * THE REPO'S OWN SECURITY RULES (item 12; Claude Code's .claude/security-patterns.yaml, with the same
- * fields): .coder/security-patterns.json, .yaml and .yml, all that exist, up to 50 rules in all.
+ * fields): .coder/security-patterns.json, .yaml and .yml, and Claude Code's .claude/ ones, all that exist, up to 50 rules in all.
  * Read by root like the instruction files (plainText).
  */
 export async function repoSecurityRules(dir) {
   const out = [];
-  for (const [f, kind] of [[".coder/security-patterns.json", "json"], [".coder/security-patterns.yaml", "yaml"], [".coder/security-patterns.yml", "yaml"]]) {
+  // And Claude Code's own (the owner, 2026-11-09: "Go ahead and do those"; its security-guidance docs: ".claude/security-patterns.yaml
+  // … also reads .claude/security-patterns.yml and .claude/security-patterns.json with the same schema"), so a repo set
+  // up for Claude Code gets its checks here too. Up to 50 rules in all, as before.
+  for (const [f, kind] of [[".coder/security-patterns.json", "json"], [".coder/security-patterns.yaml", "yaml"], [".coder/security-patterns.yml", "yaml"], [".claude/security-patterns.json", "json"], [".claude/security-patterns.yaml", "yaml"], [".claude/security-patterns.yml", "yaml"]]) {
     const text = await plainText(dir, f, 65536);
     if (text !== null) out.push(...parseRulesFile(text, kind));
   }

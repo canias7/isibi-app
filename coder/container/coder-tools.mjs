@@ -524,6 +524,60 @@ export const WRITE_FRESH = " (file state is current in your context — no need 
 export const WRITE_START = "You were given only the start of this file, and nothing shows that you have since read all of it in one call, so a write could lose the rest. To change part of it, use edit. To replace it whole, first read it in one call with no offset or limit. If read returns only a page or says the file is too large, read it again with allow_large: true. If even that cannot return all of it, use edit.";
 const UTF8_HEAD = 8 * 1024 * 1024;
 /**
+ * WHAT A WRITE CHANGED, FOR THE CHAT (the owner, 2026-11-09: "Go ahead and do those"; Claude Code shows a new file's lines
+ * under its Write, "Wrote N lines to …", and a replaced file's diff, "N additions and M removals", folded with "+N lines"
+ * to open): only when Coder's app asks (`show_change`), after the tool's answer behind WRITE_MARK; never told to Grok
+ * (Claude Code's model gets only its short result). The first WRITE_SHOW_LINES lines and WRITE_SHOW_CHARS characters are
+ * kept (the chat's record stays small; its "See changes" has everything); no diff past WRITE_DIFF_MAX characters a side
+ * (Claude Code skips its diff past about 10 MB). The diff is the machine's own `diff -U3`.
+ */
+export const WRITE_MARK = "\u0000coder-write\u0000";
+export const WRITE_SHOW_LINES = 120, WRITE_SHOW_CHARS = 8000, WRITE_DIFF_MAX = 2 * 1024 * 1024;
+/** A text's lines as read counts them: the last line break ends a line, it is not one more. */
+const textLines = (t) => { if (t === "") return []; const a = t.split("\n"); if (a[a.length - 1] === "") a.pop(); return a; };
+async function writeChange(oldText, newText) {
+  const keep = (rows, add, del, kind) => {
+    const lines = []; let used = 0;
+    for (const l of rows) {
+      const one = l.length > 1000 ? l.slice(0, 1000) + "…" : l;
+      if (lines.length >= WRITE_SHOW_LINES || (lines.length && used + one.length > WRITE_SHOW_CHARS)) break;
+      lines.push(one); used += one.length + 1;
+    }
+    return { kind, add, del, lines, ...(rows.length > lines.length ? { more: rows.length - lines.length } : {}) };
+  };
+  if (oldText === null) { const rows = textLines(newText).map((l) => "+" + l); return keep(rows, rows.length, 0, "create"); }
+  if (typeof oldText !== "string" || oldText.length > WRITE_DIFF_MAX || newText.length > WRITE_DIFF_MAX) return { kind: "update", big: true };
+  const dir = await mkdtemp(join(tmpdir(), "coder-wdiff-"));
+  try {
+    await writeFile(join(dir, "was"), oldText);
+    await writeFile(join(dir, "now"), newText);
+    const r = await runProg("diff", ["-U3", join(dir, "was"), join(dir, "now")], { timeoutMs: 20_000, max: 16 * 1024 * 1024 });
+    if (r.code !== 0 && r.code !== 1) return { kind: "update", big: true };
+    const rows = r.out.toString("utf8").split("\n").slice(2);
+    if (rows.length && rows[rows.length - 1] === "") rows.pop();
+    let add = 0, del = 0;
+    for (const l of rows) { if (l[0] === "+") add++; else if (l[0] === "-") del++; }
+    return keep(rows, add, del, "update");
+  } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
+}
+/**
+ * THE MEMORY FILE'S SIZE, AFTER A WRITE TO IT (Claude Code: "After Claude writes to MEMORY.md, Claude Code measures the file
+ * against the 200-line and 25KB read limits"; its error: "Error: this write left the memory index at MEMORY.md at 214
+ * lines, over its 200-line read limit. The write succeeded, but everything past the limit is silently dropped each time the
+ * index is loaded — entries at the end are already invisible to readers. Rewrite it to under 140 lines now: …"). Coder
+ * loads the first MEMORY_READ_MAX bytes of it (server.mjs, MEMORY_MAX), so that is the error; its 200 lines are only what
+ * Grok is asked to keep under, so a note (Claude Code also drops the lines past 200: outside write, the owner's call).
+ */
+export const MEMORY_READ_MAX = 25_000, MEMORY_LINES_MAX = 200;
+export function memoryNote(buf) {
+  const size = buf.length, lines = textLines(buf.toString("utf8")).length;
+  const keep = "keep one line per entry, and merge or drop stale entries.";
+  if (size > MEMORY_READ_MAX) return "Error: this write left the memory file at " + size.toLocaleString("en-US") + " bytes, over its " + MEMORY_READ_MAX.toLocaleString("en-US") + "-byte read limit. The write succeeded, but everything past the limit is silently dropped each time the memory is loaded — entries at the end are already invisible in later chats. Rewrite it to under " + Math.floor(MEMORY_READ_MAX * 0.7).toLocaleString("en-US") + " bytes now: " + keep;
+  if (lines > MEMORY_LINES_MAX) return "Note: the memory file is now " + lines + " lines, over the " + MEMORY_LINES_MAX + " it is kept under. Shorten it now: " + keep;
+  if (size > MEMORY_READ_MAX * 0.8) return "Note: the memory file is near its " + MEMORY_READ_MAX.toLocaleString("en-US") + "-byte read limit (" + size.toLocaleString("en-US") + " bytes). Shorten it: " + keep;
+  return "";
+}
+/**
  * A LINK ON THE WAY THAT CANNOT BE FOLLOWED (links in a loop, or one that leads nowhere): Claude Code's errors page,
  * "Refusing to write <path>: where it leads on disk could not be determined (a link on the way could not be examined, or
  * the links do not resolve)". Nothing is written and no folder is made through it (Coder gave the raw ELOOP or ENOENT of
@@ -539,7 +593,11 @@ async function brokenLinkOnTheWay(abs) {
     at = up;
   }
 }
-export async function toolWrite({ path, content }) {
+export async function toolWrite({ path, content, file_path, file_text, file_content, show_change = false }) {
+  // CLAUDE CODE'S OTHER NAMES FOR ITS INPUTS (its changelog: "Fixed Write calls failing validation when a model sends
+  // `path`, `file_text`, `file_content` … instead of `file_path` and `content`"): taken here too.
+  if (typeof path !== "string" && typeof file_path === "string") path = file_path;
+  if (typeof content !== "string") content = [file_text, file_content].find((x) => typeof x === "string");
   const { abs, rel } = await inside(path, { tool: "write" });
   if (typeof content !== "string") fail("give the file's content");
   let st = null;
@@ -552,6 +610,7 @@ export async function toolWrite({ path, content }) {
   if (await brokenLinkOnTheWay(abs)) fail("Refusing to write " + rel + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
   if (st && st.isDirectory()) fail(abs + " is a directory, not a file. To create a file inside it, include the file name in path.");
   let bytes = Buffer.from(content);
+  let oldText = null; // a new file; the text it had, for the chat's view of the change
   if (st && st.isFile()) {
     const seen = await seenEntry(abs);
     if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
@@ -561,17 +620,24 @@ export async function toolWrite({ path, content }) {
     if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
     // Its encoding, from its first 8 MB (a character cut at the end of that part is not counted against it).
     let old = await readFile(abs);
+    const wasAll = old.length <= WRITE_DIFF_MAX ? old : null;
     if (old.length > UTF8_HEAD) { old = old.subarray(0, UTF8_HEAD); let k = old.length; while (k > 0 && old[k - 1] >= 0x80) k--; old = old.subarray(0, k); }
     const u = utf16Of(old);
     if (!u && !isUtf8(old)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
     if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
     if (u === "be") { const b = Buffer.from(content, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
     if (!u && old[0] === 0xef && old[1] === 0xbb && old[2] === 0xbf && !content.startsWith("\ufeff")) bytes = Buffer.concat([old.subarray(0, 3), bytes]);
+    oldText = wasAll ? (u ? fileText(wasAll) : wasAll.toString("utf8")).replace(/^\ufeff/, "") : undefined;
   }
   await mkdir(dirname(abs), { recursive: true });
   await writeFile(abs, bytes);
   await remember(abs, bytes);
-  return (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH;
+  const mem = process.env.CODER_MEMORY_FILE;
+  const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
+  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "");
+  if (show_change !== true) return text;
+  const change = await writeChange(oldText, content.replace(/^\ufeff/, "")).catch(() => null);
+  return change ? WRITE_MARK + JSON.stringify({ text, change }) : text;
 }
 
 export async function toolEdit({ path, old_string, new_string, replace_all = false }) {

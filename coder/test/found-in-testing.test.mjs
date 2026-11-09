@@ -1587,3 +1587,112 @@ test("CD253 write's last two from Claude Code's docs (the owner, 2026-11-09: \"l
   assert.equal(await write("loopa"), "error: Refusing to write loopa: it is a symbolic link. Write to the link's target path instead.");
   assert.match(await write("real/new/x.txt"), /^File created successfully at: real\/new\/x\.txt/);
 });
+
+test("CD254 what a write changed, for the chat, as Claude Code shows it under its Write (the owner, 2026-11-09: \"Go ahead and do those\"; Claude Code: \"Wrote N lines to …\" with the new file's lines, \"N additions and M removals\" with the diff of a replaced one): only when Coder's app asks, behind its mark; a new file's lines, a replaced file's diff from the machine's own diff, its counts, kept short; never more than the chat keeps", async () => {
+  const { WRITE_MARK, WRITE_SHOW_LINES, WRITE_DIFF_MAX } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wchange-"));
+  const run = machine(dir);
+  const write = async (args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args })).toString("base64") })).output;
+  const answer = async (args) => { const raw = await write({ ...args, show_change: true }); assert.ok(raw.startsWith(WRITE_MARK), raw.slice(0, 80)); return JSON.parse(raw.slice(WRITE_MARK.length)); };
+  // Not asked: the words alone, as before.
+  assert.equal(await write({ path: "plain.txt", content: "x\n" }), "File created successfully at: plain.txt (file state is current in your context — no need to Read it back)");
+  // A new file: its lines.
+  let a = await answer({ path: "new.js", content: "one\ntwo\n" });
+  assert.equal(a.text, "File created successfully at: new.js (file state is current in your context — no need to Read it back)");
+  assert.deepEqual(a.change, { kind: "create", add: 2, del: 0, lines: ["+one", "+two"] });
+  // A replaced file: the diff, with what it added and took out.
+  a = await answer({ path: "new.js", content: "one\nTWO\nthree\n" });
+  assert.match(a.text, /^The file new\.js has been updated successfully\./);
+  assert.deepEqual(a.change, { kind: "update", add: 2, del: 1, lines: ["@@ -1,2 +1,3 @@", " one", "-two", "+TWO", "+three"] });
+  // The same text again: no change.
+  a = await answer({ path: "new.js", content: "one\nTWO\nthree\n" });
+  assert.deepEqual(a.change, { kind: "update", add: 0, del: 0, lines: [] });
+  // A long one: the first WRITE_SHOW_LINES lines kept, the rest counted; a very long line kept short.
+  a = await answer({ path: "long.txt", content: Array.from({ length: 300 }, (_, i) => "line " + i).join("\n") + "\n" });
+  assert.equal(a.change.add, 300);
+  assert.equal(a.change.lines.length + a.change.more, 300);
+  assert.ok(a.change.lines.length <= WRITE_SHOW_LINES && a.change.lines.join("\n").length <= 8000 + WRITE_SHOW_LINES);
+  a = await answer({ path: "wide.txt", content: "w".repeat(5000) + "\n" });
+  assert.equal(a.change.lines[0].length, 1001, "its first 1,000 characters (the + among them) and an ellipsis");
+  // A UTF-16 file and a UTF-8 file with a byte-order mark: shown as text, the mark not a change.
+  await writeFile(join(dir, "u16.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("old\n", "utf16le")]));
+  a = await answer({ path: "u16.txt", content: "new\n" });
+  assert.deepEqual(a.change.lines, ["@@ -1 +1 @@", "-old", "+new"]);
+  await writeFile(join(dir, "bom.txt"), Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69, 0x0a]));
+  a = await answer({ path: "bom.txt", content: "hi\nthere\n" });
+  assert.deepEqual(a.change, { kind: "update", add: 1, del: 0, lines: ["@@ -1 +1,2 @@", " hi", "+there"] });
+  // Too big to compare: said so, no lines (Claude Code skips its diff past about 10 MB).
+  await writeFile(join(dir, "big.txt"), "b".repeat(WRITE_DIFF_MAX + 10) + "\n");
+  a = await answer({ path: "big.txt", content: "small\n" });
+  assert.deepEqual(a.change, { kind: "update", big: true });
+  assert.equal(await readFile(join(dir, "big.txt"), "utf8"), "small\n");
+});
+
+test("CD255 write takes Claude Code's other names for its inputs (its changelog: \"Fixed Write calls failing validation when a model sends `path`, `file_text`, `file_content` … instead of `file_path` and `content`\"); after a write to the memory file, its size is checked against what Coder loads of it (Claude Code: \"Error: this write left the memory index at MEMORY.md at 214 lines, over its 200-line read limit. The write succeeded, but …\"); Claude Code's own .claude/security-patterns files are read too; and Grok is told the same limit for write everywhere", async () => {
+  const { memoryNote, MEMORY_READ_MAX, MEMORY_LINES_MAX } = await import("../container/coder-tools.mjs");
+  const { MEMORY_MAX, repoSecurityRules } = await import("../container/server.mjs");
+  const { CODER_TOOLS, systemPrompt } = await import("../container/coder-agent.mjs");
+  const { mkdtemp, writeFile, readFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-wnames-"));
+  const mem = join(await mkdtemp(join(tmpdir(), "coder-wnames-mem-")), "MEMORY.md");
+  const run = machine(dir, undefined, { ...process.env, CODER_MEMORY_FILE: mem });
+  const write = async (args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args })).toString("base64") })).output;
+  // The names.
+  assert.match(await write({ file_path: "a.txt", content: "a\n" }), /^File created successfully at: a\.txt/);
+  assert.match(await write({ path: "b.txt", file_text: "b\n" }), /^File created successfully at: b\.txt/);
+  assert.match(await write({ file_path: "c.txt", file_content: "c\n" }), /^File created successfully at: c\.txt/);
+  assert.equal(await readFile(join(dir, "c.txt"), "utf8"), "c\n");
+  assert.equal(await write({ path: "d.txt" }), "error: give the file's content");
+  // The memory file: what Coder loads of it (server.mjs reads MEMORY_MAX bytes).
+  assert.equal(MEMORY_READ_MAX, MEMORY_MAX);
+  assert.equal(MEMORY_LINES_MAX, 200);
+  assert.equal(memoryNote(Buffer.from("- runs tests with npm test\n")), "");
+  const over = Buffer.from("x".repeat(26000));
+  assert.equal(memoryNote(over), "Error: this write left the memory file at 26,000 bytes, over its 25,000-byte read limit. The write succeeded, but everything past the limit is silently dropped each time the memory is loaded — entries at the end are already invisible in later chats. Rewrite it to under 17,500 bytes now: keep one line per entry, and merge or drop stale entries.");
+  assert.match(memoryNote(Buffer.from("- a fact\n".repeat(214))), /^Note: the memory file is now 214 lines, over the 200 it is kept under\. Shorten it now: /);
+  assert.match(memoryNote(Buffer.from("y".repeat(21000))), /^Note: the memory file is near its 25,000-byte read limit \(21,000 bytes\)\./);
+  const said = await write({ path: mem, content: "x".repeat(26000) });
+  assert.match(said, /^File created successfully at: .*MEMORY\.md \(file state is current in your context — no need to Read it back\)\nError: this write left the memory file at 26,000 bytes/);
+  assert.match(await write({ path: "e.txt", content: "y".repeat(26000) }), /^File created successfully at: e\.txt \(file state is current in your context — no need to Read it back\)$/, "only the memory file");
+  // Through Coder's app: Grok's other names reach the tool, and the chat gets the change, Grok never.
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const events = [];
+  let k = 0;
+  const out = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("write", { file_path: "f.txt", file_content: "one\nghp_" + "a".repeat(36) + "\n" }, "w1")]) : say("Done.")) }, { text: "write f" });
+  assert.equal(await readFile(join(dir, "f.txt"), "utf8"), "one\nghp_" + "a".repeat(36) + "\n");
+  const told = out.messages.find((m) => m.role === "tool" && m.tool_call_id === "w1").content;
+  assert.equal(told, "File created successfully at: f.txt (file state is current in your context — no need to Read it back)");
+  const shown = events.find((e) => e.type === "result" && e.id === "w1");
+  assert.deepEqual(shown.change, { kind: "create", add: 2, del: 0, lines: ["+one", "+[hidden]"] }, "a key-shaped line is hidden in the chat");
+  assert.equal(events.find((e) => e.type === "bash" && e.id === "w1").command, "f.txt");
+  // Claude Code's security pattern files, beside Coder's own.
+  const repo = await mkdtemp(join(tmpdir(), "coder-wnames-repo-"));
+  await mkdir(join(repo, ".claude"));
+  await writeFile(join(repo, ".claude/security-patterns.json"), JSON.stringify({ patterns: [{ rule_name: "internal_key", substrings: ["INTERNAL_KEY="], reminder: "Never commit internal keys." }] }));
+  const rules = await repoSecurityRules(repo);
+  assert.deepEqual(rules, [{ rule_name: "repo:internal_key", reminder: "Never commit internal keys.", substrings: ["INTERNAL_KEY="] }], "a repo's rules are named repo:…");
+  // One limit for write, wherever Grok reads about it.
+  const says = CODER_TOOLS.find((t) => t.function.name === "write").function.description;
+  assert.match(says, /At most about 90,000 characters per call/);
+  const prompt = typeof systemPrompt === "function" ? systemPrompt({}) : readFileSync(HERE("container/coder-agent.mjs"), "utf8");
+  assert.ok(!/write takes up to about 1 MB/.test(prompt) && /write takes up to about 90,000 characters a call/.test(prompt));
+});
+
+test("CD256 the chat shows a write's change under its step (the owner, 2026-11-09): its counts on the step's line, the first lines numbered, the rest a tap away, text only; a new file's lines as they are, a change's with what it added and took out", () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  assert.match(ui, /changeCounts\(r\) \+ tail \+/);
+  assert.match(ui, /stepPics\(r\) \+\n\s+\/\/ WHAT A WRITE CHANGED[^\n]*\n\s+stepChange\(r, key\) \+/);
+  const fn = ui.slice(ui.indexOf("  function stepChange(r, key) {"), ui.indexOf("  /** The small copies of the pictures"));
+  assert.ok(fn.length > 200);
+  assert.doesNotMatch(fn.replace(/esc\([^)]*\)/g, ""), /\+ l\b|\+ l\.slice|innerHTML/, "every line of the file goes through esc");
+  assert.match(fn, /const CHANGE_FIRST = 8|all\.slice\(0, CHANGE_FIRST\)/);
+  assert.match(ui, /const CHANGE_FIRST = 8;/);
+  assert.match(ui, /on\('\.cd-wchg-more', 'click'/);
+  assert.match(css, /\.cd-wchg \{/);
+});
