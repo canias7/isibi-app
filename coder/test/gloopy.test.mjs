@@ -1575,3 +1575,182 @@ test("GL40 (2026-11-09) on Gloopy's machine, its helpers get their own instructi
     assert.equal(st.result.messages.find((m) => m.tool_call_id === "h1").content, "HELPER “One” (finished):\nFound it.");
   } finally { srv.close(); }
 });
+
+// ── PAGES: SOMETHING TO READ AND KEEP (owner, 2026-11-09: "lets focus on the tools"; Grok Bot's Pages) ──
+test("GL41 (2026-11-09) the page tool: Gloopy publishes the HTML file it wrote; the owner gets a card; publishing again with its id makes the next version; Coder has no such tool", async () => {
+  const { PAGE_TOOL } = await import("../container/gloopy-agent.mjs");
+  const { PAGE_ID, PAGES_PER_TURN } = await import("../container/coder-agent.mjs");
+  const HTML = "<!doctype html><title>Hotels</title><h1>Hotels</h1><table><tr><td>Casa Azul</td><td>€345</td></tr></table>";
+  const files = { "pages/hotels.html": HTML };
+  const ran = [];
+  const exec = async ({ command }) => {
+    const req = JSON.parse(Buffer.from(command.split(" ").at(-1), "base64").toString("utf8"));
+    ran.push(req);
+    if (req.tool !== "page_file") return { code: 0, output: "" };
+    const p = req.args.path;
+    if (!(p in files)) return { code: 1, output: "error: no such file: " + p };
+    return { code: 0, output: JSON.stringify({ path: p, size: files[p].length, html: files[p] }) };
+  };
+  const events = [];
+  const mine = [{ id: "pexisting01", title: "Old plan", version: 2 }];
+  const g = scripted([
+    say("", [call("page", { action: "list" }, "l1"), call("page", { action: "publish", path: "pages/hotels.html" }, "x0"), call("page", { action: "publish", title: "Hotels", path: "pages/missing.html" }, "x1"), call("page", { action: "publish", title: "Hotels", path: "pages/hotels.html", id: "pnope00000" }, "x2")]),
+    say("", [call("page", { action: "publish", title: "Hotels in Lisbon", path: "pages/hotels.html" }, "p1"), call("page", { action: "publish", title: "Weekend plan", path: "pages/hotels.html", id: "pexisting01", note: "Added Sunday" }, "p2")]),
+    say("Here's the comparison page."),
+  ]);
+  const out = await runCoder({ send: g.send, exec, emit: (e) => events.push(e) }, { text: "Compare the hotels in a page", ...GLOOPY, pages: mine });
+  assert.equal(out.messages.find((m) => m.tool_call_id === "l1").content, "- pexisting01 · Old plan · version 2");
+  assert.equal(out.messages.find((m) => m.tool_call_id === "x0").content, "error: give title: the page's title, a few words");
+  assert.equal(out.messages.find((m) => m.tool_call_id === "x1").content, "error: no such file: pages/missing.html");
+  assert.match(out.messages.find((m) => m.tool_call_id === "x2").content, /^error: no page has that id/);
+  const [a, b] = out.pageRequests;
+  assert.match(a.id, PAGE_ID);
+  assert.deepEqual({ ...a, id: "" }, { id: "", title: "Hotels in Lisbon", html: HTML, version: 1 });
+  assert.deepEqual(b, { id: "pexisting01", title: "Weekend plan", html: HTML, version: 3, note: "Added Sunday" });
+  assert.deepEqual(events.filter((e) => e.type === "page").map((e) => [e.id, e.title, e.version, e.note]), [[a.id, "Hotels in Lisbon", 1, undefined], ["pexisting01", "Weekend plan", 3, "Added Sunday"]]);
+  assert.equal(events.find((e) => e.type === "result" && e.id === "p1").label, "Published the page “Hotels in Lisbon”");
+  assert.equal(events.find((e) => e.type === "result" && e.id === "p2").label, "Updated the page “Weekend plan”");
+  assert.match(out.messages.find((m) => m.tool_call_id === "p1").content, /^published: “Hotels in Lisbon” \(id p[a-z0-9]{10}, version 1\)\. The owner sees a card in the chat that opens it\. To change it, edit pages\/hotels\.html and publish again with this id\.$/);
+  assert.ok(ran.every((r) => r.tool === "page_file"), "read through the service's own file tool, as dev");
+  // At most 5 in one message; Coder has none.
+  const many = scripted([say("", Array.from({ length: 6 }, (_, i) => call("page", { action: "publish", title: "P" + i, path: "pages/hotels.html" }, "m" + i))), say("ok")]);
+  const mo = await runCoder({ send: many.send, exec }, { text: "x", ...GLOOPY });
+  assert.equal(mo.pageRequests.length, PAGES_PER_TURN);
+  assert.equal(mo.messages.find((m) => m.tool_call_id === "m5").content, "error: at most 5 pages in one message");
+  const c = scripted([say("", [call("page", { action: "list" }, "c1")]), say("ok")]);
+  assert.match((await runCoder({ send: c.send, exec }, { text: "x" })).messages.find((m) => m.tool_call_id === "c1").content, /^error: no such tool: page/);
+  assert.match(PAGE_TOOL.function.description, /The page cannot load anything from the internet but scripts and styles from cdn\.jsdelivr\.net, cdnjs\.cloudflare\.com or unpkg\.com, and pictures/);
+});
+
+test("GL42 (2026-11-09) the Worker keeps pages and shows each from a signed address that works for 10 minutes, with its own rules: a sandbox of its own, nothing sent anywhere, no forms, only gofarther.dev may frame it; a wrong, old or someone else's address shows nothing", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const P = await import("../src/gloopy-pages.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const machine = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { machine.push({ path: new URL(req.url).pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const visit = (path) => handleCoder(new Request("https://coder.gofarther.dev" + path), env, {}, { ...deps, authUser: async () => null });
+  await go("gloopy");
+  const HTML = "<!doctype html><title>Hotels</title><h1>Hotels</h1>";
+  assert.equal(await P.keepPages(bucket, "u1", [{ id: "photels0001", title: "Hotels", html: HTML }, { id: "bad", title: "x", html: "x" }, { id: "pbig0000001", title: "Big", html: "x".repeat(P.PAGE_MAX + 1) }], 1000), 1);
+  assert.equal(await P.keepPages(bucket, "u1", [{ id: "photels0001", title: "Hotels, updated", html: HTML + "<p>v2</p>" }], 2000), 1);
+  let list = await P.readPages(bucket, "u1");
+  assert.deepEqual(list, [{ id: "photels0001", title: "Hotels, updated", version: 2, at: 1000, updated: 2000, size: HTML.length + 9 }]);
+  // With Gloopy, and sent with each message.
+  assert.deepEqual((await (await go("gloopy")).json()).pages.map((p) => p.id), ["photels0001"]);
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "hi" }) });
+  assert.deepEqual(machine.find((x) => x.path === "/turn").body.pages, [{ id: "photels0001", title: "Hotels, updated", version: 2 }]);
+  // Opened: a signed address, for 10 minutes.
+  const r = await (await go("projects/" + GLOOPY_ID + "/pages", { method: "POST", body: JSON.stringify({ open: "photels0001" }) })).json();
+  assert.match(r.url, /^\/api\/coder\/gloopy-page\/u1\/photels0001\?e=\d+&t=[\w-]{43}$/);
+  const res = await visit(r.url);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), HTML + "<p>v2</p>");
+  assert.equal(res.headers.get("content-security-policy"), "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; font-src https://fonts.gstatic.com data:; img-src https: data:; media-src https: data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'");
+  assert.deepEqual([res.headers.get("cache-control"), res.headers.get("referrer-policy"), res.headers.get("x-content-type-options")], ["private, no-store", "no-referrer", "nosniff"]);
+  // Wrong, old, or someone else's: nothing.
+  const u = new URL("https://x" + r.url);
+  const e = u.searchParams.get("e"), t = u.searchParams.get("t");
+  for (const bad of [
+    "/api/coder/gloopy-page/u1/photels0001?e=" + e + "&t=" + t.slice(0, -1) + (t.endsWith("A") ? "B" : "A"),
+    "/api/coder/gloopy-page/u2/photels0001?e=" + e + "&t=" + t,
+    "/api/coder/gloopy-page/u1/photels0001?e=" + (Number(e) + 1) + "&t=" + t,
+    "/api/coder/gloopy-page/u1/photels0001?e=" + (Date.now() - 1000) + "&t=" + (await P.pagePass(env, "u1", "photels0001", Date.now() - 1000)),
+    "/api/coder/gloopy-page/u1/photels0001?e=" + (Date.now() + 3600_000) + "&t=" + (await P.pagePass(env, "u1", "photels0001", Date.now() + 3600_000)),
+    "/api/coder/gloopy-page/u1/photels0001",
+  ]) { const x = await visit(bad); assert.equal(x.status, 404, bad); assert.equal(await x.text(), "This page could not be opened. Open it again from Gloopy's chat."); }
+  // Taken away.
+  assert.equal((await go("projects/" + GLOOPY_ID + "/pages", { method: "POST", body: JSON.stringify({ open: "pnope00000x" }) })).status, 404);
+  list = (await (await go("projects/" + GLOOPY_ID + "/pages", { method: "POST", body: JSON.stringify({ remove: "photels0001" }) })).json()).pages;
+  assert.deepEqual(list, []);
+  assert.equal((await visit(r.url)).status, 404, "its address shows nothing once it is gone");
+  // At most 100 pages.
+  const reqs = Array.from({ length: 101 }, (_, i) => ({ id: "p" + String(i).padStart(10, "0"), title: "P" + i, html: "x" }));
+  for (let i = 0; i < reqs.length; i += 5) await P.keepPages(bucket, "u1", reqs.slice(i, i + 5));
+  assert.equal((await P.readPages(bucket, "u1")).length, 100);
+});
+
+test("GL43 (2026-11-09) a page, for real (where Chromium is installed): its own script runs, but it cannot reach the app, read anything stored for the site, or send anything anywhere", async (t) => {
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const P = await import("../src/gloopy-pages.mjs");
+  const { handleCoder } = await import("../src/coder-routes.mjs");
+  const { withPageHeaders } = await import("../src/coder-page.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  // The page tries everything it should not be able to do, and tells the app what happened.
+  const PAGE = `<!doctype html><title>Try</title><h1 id=h>Page</h1><script>
+    const out = { script: true };
+    try { out.parent = !!window.parent.document.body; } catch (e) { out.parent = "blocked"; }
+    try { localStorage.setItem("x", "1"); out.storage = "open"; } catch (e) { out.storage = "blocked"; }
+    try { out.cookie = document.cookie === "" ? "empty" : "seen"; } catch (e) { out.cookie = "blocked"; }
+    fetch("/api/coder/gloopy").then(() => { out.fetch = "sent"; }, () => { out.fetch = "blocked"; }).finally(() => parent.postMessage(out, "*"));
+  </script>`;
+  await P.keepPages(bucket, "u1", [{ id: "ptry0000001", title: "Try", html: PAGE }]);
+  const address = await P.pageAddress(env, "u1", "ptry0000001");
+  const srv = http.createServer(async (req, res) => {
+    const url = "https://x" + req.url;
+    if (req.url.startsWith("/api/coder/gloopy-page/")) {
+      const r = await handleCoder(new Request("http://127.0.0.1" + req.url), env, {}, { authUser: async () => null, container: () => ({}) });
+      res.writeHead(r.status, Object.fromEntries(r.headers));
+      return res.end(await r.text());
+    }
+    // The app's own page, with the app's own headers, and a cookie and something stored, as the app has.
+    const app = withPageHeaders(new Response(`<!doctype html><title>App</title><script src="/app.js"></script><iframe sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" src="${address}"></iframe>`, { headers: { "content-type": "text/html", "set-cookie": "session=secret; Path=/" } }));
+    if (req.url === "/app.js") { res.writeHead(200, { "content-type": "text/javascript" }); return res.end("localStorage.setItem('token','secret'); window.addEventListener('message', (e) => { window.result = e.data; });"); }
+    res.writeHead(200, Object.fromEntries(app.headers));
+    res.end(await app.text());
+  });
+  await new Promise((r) => srv.listen(0, r));
+  const { chromium } = (await import("node:module")).createRequire(import.meta.url)("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto("http://127.0.0.1:" + srv.address().port + "/");
+    await page.waitForFunction(() => window.result, null, { timeout: 15000 });
+    const result = await page.evaluate(() => window.result);
+    assert.deepEqual(result, { script: true, parent: "blocked", storage: "blocked", cookie: "blocked", fetch: "blocked" });
+  } finally { await browser.close(); srv.close(); }
+});
+
+test("GL44 (2026-11-09) on the page: a page's card opens it over the chat, in a frame with its own sandbox (never the app's), outside the redrawn chat; a card for a page published again later says so", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(ui, /else if \(e\.type === 'page'\) \{[\s\S]{0,500}const later = S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'page' && x\.id === e\.id\);\n\s+const sub = later \? 'Updated below' :/);
+  assert.match(ui, /<iframe class="cd-pageview-frame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"><\/iframe>/);
+  assert.doesNotMatch(ui, /allow-same-origin/, "a page never gets the app's own origin");
+  assert.match(ui, /document\.body\.appendChild\(v\);/, "outside the redrawn chat");
+  assert.match(ui, /f\.src = r\.data\.url;/);
+  assert.match(ui, /v\.querySelector\('\.cd-pageview-t'\)\.textContent = r\.data\.page\.title;/, "the title as text, never as HTML");
+  assert.match(css, /\.cd-pageview \{ position: fixed; inset: 0; z-index: 60;/);
+});
+
+test("GL45 (2026-11-09) on Gloopy's machine: it writes a page with its file tools and publishes it; a file outside its folder, or not HTML, is refused", async () => {
+  const { createApp } = await import("../container/server.mjs");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-pgw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-pgg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-pgm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-pgb-")) };
+  const HTML = "<!doctype html><title>Plan</title><h1>Weekend plan</h1><p>Saturday: Belém. Sunday: Sintra.</p>";
+  const steps = [
+    say("", [call("write", { path: "pages/plan.html", content: HTML }, "w1"), call("write", { path: "notes.txt", content: "x" }, "w2")]),
+    say("", [call("page", { action: "publish", title: "Weekend plan", path: "pages/plan.html" }, "p1"), call("page", { action: "publish", title: "Secrets", path: "/etc/passwd" }, "p2"), call("page", { action: "publish", title: "Notes", path: "notes.txt" }, "p3")]),
+    say("Here's your plan."),
+  ];
+  let n = 0;
+  const srv = http.createServer(createApp({ ...roots, send: async () => steps[Math.min(n++, steps.length - 1)] }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", agent: "gloopy", text: "plan my weekend as a page", messages: [] }) });
+    let st;
+    for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=gloopy-main&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.equal(st.result.status, "done");
+    assert.equal(st.result.pageRequests.length, 1);
+    assert.deepEqual({ ...st.result.pageRequests[0], id: "" }, { id: "", title: "Weekend plan", html: HTML, version: 1 });
+    const msg = (id) => st.result.messages.find((m) => m.tool_call_id === id).content;
+    assert.match(msg("p1"), /^published: “Weekend plan” \(id p[a-z0-9]{10}, version 1\)/);
+    assert.match(msg("p2"), /^error: that path is outside the project/);
+    assert.match(msg("p3"), /^error: a page is an \.html file/);
+    assert.ok(st.events.some((e) => e.type === "page" && e.title === "Weekend plan"));
+  } finally { srv.close(); }
+});

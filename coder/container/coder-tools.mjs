@@ -874,7 +874,22 @@ export async function toolSavePicture({ name, type, data }) {
   return rel;
 }
 
-export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen };
+/**
+ * A PAGE GLOOPY PUBLISHES (owner, 2026-11-09; Grok Bot's Pages: "a report, a memo, a dashboard, a tracker, or an
+ * explainer"), for the service only (no tool Grok has): the HTML file Gloopy wrote, read as `dev` from inside its
+ * folder (never through a link out of it), at most PAGE_MAX.
+ */
+export const PAGE_MAX = 512 * 1024;
+export async function toolPageFile({ path }) {
+  const { abs, rel } = await inside(path, { mustExist: true });
+  const st = await stat(abs);
+  if (!st.isFile()) fail(rel + " is not a file");
+  if (!/\.html?$/i.test(abs)) fail("a page is an .html file: write the page as one HTML file (its own <style>, and <script> if it needs one), then publish that");
+  if (st.size > PAGE_MAX) fail(rel + " is " + Math.ceil(st.size / 1024) + " KB; a page is at most " + PAGE_MAX / 1024 + " KB");
+  return JSON.stringify({ path: rel, size: st.size, html: (await readFile(abs)).toString("utf8") });
+}
+
+export const TOOLS = { page_file: toolPageFile, save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

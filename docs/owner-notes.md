@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's pages: something to read and keep (your word: "We can leave that for later, lets focus on the tools")
+
+- **Handing code to Coder:** left for later, as you said. The plan for it is in the chat.
+- **Pages, like Grok Bot's:** a report, a comparison, a plan, a tracker or a dashboard Gloopy makes for you to read and keep. It can have tables, charts, and buttons that filter what you see. Gloopy writes it as a web page file on its computer and publishes it with a new `page` tool.
+  - You get a card in the chat with the page's title and **Open**. It opens over the chat; × (or Escape) closes it.
+  - To change a page, Gloopy edits its file and publishes again: the same page, next version. An earlier card for it then says "Updated below".
+- **Kept:** by Coder's Worker, up to 100 pages per person, each up to 512 KB. Gloopy knows its pages, and the list comes with Gloopy's tab data for your future page library. Pages can also be removed.
+- **Safe to open:** a page is made by the AI, often from what websites say, so it never runs as gofarther.dev.
+  - It opens from its own address, which works for 10 minutes and only for you.
+  - It runs sealed off: it can't reach the app, your sign-in or anything stored for the site, and it can't send anything anywhere or submit forms.
+  - Only gofarther.dev can show it.
+  - Checked in a real Chrome: the page's own script runs, while reaching the app, stored data and cookies, and sending data out, are all blocked.
+- **Not yet:** sharing a page by link (Grok Bot has "anyone with the link"), and a Library screen (part of your frontend).
+- **Small detail:** Escape doesn't close a page once you've clicked inside it (the page then has the keyboard); × always does.
+- Tests GL41–GL45 (GL43 is the real-Chrome check). All 300 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's helpers: parts of a job done at the same time (your word: "Let's keep working on the tools")
 
 - **What it is:** like dots' background agents and Claude Code's subagents. For a big job with separate parts ("compare these hotels": prices, reviews, location), Gloopy gives each part to a helper. Up to 4 work at the same time, each in its own conversation, and Gloopy gets all their reports together and writes the answer.

@@ -44,6 +44,7 @@ import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./co
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn } from "./gloopy-schedules.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX } from "../container/gloopy-check.mjs";
+import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { cleanSchedule, whenLocal } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -380,6 +381,10 @@ export async function handleCoder(request, env, ctx, deps) {
   const url = new URL(request.url);
   const parts = url.pathname.replace(/^\/api\/coder\/?/, "").split("/").filter(Boolean);
 
+  // ── ONE OF GLOOPY'S PAGES, SHOWN (2026-11-09; src/gloopy-pages.mjs): a plain visit from the page's frame, with no
+  // sign-in header; its signed address says whose page it is, for 10 minutes. ──
+  if (parts[0] === "gloopy-page" && parts.length === 3 && request.method === "GET") return servePageFile(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
+
   // ── THE GITHUB SIGN-IN'S RETURN: a plain visit from GitHub, with no sign-in
   // header; the signed state says whose it is. ──
   if (parts[0] === "github" && parts[1] === "callback") {
@@ -565,7 +570,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -633,6 +638,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "schedules") return gloopySchedules(g);
     if (action === "permissions") return gloopyPermissions(g);
     if (action === "rules") return gloopyRules(g);
+    if (action === "pages") return gloopyPages(g);
     if (action !== "stop") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
 
@@ -1408,7 +1414,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1469,6 +1475,8 @@ async function gloopyState(g) {
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
     const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff"].includes(e.type)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
+    // The pages Gloopy published in this turn are kept (2026-11-09).
+    if (Array.isArray(s.result.pageRequests) && s.result.pageRequests.length) await keepPages(bucket, uid, s.result.pageRequests);
     // Schedules Gloopy stopped in this turn come off now, and the ones it set are kept when the owner's settings allow
     // them with no card (2026-11-09).
     const stopped = Array.isArray(s.result.scheduleRemovals) ? s.result.scheduleRemovals.filter((x) => typeof x === "string") : [];
@@ -1630,6 +1638,29 @@ async function gloopyRules(g) {
   } else return json({ error: "Give add, change or remove." }, 400);
   await putJson(bucket, gloopyRulesKey(uid), list);
   return out(list);
+}
+
+/**
+ * GLOOPY'S PAGES, FOR THE PAGE (2026-11-09): GET lists them; POST { open: id } answers the address that shows it (for
+ * 10 minutes, in the chat's viewer); POST { remove: id } takes it away.
+ */
+async function gloopyPages(g) {
+  const { request, env, bucket, uid } = g;
+  if (request.method === "GET") return json({ ok: true, pages: await readPages(bucket, uid) });
+  if (request.method !== "POST") return json({ error: "Gloopy has no pages " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const list = await readPages(bucket, uid);
+  if (typeof body.open === "string") {
+    const p = list.find((x) => x.id === body.open);
+    if (!p) return json({ error: "That page is not there any more." }, 404);
+    const address = await pageAddress(env, uid, p.id);
+    return address ? json({ ok: true, page: p, url: address }) : json({ error: "Pages cannot be opened yet: Coder's key is not set." }, 503);
+  }
+  if (typeof body.remove === "string") {
+    if (!(await removePage(bucket, uid, body.remove))) return json({ error: "That page is not there any more." }, 404);
+    return json({ ok: true, pages: await readPages(bucket, uid) });
+  }
+  return json({ error: "Give open or remove." }, 400);
 }
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */

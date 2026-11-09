@@ -133,6 +133,8 @@ export const RUN_TOOLS = {
   lsp: { verb: "Looked up", label: (a) => String(a.action || "") + " " + String(a.path || "") + (a.line ? ":" + a.line + (a.column ? ":" + a.column : "") : "") },
   web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
 };
+/** GLOOPY'S PAGES (2026-11-09): an id like p1a2b3c4d5e; at most 5 published in one message. */
+export const PAGE_ID = /^p[a-z0-9]{10}$/, PAGES_PER_TURN = 5;
 /** GLOOPY'S HELPERS (2026-11-09): at most 4 at once, 8 in one message; each up to 15 steps and 5 minutes; each answer up to 6,000 characters. */
 export const HELPERS_MAX = 4, HELPERS_PER_TURN = 8, HELPER_ROUNDS = 15, HELPER_MS = 5 * 60 * 1000, HELPER_ANSWER_MAX = 6000;
 /** GLOOPY'S BROWSER STEP in the chat (2026-11-09): the verb from its action; once done the chat shows what it did ("Clicked “Go”"). */
@@ -524,7 +526,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -608,6 +610,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   let approvalRequest = null, signinRequest = null, handoffRequest = null;
   // GLOOPY'S HELPERS (2026-11-09): how many this message has started.
   let helpersUsed = 0;
+  // GLOOPY'S PAGES published in this turn (the Worker keeps them when the turn ends).
+  const pageRequests = [];
   // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
   // when the turn ends).
   const scheduleRemovals = [], scheduleAdds = [];
@@ -630,7 +634,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -717,7 +721,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff" || c.name === "schedule" || c.name === "helpers")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff" || c.name === "schedule" || c.name === "helpers" || c.name === "page")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -937,6 +941,35 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "signin", id, site, url: pass.url || "", reason: plain(scrub(String(args.reason || ""))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
+      } else if (c.name === "page") {
+        // GLOOPY'S PAGES (owner, 2026-11-09; Grok Bot's Pages): the HTML file Gloopy wrote, read as `dev` from inside its
+        // folder (coder-tools.mjs page_file), kept by the Worker when the turn ends; the owner gets a card that opens it.
+        const args = c.args || {};
+        const act = ["publish", "list"].includes(args.action) ? args.action : "";
+        const mine = (Array.isArray(pages) ? pages : []).filter((x) => x && typeof x.id === "string" && PAGE_ID.test(x.id));
+        const title = plain(String(args.title || "")).slice(0, 80);
+        emit({ type: "bash", id: c.id, tool: "page", verb: act === "publish" ? "Published a page" : "Looked at pages", command: act === "publish" ? title : "" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!act) { no("error: action is publish or list"); continue; }
+        if (act === "list") { const out = mine.length ? mine.map((x) => "- " + x.id + " · " + plain(String(x.title || "")) + " · version " + (Number(x.version) || 1)).join("\n") : "no pages yet"; emit({ type: "result", id: c.id, code: 0, output: out }); reply(out); continue; }
+        if (!title) { no("error: give title: the page's title, a few words"); continue; }
+        if (typeof args.path !== "string" || !args.path.trim()) { no("error: give path: the page's .html file (write it first with your file tools)"); continue; }
+        if (pageRequests.length >= PAGES_PER_TURN) { no("error: at most " + PAGES_PER_TURN + " pages in one message"); continue; }
+        const before = args.id ? mine.find((x) => x.id === String(args.id)) || pageRequests.find((x) => x.id === String(args.id)) : null;
+        if (args.id && !before) { no("error: no page has that id (page list shows them); leave id out to make a new page"); continue; }
+        let r;
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + Buffer.from(JSON.stringify({ tool: "page_file", args: { path: args.path } })).toString("base64"), timeoutS: 30, tool: true, here: true }); }
+        catch (e) { r = { code: -1, output: String((e && e.message) || e) }; }
+        let file = null;
+        try { file = r && r.code === 0 ? JSON.parse(String(r.output || "")) : null; } catch { file = null; }
+        if (!file || typeof file.html !== "string") { no(String((r && r.output) || "error: the page could not be read").replace(/^(?!error: )/, "error: ").slice(0, 400)); continue; }
+        const id = before ? before.id : "p" + Math.random().toString(36).slice(2, 12).padEnd(10, "0");
+        const version = before ? (Number(before.version) || 1) + 1 : 1;
+        const note = plain(String(args.note || "")).slice(0, 200);
+        pageRequests.push({ id, title, html: file.html, version, ...(note ? { note } : {}) });
+        emit({ type: "result", id: c.id, code: 0, output: (before ? "Updated" : "Published") + " “" + title + "” (" + Math.ceil(file.size / 1024) + " KB)", label: (before ? "Updated the page “" : "Published the page “") + title + "”" });
+        emit({ type: "page", id, title, version, ...(note ? { note } : {}) });
+        reply((before ? "updated" : "published") + ": “" + title + "” (id " + id + ", version " + version + "). The owner sees a card in the chat that opens it. To change it, edit " + file.path + " and publish again with this id.");
       } else if (c.name === "helpers") {
         // GLOOPY'S HELPERS (owner, 2026-11-09; dots' background agents, Claude Code's subagents): each part of the job in
         // its own conversation on the same engine, all at once, with the file and web tools only (`helper`, from the
