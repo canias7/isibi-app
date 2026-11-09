@@ -439,3 +439,16 @@ test("CD285 (tool 4, changelog pass) Claude Code's later Bash fixes in Coder: a 
   assert.match(page, /'<pre class="cd-progress">' \+ esc\(S\.progress\.lines\.join\('\\n'\)\) \+ '<\/pre>'/);
   assert.match(page, /S\.progress = r\.data\.progress \|\| null;/);
 });
+
+test("CD290 (docs check: Claude Code's errors page) a command with a raw control character other than tab or newline is refused in Claude Code's words, never run: it would hide part of the command in the chat and on the owner's card", async () => {
+  const { commandProblem, CONTROL_REFUSED } = await import("../container/coder-checks.mjs");
+  assert.match(CONTROL_REFUSED, /^Command contains control characters that would be hidden in the approval dialog/);
+  for (const bad of ["echo a\u0001b", "echo \u001b[31mred", "echo a\rb", "rm x\u007f", "echo \u0085", "echo \u0000"]) assert.equal(commandProblem(bad), CONTROL_REFUSED, JSON.stringify(bad));
+  for (const ok of ["echo a\tb", "echo a\nb", "printf '\\033[1mhi'", "echo $'\\r'", "echo ​zero-width is no control character"]) assert.equal(commandProblem(ok), "", JSON.stringify(ok));
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const execs = [];
+  let n = 0;
+  const r = await runCoder({ send: async () => (n++ ? say("Done.") : say("", [call("bash", { command: "echo safe\rrm -rf build" }, "c1")])), exec: async (o) => { execs.push(o); return { code: 0, output: "" }; }, emit: () => {} }, { text: "go" });
+  assert.equal(r.messages.find((m) => m.tool_call_id === "c1").content, CONTROL_REFUSED);
+  assert.equal(execs.filter((x) => !x.tool).length, 0, "never run");
+});

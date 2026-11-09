@@ -46,10 +46,18 @@ const REFUSED = [
 ];
 
 /** Why this command may not run ("" when it may). */
+/**
+ * A RAW CONTROL CHARACTER IN A COMMAND (Claude Code: its Bash tool refuses "a raw control character other than a tab or
+ * newline": "Command contains control characters that would be hidden in the approval dialog"). In Coder the owner reads
+ * the command in the chat and on its card, where such a character would hide part of it.
+ */
+export const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/;
+export const CONTROL_REFUSED = "Command contains control characters that would be hidden in the approval dialog (in Coder, the chat and the owner's card show the command). Write them as escapes instead, such as printf '\\033[1m' or $'\\r'.";
 export function commandProblem(command) {
   const c = typeof command === "string" ? command : "";
   if (!c.trim()) return "the command is empty";
   if (c.length > COMMAND_HARD_MAX) return "the command is over " + COMMAND_HARD_MAX.toLocaleString("en-US") + " characters; write long files with the write tool, in several steps";
+  if (CONTROL_CHARS.test(c)) return CONTROL_REFUSED;
   for (const [re, why] of REFUSED) if (re.test(c)) return "refused: " + why;
   return "";
 }
