@@ -327,3 +327,31 @@ test("CD300 (found while preparing the live test after deploy 75) the open chat 
   assert.match(ui, /S\.bgUntold = Math\.max\(1, Number\(r\.data\.untold\) \|\| 0\);/, "a stop is told: the page waits for that turn");
   assert.match(ui, /stopBgWatch\(\); stopBgOut\(\); S\.bgOut = null; S\.bgUntold = 0;/, "another chat opened: none");
 });
+
+test("CD302 (the live test after deploy 75) read and grep open the chat's own command output (a background command's log, a long output's saved file), as Coder is told to and as Claude Code's Read opens its output files; never through a link out of those folders; nothing else outside the project, and no tool writes there", async () => {
+  const { mkdtemp: mk } = await import("node:fs/promises");
+  const proj = await mk(join(tmpdir(), "coder-proj-")), bg = await mk(join(tmpdir(), "coder-bgout-")), out = await mk(join(tmpdir(), "coder-out-")), other = await mk(join(tmpdir(), "coder-other-"));
+  await writeFile(join(bg, "bg-1.log"), "tick 1\ntick 2\nall done\n");
+  await writeFile(join(out, "abc123.txt"), Array.from({ length: 50 }, (_, i) => "row " + i).join("\n") + "\nthe needle\n");
+  await writeFile(join(other, "secret.txt"), "not for Coder\n");
+  await symlink(join(other, "secret.txt"), join(bg, "bg-2.log"));
+  const tools = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const run = (fn, args) => { try { return execFileSync("node", ["--no-warnings", "--input-type=module", "-e", "const T = await import(" + JSON.stringify(tools) + "); process.stdout.write(String(await T." + fn + "(" + JSON.stringify(args) + ")));"], { cwd: proj, encoding: "utf8", env: { ...process.env, CODER_OUTPUT_DIRS: bg + ":" + out } }); } catch (e) { return "ERROR " + String(e.stderr || e.stdout || e.message); } };
+  assert.match(run("toolRead", { path: join(bg, "bg-1.log") }), /^ +1\ttick 1\n +2\ttick 2\n +3\tall done$/, "a background command's log");
+  assert.match(run("toolRead", { path: join(out, "abc123.txt"), offset: 51, limit: 1 }), /51\tthe needle/, "a long output's saved file, a part of it");
+  assert.match(run("toolGrep", { pattern: "needle", path: join(out, "abc123.txt") }), /the needle/, "searched");
+  assert.match(run("toolRead", { path: join(bg, "bg-2.log") }), /that path leads outside the project/, "never through a link out");
+  assert.match(run("toolRead", { path: join(other, "secret.txt") }), /that path is outside the project/, "nothing else outside the project");
+  assert.match(run("toolWrite", { path: join(bg, "bg-9.log"), content: "x" }), /outside the project/, "no tool writes there");
+  assert.match(serverSrc(), /CODER_OUTPUT_DIRS: bgDir \+ ":" \+ outDir/, "the machine names the chat's two folders to its file tools");
+});
+
+test("CD303 (the live test after deploy 75) after a pause, Coder's machine wakes each kept background command's own starter too (tried for real in the admin sandbox in CD301)", async () => {
+  const S = await import("../container/server.mjs");
+  const woken = [];
+  S.wakeStarters([{ pid: 4242 }, { pid: 0 }, null, { pid: "x" }, { pid: 77 }], { cont: (pid) => woken.push(pid) });
+  assert.deepEqual(woken, [4242, 77]);
+  assert.match(serverSrc(), /resumeAI\(p\.procs, \{ boxPid: boxKept \? boxKept\.pid : 0 \}\); wakeStarters\(live\); finish\(\);/);
+  const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
+  assert.match(init, /\nwhile :; do sleep 3600 & wait \$!; done\n$/, "the sandbox's first process collects what ends in it");
+});

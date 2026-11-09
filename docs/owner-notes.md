@@ -11,10 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-09: Merged and deployed the bash work (your words: "merge and deploy"); one fix waiting
+## 2026-11-09: Merged and deployed the bash work (your words: "merge and deploy"); the live test so far, and fixes waiting
 
-- **Merged into main and deployed (deploy 75):** bash parts 1 to 3, both checks against Claude Code's docs, the last gaps, and sending messages while Coder works. The live test with Grok on gofarther.dev comes next, filmed.
-- **Found while preparing that test, fixed on the branch, not live yet:** once a background command ends, the open chat stopped checking for news, so the short turn that tells Coder it ended could stay hidden until you reload the page. The page now keeps checking until that turn has shown, after a Stop too. Test CD300. It needs your word to merge.
+- **Merged into main and deployed (deploy 75):** bash parts 1 to 3, both checks against Claude Code's docs, the last gaps, and sending messages while Coder works.
+- **Live test with Grok on gofarther.dev (recording 22), part A, the basics: all as they should be.** Every command had the chat's id and link; `cd` carried over; grep finding nothing was no failure; a long output went to a file; a failure showed its exit code; `sleep 30` and `rm -rf /usr` were refused before they ran.
+- **Part B, a background command after Coder's answer:** it kept running while Coder's turn ended and saved to GitHub, and its Output showed it going. Three problems, now fixed on the branch:
+  1. **Its end was never seen.** In Coder's admin sandbox each command is started by a helper outside the sandbox (`nsenter`). When the machine paused Coder's commands to save to GitHub, that helper paused itself too, and the resume never woke it. So it never noticed its command finish: the command stayed a "zombie", and Coder was never told it ended. The resume now wakes those helpers too. I reproduced it in a real sandbox here, then fixed it (test CD301).
+  2. **Leftover processes in the sandbox were never cleared.** The sandbox's first process (`sleep infinity`) never collects processes left behind when they end. It is now a small loop that does.
+  3. **Coder could not read the output files it is told about.** Coder is told "read that file" for a background command's log or a long output, but its read tool refused anything outside the project. read and grep may now open those two folders of the chat, read-only (test CD302).
+- **Found while preparing the test, also on the branch:** once a background command ended, the open chat stopped checking, so the short turn that tells Coder stayed hidden until you reload. The page now keeps checking until it shows (test CD300).
+- **Next:** parts D to F (your own `!` commands, sending while Coder works, the environment's switches) go on now; they don't touch these problems. The fixes need your word to merge and deploy, then I redo parts B and C. All 314 tests pass.
 
 ## 2026-11-09: Bash: the last things from Claude Code's docs (your words: "what about claude code docs , we got everything ?")
 
