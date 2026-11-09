@@ -1095,7 +1095,7 @@ test("CD236 the line over a group of steps names each kind, as Claude Code's doe
   assert.equal(groupWords([step("undo", true)]).failed, "an undo failed");
   assert.equal(groupWords([step("something-new"), step("toString")]).line, "Did 2 steps", "a kind it does not know (even one named like an object's own)");
   // The page uses it for every group, and the old words are gone.
-  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad' \}\)\)\);/);
+  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad', file: stepFile\(e\) \}\)\)\);/);
   assert.ok(!ui.includes("'a command failed'") && !ui.includes("<span class=\"cd-bad\">a command failed</span>"), "the fixed words are gone");
 });
 
@@ -1896,4 +1896,36 @@ test("CD260 a command that changes a file Coder read, and a write over it in the
   const told2 = (id) => out2.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
   assert.match(told2("w3"), /^error: mod\.txt has been modified since read/);
   assert.match(told2("w4"), /^The file mod\.txt has been updated successfully\./, "read again: allowed");
+});
+
+test("CD261 the page keeps a numbered list's own numbers, with blank lines between its items (live test, 2026-11-09: Grok's \"2) …\", \"3) …\", \"4) …\" showed as \"1.\" \"1.\" \"1.\"), and the line over a group of steps counts different files (\"Wrote 6 files\" for five, calc.py written twice), as Claude Code's does; the owner: \"Yes fix that\"", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(HERE("public/coder.js"), "utf8");
+  const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const prose = new Function("esc", grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
+  // Message 4's answer, as Grok wrote it: steps 2 to 4, a blank line between each.
+  const four = prose("All three writes succeeded. Word for word, the write tool said:\n\n2) `The file mod.txt has been updated successfully.`\n\n3) `The file mod.txt has been updated successfully.`\n\n4) `The file touch.txt has been updated successfully.`");
+  assert.equal(four, '<p>All three writes succeeded. Word for word, the write tool said:</p><ol start="2"><li><code>The file mod.txt has been updated successfully.</code></li><li><code>The file mod.txt has been updated successfully.</code></li><li><code>The file touch.txt has been updated successfully.</code></li></ol>');
+  // As Markdown numbers it: "1." each time is still 1, 2, 3; a list right after its lead line too.
+  assert.equal(prose("1) a\n\n1) b\n\n1) c"), "<ol><li>a</li><li>b</li><li>c</li></ol>");
+  assert.equal(prose("Steps:\n1. a\n2. b\n\n3. c"), "<p>Steps:</p><ol><li>a</li><li>b</li><li>c</li></ol>");
+  // A paragraph or a code block ends the list; the next one starts at its own number (message 11's answer).
+  assert.equal(prose("1) a\n\nFix write: b\n\n2) c"), '<ol><li>a</li></ol><p>Fix write: b</p><ol start="2"><li>c</li></ol>');
+  const eleven = prose("Word for word:\n\n1) `calc.py`\n\n```\n<new-diagnostics>x</new-diagnostics>\n```\n\nFix write: `calc.py`\n\n2) `app.ts`\n\n```\ny\n```\n\n3) `long.txt`\n\n4) `plain.txt`\n\n5) `tab.py`\n\nInsight: done.");
+  assert.match(eleven, /<ol><li><code>calc\.py<\/code><\/li><\/ol><pre class="cd-pre">&lt;new-diagnostics&gt;x&lt;\/new-diagnostics&gt;<\/pre><p>Fix write: <code>calc\.py<\/code><\/p><ol start="2"><li><code>app\.ts<\/code><\/li><\/ol><pre class="cd-pre">y<\/pre><ol start="3"><li><code>long\.txt<\/code><\/li><li><code>plain\.txt<\/code><\/li><li><code>tab\.py<\/code><\/li><\/ol><p>Insight: done\.<\/p>/);
+  // Bullets as before; nothing but a number goes into start.
+  assert.equal(prose("- a\n- b"), "<ul><li>a</li><li>b</li></ul>");
+  assert.doesNotMatch(prose('7) <b onmouseover="x">'), /<b |onmouseover="/);
+  assert.match(prose("7) x"), /^<ol start="7"><li>x<\/li><\/ol>$/);
+  // THE GROUP LINE: a file counted once (Claude Code: `readFilePaths`, a set, for "Read N files").
+  const stepFile = new Function("return " + grab("stepFile").trim())();
+  const groupWords = new Function("return " + grab("groupWords").trim())();
+  const step = (tool, command, failed = false) => ({ tool, failed, file: stepFile({ tool, command }) });
+  assert.equal(groupWords(["calc.py", "calc.py", "app.ts", "long.txt", "plain.txt", "tab.py"].map((f) => step("write", f))).line, "Wrote 5 files");
+  assert.equal(groupWords([step("read", "part.txt"), step("read", "part.txt from line 1112"), step("read", "a.pdf pages 1-5"), step("read", "a.pdf (@-mentioned)")]).line, "Read 2 files");
+  assert.equal(groupWords([step("", "ls"), step("", "ls"), step("read", "a.js"), step("edit", "a.js"), step("edit", "a.js"), step("write", "b.js")]).line, "Ran 2 commands, read 1 file, edited 1 file, wrote 1 file", "commands count each time; a file once for each kind");
+  assert.equal(groupWords([step("edit", "a.js", true), step("edit", "a.js")]).failed, "an edit failed", "what failed is still each step");
+  assert.equal(stepFile({ tool: "bash", command: "cat a.js" }), "");
+  assert.equal(stepFile({ tool: "read", command: "notes from line 5.txt" }), "notes from line 5.txt", "only an ending the page adds is taken off");
 });

@@ -11,6 +11,19 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: The page: numbered lists keep their numbers; the group line counts files (your words: "Yes fix that")
+
+- **Numbered lists:** Grok numbered its answer's items "2)", "3)", "4)" (your steps 2 to 4), with a blank line between each. The page drew each one as its own list starting at 1, so it showed "1." "1." "1." and lost the real numbers.
+  - Now a list keeps its own numbers.
+  - Items with blank lines between them are one list, as Markdown has it everywhere else.
+  - A paragraph or a block of code between items still ends the list, and the next item keeps its own number.
+- **The line over a group of steps:** it counted steps, so it said "Wrote 6 files" when calc.py was written twice (five files).
+  - Now each file counts once, for each kind: "Wrote 5 files".
+  - A file read in parts also counts once ("Read 1 file").
+  - Claude Code does the same: its program keeps a set of the files read and counts that.
+  - Commands still count each time.
+- Test CD261 (fails on the old page); all tests pass.
+
 ## 2026-11-09: Write, live in the browser after deploy 70 (your words: "merge deploy and then put everything live and test everything with a browser and check for mistakes and everything. Every single thing on the write tool")
 
 - **Merged and deployed (deploy 70), then tested live** on gofarther.dev with Grok, filmed (recording 17, in two parts):
@@ -43,9 +56,7 @@ log (81,000 lines) is in git history.
   - **The folder message** named the folder with the machine's full path ("/data/work/testingforclaude-kd8cssav/afolder is a directory …"). Every other write message names the file the way Grok gave it, so now it's "afolder is a directory …". Test CD251.
   - All 269 tests pass, and the 24 real read checks.
 - **Not live yet:** both fixes need a merge and deploy, then message 4 again in the browser.
-- **Outside write (your call):**
-  - the page shows a numbered list Grok writes with blank lines between its items as "1. 1. 1.";
-  - the line over a group of steps counts writes, not files: "Wrote 6 files" when calc.py was written twice (five files).
+- **Outside write:** a numbered list shown as "1. 1. 1.", and "Wrote 6 files" for five files. You said fix them; done (the entry above).
 
 ## 2026-11-09: Write: the two extras (your words: "can we do those small optional extras that you said? Yeah, I want it")
 
