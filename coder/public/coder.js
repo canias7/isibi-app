@@ -733,27 +733,32 @@
     // Grok wrote "2) …", "3) …", "4) …" for the owner's steps 2 to 4, a blank line between each, and the page showed
     // "1." "1." "1."; the owner: "Yes fix that"). As Markdown has it (CommonMark): a list starts at its first item's
     // number, and an item after a blank line carries the list on; a paragraph or a code block between them ends it.
-    const ol = (lines) => {
-      const items = lines.map((l) => '<li>' + inline(l.replace(/^\s*\d{1,3}[.)]\s+/, '')) + '</li>');
+    // A LINE WITH NO MARK OF ITS OWN CARRIES ON THE ITEM ABOVE IT (the live retest after deploy 71: Grok's "5) `…`" with
+    // two more lines under it showed "5)" as plain text, as a block was a list only when every line had a mark).
+    const list = (kind, items, start) => {
       const last = out[out.length - 1];
-      if (last && typeof last === 'object') last.items.push(...items);
-      else out.push({ start: parseInt(/^\s*(\d{1,3})/.exec(lines[0])[1], 10), items });
+      if (kind === 'ol' && last && typeof last === 'object') last.items.push(...items);
+      else if (kind === 'ol') out.push({ start, items });
+      else out.push('<ul>' + items.map((x) => '<li>' + x + '</li>').join('') + '</ul>');
     };
+    const bullet = /^\s*[-*•]\s+/, num = /^\s*(\d{1,3})[.)]\s+/;
     for (const block of String(text).trim().split(/\n{2,}/)) {
       const lines = block.split('\n');
-      const bullet = (l) => /^\s*[-*•]\s+/.test(l), num = (l) => /^\s*\d{1,3}[.)]\s+/.test(l);
-      if (lines.every(bullet)) out.push('<ul>' + lines.map((l) => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>');
-      else if (lines.every(num)) ol(lines);
-      else if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) out.push('<h4>' + inline(lines[0].replace(/^#{1,4}\s+/, '')) + '</h4>');
-      else {
-        // A paragraph followed by its own list (no blank line between them).
-        const first = lines.findIndex((l) => bullet(l) || num(l));
-        if (first > 0 && lines.slice(first).every(bullet)) { out.push('<p>' + lines.slice(0, first).map(inline).join('<br>') + '</p>'); out.push('<ul>' + lines.slice(first).map((l) => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>'); }
-        else if (first > 0 && lines.slice(first).every(num)) { out.push('<p>' + lines.slice(0, first).map(inline).join('<br>') + '</p>'); ol(lines.slice(first)); }
-        else out.push('<p>' + lines.map(inline).join('<br>') + '</p>');
+      if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) { out.push('<h4>' + inline(lines[0].replace(/^#{1,4}\s+/, '')) + '</h4>'); continue; }
+      // A paragraph, or one followed by its own list (no blank line between them).
+      const first = lines.findIndex((l) => bullet.test(l) || num.test(l));
+      if (first !== 0) out.push('<p>' + lines.slice(0, first < 0 ? lines.length : first).map(inline).join('<br>') + '</p>');
+      if (first < 0) continue;
+      let kind = '', items = [], from = 1;
+      for (const l of lines.slice(first)) {
+        const k = num.test(l) ? 'ol' : bullet.test(l) ? 'ul' : '';
+        if (!k) { items[items.length - 1] += '<br>' + inline(l.trim()); continue; }
+        if (k !== kind) { if (items.length) list(kind, items, from); kind = k; items = []; from = k === 'ol' ? parseInt(num.exec(l)[1], 10) : 1; }
+        items.push(inline(l.replace(k === 'ol' ? num : bullet, '')));
       }
+      list(kind, items, from);
     }
-    return out.map((x) => (typeof x === 'object' ? '<ol' + (x.start === 1 ? '' : ' start="' + x.start + '"') + '>' + x.items.join('') + '</ol>' : x)).join('');
+    return out.map((x) => (typeof x === 'object' ? '<ol' + (x.start === 1 ? '' : ' start="' + x.start + '"') + '>' + x.items.map((i) => '<li>' + i + '</li>').join('') + '</ol>' : x)).join('');
   }
   function prose(t) {
     const parts = String(t || '').split(/```[a-zA-Z0-9_-]*\n?/);
