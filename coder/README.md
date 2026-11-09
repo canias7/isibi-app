@@ -301,6 +301,26 @@ code in **each user's own GitHub**.
    plan is approved with "Yes, and use auto mode" or "Yes, and accept edits", and
    Coder goes on in the same job. Protected files, very long commands and, outside
    Auto, dangerous removals use the same card. Tests: `test/permissions.test.mjs`.
+
+   **Three more of Claude Code's Bash behaviors** (owner, 2026-11-09: "Yes do that"),
+   each turned on by the environment's variables under Coder's names:
+   - The **5 GB stop** holds in the background too: the machine counts each command's
+     output as it passes and kills one past 5 GB (exit 137), with Claude Code's line
+     "Command killed: output file exceeded 5GB" at the end of its output (`SIZE_KILLED`).
+   - **`CODER_TOOL_MEMORY_LIMIT`** (Claude Code's `CLAUDE_CODE_TOOL_MEMORY_LIMIT`, e.g.
+     `4G`; `0`/`off` turns it off): one memory cgroup per chat (`coder-bash-<project>`,
+     made as Claude Code makes its own, `toolMemoryCgroup`), and every command of the
+     AI's and the owner's `!` starts in it through Claude Code's `sh` wrapper
+     (`CG_WRAP`). No cap when it cannot be set up; the machine's log says why.
+   - **`CODER_BASH_EDIT_DIFF=1`** (Claude Code's `CLAUDE_CODE_BASH_EDIT_DIFF`): the files
+     a foreground command changed, under its step ("Updated src/cart.js +1 −1" with its
+     lines; up to 5 files, the others by name). Taken before and after the command by
+     the tools script (`snap`, `snapdiff`), as the AI's user, with a private index and
+     object folder, so root's git folder is only read. None for a read-only command,
+     one in the background, or a git command that moves the work tree.
+   Whatever root starts for the AI's commands is named in full (`NSENTER`, `SETPRIV`
+   in `container/coder-room.mjs`): the AI's PATH starts with folders the AI can write.
+   Tests: `test/bash-last3.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.

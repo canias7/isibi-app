@@ -842,6 +842,8 @@
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
       stepChange(r, key) +
+      // THE FILES A COMMAND CHANGED, under its step (Claude Code's bashEditDiff, with CODER_BASH_EDIT_DIFF on).
+      stepFiles(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
       (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
@@ -884,6 +886,33 @@
         : open && all.length > CHANGE_FIRST ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show less</button>' : '') +
       (open && more ? '<p class="cd-wchg-note">' + more + ' more line' + (more === 1 ? '' : 's') + ' not shown here: See changes has the whole file.</p>' : '') +
     '</div>';
+  }
+  /**
+   * THE FILES A COMMAND CHANGED, AS CLAUDE CODE SHOWS THEM AFTER THE COMMAND (tool 4, the owner, 2026-11-09: "Yes do that i
+   * thought we did that"; its settings: "you see their diff in the terminal after the command"): "Updated src/app.js +3 −1",
+   * "Created …", "Deleted …", each with its lines folded as a write's are (stepChange), then the other files it changed, by
+   * name, and a note when the list is incomplete. Only text, never markup.
+   */
+  function stepFiles(r, key) {
+    const d = r && r.files && typeof r.files === 'object' ? r.files : null;
+    if (!d) return '';
+    const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+    const list = (Array.isArray(d.files) ? d.files : []).filter((f) => f && typeof f.path === 'string').slice(0, 5);
+    const others = (Array.isArray(d.others) ? d.others : []).filter((x) => typeof x === 'string').slice(0, 50);
+    const moreFiles = Math.max(n(d.moreFiles), others.length);
+    if (!list.length && !moreFiles) return '';
+    const rows = list.map((f, i) => {
+      const verb = f.kind === 'create' ? 'Created' : f.kind === 'delete' ? 'Deleted' : 'Updated';
+      const counts = f.binary ? '<span class="cd-fchg-bin">binary</span>' : '<span class="cd-wcount">' + (f.kind !== 'delete' ? '<span class="cd-add">+' + n(f.add) + '</span>' : '') + (f.kind !== 'create' ? '<span class="cd-del">−' + n(f.del) + '</span>' : '') + '</span>';
+      // (A new file's lines as a write shows them: without git's "@@ -0,0 +1,N @@" line.)
+      const lines = (Array.isArray(f.lines) ? f.lines : []).filter((l) => typeof l === 'string' && !(f.kind === 'create' && /^@@ /.test(l)));
+      const body = f.binary || !lines.length ? '' : stepChange({ change: { kind: f.kind === 'create' ? 'create' : 'update', lines, ...(n(f.more) ? { more: n(f.more) } : {}) } }, key + ':f' + i);
+      return '<div class="cd-fchg"><p class="cd-fchg-head"><b>' + verb + '</b> <code>' + esc(f.path) + '</code>' + counts + '</p>' + body + '</div>';
+    }).join('');
+    const named = others.slice(0, 10);
+    const rest = moreFiles ? '<p class="cd-fchg-note">' + (named.length ? 'Also changed: ' + named.map((x) => '<code>' + esc(x) + '</code>').join(', ') + (moreFiles > named.length ? ' and ' + (moreFiles - named.length) + ' more' : '') : moreFiles + ' more file' + (moreFiles === 1 ? '' : 's') + ' changed') + '</p>' : '';
+    const note = d.unavailable ? '<p class="cd-fchg-note">Some of what it changed could not be shown here: See changes has it all.</p>' : '';
+    return '<div class="cd-files">' + rows + rest + note + '</div>';
   }
   /** "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them). */
   function stepProblems(r, key) {

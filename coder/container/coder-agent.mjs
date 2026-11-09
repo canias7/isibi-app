@@ -27,7 +27,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved } from "./coder-perms.mjs";
+import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -53,6 +53,36 @@ export const noCwdMarks = (s) => String(s).replace(/\n\u001eCODER-CWD-[0-9a-f]{1
  * changed, the owner's saved pictures): those name files from the project's folder; while Grok's commands are in another
  * folder, by their full path instead, so a short path never counts from the wrong place.
  */
+/**
+ * THE FILES A COMMAND CHANGED, FOR THE OWNER (tool 4; Claude Code's bashEditDiff: "you see their diff in the terminal after
+ * the command"): what the machine's snapdiff found, as the page shows it under the command's step: each diffed file by its
+ * name in the project (the full path for another repository), with its kind, counts and lines (no secrets), and the names
+ * of the other changed files. null when nothing is to be shown (Claude Code shows nothing for a diff that could not be
+ * taken and lists no file).
+ */
+export function changedShown(d, deps = {}) {
+  if (!d || typeof d !== "object") return null;
+  const root = typeof deps.root === "string" ? deps.root : "";
+  const say = (p) => scrub(root && String(p).startsWith(root + "/") ? String(p).slice(root.length + 1) : String(p)).slice(0, 500);
+  const int = (n) => (Number.isInteger(n) && n > 0 ? n : 0);
+  const changed = (Array.isArray(d.changedFiles) ? d.changedFiles : []).filter((x) => typeof x === "string" && x).slice(0, 200);
+  if (!changed.length) return null;
+  const files = (Array.isArray(d.files) ? d.files : []).filter((f) => f && typeof f.path === "string").slice(0, 5).map((f) => ({
+    path: say(f.path), kind: ["create", "update", "delete"].includes(f.kind) ? f.kind : "update", add: int(f.add), del: int(f.del),
+    lines: (Array.isArray(f.lines) ? f.lines : []).filter((l) => typeof l === "string").slice(0, 400).map((l) => scrub(l).slice(0, 2000)),
+    ...(int(f.more) ? { more: int(f.more) } : {}), ...(f.binary === true ? { binary: true } : {}),
+  }));
+  const shown = new Set(files.map((f) => f.path));
+  const others = changed.map(say).filter((x) => !shown.has(x));
+  return { files, others: others.slice(0, 50), moreFiles: Math.max(int(d.moreFiles), others.length), ...(d.unavailable === true ? { unavailable: true } : {}) };
+}
+/** The chat's repository a command starts in (the project's, or another of the chat's), or "". */
+export function workRootOf(deps) {
+  const roots = [deps && deps.root, ...(deps && Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
+  const here = deps && typeof deps.here === "function" ? deps.here() : roots[0];
+  return roots.find((x) => here === x || String(here || "").startsWith(x + "/")) || "";
+}
+const jsonOf = (s) => { try { const v = JSON.parse(String(s || "")); return v && typeof v === "object" ? v : null; } catch { return null; } };
 export function sayPath(deps, p) {
   const root = deps && typeof deps.root === "string" ? deps.root : "";
   const here = root && typeof deps.here === "function" ? deps.here() : root;
@@ -262,6 +292,11 @@ export const lostNote = (list) => "The machine running this chat was restarted b
 export const BG_NO_OUTPUT = "No output had been read from it when it was moved. A program that buffers its output, or a pipe into one such as tail, can keep the output file empty until the command finishes.";
 /** What Coder is told with one stopped at its time limit (Claude Code's words). */
 export const BG_DEADLINE = "If the work in progress still needs it, start it again with `run_in_background` and a longer `timeout`. If it already had the longest `timeout` allowed, do not restart it. Either way, report that it was stopped. The longest `timeout` allowed in this session is 7200000 ms (120 minutes).";
+/**
+ * What Coder is told with one stopped because its output passed 5 GB (Claude Code kills it, exit code 137, and its stderr
+ * says "Command killed: output file exceeded 5GB").
+ */
+export const BG_SIZE_NOTE = "Command killed: output file exceeded 5GB (exit code 137). Its output file holds everything it printed up to then: read only its end (tail), never all of it. If the work still needs the command, run it again so that it prints less (send what you need to a file, or filter it with grep or tail).";
 /** The same, with this chat's longest timeout in the background. */
 const bgDeadline = (maxMs) => BG_DEADLINE.replace("7200000 ms (120 minutes)", Math.round(maxMs) + " ms (" + Math.round(maxMs / 60000) + " minutes)");
 /**
@@ -274,19 +309,21 @@ export function bgEndNotice({ id = "", desc = "", command = "", log = "", code =
   // An exit code 1 that is no failure for its command (grep's no match: Claude Code 2.1.280) is said as Claude Code says it.
   const benign = Number.isInteger(code) && code !== 0 && command ? exitMeaning(String(command), code) : null;
   const said = why === "limit" ? name + " was stopped after reaching its background time limit"
+    : why === "size" ? name + " was stopped: its output passed 5 GB"
     : why === "owner" || why === "lost" ? name + " was stopped"
     : code === 0 ? name + " completed (exit code 0)"
     : benign && !benign.isError ? name + " completed (exit code " + code + (benign.message ? ": " + benign.message : "") + ")"
     : Number.isInteger(code) ? name + " failed with exit code " + code
     : name + " ended";
   const more = why === "limit" ? " The command was stopped after reaching its background time limit. " + bgDeadline(bgMaxMs)
+    : why === "size" ? " " + BG_SIZE_NOTE
     : why === "owner" ? " The owner stopped it before it completed."
     : why === "lost" ? " Coder's machine had to stop it before it completed (its commands could not be paused while the machine worked on the files). Start it again only if the work still needs it."
     : "";
   const where = log ? " Its output is in " + log + (id ? " (ID: " + id + ")" : "") + "." : id ? " (ID: " + id + ")." : "";
   // FOR THE PAGE: the step that started it shows how it ended (✓, a failure's exit code, or stopped), not "running".
-  const ok = why !== "limit" && why !== "owner" && why !== "lost" && (code === 0 || !!(benign && !benign.isError));
-  const label = why === "limit" ? "time limit" : why === "owner" || why === "lost" ? "stopped" : ok ? "" : Number.isInteger(code) ? "exit " + code : "ended";
+  const ok = why !== "limit" && why !== "size" && why !== "owner" && why !== "lost" && (code === 0 || !!(benign && !benign.isError));
+  const label = why === "limit" ? "time limit" : why === "size" ? "over 5 GB" : why === "owner" || why === "lost" ? "stopped" : ok ? "" : Number.isInteger(code) ? "exit " + code : "ended";
   return { said, note: said + "." + more + where, end: { ok, label } };
 }
 /**
@@ -821,7 +858,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -894,6 +931,29 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // THE OWNER'S OWN COMMAND (Claude Code's shell mode, "! npm test"): run as Coder's commands are (in the chat's folder, a cd
   // carries over, past its timeout moved to the background), with no check of Coder's (Claude Code: it "doesn't require Claude
   // to interpret or approve the command"); the chat shows it and what it printed, and Coder answers it.
+  // THE FILES A COMMAND CHANGES (Claude Code's bashEditDiff, here with the environment's CODER_BASH_EDIT_DIFF on: Claude Code
+  // records them in every mode when its setting turns that on, and otherwise only when it has Claude edit files through Bash,
+  // which Coder never does): the command's repository is taken before it runs and again after, and the owner sees what
+  // changed under its step. Never for one in the background or one that only reads ("Background commands and read-only
+  // commands carry no diff"), nor for a git command that moves the work tree (Claude Code's `skipped`). After two snapshots
+  // that failed, none for the rest of the job (as Claude Code stops for that repository).
+  let diffFails = 0;
+  const snapBefore = async (command) => {
+    if (editDiff !== true || diffFails >= 2 || wholeReadOnly(command) || movesWorkTree(command)) return "";
+    const root = workRootOf(deps);
+    if (!root) return "";
+    const s0 = jsonOf((await appTool(deps, "snap", { root })).output);
+    if (s0 && typeof s0.id === "string") return s0.id;
+    if (!s0 || s0.why !== "not a git repository") diffFails++;
+    return "";
+  };
+  const snapAfter = async (id, keep) => {
+    if (!id) return null;
+    if (!keep) { await appTool(deps, "snap", { drop: id }); return null; }
+    const d = jsonOf((await appTool(deps, "snapdiff", { id })).output);
+    if (!d || (d.unavailable === true && !(Array.isArray(d.changedFiles) && d.changedFiles.length))) { diffFails++; return null; }
+    return changedShown(d, deps);
+  };
   let shellQuiet = false;
   if (typeof shell === "string" && shell.trim()) {
     const command = shell.trim();
@@ -901,10 +961,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     emit({ type: "user", text: "! " + command, shell: true });
     emit({ type: "bash", id: sid, command: scrub(command).slice(0, 2000), verb: "You ran", by: "owner", ...(noBg === true ? { noBg: true } : {}) });
     let r;
+    const snapId = await snapBefore(command);
     try { r = await deps.exec({ command, timeoutS: fgMaxS, here: true, follow: true, desc: "! " + command.split("\n")[0].slice(0, 120) }); }
     catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
     const code = r && Number.isInteger(r.code) ? r.code : -1;
     const bg = !!(r && r.background);
+    const files = await snapAfter(snapId, !bg && !(r && r.notStarted));
     const said = !bg ? "" : (r.byUser ? "Command was manually backgrounded by user with ID: " + (typeof r.jobId === "string" ? r.jobId : "?") : "Command did not complete within its " + fgMaxS + "s timeout and was moved to the background (ID: " + (typeof r.jobId === "string" ? r.jobId : "?") + ")") + ". Output is being written to: " + r.log + ". You will be notified when it completes.";
     const printed = scrub(noCwdMarks(String((r && r.output) || "")));
     // CODER ANSWERS IT (Claude Code: "Claude responds to the command output automatically"), unless the environment's
@@ -915,7 +977,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     for (const m of shellMessages(command, { output: printed, code: bg ? 0 : code, background: said })) convo.push(m);
     if (bg && r.pid && r.log && typeof r.jobId === "string") jobs.set(r.jobId, { pid: r.pid, log: r.log, command, desc: "! " + command.split("\n")[0].slice(0, 120), at: now(), moved: true, cwd: "", done: false });
     const shownOut = (printed.replace(/\n+$/, "") || (bg ? "" : "(no output)")) + (said ? (printed ? "\n" : "") + said : "") + (!bg && code !== 0 ? "\nExit code " + code : "");
-    emit({ type: "result", id: sid, code, output: shownOut.length > MAX_OUTPUT_CHARS ? capOutput(shownOut) : shownOut, ...(bg ? { background: true } : {}), ...(r && typeof r.cwdTold === "string" ? { cwd: r.cwdTold } : {}) });
+    emit({ type: "result", id: sid, code, output: shownOut.length > MAX_OUTPUT_CHARS ? capOutput(shownOut) : shownOut, ...(bg ? { background: true } : {}), ...(r && typeof r.cwdTold === "string" ? { cwd: r.cwdTold } : {}), ...(files ? { files } : {}) });
   }
   if (typeof text === "string" && text.trim()) {
     convo.push({ role: "user", content: text.trim(), ...(pics.length ? { images: pics.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
@@ -1191,8 +1253,10 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // ITS TIME LIMIT IN THE BACKGROUND (Claude Code in the cloud: the `timeout` given with run_in_background, up to 2 hours;
         // else 30 minutes): the machine stops it then, and Coder is told.
         const limitMs = !inBg ? 0 : Number(c.args.timeout) > 0 ? Number(c.args.timeout) : Number(c.args.timeout_s) > 0 ? Number(c.args.timeout_s) * 1000 : 0;
+        const snapId = inBg ? "" : await snapBefore(command);
         try { r = await deps.exec({ command, timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
+        const files = await snapAfter(snapId, !(r && (r.background || r.notStarted)));
         // What the result says about the folder, as Claude Code's do ("Shell cwd was reset to …", "Session cwd remains …"),
         // and, for Grok only, where its commands now start (as Claude Code tells Claude its working directory).
         const cwdSaid = r && typeof r.cwdNote === "string" ? r.cwdNote : "", cwdTold = r && typeof r.cwdTold === "string" ? r.cwdTold : "";
@@ -1237,7 +1301,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (r && typeof r.diskNote === "string" && r.diskNote) text += "\n\n" + r.diskNote;
         if (!bg && ghRateLimited(command, r && r.output)) text += "\n\n(Note from Coder's app: " + GH_RATE_HINT + ")";
         if (r && typeof r.netNote === "string" && r.netNote) text += "\n\n" + r.netNote;
-        emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}) });
+        emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).
         let viewed = "";

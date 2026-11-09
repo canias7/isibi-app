@@ -408,6 +408,34 @@ export function fileCommandTargets(cmd, cwd) {
 }
 
 // ── THE WHOLE COMMAND ────────────────────────────────────────────────────────
+/**
+ * A COMMAND THAT ONLY READS, AS A WHOLE (for the files a command changed: Claude Code, "Background commands and read-only
+ * commands carry no diff"): it could be read through, writes no file by a redirection or tee, and each of its commands only
+ * reads.
+ */
+export function wholeReadOnly(command) {
+  const r = readCommand(command);
+  return r.ok && !r.writes.length && r.cmds.length > 0 && r.cmds.every((c) => commandReadOnly(c));
+}
+/**
+ * GIT COMMANDS THAT MOVE THE WORK TREE (Claude Code 2.1.319's own list; its hooks reference: "Set for a Git command that moves
+ * the working tree, such as `git checkout` or `git stash`, so Claude Code takes no diff"): whether the command runs one,
+ * anywhere in it (after sudo and git's own options such as -C).
+ */
+export const GIT_MOVES = ["checkout", "switch", "stash", "pull", "merge", "rebase", "reset", "restore", "clean", "cherry-pick", "revert"];
+const GIT_TAKES_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env", "--super-prefix"]);
+export function movesWorkTree(command) {
+  const r = parseShell(String(command || ""));
+  if (!r.ok) return new RegExp("\\bgit\\b[^\\n;&|]*\\b(" + GIT_MOVES.join("|") + ")\\b").test(String(command || ""));
+  return r.commands.some((c) => {
+    const w = unwrapped(c.words).map((x) => x.text);
+    if (basename(w[0] || "") !== "git") return false;
+    let k = 1;
+    while (k < w.length && w[k].startsWith("-") && w[k] !== "--") { if (GIT_TAKES_VALUE.has(w[k])) k++; k++; }
+    return GIT_MOVES.includes(w[k] || "");
+  });
+}
+
 const NO_FILE = new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"]);
 /**
  * A command, read the way Claude Code's checks read it: `{ ok, cmds, writes, reads, cdTo, cdAway }`. `cmds`: every simple

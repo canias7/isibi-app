@@ -125,6 +125,15 @@
 .cd-wchg-more { display: block; width: 100%; border: 0; border-top: 1px solid #efece7; background: #fff; padding: 6px 12px; font: 500 12.5px Inter, system-ui, sans-serif; color: #0f766e; cursor: pointer; text-align: left; }
 .cd-wchg-more:hover { background: #f7f5f1; }
 .cd-wchg-note { margin: 0; padding: 6px 12px; border-top: 1px solid #efece7; font-size: 12.5px; color: #6b7280; }
+/* THE FILES A COMMAND CHANGED (Claude Code's "Updated path (+N -M)" after the command), each with its lines below. */
+.cd-files { margin: 0 0 8px 21px; }
+.cd-fchg-head { margin: 2px 0 4px; font-size: 13px; color: #374151; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.cd-fchg-head b { font-weight: 600; color: #1f2937; }
+.cd-fchg-head code { font: 12.5px "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #1f2937; overflow-wrap: anywhere; }
+.cd-fchg-bin { margin-left: 6px; font-size: 12px; color: #6b7280; }
+.cd-files .cd-wchg { margin-left: 0; }
+.cd-fchg-note { margin: 2px 0 6px; font-size: 12.5px; color: #6b7280; }
+.cd-fchg-note code { font: 12px "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; }
 /* THE NEW PROBLEMS A WRITE MADE (the owner, 2026-11-09): one line under the step, the list a tap away. */
 .cd-probs { margin: -2px 0 8px 21px; }
 .cd-probs-row { display: inline-flex; align-items: center; gap: 10px; border: 1px solid #f3d9a4; background: #fffaf0; color: #92400e; border-radius: 999px; padding: 3px 12px; font: 500 12.5px Inter, system-ui, sans-serif; cursor: pointer; }

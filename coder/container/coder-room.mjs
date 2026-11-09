@@ -71,8 +71,15 @@ export function gateForApt(address, { dir = GATE_DIR } = {}) {
 }
 
 /** `nsenter`'s arguments to run `command` in the room as the AI's user (who has no rights over the room's network). */
+/**
+ * WHAT ROOT STARTS FOR THE AI'S COMMANDS, BY FULL NAME (2026-11-09, found while adding the memory cap): a program named alone
+ * is looked up in the PATH it is started with, and the AI's commands are started with the AI's PATH, whose first folders
+ * (~/.local/bin and others) the AI's user can write. So a program of the AI's called nsenter or setpriv there would have been
+ * started by root, as root. Root's own programs are named in full; the command itself is found after it became the AI's user.
+ */
+export const NSENTER = "/usr/bin/nsenter", SETPRIV = "/usr/bin/setpriv";
 export function roomArgs(uid, gid, command, ns = ROOM_NS) {
-  return ["--net=" + ns, "--", "setpriv", "--reuid=" + uid, "--regid=" + gid, "--clear-groups", "--", "bash", "-c", command];
+  return ["--net=" + ns, "--", SETPRIV, "--reuid=" + uid, "--regid=" + gid, "--clear-groups", "--", "bash", "-c", command];
 }
 
 /** Waits for a child to print a line (or give up). */

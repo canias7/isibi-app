@@ -230,7 +230,7 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(mod, /"ro,X-mount\.idmap=b:0:" \+ SBX_BASE \+ ":" \+ SBX_RANGE/, "the base: read-only");
   // THE SERVICE.
   const s = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(s, /const p = box && uid !== null\n\s+\? spawn\("nsenter", sandboxArgs\(box\.pid, dir, command\), \{ cwd: "\/", env, detached: true, stdio: \["ignore", "pipe", "pipe"\] \}\)/, "a command in it");
+  assert.match(s, /const p = box && uid !== null\n\s+\? run\(NSENTER, sandboxArgs\(box\.pid, dir, command\), \{ cwd: "\/", env, detached: true, stdio: \["ignore", "pipe", "pipe"\] \}\)/, "a command in it (nsenter by its full name)");
   assert.match(s, /export function killUser\(uid = RUN_UID, gid = RUN_GID\) \{\n\s+\/\/[^\n]*\n\s+if \(BOX\) \{ BOX\.stop\(\); BOX = null; \}/, "ended wherever the AI's commands are (before root's git, at a job's end, at the next job)");
   assert.match(s, /if \(t\.room && !BOX\) BOX = await openBox\(\);\n\s+t\.box = t\.room \? BOX : null;/, "only in the room (one kept from the last message, while a background command of its runs in it, is used again)");
   assert.match(s, /const binds = \[\{ src: root, mode: "rw", mine: true \}, \.\.\.\(home \? \[\{ src: home, mode: "rw", mine: true \}\] : \[\]\), \{ src: memRoot, mode: "rw", mine: true \}, \{ src: gitRoot, mode: "ro" \}, \{ src: bgRoot, mode: "ro" \}, \{ src: proxyDir, mode: "ro" \}\];/, "what it is shown");

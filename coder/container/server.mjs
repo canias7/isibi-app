@@ -23,7 +23,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync } from "node:fs";
+import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
@@ -31,7 +31,7 @@ import { normMode, MODES } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
-import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt } from "./coder-room.mjs";
+import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
@@ -83,6 +83,13 @@ const shellWord = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
  */
 export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 * 1024 ** 3, READ_BACK_KEEP = 40_000;
 /**
+ * THE 5 GB STOP, IN THE FOREGROUND AND IN THE BACKGROUND (Claude Code 2.1.319: a running or backgrounded command's output
+ * file is looked at every 5 seconds; past 5 GB the command is killed, exit code 137, with this line in its stderr; its docs:
+ * "Background tasks are stopped if their output exceeds 5 GB, with a note in stderr explaining why"). Every byte of a
+ * command's output passes through this service, so here it is counted as it passes.
+ */
+export const SIZE_KILLED = "Command killed: output file exceeded 5GB";
+/**
  * THE SHELL'S STARTUP FILE, AS CLAUDE CODE TAKES IT (tool 4, docs pass 2; its tools reference: "Aliases and shell functions
  * defined in your shell startup file are available. At session start, Claude Code sources ~/.zshrc, ~/.bashrc, or ~/.profile
  * depending on your shell, captures the resulting aliases, functions, and shell options, and applies them to every Bash
@@ -126,7 +133,7 @@ export const BG_EXITS = new Map();
  * BACKGROUND COMMANDS THAT OUTLIVE THE ANSWER (tool 4, the owner, 2026-11-09: "do all of those"; Claude Code: one "keeps
  * running after a final response, until it exits, is stopped, or reaches its time limit", and Claude is told when it
  * ends). Every background command on this machine, by its process group: { project, id, pid, log, command, desc, cwd, at,
- * moved, deadline, box, end: null | { code, why: "exit" | "limit" | "owner" | "coder" | "lost", at }, told, stopping }.
+ * moved, deadline, box, end: null | { code, why: "exit" | "limit" | "size" | "owner" | "coder" | "lost", at }, told, stopping }.
  * THE TIME LIMIT (Claude Code 2.1.285 and 2.1.288, in the cloud: "their `timeout` with `run_in_background`, default 30 min,
  * max 2 h"; "A moved command gets 30 minutes from the move"): then it is stopped and Coder is told.
  */
@@ -173,6 +180,77 @@ export function bashOutputLimits(vars = {}) {
 export const varOn = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
 /** A no, the same way ("0", "false", "no", "off"). */
 export const varOff = (v) => /^(0|false|no|off)$/i.test(String(v ?? "").trim());
+/**
+ * THE MEMORY CAP FOR THE CHAT'S COMMANDS (tool 4, the owner, 2026-11-09: "Yes do that"; Claude Code's
+ * CLAUDE_CODE_TOOL_MEMORY_LIMIT, under Coder's name CODER_TOOL_MEMORY_LIMIT in the environment's variables; its tools
+ * reference: "set … to a size such as `4G` to cap the memory that Bash … tool commands can use, so one runaway build can't
+ * take the memory the rest of the session needs"). The size as Claude Code 2.1.319 reads it: plain digits for bytes, or with
+ * a K, M, G or T suffix, 1024 each ("4GB", "4GiB" and "1.5G" too); "0", "off", "false", "no" or "none" turn the cap off;
+ * anything else it can't read as a size (such as 4e9) is ignored. `{ bytes }` (0: off), or null (unset or ignored).
+ */
+export function memorySize(value) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (!v) return null;
+  if (["0", "false", "no", "off", "none"].includes(v)) return { bytes: 0 };
+  const m = /^(\d+(?:\.\d+)?)\s*([kmgt]?)(?:i?b)?$/i.exec(v);
+  if (!m) return null;
+  const n = Math.floor(Number(m[1]) * 1024 ** " kmgt".indexOf(m[2] || " "));
+  return n >= 1 ? { bytes: n } : null;
+}
+/**
+ * Where this machine's memory cgroups are, found as Claude Code finds them in /proc/self/cgroup: the cgroup v1 hierarchy
+ * holding the memory controller, else cgroup v2's (the "0::" line). `{ mountRoot, path, v2 }`, or null.
+ */
+export function cgroupLayout(text) {
+  let unified;
+  for (const line of String(text || "").split("\n")) {
+    const [id, ctrls, ...rest] = line.split(":");
+    if (ctrls === undefined || !rest.length) continue;
+    const path = rest.join(":");
+    if (ctrls.split(",").includes("memory")) return { mountRoot: "/sys/fs/cgroup/memory", path, v2: false };
+    if (id === "0" && ctrls === "") unified = path;
+  }
+  return unified === undefined ? null : { mountRoot: "/sys/fs/cgroup", path: unified, v2: true };
+}
+/** The chat's memory cgroup is named for the chat (Claude Code's is "claude-code-bash", one per session). */
+export const CG_PREFIX = "coder-bash-";
+/**
+ * THE CHAT'S MEMORY CGROUP, made when a job starts (Claude Code: "Claude Code counts all of a session's Bash … commands against
+ * the one cap, not each command on its own"; "Claude Code applies the cap with a memory cgroup. When it can't set the cgroup
+ * up, commands run without a cap, and the debug log … says why"). As Claude Code makes it: beside this service's own cgroup
+ * with cgroup v2 (a cgroup holding processes cannot share its memory controller with a new one below it), inside it with v1;
+ * the folder made (one already there is used), then its limit written (memory.max, or memory.limit_in_bytes with v1); a
+ * folder made for it is taken away again when the limit cannot be written. On a machine where nothing has turned cgroup v2's
+ * memory controller on for that folder yet (a bare VM), Coder turns it on first. A new job reads the variable again, so a
+ * changed limit holds from the next job on, for the chat's background commands too.
+ * `{ dir, bytes, why }`: `dir` "" when there is no cap; `why`, what stopped it ("off" when turned off).
+ */
+export function toolMemoryCgroup(project, value, { selfCgroup = () => readFileSync("/proc/self/cgroup", "utf8") } = {}) {
+  const size = memorySize(value);
+  if (!size) return { dir: "", bytes: 0, why: "" };
+  if (!size.bytes) return { dir: "", bytes: 0, why: "off" };
+  if (!PROJECT_ID.test(String(project || ""))) return { dir: "", bytes: 0, why: "not a chat's project" };
+  try {
+    const l = cgroupLayout(selfCgroup());
+    if (!l) throw new Error("no memory cgroup hierarchy");
+    const parent = join(l.mountRoot, l.v2 ? dirname(l.path) : l.path);
+    const dir = join(parent, CG_PREFIX + project);
+    if (l.v2) {
+      try { const f = join(parent, "cgroup.subtree_control"); if (!/(^|\s)memory(\s|$)/.test(readFileSync(f, "utf8"))) writeFileSync(f, "+memory"); } catch { /* the limit's own write says why */ }
+    }
+    let made = true;
+    try { mkdirSync(dir); } catch (e) { if (!e || e.code !== "EEXIST") throw e; made = false; }
+    try { writeFileSync(join(dir, l.v2 ? "memory.max" : "memory.limit_in_bytes"), String(size.bytes)); }
+    catch (e) { if (made) { try { rmdirSync(dir); } catch { /* left as it is */ } } throw e; }
+    return { dir, bytes: size.bytes, why: "" };
+  } catch (e) { return { dir: "", bytes: 0, why: String((e && (e.code || e.message)) || e).slice(0, 200) }; }
+}
+/**
+ * HOW A CAPPED COMMAND STARTS (Claude Code 2.1.319's own words): a small sh that puts itself in the cgroup (0: the process
+ * writing), then becomes the command, so the command and everything it starts are in the cgroup from their first moment;
+ * when it cannot (the cgroup is gone), the command runs without the cap.
+ */
+export const CG_WRAP = '{ echo 0 > "$0"/cgroup.procs; } 2>/dev/null; exec "$@"';
 /** A process's exit as a shell says it: its code, or 128 + the signal that ended it. */
 const exitOf = (code, signal) => (typeof code === "number" ? code : signal && os.constants.signals[signal] ? 128 + os.constants.signals[signal] : null);
 /** A background command ended: its code and why, once (the first reason given wins: a stop says why before the end comes). */
@@ -185,15 +263,18 @@ export function jobEnded(pid, code, why = "") {
 export const jobsOf = (project) => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.stopping).map((j) => ({ id: j.id, desc: j.desc, command: String(j.command || "").split("\n")[0].slice(0, 200), at: j.at, deadline: j.deadline }));
 /** The ones that ended and Coder was not told of yet. */
 export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && j.end && !j.told);
-/** Stop one (its whole process group): asked to stop, then ended 1.5 seconds later (Claude Code 2.1.300). */
-export function stopJob(j, why) {
+/**
+ * Stop one (its whole process group): asked to stop, then ended 1.5 seconds later (Claude Code 2.1.300). `hard`: ended at
+ * once (its output passed 5 GB: Claude Code kills it, exit code 137).
+ */
+export function stopJob(j, why, { hard = false } = {}) {
   if (!j || j.end) return;
   if (!j.stopping) j.stopping = why;
-  try { process.kill(-j.pid, "SIGTERM"); } catch { /* gone */ }
+  try { process.kill(-j.pid, hard ? "SIGKILL" : "SIGTERM"); } catch { /* gone */ }
   setTimeout(() => {
     try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ }
     setTimeout(() => { if (!j.end && !groupAlive(j.pid)) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); sweepIfIdle(); }, 500).unref?.();
-  }, 1500).unref?.();
+  }, hard ? 0 : 1500).unref?.();
 }
 /**
  * WHAT A STOPPED ONE LEFT BEHIND, ended too (Claude Code 2.1.257: "Fixed background commands that detach from their shell (for
@@ -286,7 +367,7 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "" } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -299,11 +380,18 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     command = (typeof start === "string" && start && start !== dir ? "cd -- " + shellWord(start) + " || exit 1\n" : "") + (typeof prefix === "string" ? prefix : "") + (follow ? cwdTrap(nonce) : "") + command;
     // IN THE JOB'S ADMIN SANDBOX (coder-sandbox.mjs: as `dev`, with sudo for anything, in the room),
     // else in the room: started by this service (root) in the room's network, then made the AI's user (setpriv) before the command runs.
+    // IN THE CHAT'S MEMORY CGROUP when it has one (`memCg`, see toolMemoryCgroup): started through CG_WRAP, by root, before
+    // the command becomes the AI's user (setpriv does that here, as in the room, instead of the spawn's own uid). Whatever
+    // root starts here is named in full (NSENTER, SETPRIV): `env` holds the AI's PATH, which the AI's user can write to.
+    const cg = typeof memCg === "string" && memCg.startsWith("/sys/fs/cgroup/") ? memCg : "";
+    const run = (file, args, o) => (cg ? spawn("/bin/sh", ["-c", CG_WRAP, cg, file, ...args], o) : spawn(file, args, o));
     const p = box && uid !== null
-      ? spawn("nsenter", sandboxArgs(box.pid, dir, command), { cwd: "/", env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      ? run(NSENTER, sandboxArgs(box.pid, dir, command), { cwd: "/", env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
       : room && Number.isInteger(uid)
-      ? spawn("nsenter", roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
-      : spawn("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
+      ? run(NSENTER, roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      : cg && Number.isInteger(uid)
+      ? run(SETPRIV, ["--reuid=" + uid, "--regid=" + g, "--clear-groups", "--", "bash", "-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      : run("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
     // Its leader's end, as a shell says it (a background command's notice needs it even when its output stays open).
     let exited = null;
     p.once("exit", (code, signal) => { exited = exitOf(code, signal); });
@@ -318,6 +406,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     const take = (b) => {
       const str = b.toString("utf8");
       bytes += b.length;
+      // THE 5 GB STOP (SIZE_KILLED), first: for every command, with an output file or not (the setup script has none).
+      if (bytes > outputKill && !killedForSize) { killedForSize = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }
       if (follow) tail = (tail + str).slice(-8192);
       if (!spillDir) { if (out.length < outMax) out += str; else cut = true; return; }
       if (out.length < keep) out += str;
@@ -335,7 +425,6 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
           early = []; earlyBytes = 0;
         }
       } else if (spill) toSpill(b);
-      if (bytes > OUTPUT_KILL && !killedForSize) { killedForSize = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }
     };
     // ITS LAST LINES WHILE IT RUNS (Claude Code 1.0.48: "progress messages … based on the last 5 lines of command output"), each
     // second while they change; never the folder line.
@@ -372,9 +461,18 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
           w.write(spillDir ? Buffer.concat(early) : out);
         }
         p.stdout.pipe(w, { end: false }); p.stderr.pipe(w, { end: false });
+        // THE 5 GB STOP GOES ON HERE (SIZE_KILLED): its output so far counts, and what it prints from now on.
+        const count = (b) => {
+          if ((bytes += b.length) <= outputKill || killedForSize) return;
+          killedForSize = true;
+          const j = JOBS.get(p.pid);
+          if (j) stopJob(j, "size", { hard: true }); else { try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }
+        };
+        p.stdout.on("data", count); p.stderr.on("data", count);
         const ended = (c) => { BG_EXITS.set(p.pid, c); if (BG_EXITS.size > 500) BG_EXITS.delete(BG_EXITS.keys().next().value); };
         if (exited !== null) ended(exited); else p.once("exit", (code, signal) => ended(exitOf(code, signal)));
-        p.on("close", (code, signal) => { const c = exitOf(code, signal); w.end("\n[finished, exit code " + c + "]\n"); ended(c); jobEnded(p.pid, c); });
+        // (Stopped at 5 GB: the line that says why goes at its end, as Claude Code puts it in the command's stderr.)
+        p.on("close", (code, signal) => { const c = exitOf(code, signal); w.end((killedForSize ? "\n" + SIZE_KILLED : "") + "\n[finished, exit code " + c + "]\n"); ended(c); jobEnded(p.pid, c, killedForSize ? "size" : ""); });
         p.unref();
       } catch { /* the log could not be made: the note still says it runs */ }
       const so = out.length > 4000 ? out.slice(-4000) : out;
@@ -414,7 +512,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       const size = Math.max(0, bytes - markBytes);
       const c = typeof code === "number" ? code : signal === "SIGTERM" ? 143 : signal === "SIGKILL" ? 137 : -1;
       if (timedOut && stopAtTimeout) return answer({ code: 143, output: (text ? text.replace(/\n?$/, "\n") : "") + "Command timed out after " + Math.max(1, timeoutS) + "s", timedOut: true, size });
-      answer({ code: c, output: text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : "") + (killedForSize ? "\n[the command was stopped: its output passed 5 GB]" : ""), timedOut, size, ...(file ? { file, ...(spillBytes >= SPILL_KEEP ? { truncatedAt: SPILL_KEEP } : {}) } : {}), ...(ended !== null && code === 0 ? { ended } : {}) });
+      answer({ code: c, output: text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : "") + (killedForSize ? "\n" + SIZE_KILLED : ""), timedOut, size, ...(file ? { file, ...(spillBytes >= SPILL_KEEP ? { truncatedAt: SPILL_KEEP } : {}) } : {}), ...(ended !== null && code === 0 ? { ended } : {}) });
     });
   });
 }
@@ -2063,6 +2161,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // moving … timed-out shell commands to the background automatically"): a command still running at its timeout is stopped.
     t.outLimits = bashOutputLimits(rawVars);
     t.noBg = varOn(rawVars.CODER_DISABLE_BACKGROUND_TASKS);
+    // THE MEMORY CAP (CODER_TOOL_MEMORY_LIMIT, see toolMemoryCgroup): one memory cgroup for all of this chat's commands (the
+    // AI's and the owner's own with !; never Coder's file tools, its git or the setup script). The machine's log says why
+    // when there is none; nothing in a command's result names it (Claude Code: "the kernel kills a command, and nothing in
+    // its result names the cap"). A folder that went away is made again before the next command (Claude Code: "vanished;
+    // re-created").
+    const memVar = rawVars.CODER_TOOL_MEMORY_LIMIT;
+    const cgSet = toolMemoryCgroup(project, memVar);
+    t.memCg = cgSet.dir;
+    if (cgSet.dir) console.log("tool cgroup: " + cgSet.dir + " limit=" + cgSet.bytes);
+    else if (cgSet.why && cgSet.why !== "off") console.log("tool cgroup: disabled (" + cgSet.why + ")");
+    t.memCgNow = () => {
+      if (t.memCg && !existsSync(t.memCg)) { const again = toolMemoryCgroup(project, memVar); console.log(again.dir ? "tool cgroup: " + again.dir + " vanished; re-created" : "tool cgroup: disabled (dir vanished: " + again.why + ")"); t.memCg = again.dir; }
+      return t.memCg;
+    };
     t.cwd = home0; t.cwdWas = "";
     const askedCwd = typeof body.cwd === "string" ? body.cwd.slice(0, 4096) : "";
     if (!keepHome && askedCwd && askedCwd !== home0 && Array.isArray(body.messages) && body.messages.length) {
@@ -2269,7 +2381,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
           const onMove = (fn) => { t.movable = fn; };
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; } }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2386,7 +2498,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
