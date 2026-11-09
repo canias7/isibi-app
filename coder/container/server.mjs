@@ -1028,7 +1028,7 @@ async function saveSubmodules(dir, k, o) {
   return left;
 }
 
-export async function pushRepo({ dir, repo, branch, token, headers = [], message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
+export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
   // before anything is read, and nothing of the AI's user runs while root works.
@@ -1055,7 +1055,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     // moved to another commit); the index alone shows it, without looking in any folder.
     const committed = !!String(st.stdout ?? st.output).trim() || (await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code === 1;
     if (committed) {
-      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
+      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300), ...(trailer ? ["--trailer", trailer] : [])], o);
       if (c.code !== 0) return { why: "could not commit: " + c.output.slice(0, 200) };
     }
     return { committed };
@@ -1770,6 +1770,12 @@ export function coderMarks(project, chatUrl) {
   const url = typeof chatUrl === "string" && /^https:\/\/[A-Za-z0-9.-]{1,100}(:\d{1,5})?\/\?chat=[A-Za-z0-9%._~-]{1,100}$/.test(chatUrl) ? chatUrl : "";
   return { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: String(project || ""), ...(url ? { GOFARTHER_CODER_CHAT_URL: url } : {}) };
 }
+/**
+ * THE CHAT'S LINK AS A COMMIT TRAILER (the owner, 2026-11-09: "yes i want that"; Claude Code's `Claude-Session: <url>`):
+ * `Coder-Chat: <link>` on each commit Coder makes for the chat, the link from Coder's Worker (none when the environment turns
+ * it off), checked as the commands' GOFARTHER_CODER_CHAT_URL is.
+ */
+export const chatTrailer = (chatUrl) => (coderMarks("", chatUrl).GOFARTHER_CODER_CHAT_URL ? "Coder-Chat: " + chatUrl : "");
 /** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
 export function safeVars(vars) {
   const out = {};
@@ -2557,6 +2563,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!k.ok) return send(409, { ok: false, why: k.why });
         const rv = await nestedAway(dir, o.gitDir, async () => { const r = await gitIn(dir, ["revert", "--no-edit", sha], o); if (r.code !== 0) await gitIn(dir, ["revert", "--abort"], o); return r; }, (why) => ({ code: -1, output: why }));
         if (rv.code !== 0) { return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
+        // (The revert's own commit carries the chat's link too.)
+        const tr = chatTrailer(body.chatUrl);
+        if (tr) await gitIn(dir, ["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr], o);
         const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
         // What the save left out is said here too (the audit, 2026-11-06).
         const told = p.left ? { left: p.left } : {};
@@ -2580,13 +2589,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const go = await quietly();
         if (!go) return send(200, { ok: false, pushed: false, why: NOT_STOPPED });
         try {
-        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), noPush: body.noPush === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: body.noPush === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
         for (const [i, x] of extraRepos(body).entries()) {
           const xdir = join(root, project + "-x" + (i + 1));
           if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
-          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), noPush: x.readOnly === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: x.readOnly === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
           extra.push({ repo: x.repo, ...r });
         }
         return send(200, extra.length ? { ...main, extra } : main);

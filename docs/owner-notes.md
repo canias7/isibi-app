@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Coder's commits and pull requests link back to the chat (your words: "yes i want that")
+
+Not live yet: it waits for your word to merge, with the fixes below.
+
+- **Every commit Coder makes for a chat now ends with a line linking to that chat**, like Claude Code's `Claude-Session:` line: `Coder-Chat: https://gofarther.dev/?chat=…`. Its undo's commit has it too. On GitHub you can click from any change straight to the chat that made it.
+- **Pull requests Coder opens end with "Made with Coder:" and the chat's link.**
+- **Only you can open the link** (signed in); anyone else gets the sign-in page.
+- **To turn it off** for an environment: add `CODER_CHAT_LINK=false` in Environment, then Environment variables (Claude Code's setting for this is `attribution.sessionUrl`).
+- **Tests:** CD304 (a real commit and its trailer, the switch, every save, undo and pull request). All 315 tests pass.
+
 ## 2026-11-09: Merged and deployed the bash work (your words: "merge and deploy"); the live test so far, and fixes waiting
 
 - **Merged into main and deployed (deploy 75):** bash parts 1 to 3, both checks against Claude Code's docs, the last gaps, and sending messages while Coder works.

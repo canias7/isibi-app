@@ -151,6 +151,21 @@ const settingsKey = (uid) => ["coder", uid, "settings.json"].join("/");
  */
 export const chatLinkOf = (env, id) => String((env && env.APP_ORIGIN) || "https://gofarther.dev").replace(/\/+$/, "") + "/?chat=" + encodeURIComponent(String(id || ""));
 /**
+ * THE CHAT'S LINK ON ITS COMMITS AND PULL REQUESTS (the owner, 2026-11-09: "yes i want that"; Claude Code's cloud sessions add a
+ * `Claude-Session: <url>` trailer to each commit and the session's link to pull request descriptions, unless its setting
+ * attribution.sessionUrl is false): Coder's machine adds a `Coder-Chat: <link>` trailer to each commit it makes for the chat,
+ * and its pull requests end "Made with Coder: <link>". Off when the chat's environment sets CODER_CHAT_LINK=false. Only the
+ * chat's owner, signed in, can open the link.
+ */
+export async function chatLinkFor(env, bucket, uid, meta, id) {
+  try {
+    const data = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta));
+    if (/^(0|false|no|off)$/i.test(String((data && data.vars && data.vars.CODER_CHAT_LINK) ?? "").trim())) return "";
+  } catch { /* the default: on */ }
+  return chatLinkOf(env, id);
+}
+export const madeWith = (link) => "\n\nMade with Coder" + (link ? ": " + link : ".");
+/**
  * THE OWNER'S ! COMMANDS, KEPT ON THEIR ACCOUNT FOR EACH REPOSITORY (Claude Code's shell mode: "type a partial command and
  * press Tab to complete from previous ! commands in the current project"): the page's Tab completes from them, in any chat
  * of that repository, on any device. The newest SHELL_HIST_MAX a repository, for the SHELL_HIST_REPOS used last.
@@ -868,7 +883,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t && !meta.readOnly) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
-        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.summary), extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : {}) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.summary), chatUrl: await chatLinkFor(env, bucket, uid, meta, id), extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : {}) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
         for (const x of Array.isArray(p.extra) ? p.extra : []) {
           const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.kept ? (x.changed ? keptNote(x.repo) : "") : x.pushed && x.changed !== false ? "Saved to the branch " + meta.branch + " in " + x.repo : "";
@@ -879,7 +894,7 @@ export async function handleCoder(request, env, ctx, deps) {
           if (!x) { extraNotes.push("No pull request in " + String(want.repo).slice(0, 100) + ": it is not one of this chat's repositories."); continue; }
           if (x.readOnly) { extraNotes.push(noPrNote(x.repo)); continue; }
           if (!t) { extraNotes.push("No pull request in " + x.repo + ": connect GitHub again first."); continue; }
-          const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder.", draft: want.draft === true }, fetchFn).catch(() => null);
+          const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)), draft: want.draft === true }, fetchFn).catch(() => null);
           if (made) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
           else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub (is its branch saved?).");
         }
@@ -908,7 +923,7 @@ export async function handleCoder(request, env, ctx, deps) {
         else if (!commits.length) pushNote = (pushNote ? pushNote + " · " : "") + "Nothing to undo: no job in this chat changed files yet.";
         else {
           const last = commits[commits.length - 1];
-          const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
+          const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: await chatLinkFor(env, bucket, uid, meta, id), sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
           if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "")) + "."; }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
           const lo = leftOutNote(u.left);
@@ -922,7 +937,7 @@ export async function handleCoder(request, env, ctx, deps) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
         if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
         else {
-          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + "\n\nMade with Coder.", draft: want.draft === true }, fetchFn).catch(() => null);
+          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)), draft: want.draft === true }, fetchFn).catch(() => null);
           pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
@@ -1076,7 +1091,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "Connect GitHub again first." }, 401);
     let pr = meta.pr ? await prStillOpen(t.token, meta.repo, meta.pr, fetchFn) : null;
-    if (!pr) pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(meta.summary || meta.title || "changes"), body: String(meta.summary || "").slice(0, 4000) + "\n\nMade with Coder." }, fetchFn).catch(() => null);
+    if (!pr) pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: "Coder: " + commitTitle(meta.summary || meta.title || "changes"), body: String(meta.summary || "").slice(0, 4000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)) }, fetchFn).catch(() => null);
     if (!pr) return json({ error: "GitHub would not open the pull request. There may be nothing new on the branch compared with " + meta.base + "." }, 502);
     const next = { ...meta, pr, at: Date.now() };
     await saveMeta(bucket, uid, next);
@@ -1092,7 +1107,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "Connect GitHub again first." }, 401);
     let r;
-    try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()); }
+    try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: await chatLinkFor(env, bucket, uid, meta, id), sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()); }
     catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
     if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
     const lo = leftOutNote(r.left);
@@ -1150,7 +1165,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!t) return json({ error: "Connect GitHub again first." }, 401);
       for (const c of later) {
         let r;
-        try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), sha: c.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()); }
+        try { r = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: await chatLinkFor(env, bucket, uid, meta, id), sha: c.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()); }
         catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
         if (!r.ok) {
           // What was undone so far stays undone, and is recorded.

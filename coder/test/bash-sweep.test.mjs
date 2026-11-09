@@ -355,3 +355,39 @@ test("CD303 (the live test after deploy 75) after a pause, Coder's machine wakes
   const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
   assert.match(init, /\nwhile :; do sleep 3600 & wait \$!; done\n$/, "the sandbox's first process collects what ends in it");
 });
+
+test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Session trailer and attribution.sessionUrl) each commit Coder makes for a chat ends with a Coder-Chat: <link> trailer, its undo's commit too, and its pull requests end \"Made with Coder: <link>\"; off when the environment sets CODER_CHAT_LINK=false", async () => {
+  const S = await import("../container/server.mjs");
+  const link = "https://gofarther.dev/?chat=shop-abcd";
+  assert.equal(S.chatTrailer(link), "Coder-Chat: " + link);
+  for (const bad of ["", "http://gofarther.dev/?chat=x", "https://x.dev/?chat=a\nCo-Authored-By: someone", undefined]) assert.equal(S.chatTrailer(bad), "", String(bad));
+  // For real: a commit, then its undo, on Coder's branch.
+  const { mkdtemp: mk, writeFile: wf } = await import("node:fs/promises");
+  const { remote, bare } = await (async () => { const r = await fakeRemote(); return { remote: r.remote, bare: join(r.remote, "ana/shop.git") }; })();
+  const gitRoot = await mk(join(tmpdir(), "coder-git-")), root = await mk(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-abcd");
+  assert.equal((await S.prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "", remote, gitRoot, root })).ok, true);
+  await wf(join(dir, "index.html"), "<h1>Shop</h1>\n");
+  const p = await S.pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-abcd", token: "", message: "Added the home page", trailer: S.chatTrailer(link), remote, gitRoot, root });
+  assert.equal(p.ok, true, p.why);
+  assert.equal(git(bare, "log", "-1", "--format=%B", "coder/shop-abcd").trim(), "Added the home page\n\nCoder-Chat: " + link);
+  const src = serverSrc();
+  assert.match(src, /trailer: chatTrailer\(body\.chatUrl\), noPush: body\.noPush === true,/);
+  assert.match(src, /const tr = chatTrailer\(body\.chatUrl\);\n\s+if \(tr\) await gitIn\(dir, \["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr\], o\);/, "the undo's commit too");
+  // Coder's Worker: the link, unless the chat's environment turns it off; on every save, undo and pull request.
+  const R = await import("../src/coder-routes.mjs");
+  const E = await import("../src/coder-environments.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), APP_ORIGIN: "https://gofarther.dev" };
+  const meta = { id: "shop-abcd", repo: "ana/shop" };
+  assert.equal(await R.chatLinkFor(env, bucket, "u1", meta, "shop-abcd"), link, "on by default");
+  const envId = await E.envIdOf(bucket, "u1", meta);
+  await E.writeEnvData(env, bucket, "u1", envId, { script: "", vars: { CODER_CHAT_LINK: "false" }, secrets: [], network: null });
+  assert.equal(await R.chatLinkFor(env, bucket, "u1", meta, "shop-abcd"), "", "CODER_CHAT_LINK=false");
+  assert.equal(R.madeWith(link), "\n\nMade with Coder: " + link);
+  assert.equal(R.madeWith(""), "\n\nMade with Coder.");
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.equal((routes.match(/chatUrl: await chatLinkFor\(env, bucket, uid, meta, id\)/g) || []).length, 4, "the save and the three undos");
+  assert.equal((routes.match(/madeWith\(await chatLinkFor\(env, bucket, uid, meta, id\)\)/g) || []).length, 3, "the three ways a pull request is opened");
+  assert.doesNotMatch(routes, /"\\n\\nMade with Coder\."/);
+});
