@@ -80,7 +80,8 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
   for (const cmd of ["sudo -n ip link add d0 type dummy", "sudo -n ip link set lo down", "sudo -n nsenter -t 1 -n true", "curl -sS -m 3 --noproxy '*' https://example.com/"]) {
       assert.notEqual((await sh(cmd)).code, 0, cmd + " is refused");
     }
-    assert.match((await sh("ps -e -o comm=")).out, /^sleep\n(bash\n)?ps$/, "only its own processes");
+    // (Its first process is a bash loop with its sleep: the live test after deploy 75.)
+    assert.match((await sh("ps -e -o comm=")).out, /^bash\nsleep\n(bash\n)?ps$/, "only its own processes");
     assert.notEqual((await sh("ls " + dir)).code, 0, "not the machine's sandbox folder");
     assert.equal((await sh("ls " + data)).out, "work", "of the kept disk, only what it was shown");
 
@@ -109,6 +110,57 @@ test("CD147 the admin sandbox, for real: sudo for anything inside (packages, sys
     assert.notEqual((await inBox(box, proj, "cat /etc/coder-sbx-test")).code, 0);
     assert.notEqual((await inBox(box, proj, "cat /tmp/coder-sbx-tmp-test")).code, 0, "and its /tmp starts empty");
   } finally {
+    if (box) box.stop();
+    spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
+    for (const m of ["lower", "image"]) spawnSync("umount", ["-l", join(dir, m)], { stdio: "ignore" });
+  }
+});
+
+test("CD301 (the live test after deploy 75) a background command in the admin sandbox, paused while root works and resumed, is still seen to end: its own starter (nsenter, outside the sandbox) is woken too, so it collects the command and its output closes; and what a command leaves behind in the sandbox is collected by its first process, never left a zombie", { skip: !ready && process.env.CODER_TESTS_NEED_ROOT !== "1" && "needs root, a user 1001, and ip, nsenter, setpriv, unshare, mountpoint, findmnt, newuidmap, sudo, python3, curl" }, async () => {
+  const F = await import("../container/coder-freeze.mjs");
+  const { wakeStarters } = await import("../container/server.mjs");
+  for (const f of ["/etc/subuid", "/etc/subgid"]) if (!/^root:1000000:262144$/m.test(readFileSync(f, "utf8"))) appendFileSync(f, "root:1000000:262144\n");
+  const dir = mkdtempSync("/run/coder-sbx-test-"), data = mkdtempSync("/var/tmp/coder-sbx-data-");
+  chmodSync(data, 0o755);
+  spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
+  let box = null, job = null;
+  const state = (pid) => { try { return readFileSync("/proc/" + pid + "/stat", "utf8").replace(/^\d+ \(.*\) /, "")[0]; } catch { return "gone"; } };
+  const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  try {
+    assert.equal(S.makeLower({ base: S.sandboxBase(), dir }), true, S.sandboxWhy());
+    const up = S.makeUpper({ data, image: "registry.fly.io/app:coder-cccc" });
+    assert.equal(R.makeRoom({ ns: NS, name: NAME }), true);
+    const work = join(data, "work"), proj = join(work, "shop");
+    mkdirSync(proj, { recursive: true });
+    for (const p of [work, proj]) chownSync(p, 0, 0);
+    chownSync(proj, 1001, 1001);
+    box = await S.startSandbox({ ...up, ns: NS, dir, binds: [{ src: work, mode: "rw", mine: true }] });
+    assert.ok(box && box.pid > 1, "the sandbox started: " + S.sandboxWhy());
+    // The background command, started as Coder's service starts one in the sandbox.
+    job = spawn("nsenter", S.sandboxArgs(box.pid, proj, "for i in $(seq 1 20); do echo t$i; sleep 0.1; done; echo done"), { cwd: "/", detached: true, stdio: ["ignore", "pipe", "pipe"], env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/tmp" } });
+    let out = "", closed = false;
+    job.stdout.on("data", (b) => { out += b; }); job.on("close", () => { closed = true; });
+    await wait(500);
+    // Paused, as at a turn's end while root saves to GitHub: its starter stops itself too.
+    const p = await F.pauseAI({ uid: 1001, gid: 1001, boxPid: box.pid, box: [S.SBX_BASE, S.SBX_BASE + S.SBX_RANGE] });
+    assert.equal(p.ok, true, p.why);
+    for (let i = 0; i < 50 && state(job.pid) !== "T"; i++) await wait(20);
+    assert.equal(state(job.pid), "T", "nsenter stopped itself with its command");
+    assert.equal(p.procs.has(job.pid), false, "and is none of the AI's processes, so resumeAI does not wake it");
+    F.resumeAI(p.procs, { boxPid: box.pid });
+    await wait(3500);
+    assert.equal(/done/.test(out), true, "the command went on after the pause and finished");
+    assert.equal(closed, false, "...yet, with its starter left stopped, its end is never seen (the live test's bug)");
+    // The fix: its starter is woken too.
+    wakeStarters([{ pid: job.pid }]);
+    for (let i = 0; i < 100 && !closed; i++) await wait(20);
+    assert.equal(closed, true, "woken, it collects its command: the output closes and the command is seen to end");
+    // What a command leaves behind is collected by the sandbox's first process when it ends.
+    await inBox(box, proj, "(sleep 0.3 &) ; true");
+    await wait(1200);
+    assert.equal((await inBox(box, proj, "ps -e -o stat= | grep -c '^Z' || true")).out, "0", "no zombie left in the sandbox");
+  } finally {
+    if (job && job.exitCode === null) { try { process.kill(-job.pid, "SIGKILL"); } catch { /* gone */ } }
     if (box) box.stop();
     spawnSync("ip", ["netns", "del", NAME], { stdio: "ignore" });
     for (const m of ["lower", "image"]) spawnSync("umount", ["-l", join(dir, m)], { stdio: "ignore" });
@@ -146,7 +198,7 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.doesNotMatch(init, /requiretty/);
   assert.match(init, /> "\$R\/etc\/coder-sandbox"/);
   assert.match(init, /pivot_root \. \.coder-outside\ncd \/\numount -l \/\.coder-outside/);
-  assert.match(init, /echo ready\nexec sleep infinity\n$/);
+  assert.match(init, /echo ready\n(?:#[^\n]*\n)*while :; do sleep 3600 & wait \$!; done\n$/, "its first process collects what ends in it (the live test after deploy 75)");
   // /tmp is the sandbox's own layer's, kept between jobs (never a fresh tmpfs again); /run and /dev/shm last one job.
   assert.doesNotMatch(init, /tmpfs "\$R\/tmp"/);
   assert.match(init, /^chmod 1777 "\$R\/tmp"/m);

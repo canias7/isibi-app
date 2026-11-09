@@ -575,7 +575,7 @@
   async function openProject(id) {
     stopPoll();
     keepDraft(S, S.project && S.project.id, id);
-    stopBgWatch(); stopBgOut(); S.bgOut = null;
+    stopBgWatch(); stopBgOut(); S.bgOut = null; S.bgUntold = 0;
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
@@ -1331,7 +1331,9 @@
   // While the chat is open and waits for the owner, its list is asked for now and then; a turn started to tell Coder (one
   // ended) is then followed like any.
   function stopBgWatch() { if (S.bgWatch) clearTimeout(S.bgWatch); S.bgWatch = 0; }
-  function startBgWatch() { stopBgWatch(); if (S.project && !S.running && bgList().length) S.bgWatch = setTimeout(bgTick, BG_POLL_MS); }
+  // (Also while one ended and Coder is not told yet: the turn that tells it starts by itself, within a minute, and the
+  // page follows it. Found while preparing the live test after deploy 75: with the list empty, the page stopped looking.)
+  function startBgWatch() { stopBgWatch(); if (S.project && !S.running && (bgList().length || S.bgUntold > 0)) S.bgWatch = setTimeout(bgTick, BG_POLL_MS); }
   async function bgTick() {
     S.bgWatch = 0;
     if (!S.project || S.running) return;
@@ -1340,6 +1342,7 @@
     if (!S.project || S.project.id !== id || S.running) return;
     if (r.status === 200 && r.data && r.data.ok) {
       S.background = r.data.background || [];
+      S.bgUntold = Number(r.data.untold) || 0;
       if (r.data.project) S.project = r.data.project;
       if (r.data.running || (r.data.project && r.data.project.status === 'running')) return reloadChat(id);
       draw();
@@ -1352,7 +1355,8 @@
     if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
     const r = await call('/projects/' + encodeURIComponent(id) + '/background', { method: 'POST', body: JSON.stringify({ id: job }) });
     if (!S.project || S.project.id !== id) return;
-    if (r.status === 200 && r.data && r.data.ok) { S.background = (r.data.background || []).filter((b) => b.id !== job); if (r.data.project) S.project = r.data.project; }
+    // (Coder is told it was stopped, in a turn of its own: the page goes on looking until then.)
+    if (r.status === 200 && r.data && r.data.ok) { S.background = (r.data.background || []).filter((b) => b.id !== job); S.bgUntold = Math.max(1, Number(r.data.untold) || 0); if (r.data.project) S.project = r.data.project; }
     else S.error = (r.data && r.data.error) || 'It could not be stopped.';
     draw(); startBgWatch();
   }

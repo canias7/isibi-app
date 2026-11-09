@@ -319,3 +319,75 @@ test("CD299 (found in the screenshots) a background command's step shows how it 
   assert.match(ui, /end \? \(end\.ok \? 'ok' : 'bgend'\) : r\.background \? 'bg'/);
   assert.match(ui, /state === 'bgend' \? \(\/\^\(exit\|ended\)\/\.test/);
 });
+
+test("CD300 (found while preparing the live test after deploy 75) the open chat goes on looking while a background command ended and Coder is not told yet, so the turn that tells Coder (it starts by itself, within a minute) shows without a reload; after the owner's Stop too", () => {
+  const ui = page();
+  assert.match(ui, /function startBgWatch\(\) \{ stopBgWatch\(\); if \(S\.project && !S\.running && \(bgList\(\)\.length \|\| S\.bgUntold > 0\)\) S\.bgWatch = setTimeout\(bgTick, BG_POLL_MS\); \}/);
+  assert.match(ui, /S\.background = r\.data\.background \|\| \[\];\n\s+S\.bgUntold = Number\(r\.data\.untold\) \|\| 0;/);
+  assert.match(ui, /S\.bgUntold = Math\.max\(1, Number\(r\.data\.untold\) \|\| 0\);/, "a stop is told: the page waits for that turn");
+  assert.match(ui, /stopBgWatch\(\); stopBgOut\(\); S\.bgOut = null; S\.bgUntold = 0;/, "another chat opened: none");
+});
+
+test("CD302 (the live test after deploy 75) read and grep open the chat's own command output (a background command's log, a long output's saved file), as Coder is told to and as Claude Code's Read opens its output files; never through a link out of those folders; nothing else outside the project, and no tool writes there", async () => {
+  const { mkdtemp: mk } = await import("node:fs/promises");
+  const proj = await mk(join(tmpdir(), "coder-proj-")), bg = await mk(join(tmpdir(), "coder-bgout-")), out = await mk(join(tmpdir(), "coder-out-")), other = await mk(join(tmpdir(), "coder-other-"));
+  await writeFile(join(bg, "bg-1.log"), "tick 1\ntick 2\nall done\n");
+  await writeFile(join(out, "abc123.txt"), Array.from({ length: 50 }, (_, i) => "row " + i).join("\n") + "\nthe needle\n");
+  await writeFile(join(other, "secret.txt"), "not for Coder\n");
+  await symlink(join(other, "secret.txt"), join(bg, "bg-2.log"));
+  const tools = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const run = (fn, args) => { try { return execFileSync("node", ["--no-warnings", "--input-type=module", "-e", "const T = await import(" + JSON.stringify(tools) + "); process.stdout.write(String(await T." + fn + "(" + JSON.stringify(args) + ")));"], { cwd: proj, encoding: "utf8", env: { ...process.env, CODER_OUTPUT_DIRS: bg + ":" + out } }); } catch (e) { return "ERROR " + String(e.stderr || e.stdout || e.message); } };
+  assert.match(run("toolRead", { path: join(bg, "bg-1.log") }), /^ +1\ttick 1\n +2\ttick 2\n +3\tall done$/, "a background command's log");
+  assert.match(run("toolRead", { path: join(out, "abc123.txt"), offset: 51, limit: 1 }), /51\tthe needle/, "a long output's saved file, a part of it");
+  assert.match(run("toolGrep", { pattern: "needle", path: join(out, "abc123.txt") }), /the needle/, "searched");
+  assert.match(run("toolRead", { path: join(bg, "bg-2.log") }), /that path leads outside the project/, "never through a link out");
+  assert.match(run("toolRead", { path: join(other, "secret.txt") }), /that path is outside the project/, "nothing else outside the project");
+  assert.match(run("toolWrite", { path: join(bg, "bg-9.log"), content: "x" }), /outside the project/, "no tool writes there");
+  assert.match(serverSrc(), /CODER_OUTPUT_DIRS: bgDir \+ ":" \+ outDir/, "the machine names the chat's two folders to its file tools");
+});
+
+test("CD303 (the live test after deploy 75) after a pause, Coder's machine wakes each kept background command's own starter too (tried for real in the admin sandbox in CD301)", async () => {
+  const S = await import("../container/server.mjs");
+  const woken = [];
+  S.wakeStarters([{ pid: 4242 }, { pid: 0 }, null, { pid: "x" }, { pid: 77 }], { cont: (pid) => woken.push(pid) });
+  assert.deepEqual(woken, [4242, 77]);
+  assert.match(serverSrc(), /resumeAI\(p\.procs, \{ boxPid: boxKept \? boxKept\.pid : 0 \}\); wakeStarters\(live\); finish\(\);/);
+  const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
+  assert.match(init, /\nwhile :; do sleep 3600 & wait \$!; done\n$/, "the sandbox's first process collects what ends in it");
+});
+
+test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Session trailer and attribution.sessionUrl) each commit Coder makes for a chat ends with a Coder-Chat: <link> trailer, its undo's commit too, and its pull requests end \"Made with Coder: <link>\"; off when the environment sets CODER_CHAT_LINK=false", async () => {
+  const S = await import("../container/server.mjs");
+  const link = "https://gofarther.dev/?chat=shop-abcd";
+  assert.equal(S.chatTrailer(link), "Coder-Chat: " + link);
+  for (const bad of ["", "http://gofarther.dev/?chat=x", "https://x.dev/?chat=a\nCo-Authored-By: someone", undefined]) assert.equal(S.chatTrailer(bad), "", String(bad));
+  // For real: a commit, then its undo, on Coder's branch.
+  const { mkdtemp: mk, writeFile: wf } = await import("node:fs/promises");
+  const { remote, bare } = await (async () => { const r = await fakeRemote(); return { remote: r.remote, bare: join(r.remote, "ana/shop.git") }; })();
+  const gitRoot = await mk(join(tmpdir(), "coder-git-")), root = await mk(join(tmpdir(), "coder-w-"));
+  const dir = join(root, "shop-abcd");
+  assert.equal((await S.prepareRepo({ dir, repo: "ana/shop", base: "main", branch: "coder/shop-abcd", token: "", remote, gitRoot, root })).ok, true);
+  await wf(join(dir, "index.html"), "<h1>Shop</h1>\n");
+  const p = await S.pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-abcd", token: "", message: "Added the home page", trailer: S.chatTrailer(link), remote, gitRoot, root });
+  assert.equal(p.ok, true, p.why);
+  assert.equal(git(bare, "log", "-1", "--format=%B", "coder/shop-abcd").trim(), "Added the home page\n\nCoder-Chat: " + link);
+  const src = serverSrc();
+  assert.match(src, /trailer: chatTrailer\(body\.chatUrl\), noPush: body\.noPush === true,/);
+  assert.match(src, /const tr = chatTrailer\(body\.chatUrl\);\n\s+if \(tr\) await gitIn\(dir, \["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr\], o\);/, "the undo's commit too");
+  // Coder's Worker: the link, unless the chat's environment turns it off; on every save, undo and pull request.
+  const R = await import("../src/coder-routes.mjs");
+  const E = await import("../src/coder-environments.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), APP_ORIGIN: "https://gofarther.dev" };
+  const meta = { id: "shop-abcd", repo: "ana/shop" };
+  assert.equal(await R.chatLinkFor(env, bucket, "u1", meta, "shop-abcd"), link, "on by default");
+  const envId = await E.envIdOf(bucket, "u1", meta);
+  await E.writeEnvData(env, bucket, "u1", envId, { script: "", vars: { CODER_CHAT_LINK: "false" }, secrets: [], network: null });
+  assert.equal(await R.chatLinkFor(env, bucket, "u1", meta, "shop-abcd"), "", "CODER_CHAT_LINK=false");
+  assert.equal(R.madeWith(link), "\n\nMade with Coder: " + link);
+  assert.equal(R.madeWith(""), "\n\nMade with Coder.");
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.equal((routes.match(/chatUrl: await chatLinkFor\(env, bucket, uid, meta, id\)/g) || []).length, 4, "the save and the three undos");
+  assert.equal((routes.match(/madeWith\(await chatLinkFor\(env, bucket, uid, meta, id\)\)/g) || []).length, 3, "the three ways a pull request is opened");
+  assert.doesNotMatch(routes, /"\\n\\nMade with Coder\."/);
+});

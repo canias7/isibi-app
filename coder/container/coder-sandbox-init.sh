@@ -72,4 +72,7 @@ umount -l /.coder-outside
 rmdir /.coder-outside
 
 echo ready
-exec sleep infinity
+# ITS FIRST PROCESS COLLECTS WHAT ENDS IN IT (the live test after deploy 75): a process a command leaves behind becomes this
+# one's child when that command ends, and with `sleep infinity` here it stayed a zombie for good when it ended (a zombie
+# keeps its process group looking alive). Bash collects every child of its own that ends, one handed to it too.
+while :; do sleep 3600 & wait $!; done

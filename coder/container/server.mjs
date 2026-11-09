@@ -1028,7 +1028,7 @@ async function saveSubmodules(dir, k, o) {
   return left;
 }
 
-export async function pushRepo({ dir, repo, branch, token, headers = [], message, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
+export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
   // before anything is read, and nothing of the AI's user runs while root works.
@@ -1055,7 +1055,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     // moved to another commit); the index alone shows it, without looking in any folder.
     const committed = !!String(st.stdout ?? st.output).trim() || (await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code === 1;
     if (committed) {
-      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300)], o);
+      const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(message || "Changes by Coder").slice(0, 300), ...(trailer ? ["--trailer", trailer] : [])], o);
       if (c.code !== 0) return { why: "could not commit: " + c.output.slice(0, 200) };
     }
     return { committed };
@@ -1770,6 +1770,12 @@ export function coderMarks(project, chatUrl) {
   const url = typeof chatUrl === "string" && /^https:\/\/[A-Za-z0-9.-]{1,100}(:\d{1,5})?\/\?chat=[A-Za-z0-9%._~-]{1,100}$/.test(chatUrl) ? chatUrl : "";
   return { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: String(project || ""), ...(url ? { GOFARTHER_CODER_CHAT_URL: url } : {}) };
 }
+/**
+ * THE CHAT'S LINK AS A COMMIT TRAILER (the owner, 2026-11-09: "yes i want that"; Claude Code's `Claude-Session: <url>`):
+ * `Coder-Chat: <link>` on each commit Coder makes for the chat, the link from Coder's Worker (none when the environment turns
+ * it off), checked as the commands' GOFARTHER_CODER_CHAT_URL is.
+ */
+export const chatTrailer = (chatUrl) => (coderMarks("", chatUrl).GOFARTHER_CODER_CHAT_URL ? "Coder-Chat: " + chatUrl : "");
 /** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
 export function safeVars(vars) {
   const out = {};
@@ -1882,7 +1888,17 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
   }
   await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set() });
   let went = false;
-  return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); finish(); };
+  return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); wakeStarters(live); finish(); };
+}
+/**
+ * THE KEPT COMMANDS' OWN STARTERS, WOKEN TOO (the live test after deploy 75): a command in the admin sandbox is started by
+ * nsenter, which stays outside the sandbox as root and waits for it. When the pause stops the command, nsenter stops itself
+ * too (util-linux: "The child suspended so suspend us as well"), and only a SIGCONT of its own wakes it; it is none of the
+ * AI's processes, so resumeAI does not wake it. Left stopped, it never collected its command when that ended: the command
+ * stayed a zombie in the sandbox, its output never closed, and the background command never ended for Coder.
+ */
+export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "SIGCONT"); } catch { /* gone */ } } } = {}) {
+  for (const j of jobs || []) if (j && Number.isInteger(j.pid) && j.pid > 0) cont(j.pid);
 }
 
 export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true } = {}) {
@@ -2250,7 +2266,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
           const onMove = (fn) => { t.movable = fn; };
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; } }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; } }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2547,6 +2563,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!k.ok) return send(409, { ok: false, why: k.why });
         const rv = await nestedAway(dir, o.gitDir, async () => { const r = await gitIn(dir, ["revert", "--no-edit", sha], o); if (r.code !== 0) await gitIn(dir, ["revert", "--abort"], o); return r; }, (why) => ({ code: -1, output: why }));
         if (rv.code !== 0) { return send(409, { ok: false, why: "it could not be undone cleanly (later changes touch the same lines): " + rv.output.slice(0, 200) }); }
+        // (The revert's own commit carries the chat's link too.)
+        const tr = chatTrailer(body.chatUrl);
+        if (tr) await gitIn(dir, ["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr], o);
         const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
         // What the save left out is said here too (the audit, 2026-11-06).
         const told = p.left ? { left: p.left } : {};
@@ -2570,13 +2589,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const go = await quietly();
         if (!go) return send(200, { ok: false, pushed: false, why: NOT_STOPPED });
         try {
-        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), noPush: body.noPush === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: body.noPush === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
         for (const [i, x] of extraRepos(body).entries()) {
           const xdir = join(root, project + "-x" + (i + 1));
           if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
-          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), noPush: x.readOnly === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: x.readOnly === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
           extra.push({ repo: x.repo, ...r });
         }
         return send(200, extra.length ? { ...main, extra } : main);

@@ -65,7 +65,7 @@ export function notTextKind(p) { const e = extname(String(p || "")).toLowerCase(
 /** A NULL BYTE in a path or pattern (Claude Code's errors page: "Read file_path cannot contain null bytes (\0). Remove
  * the null byte and try again."): no file system or search tool takes one. */
 const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
-async function inside(p, { mustExist = false, tool = "" } = {}) {
+async function inside(p, { mustExist = false, tool = "", output = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   // Named by its tool and argument, as Claude Code's are ("Read file_path cannot contain null bytes …"): write's so far
   // (the owner, 2026-11-09, write's docs pass); the other tools keep "the path" until their turn.
@@ -81,6 +81,21 @@ async function inside(p, { mustExist = false, tool = "" } = {}) {
     if (st && !st.isFile()) fail("the memory file is not a plain file");
     if (!st && mustExist) fail("no such file: " + abs);
     return { abs, rel: abs };
+  }
+  // THE CHAT'S OWN COMMAND OUTPUT, TO READ (the live test after deploy 75): a background command's log and a long output's
+  // saved file are named to Coder by their full path, to read or search (Claude Code's Read opens its output files), but
+  // read refused them as outside the project. read and grep (`output`) may open what is in those folders (Coder's machine
+  // names them in CODER_OUTPUT_DIRS), never through a link out of them; no tool writes there.
+  if (output) {
+    for (const d of String(process.env.CODER_OUTPUT_DIRS || "").split(":").filter((x) => x && isAbsolute(x))) {
+      const x = relative(d, abs);
+      if (!x || x.startsWith("..") || isAbsolute(x)) continue;
+      let real = "";
+      try { real = await realpath(abs); } catch { fail("no such file: " + abs); }
+      const r2 = relative(await realpath(d).catch(() => d), real);
+      if (!r2 || r2.startsWith("..") || isAbsolute(r2)) fail("that path leads outside the project");
+      return { abs, rel: abs };
+    }
   }
   // THE CHAT'S OTHER REPOSITORIES (2026-11-06, like Claude Code's several repos
   // in one session): their folders, next to this one, count as inside too.
@@ -415,7 +430,7 @@ const BINARY_HOW = new Map(BINARY_KINDS.flatMap(([exts, how]) => exts.map((e) =>
 const shq = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
 
 export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars }) {
-  const { abs, rel } = await inside(path, { mustExist: true });
+  const { abs, rel } = await inside(path, { mustExist: true, output: true });
   // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
   const kind = await stat(abs);
   if (!kind.isFile() && !kind.isDirectory()) fail(rel + " is a pipe or a device, not a file; it cannot be read");
@@ -889,7 +904,7 @@ export async function toolGrep({ pattern, path = ".", glob, ignore_case = false 
   if (typeof pattern !== "string" || !pattern) fail("give a pattern");
   noNul(pattern, "the pattern");
   if (glob != null) noNul(glob, "the glob");
-  const { abs } = await inside(path);
+  const { abs } = await inside(path, { output: true });
   const args = ["-n", "--no-heading", "--color", "never", "--max-columns", "300", "--glob", "!.git"];
   if (ignore_case) args.push("-i");
   if (typeof glob === "string" && glob) args.push("--glob", glob);
