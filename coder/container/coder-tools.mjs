@@ -593,12 +593,35 @@ async function brokenLinkOnTheWay(abs) {
     at = up;
   }
 }
-export async function toolWrite({ path, content, file_path, file_text, file_content, show_change = false }) {
-  // CLAUDE CODE'S OTHER NAMES FOR ITS INPUTS (its changelog: "Fixed Write calls failing validation when a model sends
-  // `path`, `file_text`, `file_content` … instead of `file_path` and `content`"): taken here too.
-  if (typeof path !== "string" && typeof file_path === "string") path = file_path;
-  if (typeof content !== "string") content = [file_text, file_content].find((x) => typeof x === "string");
-  const { abs, rel } = await inside(path, { tool: "write" });
+/**
+ * CLAUDE CODE'S OTHER NAMES FOR WRITE'S INPUTS (its changelog: "Fixed Write calls failing validation when a model sends
+ * `path`, `file_text`, `file_content` or a stray `description` instead of `file_path` and `content`"), and what it says
+ * of them, tried for real (2026-11-09): "Note: Write's parameters are named `file_path` and `content`. `path` was read as
+ * `file_path`. `file_content` was read as `content`. `description` was ignored."; the same value twice, "`path` repeated
+ * `file_path` and was ignored"; two different values, refused: "Write failed due to the following issue: An unexpected
+ * parameter `file_text` was provided". Coder's own names are `path` and `content`.
+ */
+const WRITE_OTHER_NAMES = { file_path: "path", file_text: "content", file_content: "content" };
+function writeInputs(args) {
+  const a = args && typeof args === "object" ? args : {};
+  const got = { path: a.path, content: a.content }, said = [];
+  for (const [other, ours] of Object.entries(WRITE_OTHER_NAMES)) {
+    if (typeof a[other] !== "string") continue;
+    if (typeof got[ours] !== "string") { got[ours] = a[other]; said.push("`" + other + "` was read as `" + ours + "`."); }
+    else if (got[ours] === a[other]) said.push("`" + other + "` repeated `" + ours + "` and was ignored.");
+    else fail("write failed due to the following issue: An unexpected parameter `" + other + "` was provided");
+  }
+  for (const k of Object.keys(a)) if (!["path", "content", "show_change"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
+  return { ...got, note: said.length ? "\n\nNote: write's parameters are named `path` and `content`. " + said.slice(0, 10).join(" ") : "" };
+}
+export async function toolWrite(args) {
+  const { path, content, note: namesNote } = writeInputs(args);
+  const show_change = !!(args && args.show_change === true);
+  const { abs, rel: inRel } = await inside(path, { tool: "write" });
+  // NAMED IN FULL OUTSIDE THE PROJECT'S OWN FOLDER (Claude Code 2.1.304: "Fixed Write results … showing a file outside the
+  // working directory as `../../…`; they now show `~/…` or the full path"): a file in one of the chat's other repositories
+  // was named from that repository ("README.md"), as if it were the project's own.
+  const rel = abs === ROOT || abs.startsWith(ROOT + sep) ? inRel : abs;
   if (typeof content !== "string") fail("give the file's content");
   let st = null;
   try { st = await lstat(abs); } catch { st = null; }
@@ -634,7 +657,7 @@ export async function toolWrite({ path, content, file_path, file_text, file_cont
   await remember(abs, bytes);
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
-  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "");
+  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote;
   if (show_change !== true) return text;
   const change = await writeChange(oldText, content.replace(/^\ufeff/, "")).catch(() => null);
   return change ? WRITE_MARK + JSON.stringify({ text, change }) : text;

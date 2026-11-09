@@ -885,6 +885,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
         const spec = RUN_TOOLS[c.name];
         const args = c.args || {};
+        // Write gets Grok's inputs as Grok gave them, so its answer can name the ones it read another way (as Claude
+        // Code's does: "Note: Write's parameters are named `file_path` and `content`. `path` was read as `file_path`.").
+        const given = { ...args };
         // `file_path`, Claude Code's own name for it, is taken for `path` (Claude Code 2.1.292: Read "ignore[s] a few
         // stray parameters instead of failing the call"; its Grep "accepts file_path for path").
         if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
@@ -901,7 +904,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         // WHAT A WRITE CHANGED is asked for, for the chat only (writeAnswer).
-        const reqArgs = c.name === "write" ? { ...args, show_change: true } : args;
+        const reqArgs = c.name === "write" ? { ...given, show_change: true } : args;
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args: reqArgs })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).

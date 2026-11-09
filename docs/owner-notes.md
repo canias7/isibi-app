@@ -11,6 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Write: one more full pass through Claude Code's docs (your words: "Before the live browser keep checking the write tool in claude code docs pls we may be missing stuff")
+
+- **Went through everything that names Write:** all 44 changelog entries, every Write error in the error reference, and every other docs page. Where the docs don't give the exact words, I tried Claude Code's own Write.
+- **Copied:**
+  1. **Other names for write's inputs, with Claude Code's note.** When the AI uses another name (like `file_path` or `file_content`) or adds a stray one, Claude Code writes the file but tells the AI the right names ("`file_content` was read as `content`", "`description` was ignored"). If the AI gives two *different* paths or contents under two names, Claude Code refuses rather than guess. Coder now does both.
+  2. **A file in the chat's other repository is named in full** in write's answer. Before, it was "README.md", as if it were the main project's.
+  3. **Tab-indented code shows at its usual width** in the new preview.
+  4. **Found and fixed in my own work:** the new preview lines weren't covered by the step that hides your secret values when a chat is saved. Now they are.
+- **For you to decide: protected files.** Claude Code never writes certain files without asking you first: things like `.husky` (git hooks), `.vscode`, `.devcontainer`, `.bashrc`, `.envrc`, `.npmrc`, `.pre-commit-config.yaml`, `.mcp.json` and the Gradle wrapper. These can make code run on your computer when you pull the branch. Coder refuses only `.git` and writes the rest without asking.
+- Tests: CD257 (fails on the old code); all 266 pass, and the 24 real read checks.
+
 ## 2026-11-09: Write: what Claude Code's Write has that Coder's didn't (your words: "not only compare what we have, but also like what we don't have", then "Go ahead and do those")
 
 - **Each write now shows what it wrote, right under its step,** like Claude Code:

@@ -172,9 +172,13 @@ async function hiddenValues(env, bucket, uid, meta) {
   if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, meta.id, "hide.json")); }
   return [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
 }
-/** Those values hidden in a job's steps. */
-function hideIn(events, values) {
-  if (values.length) for (const ev of events) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of values) ev[f] = ev[f].split(v).join("[hidden]");
+/** Those values hidden in a job's steps: their text, and the lines a write shows under its step (the owner, 2026-11-09). */
+export function hideIn(events, values) {
+  const hide = (x) => { let t = String(x); for (const v of values) t = t.split(v).join("[hidden]"); return t; };
+  if (values.length) for (const ev of events) {
+    for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") ev[f] = hide(ev[f]);
+    if (ev && ev.change && Array.isArray(ev.change.lines)) ev.change.lines = ev.change.lines.map(hide);
+  }
   return events;
 }
 /**

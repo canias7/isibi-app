@@ -1666,7 +1666,7 @@ test("CD255 write takes Claude Code's other names for its inputs (its changelog:
   const out = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("write", { file_path: "f.txt", file_content: "one\nghp_" + "a".repeat(36) + "\n" }, "w1")]) : say("Done.")) }, { text: "write f" });
   assert.equal(await readFile(join(dir, "f.txt"), "utf8"), "one\nghp_" + "a".repeat(36) + "\n");
   const told = out.messages.find((m) => m.role === "tool" && m.tool_call_id === "w1").content;
-  assert.equal(told, "File created successfully at: f.txt (file state is current in your context — no need to Read it back)");
+  assert.equal(told, "File created successfully at: f.txt (file state is current in your context — no need to Read it back)\n\nNote: write's parameters are named `path` and `content`. `file_path` was read as `path`. `file_content` was read as `content`.");
   const shown = events.find((e) => e.type === "result" && e.id === "w1");
   assert.deepEqual(shown.change, { kind: "create", add: 2, del: 0, lines: ["+one", "+[hidden]"] }, "a key-shaped line is hidden in the chat");
   assert.equal(events.find((e) => e.type === "bash" && e.id === "w1").command, "f.txt");
@@ -1695,4 +1695,35 @@ test("CD256 the chat shows a write's change under its step (the owner, 2026-11-0
   assert.match(ui, /const CHANGE_FIRST = 8;/);
   assert.match(ui, /on\('\.cd-wchg-more', 'click'/);
   assert.match(css, /\.cd-wchg \{/);
+});
+
+test("CD257 write's last pass through Claude Code's docs and changelog (the owner, 2026-11-09: \"keep checking the write tool in claude code docs pls we may be missing stuff\"): its other input names are read with Claude Code's note, and two different values for one input are refused, as its real Write does; a file in the chat's other repository is named in full (2.1.304); the owner's values are hidden in a write's lines when the chat is saved; tab-indented code at its usual width in the chat", async () => {
+  const { mkdtemp, mkdir, readFile, access } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const top = await mkdtemp(join(tmpdir(), "coder-wlast-"));
+  const dir = join(top, "main"), other = join(top, "other");
+  await mkdir(dir); await mkdir(other);
+  const run = machine(dir, undefined, { ...process.env, CODER_EXTRA_ROOTS: other });
+  const write = async (args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args })).toString("base64") })).output;
+  const fresh = " (file state is current in your context — no need to Read it back)";
+  // Tried for real (2026-11-09): "Note: Write's parameters are named `file_path` and `content`. `path` was read as `file_path`. `file_content` was read as `content`. `description` was ignored."
+  assert.equal(await write({ file_path: "a.txt", file_content: "x\n", description: "stray" }), "File created successfully at: a.txt" + fresh + "\n\nNote: write's parameters are named `path` and `content`. `file_path` was read as `path`. `file_content` was read as `content`. `description` was ignored.");
+  // "`path` repeated `file_path` and was ignored."
+  assert.equal(await write({ path: "b.txt", file_path: "b.txt", content: "x\n" }), "File created successfully at: b.txt" + fresh + "\n\nNote: write's parameters are named `path` and `content`. `file_path` repeated `path` and was ignored.");
+  // "InputValidationError: Write failed due to the following issue: An unexpected parameter `path` was provided"; nothing written.
+  assert.equal(await write({ path: "c.txt", file_path: "d.txt", content: "x\n" }), "error: write failed due to the following issue: An unexpected parameter `file_path` was provided");
+  assert.equal(await write({ path: "e.txt", content: "one\n", file_text: "two\n" }), "error: write failed due to the following issue: An unexpected parameter `file_text` was provided");
+  for (const f of ["c.txt", "d.txt", "e.txt"]) await assert.rejects(access(join(dir, f)), f + " not written");
+  // The app's own input is no stray one; plain inputs get no note.
+  assert.equal(await write({ path: "f.txt", content: "x\n" }), "File created successfully at: f.txt" + fresh);
+  // A file in the chat's other repository: named in full, never as if it were the project's own.
+  assert.equal(await write({ path: join(other, "README.md"), content: "x\n" }), "File created successfully at: " + join(other, "README.md") + fresh);
+  assert.equal(await readFile(join(other, "README.md"), "utf8"), "x\n");
+  // The owner's values, hidden in what a write shows, when the chat is saved.
+  const { hideIn } = await import("../src/coder-routes.mjs");
+  const evs = hideIn([{ type: "result", id: "w1", output: "File created successfully at: .env", change: { kind: "create", add: 1, del: 0, lines: ["+API_KEY=sk-secret-123", "+MODE=dev"] } }], ["sk-secret-123"]);
+  assert.deepEqual(evs[0].change.lines, ["+API_KEY=[hidden]", "+MODE=dev"]);
+  // Tabs at their usual width under a write (Claude Code 2.1.181 fixed its preview's tab-indented code).
+  assert.match(readFileSync(HERE("public/coder.css"), "utf8"), /\.cd-wchg pre \{[^}]*tab-size: 4;/);
 });
