@@ -411,3 +411,33 @@ Outside write (on the separate list; the owner: "Yes fix that"; done, CD261): th
 | Other names: `path` for `file_path`, `old_str` and `new_str` | taken, silently (Write adds a note; Edit doesn't) |
 
 Next (the owner's order): Coder's edit side by side, then what to copy, then live in the browser.
+
+**Coder's edit, side by side** (the owner, 2026-11-09: "Ok tell me"; Coder's real edit tool run as its machine runs it, as `dev` in a project folder, on the same files and cases: scratchpad `edit-side.mjs`):
+
+| Case | Claude Code's Edit | Coder's edit before |
+|---|---|---|
+| An old encoding (Latin-1 "café au lait") | refused, nothing written | **written over: "cafï¿½ noir", the é lost for good** (read as UTF-8, written back with U+FFFD) |
+| CRLF file, plain line breaks in `old_string` | matched; new lines CRLF | **"old_string was not found"**; its read shows Grok each `\r`, which Grok does not type back, so a CRLF file can hardly be edited |
+| Mixed endings | matched; all CRLF after | **not found** |
+| Curly quotes in the file, straight in `old_string` | matched; written curly | **not found** |
+| `é` in `old_string` | taken for "é" | **not found** |
+| A link | refused, naming its target | **edited the target through the link, silently** |
+| Links in a loop, or to nowhere | refused ("where it leads on disk could not be determined …") | "no such file: loopa/x.txt …" |
+| A notebook | refused: "File is a Jupyter Notebook. Use the NotebookEdit to edit this file." | **edited as plain text** (its JSON) |
+| UTF-16 with its mark | edited, kept UTF-16 | refused as "a binary file (not text)" |
+| Changed on disk since read, old text still there once | edited, with the note "(note: the file had been modified on disk since you last read it — …)" | edited, no note |
+| Changed on disk since read, old text gone | "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it." | "old_string was not found in stale.txt. …" |
+| Empty old text, no such file | the file made | "no such file: brandnew.txt. …" |
+| Empty old text, the file exists | "Cannot create new file - file already exists." | "give old_string: the exact text to replace" |
+| `replace_all` as the text "false" | not all (text booleans read as booleans) | **replaced both** ("k = 2" twice) |
+| `old_str`, `new_str` | taken | "give old_string …" |
+| A protected file (`.husky/…`, `.npmrc` …) | asked, as for Write | **written with no question** (write asks; edit doesn't yet) |
+| What the chat shows under each edit | the change (a diff) | "Edited a.txt" only |
+| New problems from the language server after each edit | yes (as after Write) | none (only after write) |
+| Size | up to about 1 GiB | 5 MB ("too big for this tool") |
+| Its description tells the model to leave read's line-number prefix out of `old_string` | yes ("Strip the Read line prefix (line number + tab)") | no |
+| Words: done | "The file … has been updated successfully." ("(file state is current …)" only when read whole); replace_all: "The file … has been updated. All occurrences were successfully replaced." | "edited unread.txt (1 place)" |
+| Words: not found / twice / the same | "String to replace not found in file.\nString: …" / "Found 2 matches of the string to replace, but replace_all is false. …\nString: …" / "No changes to make: old_string and new_string are exactly the same." | "old_string was not found in … Read the file and copy the text exactly, spaces included." / "old_string appears 2 times in … Add more lines around it so it is unique, or set replace_all." / "old_string and new_string are the same" |
+| A null byte in the path | "Edit file_path cannot contain null bytes (\0). …" | "the path cannot contain null bytes (\0). …" |
+| A folder | "Error calling tool (Edit): EISDIR: illegal operation on a directory, read" | ".../adir is a folder, not a file: list what is in it with glob, or a command such as ls" (clearer; Claude Code's Write says much the same) |
+| Already the same | an unread file, or one read only in part, edited; exact match (a tab is not spaces; a line-number prefix is not the file); two trailing spaces kept; UTF-8 byte-order mark kept; whole lines taken out; replace_all; "twice" refused; "no such file" with the working folder named; a relative path; the folder's instruction file shown after the edit (`laterNotes`); the security check on each edit (`checkEdit`) | |
