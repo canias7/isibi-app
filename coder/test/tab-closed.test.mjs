@@ -340,3 +340,40 @@ test("CD279 (tool 4, part 2) background commands after the answer, on Coder's Wo
   run = await W.runBackgroundJobs(env, { coder });
   assert.deepEqual([run.checked, run.left], [0, 1]);
 });
+
+test("CD281 (tool 4, part 3) shell mode on the Worker and the page: a message starting with \"!\" is the owner's own command for the machine (not with pictures or line comments, never from GitHub); \"!\" alone is refused; the page's box says it is shell mode, and the command shows once, as the machine shows it", async () => {
+  const R = await import("../src/coder-routes.mjs");
+  const { saveConnection } = await import("../src/coder-github.mjs");
+  const uid = "user-1234567890abcdef", id = "shop-sh1";
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", CODER_BUCKET: bucket };
+  await saveConnection(env, bucket, uid, { access: "ghu_user" }, "ana");
+  const mk = "coder/" + uid + "/" + id + "/meta.json";
+  const idle = { id, repo: "ana/shop", base: "main", branch: "coder/" + id, turn: 1, saved: 1, status: "idle", at: 1000, title: "x" };
+  const turns = [];
+  const box = () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns.push(await req.json()); return Response.json({ ok: true }); } });
+  const go = async (body) => { await bucket.put(mk, JSON.stringify(idle)); return R.handleCoder(new Request("https://gofarther.dev/api/coder/projects/" + id + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), env, {}, { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: uid, email: "me@x.y" }), container: box }); };
+  assert.equal((await go({ text: "!npm test" })).status, 200);
+  assert.deepEqual([turns[0].shell, turns[0].text, turns[0].shown], ["npm test", "", ""]);
+  assert.equal((await go({ text: "!" })).status, 400);
+  assert.equal((await go({ text: "!  " })).status, 400);
+  assert.equal((await go({ text: "! ls", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] })).status, 200);
+  assert.equal(turns[1].shell, undefined, "with a picture: a message as before");
+  assert.equal((await go({ text: "!ls", fromGithub: true })).status, 200);
+  assert.equal(turns[2].shell, undefined, "from GitHub: never a command");
+  assert.equal((await go({ text: "fix it! now" })).status, 200);
+  assert.equal(turns[3].shell, undefined);
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /'<form class="cd-compose' \+ \(\/\^!\/\.test\(S\.draft \|\| ''\) \? ' is-shell' : ''\) \+ '" id="cdForm">'/);
+  assert.match(page, /if \(form\) form\.classList\.toggle\('is-shell', \/\^!\/\.test\(input\.value\)\);/);
+  assert.match(page, /Shell mode: runs this command on Coder\\'s machine, then Coder answers what it printed/);
+  assert.match(page, /const shellText = \/\^!\/\.test\(text\) && !pics\.length && !comments\.length && text\.replace\(\/\^!\\s\*\/, ''\) \? '! ' \+ text\.replace\(\/\^!\\s\*\/, ''\) : '';/);
+  assert.match(page, /'<div class="cd-bubble' \+ \(e\.shell \? ' cd-bubble-shell' : ''\) \+ '">'/);
+  // The background list above the box (part 2), each with its Stop; asked for every 20 seconds while the chat waits.
+  assert.match(page, /const BG_POLL_MS = 20000;/);
+  assert.match(page, /return '<div class="cd-composewrap">' \+ bgHTML\(\) \+ mentionHTML\(\)/);
+  assert.match(page, /on\('\[data-bg-stop\]', 'click', \(e\) => \{ stopBg\(e\.currentTarget\.dataset\.bgStop, e\.currentTarget\); \}\);/);
+  const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(css, /\.cd-compose\.is-shell \+ \.cd-shellhint \{ display: block; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.cd-bg-dot \{ animation: none; \} \}/);
+});

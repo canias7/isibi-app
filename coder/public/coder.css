@@ -489,3 +489,10 @@
 .cd-bg-stop { border: 1px solid #e0dbd2; background: #fff; color: #0d1b2a; border-radius: 999px; padding: 2px 10px; font: 600 12px Inter, system-ui, sans-serif; cursor: pointer; flex: none; }
 .cd-bg-stop:hover { border-color: #b42318; color: #b42318; }
 .cd-bg-stop:disabled { opacity: .6; cursor: default; }
+
+/* SHELL MODE (tool 4, part 3, like Claude Code's "!"): the box, the hint under it, and the owner's command in the chat. */
+.cd-compose.is-shell { border-color: #b45309; box-shadow: 0 0 0 1px #b45309 inset; }
+.cd-compose.is-shell textarea { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+.cd-shellhint { display: none; margin: 6px 6px 0; font: 12px Inter, system-ui, sans-serif; color: #b45309; }
+.cd-compose.is-shell + .cd-shellhint { display: block; }
+.cd-bubble.cd-bubble-shell { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; white-space: pre-wrap; }

@@ -260,6 +260,20 @@ export function bgEndNotice({ id = "", desc = "", command = "", log = "", code =
   const where = log ? " Its output is in " + log + (id ? " (ID: " + id + ")" : "") + "." : id ? " (ID: " + id + ")." : "";
   return { said, note: said + "." + more + where };
 }
+/**
+ * THE OWNER'S OWN COMMAND (tool 4, part 3: Claude Code's shell mode, "! npm test": it "adds the command and its output to the
+ * conversation context", and "Claude responds to the command output automatically"), as Claude Code adds it: the command in
+ * <bash-input>, then what it printed in <bash-stdout> (cut past 30,000 characters, head and tail) and, when it failed, its
+ * exit code in <bash-stderr>.
+ */
+export const SHELL_CUT = 30_000;
+export function shellMessages(command, { output = "", code = 0, background = "" } = {}) {
+  let out = String(output || "").replace(/\n+$/, "");
+  if (out.length > SHELL_CUT) out = out.slice(0, SHELL_CUT / 2) + "\n\n... [" + (out.length - SHELL_CUT) + " characters truncated] ...\n\n" + out.slice(-SHELL_CUT / 2);
+  if (background) out += (out ? "\n" : "") + background;
+  const err = Number.isInteger(code) && code > 0 ? "Exit code " + code : "";
+  return [{ role: "user", content: "<bash-input>" + String(command) + "</bash-input>" }, { role: "user", content: "<bash-stdout>" + out + "</bash-stdout><bash-stderr>" + err + "</bash-stderr>" }];
+}
 /** How long, the most significant part only (Claude Code: "has been running for 2m"). */
 export const agoWords = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.round(s / 60) + "m" : Math.round(s / 3600) + "h"; };
 /** A timeout Grok asked for: Claude Code's `timeout` in milliseconds, or Coder's own `timeout_s`; one over the most is cut to it, not refused. */
@@ -589,6 +603,7 @@ HOW YOU WORK
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
 - Long-running servers and watchers: bash with run_in_background: true, then monitor to read their output (and curl to check a server), stop_job when done. Never use & yourself. A command still running at its time limit keeps running in the background. Background commands keep running after your answer, until they end, you stop them, or they reach their time limit (30 minutes; with run_in_background, the timeout you give, up to 2 hours); you are told when one ends, even after your answer, so do not wait or poll for it.
 - Keep command output small (head, tail, grep): every round costs the owner time.
+- A command the owner ran themselves (they typed ! in the chat) comes as <bash-input>the command</bash-input>, then <bash-stdout>what it printed</bash-stdout> (<bash-stderr> has its exit code when it failed). Answer it as their message: say what the output means (what failed and how to fix it, when something did). Do not run it again unless they ask.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
@@ -693,7 +708,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -705,6 +720,31 @@ export async function runCoder(deps, { notices = [], messages = [], text = "", s
   // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
   // history keeps a note in their place (so it stays small).
   const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
+  // BACKGROUND JOBS (bash with run_in_background, or moved there at their timeout): id → { pid, log, command, desc, … }.
+  // THOSE FROM EARLIER MESSAGES still running too (tool 4, part 2: they go on after the answer, like Claude Code's): Coder
+  // can look at them, stop them, and is told when they end.
+  const jobs = new Map();
+  try { if (deps.bg && typeof deps.bg.kept === "function") for (const k of (await deps.bg.kept()) || []) if (k && typeof k.id === "string" && k.pid) jobs.set(k.id, { pid: k.pid, log: String(k.log || ""), command: String(k.command || ""), desc: String(k.desc || ""), at: Number(k.at) || now(), moved: !!k.moved, cwd: String(k.cwd || ""), done: false }); } catch { /* none */ }
+  // THE OWNER'S OWN COMMAND (Claude Code's shell mode, "! npm test"): run as Coder's commands are (in the chat's folder, a cd
+  // carries over, past its timeout moved to the background), with no check of Coder's (Claude Code: it "doesn't require Claude
+  // to interpret or approve the command"); the chat shows it and what it printed, and Coder answers it.
+  if (typeof shell === "string" && shell.trim()) {
+    const command = shell.trim();
+    const sid = "own" + Math.random().toString(36).slice(2, 8);
+    emit({ type: "user", text: "! " + command, shell: true });
+    emit({ type: "bash", id: sid, command: scrub(command).slice(0, 2000), verb: "You ran", by: "owner" });
+    let r;
+    try { r = await deps.exec({ command, timeoutS: MAX_TIMEOUT_S, here: true, follow: true, desc: "! " + command.split("\n")[0].slice(0, 120) }); }
+    catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
+    const code = r && Number.isInteger(r.code) ? r.code : -1;
+    const bg = !!(r && r.background);
+    const said = bg ? "Command did not complete within its " + MAX_TIMEOUT_S + "s timeout and was moved to the background (ID: " + (typeof r.jobId === "string" ? r.jobId : "?") + "). Output is being written to: " + r.log + ". You will be notified when it completes." : "";
+    const printed = scrub(noCwdMarks(String((r && r.output) || "")));
+    for (const m of shellMessages(command, { output: printed, code: bg ? 0 : code, background: said })) convo.push(m);
+    if (bg && r.pid && r.log && typeof r.jobId === "string") jobs.set(r.jobId, { pid: r.pid, log: r.log, command, desc: "! " + command.split("\n")[0].slice(0, 120), at: now(), moved: true, cwd: "", done: false });
+    const shownOut = (printed.replace(/\n+$/, "") || (bg ? "" : "(no output)")) + (said ? (printed ? "\n" : "") + said : "") + (!bg && code !== 0 ? "\nExit code " + code : "");
+    emit({ type: "result", id: sid, code, output: shownOut.length > MAX_OUTPUT_CHARS ? capOutput(shownOut) : shownOut, ...(bg ? { background: true } : {}), ...(r && typeof r.cwdTold === "string" ? { cwd: r.cwdTold } : {}) });
+  }
   if (typeof text === "string" && text.trim()) {
     convo.push({ role: "user", content: text.trim(), ...(pics.length ? { images: pics.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
     // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it.
@@ -731,7 +771,7 @@ export async function runCoder(deps, { notices = [], messages = [], text = "", s
   const told = (Array.isArray(notices) ? notices : []).filter((x) => x && typeof x === "object").slice(0, 20).map((x) => bgEndNotice(x));
   if (told.length) {
     for (const n of told) emit({ type: "note", text: n.said });
-    convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + (told.length === 1 ? "a background command" : told.length + " background commands") + " ended since your last answer.\n" + told.map((n) => n.note).join("\n\n") + (typeof text === "string" && text.trim() ? "" : "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two.") + ")" });
+    convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + (told.length === 1 ? "a background command" : told.length + " background commands") + " ended since your last answer.\n" + told.map((n) => n.note).join("\n\n") + ((typeof text === "string" && text.trim()) || (typeof shell === "string" && shell.trim()) ? "" : "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two.") + ")" });
   }
   // THE FILES THIS JOB WORKS ON (read, changed, viewed with a command, @-mentioned), the newest last: after a summary
   // the most recently changed of them are read again (rereadFiles).
@@ -780,11 +820,6 @@ export async function runCoder(deps, { notices = [], messages = [], text = "", s
   // which command failed and to propose a fix on the card.
   let setupNudged = false, saidAll = "";
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
-  // BACKGROUND JOBS (bash with run_in_background, or moved there at their timeout): id → { pid, log, command, desc, … }.
-  // THOSE FROM EARLIER MESSAGES still running too (tool 4, part 2: they go on after the answer, like Claude Code's): Coder
-  // can look at them, stop them, and is told when they end.
-  const jobs = new Map();
-  try { if (deps.bg && typeof deps.bg.kept === "function") for (const k of (await deps.bg.kept()) || []) if (k && typeof k.id === "string" && k.pid) jobs.set(k.id, { pid: k.pid, log: String(k.log || ""), command: String(k.command || ""), desc: String(k.desc || ""), at: Number(k.at) || now(), moved: !!k.moved, cwd: String(k.cwd || ""), done: false }); } catch { /* none */ }
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).

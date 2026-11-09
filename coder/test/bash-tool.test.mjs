@@ -271,3 +271,27 @@ test("CD278 (tool 4, part 2) background commands told of in Claude Code's words 
   assert.ok(!ev3.some((e) => e.type === "user"));
   assert.match(seen3[0].messages.filter((m) => m.role === "user").pop().content, /a background command ended since your last answer\.\nBackground command "Build" completed \(exit code 0\)\. Its output is in \/out\/bg-2\.log \(ID: job2\)\.\nThe owner sent no message: this turn is only to tell you\./);
 });
+
+test("CD280 (tool 4, part 3) the owner's own command, Claude Code's shell mode (\"! npm test\"): run as Coder's are, with no check of Coder's; the chat shows it and what it printed; Coder gets it as Claude Code adds it (<bash-input>, <bash-stdout>, <bash-stderr> with the exit code) and answers it", async () => {
+  const { runCoder, shellMessages, SHELL_CUT } = await import("../container/coder-agent.mjs");
+  assert.deepEqual(shellMessages("npm test", { output: "1 failing\n", code: 1 }), [{ role: "user", content: "<bash-input>npm test</bash-input>" }, { role: "user", content: "<bash-stdout>1 failing</bash-stdout><bash-stderr>Exit code 1</bash-stderr>" }]);
+  assert.equal(shellMessages("ls", { output: "a\n", code: 0 })[1].content, "<bash-stdout>a</bash-stdout><bash-stderr></bash-stderr>");
+  const long = shellMessages("seq 1 99999", { output: "x".repeat(SHELL_CUT + 500) })[1].content;
+  assert.match(long, /\.\.\. \[500 characters truncated\] \.\.\./);
+  const events = [], execs = [], seen = [];
+  const exec = async (o) => { execs.push(o); return { code: 1, output: "FAIL src/a.test.js\n  expected 2, got 3\n" }; };
+  const r = await runCoder({ send: async (req) => { seen.push(req); return say("The test in src/a.test.js expects 2 but gets 3: fix the add function."); }, exec, emit: (e) => events.push(e), here: () => "/work/p", root: "/work/p" }, { shell: "rm -rf build && npm test" });
+  // Run as Coder's commands are (its folder carried over), with no check of Coder's: a removal is the owner's to make.
+  assert.equal(execs.length, 1);
+  assert.deepEqual([execs[0].command, execs[0].here, execs[0].follow, execs[0].timeoutS], ["rm -rf build && npm test", true, true, 600]);
+  assert.deepEqual(events.filter((e) => e.type === "user"), [{ at: events.find((e) => e.type === "user").at, type: "user", text: "! rm -rf build && npm test", shell: true }]);
+  const step = events.find((e) => e.type === "bash");
+  assert.deepEqual([step.verb, step.by, step.command], ["You ran", "owner", "rm -rf build && npm test"]);
+  assert.equal(events.find((e) => e.type === "result" && e.id === step.id).output, "FAIL src/a.test.js\n  expected 2, got 3\nExit code 1");
+  // Coder gets it as Claude Code adds it, and answers.
+  const msgs = seen[0].messages.filter((m) => m.role === "user");
+  assert.deepEqual(msgs.slice(-2).map((m) => m.content), ["<bash-input>rm -rf build && npm test</bash-input>", "<bash-stdout>FAIL src/a.test.js\n  expected 2, got 3</bash-stdout><bash-stderr>Exit code 1</bash-stderr>"]);
+  assert.match(seen[0].messages[0].content, /A command the owner ran themselves \(they typed ! in the chat\) comes as <bash-input>/);
+  assert.equal(r.status, "done");
+  assert.ok(r.messages.some((m) => m.role === "assistant" && /expects 2 but gets 3/.test(m.content)));
+});

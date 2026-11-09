@@ -599,6 +599,11 @@ export async function handleCoder(request, env, ctx, deps) {
     // has something to tell.
     const wake = body.fromBackground === true && !review;
     const said = review ? review.label : wake ? "" : String(body.text || "").trim();
+    // THE OWNER'S OWN COMMAND (tool 4, part 3; Claude Code's shell mode: "! npm test" runs it directly, its output goes into
+    // the conversation, and Claude responds to it): a message starting with "!", typed in the page (never from GitHub, where
+    // strangers write), with no pictures or comments. The machine runs it as Coder's commands run.
+    const shell = !review && !wake && body.fromGithub !== true && /^!/.test(said) && !commentsText(body.comments) && !(Array.isArray(body.images) && body.images.length) ? said.replace(/^!\s*/, "") : null;
+    if (shell === "") return json({ error: "write a command after !" }, 400);
     const notes = commentsText(body.comments);
     const text = notes ? notes + (said ? "\n\n" + said : "") : said;
     const pics = checkImages(body.images);
@@ -713,10 +718,10 @@ export async function handleCoder(request, env, ctx, deps) {
       await dropLive(bucket, uid, id).catch(() => {});
     };
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
-    const wakeOn = wake ? { wake: true } : {};
+    const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {};
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, cwd: typeof meta.cwd === "string" ? meta.cwd : "", ...wakeOn, text: wake ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, cwd: typeof meta.cwd === "string" ? meta.cwd : "", ...wakeOn, ...shellOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
