@@ -894,7 +894,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
-      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask"].includes(e.type)).at(-1);
+      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type)).at(-1);
       // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
       // next message's commands too ("This includes commands Claude runs in response to your later messages").
       const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";

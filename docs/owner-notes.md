@@ -11,6 +11,24 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Bash (tool 4): Claude Code's ways copied, part 1 (your words: "do all of those and double check again against the claude code docs pls")
+
+Copied from Claude Code's docs, from Claude Code itself (its own program text, and real tries of its Bash tool on my side, so the words are its own), into Coder:
+
+- **A short description of each command:** Grok now writes "Run the test suite", and the chat shows that instead of the raw command. Open the step to see the command and its output.
+- **`grep` that finds nothing isn't an error:** neither is `diff` with differences, nor `find` or `test` giving exit 1 (Claude Code's own list). No red mark, and it doesn't count as a failed step.
+- **Long output is no longer cut and lost:** up to 30,000 characters are shown. Past that, the whole output is saved to a file on Coder's machine, and Grok gets the path and the first 2,000 characters, in Claude Code's exact words. A failed command shows its start and end, as Claude Code does.
+- **Protected files written by a command** (`> .npmrc`, `tee .envrc`) now get the same Allow / Don't allow card as write and edit. One Allow covers both.
+- **The dangerous-delete check is Claude Code's:** the machine's root, top-level folders, the home folder, the project and the folders above it, `rm -rf "$DIR"/*` with an empty variable, `rm -rf "$(pwd)"`, inside `bash -c` and `find -exec`… Coder refuses them, with Claude Code's own explanation. Claude Code refuses them too when no one is at a terminal to ask.
+- **Commands over 10,000 characters** get a card instead of being refused (Claude Code asks about them).
+- **`sleep`:** a foreground `sleep` of 25 seconds or more is refused, and a command starting with `sleep` is stopped at its time limit instead of moved to the background. Both are Claude Code's rules, found by trying it.
+- **The same slow command twice:** Coder won't start a second copy of a command that's still running in the background.
+- **Full disk:** Coder says so plainly and names the folder to free up, in Claude Code's words.
+- **A picture printed by a command** (as a data URL) comes back to Grok as a picture, and a small copy shows in the chat.
+- **A background command that ends while Coder is still working** is reported once, in Claude Code's words ("… completed (exit code 0)", "… failed with exit code 3").
+- **Tests:** CD267–CD275, and all 286 tests pass.
+- **Still to come:** background commands that keep running after Coder's answer (with Coder told when they end), running a command yourself with `!`, and the second pass through Claude Code's docs.
+
 ## 2026-11-09: Bash (tool 4): Claude Code's docs read first (your words: "Yes start on bash, look at claude code docs first")
 
 - **Read:** every page of Claude Code's docs that names its Bash tool, and the 395 changelog entries about it. The full list and the side-by-side with Coder are in `docs/tool-by-tool.md`, section 4.

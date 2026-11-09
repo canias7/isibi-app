@@ -21,7 +21,9 @@
 import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
-import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS } from "./coder-checks.mjs";
+import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText } from "./coder-checks.mjs";
+import { exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm } from "./coder-bashcheck.mjs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
@@ -185,14 +187,64 @@ export function protectedFile(path) {
  */
 export const allowWriteText = (path) => "I allowed Coder to change " + path + ".";
 const ENV_NOTE_START = "(Note from Coder's app, not the owner: since the last message", ENV_NOTE_END = " Go by this, not by what the chat said before.)\n\n";
-function ownerAllowed(convo, path) {
-  const want = allowWriteText(path);
+/** The owner's own message, made only of allow sentences, one a line (a card for a command may name several files). */
+const ALLOW_LINE = /^I allowed Coder to (change .+|run command [0-9a-f]{8})\.$/;
+function ownerSaid(convo, want) {
   return convo.some((m) => {
     if (!m || m.role !== "user" || m.appNote || m.files || m.reread || m.summary || typeof m.content !== "string") return false;
     let t = m.content;
     if (t.startsWith(ENV_NOTE_START) && t.includes(ENV_NOTE_END)) t = t.slice(t.indexOf(ENV_NOTE_END) + ENV_NOTE_END.length);
-    return t.trim() === want;
+    const lines = t.trim().split("\n").map((x) => x.trim());
+    return lines.every((x) => ALLOW_LINE.test(x)) && lines.includes(want);
   });
+}
+function ownerAllowed(convo, path) { return ownerSaid(convo, allowWriteText(path)); }
+export const allowRunText = (command) => "I allowed Coder to run command " + createHash("sha256").update(String(command)).digest("hex").slice(0, 8) + ".";
+/**
+ * A COMMAND THE OWNER IS ASKED ABOUT FIRST (tool 4): one over 10,000 characters (Claude Code: "Commands longer than 10,000
+ * characters always prompt because they exceed what the analysis parses"), and one whose redirection (>, >>, 2>) or tee
+ * writes a protected file (Claude Code's permissions docs, Redirections: the check "covers your Edit allow and deny rules,
+ * protected paths, and the working directories"; tee "including in a pipeline"). A file is named as write names it, so the
+ * owner's Allow on either card covers the other. Null when it needs no one.
+ */
+export function commandAsk(command, deps, where0 = "") {
+  if (String(command).length > MAX_COMMAND_CHARS) return { kind: "long", paths: [], allow: [allowRunText(command)], why: "this command is over 10,000 characters, more than Coder's checks read through", github: "this command is over 10,000 characters" };
+  const names = [];
+  for (const x of writeTargets(command).targets) {
+    // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known).
+    const name = x.afterCd || x.unsure ? x.path : projectPath(deps, x.path);
+    if (name && protectedFile(name) && !names.includes(name)) names.push(name);
+  }
+  if (!names.length) return null;
+  // Each name as the chat shows it (a line break written out, never sent as one): the card's Allow becomes the owner's own
+  // message, so a file's name can never add words of its own to it; write's card names a file the same way.
+  const list = names.map((n) => scrub(visibleChars(n)).slice(0, 300));
+  return { kind: "protected", paths: list, allow: list.map((n) => allowWriteText(n)), why: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") };
+}
+/** What a card shows of a command: its first 40 lines, a long line cut with "…". */
+export function cardLines(command) {
+  const all = String(command).split(/\r?\n/);
+  const lines = all.slice(0, 40).map((l) => { const x = scrub(l); return x.length > 300 ? x.slice(0, 300) + "…" : x; });
+  return { lines, ...(all.length > 40 ? { more: all.length - 40 } : {}) };
+}
+/**
+ * WHAT CLAUDE CODE SAYS WHEN ITS rm CHECK STOPS A COMMAND, away from a terminal (Claude Code 2.1.319's own words, when it
+ * stopped one of the assistant's commands on 2026-11-09), with Coder's names. Then what it flagged.
+ */
+export const RM_REFUSED = "Permission for this command was denied by a built-in Coder safety check, not by the owner. The check stops removals that can delete far more than intended: a system, home or workspace directory, or a target it cannot resolve, such as a shell variable that, if unset or empty, turns this into `rm -rf /` or `rm -rf /*`. Only a person may approve such a removal, and Coder asks no one about commands. The command was NOT run; do not claim it succeeded. Do not work around the check by splitting, scripting, or re-issuing the removal through another tool or shell: the check exists because a removal like this can destroy the owner's data, and getting past it would not make it safe. If the text below suggests a safe rewrite, run that instead; it goes through the same check. Otherwise finish the rest of the task without this removal, tell the owner what you wanted to delete and why, and leave the removal to them. What was flagged: ";
+/**
+ * A BACKGROUND COMMAND'S NOTICE (Claude Code 2.1.319's words for a session whose background commands end with its final
+ * response): Coder stops them when the turn ends.
+ */
+export const BG_NOTICE = "If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that — so do not end your turn to wait for it; if you need its result, wait for it before giving your final response.";
+/** How long, the most significant part only (Claude Code: "has been running for 2m"). */
+export const agoWords = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.round(s / 60) + "m" : Math.round(s / 3600) + "h"; };
+/** A timeout Grok asked for: Claude Code's `timeout` in milliseconds, or Coder's own `timeout_s`; one over the most is cut to it, not refused. */
+export function commandTimeoutS(args) {
+  const ms = Number(args && args.timeout);
+  if (Number.isFinite(ms) && ms > 0) return Math.min(MAX_TIMEOUT_S, Math.max(1, Math.round(ms / 1000)));
+  if (args && args.timeout_s !== undefined) return readTimeout(args.timeout_s);
+  return DEFAULT_TIMEOUT_S;
 }
 /**
  * INSTRUCTION FILES SHOWN ONLY IN PART: the note Coder's app puts after the part it shows ("[NAME goes on: read the rest
@@ -419,8 +471,8 @@ export const CODER_TOOLS = Object.freeze([
   // Coder's question from the page, so a page's text, and any tricks hidden in
   // it, never reach Coder itself.
   fn("web_fetch", "Read a public web page (documentation, an API's reference). A separate reader reads the page and answers your prompt from it; the page itself is not shown to you. Ask for exactly what you need, e.g. 'the install command and the supported Node versions'.", { url: { type: "string" }, prompt: { type: "string" } }, ["url", "prompt"]),
-  fn("monitor", "Read what a background job (from bash with run_in_background) has printed: the newest lines, and whether it is still running. wait_s (0-60) waits first, to let it get going.", { job: { type: "string" }, wait_s: { type: "integer" }, lines: { type: "integer" } }, ["job"]),
-  fn("stop_job", "Stop a background job by its id. Every job is also stopped when your turn ends.", { job: { type: "string" } }, ["job"]),
+  fn("monitor", "Look at a background command (from bash with run_in_background, or one moved there at its timeout): the newest lines of its output and whether it is still running. wait_s (0-60) waits first, for a line you need before you can go on (a server's ready line). You are told when it ends, so do not poll it.", { job: { type: "string" }, wait_s: { type: "integer" }, lines: { type: "integer" } }, ["job"]),
+  fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { job: { type: "string" } }, ["job"]),
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved on this chat's environment (every chat using it gets it) and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
   fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "trusted", "full"], description: "new_environment: network level (default trusted)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
   fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
@@ -432,10 +484,18 @@ export const CODER_TOOLS = Object.freeze([
   // questions, each with a short header chip, 2 to 4 options and multi-select; Other is always there).
   fn("ask_user", "Ask the owner 1 to 4 questions at once, like Claude Code's, when you truly cannot choose for them (which of two designs, whether to delete something, what they meant). Put related questions in one call. Each question: its text, a header (at most 12 characters, shown as a chip, e.g. \"Database\"), 2 to 4 options, each with a short label (1 to 5 words) and a one-line description of what it means or what happens, and multi_select: true when they may choose several. If you recommend an option, put it first and add \" (Recommended)\" to its label. The owner can always choose Other and type their own answer, or Skip. Your turn ends there; their answers come back as the next message. Do not use it for things you can decide yourself.", { questions: { type: "array", description: "1 to 4 questions", items: { type: "object", properties: { question: { type: "string" }, header: { type: "string", description: "at most 12 characters" }, options: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "1 to 5 words" }, description: { type: "string", description: "one line: what it means or what happens" } }, required: ["label"] } }, multi_select: { type: "boolean" } }, required: ["question", "options"] } } }, ["questions"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
+  // CLAUDE CODE'S BASH, ITS INPUTS AND WHAT ITS DESCRIPTION TELLS THE MODEL (tool 4; the owner, 2026-11-09: "do all of
+  // those"; its hooks reference: command, description, timeout in milliseconds, run_in_background; its tools reference
+  // and Claude Code 2.1.319's own Bash description, read and tried that day).
   { type: "function", function: {
     name: "bash",
-    description: "Run ONE shell command (bash) and get back what it printed and its exit code. It runs where your last command left off, like Claude Code's Bash: a cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; if it leaves them, the next command starts back in the project's folder (the result says \"Shell cwd was reset to …\"); a command in the background never moves it. Use it for installs, tests, builds, scripts, git status/log/diff. Commands run with no secrets in their environment. A command that runs on (a dev server, a watcher) goes in the background with run_in_background: true (not with &): you get a job id to read with monitor and end with stop_job. `timeout_s`: how long it may take (default 120, at most 600).",
-    parameters: { type: "object", properties: { command: { type: "string" }, timeout_s: { type: "integer" }, run_in_background: { type: "boolean" } }, required: ["command"] },
+    description: "Run ONE shell command (bash) and get back what it printed. Each command runs in a separate process. A cd carries over to your later commands (in later messages too) when the command succeeds and stays inside the project or this chat's other repositories; outside them the next command starts back in the project's folder, and the result says \"Shell cwd was reset to …\". Environment variables do not carry over from one command to the next. What a command prints is shown to you, not reliably to the owner: say in your answer what matters. Give `description`: what the command does, in a few plain words in active voice (\"Run the test suite\", \"Install the packages\"), never the command echoed; the owner sees it in place of the command. `timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is moved to the background and you are told its id and output file (a command that starts with `sleep` is stopped instead). A command that runs on (a dev server, a watcher, a long build) goes in the background with run_in_background: true, never with &: you get its id and output file, and you are told when it ends; read its output with read on that file, stop it with stop_job. A foreground `sleep` of 25 seconds or more is refused. Output past 30,000 characters is saved to a file: you get its path and the first 2,000 characters, and read or grep that file for the rest. Exit code 1 from grep, rg, find, diff, test and git diff or git grep is not a failure. Commands run with no secrets in their environment. Use it for installs, tests, builds, scripts, git status/log/diff; read, write, edit, grep and glob for files.",
+    parameters: { type: "object", properties: {
+      command: { type: "string", description: "The command to run" },
+      description: { type: "string", description: "What the command does, in plain words (e.g. \"Run the test suite\"). The owner sees it." },
+      timeout: { type: "integer", description: "Optional timeout in milliseconds (default 120000, at most 600000)" },
+      run_in_background: { type: "boolean", description: "Run it in the background; you are told when it ends" },
+    }, required: ["command"] },
   } },
   // OWNER, 2026-11-05 ("b"): the owner asks for a pull request in the chat,
   // and Coder makes it. Coder only writes the title and description; our
@@ -559,7 +619,8 @@ export function triedCommands(convo) {
       try { const a = JSON.parse(tc.function.arguments || "{}"); if (a && typeof a.command === "string") asked.set(tc.id, a.command); } catch { /* not JSON */ }
     }
   }
-  return (Array.isArray(convo) ? convo : []).filter((m) => m && m.role === "tool" && asked.has(m.tool_call_id) && /^exit code 0\n/.test(String(m.content || ""))).map((m) => asked.get(m.tool_call_id));
+  // Its exit code, kept beside its answer (Claude Code's result names none when it worked); "exit code 0" in a chat from before.
+  return (Array.isArray(convo) ? convo : []).filter((m) => m && m.role === "tool" && asked.has(m.tool_call_id) && (m.exitCode === 0 || /^exit code 0\n/.test(String(m.content || "")))).map((m) => asked.get(m.tool_call_id));
 }
 /** The lines a new setup script adds (not comments or blank), compared with the current one. */
 export function newSetupLines(script, current) {
@@ -588,6 +649,25 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   pageCache.set(key, { at: now, text });
   if (pageCache.size > 50) pageCache.delete(pageCache.keys().next().value);
   return text;
+}
+
+/**
+ * WHETHER A BACKGROUND COMMAND STILL RUNS, and its exit code once it ended: from Coder's service, which started it (it
+ * sees the admin sandbox's processes), or, on a machine made in a test, from the machine itself.
+ */
+async function jobState(deps, j) {
+  const svc = deps && deps.bg && typeof deps.bg.alive === "function" ? deps.bg : null;
+  if (svc && typeof svc.status === "function") { try { const st = await svc.status(j.pid); if (st && typeof st.alive === "boolean") return st; } catch { /* below */ } }
+  if (svc) { try { return { alive: !!(await svc.alive(j.pid)) }; } catch { return { alive: false }; } }
+  try { const r = await deps.exec({ command: "if kill -0 " + Number(j.pid) + " 2>/dev/null; then echo alive; else echo gone; fi", timeoutS: 10, tool: true }); return { alive: /alive/.test(String((r && r.output) || "")) }; } catch { return { alive: false }; }
+}
+/** A background command's exit code, from the line Coder's service ends its output file with ("[finished, exit code N]"). */
+async function exitFromLog(deps, log) {
+  try {
+    const r = await deps.exec({ command: "tail -c 300 '" + String(log).replace(/'/g, "'\\''") + "'", timeoutS: 10, tool: true });
+    const m = /\[finished, exit code (-?\d+)\]\s*$/.exec(String((r && r.output) || ""));
+    return m ? Number(m[1]) : null;
+  } catch { return null; }
 }
 
 export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
@@ -761,13 +841,42 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     const roundNotes = [], roundShown = [];
     for (let i = 0; i < calls.length; i++) {
       const c = calls[i];
-      const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
+      // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
+      const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
+        // CLAUDE CODE'S INPUTS (its hooks reference; 2.1.295: "Fixed Bash tool calls failing when the model passes
+        // command_description instead of description"): the description is what the owner sees (2.1.267: "describes what a
+        // command does in plain words instead of echoing the command").
+        const descIn = [c.args.description, c.args.command_description].find((x) => typeof x === "string" && x.trim());
+        const desc = descIn ? scrub(visibleChars(descIn.trim().replace(/\s+/g, " "))).slice(0, 200) : "";
+        const inBg = c.args.run_in_background === true || c.args.run_in_background === "true";
+        emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000), ...(desc ? { desc } : {}) });
+        const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); };
         const why = commandProblem(command);
-        emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000) });
-        if (why) { emit({ type: "result", id: c.id, code: -1, output: why }); reply(why); continue; }
+        if (why) { refuse(why); continue; }
+        // A FOREGROUND sleep OF 25 SECONDS OR MORE (Claude Code 2.1.319, tried: "Blocked: standalone sleep 30. …").
+        const blocked = inBg ? "" : sleepBlocked(command);
+        if (blocked) { refuse(blocked); continue; }
+        const where0 = typeof deps.here === "function" ? String(deps.here() || "") : "";
+        // THE SAME COMMAND, STILL RUNNING where its timeout moved it (Claude Code: "Not started: this same command, in this
+        // directory, was moved to the background and has been running for …").
+        const twin = [...jobs.entries()].find(([, j]) => j.moved && !j.done && j.command === command && j.cwd === where0);
+        if (twin && (await jobState(deps, twin[1])).alive) { refuse("Not started: this same command, in this directory, was moved to the background and has been running for " + agoWords(now() - twin[1].at) + " (ID: " + twin[0] + "). Its output is being written to: " + twin[1].log + ". Let it finish, or, to run it again now, stop it first with stop_job."); continue; }
+        // A DANGEROUS REMOVAL (Claude Code's critical paths): away from a terminal, Claude Code's auto mode denies it, and
+        // Coder asks no one about commands, so it is never run.
+        const rmWhy = dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs: [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x) });
+        if (rmWhy) { refuse(RM_REFUSED + rmWhy); continue; }
+        // ASKED FIRST, ON A CARD: a command over 10,000 characters, or one whose redirection or tee writes a protected file.
+        const ask = commandAsk(command, deps, where0);
+        if (ask && !ask.allow.every((a) => ownerSaid(convo, a))) {
+          if (github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
+          reply("not run yet: " + ask.why + ", so the owner is asked first, as Claude Code asks for such commands. Their answer is the next message; when they allow it, run the same command again.");
+          for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a command first" });
+          emit({ type: "runask", id: c.id, kind: ask.kind, paths: ask.paths, allow: ask.allow.join("\n"), ...cardLines(command), ...(desc ? { desc } : {}) });
+          return end("done", { summary: lastSaid || "asked to run a command" });
+        }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
@@ -775,21 +884,46 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // Claude Code) and is not put down to this command; nothing else changes the files during a job.
         if (jobs.size && watching()) { const ch = await changedFiles(deps); if (ch) followed = ch.followed > 0; }
         let r;
-        const inBg = c.args.run_in_background === true;
         // THE FOLDER (the owner, 2026-11-08: "lets do it the claude code way"): the command starts where the last one left
-        // it, and one not asked to run in the background moves it for the next ones (deps.exec says so).
-        try { r = await deps.exec({ command, timeoutS: inBg ? 1 : readTimeout(c.args.timeout_s), here: true, follow: !inBg, inBg }); }
+        // it, and one not asked to run in the background moves it for the next ones (deps.exec says so). One that starts
+        // with sleep is stopped at its timeout, never moved (Claude Code: "unless the command starts with sleep").
+        const timeoutS = commandTimeoutS(c.args);
+        try { r = await deps.exec({ command, timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // What the result says about the folder, as Claude Code's do ("Shell cwd was reset to …", "Session cwd remains …"),
         // and, for Grok only, where its commands now start (as Claude Code tells Claude its working directory).
         const cwdSaid = r && typeof r.cwdNote === "string" ? r.cwdNote : "", cwdTold = r && typeof r.cwdTold === "string" ? r.cwdTold : "";
-        const raw = capOutput(String((r && r.output) || ""));
-        const out = cwdSaid ? (raw ? raw.replace(/\n?$/, "\n") : "") + cwdSaid : raw;
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         const bg = !!(r && r.background);
         let job = "";
-        if (bg && r.pid && r.log) { job = "job" + (jobs.size + 1); jobs.set(job, { pid: r.pid, log: r.log, command }); }
-        emit({ type: "result", id: c.id, code, output: out, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}) });
+        if (bg && r.pid && r.log) { job = "job" + (jobs.size + 1); jobs.set(job, { pid: r.pid, log: r.log, command, desc, at: now(), moved: !inBg, cwd: where0, done: false }); }
+        // CLAUDE CODE'S RESULT (its words, tried on 2026-11-09): a background command's id and output file; otherwise the
+        // output, as bashResultText gives it, with "Exit code N" only for a failure (grep's exit 1 is none).
+        let text = "", isError = false, thumbs = [];
+        if (r && r.notStarted) { text = String(r.output || ""); isError = true; }
+        else if (bg) {
+          const sofar = !inBg && r.output ? scrub(noCwdMarks(String(r.output))).replace(/\n?$/, "\n") : "";
+          text = sofar + (inBg ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + ".") + " " + BG_NOTICE + (inBg ? "" : " It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job.") + " To check interim output, use read on that file path.";
+        } else {
+          const em = exitMeaning(command, code);
+          isError = em.isError;
+          // A PICTURE PRINTED AS A DATA URL comes back as a picture (Claude Code: `isImage`; 2.1.72 "Fixed oversized and
+          // truncated images from Bash data-URL output"): Coder's machine saved it, and read makes it fit, as for any picture.
+          if (!isError && r && typeof r.picture === "string" && r.picture) {
+            const got = readAnswer((await appTool(deps, "read", { path: r.picture })).output);
+            if (got.pics.length) {
+              roundPics.push({ path: "the picture your command printed", urls: got.pics.map((x) => "data:" + x.type + ";base64," + x.data) });
+              thumbs = got.thumbs || [];
+              text = "The command printed a picture (" + String(r.pictureType || "image") + "): it is attached right after these results.";
+            }
+          }
+          if (!text) text = bashResultText({ output: noCwdMarks(String((r && r.output) || "")), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "" });
+        }
+        // The folder's note goes after the output; alone when the command printed nothing (Claude Code, tried: a `cd /tmp`
+        // answers only "Shell cwd was reset to /home/user").
+        if (cwdSaid) text = text === "(Bash completed with no output)" ? cwdSaid : text + "\n" + cwdSaid;
+        if (r && typeof r.diskNote === "string" && r.diskNote) text += "\n\n" + r.diskNote;
+        emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).
         let viewed = "";
@@ -798,7 +932,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // A COMMAND THAT CHANGED FILES CODER HAD READ says so (like Claude Code's "This command modified …").
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) { roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); if (typeof x.lines === "string") roundShown.push(x.path); } } } }
-        reply((bg ? (job ? "[running in the background as " + job + ": read it with monitor, end it with stop_job]\n" : "") + out : (r && r.timedOut ? "[stopped at the time limit]\n" : "") + "exit code " + code + "\n" + (out || "(no output)")) + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : ""));
+        reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : ""), bg || (r && r.notStarted) ? null : { exitCode: code });
       } else if (c.name === "monitor" || c.name === "stop_job") {
         // A BACKGROUND JOB: read its log, or stop it (as `dev`, like any command).
         const j = jobs.get(String(c.args.job || ""));
@@ -816,6 +950,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           const was = await svc.alive(j.pid).catch(() => false);
           const gone = was ? await svc.stop(j.pid).catch(() => false) : true;
           r = { code: gone ? 0 : 1, output: !was ? "[" + name + " had already ended]" : gone ? "[stopped " + name + "]" : "[" + name + " could not be stopped]" };
+          if (gone) j.done = true;
         } else {
           const cmd = c.name === "monitor"
             ? (wait ? "sleep " + wait + "; " : "") + "tail -n " + lines + " " + j.log + (svc ? "" : "; if kill -0 " + j.pid + " 2>/dev/null; then echo '[still running]'; else echo '[not running]'; fi")
@@ -1051,6 +1186,18 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words)");
+    }
+    // A BACKGROUND COMMAND THAT ENDED while Coder works (Claude Code: 'Background command "Run the tests" completed (exit
+    // code 0)', '… failed with exit code 3'): told once, after the round, with its output file.
+    for (const [id, j] of jobs) {
+      if (j.done) continue;
+      const st = await jobState(deps, j);
+      if (st.alive) continue;
+      j.done = true;
+      const ec = Number.isInteger(st.code) ? st.code : await exitFromLog(deps, j.log);
+      const said = "Background command \"" + (j.desc || scrub(j.command.split("\n")[0]).slice(0, 80)) + "\" " + (ec === 0 ? "completed (exit code 0)" : Number.isInteger(ec) ? "failed with exit code " + ec : "ended");
+      emit({ type: "note", text: said });
+      roundNotes.push(said + ". Its output is in " + j.log + " (ID: " + id + ").");
     }
     if (roundNotes.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your last commands:\n" + roundNotes.join("\n\n") + ")" });
     // Those whose lines the note showed may be written over from now on (toolChanged `shown`), as in Claude Code.

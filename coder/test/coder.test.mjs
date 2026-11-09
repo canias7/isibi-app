@@ -23,12 +23,19 @@ const say = (content, calls = []) => ({ message: { role: "assistant", content, .
 const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: async (req) => { seen.push(req); return steps[Math.min(i++, steps.length - 1)]; } }; };
 
 // ── THE CHECKS ───────────────────────────────────────────────────────────────
-test("CD1 dangerous commands are refused with the reason; ordinary ones run", () => {
-  for (const c of ["rm -rf /", "rm -rf ~", "rm -rf ../other", ":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
+test("CD1 dangerous commands are refused with the reason; ordinary ones run", async () => {
+  for (const c of [":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
+  // Removals are read as Claude Code reads them (coder-bashcheck.mjs: its critical paths, in its words); a folder beside the
+  // project is none of them.
+  const { dangerousRm } = await import("../container/coder-bashcheck.mjs");
+  for (const c of ["rm -rf /", "rm -rf ~"]) assert.match(dangerousRm(c, { cwd: "/work/p", home: "/home/dev", workdirs: ["/work/p"] }), /^Dangerous rm operation detected/, c);
+  assert.equal(dangerousRm("rm -rf ../other", { cwd: "/work/p", home: "/home/dev", workdirs: ["/work/p"] }), "");
   // `sudo` reaches only the master key's checked jobs (step 4, 2026-11-07): the machine's own sudo command checks it.
   for (const c of ["ls -la", "rm -rf node_modules", "cat src/App.jsx", "npm test", "grep -rn useState src", "rm -rf ./dist", "sudo apt-get install -y jq"]) assert.equal(commandProblem(c), "", c);
   assert.match(commandProblem(""), /empty/);
-  assert.match(commandProblem("x".repeat(9000)), /over 8000/);
+  // Claude Code asks about a command over 10,000 characters (a card), it does not refuse it; past 100,000, never.
+  assert.equal(commandProblem("x".repeat(12000)), "");
+  assert.match(commandProblem("x".repeat(100_001)), /over 100,000 characters/);
 });
 
 test("CD2 commands run with no secrets in reach; key-shaped text is hidden; long output is cut and says so", async () => {
@@ -82,7 +89,8 @@ test("CD5 a refused command never runs, and the AI is told why", async () => {
   const s = scripted([say("", [call("bash", { command: "rm -rf /" })]), say("ok", [])]);
   await runCoder({ send: s.send, exec: async () => { ran++; return { code: 0, output: "" }; } }, { text: "x" });
   assert.equal(ran, 0);
-  assert.match(JSON.stringify(s.seen[1].messages), /refused: it would delete the whole machine/);
+  // Claude Code's words when its rm check stops a command away from a terminal, then what it flagged.
+  assert.match(JSON.stringify(s.seen[1].messages), /Permission for this command was denied by a built-in Coder safety check, not by the owner\.[^"]*What was flagged: Dangerous rm operation detected: '\/'/);
 });
 
 test("CD6 there is no ask or done tool (the owner removed them): a call to either is refused, and an answer in words finishes", async () => {
@@ -496,7 +504,7 @@ test("CD18 a command past its time limit keeps running in the background, its ou
   const r = await execIn(dir, "echo start; sleep 2; echo later", 1, { bgDir });
   assert.equal(r.background, true);
   assert.match(r.output, /start/);
-  const log = /in (\S+\.log)/.exec(r.output)[1];
+  const log = r.log;
   assert.ok(log.startsWith(bgDir));
   await new Promise((ok) => setTimeout(ok, 2500));
   const text = readFileSync(log, "utf8");
@@ -1179,7 +1187,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     assert.equal(s1.events.filter((e) => e.verb === "Ran setup").length, 1, "setup ran");
     const out = s1.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
     // A variable named PATH never replaces Coder's: the tools' folders, then the system's (2026-11-07).
-    assert.match(out, /set up\nkey=sk-secret-123\npath=[^\n]*\/opt\/node22\/bin:[^\n]*:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin:\/usr\/games:\/usr\/local\/games\n/);
+    assert.match(out, /set up\nkey=sk-secret-123\npath=[^\n]*\/opt\/node22\/bin:[^\n]*:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin:\/usr\/games:\/usr\/local\/games$/);
     assert.doesNotMatch(out, /evil/);
     const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
     assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
@@ -1343,7 +1351,7 @@ test("CD52 steps look like option A without colours: a grey icon per tool, dark 
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   const css = readFileSync(HERE("public/coder.css"), "utf8");
   for (const k of ["bash", "read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "setup", "stop_job", "monitor_job"]) assert.match(ui, new RegExp("\\b" + k + ": '"), k + " has an icon");
-  assert.match(ui, /stepIcon\(e\) \+ '<span class="cd-cmd-verb">'/);
+  assert.match(ui, /stepIcon\(e\) \+ \(desc \? '<span class="cd-cmd-desc">' \+ esc\(desc\) \+ '<\/span>' : '<span class="cd-cmd-verb">'/);
   assert.match(ui, /cd-st-ok" aria-label="done">✓/);
   assert.match(css, /\.cd-sic\{[^}]*background:#f1efea;color:#57534e/, "grey icons, no colours");
 });

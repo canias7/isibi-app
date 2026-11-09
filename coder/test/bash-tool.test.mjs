@@ -1,0 +1,227 @@
+// TOOL 4, BASH, AS CLAUDE CODE'S (the owner, 2026-11-09: "do all of those and double check again against the claude code
+// docs pls"). Each check against Claude Code's docs and against Claude Code 2.1.319 itself, tried that day (its words are
+// quoted as it gave them).
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import { readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseShell, unwrapped } from "../container/coder-shell.mjs";
+import { exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm } from "../container/coder-bashcheck.mjs";
+import { bashResultText, kbSize, commandProblem } from "../container/coder-checks.mjs";
+
+const call = (name, args, id) => ({ id: id || "c" + Math.random().toString(36).slice(2, 8), type: "function", function: { name, arguments: JSON.stringify(args) } });
+const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+
+test("CD267 bash: a command read as bash reads it, every simple command wherever it sits (separators, quotes, $(…), backticks, subshells, groups, here-documents, case, functions, find -exec, xargs, sh -c), so Claude Code's checks see them all", () => {
+  const cmds = (c) => parseShell(c).commands.map((k) => unwrapped(k.words).map((w) => w.text).join(" "));
+  assert.deepEqual(cmds("cd app && npm run build > out.log 2>&1; echo 'a;b' | grep ';'"), ["cd app", "npm run build", "echo a;b", "grep ;"]);
+  assert.ok(cmds("echo \"$(rm -rf ~)\"").includes("rm -rf ~"), "inside $(…)");
+  assert.ok(cmds("echo `rm -rf ~`").includes("rm -rf ~"), "inside backticks");
+  assert.ok(cmds("(rm -rf ~)").includes("rm -rf ~") && cmds("{ rm -rf ~; }").includes("rm -rf ~"), "a subshell, a group");
+  assert.ok(cmds("bash -c 'rm -rf ~'").includes("rm -rf ~"), "a script given to a shell with -c");
+  assert.ok(cmds("find . -name '*.tmp' -exec sh -c \"rm -rf \\\"$1\\\"/*\" _ {} \\;").includes("rm -rf $1/*"), "Claude Code's own example: sh -c run by find -exec");
+  assert.ok(cmds("case $x in a) rm -rf /;; esac").includes("rm -rf /") && cmds("f() { rm -rf x; }").includes("rm -rf x"), "case, functions");
+  assert.ok(cmds("sudo -u root timeout 30 nice -n 5 rm -rf /usr").includes("rm -rf /usr"), "past wrappers");
+  // A here-document's body is data, not commands, when its word is quoted; an unquoted one's $(…) runs.
+  assert.ok(!cmds("cat > x <<'EOF'\nrm -rf ~\nEOF").includes("rm -rf ~"));
+  assert.ok(cmds("cat > x <<EOF\n$(rm -rf ~)\nEOF").includes("rm -rf ~"));
+  assert.equal(parseShell("echo 'open").ok, false, "an open quote: not read through");
+});
+
+test("CD268 bash: an exit code as Claude Code reads it (its table, 2.1.319): 1 is no failure for grep, rg, egrep, fgrep (\"No matches found\"), find, diff (\"Files differ\"), test and [ (\"Condition is false\"), git diff and git grep; 2 or more is; any other command's non-zero exit is; the last command decides", () => {
+  const e = (c, n) => exitMeaning(c, n);
+  assert.deepEqual(e("grep x f", 1), { isError: false, message: "No matches found" });
+  assert.deepEqual(e("grep x f", 2), { isError: true, message: "" });
+  assert.deepEqual(e("find . -name x", 1), { isError: false, message: "Some directories were inaccessible" });
+  assert.deepEqual(e("diff a b", 1), { isError: false, message: "Files differ" });
+  assert.deepEqual(e("[ -f x ]", 1), { isError: false, message: "Condition is false" });
+  assert.deepEqual(e("git -C sub diff", 1), { isError: false, message: "Files differ" });
+  assert.deepEqual(e("git grep foo", 1), { isError: false, message: "No matches found" });
+  assert.deepEqual(e("npm test | grep FAIL", 1), { isError: false, message: "No matches found" }, "the last command decides");
+  assert.deepEqual(e("grep x f | wc -l", 1), { isError: true, message: "Command failed with exit code 1" });
+  assert.deepEqual(e("ls nope", 2), { isError: true, message: "Command failed with exit code 2" });
+  assert.deepEqual(e("pgrep x", 1).isError, true, "pgrep's 1 is a failure, as the docs say");
+});
+
+test("CD269 bash: a foreground sleep of 25 seconds or more is refused in Claude Code's words (tried: \"Blocked: standalone sleep 30. …\", \"Blocked: sleep 26 followed by: echo hi. …\"); shorter ones run; a command that starts with sleep is never moved to the background", () => {
+  assert.match(sleepBlocked("sleep 30"), /^Blocked: standalone sleep 30\. To wait for a condition, run an until-loop in the background \(run_in_background: true, e\.g\. `until <check>; do sleep 2; done`\): you are told when it ends\. To wait for a command you started, use run_in_background: true\. Do not chain shorter sleeps to work around this block\.$/);
+  assert.match(sleepBlocked("sleep 26; echo hi"), /^Blocked: sleep 26 followed by: echo hi\./);
+  assert.match(sleepBlocked("sleep 30 && npm test"), /^Blocked: sleep 30 followed by: npm test\./);
+  for (const c of ["sleep 24", "sleep 2", "echo a; sleep 60", "sleep 1.5"]) assert.equal(sleepBlocked(c), "", c);
+  assert.equal(leadsWithSleep("sleep 5; echo after"), true);
+  assert.equal(leadsWithSleep("npm test"), false);
+});
+
+test("CD270 bash: the files a command writes, as Claude Code checks them (its permissions docs, Redirections: > file, >> file, 2> file and tee, also in a pipeline; /dev/null and 2>&1 not), and whether a cd came first", () => {
+  const t = (c) => writeTargets(c).targets.map((x) => [x.path, x.afterCd]);
+  assert.deepEqual(t("echo hi > .npmrc"), [[".npmrc", false]]);
+  assert.deepEqual(t("make | tee build.log | tee -a .envrc"), [["build.log", false], [".envrc", false]]);
+  assert.deepEqual(t("ls > /dev/null 2>&1"), []);
+  assert.deepEqual(t("cd x && echo a >> out.txt"), [["out.txt", true]]);
+  assert.deepEqual(t("cat > .husky/pre-commit <<'EOF'\nnpm test\nEOF"), [[".husky/pre-commit", false]]);
+  assert.deepEqual(t("cmd &> all.log"), [["all.log", false]]);
+});
+
+test("CD271 bash: Claude Code's critical-path rm check, every case its docs list (the root, a top-level folder, the home folder, the working directory and its parents, a glob under another working directory, \"$DIR\"/*, $1/, \"$TMPDIR/mnt\", a variable set from $(pwd), \"$(pwd)\", ~/$(cmd), a backslash, logs/*/*, cd then a relative glob, inside $(…), (…), bash -c and find -exec sh -c, mounted drives, a command the shell may read differently), in its words; ordinary removals pass", () => {
+  const ctx = { cwd: "/work/proj", home: "/home/dev", workdirs: ["/work/proj", "/work/proj-x1"] };
+  const flagged = ["rm -rf /", "rm -rf /usr", "rm -rf ~", "rm -rf $HOME", "rm -rf ~/", "rm -rf .", "rm -rf ..", "rm -rf ./*", "rm -rf *", "rm -rf /work", "rm -rf /work/proj", "rm -rf /work/proj-x1/*", "rm -rf \"$DIR\"/*", "rm -rf $1/", "rm -rf \"$TMPDIR/mnt\"", "D=$(pwd); rm -rf \"$D\"", "rm -rf \"$(pwd)\"", "rm -rf ~/$(whoami)", "rm -rf logs/*/*", "rm -rf logs/*/", "cd logs && rm -rf a/*", "cd .. && rm -rf proj", "(rm -rf ~)", "echo \"$(rm -rf ~)\"", "bash -c 'rm -rf ~'", "find . -name '*.tmp' -exec sh -c \"rm -rf \\\"$1\\\"/*\" _ {} \\;", "sudo rm -rf /etc", "rm -rf '\\\\'", "rm -rf /mnt/data", "rm x 'unterminated", "rmdir /usr", "rm -rf -- /"];
+  const fine = ["rm -rf build", "rm -rf ./dist node_modules", "rm -f *.log", "rm -rf build/*", "rm -rf /tmp/x", "rm -rf ~/projects", "rm -rf /work/proj-x1", "rm -rf \"${DIR:?}\"/*", "cd sub && rm -rf build", "find . -name '*.tmp' -exec sh -c 'rm -rf \"$1\"/*' _ {} \\;", "echo 'rm -rf /'", "git rm -r --cached x", "xargs rm -rf < list.txt", "rm -rf ../other"];
+  for (const c of flagged) assert.ok(dangerousRm(c, ctx), "flagged: " + c);
+  for (const c of fine) assert.equal(dangerousRm(c, ctx), "", "fine: " + c);
+  // Claude Code's own words (2.1.319).
+  assert.equal(dangerousRm("rm -rf /usr", ctx), "Dangerous rm operation detected: '/usr'\n\nThis command would remove a critical system directory. This requires explicit approval and cannot be auto-allowed by permission rules.");
+  assert.equal(dangerousRm("rm -rf .", ctx), "Dangerous rm operation detected: '.'\n\nThis command would remove a workspace directory (the working directory, an additional working directory, or one of their parent directories). This requires explicit approval and cannot be auto-allowed by permission rules.");
+  assert.match(dangerousRm("rm -rf \"$(pwd)\"", ctx), /^Dangerous rm operation detected: the target is the output of a command substitution \(`\$\(\.\.\.\)` or backticks\) and cannot be checked before the command runs\. This requires explicit approval and cannot be auto-allowed by permission rules\.\n\nRun the substitution on its own first, then remove the literal paths it prints\.$/);
+  assert.match(dangerousRm("bash -c \"rm -rf $X/*\"", ctx), /^Dangerous rm operation in a shell -c script: its target is built from a variable or command output known only when it runs, and if that is empty the rm can reach a directory like \/ or your home directory\. .* Pass a literal path, or guard the value with \$\{NAME:\?\}\.$/);
+  assert.equal(dangerousRm("rm x 'unterminated", ctx), "This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval.");
+  assert.match(dangerousRm("cd logs && rm -rf a/*", ctx), /This command changes directories before the removal, so the relative glob target cannot be statically resolved\./);
+  assert.match(dangerousRm("rm -rf /mnt/data", ctx), /^Dangerous rm operation on mounted drive path: \/mnt\/data\n\nThis command would remove a mounted drive/);
+});
+
+test("CD272 bash: a result in Claude Code's words (tried, 2026-11-09): output as it came, its last line break dropped; \"(Bash completed with no output)\"; past 30,000 characters \"<persisted-output>\\nOutput too large (38KB). Full output saved to: …\\n\\nPreview (first 2KB):\\n…\\n...\\n</persisted-output>\"; a failure \"Exit code N\" with up to 10,000 characters, past that the first and last 5,000 of the first 30,000 with \"... [N characters truncated] ...\"", () => {
+  assert.equal(bashResultText({ output: "2c2\n< b\n---\n> c\n" }), "2c2\n< b\n---\n> c");
+  assert.equal(bashResultText({ output: "" }), "(Bash completed with no output)");
+  const seq = Array.from({ length: 8000 }, (_, k) => String(k + 1)).join("\n") + "\n";
+  assert.equal(seq.length, 38893);
+  assert.equal(kbSize(seq.length), "38KB");
+  assert.equal(kbSize(30413), "29.7KB");
+  assert.equal(bashResultText({ output: seq, size: seq.length, file: "/data/memory/p.out/bu578qprf.txt" }), "<persisted-output>\nOutput too large (38KB). Full output saved to: /data/memory/p.out/bu578qprf.txt\n\nPreview (first 2KB):\n" + seq.slice(0, 2000) + "\n...\n</persisted-output>");
+  // Claude Code's `seq 1 8000; exit 3`: "Exit code 3\n1\n…\n1219\n\n\n... [20012 characters truncated] ...\n\n22\n5223\n…".
+  const failed = bashResultText({ output: seq, isError: true, code: 3, size: seq.length });
+  const full = "Exit code 3\n" + seq.slice(0, 30000);
+  assert.equal(failed, full.slice(0, 5000) + "\n\n... [20012 characters truncated] ...\n\n" + full.slice(-5000));
+  assert.ok(failed.startsWith("Exit code 3\n1\n2\n") && failed.includes("1219\n\n\n... [20012 characters truncated] ...\n\n22\n5223\n"), "the same cut as Claude Code's");
+  assert.equal(bashResultText({ output: "ls: cannot access '/nonexistent-xyz': No such file or directory\n", isError: true, code: 2 }), "Exit code 2\nls: cannot access '/nonexistent-xyz': No such file or directory");
+  // A command over 10,000 characters is asked about (a card), not refused; past 100,000 it never runs.
+  assert.equal(commandProblem("x".repeat(20000)), "");
+});
+
+test("CD273 bash on Coder's machine: output past 30,000 characters goes on in a file (Claude Code: \"streams a command's output to a working file\"), whole, without Coder's folder line; a command that starts with sleep is stopped at its timeout, \"Command timed out after Ns\" with exit code 143 (Claude Code, tried); a picture printed as a data URL is saved for read; a full disk is said in Claude Code's words", async () => {
+  const { execIn, diskFull, savePrinted, keepNewest } = await import("../container/server.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-bash-"));
+  const out = join(dir, "out");
+  const big = await execIn(dir, "seq 1 8000", 30, { spillDir: out, follow: true });
+  assert.equal(big.code, 0);
+  assert.equal(big.size, 38893);
+  assert.ok(big.file && big.file.startsWith(out + "/"), "saved in the output folder");
+  assert.equal(await readFile(big.file, "utf8"), Array.from({ length: 8000 }, (_, k) => String(k + 1)).join("\n") + "\n", "the whole output, and no folder line");
+  const small = await execIn(dir, "echo hi", 30, { spillDir: out });
+  assert.equal(small.output, "hi\n");
+  assert.equal(small.file, undefined, "short output stays inline");
+  const t0 = Date.now();
+  const slept = await execIn(dir, "sleep 5; echo after", 1, { spillDir: out, stopAtTimeout: true });
+  assert.ok(Date.now() - t0 < 4000);
+  assert.deepEqual([slept.code, slept.output, slept.background], [143, "Command timed out after 1s", undefined]);
+  const moved = await execIn(dir, "echo start; sleep 2; echo later", 1, { spillDir: out, bgDir: join(dir, "bg") });
+  assert.equal(moved.background, true, "any other command is moved to the background at its timeout");
+  // A picture printed as a data URL.
+  const png = Buffer.from("89504e470d0a1a0a", "hex");
+  const saved = savePrinted("data:image/png;base64," + png.toString("base64") + "\n", out);
+  assert.equal(saved.pictureType, "image/png");
+  assert.deepEqual(await readFile(saved.picture), png);
+  assert.deepEqual(savePrinted("not a picture", out), {});
+  // A full disk: under 10 MB free, or under 1,000 free inodes.
+  const fs = (mb, ffree = 50000n) => () => ({ blocks: 1000n, bavail: BigInt(mb) * 256n, bsize: 4096n, files: 100000n, ffree });
+  assert.deepEqual(diskFull(["/x"], 10, { statfs: fs(3) }), { dir: "/x", mb: 3 });
+  assert.equal(diskFull(["/x"], 10, { statfs: fs(500) }), null);
+  assert.deepEqual(diskFull(["/x"], 10, { statfs: fs(500, 12n) }), { dir: "/x", inodes: 12 });
+  // The output folder keeps the newest files only.
+  for (let k = 0; k < 5; k++) await writeFile(join(out, "f" + k + ".txt"), "x");
+  await keepNewest(out, 3);
+  assert.equal((await readdir(out)).filter((x) => x.endsWith(".txt")).length, 3);
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /"Disk full: this computer's volume holding " \+ full\.dir \+ " has " \+ full\.mb \+ " MB free, so this command's output may be cut short and its own writes may have failed with \\"No space left on device\\"\. "/);
+  assert.match(server, /"The command was not started: this computer's disk is full \(ENOSPC\) on the volume holding " \+ full\.dir \+ " \(Coder's folder for command output\), so the file that captures command output could not be created there and nothing ran\. "/);
+});
+
+test("CD274 bash in the agent: Claude Code's inputs (description shown in place of the command, command_description too, timeout in milliseconds cut to the most), its refusals (a long sleep, a dangerous rm in its own words, the same command still running in the background), its cards (a protected file written by > or tee; a command over 10,000 characters), its result words, and a background command's notice when it ends", async () => {
+  const { runCoder, CODER_TOOLS, RM_REFUSED, allowRunText } = await import("../container/coder-agent.mjs");
+  const tool = CODER_TOOLS.find((t) => t.function.name === "bash").function;
+  assert.deepEqual(Object.keys(tool.parameters.properties), ["command", "description", "timeout", "run_in_background"]);
+  assert.match(tool.description, /Give `description`: what the command does, in a few plain words in active voice/);
+  assert.match(tool.description, /`timeout` in milliseconds: 120000 by default, at most 600000/);
+  const execs = [], events = [];
+  let bgAlive = true;
+  const exec = async (x) => {
+    execs.push(x);
+    if (x.command.startsWith("python3 -m http.server")) return { code: -1, background: true, pid: 77, log: "/out/bg-1.log", output: "" };
+    if (x.command === "grep TODO a.js") return { code: 1, output: "" };
+    if (x.command === "make") return { code: -1, background: true, pid: 78, log: "/out/bg-2.log", output: "building\n", timedOut: true };
+    return { code: 0, output: "ok\n" };
+  };
+  const long = "echo " + "x".repeat(10_001);
+  const steps = [
+    say("", [call("bash", { command: "npm test", description: "Run the test suite", timeout: 900000 }, "a1"), call("bash", { command: "grep TODO a.js", command_description: "Look for TODO notes" }, "a2")]),
+    say("", [call("bash", { command: "sleep 30" }, "b1"), call("bash", { command: "rm -rf \"$DIR\"/*" }, "b2")]),
+    say("", [call("bash", { command: "python3 -m http.server 8000", description: "Serve the folder", run_in_background: true }, "c1"), call("bash", { command: "make", timeout: 2000 }, "c2")]),
+    say("", [call("bash", { command: "make" }, "d1")]),
+    say("", [call("bash", { command: "echo registry=x > .npmrc", description: "Point npm at the example registry" }, "e1"), call("bash", { command: "echo after" }, "e2")]),
+  ];
+  let n = 0;
+  const r = await runCoder({ send: async () => steps[Math.min(n++, steps.length - 1)], exec, emit: (e) => events.push(e), here: () => "/work/p", root: "/work/p", where: (p) => (p.startsWith("/") ? p : "/work/p/" + p), bg: { alive: async (pid) => pid === 77 ? bgAlive : pid === 78, stop: async () => true, status: async (pid) => (pid === 77 ? (bgAlive ? { alive: true } : { alive: false, code: 0 }) : { alive: true }) } }, { text: "go" });
+  const reply = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  const step = (id) => events.find((e) => e.type === "bash" && e.id === id);
+  const result = (id) => events.find((e) => e.type === "result" && e.id === id);
+  // The description is what the owner sees; the timeout is cut to the most (600 s), not refused.
+  assert.equal(step("a1").desc, "Run the test suite");
+  assert.equal(step("a2").desc, "Look for TODO notes", "command_description is taken for description");
+  assert.equal(execs.find((x) => x.command === "npm test").timeoutS, 600);
+  assert.equal(reply("a1"), "ok");
+  // grep's exit 1: no failure, no "Exit code" line, and not marked failed for the owner.
+  assert.equal(reply("a2"), "(Bash completed with no output)");
+  assert.equal(result("a2").ok, true);
+  assert.equal(reply("b1").startsWith("Blocked: standalone sleep 30."), true);
+  assert.equal(reply("b2"), RM_REFUSED + "Dangerous rm operation detected: '\"$DIR\"/*'\n\nIf $DIR is unset or empty, this removes from the filesystem root. Guard it as \"${DIR:?}\"/*, which makes the shell stop with an error instead, or use a literal path. This requires explicit approval and cannot be auto-allowed by permission rules.");
+  assert.ok(!execs.some((x) => /sleep 30|rm -rf/.test(x.command)), "neither ran");
+  // Background: Claude Code's words, started and moved; the same moved command again is not started.
+  assert.equal(reply("c1"), "Command running in background with ID: job1. Output is being written to: /out/bg-1.log. If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that — so do not end your turn to wait for it; if you need its result, wait for it before giving your final response. To check interim output, use read on that file path.");
+  assert.equal(reply("c2"), "building\nCommand did not complete within its 2s timeout and was moved to the background (ID: job2). Output is being written to: /out/bg-2.log. If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that — so do not end your turn to wait for it; if you need its result, wait for it before giving your final response. It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job. To check interim output, use read on that file path.");
+  assert.match(reply("d1"), /^Not started: this same command, in this directory, was moved to the background and has been running for \d+s \(ID: job2\)\. Its output is being written to: \/out\/bg-2\.log\. Let it finish, or, to run it again now, stop it first with stop_job\.$/);
+  // A protected file written by a redirection: the card, the job stops there, nothing after it runs.
+  const card = events.find((e) => e.type === "runask");
+  assert.deepEqual({ kind: card.kind, paths: card.paths, allow: card.allow, lines: card.lines, desc: card.desc }, { kind: "protected", paths: [".npmrc"], allow: "I allowed Coder to change .npmrc.", lines: ["echo registry=x > .npmrc"], desc: "Point npm at the example registry" });
+  assert.match(reply("e1"), /^not run yet: this command writes \.npmrc, a protected file \(it can make code run on the owner's computer when the branch is pulled, or change how the project is built\), so the owner is asked first, as Claude Code asks for such commands\./);
+  assert.equal(reply("e2"), "not run: you asked the owner to allow a command first");
+  assert.ok(!execs.some((x) => /registry=x|echo after/.test(x.command)));
+  // Allowed (the card's own words, as the owner's message): it runs. The same Allow as write's card.
+  execs.length = 0; n = 0;
+  const allowed = [...r.messages, { role: "user", content: "I allowed Coder to change .npmrc." }];
+  await runCoder({ send: async () => [say("", [call("bash", { command: "echo registry=x > .npmrc" }, "f1")]), say("Done.")][Math.min(n++, 1)], exec, emit: () => {}, here: () => "/work/p", root: "/work/p", where: (p) => "/work/p/" + p }, { messages: allowed, text: "" });
+  assert.ok(execs.some((x) => x.command === "echo registry=x > .npmrc"), "allowed: run");
+  // A command over 10,000 characters: its own card and words.
+  const ev2 = []; n = 0;
+  await runCoder({ send: async () => [say("", [call("bash", { command: long }, "g1")]), say("Done.")][Math.min(n++, 1)], exec, emit: (e) => ev2.push(e) }, { text: "go" });
+  const card2 = ev2.find((e) => e.type === "runask");
+  assert.deepEqual([card2.kind, card2.allow], ["long", allowRunText(long)]);
+  assert.match(card2.allow, /^I allowed Coder to run command [0-9a-f]{8}\.$/);
+  // From GitHub, where no one can answer: refused, not asked.
+  const ev3 = []; n = 0;
+  const gh = await runCoder({ send: async () => [say("", [call("bash", { command: "echo x > .npmrc" }, "h1")]), say("Done.")][Math.min(n++, 1)], exec, emit: (e) => ev3.push(e), here: () => "/work/p", root: "/work/p", where: (p) => "/work/p/" + p }, { text: "go", github: true });
+  assert.match(gh.messages.find((m) => m.tool_call_id === "h1").content, /^error: this command writes \.npmrc, a protected file, so it is not run in a job started from GitHub/);
+  assert.ok(!ev3.some((e) => e.type === "runask"));
+  // A background command that ends while Coder works: told once, in Claude Code's words.
+  const ev4 = []; n = 0; bgAlive = true;
+  const r4 = await runCoder({ send: async () => [say("", [call("bash", { command: "python3 -m http.server 8000", description: "Serve the folder", run_in_background: true }, "k1")]), (bgAlive = false, say("", [call("bash", { command: "echo next" }, "k2")])), say("Done.")][Math.min(n++, 2)], exec, emit: (e) => ev4.push(e), bg: { alive: async () => bgAlive, stop: async () => true, status: async () => (bgAlive ? { alive: true } : { alive: false, code: 0 }) } }, { text: "go" });
+  assert.ok(ev4.some((e) => e.type === "note" && e.text === "Background command \"Serve the folder\" completed (exit code 0)"));
+  assert.ok(r4.messages.some((m) => m.role === "user" && m.appNote && /Background command "Serve the folder" completed \(exit code 0\)\. Its output is in \/out\/bg-1\.log \(ID: job1\)\./.test(m.content)));
+});
+
+test("CD275 bash on the page: a command's description is its step's title and the command is shown when the step is opened; grep's exit 1 is no failure; a command's card (a protected file, or a command over 10,000 characters) with Allow sending the words Coder's app gave it; the Worker and notifications know the card", () => {
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(ui, /const desc = !e\.tool && typeof e\.desc === 'string' && e\.desc\.trim\(\) \? e\.desc\.trim\(\) : '';/);
+  assert.match(ui, /\(desc \? '<span class="cd-cmd-desc">' \+ esc\(desc\) \+ '<\/span>' : '<span class="cd-cmd-verb">'/);
+  assert.match(ui, /\(desc \? '<pre class="cd-cmd-in">\$ ' \+ esc\(e\.command\) \+ '<\/pre>' : ''\)/);
+  assert.match(ui, /r\.code === 0 \|\| r\.ok === true \? 'ok' : 'bad'/);
+  assert.match(ui, /else if \(e\.type === 'runask'\) \{/);
+  assert.match(ui, /send\(x\.allow\)/);
+  assert.match(ui, /\/\^\(I allowed Coder to \(change \.\+\|run command \[0-9a-f\]\{8\}\)\\\.\\n\?\)\+\$\/\.test\(x\.allow \+ '\\n'\)/, "only allow sentences are ever sent");
+  assert.match(css, /\.cd \.cd-cmd-desc\{/);
+  assert.match(css, /\.cd-cmd \.cd-cmd-in\{/);
+  assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /\["question", "secret", "envchange", "writeask", "runask"\]\.includes\(e\.type\)/);
+  assert.match(readFileSync(new URL("../src/coder-push.mjs", import.meta.url), "utf8"), /else if \(e\.type === "runask"\)/);
+  const df = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
+  assert.match(df, /coder-shell\.mjs coder-bashcheck\.mjs \.\//, "the image has both new modules");
+});

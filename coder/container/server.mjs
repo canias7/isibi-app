@@ -22,7 +22,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync } from "node:fs";
+import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
@@ -72,10 +72,65 @@ const shellWord = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
  * `start`: a folder inside `dir` (or the chat's other repositories) to start in: the command's own shell goes there, as the
  * AI's user, after starting in `dir` (root never goes into a folder the AI's user can change). `follow`: the answer says
  * where the command ended (`ended`, from its `pwd -P`) when it ended with exit code 0 and was not sent to the background.
+ * `spillDir` (tool 4, like Claude Code's "Claude Code streams a command's output to a working file as the command runs; a
+ * command whose output passes 5 GB is killed"): past BASH_INLINE_MAX characters the whole output goes on in a new file
+ * there (kept up to SPILL_KEEP bytes), and the answer gives `file` and `size`; `output` keeps the first READ_BACK_KEEP.
+ * `stopAtTimeout` (a command that starts with `sleep`: Claude Code moves a command to the background at its timeout
+ * "unless the command starts with sleep"): stopped at the limit, "Command timed out after Ns", exit code 143.
  */
-export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false } = {}) {
+export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 * 1024 ** 3, READ_BACK_KEEP = 40_000;
+/** A background command's exit code, by its process id, once it ended (the agent's notice says it, like Claude Code's). */
+export const BG_EXITS = new Map();
+/**
+ * A PICTURE A COMMAND PRINTED AS A DATA URL (Claude Code: "data:image/…;base64," output comes back as a picture), saved
+ * as a file in the chat's output folder, so the read tool can make it fit and show it: `{ picture, pictureType }`, or {}.
+ */
+export const DATA_URL_RE = /^data:(image\/(?:png|jpeg|gif|webp|bmp|tiff));base64,([A-Za-z0-9+/\s]+=*)\s*$/;
+export function savePrinted(text, outDir) {
+  const m = DATA_URL_RE.exec(String(text || "").trim());
+  if (!m) return {};
+  try {
+    const bytes = Buffer.from(m[2].replace(/\s+/g, ""), "base64");
+    if (!bytes.length || bytes.length > 64 * 1024 * 1024) return {};
+    mkdirSync(outDir, { recursive: true, mode: 0o755 });
+    const file = join(outDir, randomUUID().replace(/-/g, "").slice(0, 9) + "." + ({ "image/jpeg": "jpg", "image/tiff": "tif" }[m[1]] || m[1].slice(6)));
+    const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+    try { writeFileSync(fd, bytes); } finally { closeSync(fd); }
+    return { picture: file, pictureType: m[1] };
+  } catch { return {}; }
+}
+/** How many saved outputs a chat keeps (the oldest go first). */
+export const OUT_FILES_KEEP = 100;
+export const FREE_SPACE = "Free space on that volume (delete build output, caches or files you made that are no longer needed), then retry. Never delete the owner's own files to make room without asking them.";
+/** The first of these folders whose volume has under `mb` MB free, or under 1,000 free inodes: `{ dir, mb }` or `{ dir, inodes }`; null when none. */
+export function diskFull(dirs, mb, { statfs = statfsSync } = {}) {
+  for (const d of dirs) {
+    if (typeof d !== "string" || !d) continue;
+    try {
+      const f = statfs(d, { bigint: true });
+      if (!(f.blocks > 0n)) continue;
+      const free = f.bavail * f.bsize / (1024n * 1024n);
+      if (free < BigInt(mb)) return { dir: d, mb: Number(free) };
+      if (f.files > 0n && f.ffree < 1000n) return { dir: d, inodes: Number(f.ffree) };
+    } catch { /* not there */ }
+  }
+  return null;
+}
+/** Only the newest `n` files of a folder are kept. */
+export async function keepNewest(dirPath, n) {
+  try {
+    const names = (await readdir(dirPath)).filter((x) => /^[a-z0-9]{1,40}\.(txt|png|jpg|gif|webp|bmp|tif)$/.test(x));
+    if (names.length <= n) return;
+    const withTimes = await Promise.all(names.map(async (x) => ({ x, at: (await lstat(join(dirPath, x)).catch(() => null))?.mtimeMs || 0 })));
+    withTimes.sort((a, b) => b.at - a.at);
+    for (const { x } of withTimes.slice(n)) await unlink(join(dirPath, x)).catch(() => {});
+  } catch { /* none */ }
+}
+export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false } = {}) {
   return new Promise((done) => {
-    let out = "", cut = false, timedOut = false, tail = "";
+    let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
+    // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
+    let early = [], earlyBytes = 0, spill = null, spillPath = "", spillBytes = 0, spillDone = Promise.resolve();
     const env = { ...(extraEnv || {}), ...(uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir)), ...(box ? { CODER_SANDBOX: "1" } : {}) };
     const g = Number.isInteger(gid) ? gid : uid;
     const nonce = follow ? randomUUID().replace(/-/g, "").slice(0, 16) : "";
@@ -88,41 +143,87 @@ export function execIn(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_
       : room && Number.isInteger(uid)
       ? spawn("nsenter", roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
       : spawn("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
+    const toSpill = (b) => {
+      if (!spill || spillBytes >= SPILL_KEEP) return;
+      const part = spillBytes + b.length > SPILL_KEEP ? b.subarray(0, SPILL_KEEP - spillBytes) : b;
+      spillBytes += part.length;
+      spill.write(part);
+    };
     // The end of everything printed is kept apart too, so the folder line is found after a cut.
-    const take = (b) => { const s = b.toString("utf8"); if (follow) tail = (tail + s).slice(-8192); if (out.length < outMax) out += s; else cut = true; };
+    const take = (b) => {
+      const str = b.toString("utf8");
+      bytes += b.length;
+      if (follow) tail = (tail + str).slice(-8192);
+      if (!spillDir) { if (out.length < outMax) out += str; else cut = true; return; }
+      if (out.length < READ_BACK_KEEP) out += str;
+      if (!spill && spillPath !== "-") {
+        early.push(b); earlyBytes += b.length;
+        if (bytes > SPILL_AT) {
+          try {
+            mkdirSync(spillDir, { recursive: true, mode: 0o755 });
+            spillPath = join(spillDir, randomUUID().replace(/-/g, "").slice(0, 9) + ".txt");
+            const fd = openSync(spillPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+            spill = createWriteStream(null, { fd });
+            spillDone = new Promise((ok) => spill.on("close", ok).on("error", ok));
+            for (const e of early) toSpill(e);
+          } catch { spillPath = "-"; spill = null; }
+          early = []; earlyBytes = 0;
+        }
+      } else if (spill) toSpill(b);
+      if (bytes > OUTPUT_KILL && !killedForSize) { killedForSize = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }
+    };
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
     const answer = (r) => { if (!answered) { answered = true; done(r); } };
     const t = setTimeout(async () => {
       timedOut = true;
-      if (kill) { try { process.kill(-p.pid, "SIGKILL"); } catch { /* already gone */ } return; }
-      // Into the background: the rest of its output goes to a log the AI can read.
-      const log = join(bgDir, "bg-" + (++bgCount) + ".log");
+      if (kill || stopAtTimeout) {
+        try { process.kill(-p.pid, stopAtTimeout ? "SIGTERM" : "SIGKILL"); } catch { /* already gone */ }
+        if (stopAtTimeout) setTimeout(() => { try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }, 2000).unref?.();
+        return;
+      }
+      // Into the background: the rest of its output goes to a log the AI can read (its output file, when it has one).
+      let log = spill && spillPath && spillPath !== "-" ? spillPath : join(bgDir, "bg-" + (++bgCount) + ".log");
       try {
-        await mkdir(bgDir, { recursive: true });
-        // A new plain file, never through a link someone left there.
-        const fd = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-        const w = createWriteStream(null, { fd });
-        w.write(out);
         p.stdout.removeAllListeners("data"); p.stderr.removeAllListeners("data");
+        let w = spill;
+        if (!w) {
+          await mkdir(bgDir, { recursive: true });
+          // A new plain file, never through a link someone left there.
+          const fd = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+          w = createWriteStream(null, { fd });
+          w.write(spillDir ? Buffer.concat(early) : out);
+        }
         p.stdout.pipe(w, { end: false }); p.stderr.pipe(w, { end: false });
-        p.on("close", (code) => { w.end("\n[finished, exit code " + code + "]\n"); });
+        p.on("close", (code) => { w.end("\n[finished, exit code " + code + "]\n"); BG_EXITS.set(p.pid, typeof code === "number" ? code : null); if (BG_EXITS.size > 500) BG_EXITS.delete(BG_EXITS.keys().next().value); });
         p.unref();
       } catch { /* the log could not be made: the note still says it runs */ }
-      answer({ code: -1, background: true, pid: p.pid, log, timedOut: true, output: out.slice(-4000) + "\n[still running in the background after " + timeoutS + "s. Its output goes on in " + log + " (read it with: tail -n 50 " + log + "; it ends with \"[finished, exit code N]\" when done)]" });
+      const so = out.length > 4000 ? out.slice(-4000) : out;
+      answer({ code: -1, background: true, pid: p.pid, log, timedOut: true, output: so, size: bytes });
     }, Math.max(1, timeoutS) * 1000);
     p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
-    p.on("close", (code) => {
+    p.on("close", async (code, signal) => {
       clearTimeout(t);
+      if (answered) return;
       // The folder line is taken out of what the command printed (its last one, with this command's own random part).
-      let ended = null, text = out;
+      let ended = null, text = out, markBytes = 0;
       if (follow) {
         const mark = "\n" + CWD_MARK + nonce + ":", at = tail.lastIndexOf(mark), stop = at >= 0 ? tail.indexOf("\n", at + mark.length) : -1;
         if (stop >= 0) ended = tail.slice(at + mark.length, stop);
-        if (ended !== null) { const line = mark + ended + "\n", k = text.lastIndexOf(line); if (k >= 0) text = text.slice(0, k) + text.slice(k + line.length); }
+        if (ended !== null) { const line = mark + ended + "\n", k = text.lastIndexOf(line); markBytes = Buffer.byteLength(line); if (k >= 0) text = text.slice(0, k) + text.slice(k + line.length); }
         if (ended !== null && ended.startsWith("b64:")) ended = /^[A-Za-z0-9+/]*={0,2}$/.test(ended.slice(4)) ? Buffer.from(ended.slice(4), "base64").toString("utf8") : "";
       }
-      answer({ code: typeof code === "number" ? code : -1, output: text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : ""), timedOut, ...(ended !== null && code === 0 ? { ended } : {}) });
+      let file = "";
+      if (spill) {
+        spill.end(); await spillDone;
+        file = spillPath;
+        // The folder line goes from the file too.
+        if (markBytes && spillBytes < SPILL_KEEP) { try { truncateSync(file, Math.max(0, spillBytes - markBytes)); } catch { /* left as it is */ } }
+      }
+      const size = Math.max(0, bytes - markBytes);
+      const c = typeof code === "number" ? code : signal === "SIGTERM" ? 143 : signal === "SIGKILL" ? 137 : -1;
+      if (timedOut && stopAtTimeout) return answer({ code: 143, output: (text ? text.replace(/\n?$/, "\n") : "") + "Command timed out after " + Math.max(1, timeoutS) + "s", timedOut: true, size });
+      answer({ code: c, output: text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : "") + (killedForSize ? "\n[the command was stopped: its output passed 5 GB]" : ""), timedOut, size, ...(file ? { file, ...(spillBytes >= SPILL_KEEP ? { truncatedAt: SPILL_KEEP } : {}) } : {}), ...(ended !== null && code === 0 ? { ended } : {}) });
     });
   });
 }
@@ -1633,6 +1734,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // one says so, like Claude Code), kept between messages: dev's own folder beside the memory's (a project id has no dot).
     const seenDir = join(memRoot, project + ".seen");
     const bgDir = join(bgRoot, project);
+    // A COMMAND'S LONG OUTPUT, SAVED (tool 4, like Claude Code's "a file saved to the session directory"): root's own
+    // folder beside the memory (on the kept disk on Fly.io), kept from message to message, the newest OUT_FILES_KEEP.
+    const outDir = join(memRoot, project + ".out");
     try {
       await mkdir(memRoot, { recursive: true, mode: 0o755 });
       await mkdir(memDir, { recursive: true });
@@ -1645,6 +1749,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (Number.isInteger(RUN_UID)) { try { await chown(memDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
       // Root only makes it and hands it over; only the file tools (as dev) read and write in it.
       await mkdir(seenDir, { recursive: true });
+      await mkdir(outDir, { recursive: true, mode: 0o755 });
+      await keepNewest(outDir, OUT_FILES_KEEP);
       if (Number.isInteger(RUN_UID)) { try { await chown(seenDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
     } catch (e) { return fail(500, "could not prepare the memory: " + String((e && e.message) || e).slice(0, 160)); }
     // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): the owner's own variables
@@ -1822,7 +1928,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
         // tool: CODER_CWD, which its short paths count from). `follow`: a command of Grok's not asked to run in the
         // background, whose folder carries over. `inBg`: one asked to run in the background.
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false }) => {
+          // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
+          // the volume holding … so the file that captures command output could not be created there and nothing ran").
+          if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
           // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
           if (typeof payload === "string" && command.includes("@REQUEST")) {
             const f = join(bgDir, "req-" + randomUUID() + ".json");
@@ -1839,7 +1948,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           const moved = here && t.cwd !== home0;
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : {}), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
+          if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
+            let whole = String(r.output || "");
+            if (typeof r.file === "string" && r.file && !r.truncatedAt) whole = await readFile(r.file, "utf8").catch(() => whole);
+            Object.assign(r, savePrinted(whole, outDir));
+          }
+          // A FULL DISK AFTER IT RAN (Claude Code: "Disk full: this computer's volume holding … has N MB free, so this
+          // command's output may be cut short and its own writes may have failed with "No space left on device""): the
+          // project's folder, the AI's home and the output folder, when the command failed or said so.
+          if (!tool && r && (r.code !== 0 || /No space left on device|Disk quota exceeded/.test(String(r.output || "")))) {
+            const full = diskFull([t.cwd || dir, home || dir, outDir], 10);
+            if (full) r.diskNote = full.inodes ? "Nearly out of inodes: this computer's volume holding " + full.dir + " has " + full.inodes + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE : "Disk full: this computer's volume holding " + full.dir + " has " + full.mb + " MB free, so this command's output may be cut short and its own writes may have failed with \"No space left on device\". " + FREE_SPACE;
+          }
           if (r && r.background && r.pid) t.bg.add(r.pid);
           let told = "";
           if (here && !tool && !keepHome) {
@@ -1861,8 +1983,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // THE JOB'S BACKGROUND COMMANDS, SEEN AND STOPPED HERE, where they were started (live test, 2026-11-08:
         // inside the admin sandbox their numbers are not the machine's, so a check there missed them). Only
         // this job's own (t.bg), each with everything it started (its process group).
+        // THE AI'S HOME AND THE CHAT'S OTHER REPOSITORIES (the rm check's home folder and additional working directories).
+        home: home || DEV_HOME,
+        otherRoots: workRoots.slice(1),
         bg: {
           alive: async (pid) => t.bg.has(pid) && groupAlive(pid),
+          status: async (pid) => (t.bg.has(pid) || BG_EXITS.has(pid) ? (groupAlive(pid) ? { alive: true } : { alive: false, ...(BG_EXITS.has(pid) && BG_EXITS.get(pid) !== null ? { code: BG_EXITS.get(pid) } : {}) }) : { alive: false }),
           stop: async (pid) => {
             if (!t.bg.has(pid)) return false;
             try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ }

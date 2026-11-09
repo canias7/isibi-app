@@ -330,6 +330,10 @@
 .cd .cd-cmd-row{gap:8px;color:#1f1e1d}
 .cd .cd-cmd-verb{font-weight:600;color:#1f1e1d}
 .cd .cd-cmd-text{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#44403c}
+/* A COMMAND'S DESCRIPTION as its step's title (tool 4, like Claude Code's app), and the command itself, as typed at a
+   terminal, above its output when the step is opened. */
+.cd .cd-cmd-desc{font:14px/1.4 Inter,system-ui,sans-serif;color:#1f1e1d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cd-cmd .cd-cmd-in{margin:4px 0 0;padding:8px 12px;border:1px solid #ebe7e0;border-radius:10px;background:#faf9f7;color:#1f1e1d;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:160px;overflow:auto}
 .cd-st{margin-left:auto;flex:none;font-size:12px;color:#8a8884;display:inline-flex;align-items:center;gap:5px;padding-left:10px}
 .cd-st-ok{color:#57534e;font-size:13px}
 .cd-st-bad{color:#b3261e;font-weight:600}

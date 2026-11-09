@@ -285,7 +285,7 @@
       if (!b || b.status !== 'running' || c.status === 'running') continue;
       if (o.openId === c.id && o.focused) continue;
       const name = c.title || c.repo;
-      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : 'Coder asked you something.' }); }
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : c.waiting === 'runask' ? 'Coder asks to run a command.' : 'Coder asked you something.' }); }
       else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
     }
     return out;
@@ -647,7 +647,7 @@
         const name = S.project.title || S.project.repo;
         for (const e of fresh) {
           if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
-          else if (['question', 'secret', 'envchange', 'writeask'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || (e.type === 'writeask' ? 'Allow it to change ' + e.path + '?' : '') });
+          else if (['question', 'secret', 'envchange', 'writeask', 'runask'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || (e.type === 'writeask' ? 'Allow it to change ' + e.path + '?' : '') });
         }
       }
       S.next = r.data.next || S.next;
@@ -789,9 +789,12 @@
       : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>' : '';
+    // A COMMAND'S DESCRIPTION (tool 4, like Claude Code's app: "Run the test suite" in place of the command); the command
+    // itself when the step is opened. A step with none (from before, or Grok gave none) shows its command as before.
+    const desc = !e.tool && typeof e.desc === 'string' && e.desc.trim() ? e.desc.trim() : '';
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
-        stepIcon(e) + '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
+        stepIcon(e) + (desc ? '<span class="cd-cmd-desc">' + esc(desc) + '</span>' : '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>') +
         changeCounts(r) + tail +
       '</button>' +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
@@ -800,7 +803,7 @@
       stepChange(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
-      (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
+      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
     '</div>';
   }
   /**
@@ -896,7 +899,8 @@
     for (const e of S.events) if (e.type === 'result' && e.id) results[e.id] = e;
     let lastUser = -1;
     S.events.forEach((e, i) => { if (e.type === 'user') lastUser = i; });
-    const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.background ? 'bg' : r.code === 0 ? 'ok' : 'bad'; };
+    // `ok`: an exit code Claude Code counts as no failure (grep's 1, "No matches found"), so neither a red mark nor a failure.
+    const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
     const flush = () => {
@@ -957,6 +961,20 @@
           // ones it puts in in green, as under each edit's step.
           '<pre class="cd-envchange-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
           (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-writeask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-writeask-ok="' + i + '">Allow</button></div>' : '') +
+        '</div>');
+      }
+      else if (e.type === 'runask') {
+        // A COMMAND CODER ASKS TO RUN (tool 4, like Claude Code's prompt for it): one whose > or tee writes a protected file,
+        // or one over 10,000 characters. The command, then Allow or Don't allow, which become the owner's next message.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+        const more = Number.isInteger(e.more) && e.more > 0 ? e.more : 0;
+        const paths = Array.isArray(e.paths) ? e.paths.filter((p) => typeof p === 'string').slice(0, 10) : [];
+        const prot = e.kind === 'protected' && paths.length;
+        out.push('<div class="cd-secret cd-envchange cd-writeask cd-runask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (prot ? 'Allow Coder to change ' + esc(paths.join(', ')) + '?' : 'Allow Coder to run this command?') + '</b>' +
+          '<p class="cd-secret-p">' + (prot ? 'This command writes ' + (paths.length === 1 ? 'a file' : 'files') + ' that can make code run on your computer when you pull the branch, or change how the project is built' : 'This command is over 10,000 characters, more than Coder\'s checks read through') + ', so Coder asks you first (Claude Code does too).' + (e.desc ? ' What it does: ' + esc(e.desc) + '.' : '') + ' The command:</p>' +
+          '<pre class="cd-envchange-pre">' + esc(lines.join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
+          (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-runask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-runask-ok="' + i + '">Allow</button></div>' : '') +
         '</div>');
       }
       else if (e.type === 'envchange') {
@@ -1317,6 +1335,10 @@
     });
     on('[data-writeask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskOk)]; if (x && x.path) { e.currentTarget.disabled = true; send('I allowed Coder to change ' + x.path + '.'); } });
     on('[data-writeask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskNo)]; if (x && x.path) { e.currentTarget.disabled = true; send('Don\'t change ' + x.path + '.'); } });
+    // A COMMAND'S CARD: Allow sends the words Coder's app gave it (one "I allowed Coder to change …" line a file, or the
+    // command's own "I allowed Coder to run command …"), checked again on the machine.
+    on('[data-runask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskOk)]; if (x && typeof x.allow === 'string' && /^(I allowed Coder to (change .+|run command [0-9a-f]{8})\.\n?)+$/.test(x.allow + '\n')) { e.currentTarget.disabled = true; send(x.allow); } });
+    on('[data-runask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.runaskNo)]; if (x) { e.currentTarget.disabled = true; send(x.kind === 'protected' && Array.isArray(x.paths) && x.paths.length ? 'Don\'t change ' + x.paths.join(', ') + '.' : 'Don\'t run that command.'); } });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
     on('.cd-secret-save', 'click', async (e) => {
