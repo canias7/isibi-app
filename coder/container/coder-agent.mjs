@@ -133,6 +133,8 @@ export const RUN_TOOLS = {
   lsp: { verb: "Looked up", label: (a) => String(a.action || "") + " " + String(a.path || "") + (a.line ? ":" + a.line + (a.column ? ":" + a.column : "") : "") },
   web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
 };
+/** GLOOPY'S HELPERS (2026-11-09): at most 4 at once, 8 in one message; each up to 15 steps and 5 minutes; each answer up to 6,000 characters. */
+export const HELPERS_MAX = 4, HELPERS_PER_TURN = 8, HELPER_ROUNDS = 15, HELPER_MS = 5 * 60 * 1000, HELPER_ANSWER_MAX = 6000;
 /** GLOOPY'S BROWSER STEP in the chat (2026-11-09): the verb from its action; once done the chat shows what it did ("Clicked “Go”"). */
 export const BROWSER_STEP = { verb: (a) => ({ open: "Opened", look: "Looked at", click: "Clicked", type: "Typed into", press: "Pressed", select: "Chose in", scroll: "Scrolled", back: "Went back" })[a.action] || "Used the browser", label: (a) => String(a.action === "open" ? a.url || "" : a.action === "look" ? "the page" : a.action === "press" ? a.key || "" : a.action === "scroll" ? (a.direction === "up" ? "up" : "down") : a.action === "back" ? "" : a.ref || "") };
 
@@ -522,7 +524,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -604,6 +606,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
   let approvalRequest = null, signinRequest = null, handoffRequest = null;
+  // GLOOPY'S HELPERS (2026-11-09): how many this message has started.
+  let helpersUsed = 0;
   // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
   // when the turn ends).
   const scheduleRemovals = [], scheduleAdds = [];
@@ -713,7 +717,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff" || c.name === "schedule")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff" || c.name === "schedule" || c.name === "helpers")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -933,6 +937,34 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "signin", id, site, url: pass.url || "", reason: plain(scrub(String(args.reason || ""))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
+      } else if (c.name === "helpers") {
+        // GLOOPY'S HELPERS (owner, 2026-11-09; dots' background agents, Claude Code's subagents): each part of the job in
+        // its own conversation on the same engine, all at once, with the file and web tools only (`helper`, from the
+        // service); their steps show in the chat under their names; their answers come back together.
+        const args = c.args || {};
+        const list = (Array.isArray(args.tasks) ? args.tasks : []).slice(0, HELPERS_MAX).map((t, k) => ({ name: plain(String((t && t.name) || "")).slice(0, 40) || "Helper " + (k + 1), task: String((t && t.task) || "").trim().slice(0, 4000) })).filter((t) => t.task);
+        emit({ type: "bash", id: c.id, tool: "helpers", verb: "Started helpers", command: list.map((t) => t.name).join(", ").slice(0, 300) });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!helper || typeof helper.system !== "string" || !Array.isArray(helper.tools)) { no("error: helpers are not available here"); continue; }
+        if (!list.length || (Array.isArray(args.tasks) && args.tasks.length > HELPERS_MAX)) { no("error: give tasks: 1 to " + HELPERS_MAX + ", each with a name and a task"); continue; }
+        if (helpersUsed + list.length > HELPERS_PER_TURN) { no("error: at most " + HELPERS_PER_TURN + " helpers in one message: do the rest yourself"); continue; }
+        if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        const first = helpersUsed;
+        helpersUsed += list.length;
+        const left = Math.max(30_000, maxMs - (now() - started) - 30_000);
+        const runs = await Promise.all(list.map((t, k) => {
+          const tag = "h" + (first + k + 1) + "-";
+          // Only a helper's steps reach the chat, under its name; its own opening, words and answer go to Gloopy.
+          const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}) }); };
+          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt }, { text: t.task, system: helper.system, tools: helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", model, effort, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
+            .catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) }));
+        }));
+        for (const r of runs) for (const u of r.usage || []) usage.push(u);
+        const answerOf = (r) => { const last = (r.messages || []).filter((m) => m && m.role === "assistant" && typeof m.content === "string" && m.content.trim()).at(-1); return last ? last.content.trim() : String(r.summary || "").trim(); };
+        const report = runs.map((r, k) => "HELPER “" + list[k].name + "” (" + ({ done: "finished", rounds: "stopped at its step limit", time: "ran out of time", stopped: "stopped by the owner", error: "failed" }[r.status] || r.status) + "):\n" + (answerOf(r) || "(no answer)").slice(0, HELPER_ANSWER_MAX)).join("\n\n");
+        emit({ type: "result", id: c.id, code: 0, output: report.slice(0, MAX_OUTPUT_CHARS), label: "Helpers finished: " + list.map((t) => t.name).join(", ").slice(0, 200) });
+        reply(report);
+        if (runs.some((r) => r.status === "stopped")) { emit({ type: "stopped" }); return end("stopped"); }
       } else if (c.name === "schedule") {
         // GLOOPY'S SCHEDULES (2026-11-09; gloopy-schedule.mjs): the Worker keeps them and sends their list with each
         // message. A new one waits for the owner's OK on a card (each run uses Grok), and the turn ends there; one stopped

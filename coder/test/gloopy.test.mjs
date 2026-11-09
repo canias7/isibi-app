@@ -1489,3 +1489,89 @@ test("GL38 (2026-11-09) custom rules in the owner's own words (Always allow, Ask
   assert.equal(r.rules.some((x) => x.id === boss.id), false);
   assert.equal((await rules({ remove: boss.id })).status, 404);
 });
+
+// ── HELPERS WORKING AT THE SAME TIME (owner, 2026-11-09: "Let's keep working on the tools") ──
+test("GL39 (2026-11-09) helpers: Gloopy splits a job; up to 4 helpers work at the same time, each in its own conversation with the file and web tools only; their steps show under their names; Gloopy gets their reports together; their Grok use is counted", async () => {
+  const { HELPER_SYSTEM, HELPER_TOOLS, HELPER_TOOL_NAMES, HELPERS_TOOL } = await import("../container/gloopy-agent.mjs");
+  const { HELPERS_MAX, HELPERS_PER_TURN } = await import("../container/coder-agent.mjs");
+  assert.deepEqual([HELPERS_MAX, HELPERS_PER_TURN], [4, 8]);
+  assert.deepEqual(HELPER_TOOL_NAMES, ["read", "write", "edit", "grep", "glob", "web_fetch"], "no browser, no commands, no cards");
+  const HELP = { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is 2026-11-09 (UTC)." };
+  // Each helper waits until all three have started: this finishes only if they really run at the same time.
+  let started = 0, release;
+  const all = new Promise((r) => { release = r; });
+  const helperSeen = [], mainSeen = [];
+  const answers = { "Find hotel prices": "Hotel A €120, Hotel B €95 (links).", "Find hotel reviews": "A: 4.6★, B: 4.1★ (links).", "Find the walk to the beach": "A: 5 min, B: 15 min (links)." };
+  const send = async (req) => {
+    if (String(req.messages[0].content).startsWith(HELPER_SYSTEM)) {
+      helperSeen.push(req);
+      const task = req.messages.find((m) => m.role === "user").content;
+      if (!req.messages.some((m) => m.role === "tool")) {
+        if (++started === 3) release();
+        await Promise.race([all, new Promise((_, no) => setTimeout(() => no(new Error("the helpers did not run at the same time")), 3000))]);
+        if (task === "Find hotel prices") return say("", [call("read", { path: "/data/prices.txt" }, "r1")]);
+      }
+      return { message: { role: "assistant", content: answers[task] }, usage: { in: 10, out: 5 } };
+    }
+    mainSeen.push(req);
+    return mainSeen.length === 1 ? say("I'll split this up.", [call("helpers", { tasks: [{ name: "Prices", task: "Find hotel prices" }, { name: "Reviews", task: "Find hotel reviews" }, { name: "Beach", task: "Find the walk to the beach" }] }, "hp1")]) : say("Hotel A is the best pick.");
+  };
+  const events = [];
+  const out = await runCoder({ send, exec: async () => ({ code: 0, output: "Hotel A €120\nHotel B €95" }), emit: (e) => events.push(e) }, { text: "Compare hotels A and B", ...GLOOPY, helper: HELP });
+  assert.equal(out.status, "done");
+  assert.equal(helperSeen.length, 4, "three helpers, one of which read a file first");
+  for (const req of helperSeen) {
+    assert.deepEqual(req.tools.map((t) => t.function.name).sort(), [...HELPER_TOOL_NAMES].sort());
+    assert.match(req.messages[0].content, /\n\nTODAY is 2026-11-09 \(UTC\)\.$/);
+  }
+  const report = out.messages.find((m) => m.tool_call_id === "hp1").content;
+  assert.equal(report, "HELPER “Prices” (finished):\nHotel A €120, Hotel B €95 (links).\n\nHELPER “Reviews” (finished):\nA: 4.6★, B: 4.1★ (links).\n\nHELPER “Beach” (finished):\nA: 5 min, B: 15 min (links).");
+  // In the chat: the step, the helpers' own steps under their names, and when they finished; nothing else of theirs.
+  assert.equal(events.find((e) => e.type === "bash" && e.id === "hp1").command, "Prices, Reviews, Beach");
+  assert.equal(events.find((e) => e.type === "result" && e.id === "hp1").label, "Helpers finished: Prices, Reviews, Beach");
+  const read = events.find((e) => e.type === "bash" && e.id === "h1-r1");
+  assert.deepEqual([read.tool, read.command], ["read", "“Prices” · /data/prices.txt"]);
+  assert.ok(events.some((e) => e.type === "result" && e.id === "h1-r1"));
+  assert.deepEqual(events.filter((e) => e.type === "user" || e.type === "done").map((e) => e.text), ["Compare hotels A and B", "Hotel A is the best pick."], "no helper's opening or answer in the chat");
+  assert.equal(out.usage.length, 2 + 4, "Gloopy's own two calls and the helpers' four");
+  // Limits: 1 to 4 at once, 8 in one message; only where the service offers helpers; Coder has none.
+  const tasks = (n) => Array.from({ length: n }, (_, i) => ({ name: "H" + i, task: "t" + i }));
+  const lim = scripted([say("", [call("helpers", { tasks: tasks(5) }, "x1"), call("helpers", { tasks: [] }, "x2")]), say("ok")]);
+  const lo = await runCoder({ send: lim.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...GLOOPY, helper: HELP });
+  assert.equal(lo.messages.find((m) => m.tool_call_id === "x1").content, "error: give tasks: 1 to 4, each with a name and a task");
+  assert.equal(lo.messages.find((m) => m.tool_call_id === "x2").content, "error: give tasks: 1 to 4, each with a name and a task");
+  const many = { send: async (req) => (String(req.messages[0].content).startsWith(HELPER_SYSTEM) ? say("done") : (many.n = (many.n || 0) + 1) <= 3 ? say("", [call("helpers", { tasks: tasks(4) }, "m" + many.n)]) : say("ok")) };
+  const mo = await runCoder({ send: many.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...GLOOPY, helper: HELP });
+  assert.equal(mo.messages.find((m) => m.tool_call_id === "m3").content, "error: at most 8 helpers in one message: do the rest yourself");
+  const none = scripted([say("", [call("helpers", { tasks: tasks(1) }, "n1")]), say("ok")]);
+  assert.equal((await runCoder({ send: none.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...GLOOPY })).messages.find((m) => m.tool_call_id === "n1").content, "error: helpers are not available here");
+  const c = scripted([say("", [call("helpers", { tasks: tasks(1) }, "c1")]), say("ok")]);
+  assert.match((await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }), }, { text: "x", helper: HELP })).messages.find((m) => m.tool_call_id === "c1").content, /^error: no such tool: helpers/);
+  // A helper that never stops is stopped at its step limit, and said so.
+  const loop = { send: async (req) => (String(req.messages[0].content).startsWith(HELPER_SYSTEM) ? say("", [call("glob", { pattern: "*" })]) : (loop.n = (loop.n || 0) + 1) === 1 ? say("", [call("helpers", { tasks: [{ name: "Busy", task: "loop" }] }, "l1")]) : say("ok")) };
+  const lp = await runCoder({ send: loop.send, exec: async () => ({ code: 0, output: "a.txt" }) }, { text: "x", ...GLOOPY, helper: HELP });
+  assert.match(lp.messages.find((m) => m.tool_call_id === "l1").content, /^HELPER “Busy” \(stopped at its step limit\):\n/);
+  assert.match(HELPERS_TOOL.function.description, /1 to 4 helpers work at the same time/);
+  assert.match(GLOOPY_SYSTEM, /give the parts to helpers: they work at the same time and report back/);
+});
+
+test("GL40 (2026-11-09) on Gloopy's machine, its helpers get their own instructions, today's date and a folder for their files", async () => {
+  const { createApp } = await import("../container/server.mjs");
+  const { HELPER_SYSTEM } = await import("../container/gloopy-agent.mjs");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-hpw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-hpg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-hpm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-hpb-")) };
+  const seen = [];
+  let n = 0;
+  const srv = http.createServer(createApp({ ...roots, send: async (req) => { seen.push(req); if (String(req.messages[0].content).startsWith(HELPER_SYSTEM)) return say("Found it."); return ++n === 1 ? say("", [call("helpers", { tasks: [{ name: "One", task: "Look something up" }] }, "h1")]) : say("Done."); } }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", agent: "gloopy", text: "go", messages: [] }) });
+    let st;
+    for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=gloopy-main&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.equal(st.result.status, "done");
+    const h = seen.find((r) => String(r.messages[0].content).startsWith(HELPER_SYSTEM));
+    assert.match(h.messages[0].content, /\n\nTODAY is \d{4}-\d{2}-\d{2} \(UTC\)\. Files you write go in \/.+\/helpers\/ \(write makes the folder; give the file tools full paths\)\.$/);
+    assert.equal(h.messages.find((m) => m.role === "user").content, "Look something up");
+    assert.equal(st.result.messages.find((m) => m.tool_call_id === "h1").content, "HELPER “One” (finished):\nFound it.");
+  } finally { srv.close(); }
+});

@@ -11,6 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's helpers: parts of a job done at the same time (your word: "Let's keep working on the tools")
+
+- **What it is:** like dots' background agents and Claude Code's subagents. For a big job with separate parts ("compare these hotels": prices, reviews, location), Gloopy gives each part to a helper. Up to 4 work at the same time, each in its own conversation, and Gloopy gets all their reports together and writes the answer.
+- **What a helper can do:** web search, reading web pages, and Gloopy's file tools.
+  - No browser, no commands (helpers share Gloopy's computer, and a command changing folders would trip the others up), no cards.
+  - It can't ask you anything or act on any account.
+- **In the chat:** "Started helpers: Prices, Reviews, Location", each helper's steps under its name ("“Prices” · https://…"), then "Helpers finished".
+- **Spending:** each helper uses Grok, and their use is counted with the message's. At most 4 at once and 8 in one message; each helper gets up to 15 steps and 5 minutes. Gloopy is told to use helpers only when a job is big enough to split.
+- **Found in the screenshot, not fixed (your call, not a tool):** the chat doesn't draw tables. A table in an answer shows as lines of `|` characters. It's the chat's text formatting, the same in Coder's chat, and Gloopy is told it may use small tables. A small fix, or part of the new frontend.
+- Tests GL39 (it checks the helpers really run at the same time) and GL40. All 295 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Custom rules for Gloopy, in your own words (your word: "add on the settings a custom rules for Gloopy ... like allow buying or whatever it is")
 
 - **What they are:** besides the fixed list, your own rules in your own words, each Always allow, Ask first or Never, like Grok Bot's Custom Rules. For example:
