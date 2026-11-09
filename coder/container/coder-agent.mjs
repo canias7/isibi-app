@@ -526,7 +526,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -933,12 +933,28 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         let pass, user = null;
         try { pass = await hub.describe(passRef); if (userRef) user = await hub.describe(userRef); if (submitRef) await hub.describe(submitRef); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
         if (!pass.element || !pass.element.password) { no("error: password_ref is not a password field: look again and give the number of the page's password field"); continue; }
+        // The site the password goes to: the password field's own (a sign-in box framed in from another site is that site's).
+        const site = String(pass.frameHost || "");
+        if (!site) { no("error: that password field has no web address of its own (it is in a frame that belongs to no site), so it can't be filled in: open the site's own sign-in page"); continue; }
+        if (user && user.frameHost !== site) { no("error: username_ref is on another site than the password field (" + site + "): give the username field of the same sign-in form"); continue; }
+        // A LOGIN THE OWNER SAVED for this site (2026-11-09; Grok Bot's Vault): typed in by Coder's service, with no card,
+        // while the owner's settings allow it; if it does not work, the card as below.
+        let savedFailed = false;
+        if ((Array.isArray(savedLogins) ? savedLogins : []).includes(site) && perms.login === "allow" && typeof hub.signInSaved === "function") {
+          let s = null;
+          try { s = await hub.signInSaved({ site, userRef, passRef, submitRef }); } catch { s = null; }
+          if (s && s.ok && !s.still) {
+            emit({ type: "result", id: c.id, code: 0, output: "Signed in to " + site + " with your saved login", label: "Signed in to " + site + " with your saved login", saved: true });
+            reply("signed in to " + site + " with the owner's saved login (you never see it). Your browser's page is now “" + plain(s.title) + "” at " + String(s.url || "") + ". Look at it before you go on.");
+            continue;
+          }
+          savedFailed = true;
+        }
         const id = "si" + Math.random().toString(36).slice(2, 10);
-        const site = pass.host || "the site";
         emit({ type: "result", id: c.id, code: 0, output: "Asked you to sign in to " + site, label: "Asked you to sign in to " + site });
         reply("asked the owner to sign in to " + site + " through the private form. Your turn ends here; the next message says how it went. You never see what they type.");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to sign in first" });
-        emit({ type: "signin", id, site, url: pass.url || "", reason: plain(scrub(String(args.reason || ""))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
+        emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + plain(scrub(String(args.reason || "")))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
       } else if (c.name === "page") {

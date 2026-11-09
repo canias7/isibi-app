@@ -172,7 +172,10 @@ export async function serve(dir) {
     tag: n.tagName.toLowerCase(), type: String(n.getAttribute("type") || "").toLowerCase(), role: String(n.getAttribute("role") || ""),
     password: n instanceof HTMLInputElement && n.type === "password",
     form: !!(n.form || (n.closest && n.closest("form"))), formAction: String((n.form && n.form.action) || ""), href: String(n.href || ""),
+    // The site the element itself is on: its own frame's (a box from another site, framed in the page, is that site's).
+    origin: String(window.origin || ""),
   }), null, { timeout: 8000 });
+  const siteOf = (origin) => { try { const u = new URL(origin); return /^https?:$/.test(u.protocol) ? u.host : ""; } catch { return ""; } };
   const quote = (t, max = 60) => "“" + String(t).replace(/\s+/g, " ").trim().slice(0, max) + (String(t).length > max ? "…" : "") + "”";
   const run = async (ask) => {
     const el = ask.ref ? await about(ask.ref) : null;
@@ -197,7 +200,8 @@ export async function serve(dir) {
     const el = ref ? await about(ref) : await page.evaluate(() => { const n = document.activeElement; return n && n !== document.body ? { name: String(n.getAttribute("aria-label") || n.innerText || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 120), tag: n.tagName.toLowerCase(), type: String(n.getAttribute("type") || "").toLowerCase(), role: String(n.getAttribute("role") || ""), password: n instanceof HTMLInputElement && n.type === "password", form: !!(n.form || n.closest("form")), formAction: String((n.form && n.form.action) || ""), href: String(n.href || "") } : null; });
     let host = "";
     try { host = new URL(page.url()).host; } catch { host = ""; }
-    return { element: el, url: page.url(), host, title: await page.title().catch(() => "") };
+    // host: the page's; frameHost: the site of the element itself ("" for none: a frame with no web address of its own).
+    return { element: el, url: page.url(), host, frameHost: el && ref ? siteOf(el.origin) : host, title: await page.title().catch(() => "") };
   };
   // THE OWNER'S SIGN-IN, from the private form: typed into the page here, then sent; never reported back.
   const fill = async (x) => {
@@ -205,6 +209,11 @@ export async function serve(dir) {
     if (typeof x.password !== "string" || !x.password) throw new Error("no password was given");
     const pw = await about(passRef);
     if (!pw.password) throw new Error("the field asked for is not a password field");
+    // ONLY ON THE SITE THE LOGIN IS FOR (2026-11-09; as a browser's password manager): the password field itself must be
+    // on that site, not in a box from another site framed in the page; the username field too.
+    const on = siteOf(pw.origin);
+    if (!x.site || on !== String(x.site)) throw new Error("the password field is not on " + (x.site || "the site") + " (it is on " + (on || "no site") + "), so nothing was typed");
+    if (userRef && (await about(userRef)).origin !== pw.origin) throw new Error("the username field is not on the same site as the password field, so nothing was typed");
     if (userRef) await target(userRef).fill(String(x.username || ""), { timeout: 8000 });
     await target(passRef).fill(x.password, { timeout: 8000 });
     if (submitRef) await target(submitRef).click({ timeout: 8000 }); else await target(passRef).press("Enter", { timeout: 8000 });
@@ -334,7 +343,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
   return {
     act: async (args) => { const r = await call(checkAsk(args)); const shot = typeof r.shot === "string" ? r.shot : ""; return { text: String(r.text || ""), shot, thumb: thumbOf(shot) }; },
     describe: (ref) => call({ action: "describe", ...(ref ? { ref } : {}) }),
-    fill: ({ userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", userRef, passRef, submitRef, username, password }),
+    fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password }),
     // Only when it is running already (no browser is started to be told nothing).
     running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
     // THE OWNER'S LIVE VIEW: { shot, hash, url, title } (or { same: true } when unchanged since `since`); { off: true } when

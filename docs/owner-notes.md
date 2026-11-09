@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's key card and saved logins (your word: "4,5")
+
+- **API keys, like Grok Bot's:** when a job needs a site's API (a weather service, say), Gloopy asks with a card: "Gloopy needs a key for api.openweathermap.org". You type the key in the card.
+  - It's kept sealed in Gloopy's own store, not in one of Coder's environments. It's added to Gloopy's requests to that one site after they leave Gloopy's computer, so Gloopy never sees it. If a site sends it back, it's blanked out of the chat.
+- **Saved logins, like Grok Bot's Vault and dots' "Save to Passwords":** the private sign-in card has a new box, "Save this login, so Gloopy can sign in to (the site) for you next time". The card's wording now says a login is saved only if you tick it.
+  - It's kept only if you tick the box and the sign-in worked. It's sealed, and you can keep up to 50.
+  - Next time Gloopy meets that site's sign-in page, Coder's own service types the login in, with no card. Gloopy only learns that it's signed in. If the saved login doesn't work, you get the card again, saying so.
+  - Only Gloopy's computer can get a saved login, only while a Gloopy job is running, only for the site it's on, and only with that job's own pass. Your page can list them (site and username, never the password) and remove them, ready for your settings screen.
+  - A new line in Gloopy's permissions, "Sign in with saved logins", is Always allow for testing, like the rest. Set it to Ask first and Gloopy shows the card instead.
+  - Like a browser's password manager, a login is typed only into a password box on its own site. A sign-in box from another site shown inside a page counts as that other site's.
+  - The chat says "Signed in with a saved login" for those steps, not "Asked you to sign in".
+- **Payment cards:** not built yet. How to keep them is your call (asked in the chat).
+- Not tried live with Grok yet (your word: no testing yet). Tests GL46–GL50 are new, and GL11 now also checks a sign-in box from another site in a real Chrome. All 305 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's pages: something to read and keep (your word: "We can leave that for later, lets focus on the tools")
 
 - **Handing code to Coder:** left for later, as you said. The plan for it is in the chat.

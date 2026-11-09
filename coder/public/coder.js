@@ -826,7 +826,7 @@
    * failed }], a step with no tool being a command.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -856,7 +856,8 @@
         const gk = 'g' + String(group[0][0].id || group[0][1]);
         const shut = !!S.open[gk];
         // The line names each kind of step and what failed, as Claude Code's does (groupWords).
-        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool || '', failed: stateOf(e, i) === 'bad' })));
+        // A sign-in Gloopy did with a saved login, with no card (2026-11-09), is said so, not "asked you to sign in".
+        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool === 'sign_in' && results[e.id] && results[e.id].saved === true ? 'sign_in_saved' : e.tool || '', failed: stateOf(e, i) === 'bad' })));
         out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
           '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + esc(words.line) + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (words.failed ? '<span class="cd-bad">' + esc(words.failed) + '</span>' : '') + '</button>' +
           (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +
@@ -934,9 +935,11 @@
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Sign in to ' + esc(e.site || 'the site') + '</b>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it isn’t saved.</p>' +
+          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved only if you tick the box below.</p>' +
           (live ? (e.user ? '<label class="cd-secret-l" for="cdSignUser">' + esc(e.user) + '</label><input id="cdSignUser" class="cd-secret-in" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">' : '') +
             '<label class="cd-secret-l" for="cdSignPass">Password</label><input id="cdSignPass" class="cd-secret-in" type="password" autocomplete="off">' +
+            // SAVE FOR NEXT TIME (2026-11-09; Grok Bot's Vault, dots' "Save to Passwords"): kept sealed only if signing in works.
+            '<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save this login, so Gloopy can sign in to ' + esc(e.site || 'the site') + ' for you next time</label>' +
             (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') +
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-signin="' + esc(e.id) + '" disabled>Sign in</button></div>' : '') + '</div>');
       }
@@ -960,10 +963,12 @@
       else if (e.type === 'secret') {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        out.push('<div class="cd-secret"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Coder needs a secret for ' + esc(e.host) + '</b>' +
+        // In Gloopy's chat (2026-11-09): a key kept for Gloopy alone (its own store, not one of Coder's environments).
+        out.push('<div class="cd-secret"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (GLOOPY ? 'Gloopy needs a key for ' : 'Coder needs a secret for ') + esc(e.host) + '</b>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
           '<p class="cd-secret-how">Sent as <code>' + esc(e.header || 'Authorization') + ': ' + esc(e.prefix == null ? 'Bearer ' : (e.prefix ? e.prefix + ' ' : '')) + '&lt;your key&gt;</code></p>' +
-          '<p class="cd-secret-p">This secret is saved on the environment ' + esc(S.envInfo ? S.envInfo.name : 'of this chat') + ': every chat that uses it can reach ' + esc(e.host) + ' with it. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>' +
+          (GLOOPY ? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' + esc(e.host) + ': it is added to Gloopy’s requests to ' + esc(e.host) + ' after they leave its computer, so Gloopy never sees it.</p>'
+            : '<p class="cd-secret-p">This secret is saved on the environment ' + esc(S.envInfo ? S.envInfo.name : 'of this chat') + ': every chat that uses it can reach ' + esc(e.host) + ' with it. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>') +
           (live ? '<label class="cd-secret-l" for="cdSecretIn">' + esc(e.name || 'Token') + '</label><input id="cdSecretIn" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">' +
             (S.secretMsg ? '<p class="cd-secret-err">' + esc(S.secretMsg) + '</p>' : '') +
             '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '">Decline</button><button type="button" class="cd-secret-save" data-secret-host="' + esc(e.host) + '" data-secret-header="' + esc(e.header || 'Authorization') + '" data-secret-prefix="' + esc(e.prefix == null ? 'Bearer' : e.prefix) + '" data-secret-name="' + esc(e.name || '') + '" disabled>Save</button></div>'
@@ -1520,7 +1525,8 @@
       e.currentTarget.disabled = true;
       // The password leaves the box as it is sent: it is never kept in this page's state.
       if (pass) pass.value = '';
-      cardAnswer(id, 'signin', { username: user ? user.value : '', password }, 'The sign-in could not be sent.');
+      const keep = root.querySelector('#cdSignSave');
+      cardAnswer(id, 'signin', { username: user ? user.value : '', password, save: !!(keep && keep.checked) }, 'The sign-in could not be sent.');
     });
     on('[data-signin-skip]', 'click', (e) => {
       if (!S.project) return;
@@ -1566,14 +1572,14 @@
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
     on('.cd-secret-save', 'click', async (e) => {
-      const d = e.currentTarget.dataset; const box = document.getElementById('cdSecretIn'); const value = box ? box.value.trim() : '';
+      const d = e.currentTarget.dataset; const box = (S.root || document).querySelector('#cdSecretIn'); const value = box ? box.value.trim() : '';
       if (!value || !S.project) return;
       e.currentTarget.disabled = true;
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret', { method: 'POST', body: JSON.stringify({ host: d.secretHost, value, header: d.secretHeader, prefix: d.secretPrefix, name: d.secretName }) });
       if (box) box.value = '';
       if (r.status !== 200) { S.secretMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
       S.secretMsg = ''; if (S.env) S.env.secrets = r.data.secrets;
-      send('I saved the secret for ' + d.secretHost + '.');
+      send((GLOOPY ? 'I saved the key for ' : 'I saved the secret for ') + d.secretHost + '.');
     });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));

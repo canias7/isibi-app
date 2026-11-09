@@ -20,6 +20,7 @@ export const PERMISSIONS = Object.freeze([
   { key: "delete", label: "Delete or cancel", hint: "Deleting things, cancelling orders or plans, unsubscribing" },
   { key: "account", label: "Change account settings", hint: "Profile, privacy and other settings of your accounts" },
   { key: "share", label: "Share your personal details", hint: "Your address, phone number or other details in a form" },
+  { key: "login", label: "Sign in with saved logins", hint: "Using a login you saved, without asking" },
   { key: "schedule", label: "Repeating schedules", hint: "Tasks that run every day or week (each run uses Grok)" },
   { key: "wake", label: "Wake-ups", hint: "Coming back to a job later on its own (each one uses Grok)" },
 ].map((p) => Object.freeze(p)));

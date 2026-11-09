@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCoder, CODER_SYSTEM, CODER_TOOLS } from "../container/coder-agent.mjs";
@@ -23,7 +23,8 @@ test("GL1 (2026-11-09) Gloopy's turn is sent with Gloopy's own instructions and 
   assert.ok(g.seen[0].messages[0].content.startsWith(GLOOPY_SYSTEM), "Gloopy's instructions come first");
   assert.match(g.seen[0].messages[0].content, /\n\nNOTES$/, "with its context after them");
   assert.deepEqual(g.seen[0].tools.map((t) => t.function.name).sort(), [...GLOOPY_TOOL_NAMES].sort());
-  for (const coderOnly of ["pull_request", "review", "pr_comments", "undo_last_job", "auto_fix", "reply_review", "propose_env", "request_secret", "lsp"]) assert.ok(!g.seen[0].tools.some((t) => t.function.name === coderOnly), coderOnly + " is Coder's only");
+  // (request_secret is Gloopy's too since 2026-11-09, the owner's "4": its own key card.)
+  for (const coderOnly of ["pull_request", "review", "pr_comments", "undo_last_job", "auto_fix", "reply_review", "propose_env", "lsp"]) assert.ok(!g.seen[0].tools.some((t) => t.function.name === coderOnly), coderOnly + " is Coder's only");
   // Coder, with no options: as before.
   const c = scripted([say("Done.")]);
   await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }) }, { text: "hello" });
@@ -255,20 +256,39 @@ test("GL11 the browser for real, as Coder's service drives it (where Chromium is
     // Signing in: only through fill (the service's own), and only into a password field.
     const l = await hub.act({ action: "open", url: base + "/login" });
     const u = refOf(l.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), p = refOf(l.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), s = refOf(l.text, /button "Sign in" \[ref=([a-z0-9]+)\]/);
-    await assert.rejects(hub.fill({ passRef: u, password: "x" }), /not a password field/);
-    const wrong = await hub.fill({ userRef: u, passRef: p, submitRef: s, username: "ana@example.com", password: "wrong-PASSWORD" });
+    const here = new URL(base).host;
+    await assert.rejects(hub.fill({ site: here, passRef: u, password: "x" }), /not a password field/);
+    await assert.rejects(hub.fill({ passRef: p, password: "x" }), /the password field is not on the site/, "only with the site the login is for");
+    const wrong = await hub.fill({ site: here, userRef: u, passRef: p, submitRef: s, username: "ana@example.com", password: "wrong-PASSWORD" });
     assert.equal(wrong.still, true, "the site's sign-in form again: it did not go through");
     const l2 = await hub.act({ action: "look" });
-    const right = await hub.fill({ userRef: refOf(l2.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), passRef: refOf(l2.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), submitRef: refOf(l2.text, /button "Sign in" \[ref=([a-z0-9]+)\]/), username: "ana@example.com", password: "hunter2-SECRET" });
+    const right = await hub.fill({ site: here, userRef: refOf(l2.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), passRef: refOf(l2.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), submitRef: refOf(l2.text, /button "Sign in" \[ref=([a-z0-9]+)\]/), username: "ana@example.com", password: "hunter2-SECRET" });
     assert.equal(right.still, false);
     assert.match(right.url, /\/account$/);
     // A password left in its box (a button that sends nothing): blanked out of every outline.
     const st = await hub.act({ action: "open", url: base + "/stays" });
-    const kept = await hub.fill({ userRef: refOf(st.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), passRef: refOf(st.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), submitRef: refOf(st.text, /button "Sign in" \[ref=([a-z0-9]+)\]/), username: "ana@example.com", password: "hunter2-SECRET" });
+    const kept = await hub.fill({ site: here, userRef: refOf(st.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), passRef: refOf(st.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), submitRef: refOf(st.text, /button "Sign in" \[ref=([a-z0-9]+)\]/), username: "ana@example.com", password: "hunter2-SECRET" });
     assert.equal(kept.still, true);
     const look = await hub.act({ action: "look" });
     assert.ok(!look.text.includes("hunter2"), "the password is never in what the AI gets");
     assert.ok(look.text.includes(BLANKED), "its box shows as blanked");
+    // A SIGN-IN BOX FROM ANOTHER SITE, FRAMED IN A PAGE (2026-11-09): it is that site's. A login is typed only into a
+    // password field on its own site, with the username field on the same one.
+    const framer = http.createServer((q, r) => { r.writeHead(200, { "content-type": "text/html; charset=utf-8" }); r.end('<title>Framed</title><h1>Shop</h1><label>Your email <input name=e></label><iframe src="' + base + '/login" width=600 height=300></iframe>'); });
+    const outer = await listen(framer);
+    try {
+      const f = await hub.act({ action: "open", url: outer + "/" });
+      const fp = refOf(f.text, /textbox "Password" \[ref=(f\d+e\d+)\]/), fu = refOf(f.text, /textbox "Email" \[ref=(f\d+e\d+)\]/), fs = refOf(f.text, /button "Sign in" \[ref=(f\d+e\d+)\]/), top = refOf(f.text, /textbox "Your email" \[ref=([a-z0-9]+)\]/);
+      assert.ok(top && fp && fu && fs && top !== fu, "the outline has both boxes");
+      const d = await hub.describe(fp);
+      assert.deepEqual([d.host, d.frameHost], [new URL(outer).host, here], "the page is one site; the box in it is the other's");
+      await assert.rejects(hub.fill({ site: new URL(outer).host, userRef: fu, passRef: fp, username: "ana@example.com", password: "hunter2-SECRET" }), /^Error: the password field is not on 127\.0\.0\.1:\d+ \(it is on 127\.0\.0\.1:\d+\), so nothing was typed$/);
+      await assert.rejects(hub.fill({ site: here, userRef: top, passRef: fp, username: "ana@example.com", password: "hunter2-SECRET" }), /the username field is not on the same site as the password field, so nothing was typed/);
+      const look2 = await hub.act({ action: "look" });
+      assert.ok(!look2.text.includes("ana@example.com"), "nothing was typed");
+      const inFrame = await hub.fill({ site: here, userRef: fu, passRef: fp, submitRef: fs, username: "ana@example.com", password: "hunter2-SECRET" });
+      assert.equal(inFrame.still, false, "on its own site, a framed sign-in works");
+    } finally { framer.close(); }
   } finally {
     srv.close();
     spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
@@ -335,7 +355,7 @@ function fakeBrowser(els = {}) {
   const acted = [], described = [];
   return {
     acted, described,
-    describe: async (ref) => { described.push(ref); const element = els[ref || "focus"]; if (element === undefined) throw new Error("the page changed since your last look: there is no " + ref + " on it now"); return { element, url: "https://shop.example/cart", host: "shop.example", title: "Your cart" }; },
+    describe: async (ref) => { described.push(ref); const element = els[ref || "focus"]; if (element === undefined) throw new Error("the page changed since your last look: there is no " + ref + " on it now"); return { element, url: "https://shop.example/cart", host: "shop.example", frameHost: element && typeof element.frameHost === "string" ? element.frameHost : "shop.example", title: "Your cart" }; },
     act: async (a) => { acted.push(a); return { text: "Did: " + (a.action === "click" ? "Clicked “" + ((els[a.ref] || {}).name || a.ref) + "”" : a.action) + "\nPage: Shop\nAddress: https://shop.example/\n\n- heading \"Shop\" [ref=e2]", shot: "AAAA", thumb: "data:image/jpeg;base64,BBBB" }; },
   };
 }
@@ -690,7 +710,7 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   assert.match(ui, /else if \(e\.type === 'approval'\) \{[\s\S]{0,800}<b class="cd-secret-t">Gloopy wants to ' \+ esc\(step\.charAt\(0\)\.toLowerCase\(\) \+ step\.slice\(1\)\) \+ '<\/b>'/);
   assert.match(ui, /<button type="button" class="cd-card-no" data-approve="deny" data-card="' \+ esc\(e\.id\) \+ '">Deny<\/button>' \+ \(e\.kind === 'schedule' \? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' \+ esc\(e\.id\) \+ '"[^>]*>Always allow<\/button>'\) \+ '<button type="button" class="cd-card-yes" data-approve="once" data-card="' \+ esc\(e\.id\) \+ '">' \+ \(e\.kind === 'schedule' \? 'Allow' : 'Allow once'\) \+ '<\/button>/);
   assert.match(ui, /<input id="cdSignPass" class="cd-secret-in" type="password" autocomplete="off">/);
-  assert.match(ui, /What you type goes straight into Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ '\. Gloopy never sees it, and it isn’t saved\./);
+  assert.match(ui, /What you type goes straight into Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ '\. Gloopy never sees it, and it’s saved only if you tick the box below\./);
   assert.match(ui, /<button type="button" class="cd-card-no" data-signin-skip="' \+ esc\(e\.id\) \+ '">Not now<\/button><button type="button" class="cd-card-yes" data-signin="' \+ esc\(e\.id\) \+ '" disabled>Sign in<\/button>/);
   // Found while writing these: the secret card's handlers are bound by its button classes, so the cards' buttons have
   // their own (a Deny would also have sent "I declined the secret for undefined.").
@@ -698,7 +718,7 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   assert.match(css, /\.cd-secret-no,\.cd-card-no\{/);
   assert.match(css, /\.cd-secret-save,\.cd-card-yes\{/);
   // The password leaves the box as it is sent; the answer goes to the Worker, then its words start Gloopy's next turn.
-  assert.match(ui, /const password = pass \? pass\.value : '';\n      if \(!password \|\| !S\.project\) return;\n      e\.currentTarget\.disabled = true;\n[^\n]*\n      if \(pass\) pass\.value = '';\n      cardAnswer\(id, 'signin', \{ username: user \? user\.value : '', password \}/);
+  assert.match(ui, /const password = pass \? pass\.value : '';\n      if \(!password \|\| !S\.project\) return;\n      e\.currentTarget\.disabled = true;\n[^\n]*\n      if \(pass\) pass\.value = '';\n      const keep = root\.querySelector\('#cdSignSave'\);\n      cardAnswer\(id, 'signin', \{ username: user \? user\.value : '', password, save: !!\(keep && keep\.checked\) \}/);
   assert.match(ui, /const r = await call\(cardPath\(a\), \{ method: 'POST', body: JSON\.stringify\(\{ id, \.\.\.body \}\) \}\);\n      if \(r\.status !== 200\) \{ S\.cardMsg = \{ id, text: \(r\.data && r\.data\.error\) \|\| failed \}; draw\(\); return; \}\n      S\.cardMsg = null; if \(r\.data && r\.data\.project\) S\.project = r\.data\.project;\n      send\(\(r\.data && r\.data\.said\) \|\| 'Answered\.'\);/);
   assert.match(ui, /S\.cardMsg && S\.cardMsg\.id === e\.id \?/, "an error shows on its own card only");
   assert.doesNotMatch(ui, /S\.\w+ = [^;\n]*password/, "the password is never put in the page's state");
@@ -1344,10 +1364,10 @@ test("GL35 (2026-11-09) waking itself up, all of it: you ask Gloopy to tell you 
 test("GL36 (2026-11-09) the permissions list: a setting for each kind of action (Ask, Always allow or Deny), everything Always allow while testing; the check, the schedule tool and Gloopy's instructions follow it", async () => {
   const P = await import("../container/gloopy-permissions.mjs");
   const { decide } = await import("../container/gloopy-check.mjs");
-  assert.deepEqual(P.PERMISSION_KEYS, ["buy", "book", "send", "post", "signup", "delete", "account", "share", "schedule", "wake"]);
+  assert.deepEqual(P.PERMISSION_KEYS, ["buy", "book", "send", "post", "signup", "delete", "account", "share", "login", "schedule", "wake"]);
   assert.deepEqual(P.MODES, ["ask", "allow", "deny"]);
   assert.equal(P.DEFAULT_MODE, "allow", "the owner's testing default");
-  assert.deepEqual(P.cleanPermissions({ buy: "deny", send: "maybe", nope: "ask" }), { buy: "deny", book: "allow", send: "allow", post: "allow", signup: "allow", delete: "allow", account: "allow", share: "allow", schedule: "allow", wake: "allow" });
+  assert.deepEqual(P.cleanPermissions({ buy: "deny", send: "maybe", nope: "ask" }), { buy: "deny", book: "allow", send: "allow", post: "allow", signup: "allow", delete: "allow", account: "allow", share: "allow", login: "allow", schedule: "allow", wake: "allow" });
   assert.equal(P.allAllowed(null), true);
   assert.equal(P.allAllowed({ send: "ask" }), false);
   assert.match(P.permissionLines({ buy: "deny", send: "ask" }), /^- Buy or pay \(orders, checkouts, payments, donations\): never: don't do it, not even another way\n- Book or reserve \(tables, tickets, travel, appointments\): always allowed: go ahead, then say what you did\n- Send messages or emails \(to anyone but you\): ask first\n/);
@@ -1413,7 +1433,7 @@ test("GL37 (2026-11-09) the Worker keeps the owner's permissions: listed with Gl
   const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
   const g = await (await go("gloopy")).json();
   assert.equal(g.permissions.buy, "allow");
-  assert.equal(g.permissionList.length, 10);
+  assert.equal(g.permissionList.length, 11);
   assert.deepEqual(g.permissionList[0], { key: "buy", label: "Buy or pay", hint: "Orders, checkouts, payments, donations" });
   const perm = (body) => go("projects/" + GLOOPY_ID + "/permissions", body ? { method: "POST", body: JSON.stringify(body) } : {});
   let r = await (await perm()).json();
@@ -1424,7 +1444,7 @@ test("GL37 (2026-11-09) the Worker keeps the owner's permissions: listed with Gl
   assert.deepEqual(JSON.parse(bucket.m.get("coder/u1/gloopy/permissions.json")).delete, "deny", "kept");
   // Sent with each message.
   await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "hi" }) });
-  assert.deepEqual(machine.find((x) => x.path === "/turn").body.permissions, { buy: "ask", book: "allow", send: "allow", post: "allow", signup: "allow", delete: "deny", account: "allow", share: "allow", schedule: "allow", wake: "allow" });
+  assert.deepEqual(machine.find((x) => x.path === "/turn").body.permissions, { buy: "ask", book: "allow", send: "allow", post: "allow", signup: "allow", delete: "deny", account: "allow", share: "allow", login: "allow", schedule: "allow", wake: "allow" });
   // What a turn asks to keep, by the settings kept here.
   const now = MON_2130;
   const rep = { name: "News", task: "t", tz: "UTC", every: "day", time: "08:00" }, wake = { name: "Back", task: "t", tz: "UTC", once: now + 3600_000 };
@@ -1753,4 +1773,241 @@ test("GL45 (2026-11-09) on Gloopy's machine: it writes a page with its file tool
     assert.match(msg("p3"), /^error: a page is an \.html file/);
     assert.ok(st.events.some((e) => e.type === "page" && e.title === "Weekend plan"));
   } finally { srv.close(); }
+});
+
+// ── API KEYS AND SAVED LOGINS (owner, 2026-11-09: "4,5") ──
+test("GL46 (2026-11-09) Gloopy's key card: the owner types a key for one site's API; it is kept sealed in Gloopy's own store (never Coder's environments); Gloopy's machine only learns where it applies, and the Worker adds it to Gloopy's requests on the way out; its value never stays in Gloopy's chat", async () => {
+  const { GLOOPY_TOOLS: TOOLS } = await import("../container/gloopy-agent.mjs");
+  const { envIdOf, GLOOPY_ENV, readEnvData } = await import("../src/coder-environments.mjs");
+  const { handleEgress } = await import("../src/coder-egress.mjs");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const tool = TOOLS.find((t) => t.function.name === "request_secret");
+  assert.match(tool.function.description, /it is added to your HTTPS requests to that host after they leave your computer, so you never see it/);
+  assert.doesNotMatch(tool.function.description, /environment/);
+  assert.equal(GLOOPY_ENV, "gloopy");
+  const bucket = fakeBucket();
+  assert.equal(await envIdOf(bucket, "u1", { kind: "gloopy" }), "gloopy", "Gloopy's own, never the Default");
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.dev" };
+  const machine = [];
+  let state = null;
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); machine.push({ path: u.pathname, body: req.method === "POST" ? await req.json() : null }); if (u.pathname === "/state" && state) return Response.json(state); if (u.pathname === "/claim") return Response.json({ ok: true }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  await go("gloopy");
+  // The owner's key, from the card: kept in Gloopy's store.
+  const KEY = "sk_live_51HmY0aKeyForTheWeather";
+  let r = await go("projects/" + GLOOPY_ID + "/secret", { method: "POST", body: JSON.stringify({ host: "api.weather.example", value: KEY, header: "Authorization", prefix: "Bearer", name: "Weather" }) });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual((await r.json()).secrets.map((x) => [x.host, x.name]), [["api.weather.example", "Weather"]]);
+  assert.equal((await readEnvData(env, bucket, "u1", "gloopy")).secrets.length, 1);
+  assert.equal((await readEnvData(env, bucket, "u1", "default")).secrets.length, 0, "never in Coder's Default environment");
+  for (const [k, v] of bucket.m) assert.ok(!v.includes(KEY), "the key in plain words in " + k);
+  assert.equal((await go("projects/" + GLOOPY_ID + "/env")).status, 400, "Gloopy still has no environment screen");
+  // A message: the machine gets where it applies and this job's pass, never the value.
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "What's the weather?" }) });
+  const turn = machine.find((x) => x.path === "/turn").body;
+  assert.ok(!JSON.stringify(turn).includes(KEY), "the key's value never goes to the machine");
+  assert.equal(turn.secrets.length, 1);
+  assert.match(JSON.stringify(turn.secrets), /api\.weather\.example/);
+  assert.deepEqual([turn.egress.chat, turn.egress.turn, typeof turn.egress.pass], ["u1/" + GLOOPY_ID, 1, "string"]);
+  // The Worker adds it to Gloopy's request on the way out.
+  const sent = [];
+  const out = await handleEgress(new Request("https://gofarther.dev/api/coder/egress", { method: "POST", headers: { "x-coder-chat": turn.egress.chat, "x-coder-turn": String(turn.egress.turn), "x-coder-egress": turn.egress.pass, "x-coder-url": "https://api.weather.example/v1/today?city=Lisbon", "x-coder-method": "GET", "x-coder-headers": Buffer.from("{}").toString("base64url") } }), env, { fetchFn: async (url, init) => { sent.push({ url: String(url), headers: init.headers }); return new Response("sunny", { status: 200 }); } });
+  assert.equal(out.status, 200);
+  assert.equal(sent[0].url, "https://api.weather.example/v1/today?city=Lisbon");
+  const auth = sent[0].headers instanceof Headers ? sent[0].headers.get("authorization") : sent[0].headers.authorization;
+  assert.equal(auth, "Bearer " + KEY);
+  // If an answer ever shows the key, Gloopy's chat keeps it hidden.
+  state = { running: false, events: [{ type: "bash", id: "b1", command: "curl https://api.weather.example/v1/today" }, { type: "result", id: "b1", code: 0, output: "token echoed: " + KEY }, { type: "done", text: "Sunny." }], next: 3, result: { status: "done", messages: [{ role: "user", content: "x" }, { role: "assistant", content: "Sunny." }], memory: "" } };
+  await go("projects/" + GLOOPY_ID + "/state?since=0");
+  const ev = JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json"));
+  assert.equal(ev.find((e) => e.type === "result").output, "token echoed: [hidden]");
+});
+
+test("GL47 (2026-11-09) saved logins: kept sealed, only once a sign-in worked and only when the owner ticked Save; the page sees sites and usernames, never a password; only Gloopy's machine gets one, with a running job's own pass, for the one site, while the owner allows it", async () => {
+  const V = await import("../src/gloopy-vault.mjs");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { egressPass } = await import("../src/coder-egress.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  let answer = { ok: true, still: false, title: "Your account", url: "https://shop.example/account" };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => ({ fetch: async () => Response.json(answer) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const meta = () => JSON.parse(bucket.m.get(metaKey));
+  const waitSign = (id) => bucket.m.set(metaKey, JSON.stringify({ ...meta(), status: "idle", waiting: "signin", pending: { kind: "signin", id, site: "shop.example" } }));
+  await go("gloopy");
+  // Not ticked: not kept. Ticked but the site showed its sign-in form again: not kept. Ticked and it worked: kept.
+  waitSign("si1");
+  await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: "si1", username: "ana@example.com", password: "hunter2-SECRET" }) });
+  assert.deepEqual(await V.readLogins(env, bucket, "u1"), []);
+  answer = { ok: true, still: true };
+  waitSign("si2");
+  await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: "si2", username: "ana@example.com", password: "wrong-PASSWORD", save: true }) });
+  assert.deepEqual(await V.readLogins(env, bucket, "u1"), [], "a login that did not work is never kept");
+  answer = { ok: true, still: false, title: "Your account", url: "https://shop.example/account" };
+  waitSign("si3");
+  const r = await (await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: "si3", username: "ana@example.com", password: "hunter2-SECRET", save: true }) })).json();
+  assert.match(r.project.note, /They saved this login: next time you sign in to shop\.example, it is used for you\./);
+  const saved = await V.readLogins(env, bucket, "u1");
+  assert.deepEqual(saved.map((x) => [x.site, x.username, x.password]), [["shop.example", "ana@example.com", "hunter2-SECRET"]]);
+  for (const [k, v] of bucket.m) assert.ok(!v.includes("hunter2"), "a password in plain words in " + k);
+  // The page: sites and usernames only.
+  const g = await (await go("gloopy")).json();
+  assert.deepEqual(g.logins.map((x) => [x.site, x.username, "password" in x]), [["shop.example", "ana@example.com", false]]);
+  assert.ok(!JSON.stringify(await (await go("projects/" + GLOOPY_ID + "/logins")).json()).includes("hunter2"));
+  // Sent with each message: the sites only.
+  const turns = [];
+  deps.container = () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns.push(await req.json()); return Response.json({ ok: true }); } });
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "check my orders" }) });
+  assert.deepEqual(turns[0].savedLogins, ["shop.example"]);
+  assert.ok(!JSON.stringify(turns[0]).includes("hunter2"));
+  // Gloopy's machine asks for it: only with this running job's own pass, for the one site, while the owner allows it.
+  const turnNo = meta().turn;
+  const ask = async (headers, site = "shop.example") => handleCoder(new Request("https://coder.gofarther.dev/api/coder/gloopy-vault", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ site }) }), env, {}, { ...deps, authUser: async () => null });
+  const pass = await egressPass(env, "u1/" + GLOOPY_ID, turnNo);
+  const good = { "x-coder-chat": "u1/" + GLOOPY_ID, "x-coder-turn": String(turnNo), "x-coder-egress": pass };
+  let a = await ask(good);
+  assert.equal(a.status, 200);
+  assert.deepEqual(await a.json(), { ok: true, username: "ana@example.com", password: "hunter2-SECRET" });
+  assert.equal((await ask(good, "other.example")).status, 404, "only the site asked");
+  assert.equal((await ask({ ...good, "x-coder-egress": pass.slice(0, -1) + (pass.endsWith("A") ? "B" : "A") })).status, 403, "a wrong pass");
+  assert.equal((await ask({ ...good, "x-coder-turn": String(turnNo - 1), "x-coder-egress": await egressPass(env, "u1/" + GLOOPY_ID, turnNo - 1) })).status, 403, "an old job's pass");
+  assert.equal((await ask({ ...good, "x-coder-chat": "u1/someproject" })).status, 403, "only Gloopy's chat");
+  await go("projects/" + GLOOPY_ID + "/permissions", { method: "POST", body: JSON.stringify({ set: { login: "ask" } }) });
+  assert.equal((await ask(good)).status, 403, "not while the owner's settings ask first");
+  await go("projects/" + GLOOPY_ID + "/permissions", { method: "POST", body: JSON.stringify({ set: { login: "allow" } }) });
+  bucket.m.set(metaKey, JSON.stringify({ ...meta(), status: "idle" }));
+  assert.equal((await ask(good)).status, 403, "only while that job runs");
+  // Taken away.
+  const id = saved[0].id;
+  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/logins", { method: "POST", body: JSON.stringify({ remove: id }) })).json()).logins, []);
+  assert.equal((await go("projects/" + GLOOPY_ID + "/logins", { method: "POST", body: JSON.stringify({ remove: id }) })).status, 404);
+  // At most 50: the oldest goes. Saving the same site and username again replaces it.
+  for (let i = 0; i < 52; i++) await V.saveLogin(env, bucket, "u1", { site: "s" + i + ".example", username: "u", password: "p" + i });
+  await V.saveLogin(env, bucket, "u1", { site: "s51.example", username: "u", password: "newer" });
+  const all = await V.readLogins(env, bucket, "u1");
+  assert.equal(all.length, 50);
+  assert.equal(V.loginFor(all, "s51.example").password, "newer");
+  assert.equal(V.loginFor(all, "s0.example"), null);
+});
+
+test("GL48 (2026-11-09) in the job loop: a site with a saved login is signed in by Coder's service with no card; if it does not work, or the owner's settings ask first, the card comes as before", async () => {
+  const calls = [];
+  const mk = (res) => ({ ...fakeBrowser(ELS), signInSaved: async (x) => { calls.push(x); return res; } });
+  const run = async (b, extra = {}) => { const ev = []; const g = scripted([say("", [call("sign_in", { password_ref: "e7", username_ref: "e8", submit_ref: "e9", reason: "To see your orders" }, "s1")]), say("Signed in.")]); const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b, emit: (e) => ev.push(e) }, { text: "check my orders", ...GLOOPY, savedLogins: ["shop.example"], ...extra }); return { out, ev, g }; };
+  // Saved, and it worked: no card, Gloopy goes on.
+  let { out, ev, g } = await run(mk({ ok: true, still: false, title: "Your account", url: "https://shop.example/account" }));
+  assert.deepEqual(calls.at(-1), { site: "shop.example", userRef: "e8", passRef: "e7", submitRef: "e9" });
+  assert.equal(out.signinRequest, undefined);
+  assert.equal(g.seen.length, 2, "no card: the turn went on");
+  assert.equal(out.messages.find((m) => m.tool_call_id === "s1").content, "signed in to shop.example with the owner's saved login (you never see it). Your browser's page is now “Your account” at https://shop.example/account. Look at it before you go on.");
+  assert.equal(ev.find((e) => e.type === "result" && e.id === "s1").label, "Signed in to shop.example with your saved login");
+  assert.equal(ev.find((e) => e.type === "result" && e.id === "s1").saved, true);
+  // The chat's line over the steps says so (not "Asked you to sign in").
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  const a = ui.indexOf("  function groupWords(steps) {"), b = ui.indexOf("\n  }\n", a);
+  const groupWords = new Function("return " + ui.slice(a, b + 4).trim())();
+  assert.equal(groupWords([{ tool: "browser" }, { tool: "sign_in_saved" }]).line, "Took 1 browser step, signed in with a saved login");
+  assert.equal(groupWords([{ tool: "sign_in" }]).line, "Asked you to sign in");
+  assert.match(ui, /tool: e\.tool === 'sign_in' && results\[e\.id\] && results\[e\.id\]\.saved === true \? 'sign_in_saved'/);
+  // It did not work: the card, saying so.
+  ({ out, ev } = await run(mk({ ok: true, still: true })));
+  assert.match(out.signinRequest.id, /^si/);
+  assert.equal(ev.find((e) => e.type === "signin").reason, "Your saved login for shop.example didn't work. To see your orders");
+  // The owner's settings ask first: the card, and the saved login is not used.
+  const before = calls.length;
+  ({ out } = await run(mk({ ok: true, still: false }), { permissions: { login: "ask" } }));
+  assert.equal(calls.length, before, "not used");
+  assert.ok(out.signinRequest);
+  // No login saved for this site: the card.
+  ({ out } = await run(mk({ ok: true, still: false }), { savedLogins: ["other.example"] }));
+  assert.ok(out.signinRequest);
+  // The password field is in a box framed in from another site: that site's sign-in (the card names it), never the
+  // saved login of the page's own site. A username field on another site, or a frame with no site: refused.
+  const framed = { ...ELS, e7: { ...ELS.e7, frameHost: "login.other.example" }, e8: { ...ELS.e8, frameHost: "login.other.example" } };
+  const nCalls = calls.length;
+  ({ out, ev } = await run({ ...fakeBrowser(framed), signInSaved: async (x) => { calls.push(x); return { ok: true, still: false }; } }));
+  assert.equal(out.signinRequest.site, "login.other.example");
+  assert.equal(ev.find((e) => e.type === "signin").site, "login.other.example");
+  assert.equal(calls.length, nCalls, "the saved login for shop.example is not used");
+  ({ out } = await run({ ...fakeBrowser({ ...ELS, e8: { ...ELS.e8, frameHost: "evil.example" } }), signInSaved: async () => { throw new Error("not used"); } }));
+  assert.equal(out.signinRequest, undefined);
+  assert.match(out.messages.find((m) => m.tool_call_id === "s1").content, /^error: username_ref is on another site than the password field \(shop\.example\)/);
+  ({ out } = await run({ ...fakeBrowser({ ...ELS, e7: { ...ELS.e7, frameHost: "" } }), signInSaved: async () => { throw new Error("not used"); } }));
+  assert.match(out.messages.find((m) => m.tool_call_id === "s1").content, /^error: that password field has no web address of its own/);
+  const { gloopyContext } = await import("../container/gloopy-agent.mjs");
+  assert.match(gloopyContext({ memFile: "/m.md", savedLogins: ["shop.example"] }), /SAVED LOGINS \(the owner saved these; sign_in uses one for you, and you never see it\): shop\.example/);
+});
+
+test("GL49 (2026-11-09) saved logins, for real (where Chromium is installed): you sign in once on the private card and tick Save; next time Gloopy signs in to that site by itself, with no card; the password is never in anything sent to Grok, Gloopy's chat, or kept in plain words", async (t) => {
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { spawnSync } = await import("node:child_process");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { createApp } = await import("../container/server.mjs");
+  const site = testSite(), siteBase = await listen(site), host = new URL(siteBase).host;
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl-vb-")), "browser");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-vw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-vg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-vm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-vbg-")) };
+  const seen = [];
+  const lastTool = (req) => String(req.messages.filter((m) => m.role === "tool").at(-1).content);
+  const signIn = (req) => { const o = lastTool(req); return say("", [call("sign_in", { password_ref: refOf(o, /textbox "Password" \[ref=([a-z0-9]+)\]/), username_ref: refOf(o, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), submit_ref: refOf(o, /button "Sign in" \[ref=([a-z0-9]+)\]/), reason: "To see your account" }, "s1")]); };
+  const steps = [
+    () => say("", [call("browser", { action: "open", url: siteBase + "/login" }, "o1")]),
+    signIn,
+    () => say("Signed in."),
+    // Next day: a fresh sign-in page (as if the site had signed you out), and Gloopy signs in by itself.
+    () => say("", [call("browser", { action: "open", url: siteBase + "/login" }, "o2")]),
+    signIn,
+    (req) => { assert.match(lastTool(req), /^signed in to 127\.0\.0\.1:\d+ with the owner's saved login \(you never see it\)\. Your browser's page is now “Your account”/); return say("You're signed in; here's your account."); },
+  ];
+  let n = 0;
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  let deps;
+  // The machine reaches the Worker's saved-login endpoint (here, in this process).
+  const vaultFetch = (url, init) => handleCoder(new Request(url, init), env, {}, { ...deps, authUser: async () => null });
+  const srv = http.createServer(createApp({ ...roots, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, vaultFetch, send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)](req); } }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const until = async () => { let st; for (let i = 0; i < 600; i++) { st = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json(); if (!st.running) return st; await new Promise((r) => setTimeout(r, 50)); } return st; };
+  const message = async (text) => { const r = await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text }) }); assert.equal(r.status, 200, await r.clone().text()); return until(); };
+  const events = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json"));
+  try {
+    await go("gloopy");
+    let st = await message("Sign in to the shop");
+    const card = events().find((e) => e.type === "signin");
+    assert.equal(card.site, host);
+    const r = await (await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: card.id, username: "ana@example.com", password: "hunter2-SECRET", save: true }) })).json();
+    assert.equal(r.said, "Signed in to " + host);
+    assert.deepEqual((await (await go("gloopy")).json()).logins.map((x) => x.site), [host]);
+    st = await message(r.said);
+    // Next time: no card.
+    const cardsBefore = events().filter((e) => e.type === "signin").length;
+    st = await message("Show me my account again");
+    assert.equal(events().filter((e) => e.type === "signin").length, cardsBefore, "no card this time");
+    assert.equal(st.project.pending, null);
+    assert.ok(events().some((e) => e.type === "result" && e.label === "Signed in to " + host + " with your saved login"));
+    assert.ok(events().some((e) => e.type === "done" && /You're signed in/.test(e.text)));
+    assert.ok(!JSON.stringify(seen).includes("hunter2"), "never in what Grok was sent");
+    for (const [k, v] of bucket.m) assert.ok(!v.includes("hunter2"), "in plain words in " + k);
+  } finally {
+    srv.close(); site.close();
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]);
+  }
+});
+
+test("GL50 (2026-11-09) on the page: in Gloopy's chat the key card says the key is Gloopy's (not one of Coder's environments) and reads it from Gloopy's own screen; the sign-in card says a login is kept only when its box is ticked", async () => {
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /\(GLOOPY \? 'Gloopy needs a key for ' : 'Coder needs a secret for '\) \+ esc\(e\.host\)/);
+  assert.match(ui, /\(GLOOPY \? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' \+ esc\(e\.host\) \+ ': it is added to Gloopy’s requests to ' \+ esc\(e\.host\) \+ ' after they leave its computer, so Gloopy never sees it\.<\/p>'/);
+  assert.match(ui, /: '<p class="cd-secret-p">This secret is saved on the environment '/, "Coder's own card is as it was");
+  assert.match(ui, /const box = \(S\.root \|\| document\)\.querySelector\('#cdSecretIn'\)/, "the box in this screen, not Coder's");
+  assert.doesNotMatch(ui, /getElementById\('cdSecretIn'\)/);
+  assert.match(ui, /send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ d\.secretHost \+ '\.'\)/);
+  assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save this login, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/);
+  assert.match(ui, /save: !!\(keep && keep\.checked\)/);
 });

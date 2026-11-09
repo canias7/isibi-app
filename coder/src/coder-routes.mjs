@@ -39,12 +39,13 @@ import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, n
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
-import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
+import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn } from "./gloopy-schedules.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
+import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor } from "./gloopy-vault.mjs";
 import { cleanSchedule, whenLocal } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -384,6 +385,9 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── ONE OF GLOOPY'S PAGES, SHOWN (2026-11-09; src/gloopy-pages.mjs): a plain visit from the page's frame, with no
   // sign-in header; its signed address says whose page it is, for 10 minutes. ──
   if (parts[0] === "gloopy-page" && parts.length === 3 && request.method === "GET") return servePageFile(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
+  // ── A SAVED LOGIN, FOR GLOOPY'S MACHINE (2026-11-09; src/gloopy-vault.mjs): asked by its service with the running
+  // job's own pass (as the Worker's egress is), for the one site its browser is on; never by the page or the AI. ──
+  if (parts[0] === "gloopy-vault" && parts.length === 1 && request.method === "POST") return gloopyVaultAsk(request, env, bucket);
 
   // ── THE GITHUB SIGN-IN'S RETURN: a plain visit from GitHub, with no sign-in
   // header; the signed state says whose it is. ──
@@ -570,7 +574,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -639,7 +643,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "permissions") return gloopyPermissions(g);
     if (action === "rules") return gloopyRules(g);
     if (action === "pages") return gloopyPages(g);
-    if (action !== "stop") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
+    if (action === "logins") return gloopyLogins(g);
+    // A key from Gloopy's card (2026-11-09) goes through Coder's own key route, into Gloopy's own store (GLOOPY_ENV).
+    if (action !== "stop" && action !== "secret") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
 
   if (action === "message" && request.method === "POST") {
@@ -1405,6 +1411,12 @@ async function gloopyMessage(g) {
   const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
   const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, marks };
   const rules = await readRules(bucket, uid);
+  // GLOOPY'S KEYS (2026-11-09, as Coder's): its machine gets where they apply and this job's pass for the Worker's egress,
+  // which adds them; their values are kept sealed here to hide them in its chat.
+  const keys = await readEnvData(env, bucket, uid, GLOOPY_ENV);
+  const keyValues = keys.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]).filter(Boolean);
+  const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
+  if (keyValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, keyValues) }));
   await saveMeta(bucket, uid, next);
   await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
   const notStarted = async () => {
@@ -1414,7 +1426,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1466,6 +1478,8 @@ async function gloopyState(g) {
     const all = await call("/state?project=" + id + "&since=0", { method: "GET" }).then((r) => r.json()).catch(() => ({ events: [] }));
     const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const fresh = Array.isArray(all.events) ? all.events.slice() : [];
+    // Gloopy's keys' values (2026-11-09) never kept in its chat, as Coder's.
+    if (meta.kind === "gloopy") hideIn(fresh, await hiddenValues(env, bucket, uid, meta).catch(() => []));
     const capped = capHistoryInfo(s.result.messages);
     await putJson(bucket, keyOf(uid, id, "messages.json"), capped.messages);
     if (typeof s.result.memory === "string") await bucket.put(gloopyNotesKey(uid, id), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
@@ -1555,7 +1569,9 @@ async function gloopyCard(g, action) {
     if (!password || password.length > 1000) return json({ error: "Type your password (at most 1000 characters)." }, 400);
     let r = null;
     try { r = await post("/gloopy/signin", { project: id, id: p.id, username, password }).then((x) => x.json()); } catch { r = null; }
-    if (r && r.ok && !r.still) note = "(Note from Gloopy's app, not the owner: the owner signed in to " + site + " through the private sign-in form. You never see what they typed. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
+    // SAVED FOR NEXT TIME (2026-11-09, when ticked): only a login that worked, sealed (src/gloopy-vault.mjs).
+    const kept = r && r.ok && !r.still && body.save === true ? await saveLogin(env, bucket, uid, { site: p.site, username, password }) : null;
+    if (r && r.ok && !r.still) note = "(Note from Gloopy's app, not the owner: the owner signed in to " + site + " through the private sign-in form. You never see what they typed." + (kept ? " They saved this login: next time you sign in to " + site + ", it is used for you." : "") + " Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
     else if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner's sign-in to " + site + " was typed in, but the site still shows a sign-in form: the username or password may be wrong, or the site asks for another step (a code, a CAPTCHA). Look at the page and tell the owner plainly; ask them to sign in again only if it makes sense.)";
     else note = "(Note from Gloopy's app, not the owner: the owner's sign-in to " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in again only if the sign-in form is still there.)";
     said = r && r.ok && !r.still ? "Signed in to " + site : "Tried to sign in to " + site;
@@ -1661,6 +1677,43 @@ async function gloopyPages(g) {
     return json({ ok: true, pages: await readPages(bucket, uid) });
   }
   return json({ error: "Give open or remove." }, 400);
+}
+
+/**
+ * A SAVED LOGIN, ASKED FOR BY GLOOPY'S MACHINE (2026-11-09): only with a running Gloopy job's own pass (x-coder-chat,
+ * x-coder-turn, x-coder-egress, as the Worker's egress), only while the owner allows saved logins, only the login for the
+ * one site asked. Anything else: refused, saying nothing.
+ */
+async function gloopyVaultAsk(request, env, bucket) {
+  const h = request.headers;
+  const chat = String(h.get("x-coder-chat") || ""), turn = String(h.get("x-coder-turn") || "");
+  const m = /^([\w-]{1,100})\/gloopy-main$/.exec(chat);
+  const no = () => json({ error: "not allowed" }, 403);
+  if (!m || !/^\d{1,9}$/.test(turn)) return no();
+  const want = await egressPass(env, chat, turn), got = String(h.get("x-coder-egress") || "");
+  let diff = want && want.length === got.length ? 0 : 1;
+  for (let i = 0; !diff && i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  if (diff) return no();
+  const uid = m[1];
+  const meta = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
+  if (!isGloopy(meta) || meta.status !== "running" || String(meta.turn) !== turn) return no();
+  if ((await readPermissions(bucket, uid)).login !== "allow") return no();
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const it = loginFor(await readLogins(env, bucket, uid), body.site);
+  return it ? json({ ok: true, username: it.username, password: it.password }) : json({ error: "no login is saved for that site" }, 404);
+}
+
+/**
+ * GLOOPY'S SAVED LOGINS, FOR THE SETTINGS SCREEN (2026-11-09): GET lists them (site and username, never a password);
+ * POST { remove: id } takes one away.
+ */
+async function gloopyLogins(g) {
+  const { request, env, bucket, uid } = g;
+  if (request.method === "GET") return json({ ok: true, logins: loginList(await readLogins(env, bucket, uid)) });
+  if (request.method !== "POST") return json({ error: "Gloopy has no logins " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  if (typeof body.remove !== "string" || !(await removeLogin(env, bucket, uid, body.remove))) return json({ error: "No saved login has that id." }, 404);
+  return json({ ok: true, logins: loginList(await readLogins(env, bucket, uid)) });
 }
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */
