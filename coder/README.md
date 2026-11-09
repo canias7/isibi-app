@@ -192,7 +192,13 @@ code in **each user's own GitHub**.
    byte-order mark is kept; a folder is named as one; and it answers in Claude
    Code's words ("File created successfully at: …" / "The file … has been updated
    successfully.", then "(file state is current in your context — no need to Read
-   it back)").
+   it back)"). Docs pass: an instruction file Coder's app showed only in part (its
+   note "[… goes on …: read the rest of it with the read tool, from line N]") is not
+   written over until it is read all at once ("You were given only the start of this
+   file …"; the agent marks it from that note, `SHOWN_START_RE`); a null byte names
+   the tool ("write path cannot contain null bytes …"); and a link on the way in a
+   loop or leading nowhere is refused before any folder is made ("where it leads on
+   disk could not be determined …").
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

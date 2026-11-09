@@ -431,7 +431,7 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
   await writeFile(join(dir, "fake.pdf"), "not a pdf at all");
   const run = machine(dir);
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
-  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "the path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "the path"], ["grep", { pattern: "h\0i" }, "the pattern"], ["glob", { pattern: "*\0.txt" }, "the pattern"]]) {
+  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "the path"], ["grep", { pattern: "h\0i" }, "the pattern"], ["glob", { pattern: "*\0.txt" }, "the pattern"]]) {
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
   assert.match(await tool("read", { path: "fake.pdf" }), /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s);
@@ -1503,4 +1503,87 @@ test("CD251 write's other ways, as Claude Code's Write (tried for real, 2026-11-
   // What Grok is told (Claude Code's: "creating a new file, or fully replacing one you've already Read … For partial changes, use Edit instead.").
   const says = CODER_TOOLS.find((t) => t.function.name === "write").function.description;
   assert.match(says, /^Write a whole file: a new one, or one you have read, replaced in full \(it is not appended to or merged\)\. For a change to part of a file, use edit instead\./);
+});
+
+test("CD252 write does not replace an instruction file Coder was shown only the start of, until it reads all of it in one call, as Claude Code's Write (tried for real, 2026-11-09: a 210,000-character CLAUDE.md in a subfolder, shown up to line 1642, then \"You were given only the start of this file, and nothing shows that you have since read all of it in one call, so a Write could lose the rest. To change part of it, use Edit. …\"; its Edit went through); a part read or a command that shows it keeps that; a read of all of it at once, or an edit, ends it", async () => {
+  const { shownStart, runCoder } = await import("../container/coder-agent.mjs");
+  const { WRITE_START } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile, readFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  assert.equal(WRITE_START, "You were given only the start of this file, and nothing shows that you have since read all of it in one call, so a write could lose the rest. To change part of it, use edit. To replace it whole, first read it in one call with no offset or limit. If read returns only a page or says the file is too large, read it again with allow_large: true. If even that cannot return all of it, use edit.");
+  // The app's notes after a part it shows (server.mjs), and nothing else.
+  assert.deepEqual(shownStart("x\n[CODER.md goes on: read the rest of it with the read tool, from line 812]\ny\n[sub/AGENTS.md goes on past 40,000 characters: read the rest of it with the read tool, from line 500]\n[sub/AGENTS.md goes on past 40,000 characters: read the rest of it with the read tool, from line 500]"), ["CODER.md", "sub/AGENTS.md"]);
+  assert.deepEqual(shownStart("[CODER.md goes on: read it]\nplain text"), []);
+  const dir = await mkdtemp(join(tmpdir(), "coder-wstart-"));
+  const follow = await mkdtemp(join(tmpdir(), "coder-wstart-follow-"));
+  const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const big = Array.from({ length: 1200 }, (_, i) => "Line " + (i + 1) + ". " + "w".repeat(80)).join("\n") + "\n";
+  await mkdir(join(dir, "sub"));
+  await writeFile(join(dir, "sub/AGENTS.md"), big);
+  const refused = "error: sub/AGENTS.md: " + WRITE_START;
+  assert.equal(await tool("seen", { path: "sub/AGENTS.md", start: true }), "shown in part");
+  assert.equal(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), refused);
+  assert.equal(await readFile(join(dir, "sub/AGENTS.md"), "utf8"), big, "untouched");
+  // A command that shows it, a part read, and a whole read cut short: still so.
+  await tool("seen", { path: "sub/AGENTS.md" });
+  assert.equal(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), refused);
+  await tool("read", { path: "sub/AGENTS.md", offset: 1, limit: 2000 });
+  assert.equal(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), refused, "a part asked for, even all of its lines, is not a read in one call");
+  assert.match(await tool("read", { path: "sub/AGENTS.md" }), /\[PARTIAL view: /);
+  assert.match(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), /^error: sub\/AGENTS\.md has not been read yet/);
+  // All of it in one call: allowed.
+  assert.doesNotMatch(await tool("read", { path: "sub/AGENTS.md", allow_large: true, max_chars: 400000 }), /PARTIAL view|\[lines /, "allow_large, sized as the agent sizes it");
+  assert.match(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), /^The file sub\/AGENTS\.md has been updated successfully\./);
+  // An edit goes through, as Claude Code's Edit did, and ends it.
+  await writeFile(join(dir, "CODER.md"), big);
+  await tool("seen", { path: "CODER.md", start: true });
+  assert.match(await tool("edit", { path: "CODER.md", old_string: "Line 2. ", new_string: "Line two. " }), /^edited CODER\.md/);
+  assert.match(await tool("write", { path: "CODER.md", content: "short\n" }), /^The file CODER\.md has been updated successfully\./);
+  // A file read whole in this chat already stands: shown in part after that, it is not marked.
+  await writeFile(join(dir, "R.md"), "small\n");
+  await tool("read", { path: "R.md" });
+  await tool("seen", { path: "R.md", start: true });
+  assert.match(await tool("write", { path: "R.md", content: "new\n" }), /^The file R\.md has been updated successfully\./);
+  // A file over 256 KB keeps the mark through a part read too.
+  await writeFile(join(dir, "huge.md"), "h".repeat(80) + "\n" + big.repeat(3));
+  await tool("seen", { path: "huge.md", start: true });
+  await tool("read", { path: "huge.md", offset: 1, limit: 5 });
+  assert.equal(await tool("write", { path: "huge.md", content: "short\n" }), "error: huge.md: " + WRITE_START);
+  // In a job: what the app's start shows in part is marked; Grok's write is refused, and the file is kept.
+  const jobDir = await mkdtemp(join(tmpdir(), "coder-wstart-job-"));
+  const jobFollow = await mkdtemp(join(tmpdir(), "coder-wstart-job-follow-"));
+  await writeFile(join(jobDir, "CODER.md"), big);
+  const exec = machine(jobDir, undefined, { ...process.env, CODER_SEEN_DIR: jobFollow });
+  let k = 0;
+  const out = await runCoder({ seen: true, root: jobDir, exec, emit: () => {}, afterFile: async () => "", send: async () => (++k === 1 ? say("", [call("write", { path: "CODER.md", content: "short\n" }, "w1")]) : say("Done.")) }, { text: "shorten it", context: "THE REPO'S OWN INSTRUCTIONS (CODER.md):\nLine 1.\n[CODER.md goes on: read the rest of it with the read tool, from line 2]" });
+  assert.equal(out.messages.find((m) => m.role === "tool" && m.tool_call_id === "w1").content, "error: CODER.md: " + WRITE_START);
+  assert.equal(await readFile(join(jobDir, "CODER.md"), "utf8"), big);
+});
+
+test("CD253 write's last two from Claude Code's docs (the owner, 2026-11-09: \"look on Claude Code Docs … and compare to ours\"): a path with a null byte names the tool, as Claude Code's errors page gives it (\"Read file_path cannot contain null bytes (\\0). …\"); a link on the way in a loop, or leading nowhere, is refused in the page's words (\"where it leads on disk could not be determined …\"), and nothing is made through it, in the project or out of it", async () => {
+  const { mkdtemp, mkdir, symlink, readdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const top = await mkdtemp(join(tmpdir(), "coder-wlinks-"));
+  const dir = join(top, "proj");
+  await mkdir(dir);
+  const run = machine(dir);
+  const write = async (path, content = "x\n") => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path, content } })).toString("base64") })).output;
+  assert.equal(await write("a\0.txt"), "error: write path cannot contain null bytes (\\0). Remove the null byte and try again.");
+  await symlink("loopb", join(dir, "loopa"));
+  await symlink("loopa", join(dir, "loopb"));
+  await symlink("/nonexistent/dir", join(dir, "nowhere"));
+  await symlink(join(top, "escape"), join(dir, "out")); // outside, not there yet
+  await mkdir(join(dir, "real"));
+  const words = (p) => "error: Refusing to write " + p + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).";
+  assert.equal(await write("loopa/x.txt"), words("loopa/x.txt"));
+  assert.equal(await write("loopa/deeper/x.txt"), words("loopa/deeper/x.txt"));
+  assert.equal(await write("nowhere/x.txt"), words("nowhere/x.txt"));
+  assert.equal(await write("out/x.txt"), words("out/x.txt"));
+  assert.deepEqual((await readdir(top)).sort(), ["proj"], "nothing made outside");
+  // The link itself is still named as one; ordinary folders are made as before.
+  assert.equal(await write("loopa"), "error: Refusing to write loopa: it is a symbolic link. Write to the link's target path instead.");
+  assert.match(await write("real/new/x.txt"), /^File created successfully at: real\/new\/x\.txt/);
 });

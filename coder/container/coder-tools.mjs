@@ -65,9 +65,11 @@ export function notTextKind(p) { const e = extname(String(p || "")).toLowerCase(
 /** A NULL BYTE in a path or pattern (Claude Code's errors page: "Read file_path cannot contain null bytes (\0). Remove
  * the null byte and try again."): no file system or search tool takes one. */
 const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
-async function inside(p, { mustExist = false } = {}) {
+async function inside(p, { mustExist = false, tool = "" } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
-  noNul(p, "the path");
+  // Named by its tool and argument, as Claude Code's are ("Read file_path cannot contain null bytes …"): write's so far
+  // (the owner, 2026-11-09, write's docs pass); the other tools keep "the path" until their turn.
+  noNul(p, tool ? tool + " path" : "the path");
   // A short path counts from where Grok's commands are (BASE).
   const abs = resolve(BASE, p);
   // CODER'S OWN MEMORY FILE (owner, 2026-11-06): the one file outside the project
@@ -429,8 +431,8 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const buf = await readFile(abs);
   const text = fileText(buf);
   const oldText = !utf16Of(buf) && !isUtf8(buf) ? "\n" + NOT_UTF8_NOTE : "";
-  await remember(abs, buf);
-  if (!text.length) return rel + " exists, but it is empty.";
+  await remember(abs, buf, { whole: false });
+  if (!text.length) { await clearStart(abs); return rel + " exists, but it is empty."; }
   const lines = text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
   const total = lines.length;
@@ -466,7 +468,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // A part that was asked for and does not fit is refused, as in Claude Code; a whole-file read gets its first part.
   if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
   const body = rows.join("\n");
-  if (last >= total) return body + oldText;
+  if (last >= total) { if (!asked) await clearStart(abs); return body + oldText; }
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   if (!asked) await markPartial(abs); // write will not replace it until the rest is read
   return body + (asked
@@ -518,9 +520,27 @@ export const WRITE_NOT_READ = "has not been read yet. Read it first before writi
  */
 export const WRITE_CHANGED = "has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it";
 export const WRITE_FRESH = " (file state is current in your context — no need to Read it back)";
+/** Claude Code's own words (tried for real, 2026-11-09), with Coder's tool names. */
+export const WRITE_START = "You were given only the start of this file, and nothing shows that you have since read all of it in one call, so a write could lose the rest. To change part of it, use edit. To replace it whole, first read it in one call with no offset or limit. If read returns only a page or says the file is too large, read it again with allow_large: true. If even that cannot return all of it, use edit.";
 const UTF8_HEAD = 8 * 1024 * 1024;
+/**
+ * A LINK ON THE WAY THAT CANNOT BE FOLLOWED (links in a loop, or one that leads nowhere): Claude Code's errors page,
+ * "Refusing to write <path>: where it leads on disk could not be determined (a link on the way could not be examined, or
+ * the links do not resolve)". Nothing is written and no folder is made through it (Coder gave the raw ELOOP or ENOENT of
+ * making the folder, and kept out of other folders only because making it failed).
+ */
+async function brokenLinkOnTheWay(abs) {
+  for (let at = dirname(abs); ; ) {
+    let st = null;
+    try { st = await lstat(at); } catch (e) { if (e && e.code === "ELOOP") return true; }
+    if (st && st.isSymbolicLink()) { try { await realpath(at); } catch { return true; } }
+    const up = dirname(at);
+    if (up === at) return false;
+    at = up;
+  }
+}
 export async function toolWrite({ path, content }) {
-  const { abs, rel } = await inside(path);
+  const { abs, rel } = await inside(path, { tool: "write" });
   if (typeof content !== "string") fail("give the file's content");
   let st = null;
   try { st = await lstat(abs); } catch { st = null; }
@@ -529,12 +549,14 @@ export async function toolWrite({ path, content }) {
     try { to = showPath(await realpath(abs)); } catch { to = ""; }
     fail("Refusing to write " + rel + ": it is a symbolic link. Write to the link's target path instead" + (to ? ": " + to : "") + ".");
   }
+  if (await brokenLinkOnTheWay(abs)) fail("Refusing to write " + rel + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
   if (st && st.isDirectory()) fail(abs + " is a directory, not a file. To create a file inside it, include the file name in path.");
   let bytes = Buffer.from(content);
   if (st && st.isFile()) {
     const seen = await seenEntry(abs);
     if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
     if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
+    if (seen && seen.start) fail(rel + ": " + WRITE_START);
     // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
     if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
     // Its encoding, from its first 8 MB (a character cut at the end of that part is not counted against it).
@@ -768,17 +790,21 @@ const lineMark = (l) => createHash("sha256").update(l).digest("hex").slice(0, 8)
 const marksOf = (buf) => fileText(buf).split("\n").map(lineMark).join("");
 const marksFile = (dir, abs) => join(dir, "lines-" + fingerprint(Buffer.from(abs)).slice(0, 24) + ".txt");
 /** Notes a text file as Coder now knows it, after a read, a write or an edit (not the memory file). */
-async function remember(abs, buf) {
+async function remember(abs, buf, { whole = true, cmd = false } = {}) {
   const dir = seenDir();
   const mem = process.env.CODER_MEMORY_FILE;
   if (!dir || (mem && abs === resolve(mem))) return;
   try {
     const st = await stat(abs);
-    const list = (await seenList(dir)).filter((x) => x.abs !== abs);
+    const all = await seenList(dir);
+    // Shown only in part (markStart), and not seen whole since: still so.
+    const keepStart = !whole && all.some((x) => x.abs === abs && x.start === true);
+    const list = all.filter((x) => x.abs !== abs);
     if (st.isFile() && buf.length <= READ_WHOLE_MAX) { // a bigger one is not followed
-      list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: fingerprint(buf) });
+      // `cmd`: shown by a command (its output may have been cut), not read whole by the read tool.
+      list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: fingerprint(buf), ...(keepStart ? { start: true } : {}), ...(cmd ? { cmd: true } : {}) });
       await writeFile(marksFile(dir, abs), marksOf(buf));
-    }
+    } else if (keepStart) list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: "", start: true });
     while (list.length > SEEN_FILES) { const old = list.shift(); await unlink(marksFile(dir, old.abs)).catch(() => {}); }
     await seenSave(dir, list);
   } catch { /* never costs the tool */ }
@@ -795,6 +821,36 @@ async function markPartial(abs) {
     const list = await seenList(dir);
     const x = list.find((e) => e.abs === abs);
     if (x) { x.partial = true; await seenSave(dir, list); }
+  } catch { /* never costs the tool */ }
+}
+/**
+ * AN INSTRUCTION FILE SHOWN ONLY IN PART (Coder's app shows the start of one over its limit, with a note to read the rest:
+ * the `seen` app tool with `start`): write does not replace it until it is read all at once, as Claude Code's Write (tried
+ * for real, 2026-11-09, a 210,000-character CLAUDE.md in a subfolder, shown up to line 1642: "You were given only the
+ * start of this file, and nothing shows that you have since read all of it in one call, so a Write could lose the rest.").
+ * A file read whole, written or edited in this chat already stands as it is.
+ */
+async function markStart(abs, st) {
+  const dir = seenDir();
+  if (!dir) return;
+  try {
+    const list = await seenList(dir);
+    const x = list.find((e) => e.abs === abs);
+    if (x && !x.partial && !x.start && !x.cmd) return;
+    if (x) x.start = true;
+    else list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: "", start: true }); // no fingerprint: its lines were not all seen
+    while (list.length > SEEN_FILES) { const old = list.shift(); await unlink(marksFile(dir, old.abs)).catch(() => {}); }
+    await seenSave(dir, list);
+  } catch { /* never costs the tool */ }
+}
+/** Read all at once (no offset or limit, nothing left out): no longer shown only in part. */
+async function clearStart(abs) {
+  const dir = seenDir();
+  if (!dir) return;
+  try {
+    const list = await seenList(dir);
+    const x = list.find((e) => e.abs === abs);
+    if (x && x.start) { delete x.start; await seenSave(dir, list); }
   } catch { /* never costs the tool */ }
 }
 /** What this chat knows of a file: its record, null when it was not read, written or edited, undefined when nothing is followed. */
@@ -870,14 +926,15 @@ export async function toolChanged({ reset = false } = {}) {
  * owner, 2026-11-08: "Yea fix those 4"; tried side by side: after `cat notes.txt`, its `sed` that changed the file said
  * "This command modified 1 file you've previously read: notes.txt"). Coder followed only what its own tools read before.
  */
-export async function toolSeen({ path }) {
+export async function toolSeen({ path, start = false }) {
   const { abs } = await inside(String(path || ""), { mustExist: true });
   const st = await stat(abs);
+  if (start === true) { if (!st.isFile()) return "not followed"; await markStart(abs, st); return "shown in part"; }
   if (!st.isFile() || st.size > READ_WHOLE_MAX) return "not followed";
   // Read only partly before (a PARTIAL view): still so, as in Claude Code (its `cat` of the file did not count as reading
   // the rest: "File has not been read yet"), so write does not replace the lines Coder never saw.
   const was = await seenEntry(abs);
-  await remember(abs, await readFile(abs));
+  await remember(abs, await readFile(abs), { whole: false, cmd: true });
   if (was && was.partial) await markPartial(abs);
   return "followed";
 }

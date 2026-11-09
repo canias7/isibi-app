@@ -155,6 +155,19 @@ export function tidyPath(p) {
  * modified first"; a file over 5,000 tokens comes back as its path, a "Referenced file"). */
 export const REREAD_FILES = 5, REREAD_ONE = 20_000;
 /** One of coder-tools.mjs's tools, run by Coder's app itself (a step Grok did not ask for). */
+/**
+ * INSTRUCTION FILES SHOWN ONLY IN PART: the note Coder's app puts after the part it shows ("[NAME goes on: read the rest
+ * of it with the read tool, from line N]", or "… goes on past 40,000 characters: …"), at the job's start, after a summary
+ * and after a file tool. Each is marked in the chat's record, so write does not replace it until it is read all at once,
+ * as Claude Code's Write refuses one it showed only the start of (tried for real, 2026-11-09: "You were given only the
+ * start of this file …"). Marking only makes write stricter, so a repo that fakes such a note gains nothing.
+ */
+export const SHOWN_START_RE = /\n\[([^\]\n]+?) goes on(?: past [\d,]+ characters)?: read the rest of it with the read tool, from line \d+\]/g;
+export const shownStart = (text) => [...new Set([...String(text || "").matchAll(SHOWN_START_RE)].map((m) => m[1]))].slice(0, 50);
+async function markShownStart(deps, text) {
+  if (!deps || deps.seen !== true) return;
+  for (const name of shownStart(text)) await appTool(deps, "seen", { path: typeof deps.root === "string" && deps.root ? deps.root + "/" + name : name, start: true });
+}
 async function appTool(deps, tool, args) {
   const json = JSON.stringify({ tool, args });
   const b64 = Buffer.from(json).toString("base64");
@@ -222,7 +235,7 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
         if (fit.length) { urls.push(...fit); names.push(p); }
         const lost = got.pics.length - fit.length;
         let more = "";
-        if (typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: "read", args: { path: p } })) || ""); } catch { more = ""; } }
+        if (typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: "read", args: { path: p } })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
         shownOut = text;
         stepThumbs = got.thumbs || [];
         part = "--- " + sayPath(deps, p) + " ---\n" + text + (lost > 0 ? "\n[" + lost + " of its pictures did not fit here: read it yourself to see them]" : "") + (more ? "\n\n" + more : "");
@@ -559,6 +572,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // start) follows nothing it read before (the review, 2026-11-08).
   let followed = false;
   if (deps.seen === true) { const ch = await changedFiles(deps, { reset: !(Array.isArray(messages) && messages.length) }); if (ch) followed = ch.followed > 0; }
+  // The instruction files this job's start shows only in part (after the reset above, which would undo the marks).
+  await markShownStart(deps, context);
   const watching = () => deps.seen === true && (followed || touched.size > 0);
   const touch = (p) => { const k = normPath(p); if (!k || k.length > 500) return; touched.delete(k); touched.set(k, ++touchN); if (touched.size > 200) touched.delete(touched.keys().next().value); };
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
@@ -632,7 +647,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           if (again) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + again };
           // The repo's instructions and the memory, fresh from disk (Coder may have changed them in this job), as Claude
           // Code re-injects them "from disk" after compaction (deps.freshContext, from Coder's machine).
-          if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) context = c; } catch { /* the one it had stays */ } }
+          if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) { context = c; await markShownStart(deps, c); } } catch { /* the one it had stays */ } }
           // A SUMMARY THAT CANNOT BRING THE JOB BACK UNDER ITS ROOM (the chat before it is near the room) is not made again
           // until the job has grown by a tenth of the room (Claude Code too stops when "context refills immediately").
           const after = JSON.stringify(convo.map(noPics)).length;
@@ -719,7 +734,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // Its path counts from where the command ran (such a command never changes folders).
         let viewed = "";
         const vf = !bg && code === 0 && typeof deps.afterFile === "function" ? viewedFile(command) : "";
-        if (vf) { touch(projectPath(deps, vf)); if (deps.seen === true) await appTool(deps, "seen", { path: typeof deps.where === "function" ? deps.where(vf) : vf }); try { viewed = String((await deps.afterFile({ tool: "read", args: { path: typeof deps.where === "function" ? deps.where(vf) : vf } })) || ""); } catch { viewed = ""; } }
+        if (vf) { touch(projectPath(deps, vf)); if (deps.seen === true) await appTool(deps, "seen", { path: typeof deps.where === "function" ? deps.where(vf) : vf }); try { viewed = String((await deps.afterFile({ tool: "read", args: { path: typeof deps.where === "function" ? deps.where(vf) : vf } })) || ""); } catch { viewed = ""; } await markShownStart(deps, viewed); }
         // A COMMAND THAT CHANGED FILES CODER HAD READ says so (like Claude Code's "This command modified …").
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); } } }
@@ -890,7 +905,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
-        if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } }
+        if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
         reply((out || "(nothing)") + (more ? "\n\n" + more : ""));
       } else if (c.name === "todo") {
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);

@@ -11,6 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Write, docs pass: Claude Code's docs on Write, compared with Coder's (your words: "look on Claude Code Docs and go look for the right writing tool and compare to ours")
+
+- **Read every page of Claude Code's docs that mentions Write** (fetched fresh today; nothing about Write changed since yesterday), plus its changelog. Almost everything already matched after yesterday's two passes. Three more differences, now copied:
+  1. **A big instruction file Coder was shown only the start of** (a CODER.md, AGENTS.md or rules file over the size Coder shows): Claude Code refuses to write over it until it has read all of it, and says so: "You were given only the start of this file … so a Write could lose the rest. To change part of it, use Edit." Tried for real with a 210,000-character file. Coder would have written over it, losing the instructions it never saw. Now it refuses the same way; an edit still works, as in Claude Code.
+  2. **A hidden character in a path:** Claude Code's message names the tool ("Write file_path cannot contain null bytes …"). Coder's write now does too. (Read, edit, grep and glob say it the old way: that's outside write, so it's on your list.)
+  3. **A link that goes in a loop, or leads nowhere:** the docs give one clear message ("where it leads on disk could not be determined"). Coder gave a raw system error. Nothing was ever written, but now it's checked before anything is made, and said plainly.
+- **Where the docs disagree with the real tool:** the docs page says Write may replace a file in an old text format; the changelog and the real tool both refuse it. Coder keeps refusing.
+- **Not for Coder:** Claude Code's permission rules, hooks, IDE diff and the like, which Coder doesn't have. Coder's write never leaves the project anyway.
+- Tests CD252 and CD253 (each fails on the old code); all 262 pass, and the 24 real read checks.
+- Next: test write live in the browser after the next merge and deploy, on your word.
+
 ## 2026-11-08: Write, second pass: all of Claude Code's Write, then copied (your words: "first of all, we gotta go look on Claude Code's write tool and see what it does and see what ours does … after we copy or use what they do, then we can actually start testing it")
 
 - **Saved as a standing rule** in owner-preferences: for each tool, first see everything Claude Code's tool does and what Coder's does, copy what Claude Code's does, and only then test it live.
