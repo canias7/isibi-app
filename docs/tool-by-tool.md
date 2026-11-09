@@ -494,9 +494,14 @@ Tests: CD263 (every case, Claude Code's words and the bytes on disk), CD264 (the
 | 5 | A link; a folder; a notebook; a read-only file; a null byte | "Refusing to write link.txt: it is a symbolic link. Write to the link's target path instead: target.txt."; Coder's folder words; refused with the way round; **edited as `dev`, still `-r--r--r--`**; Grok sent the six letters `\u0000`: "File does not exist" | the same; raw "EISDIR …"; "Use the NotebookEdit to edit this file."; edited (as root), still read-only; not sent | same (Coder's clearer folder and notebook words); the null byte: CD211 |
 | 6 | A command and two edits in one answer | changed.txt edited with Claude Code's note word for word; stale.txt: "… has been modified since read, either by a command or by something running in the background. Read it again …" | the same note; "… either by the user or by a linter …" | same |
 | 7 | `.husky/pre-commit`: Allow | the card, "What it would change: -npm test +npm run lint"; Allow; edited, its change under the step | edited (auto mode: its classifier allowed it; Manual and accept-edits modes ask) | as Claude Code's Manual mode |
-| 8 | `.npmrc`, a 380-character line: Don't allow | the card, the line cut at 300 with "…"; Don't allow: not changed, not tried again | not run (Coder's card) | right |
+| 8 | `.npmrc`, a 380-character line: Don't allow | the card, the line cut at 300 with "…" (in its text, but past the card's right edge: seen only by scrolling sideways); Don't allow: not changed, not tried again | not run (Coder's card; its terminal wraps a long line) | right, but see Found |
 | 9 | The mistake-check | "Found 1 new diagnostic issue in 1 file", "✘ [Line 5:25] \"rate\" is not defined [reportUndefinedVariable] (Pyright)"; Grok fixed it | nothing (no language server plugin in its cloud session) | as Claude Code with a plugin |
 | 10 | 40 lines at once | "+40 −40", "Show 73 more lines", its words | its words | same |
 | 11 | A folder with its own instructions | sub/CODER.md shown after the edit | sub/CLAUDE.md shown after the edit | same |
 
-**Found:** a Windows-endings file's change, as shown under its step, keeps each line's hidden `\r`, so copying the change gives a blank line after each (on screen it looks right).
+**Found:**
+
+1. A Windows-endings file's change, as shown under its step, keeps each line's hidden `\r`, so copying the change gives a blank line after each (on screen it looks right). Claude Code's own record of the same edit has clean lines (`-first`, `+FIRST`).
+2. On the protected-file card, a long line with no spaces runs past the card's right edge, so its "…" is seen only by scrolling sideways (le-8-card.png).
+
+Not part of edit's comparison: Claude Code's terminal groups only reads and searches (its `collapsed_read_search`), so there is no Claude Code group line for edits to compare Coder's "Edited N files" with.

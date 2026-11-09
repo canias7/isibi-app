@@ -31,7 +31,9 @@ log (81,000 lines) is in git history.
   - Coder runs the language checker after each code edit (Claude Code needs an add-on). Live, it caught `rate` and Grok fixed it.
 - **Cards:** Allow on `.husky/pre-commit` showed the change (`-npm test`, `+npm run lint`) and edited it. Don't allow on `.npmrc` showed the long line cut with "…" and left it alone.
 - **Not shown cleanly live** (Grok sent different input), but covered by the automated tests: an escape written out (`\u00e9`) and a real null character.
-- **Found:** for a Windows-line-ending file, the change shown under the step keeps a hidden character on each line. It looks right on screen, but copying the change gives a blank line after each line. Small fix, your call.
+- **Found (two small ones, your call):**
+  1. For a Windows-line-ending file, the change shown under the step keeps a hidden character on each line. It looks right on screen, but copying the change gives a blank line after each line. Claude Code's change for the same edit has no hidden character.
+  2. On the card for a protected file, a very long line runs past the card's right edge, so the "…" that marks it as cut is seen only by scrolling sideways.
 
 ## 2026-11-09: Edit: the two small ones fixed, and a third pass through Claude Code's docs (your words: "Ok yea fix that , then go look at claude code docs again for the edit tool")
 
