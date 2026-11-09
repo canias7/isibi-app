@@ -8,6 +8,11 @@
 
 /** At most this many schedules per person, and this many runs a day (UTC) in all, so a schedule can never run up a bill. */
 export const SCHEDULES_MAX = 10, RUNS_PER_DAY = 24;
+/**
+ * WAKE-UPS (owner, 2026-11-09: "just automatically wake up"): a one-time run Gloopy sets for itself, to come back to a
+ * job later, is kept at once with no card. At most this many wait at a time, each at least this many minutes ahead.
+ */
+export const WAKEUPS_MAX = 5, WAKE_MIN_MINUTES = 5;
 /** How a schedule repeats: every N hours (1 to 12), every day, every weekday (Monday to Friday), some days of each week, one day of each month. */
 export const EVERY = Object.freeze(["hours", "day", "weekday", "week", "month"]);
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];

@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's wake-ups are automatic now (your word: "No, what about just automatically wake up")
+
+- **What a wake-up is:** Gloopy only works when a message comes in. A wake-up is a message it sends itself for later: "come back at 22:30 and check the price again". At that time it starts working on its own, with no message from you.
+- **Example:** you say "tell me when the Strider Red is under €70". Gloopy checks (€72) and sets a wake-up for later. Then it comes back on its own, checks again and sets the next one. When the price drops it tells you and stops.
+  - Other uses: waiting for a reply, tickets that go on sale at 10, a page that updates later.
+- **Changed:** a wake-up no longer needs your OK. Gloopy keeps it at once and says in its answer when it'll be back.
+  - The chat shows "Will come back Mon 9 Nov at 22:30: Price check", and later "Back as planned: “Price check”".
+- **Still asks you once:** repeating schedules ("every weekday at 8"), because those go on running until stopped.
+- **Spending limits:** each wake-up is one Grok message.
+  - At most 5 wake-ups waiting at a time, each at least 5 minutes ahead.
+  - With the schedules, at most 24 runs a day in all.
+  - Gloopy is told to come back only as often as the job needs.
+- **Tried here:** a full run with the Worker and Gloopy's machine (a stand-in for Grok). Gloopy set a wake-up with no card, came back on its own and set the next one. When the price dropped it told you, and nothing was left waiting.
+- Tests GL30, GL31 and the new GL35. All 290 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's schedules, and waking itself up (your word: "Ok go but we are gonna do the frontend differently tho")
 
 - **What it does now:** Gloopy can do things on its own later, like Grok Bot's routines and dots' recurring tasks.

@@ -1050,25 +1050,42 @@ test("GL29 (2026-11-09) schedule times, in the owner's time zone: once (in N min
   assert.equal(okZone("Europe/Lisbon"), true);
 });
 
-test("GL30 (2026-11-09) the schedule tool: a new one waits for the owner's OK on a card (each run uses Grok) and the turn ends there; list says them; stopping one needs no card; at most 10; Coder has no such tool", async () => {
+test("GL30 (2026-11-09) the schedule tool: a wake-up (once) is kept with no card and Gloopy goes on (owner: \"just automatically wake up\"), at least 5 minutes ahead, at most 5 waiting; a repeating one waits for the owner's OK on a card and the turn ends there; list says them; stopping one needs no card; Coder has no such tool", async () => {
   const { GLOOPY_SYSTEM: SYS, SCHEDULE_TOOL } = await import("../container/gloopy-agent.mjs");
   const mine = [{ id: "sabc123", name: "Morning news", when: "every weekday at 08:00 (Europe/Lisbon)", nextLocal: "Tue 10 Nov, 08:00", task: "Send me the news" }];
   const events = [];
+  const PRICE = "Open runway-shoes.example and read the price of the Strider Red. Under €70: notify the owner. Otherwise set the next wake-up in 3 hours.";
   const g = scripted([
-    say("", [call("schedule", { action: "list" }, "l1"), call("schedule", { action: "add", name: "Price check", task: "Check the price", time_zone: "Mars/Olympus", in_minutes: 30 }, "a0")]),
-    say("I'll check back in half an hour.", [call("schedule", { action: "add", name: "Price check", task: "Open runway-shoes.example, read the price of the Strider Red, and notify the owner if it is under €70.", time_zone: "Europe/Lisbon", in_minutes: 30 }, "a1"), call("todo", { items: [] }, "a2")]),
-    say("SHOULD NOT BE ASKED"),
+    say("", [call("schedule", { action: "list" }, "l1"), call("schedule", { action: "add", name: "Price check", task: "x", time_zone: "Mars/Olympus", in_minutes: 30 }, "a0"), call("schedule", { action: "add", name: "Too soon", task: "x", time_zone: "Europe/Lisbon", in_minutes: 3 }, "a00")]),
+    say("", [call("schedule", { action: "add", name: "Price check", task: PRICE, time_zone: "Europe/Lisbon", in_minutes: 30 }, "a1")]),
+    say("It's €72 now. I'll check again at 22:00 and tell you when it's under €70."),
   ]);
   const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), now: () => MON_2130 }, { text: "Tell me when the shoes are under €70", ...GLOOPY, schedules: mine });
   assert.equal(out.messages.find((m) => m.tool_call_id === "l1").content, "- sabc123 · Morning news · every weekday at 08:00 (Europe/Lisbon) · next Tue 10 Nov, 08:00 · task: Send me the news");
   assert.match(out.messages.find((m) => m.tool_call_id === "a0").content, /^error: give time_zone/);
-  assert.equal(g.seen.length, 2, "the turn ended on the card");
-  const card = events.find((e) => e.type === "approval");
-  assert.deepEqual({ ...card, id: "", at: 0 }, { type: "approval", id: "", at: 0, kind: "schedule", step: "Run “Price check” once, on Mon 9 Nov at 22:00 (Europe/Lisbon)", site: "", url: "", why: "Each run is a message for Gloopy, so it uses Grok. First run: Mon 9 Nov, 22:00.", detail: "Open runway-shoes.example, read the price of the Strider Red, and notify the owner if it is under €70." });
-  assert.equal(out.approvalRequest.kind, "schedule");
-  assert.deepEqual(out.approvalRequest.schedule, { name: "Price check", task: "Open runway-shoes.example, read the price of the Strider Red, and notify the owner if it is under €70.", tz: "Europe/Lisbon", once: Date.UTC(2026, 10, 9, 22, 0) });
-  assert.equal(events.find((e) => e.type === "bash" && e.id === "a1").verb, "Scheduled");
-  assert.equal(out.messages.find((m) => m.tool_call_id === "a2").content, "not run: you asked the owner first");
+  assert.equal(out.messages.find((m) => m.tool_call_id === "a00").content, "error: come back at least 5 minutes from now");
+  // The wake-up: kept with no card, and Gloopy goes on to answer.
+  assert.equal(g.seen.length, 3, "no card: the turn went on");
+  assert.equal(out.approvalRequest, undefined);
+  assert.equal(events.some((e) => e.type === "approval"), false);
+  assert.deepEqual(out.scheduleAdds, [{ name: "Price check", task: PRICE, tz: "Europe/Lisbon", once: Date.UTC(2026, 10, 9, 22, 0) }]);
+  assert.equal(events.find((e) => e.type === "bash" && e.id === "a1").verb, "Will come back");
+  assert.equal(events.find((e) => e.type === "result" && e.id === "a1").label, "Will come back Mon 9 Nov at 22:00: Price check");
+  assert.equal(out.messages.find((m) => m.tool_call_id === "a1").content, "kept (no card needed): at Mon 9 Nov, 22:00 (Europe/Lisbon) a message with this task comes to you, and you work on it on your own. Say in your answer when you will be back.");
+  // At most 5 wake-ups waiting.
+  const five = Array.from({ length: 5 }, (_, i) => ({ id: "s" + i + "wake", name: "w" + i, when: "once", once: true }));
+  const w = scripted([say("", [call("schedule", { action: "add", name: "Sixth", task: "t", time_zone: "UTC", in_minutes: 60 }, "w1")]), say("Too many.")]);
+  assert.match((await runCoder({ send: w.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...GLOOPY, schedules: five })).messages.find((m) => m.tool_call_id === "w1").content, /^error: you have 5 wake-ups waiting already/);
+  // A repeating schedule: the owner's OK on a card first, and the turn ends there.
+  const ev1 = [];
+  const r1 = scripted([say("I'll set that up.", [call("schedule", { action: "add", name: "Morning news", task: "Find today's top 3 news stories and notify the owner with them.", time_zone: "Europe/Lisbon", every: "weekday", time: "08:00" }, "k1"), call("todo", { items: [] }, "k2")]), say("SHOULD NOT BE ASKED")]);
+  const o1 = await runCoder({ send: r1.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev1.push(e), now: () => MON_2130 }, { text: "Every weekday at 8, the news", ...GLOOPY });
+  assert.equal(r1.seen.length, 1, "the turn ended on the card");
+  const card = ev1.find((e) => e.type === "approval");
+  assert.deepEqual({ ...card, id: "", at: 0 }, { type: "approval", id: "", at: 0, kind: "schedule", step: "Run “Morning news” every weekday at 08:00 (Europe/Lisbon)", site: "", url: "", why: "Each run is a message for Gloopy, so it uses Grok. First run: Tue 10 Nov, 08:00.", detail: "Find today's top 3 news stories and notify the owner with them." });
+  assert.deepEqual(o1.approvalRequest.schedule, { name: "Morning news", task: "Find today's top 3 news stories and notify the owner with them.", tz: "Europe/Lisbon", every: "weekday", time: "08:00" });
+  assert.equal(ev1.find((e) => e.type === "bash" && e.id === "k1").verb, "Scheduled");
+  assert.equal(o1.messages.find((m) => m.tool_call_id === "k2").content, "not run: you asked the owner first");
   // Stopping one: no card; the Worker takes it off when the turn ends. An unknown id is said.
   const r = scripted([say("", [call("schedule", { action: "remove", id: "sabc123" }, "r1"), call("schedule", { action: "remove", id: "nope" }, "r2")]), say("Stopped.")]);
   const ev2 = [];
@@ -1077,8 +1094,7 @@ test("GL30 (2026-11-09) the schedule tool: a new one waits for the owner's OK on
   assert.equal(out2.messages.find((m) => m.tool_call_id === "r1").content, "stopped: Morning news (every weekday at 08:00 (Europe/Lisbon)); it will not run again");
   assert.equal(ev2.find((e) => e.type === "result" && e.id === "r1").label, "Stopped “Morning news”");
   assert.match(out2.messages.find((m) => m.tool_call_id === "r2").content, /^error: no schedule has that id/);
-  assert.equal(out2.approvalRequest, undefined);
-  // At most 10.
+  // At most 10 in all.
   const ten = Array.from({ length: 10 }, (_, i) => ({ id: "s" + i + "xxxx", name: "n" + i, when: "every day at 08:00 (UTC)" }));
   const f = scripted([say("", [call("schedule", { action: "add", name: "One more", task: "t", time_zone: "UTC", in_minutes: 10 }, "f1")]), say("Too many.")]);
   assert.match((await runCoder({ send: f.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...GLOOPY, schedules: ten })).messages.find((m) => m.tool_call_id === "f1").content, /^error: you have 10 schedules already: stop one first/);
@@ -1091,7 +1107,7 @@ test("GL30 (2026-11-09) the schedule tool: a new one waits for the owner's OK on
   await runCoder({ send: o.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev3.push(e) }, { text: "(Scheduled run …)\n\nSend me the news", shown: "Scheduled: “Morning news” · every weekday at 08:00 (Europe/Lisbon)", opening: "note", ...GLOOPY });
   assert.deepEqual(ev3.filter((e) => e.type === "user" || e.type === "note").map((e) => [e.type, e.text]), [["note", "Scheduled: “Morning news” · every weekday at 08:00 (Europe/Lisbon)"]]);
   assert.deepEqual(SCHEDULE_TOOL.function.parameters.required, ["action"]);
-  assert.match(SYS, /For anything later or repeating .*use schedule; the owner approves each new one on a card\. A message that starts with "\(Scheduled run" is one of those runs/);
+  assert.match(SYS, /You only work when a message comes\. To come back to a job later on your own .* set a wake-up with schedule \(once\): it is kept at once/);
 });
 
 test("GL31 (2026-11-09) every minute, the due runs start as messages for Gloopy; a run waits while Gloopy is busy and is skipped after 30 minutes; at most 24 runs a day; one-time ones then go; the next run follows the schedule", async () => {
@@ -1106,7 +1122,10 @@ test("GL31 (2026-11-09) every minute, the due runs start as messages for Gloopy;
   const t0 = Date.UTC(2026, 10, 10, 7, 59); // Tue 10 Nov 2026, 07:59 in Lisbon
   const data = await readSchedules(bucket, "u1");
   const news = addSchedule(data, SCHED.checkSchedule({ name: "Morning news", task: "Send me the news, then notify the owner.", time_zone: "Europe/Lisbon", every: "weekday", time: "08:00" }, t0 - 3600_000), t0 - 3600_000);
-  const once = addSchedule(data, SCHED.checkSchedule({ name: "Price check", task: "Check the price.", time_zone: "Europe/Lisbon", in_minutes: 61 }, t0 - 3600_000), t0 - 3600_000);
+  const { addWakeups } = await import("../src/gloopy-schedules.mjs");
+  assert.equal(addWakeups(data, [SCHED.checkSchedule({ name: "Price check", task: "Check the price.", time_zone: "Europe/Lisbon", in_minutes: 61 }, t0 - 3600_000), { name: "Not once", task: "x", tz: "UTC", every: "day", time: "08:00" }], t0 - 3600_000), 1, "only a one-time run is kept as a wake-up");
+  const once = data.items.find((x) => x.name === "Price check");
+  assert.equal(once.self, true);
   await writeSchedules(bucket, "u1", "me@x.y", data);
   assert.equal(JSON.parse(bucket.m.get("coder/gloopy-due/u1.json")).next, Date.UTC(2026, 10, 10, 8, 0), "the person's next run, for the every-minute check");
   bucket.m.set("coder/u1/" + GLOOPY_ID + "/meta.json", JSON.stringify({ id: GLOOPY_ID, kind: "gloopy", status: "idle", turn: 3 }));
@@ -1123,12 +1142,14 @@ test("GL31 (2026-11-09) every minute, the due runs start as messages for Gloopy;
   let kept = await readSchedules(bucket, "u1");
   assert.equal(kept.items.find((x) => x.id === news.id).next, Date.UTC(2026, 10, 11, 8, 0), "next: Wednesday 08:00");
   assert.deepEqual([kept.items.find((x) => x.id === news.id).runs, kept.runs, kept.day], [1, 1, "2026-11-10"]);
-  // The one-time run, a minute later: started, then gone.
+  // The wake-up, a minute later: started (said as Gloopy's own wake-up), then gone.
   await runGloopySchedules(env, deps, t1 + 60_000);
   assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].body.scheduled, { id: once.id, name: "Price check", when: "once, on Tue 10 Nov at 08:00 (Europe/Lisbon)", wake: true });
+  assert.equal(calls[1].body.text, "(Scheduled run of “Price check”: the wake-up you set to come back to this. It is Tue 10 Nov, 08:01 now in Europe/Lisbon.)\n\nCheck the price.");
   kept = await readSchedules(bucket, "u1");
   assert.deepEqual(kept.items.map((x) => x.id), [news.id], "the one-time schedule is done");
-  assert.equal(scheduledText(once, t1).startsWith("(Scheduled run of “Price check”, once, on Tue 10 Nov at 08:00 (Europe/Lisbon)"), true);
+  assert.equal(scheduledText({ ...news }, t1).startsWith("(Scheduled run of “Morning news”, every weekday at 08:00 (Europe/Lisbon), which the owner approved."), true);
   // Gloopy busy: the run waits (asked again each minute), then is skipped after 30 minutes, said in the chat.
   const wed = Date.UTC(2026, 10, 11, 8, 0, 30);
   bucket.m.set("coder/u1/" + GLOOPY_ID + "/meta.json", JSON.stringify({ id: GLOOPY_ID, kind: "gloopy", status: "running", turn: 4 }));
@@ -1255,4 +1276,57 @@ test("GL34 (2026-11-09) wiring: the every-minute run starts Gloopy's schedules; 
   assert.match(ui, /\(e\.detail \? '<p class="cd-secret-p">' \+ esc\(e\.detail\) \+ '<\/p>' : ''\)/);
   assert.match(ui, /\(e\.kind === 'schedule' \? '' : '<button type="button" class="cd-card-no" data-approve="always"/);
   assert.match(ui, / schedule: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',/);
+});
+
+test("GL35 (2026-11-09) waking itself up, all of it: you ask Gloopy to tell you when a price drops; it checks, sets itself a wake-up (no card) and says when it will be back; at that time it comes back on its own, checks again and sets the next one; once the price drops it notifies you and stops", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { createApp } = await import("../container/server.mjs");
+  const { runGloopySchedules, readSchedules } = await import("../src/gloopy-schedules.mjs");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-ww-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-wg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-wm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-wb-")) };
+  const TASK = "Read the price of the Strider Red on runway-shoes.example. Under €70: notify the owner. Otherwise set the next wake-up in 3 hours.";
+  const lastUser = (req) => String(req.messages.filter((m) => m.role === "user" && !m.appNote).at(-1).content);
+  const steps = [
+    () => say("", [call("schedule", { action: "add", name: "Price check", task: TASK, time_zone: "Europe/Lisbon", in_minutes: 180 }, "w1")]),
+    () => say("It's €72 now. I'll check again in 3 hours and tell you when it's under €70."),
+    (req) => { assert.match(lastUser(req), /^\(Scheduled run of “Price check”: the wake-up you set to come back to this\. It is .* now in Europe\/Lisbon\.\)\n\nRead the price/); return say("", [call("schedule", { action: "add", name: "Price check", task: TASK, time_zone: "Europe/Lisbon", in_minutes: 180 }, "w2")]); },
+    () => say("Still €72. Checking again in 3 hours."),
+    () => say("", [call("notify", { message: "The Strider Red is €68 now (under €70)." }, "n1")]),
+    () => say("It dropped to €68, so I told you. I've stopped checking."),
+  ];
+  let n = 0;
+  const srv = http.createServer(createApp({ ...roots, send: async (req) => steps[Math.min(n++, steps.length - 1)](req) }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const until = async () => { let st; for (let i = 0; i < 400; i++) { st = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json(); if (!st.running) return st; await new Promise((r) => setTimeout(r, 50)); } return st; };
+  const coder = (req, who) => handleCoder(req, env, {}, { ...deps, authUser: async () => who });
+  const events = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json"));
+  try {
+    await go("gloopy");
+    assert.equal((await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "Tell me when the Strider Red is under €70" }) })).status, 200);
+    let st = await until();
+    assert.equal(st.project.pending, null, "no card for a wake-up");
+    assert.ok(events().some((e) => e.type === "done" && /check again in 3 hours/.test(e.text)), "Gloopy says when it will be back");
+    let kept = await readSchedules(bucket, "u1");
+    assert.deepEqual(kept.items.map((x) => [x.name, x.self, Number.isFinite(x.once)]), [["Price check", true, true]]);
+    const first = kept.items[0];
+    // Its time: it comes back on its own, says so in a line, checks again, and sets the next wake-up.
+    assert.equal((await runGloopySchedules(env, { coder }, first.next + 5_000)).started, 1);
+    await until();
+    assert.ok(events().some((e) => e.type === "note" && e.text === "Back as planned: “Price check”"));
+    kept = await readSchedules(bucket, "u1");
+    assert.equal(kept.items.length, 1, "the first wake-up is done; the next one is kept");
+    // (Gloopy's machine sets it from the real clock, 3 hours from now; this test only moves the every-minute check's clock.)
+    assert.deepEqual([kept.items[0].id !== first.id, kept.items[0].self, kept.items[0].name], [true, true, "Price check"]);
+    // The next time: the price dropped; it tells you and sets no more.
+    assert.equal((await runGloopySchedules(env, { coder }, kept.items[0].next + 5_000)).started, 1);
+    await until();
+    assert.ok(events().some((e) => e.type === "notify" && /€68/.test(e.text)), "you are told");
+    assert.deepEqual((await readSchedules(bucket, "u1")).items, [], "nothing left waiting");
+    assert.equal(bucket.m.has("coder/gloopy-due/u1.json"), false);
+  } finally { srv.close(); }
 });

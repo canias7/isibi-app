@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { needsCheck, stepWords, gloopyCheck, cleanRules, plain } from "./gloopy-check.mjs";
-import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX } from "./gloopy-schedule.mjs";
+import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES } from "./gloopy-schedule.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -599,8 +599,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
   let approvalRequest = null, signinRequest = null, handoffRequest = null;
-  // Gloopy's schedules it stopped in this turn (the Worker keeps the schedules; it takes these off when the turn ends).
-  const scheduleRemovals = [];
+  // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
+  // when the turn ends).
+  const scheduleRemovals = [], scheduleAdds = [];
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
@@ -620,7 +621,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -932,7 +933,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const args = c.args || {};
         const act = ["add", "list", "remove"].includes(args.action) ? args.action : "";
         const mine = (Array.isArray(schedules) ? schedules : []).filter((x) => x && typeof x.id === "string" && x.id);
-        emit({ type: "bash", id: c.id, tool: "schedule", verb: act === "add" ? "Scheduled" : act === "remove" ? "Stopped" : "Looked at schedules", command: act === "add" ? plain(String(args.name || "")).slice(0, 80) : act === "remove" ? plain(String(args.id || "")).slice(0, 40) : "" });
+        const wake = act === "add" && ((args.in_minutes !== undefined && args.in_minutes !== null && args.in_minutes !== "") || !!args.at);
+        emit({ type: "bash", id: c.id, tool: "schedule", verb: wake ? "Will come back" : act === "add" ? "Scheduled" : act === "remove" ? "Stopped" : "Looked at schedules", command: act === "add" ? plain(String(args.name || "")).slice(0, 80) : act === "remove" ? plain(String(args.id || "")).slice(0, 40) : "" });
         const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
         if (!act) { no("error: action is add, list or remove"); continue; }
         if (act === "list") { const out = mine.length ? mine.map(scheduleLine).join("\n") : "no schedules yet"; emit({ type: "result", id: c.id, code: 0, output: out }); reply(out); continue; }
@@ -947,9 +949,21 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         }
         let spec;
         try { spec = checkSchedule(args, now()); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 300)); continue; }
-        if (mine.length - scheduleRemovals.length >= SCHEDULES_MAX) { no("error: you have " + SCHEDULES_MAX + " schedules already: stop one first (schedule list shows them)"); continue; }
+        if (mine.length - scheduleRemovals.length + scheduleAdds.length >= SCHEDULES_MAX) { no("error: you have " + SCHEDULES_MAX + " schedules already: stop one first (schedule list shows them)"); continue; }
         const first = nextRun(spec, now());
         if (first === null) { no("error: that schedule would never run (its last day has passed)"); continue; }
+        if (Number.isFinite(spec.once)) {
+          // A WAKE-UP (owner, 2026-11-09: "just automatically wake up"; dots "can decide when to pause and wake up to
+          // continue"): kept with no card, at least WAKE_MIN_MINUTES ahead, at most WAKEUPS_MAX waiting.
+          if (first - now() < WAKE_MIN_MINUTES * 60_000 - 1000) { no("error: come back at least " + WAKE_MIN_MINUTES + " minutes from now"); continue; }
+          const waiting = mine.filter((x) => x.once === true && !scheduleRemovals.includes(x.id)).length + scheduleAdds.length;
+          if (waiting >= WAKEUPS_MAX) { no("error: you have " + WAKEUPS_MAX + " wake-ups waiting already: let one run first, or stop one (schedule list shows them)"); continue; }
+          scheduleAdds.push(spec);
+          const at = whenLocal(first, spec.tz);
+          emit({ type: "result", id: c.id, code: 0, output: "Coming back " + at + " (" + spec.tz + "): " + spec.task.slice(0, 300), label: "Will come back " + at.replace(", ", " at ") + ": " + spec.name });
+          reply("kept (no card needed): at " + at + " (" + spec.tz + ") a message with this task comes to you, and you work on it on your own. Say in your answer when you will be back.");
+          continue;
+        }
         const id = "ap" + Math.random().toString(36).slice(2, 10);
         const step = "Run “" + spec.name + "” " + whenWords(spec);
         const why = "Each run is a message for Gloopy, so it uses Grok. First run: " + whenLocal(first, spec.tz) + ".";

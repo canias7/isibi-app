@@ -41,7 +41,7 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
-import { readSchedules, writeSchedules, schedulesForTurn, addSchedule } from "./gloopy-schedules.mjs";
+import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addWakeups } from "./gloopy-schedules.mjs";
 import { cleanSchedule, whenLocal } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -1358,7 +1358,7 @@ async function gloopyMessage(g) {
   }
   // A SCHEDULED RUN (2026-11-09; src/gloopy-schedules.mjs): started by the every-minute check, its words are the task the
   // owner approved; the chat shows a line saying which schedule it is, not a message from the owner.
-  const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120) } : null;
+  const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120), wake: body.scheduled.wake === true } : null;
   let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
   // WHAT HAPPENED TO THE LAST CARD (a step the owner allowed or not, a sign-in, a handoff), and the owner having taken over
   // Gloopy's browser meanwhile: said to Gloopy just before this message.
@@ -1393,7 +1393,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? "Scheduled: “" + sched.name + "” · " + sched.when : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1454,9 +1454,10 @@ async function gloopyState(g) {
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
     const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff"].includes(e.type)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
-    // Schedules Gloopy stopped in this turn come off now.
+    // Schedules Gloopy stopped in this turn come off now, and the wake-ups it set are kept (no card: owner, 2026-11-09).
     const stopped = Array.isArray(s.result.scheduleRemovals) ? s.result.scheduleRemovals.filter((x) => typeof x === "string") : [];
-    if (stopped.length) { const sd = await readSchedules(bucket, uid); sd.items = sd.items.filter((x) => !stopped.includes(x.id)); await writeSchedules(bucket, uid, user.email, sd); }
+    const wakes = Array.isArray(s.result.scheduleAdds) ? s.result.scheduleAdds : [];
+    if (stopped.length || wakes.length) { const sd = await readSchedules(bucket, uid); sd.items = sd.items.filter((x) => !stopped.includes(x.id)); addWakeups(sd, wakes, Date.now()); await writeSchedules(bucket, uid, user.email, sd); }
     const asks = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" ? cleanSchedule(s.result.approvalRequest.schedule) : null;
     const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
     const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
