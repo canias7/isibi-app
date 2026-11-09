@@ -11,6 +11,11 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Merged and deployed the bash work (your words: "merge and deploy"); one fix waiting
+
+- **Merged into main and deployed (deploy 75):** bash parts 1 to 3, both checks against Claude Code's docs, the last gaps, and sending messages while Coder works. The live test with Grok on gofarther.dev comes next, filmed.
+- **Found while preparing that test, fixed on the branch, not live yet:** once a background command ends, the open chat stopped checking for news, so the short turn that tells Coder it ended could stay hidden until you reload the page. The page now keeps checking until that turn has shown, after a Stop too. Test CD300. It needs your word to merge.
+
 ## 2026-11-09: Bash: the last things from Claude Code's docs (your words: "what about claude code docs , we got everything ?")
 
 Not live yet: it waits for your word to merge, with the rest of the bash work.

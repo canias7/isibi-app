@@ -319,3 +319,11 @@ test("CD299 (found in the screenshots) a background command's step shows how it 
   assert.match(ui, /end \? \(end\.ok \? 'ok' : 'bgend'\) : r\.background \? 'bg'/);
   assert.match(ui, /state === 'bgend' \? \(\/\^\(exit\|ended\)\/\.test/);
 });
+
+test("CD300 (found while preparing the live test after deploy 75) the open chat goes on looking while a background command ended and Coder is not told yet, so the turn that tells Coder (it starts by itself, within a minute) shows without a reload; after the owner's Stop too", () => {
+  const ui = page();
+  assert.match(ui, /function startBgWatch\(\) \{ stopBgWatch\(\); if \(S\.project && !S\.running && \(bgList\(\)\.length \|\| S\.bgUntold > 0\)\) S\.bgWatch = setTimeout\(bgTick, BG_POLL_MS\); \}/);
+  assert.match(ui, /S\.background = r\.data\.background \|\| \[\];\n\s+S\.bgUntold = Number\(r\.data\.untold\) \|\| 0;/);
+  assert.match(ui, /S\.bgUntold = Math\.max\(1, Number\(r\.data\.untold\) \|\| 0\);/, "a stop is told: the page waits for that turn");
+  assert.match(ui, /stopBgWatch\(\); stopBgOut\(\); S\.bgOut = null; S\.bgUntold = 0;/, "another chat opened: none");
+});
