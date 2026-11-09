@@ -409,7 +409,7 @@ const SEARCH_PATH = { type: "string", description: "where to search: a full path
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
   fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
-  fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly (read it first) and appear once, unless replace_all is true. Use this instead of sed.", { path: FILE_PATH, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
+  fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly, spaces and indentation included, and appear only once, unless replace_all is true (then every place changes). Copy it from what read showed without read's line-number prefix (the number and the tab before each line): that is not part of the file. Keep old_string short: the few lines that make it unique are enough. With an empty old_string, a new file is made with new_string. Use this instead of sed.", { path: FILE_PATH, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
   fn("write", "Write a whole file: a new one, or one you have read, replaced in full (it is not appended to or merged). For a change to part of a file, use edit instead. At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: FILE_PATH, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: SEARCH_PATH, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
   fn("glob", "List the project's files whose path matches a pattern, e.g. src/**/*.js or **/*.md.", { pattern: { type: "string" }, path: SEARCH_PATH }, ["pattern"]),
@@ -936,11 +936,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // And its write's `file_text` or `file_content` for `content` (Claude Code's changelog: "Fixed Write calls failing
         // validation when a model sends `path`, `file_text`, `file_content` … instead of `file_path` and `content`").
         if (c.name === "write" && typeof args.content !== "string") { const alt = [args.file_text, args.file_content].find((x) => typeof x === "string"); if (alt !== undefined) args.content = alt; }
+        // And `old_str` and `new_str` for edit's (Claude Code's Edit takes them, without a word: tried, 2026-11-09).
+        if (c.name === "edit") { if (typeof args.old_string !== "string" && typeof args.old_str === "string") args.old_string = args.old_str; if (typeof args.new_string !== "string" && typeof args.new_str === "string") args.new_string = args.new_str; }
         // READ'S ROOM (like Claude Code's allow_large, "sized against the room left in the session's context
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
         // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
-        const guarded = c.name === "write" && typeof args.path === "string" ? projectPath(deps, args.path) : "";
+        const guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? projectPath(deps, args.path) : "";
         const why = guarded ? protectedFile(guarded) : "";
         if (why && !ownerAllowed(convo, guarded)) {
           const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
@@ -948,11 +950,17 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             const m = "error: " + shownPath + " is a protected file (it can make code run on the owner's computer, or change how the project is built), so it is not changed in a job started from GitHub, where no one can allow it: say so in your answer";
             emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue;
           }
-          reply("not written yet: " + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, write it again.");
+          reply((c.name === "edit" ? "not edited yet: " : "not written yet: ") + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, " + (c.name === "edit" ? "make the edit" : "write it") + " again.");
           for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a protected file first" });
-          const lines = typeof args.content === "string" ? args.content.split("\n") : [];
-          if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-          emit({ type: "writeask", path: shownPath, because: why, change: { kind: "create", add: lines.length, del: 0, lines: lines.slice(0, 40).map((l) => "+" + scrub(l.slice(0, 300))), ...(lines.length > 40 ? { more: lines.length - 40 } : {}) } });
+          // What it would do: a write's lines; an edit's old lines taken out and new ones put in.
+          const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split("\n") : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
+          const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : args.content);
+          // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
+          // dialog sometimes showing a changed line cut short with no indication"); the owner's values hidden before the cut,
+          // so no part of one is left.
+          const cut = (l) => { const x = scrub(l); return x.length > 300 ? x.slice(0, 300) + "…" : x; };
+          const all = [...gone.map((l) => "-" + cut(l)), ...come.map((l) => "+" + cut(l))];
+          emit({ type: "writeask", path: shownPath, because: why, ...(c.name === "edit" ? { edit: true } : {}), change: { kind: c.name === "edit" ? "update" : "create", add: come.length, del: gone.length, lines: all.slice(0, 40), ...(all.length > 40 ? { more: all.length - 40 } : {}) } });
           return end("done", { summary: lastSaid || "asked to change " + shownPath });
         }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
@@ -961,9 +969,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
-        // WHAT A WRITE CHANGED is asked for, for the chat only (writeAnswer).
+        // WHAT A WRITE OR AN EDIT CHANGED is asked for, for the chat only (writeAnswer; edit's too since edit's turn, 2026-11-09).
         // And whether it made new problems, by the language server (Claude Code's plugins: "Found N new diagnostic issues").
-        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: true } : args;
+        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: true } : c.name === "edit" ? { ...args, show_change: true, check: true } : args;
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args: reqArgs })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
@@ -978,7 +986,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
         let pics = [], thumbs = [], change = null, problems = [], problemsAll = 0;
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
-        if (c.name === "write" && code === 0) ({ text: raw, change, problems, problemsAll } = writeAnswer(raw));
+        if ((c.name === "write" || c.name === "edit") && code === 0) ({ text: raw, change, problems, problemsAll } = writeAnswer(raw));
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other

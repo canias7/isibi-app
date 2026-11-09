@@ -816,13 +816,13 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
   const tool = (name, args) => { try { return { code: 0, out: execFileSync("node", [script, Buffer.from(JSON.stringify({ tool: name, args })).toString("base64")], { cwd: dir }).toString() }; } catch (e) { return { code: e.status, out: String(e.stdout) }; } };
   assert.match(tool("write", { path: "src/app.js", content: "const a = 1;\nconst b = 2;\n" }).out, /^File created successfully at: src\/app\.js \(file state is current in your context — no need to Read it back\)$/);
   assert.match(tool("read", { path: "src/app.js" }).out, /^\s+1\tconst a = 1;\n\s+2\tconst b = 2;/);
-  assert.match(tool("edit", { path: "src/app.js", old_string: "const b = 2;", new_string: "const b = 3;" }).out, /edited src\/app\.js/);
+  assert.match(tool("edit", { path: "src/app.js", old_string: "const b = 2;", new_string: "const b = 3;" }).out, /^The file src\/app\.js has been updated successfully\./);
   assert.equal(readFileSync(join(dir, "src/app.js"), "utf8"), "const a = 1;\nconst b = 3;\n");
   const miss = tool("edit", { path: "src/app.js", old_string: "nope", new_string: "x" });
-  assert.equal(miss.code, 1); assert.match(miss.out, /was not found/);
+  assert.equal(miss.code, 1); assert.match(miss.out, /String to replace not found in file\.\nString: nope/);
   writeFileSync(join(dir, "twice.txt"), "x\nx\n");
-  assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y" }).out, /appears 2 times/);
-  assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y", replace_all: true }).out, /2 places/);
+  assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y" }).out, /Found 2 matches of the string to replace, but replace_all is false/);
+  assert.match(tool("edit", { path: "twice.txt", old_string: "x", new_string: "y", replace_all: true }).out, /^The file twice\.txt has been updated\. All occurrences were successfully replaced\./);
   // grep and glob use ripgrep, which Coder's machine has (the Dockerfile); checked when this machine has it too.
   let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }
   if (hasRg) {
@@ -855,7 +855,8 @@ test("CD36 the loop runs a file tool like a command (as dev, in the project) and
   assert.equal(runs.length, 1);
   assert.match(runs[0].command, /^node --no-warnings \S+coder-tools\.mjs [A-Za-z0-9+/=]+$/);
   assert.equal(runs[0].tool, true);
-  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2" } });
+  // Edit, as write, asks for its change for the chat and the language server's new problems (edit, tool 3, 2026-11-09).
+  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2", show_change: true, check: true } });
   const ev = events.find((e) => e.type === "bash");
   assert.deepEqual([ev.tool, ev.verb, ev.command], ["edit", "Edited", "a.js"]);
   assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "done" }]);

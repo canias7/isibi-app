@@ -128,7 +128,7 @@ code in **each user's own GitHub**.
    a folder matches (`rankMentions` in `public/coder.js`).
 
    **Text read opens:** UTF-8, and UTF-16 with a byte-order mark (Claude Code
-   2.1.299; edit still refuses those). Pictures are made sRGB (a CMYK JPEG too).
+   2.1.299; edit changes them as UTF-16 too). Pictures are made sRGB (a CMYK JPEG too).
    `file_path`, Claude Code's own name, is taken for `path`. Besides the project,
    the file tools may use a scratch folder, `/tmp/coder-scratch` (`SCRATCH`), for
    crops and conversions, which is never saved to the branch. The programs a read
@@ -220,6 +220,25 @@ code in **each user's own GitHub**.
    Claude Code's "new diagnostics" note, to the chat as "Found N new diagnostic issues
    in 1 file". (Showing a write while Grok writes it can't be done: xAI sends a tool
    call whole, at the end.)
+
+   **Edit is Claude Code's Edit** (tool 3, the owner, 2026-11-09: "Notebook for later,
+   but yea do this"; tried side by side with Claude Code's own Edit, 33 ways). It swaps
+   an exact piece of text (`old_string`) for the new (`new_string`), once or with
+   `replace_all` everywhere, and answers in Claude Code's words ("The file … has been
+   updated successfully.", "String to replace not found in file.", "Found 2 matches of
+   the string to replace, but replace_all is false. …", "No changes to make: …").
+   A Windows (CRLF) file is matched with plain line breaks and written back with the
+   ending most of its lines have; curly quotes in the file are matched by straight ones
+   and the new text gets curly ones of that kind; `\u00e9` written out finds "é". A
+   file changed on disk since Coder read it is edited when the old text is still there
+   once, with Claude Code's note that it holds other changes, and refused ("modified
+   since read") otherwise; "(file state is current …)" only for a file read whole (a
+   read of some lines is marked `part`). Not valid UTF-8 (an old encoding), a link, a
+   notebook (its own tool is for later): refused, nothing written; UTF-16 stays UTF-16.
+   No old text makes a new file, with its folders. `old_str` and `new_str` are taken,
+   `replace_all` given as text too; files up to 256 MB (it was 5 MB). Coder's app gives
+   edit what it gives write: the protected-file card (with the lines taken out and put
+   in), the change under each step, and the language server's new problems.
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

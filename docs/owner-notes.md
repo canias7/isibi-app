@@ -11,6 +11,72 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit: the two small ones fixed, and a third pass through Claude Code's docs (your words: "Ok yea fix that , then go look at claude code docs again for the edit tool")
+
+- **Read-only files:** edit now changes them and leaves them read-only, as Claude Code does. For a read-only file that belongs to another user, it explains why it can't, instead of a raw "permission denied".
+- **The Allow card:** a line over 300 characters now ends in "…", so you can see it was cut. This covers the write card too. Your secret values are hidden before the line is cut, so no part of one can show.
+- **Third pass:**
+  - fetched all 228 pages again (none changed since this morning);
+  - checked the docs' all-in-one file (the same 228 pages, nothing hidden);
+  - read the pages I had only skimmed.
+  - Nothing new about edit itself.
+- Test CD266 (fails without the fixes); all tests pass.
+
+## 2026-11-09: Edit, a second pass through Claude Code's docs (your words: "What else on the edit tool from claude code docs you havent seen")
+
+- **Searched every page again** for edits in general (diffs, rewind, checkpoints, line counts, read-only files), not only the word "Edit", and tried the cases I hadn't tried.
+- **Already the same in Coder:**
+  - the commands that count as viewing a file (`cat`, `head`, `grep` …);
+  - folder rules and a subfolder's instruction file loading when a file is edited;
+  - files read *or edited* being read again after a summary;
+  - the memory-file warning.
+  - A 6,000-line change takes 0.09 seconds and shows the right counts (Claude Code had a bug there).
+- **Two small new ones, waiting on your word:**
+  - **A read-only file:** Coder fails with a raw "permission denied". Claude Code changes it anyway and keeps it read-only.
+  - **The Allow card** cuts a long line at 300 characters with no "…". Claude Code fixed the same thing in its approval prompt.
+- **In Claude Code but outside edit:**
+  - hooks around edits (format on save);
+  - permission rules;
+  - the asking modes (your "later");
+  - the IDE's side-by-side diff;
+  - per-turn diff panels and session +/− totals (Coder has See changes);
+  - checkpoints (Coder has Rewind);
+  - Perforce mode and telemetry.
+
+## 2026-11-09: Edit (tool 3), step 3: Coder's edit now works like Claude Code's (your words: "Notebook for later, but yea do this")
+
+- **Fixed: it damaged files in old text formats.** "café" became "caf�" for good. Now such a file is refused and left exactly as it was.
+- **Windows line endings work.** The text matches with ordinary line breaks, and the file keeps its Windows endings. As in Claude Code, a file with mixed endings comes back with the ending most of its lines use.
+- **Curly quotes work.** Grok can type straight quotes, and the file keeps its curly ones.
+- **Escaped characters work:** `\u00e9` finds the real "é".
+- **Links are refused**, naming the real file (as write does). Before, edit changed the file behind the link silently.
+- **Notebooks are refused for now**, with a pointer to the safe way. A proper notebook tool is on the later list (your word).
+- **A file that changed since Coder read it:** if the old text is still there once, it's edited, with Claude Code's note that the file has other changes. If not, it's refused with "modified since read… read it again".
+- **Bug fixed:** `replace_all` sent as the word "false" replaced everything.
+- **Protected files** (`.husky`, `.npmrc` and so on) now get the Allow card for edits too. The card shows the lines taken out in red and the new ones in green.
+- **Each edit shows its change in the chat** ("Edited src/cart.js +3 −1", with the lines), as writes do. The language server checks edited code too.
+- **Smaller ones:**
+  - UTF-16 files can be edited;
+  - an empty old text makes a new file (with its folders);
+  - Claude Code's other input names are taken;
+  - files up to 256 MB (it was 5 MB);
+  - Claude Code's exact words for every answer;
+  - Grok is told to leave read's line numbers out of the old text.
+- Tried on a local copy of Coder's page (screenshots sent). Tests CD263–CD265 fail on the old code; all tests pass, and the 24 real read checks.
+- **Not live yet:** it needs a merge and deploy, then a live test in the browser with Grok.
+
+## 2026-11-09: Edit (tool 3), step 1: everything Claude Code's Edit does (your words: "start on the edit tool … Look up the entire Claude Code docs for edit")
+
+- **All of Claude Code's docs, fetched fresh** (228 pages): the Edit section of the tools reference, every Edit error, about 60 changelog entries, and the permission, hook, settings, memory and SDK pages.
+- **Then its real Edit, tried 27 ways** (I run on Claude Code, so my own Edit is its Edit). The exact words for each result are in the tool-by-tool notes. The main points:
+  - **How it works:** it replaces an exact piece of text with new text. If that text appears twice, it refuses unless told "replace all".
+  - **A file that changed after it was read:** if the old text is still there exactly once, it edits and adds a note that the file has other changes. If the old text is gone, it refuses ("modified since read").
+  - **It keeps the file's style:** curly quotes stay curly; Windows line endings stay Windows; trailing spaces stay; UTF-16 stays UTF-16.
+  - **Escaped characters:** `\u00e9` written in the old text still finds the real "é".
+  - **It refuses** old text encodings, links (naming the real file) and notebooks (those have their own tool).
+  - **Editing a file shows Coder that folder's CLAUDE.md**, as reading it does.
+- **Next:** Coder's edit side by side, including what Coder doesn't have.
+
 ## 2026-11-09: Deploy 71: write's fixes live and retested; one more list case fixed; Write on the docs page
 
 - **Deploy 71 took three tries.** Ubuntu's own download server (`archive.ubuntu.com`, run by Canonical) was down or very slow for about 50 minutes. Building a new version of Coder's machine downloads its tools from there.
@@ -32,6 +98,7 @@ log (81,000 lines) is in git history.
   - when write says no;
   - what stays as it was.
   - Its numbers come from the code (90,000 characters a call; the protected files), and test CD248 checks them.
+- **Live with deploy 72 (your "Ok"), checked in the browser:** the retest chat's list now reads 2, 3, 4, 5, with item 5's three lines inside it. gofarther.dev/docs shows Write beside Read, with its five parts in the side menu, and fits a phone (375 px wide, no sideways scroll).
 
 ## 2026-11-09: The page: numbered lists keep their numbers; the group line counts files (your words: "Yes fix that")
 

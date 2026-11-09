@@ -431,7 +431,7 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
   await writeFile(join(dir, "fake.pdf"), "not a pdf at all");
   const run = machine(dir);
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
-  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "the path"], ["grep", { pattern: "h\0i" }, "the pattern"], ["glob", { pattern: "*\0.txt" }, "the pattern"]]) {
+  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "the pattern"], ["glob", { pattern: "*\0.txt" }, "the pattern"]]) {
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
   assert.match(await tool("read", { path: "fake.pdf" }), /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s);
@@ -830,8 +830,8 @@ test("CD223 an instruction file loads without its block-level HTML comments, as 
   assert.ok(from === 102 + keptRules || from === 102 + keptRules - 1, "the file's own line (" + from + "), 102 lines of comment before the rules");
 });
 
-test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-order mark (2.1.299: \"Fixed Read garbling UTF-16LE files with a byte-order mark\"; edit still refuses it, for now); a CMYK JPEG is shown in sRGB (2.1.269: \"Fixed CMYK JPEG images failing to attach\"); `file_path`, Claude Code's own name, is taken for `path` (2.1.292)", async () => {
-  const { mkdtemp, writeFile } = await import("node:fs/promises");
+test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-order mark (2.1.299: \"Fixed Read garbling UTF-16LE files with a byte-order mark\"; edit changes it as UTF-16 since its turn, tool 3); a CMYK JPEG is shown in sRGB (2.1.269: \"Fixed CMYK JPEG images failing to attach\"); `file_path`, Claude Code's own name, is taken for `path` (2.1.292)", async () => {
+  const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
   const { execFileSync } = await import("node:child_process");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -848,7 +848,9 @@ test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-ord
   assert.equal(await tool("read", { path: "be.txt" }), "     1\théllo\n     2\twörld");
   await writeFile(join(dir, "nul.txt"), Buffer.from([0x61, 0, 0x62]));
   assert.match(await tool("read", { path: "nul.txt" }), /is a binary file \(not text\)/, "zero bytes without a byte-order mark: binary, as before");
-  assert.match(await tool("edit", { path: "le.txt", old_string: "h", new_string: "j" }), /is a binary file/, "edit does not change UTF-16 files yet (tool 3)");
+  // Edit changes UTF-16 files as UTF-16 since its turn (tool 3, 2026-11-09), as Claude Code's Edit ("unless the file starts with a little-endian UTF-16 byte-order mark").
+  assert.match(await tool("edit", { path: "le.txt", old_string: "h", new_string: "j" }), /^The file le\.txt has been updated successfully\./);
+  assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("jéllo\nwörld\n", "utf16le")]), "still UTF-16, its mark kept");
   // A CMYK JPEG: the picture Grok gets is sRGB.
   execFileSync("convert", ["-size", "64x48", "xc:red", "-colorspace", "CMYK", join(dir, "cmyk.jpg")]);
   assert.equal(execFileSync("identify", ["-format", "%[colorspace]", join(dir, "cmyk.jpg")]).toString(), "CMYK");
@@ -1554,7 +1556,7 @@ test("CD252 write does not replace an instruction file Coder was shown only the 
   // An edit goes through, as Claude Code's Edit did, and ends it.
   await writeFile(join(dir, "CODER.md"), big);
   await tool("seen", { path: "CODER.md", start: true });
-  assert.match(await tool("edit", { path: "CODER.md", old_string: "Line 2. ", new_string: "Line two. " }), /^edited CODER\.md/);
+  assert.match(await tool("edit", { path: "CODER.md", old_string: "Line 2. ", new_string: "Line two. " }), /^The file CODER\.md has been updated successfully\./);
   assert.match(await tool("write", { path: "CODER.md", content: "short\n" }), /^The file CODER\.md has been updated successfully\./);
   // A file read whole in this chat already stands: shown in part after that, it is not marked.
   await writeFile(join(dir, "R.md"), "small\n");
@@ -1956,4 +1958,213 @@ test("CD262 a list item carries on over the lines under it that have no mark of 
   assert.equal(prose("## Notes"), "<h4>Notes</h4>");
   assert.equal(prose("1. x\n2. y"), "<ol><li>x</li><li>y</li></ol>");
   assert.doesNotMatch(prose("1) a\n<img src=x onerror=alert(1)>"), /<img/);
+});
+
+test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2026-11-09: \"Notebook for later, but yea do this\"): its words for each answer; Windows line endings, curly quotes and \\uXXXX matched; old encodings, links and notebooks refused with nothing written; UTF-16 edited as UTF-16; no old text makes a new file; a file changed since read edited with its note, or refused; replace_all as text; old_str and new_str; files past 5 MB", async () => {
+  const { WRITE_MARK, WRITE_FRESH, EDIT_OTHER_CHANGES, EDIT_NOTEBOOK } = await import("../container/coder-tools.mjs");
+  const { mkdtemp, writeFile, readFile, symlink, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-edit-"));
+  const follow = await mkdtemp(join(tmpdir(), "coder-edit-follow-"));
+  const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const has = (f) => readFile(join(dir, f), "utf8");
+  const put = (f, x) => writeFile(join(dir, f), x);
+  const MANY = "error: Found 2 matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.\nString: ";
+  const CHANGED = " has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it.";
+  // Its words (Claude Code 2.1.319's own Edit, tried in /home/user/cc-edit1 and cc-edit2).
+  await put("a.txt", "alpha\nbeta\ngamma\n");
+  assert.equal(await tool("edit", { path: "a.txt", old_string: "beta", new_string: "BETA" }), "The file a.txt has been updated successfully.", "never read: no 'file state is current'");
+  assert.equal(await tool("edit", { path: "a.txt", old_string: "delta", new_string: "DELTA" }), "error: String to replace not found in file.\nString: delta");
+  await put("twice.txt", "x = 1\ny = 2\nx = 1\n");
+  assert.equal(await tool("edit", { path: "twice.txt", old_string: "x = 1", new_string: "x = 9" }), MANY + "x = 1");
+  assert.equal(await tool("edit", { path: "twice.txt", old_string: "x = 1", new_string: "x = 9", replace_all: "false" }), MANY + "x = 1", "the text \"false\" is no (Coder took it for yes)");
+  assert.equal(await tool("edit", { path: "twice.txt", old_string: "x = 1", new_string: "x = 9", replace_all: "true" }), "The file twice.txt has been updated. All occurrences were successfully replaced.");
+  assert.equal(await has("twice.txt"), "x = 9\ny = 2\nx = 9\n");
+  assert.equal(await tool("edit", { path: "a.txt", old_string: "BETA", new_string: "BETA" }), "error: No changes to make: old_string and new_string are exactly the same.");
+  assert.equal(await tool("edit", { path: "a.txt", old_string: "", new_string: "zero\n" }), "error: Cannot create new file - file already exists.");
+  assert.equal(await tool("edit", { path: "nothere.txt", old_string: "abc", new_string: "def" }), "error: File does not exist. Note: your current working directory is " + dir + ".");
+  // No old text: a new file, with its folders; an empty file filled.
+  assert.equal(await tool("edit", { path: "new/deeper/made.txt", old_string: "", new_string: "made by edit\n" }), "The file new/deeper/made.txt has been updated successfully." + WRITE_FRESH);
+  assert.equal(await has("new/deeper/made.txt"), "made by edit\n");
+  await put("empty.txt", "");
+  assert.equal(await tool("edit", { path: "empty.txt", old_string: "", new_string: "filled\n" }), "The file empty.txt has been updated successfully.");
+  assert.equal(await has("empty.txt"), "filled\n");
+  // "(file state is current …)" only for a file read whole; a read of some lines is not that.
+  await put("same.txt", "one\ntwo\n");
+  await tool("read", { path: "same.txt" });
+  assert.equal(await tool("edit", { path: "same.txt", old_string: "two", new_string: "TWO" }), "The file same.txt has been updated successfully." + WRITE_FRESH);
+  await put("lines.txt", "l1\nl2\nl3\n");
+  await tool("read", { path: "lines.txt", limit: 1 });
+  assert.equal(await tool("edit", { path: "lines.txt", old_string: "l2", new_string: "L2" }), "The file lines.txt has been updated successfully.");
+  // Changed on disk since read: the old text there once, edited with Claude Code's note; gone, or there twice, refused.
+  await put("changed.txt", "keep me\nchange me\n");
+  await put("stale.txt", "old line\nother\n");
+  await put("dup.txt", "first\nsecond\n");
+  for (const f of ["changed.txt", "stale.txt", "dup.txt"]) await tool("read", { path: f });
+  await put("changed.txt", "keep me\nchange me\nadded by someone else\n");
+  await put("stale.txt", "new line\nother\n");
+  await put("dup.txt", "first\nsecond\nfirst\n");
+  assert.equal(await tool("edit", { path: "changed.txt", old_string: "change me", new_string: "changed by edit" }), "The file changed.txt has been updated successfully." + EDIT_OTHER_CHANGES);
+  assert.equal(await has("changed.txt"), "keep me\nchanged by edit\nadded by someone else\n");
+  assert.equal(await tool("edit", { path: "stale.txt", old_string: "old line", new_string: "edited line" }), "error: stale.txt" + CHANGED);
+  assert.equal(await tool("edit", { path: "dup.txt", old_string: "first", new_string: "FIRST" }), "error: dup.txt" + CHANGED);
+  // Windows line endings: matched with plain line breaks, written in the ending most lines have.
+  await put("crlf.txt", "first\r\nsecond\r\nthird\r\n");
+  assert.equal(await tool("edit", { path: "crlf.txt", old_string: "first\nsecond", new_string: "FIRST\nSECOND\ninserted" }), "The file crlf.txt has been updated successfully.");
+  assert.equal(await has("crlf.txt"), "FIRST\r\nSECOND\r\ninserted\r\nthird\r\n");
+  await put("mixed.txt", "a\r\nb\nc\r\n");
+  await tool("edit", { path: "mixed.txt", old_string: "a\nb\nc", new_string: "A\nB\nC" });
+  assert.equal(await has("mixed.txt"), "A\r\nB\r\nC\r\n", "mostly CRLF: all CRLF, as Claude Code's");
+  await put("lf.txt", "a\nb\nc\r\nd\n");
+  await tool("edit", { path: "lf.txt", old_string: "a", new_string: "A" });
+  assert.equal(await has("lf.txt"), "A\nb\nc\nd\n", "mostly LF: all LF, as Claude Code's");
+  // Curly quotes: straight ones match them, and the new text is made curly where the file's were, of that kind only.
+  await put("quotes.txt", "He said “hello” and ‘bye’.\n");
+  await tool("edit", { path: "quotes.txt", old_string: "He said \"hello\" and 'bye'.", new_string: "He said \"hi there\" and 'later'." });
+  assert.equal(await has("quotes.txt"), "He said “hi there” and ‘later’.\n");
+  await put("apos.txt", "He said “hello”.\n");
+  await tool("edit", { path: "apos.txt", old_string: "He said \"hello\".", new_string: "He said \"don't\" and 'yes' (it's \"fine\")." });
+  assert.equal(await has("apos.txt"), "He said “don't” and 'yes' (it's “fine”).\n", "as Claude Code's: its single quotes stayed straight");
+  // é written out, taken for "é"; after an escaped backslash, not.
+  await put("esc.txt", "café rest\n");
+  assert.equal(await tool("edit", { path: "esc.txt", old_string: "caf\\u00e9 r", new_string: "CAF\\u00c9 R" }), "The file esc.txt has been updated successfully.");
+  assert.equal(await has("esc.txt"), "CAFÉ Rest\n");
+  assert.equal(await tool("edit", { path: "esc.txt", old_string: "CAF\\\\u00c9", new_string: "x" }), "error: String to replace not found in file.\nString: CAF\\\\u00c9");
+  // Exact otherwise: a tab is not spaces; read's line-number prefix is not the file.
+  await put("tabs.py", "def f():\n\treturn 1\n");
+  assert.equal(await tool("edit", { path: "tabs.py", old_string: "    return 1", new_string: "    return 2" }), "error: String to replace not found in file.\nString:     return 1");
+  assert.match(await tool("edit", { path: "tabs.py", old_string: "2\treturn 1", new_string: "x" }), /^error: String to replace not found in file\./);
+  // Encodings: an old one refused with the file as it was; UTF-16 and a UTF-8 mark kept.
+  await put("latin1.txt", Buffer.from("caf\xe9 au lait\n", "latin1"));
+  assert.match(await tool("edit", { path: "latin1.txt", old_string: "au lait", new_string: "noir" }), /^error: latin1\.txt is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. .*so nothing was written\. If the file is text, make the change with a command that reads and writes it in its own encoding \(iconv\), or ask the owner whether to convert it to UTF-8 first\.$/);
+  assert.deepEqual(await readFile(join(dir, "latin1.txt")), Buffer.from("caf\xe9 au lait\n", "latin1"), "untouched (Coder wrote it back as \"caf� noir\")");
+  await put("u16.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hello utf16\r\n", "utf16le")]));
+  assert.equal(await tool("edit", { path: "u16.txt", old_string: "hello", new_string: "hi" }), "The file u16.txt has been updated successfully.");
+  assert.deepEqual(await readFile(join(dir, "u16.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hi utf16\r\n", "utf16le")]));
+  await put("bom.txt", "﻿hello bom\n");
+  await tool("edit", { path: "bom.txt", old_string: "hello bom", new_string: "hi bom" });
+  assert.equal(await has("bom.txt"), "﻿hi bom\n");
+  // A link, links that lead nowhere, a notebook, a folder: refused, nothing written.
+  await put("target.txt", "target text\n");
+  await symlink("target.txt", join(dir, "link.txt"));
+  assert.equal(await tool("edit", { path: "link.txt", old_string: "target text", new_string: "via link" }), "error: Refusing to write link.txt: it is a symbolic link. Write to the link's target path instead: target.txt.");
+  assert.equal(await has("target.txt"), "target text\n", "Coder's edit changed it through the link");
+  await symlink("loopb", join(dir, "loopa"));
+  await symlink("loopa", join(dir, "loopb"));
+  assert.equal(await tool("edit", { path: "loopa/x.txt", old_string: "a", new_string: "b" }), "error: Refusing to write loopa/x.txt: where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
+  const nb = JSON.stringify({ cells: [{ cell_type: "code", source: ["print(1)"], outputs: [], metadata: {}, execution_count: null }], metadata: {}, nbformat: 4, nbformat_minor: 5 });
+  await put("nb.ipynb", nb);
+  assert.equal(await tool("edit", { path: "nb.ipynb", old_string: "print(1)", new_string: "print(2)" }), "error: " + EDIT_NOTEBOOK);
+  assert.equal(await has("nb.ipynb"), nb);
+  assert.match(EDIT_NOTEBOOK, /^File is a Jupyter Notebook\. .*replace it whole with write/);
+  await mkdir(join(dir, "adir"));
+  assert.equal(await tool("edit", { path: "adir", old_string: "a", new_string: "b" }), "error: " + join(dir, "adir") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
+  // Claude Code's other names; a null byte; a file past the old 5 MB.
+  assert.equal(await tool("edit", { path: "a.txt", old_str: "alpha", new_str: "ALPHA" }), "The file a.txt has been updated successfully." + WRITE_FRESH);
+  assert.equal(await has("a.txt"), "ALPHA\nBETA\ngamma\n");
+  assert.equal(await tool("edit", { path: "a.txt\0", old_string: "a", new_string: "b" }), "error: edit path cannot contain null bytes (\\0). Remove the null byte and try again.");
+  await put("huge.txt", "h".repeat(6 * 1024 * 1024) + "\nend\n");
+  assert.equal(await tool("edit", { path: "huge.txt", old_string: "end", new_string: "END" }), "The file huge.txt has been updated successfully.");
+  // What changed, for the chat (`show_change`), as write's.
+  const shown = await tool("edit", { path: "twice.txt", old_string: "y = 2", new_string: "y = 3", show_change: true });
+  assert.ok(shown.startsWith(WRITE_MARK));
+  const j = JSON.parse(shown.slice(WRITE_MARK.length));
+  assert.equal(j.text, "The file twice.txt has been updated successfully." + WRITE_FRESH);
+  assert.deepEqual({ kind: j.change.kind, add: j.change.add, del: j.change.del }, { kind: "update", add: 1, del: 1 });
+  assert.ok(j.change.lines.includes("-y = 2") && j.change.lines.includes("+y = 3"));
+});
+
+test("CD264 Coder's app treats edit as it treats write (tool 3): a protected file is edited only once the owner allows it, on a card showing the lines it takes out and puts in; each edit's change goes under its step; Claude Code's old_str and new_str reach the security check; edit's description tells Grok to leave read's line-number prefix out", async () => {
+  const { runCoder, allowWriteText, CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  const { mkdtemp, writeFile, readFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-edit-app-"));
+  await mkdir(join(dir, ".husky"));
+  await writeFile(join(dir, ".husky/pre-commit"), "#!/bin/sh\nnpm test\n");
+  await writeFile(join(dir, "notes.txt"), "a\n");
+  let events = [], k = 0;
+  const first = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("I'll lint first.", [call("edit", { path: ".husky/pre-commit", old_string: "npm test", new_string: "npm run lint" }, "e1"), call("edit", { path: "notes.txt", old_string: "a", new_string: "b" }, "e2")]) : say("Done.")) }, { text: "lint in the hook" });
+  assert.equal(k, 1, "the job stops at the card");
+  assert.equal(await readFile(join(dir, ".husky/pre-commit"), "utf8"), "#!/bin/sh\nnpm test\n");
+  assert.equal(await readFile(join(dir, "notes.txt"), "utf8"), "a\n", "nothing after it in that round");
+  const told = (msgs, id) => msgs.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.equal(told(first.messages, "e1"), "not edited yet: .husky/pre-commit is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, make the edit again.");
+  const { at, ...card } = events.find((e) => e.type === "writeask");
+  assert.deepEqual(card, { type: "writeask", path: ".husky/pre-commit", because: ".husky/", edit: true, change: { kind: "update", add: 1, del: 1, lines: ["-npm test", "+npm run lint"] } });
+  // Allowed: edited, and its change is under the step.
+  events = []; k = 0;
+  const allowed = [...first.messages, { role: "user", content: allowWriteText(".husky/pre-commit") }];
+  await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm test", new_string: "npm run lint" }, "e3")]) : say("Done.")) }, { messages: allowed, text: "" });
+  assert.equal(await readFile(join(dir, ".husky/pre-commit"), "utf8"), "#!/bin/sh\nnpm run lint\n");
+  const res = events.find((e) => e.type === "result" && e.id === "e3");
+  assert.equal(res.output, "The file .husky/pre-commit has been updated successfully.");
+  assert.deepEqual({ kind: res.change.kind, add: res.change.add, del: res.change.del }, { kind: "update", add: 1, del: 1 });
+  assert.ok(res.change.lines.includes("-npm test") && res.change.lines.includes("+npm run lint"));
+  // From GitHub, where no one can allow it: not edited.
+  events = []; k = 0;
+  const gh = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm run lint", new_string: "npm test" }, "e4")]) : say("Done.")) }, { text: "put npm test back", github: true });
+  assert.match(told(gh.messages, "e4"), /^error: \.husky\/pre-commit is a protected file .* so it is not changed in a job started from GitHub/);
+  assert.equal(await readFile(join(dir, ".husky/pre-commit"), "utf8"), "#!/bin/sh\nnpm run lint\n");
+  // old_str and new_str: edited, and the security check (afterFile) gets the new text as new_string.
+  const after = [];
+  k = 0;
+  await runCoder({ exec: machine(dir), emit: () => {}, afterFile: async (x) => { after.push(x); return ""; }, send: async () => (++k === 1 ? say("", [call("edit", { path: "notes.txt", old_str: "a", new_str: "eval(x)" }, "e5")]) : say("Done.")) }, { text: "go" });
+  assert.equal(await readFile(join(dir, "notes.txt"), "utf8"), "eval(x)\n");
+  assert.equal(after[0].tool, "edit");
+  assert.equal(after[0].args.new_string, "eval(x)");
+  // The description, as Claude Code's tells the model.
+  const desc = CODER_TOOLS.find((t) => t.function.name === "edit").function.description;
+  assert.match(desc, /without read's line-number prefix \(the number and the tab before each line\): that is not part of the file/);
+  assert.match(desc, /Keep old_string short/);
+  assert.match(desc, /With an empty old_string, a new file is made with new_string/);
+});
+
+test("CD265 the page shows an edit's change on the card for a protected file, the lines taken out in red and the ones put in in green (tool 3)", async () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  assert.match(ui, /const upd = !!\(e\.change && e\.change\.kind === 'update'\);/);
+  assert.match(ui, /What it would ' \+ \(upd \? 'change' : 'write'\) \+ ':/);
+  assert.match(ui, /upd \? lines\.map\(\(l\) => '<span class="cd-wl' \+ \(l\[0\] === '\+' \? ' cd-dl-add' : l\[0\] === '-' \? ' cd-dl-del' : ''\)/);
+  assert.match(css, /\.cd-writeask \.cd-envchange-pre \.cd-wl \{ display: block;/);
+});
+
+test("CD266 a read-only file is edited all the same and stays read-only, as Claude Code's Edit (its Perforce mode is there to stop it \"silently overwriting\" them; Coder's edit stopped at \"EACCES: permission denied\"); one of another user's is refused in words; and a line over 300 characters on the card for a protected file shows it was cut (Claude Code: \"Fixed the file edit permission dialog sometimes showing a changed line cut short with no indication\"); the owner, 2026-11-09: \"Ok yea fix that\"", async () => {
+  const { mkdtemp, writeFile, readFile, stat, chmod, mkdir } = await import("node:fs/promises");
+  const { spawnSync, execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-readonly-"));
+  // Root may write any file: the tool runs as Coder's commands do, as another user, when the tests run as root.
+  const asRoot = process.getuid() === 0;
+  const tool = (args) => {
+    const b64 = Buffer.from(JSON.stringify({ tool: "edit", args })).toString("base64");
+    const r = asRoot ? spawnSync("setpriv", ["--reuid=1001", "--regid=1001", "--clear-groups", "env", "HOME=/tmp", "node", "--no-warnings", toolsScript, b64], { cwd: dir, encoding: "utf8" }) : spawnSync("node", ["--no-warnings", toolsScript, b64], { cwd: dir, encoding: "utf8" });
+    return String(r.stdout || "").trim();
+  };
+  await writeFile(join(dir, "ro.txt"), "locked line\n");
+  await chmod(join(dir, "ro.txt"), 0o444);
+  if (asRoot) execFileSync("chown", ["-R", "1001:1001", dir]);
+  assert.equal(tool({ path: "ro.txt", old_string: "locked line", new_string: "changed line" }), "The file ro.txt has been updated successfully.");
+  assert.equal(await readFile(join(dir, "ro.txt"), "utf8"), "changed line\n");
+  assert.equal((await stat(join(dir, "ro.txt"))).mode & 0o777, 0o444, "still read-only");
+  if (asRoot) {
+    await writeFile(join(dir, "theirs.txt"), "root's line\n");
+    await chmod(join(dir, "theirs.txt"), 0o444);
+    assert.equal(tool({ path: "theirs.txt", old_string: "root's line", new_string: "x" }), "error: theirs.txt is read-only, and it belongs to another user, so edit cannot change it: change it with a command, or ask the owner.");
+    assert.equal(await readFile(join(dir, "theirs.txt"), "utf8"), "root's line\n");
+  }
+  // The card: a long line ends in "…" (write's too: they share it).
+  const proj = await mkdtemp(join(tmpdir(), "coder-card-"));
+  await mkdir(join(proj, ".husky"));
+  await writeFile(join(proj, ".husky/pre-commit"), "#!/bin/sh\nnpm test\n");
+  const long = "npm run check -- " + "x".repeat(400);
+  const events = [];
+  let k = 0;
+  await runCoder({ exec: machine(proj), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm test", new_string: long }, "e1")]) : say("Done.")) }, { text: "add the check" });
+  const card = events.find((e) => e.type === "writeask");
+  assert.deepEqual(card.change.lines, ["-npm test", "+" + long.slice(0, 300) + "…"]);
 });
