@@ -659,6 +659,7 @@
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
       if (Array.isArray(r.data.background)) S.background = r.data.background;
+      S.progress = r.data.progress || null;
       S.running = !!r.data.running;
       syncEntry();
       draw(fresh.length > 0);
@@ -790,6 +791,9 @@
     const k = e.tool === 'monitor' ? 'monitor_job' : e.tool && STEP_ICON[e.tool] ? e.tool : 'bash';
     return '<span class="cd-sic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + STEP_ICON[k] + '"/></svg></span>';
   }
+  /** How long a running command has run, and its timeout ("12s · timeout 2m"). */
+  const secsWords = (n) => { n = Math.max(0, Math.round(n)); return n < 60 ? n + 's' : n % 60 ? Math.floor(n / 60) + 'm ' + (n % 60) + 's' : n / 60 + 'm'; };
+  const runWords = (e) => 'Running for ' + secsWords((Date.now() - Number(e.at || Date.now())) / 1000) + (Number(e.timeoutS) > 0 ? ' · timeout ' + secsWords(Number(e.timeoutS)) : '');
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
@@ -806,8 +810,9 @@
         stepIcon(e) + (desc ? '<span class="cd-cmd-desc">' + esc(desc) + '</span>' : '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>') +
         changeCounts(r) + tail +
       '</button>' +
-      // A COMMAND STILL RUNNING CAN BE MOVED TO THE BACKGROUND (Claude Code's Ctrl+B): Coder goes on, and is told when it ends.
-      (state === 'run' && !e.tool && S.running ? '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>' : '') +
+      // A COMMAND STILL RUNNING: how long it has run and its timeout (Claude Code 2.1.23), its last lines (1.0.48), and a way to
+      // move it to the background (Claude Code's Ctrl+B): Coder goes on, and is told when it ends.
+      (state === 'run' && !e.tool && S.running ? '<div class="cd-run-info">' + esc(runWords(e)) + '</div>' + (S.progress && Array.isArray(S.progress.lines) && S.progress.lines.length ? '<pre class="cd-progress">' + esc(S.progress.lines.join('\n')) + '</pre>' : '') + '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>' : '') +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).

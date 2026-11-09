@@ -303,7 +303,7 @@ test("CD282 (tool 4, docs pass 2) what persists between commands, as in Claude C
   assert.equal(S.envFileLine("/opt/it's.sh", "/w"), "if [ -r '/opt/it'\\''s.sh' ]; then . '/opt/it'\\''s.sh'; fi\n", "quoted, never expanded");
   for (const bad of ["", "  ", "a\nb", "x".repeat(1001)]) assert.equal(S.envFileLine(bad, "/w"), "");
   assert.match(S.SNAPSHOT_READ, /^\{ if \[ -r "\$HOME\/\.cache\/coder\/shell-snapshot\.sh" \]; then \. "\$HOME\/\.cache\/coder\/shell-snapshot\.sh"; fi; \} >\/dev\/null 2>&1\n$/);
-  assert.match(S.SNAPSHOT_TAKE, /case "\$n" in _\[!_\]\*\|command_not_found_handle\) ;;/);
+  assert.match(S.SNAPSHOT_TAKE, /case "\$n" in _\[!_\]\*\|command_not_found_handle\|which\|unsetenv\) ;;/);
   // On a machine made here (its commands as this user, with a home of their own): a job uses them.
   const { createApp } = S;
   const http = await import("node:http");
@@ -397,4 +397,45 @@ test("CD284 (tool 4, docs pass 2) the environment's BASH_DEFAULT_TIMEOUT_MS and 
     assert.ok(st.events.some((e) => e.type === "note" && e.text === "Coder's machine was restarted before background work reported back: \"Start the dev server\". It is not running any more."));
     assert.ok(seen[0].messages.some((m) => m.role === "user" && m.content.includes("(task job1). That work is lost")));
   } finally { await new Promise((ok) => srv.close(ok)); }
+});
+
+test("CD285 (tool 4, changelog pass) Claude Code's later Bash fixes in Coder: a background grep with no match completed, not failed (2.1.280); gh's rate limit hinted (2.1.116); still-running background commands said at a message's start, so no second copy (2.1.271); a running command's last lines and how long it has run, with its timeout (1.0.48, 2.1.23); no `which` alias from the startup file (2.1.314); SHELLOPTS never set by the owner (2.1.316)", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const S = await import("../container/server.mjs");
+  assert.equal(A.bgEndNotice({ desc: "Find TODOs", command: "grep -rn TODO .", code: 1 }).said, "Background command \"Find TODOs\" completed (exit code 1: No matches found)");
+  assert.equal(A.bgEndNotice({ desc: "Tests", command: "npm test", code: 1 }).said, "Background command \"Tests\" failed with exit code 1");
+  assert.equal(A.ghRateLimited("gh pr list --repo a/b", "HTTP 403: API rate limit exceeded for user ID 1."), true);
+  assert.equal(A.ghRateLimited("curl x", "API rate limit exceeded"), false, "only gh");
+  let n = 0;
+  const r = await A.runCoder({ send: async () => (n++ ? say("Done.") : say("", [call("bash", { command: "gh pr list" }, "g1")])), exec: async () => ({ code: 1, output: "HTTP 403: API rate limit exceeded for user ID 1. (https://docs.github.com/rest)\n" }), emit: () => {} }, { text: "go" });
+  assert.match(r.messages.find((m) => m.tool_call_id === "g1").content, /\n\n\(Note from Coder's app: GitHub API rate limit exceeded \(5,000\/hr shared across all tools and agents\)\. Run `gh api rate_limit --jq \.resources` and wait until reset before further gh calls\. If you were polling in a loop, stop and tell the owner instead of retrying\.\)$/);
+  // Still running from an earlier message: said at the start.
+  const seen = [];
+  n = 0;
+  await A.runCoder({ send: async (req) => { seen.push(req); return say("Ok."); }, exec: async () => ({ code: 0, output: "" }), emit: () => {}, bg: { kept: async () => [{ id: "job2", pid: 7, log: "/out/bg-2.log", command: "npm run dev", desc: "Start the dev server", at: Date.now() - 180000 }], alive: async () => true, status: async () => ({ alive: true }), stop: async () => true } }, { text: "is it up?" });
+  assert.ok(seen[0].messages.some((m) => m.role === "user" && /^\(Note from Coder's app, not the owner: a background command is still running from earlier: job2 "Start the dev server", for 3m, output in \/out\/bg-2\.log\. Do not start a second copy;/.test(m.content)));
+  // The snapshot leaves `which` to the system; SHELLOPTS and BASHOPTS are never the owner's to set.
+  assert.match(S.SNAPSHOT_TAKE, /_\[!_\]\*\|command_not_found_handle\|which\|unsetenv\) ;; \[-\+\]\*\) printf "eval -- %q/);
+  assert.match(S.SNAPSHOT_TAKE, /-e "\/\^alias which=\/d"/);
+  assert.deepEqual(S.safeVars({ SHELLOPTS: "errexit", BASHOPTS: "x", FOO: "1" }), { FOO: "1" });
+  // A running command's last lines, while it runs, for the page (never saved with the chat).
+  const http = await import("node:http");
+  const root = await mkdtemp(join(tmpdir(), "coder-root-")), mem = await mkdtemp(join(tmpdir(), "coder-mem-")), git = await mkdtemp(join(tmpdir(), "coder-git-")), bgr = await mkdtemp(join(tmpdir(), "coder-bgr-"));
+  n = 0;
+  const srv = http.createServer(S.createApp({ root, memRoot: mem, gitRoot: git, bgRoot: bgr, send: async () => (n++ ? say("Done.") : say("", [call("bash", { command: "for i in 1 2 3 4 5 6 7; do echo line $i; sleep 0.4; done", timeout: 30000 }, "p1")])) }));
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-prog", text: "go", messages: [] }) });
+    let got = null, st;
+    for (let i = 0; i < 80; i++) { st = await (await fetch(base + "/state?project=shop-prog&since=0")).json(); if (st.progress && st.progress.lines.length >= 3) got = got || st.progress; if (st.result) break; await new Promise((ok) => setTimeout(ok, 100)); }
+    assert.ok(got && got.lines.every((l) => /^line \d$/.test(l)) && got.lines.length <= 5, JSON.stringify(got));
+    assert.equal(st.progress, undefined, "gone once the job ended");
+    assert.equal(st.events.find((e) => e.type === "bash" && e.id === "p1").timeoutS, 30, "its timeout goes with it");
+    assert.ok(!st.events.some((e) => e.type === "progress"), "never saved with the chat");
+  } finally { await new Promise((ok) => srv.close(ok)); }
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /const runWords = \(e\) => 'Running for ' \+ secsWords\(\(Date\.now\(\) - Number\(e\.at \|\| Date\.now\(\)\)\) \/ 1000\) \+ \(Number\(e\.timeoutS\) > 0 \? ' · timeout ' \+ secsWords\(Number\(e\.timeoutS\)\) : ''\);/);
+  assert.match(page, /'<pre class="cd-progress">' \+ esc\(S\.progress\.lines\.join\('\\n'\)\) \+ '<\/pre>'/);
+  assert.match(page, /S\.progress = r\.data\.progress \|\| null;/);
 });

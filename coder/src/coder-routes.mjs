@@ -928,7 +928,9 @@ export async function handleCoder(request, env, ctx, deps) {
     // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
     // was open): the page loads the saved chat, which has the save's own lines.
     const elsewhere = !!s.result && !s.running && meta.status !== "running";
-    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), ...(elsewhere ? { reload: true } : {}) });
+    // THE RUNNING COMMAND'S LAST LINES (Claude Code 1.0.48), for the page only: never saved with the chat.
+    const progress = s.running && s.progress && Array.isArray(s.progress.lines) ? { at: Number(s.progress.at) || 0, lines: s.progress.lines.slice(-5).map((l) => String(l).slice(0, 300)) } : null;
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), ...(progress ? { progress } : {}), ...(elsewhere ? { reload: true } : {}) });
   }
 
   // THE CHAT'S BACKGROUND COMMANDS (tool 4, part 2, like Claude Code's tasks list): those still running after Coder's

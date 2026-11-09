@@ -259,9 +259,12 @@ const bgDeadline = (maxMs) => BG_DEADLINE.replace("7200000 ms (120 minutes)", Ma
  */
 export function bgEndNotice({ id = "", desc = "", command = "", log = "", code = null, why = "exit", bgMaxMs = 7_200_000 } = {}) {
   const name = "Background command \"" + (desc || scrub(String(command || "").split("\n")[0]).slice(0, 80)) + "\"";
+  // An exit code 1 that is no failure for its command (grep's no match: Claude Code 2.1.280) is said as Claude Code says it.
+  const benign = Number.isInteger(code) && code !== 0 && command ? exitMeaning(String(command), code) : null;
   const said = why === "limit" ? name + " was stopped after reaching its background time limit"
     : why === "owner" || why === "lost" ? name + " was stopped"
     : code === 0 ? name + " completed (exit code 0)"
+    : benign && !benign.isError ? name + " completed (exit code " + code + (benign.message ? ": " + benign.message : "") + ")"
     : Number.isInteger(code) ? name + " failed with exit code " + code
     : name + " ended";
   const more = why === "limit" ? " The command was stopped after reaching its background time limit. " + bgDeadline(bgMaxMs)
@@ -284,6 +287,21 @@ export function shellMessages(command, { output = "", code = 0, background = "" 
   if (background) out += (out ? "\n" : "") + background;
   const err = Number.isInteger(code) && code > 0 ? "Exit code " + code : "";
   return [{ role: "user", content: "<bash-input>" + String(command) + "</bash-input>" }, { role: "user", content: "<bash-stdout>" + out + "</bash-stdout><bash-stderr>" + err + "</bash-stderr>" }];
+}
+/**
+ * GITHUB'S RATE LIMIT, SAID AFTER A gh COMMAND HIT IT (Claude Code 2.1.116: "surfaces a hint when gh commands hit GitHub's API
+ * rate limit, so agents can back off instead of retrying"; its words, without its ScheduleWakeup).
+ */
+export const GH_RATE_HINT = "GitHub API rate limit exceeded (5,000/hr shared across all tools and agents). Run `gh api rate_limit --jq .resources` and wait until reset before further gh calls. If you were polling in a loop, stop and tell the owner instead of retrying.";
+export const ghRateLimited = (command, output) => /(^|[\s;&|(])gh\s/.test(String(command || "")) && /API rate limit exceeded|secondary rate limit|rate limit exceeded for/i.test(String(output || ""));
+/**
+ * ITS BACKGROUND COMMANDS STILL RUNNING, said to Coder at a message's start and after a summary (Claude Code 2.1.271: "Fixed
+ * Claude starting a second copy of a background command (such as a watch task or dev server) that was still running after
+ * the conversation was compacted").
+ */
+export function runningNote(list, now = Date.now()) {
+  if (!list.length) return "";
+  return "(Note from Coder's app, not the owner: " + (list.length === 1 ? "a background command is" : list.length + " background commands are") + " still running from earlier: " + list.map(([id, j]) => id + " \"" + (j.desc || String(j.command || "").split("\n")[0].slice(0, 80)) + "\", for " + agoWords(now - j.at) + ", output in " + j.log).join("; ") + ". Do not start a second copy; look at one with monitor or read, stop it with stop_job when it is no longer needed. You are told when one ends.)";
 }
 /** How long, the most significant part only (Claude Code: "has been running for 2m"). */
 export const agoWords = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.round(s / 60) + "m" : Math.round(s / 3600) + "h"; };
@@ -790,7 +808,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   if (lostList.length) {
     emit({ type: "note", text: "Coder's machine was restarted before background work reported back: " + lostList.map((b) => "\"" + (b.desc || "(no description)") + "\"").join(", ") + ". It is not running any more." });
     convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + lostNote(lostList) + ")" });
-  }
+  }  // Those from earlier messages still running (seeded above from the machine's list): said once at the start (2.1.271).
+  { const still = runningNote([...jobs.entries()].filter(([, j]) => !j.done), now()); if (still) convo.push({ role: "user", appNote: true, content: still }); }
+
   if (told.length) {
     for (const n of told) emit({ type: "note", text: n.said });
     convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + (told.length === 1 ? "a background command" : told.length + " background commands") + " ended since your last answer.\n" + told.map((n) => n.note).join("\n\n") + ((typeof text === "string" && text.trim()) || (typeof shell === "string" && shell.trim()) ? "" : "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two.") + ")" });
@@ -875,6 +895,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           // The files it was working on, read again, go with the summary (not a message of the owner's).
           const again = await rereadFiles(deps, convo.slice(jobStart + 2), touched, emit, { most: rereadRoom });
           if (again) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + again };
+          // Its background commands still running go with the summary too (Claude Code 2.1.271: no second copy after a summary).
+          const still = runningNote([...jobs.entries()].filter(([, j]) => !j.done), now());
+          if (still) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + still };
           // The repo's instructions and the memory, fresh from disk (Coder may have changed them in this job), as Claude
           // Code re-injects them "from disk" after compaction (deps.freshContext, from Coder's machine).
           if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) { context = c; await markShownStart(deps, c); } } catch { /* the one it had stays */ } }
@@ -942,7 +965,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const descIn = [c.args.description, c.args.command_description].find((x) => typeof x === "string" && x.trim());
         const desc = descIn ? scrub(visibleChars(descIn.trim().replace(/\s+/g, " "))).slice(0, 200) : "";
         const inBg = c.args.run_in_background === true || c.args.run_in_background === "true";
-        emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000), ...(desc ? { desc } : {}) });
+        // (Its timeout goes with it: the page shows it beside the time it has run, as Claude Code 2.1.23 does.)
+        emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000), ...(desc ? { desc } : {}), ...(inBg ? {} : { timeoutS: commandTimeoutS(c.args, timeouts) }) });
         const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); };
         const why = commandProblem(command);
         if (why) { refuse(why); continue; }
@@ -1025,6 +1049,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // answers only "Shell cwd was reset to /home/user").
         if (cwdSaid) text = text === "(Bash completed with no output)" ? cwdSaid : text + "\n" + cwdSaid;
         if (r && typeof r.diskNote === "string" && r.diskNote) text += "\n\n" + r.diskNote;
+        if (!bg && ghRateLimited(command, r && r.output)) text += "\n\n(Note from Coder's app: " + GH_RATE_HINT + ")";
         emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).

@@ -28,7 +28,7 @@ import { join, dirname, relative, resolve, basename, isAbsolute } from "node:pat
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
@@ -91,14 +91,18 @@ export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 *
  */
 export const SNAPSHOT_FILE = ".cache/coder/shell-snapshot.sh";
 export const SNAPSHOT_MAX = 256 * 1024;
-/** (Like Claude Code's own script: shell options first, each function by itself, the options set on, aliases, then PATH.) */
+/**
+ * (Like Claude Code's own script: shell options first, each function by itself (one named with a leading dash given to eval
+ * after "--", 2.1.316), the options set on, aliases, then PATH. A `which` alias or function is left out, so `which` is the
+ * system's (2.1.314).)
+ */
 export const SNAPSHOT_TAKE = String.raw`d="$HOME/.cache/coder"; mkdir -p "$d" && f="$d/shell-snapshot.sh" && bash -i -c '
 printf "\n__CODER_SNAP_A__\n"
 shopt -p
-declare -F | while read -r _ _ n; do case "$n" in _[!_]*|command_not_found_handle) ;; *) printf "eval %q >/dev/null 2>&1\n" "$(declare -f -- "$n")";; esac; done
+declare -F | while read -r _ _ n; do case "$n" in _[!_]*|command_not_found_handle|which|unsetenv) ;; [-+]*) printf "eval -- %q >/dev/null 2>&1\n" "$(declare -f -- "$n")";; *) printf "eval %q >/dev/null 2>&1\n" "$(declare -f -- "$n")";; esac; done
 set -o | while read -r o v; do if [ "$v" = on ]; then case "$o" in history|histexpand|monitor|emacs|vi|interactive-comments) ;; *) echo "set -o $o";; esac; fi; done
 echo "shopt -s expand_aliases"
-alias -p | sed -e "1001,\$d" -e "s/^alias -- /alias /" -e "s/^alias /alias -- /"
+alias -p | sed -e "1001,\$d" -e "s/^alias -- /alias /" -e "/^alias which=/d" -e "s/^alias /alias -- /"
 printf "export PATH=%q\n" "$PATH"
 printf "__CODER_SNAP_B__\n"
 ' </dev/null 2>/dev/null | sed -n '/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p' | sed '1d;$d' | head -c ` + SNAPSHOT_MAX + String.raw` > "$f.new" && mv -f "$f.new" "$f"`;
@@ -168,8 +172,17 @@ export function stopJob(j, why) {
   try { process.kill(-j.pid, "SIGTERM"); } catch { /* gone */ }
   setTimeout(() => {
     try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ }
-    setTimeout(() => { if (!j.end && !groupAlive(j.pid)) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); }, 500).unref?.();
+    setTimeout(() => { if (!j.end && !groupAlive(j.pid)) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); sweepIfIdle(); }, 500).unref?.();
   }, 1500).unref?.();
+}
+/**
+ * WHAT A STOPPED ONE LEFT BEHIND, ended too (Claude Code 2.1.257: "Fixed background commands that detach from their shell (for
+ * example under `timeout` or `setsid`) surviving a task stop"): while no job runs, everything of the AI's that is not one of its
+ * running background commands is ended now (a job's end does the same).
+ */
+function sweepIfIdle() {
+  if ([...turns.values()].some((t) => t.running)) return;
+  quietly().then((go) => { if (go) go(); }).catch(() => {});
 }
 /** THE EVERY-FEW-SECONDS LOOK: one past its time limit is stopped; one whose processes are all gone has ended. */
 export function checkJobs(now = Date.now()) {
@@ -230,7 +243,7 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false, onStart = null, prefix = "", onMove = null } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -281,9 +294,23 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       } else if (spill) toSpill(b);
       if (bytes > OUTPUT_KILL && !killedForSize) { killedForSize = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }
     };
+    // ITS LAST LINES WHILE IT RUNS (Claude Code 1.0.48: "progress messages … based on the last 5 lines of command output"), each
+    // second while they change; never the folder line.
+    let progTail = "", progSent = "", progTimer = null;
+    if (typeof onProgress === "function") {
+      const feed = (b) => { progTail = (progTail + b.toString("utf8")).slice(-4000); };
+      p.stdout.on("data", feed); p.stderr.on("data", feed);
+      progTimer = setInterval(() => {
+        if (progTail === progSent) return;
+        progSent = progTail;
+        const lines = progTail.split("\n").filter((l) => l.trim() && !l.includes(CWD_MARK)).slice(-5).map((l) => l.slice(0, 300));
+        try { onProgress(lines); } catch { /* never costs the command */ }
+      }, 1000);
+      if (typeof progTimer.unref === "function") progTimer.unref();
+    }
     p.stdout.on("data", take); p.stderr.on("data", take);
     let answered = false;
-    const answer = (r) => { if (!answered) { answered = true; done(r); } };
+    const answer = (r) => { if (progTimer) { clearInterval(progTimer); progTimer = null; } if (!answered) { answered = true; done(r); } };
     // Into the background: at its timeout, or when the owner asks (`byUser`: the page's "Run in background", Claude Code's
     // Ctrl+B). The rest of its output goes to a log the AI can read (its output file, when it has one).
     let moving = false;
@@ -1695,7 +1722,7 @@ export function safeVars(vars) {
   const out = {};
   if (!vars || typeof vars !== "object") return out;
   for (const [k, v] of Object.entries(vars).slice(0, 50)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || /^(PATH|HOME|SHELL|USER|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|CODER_)/i.test(k)) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || /^(PATH|HOME|SHELL|USER|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|CODER_)/i.test(k)) continue;
     out[k] = String(v ?? "").slice(0, 4000);
   }
   return out;
@@ -2158,7 +2185,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
           const onMove = (fn) => { t.movable = fn; };
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; } }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2173,7 +2200,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (full) r.diskNote = full.inodes ? "Nearly out of inodes: this computer's volume holding " + full.dir + " has " + full.inodes + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE : "Disk full: this computer's volume holding " + full.dir + " has " + full.mb + " MB free, so this command's output may be cut short and its own writes may have failed with \"No space left on device\". " + FREE_SPACE;
           }
           if (leader) t.fg.delete(leader);
-          t.movable = null;
+          t.movable = null; t.progress = null;
           // IN THE BACKGROUND (asked to, or still running at its timeout): kept on this machine's list, with its time limit
           // (Claude Code in the cloud: its `timeout` with run_in_background, else 30 minutes; a moved one 30 minutes from
           // the move). It goes on after the answer, and Coder is told when it ends.
@@ -2374,7 +2401,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const background = jobsOf(project);
         if (!t) return send(200, { status: "idle", events: [], running: false, background });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
-        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background });
+        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}) });
       }
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
