@@ -368,3 +368,46 @@ Tests: CD257 (fails on the old code) and CD255's answer with its note; 266 pass,
 Outside write (on the separate list; the owner: "Yes fix that"; done, CD261): the page numbered a list Grok writes with a blank line between its items "1. 1. 1." (each item drawn as its own list, from 1): now one list, from its first item's own number, as Markdown (CommonMark) has it; the line over a group of steps counted steps, not files ("Wrote 6 files" for five, calc.py twice): now each file once for each kind, as Claude Code's group line counts its `readFilePaths` (a set; seen in Claude Code 2.1.319's own program: `readCount: readFilePaths.size > 0 ? readFilePaths.size : readOperationCount`).
 
 **Retested live after deploy 71** (recording 18; the test chat on canias7/testingforclaude, one message with Grok): a command and a write over the same file in one answer: "error: mod.txt has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it." (as Claude Code); after the round's note showed the change, a write without reading again: "The file mod.txt has been updated successfully. …" (as Claude Code); a folder: "error: afolder is a directory, not a file. To create a file inside it, include the file name in path."; three writes to two files: "Wrote 2 files"; Grok's list "2) … 3) … 4) …": numbered 2, 3, 4. **Found:** its "5) `…`" with two lines under it (no blank line) showed "5)" as plain text: a block was a list only when every line had a mark; now a line with no mark carries on the item above it, as in Markdown (CD262). Write is on the docs page (/docs), beside Read (CD248).
+
+## 3. edit (Claude Code: Edit)
+
+**Claude Code's docs** (the owner, 2026-11-09: "start on the edit tool … Look up the entire Claude Code docs for edit"; all 228 pages fetched fresh that day, every line naming Edit read: the tools reference's "Edit tool behavior", the error reference, the changelog's ~60 Edit entries from 2.0.43 to 2.1.314, permissions, permission modes, hooks, settings, memory, sandboxing, checkpoints and the Agent SDK):
+- Exact string replacement, no regular expressions or fuzzy matching. Inputs `file_path`, `old_string`, `new_string`, `replace_all` (optional). Its result for programs is the change as a diff (`structuredPatch`), with `originalFile`, `replaceAll`, `userModified` and an optional `gitDiff`.
+- The checks, in order: a path under a `Read` deny rule is refused (a new file there too); read-before-edit (older models must read first; newer models may edit an unread file when reading it would need no permission prompt; a read cut short with a PARTIAL view doesn't count as a read); match exactly ("A single character of whitespace or indentation difference is enough to miss"); exactly once, or `replace_all: true`.
+- "A file that changed on disk after Claude last read it can still be edited when `old_string` matches the current content exactly and unambiguously … the result notes that the file carries other changes". Otherwise Claude reads it again.
+- A view with a command counts as a read: `cat`, `nl`, `bat`, `batcat`, `head`, `tail`, `sed -n 'X,Yp'`, `grep`, `egrep`, `fgrep`, `rg`, each on one file with no pipes or redirects; a command that printed none of the file's text doesn't count. Viewing a file, or (2.1.x) writing or editing it, loads its folder's CLAUDE.md and path-scoped rules.
+- Not valid UTF-8 (unless UTF-16 LE behind its byte-order mark): refused, nothing written. A notebook: use NotebookEdit (cells by `cell_id`: replace, insert, delete). A link at the path: refused, naming its target; links that loop or lead nowhere: refused. A null byte in the path: "Edit file_path cannot contain null bytes (\0). Remove the null byte and try again." Protected paths (`.git`, `.husky`, `.vscode`, `.claude`, `.npmrc` …): never auto-approved, as for Write.
+- From the changelog: curly quotes kept (2.1.x: "Fixed Edit tool silently corrupting Unicode curly quotes"); `\uXXXX` written in `old_string` taken for its character, and an escaped backslash before `uXXXX` not; CRLF not doubled, Markdown hard breaks (two trailing spaces) kept; "String not found in file" for a big edit that doesn't match; `replace_all` given as the text "true" accepted; no crash on files over 1 GiB; language-server problems after each edit; the model told to use short `old_string` anchors; Perforce mode (a read-only file: a `p4 edit` hint); each edit's diff shown in the conversation ("Error editing file" when one fails).
+
+**Tried for real** (Claude Code 2.1.319's own Edit, in /home/user/cc-edit1, 2026-11-09):
+
+| Case | Claude Code's Edit |
+|---|---|
+| A file never read | edited: "The file /home/user/cc-edit1/unread.txt has been updated successfully." |
+| A file read whole first, or made by the edit | "… has been updated successfully. (file state is current in your context — no need to Read it back)" |
+| Old text not there | "String to replace not found in file.\nString: delta" |
+| Old text twice | "Found 2 matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.\nString: x = 1" |
+| `replace_all: true` | "The file … has been updated. All occurrences were successfully replaced." |
+| Old and new the same | "No changes to make: old_string and new_string are exactly the same." |
+| Empty old text, the file exists | "Cannot create new file - file already exists." |
+| Empty old text, no such file | the file made, with the new text |
+| No such file | "File does not exist. Note: your current working directory is /home/user/cc-edit1." |
+| Changed on disk since read, old text still there once | edited: "… updated successfully. (note: the file had been modified on disk since you last read it — the edit applied cleanly, but the file contains other changes not in your context. Read it before edits that depend on surrounding content.)" |
+| Changed on disk since read, old text gone | "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it." |
+| Only part read (3 of 3,000 lines, with a limit) | edited (no "file state is current") |
+| Curly quotes in the file, straight ones in `old_string` | matched; the new text's straight quotes written curly, in the file's style (“hi there”, ‘later’) |
+| `café` in `old_string` for a real "café" | matched; `CAFÉ` written as "CAFÉ"; a `é` written out in the file left as it was |
+| CRLF file, plain line breaks in `old_string` | matched; the new lines written with CRLF. Mixed endings (CRLF, LF, CRLF): all CRLF after |
+| Two trailing spaces | kept, outside the edit and in the new text, in `.md` and `.txt` |
+| A tab in the file, spaces in `old_string`; a line-number prefix from read ("2\tBETA") | not found |
+| An old encoding (Latin-1) | refused, nothing written: "File is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the user whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then Write it." |
+| UTF-16 LE with its mark; UTF-8 with its mark | edited; the encoding and the mark kept |
+| A link | "Refusing to write /home/user/cc-edit1/link.txt: it is a symbolic link. Write to the link's target path instead: /home/user/cc-edit1/target.txt." |
+| A folder | "Error calling tool (Edit): EISDIR: illegal operation on a directory, read" (the raw error) |
+| A notebook | "File is a Jupyter Notebook. Use the NotebookEdit to edit this file." |
+| A path relative to the current folder | taken from the current folder |
+| Whole lines taken out (empty new text) | done |
+| A file in a folder with its own CLAUDE.md | that CLAUDE.md shown to the model right after the edit |
+| Other names: `path` for `file_path`, `old_str` and `new_str` | taken, silently (Write adds a note; Edit doesn't) |
+
+Next (the owner's order): Coder's edit side by side, then what to copy, then live in the browser.

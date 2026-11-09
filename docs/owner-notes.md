@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit (tool 3), step 1: everything Claude Code's Edit does (your words: "start on the edit tool … Look up the entire Claude Code docs for edit")
+
+- **All of Claude Code's docs, fetched fresh** (228 pages): the Edit section of the tools reference, every Edit error, about 60 changelog entries, and the permission, hook, settings, memory and SDK pages.
+- **Then its real Edit, tried 27 ways** (I run on Claude Code, so my own Edit is its Edit). The exact words for each result are in the tool-by-tool notes. The main points:
+  - **How it works:** it replaces an exact piece of text with new text. If that text appears twice, it refuses unless told "replace all".
+  - **A file that changed after it was read:** if the old text is still there exactly once, it edits and adds a note that the file has other changes. If the old text is gone, it refuses ("modified since read").
+  - **It keeps the file's style:** curly quotes stay curly; Windows line endings stay Windows; trailing spaces stay; UTF-16 stays UTF-16.
+  - **Escaped characters:** `\u00e9` written in the old text still finds the real "é".
+  - **It refuses** old text encodings, links (naming the real file) and notebooks (those have their own tool).
+  - **Editing a file shows Coder that folder's CLAUDE.md**, as reading it does.
+- **Next:** Coder's edit side by side, including what Coder doesn't have.
+
 ## 2026-11-09: Deploy 71: write's fixes live and retested; one more list case fixed; Write on the docs page
 
 - **Deploy 71 took three tries.** Ubuntu's own download server (`archive.ubuntu.com`, run by Canonical) was down or very slow for about 50 minutes. Building a new version of Coder's machine downloads its tools from there.
