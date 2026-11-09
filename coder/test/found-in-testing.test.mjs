@@ -466,6 +466,10 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.deepEqual((await changed()).changed, [], "told once");
   await utimes(join(dir, "a.js"), new Date(), new Date(Date.now() + 5000));
   assert.deepEqual((await changed()).changed, [], "only touched: the same bytes");
+  // Changed and not shown yet: write refuses it (as Claude Code's Write did in the same answer as the command); once the note
+  // after the round has shown it (the agent's `changed` with `shown`), it may.
+  assert.match(await tool("write", { path: "a.js", content: "const a = 3;\n" }), /^error: a\.js has been modified since read/);
+  assert.equal(await tool("changed", { shown: ["a.js"] }), '{"shown":1}');
   // Coder's own write and edit are no news to it.
   await tool("write", { path: "a.js", content: "const a = 3;\n" });
   await tool("edit", { path: "a.js", old_string: "3", new_string: "4" });
@@ -1425,6 +1429,9 @@ test("CD249 write does not replace a file that has changed since Coder read or w
   assert.equal(await tool("write", { path: "w.txt", content: "again\n" }), refused("w.txt"));
   const note = JSON.parse(await tool("changed", {}));
   assert.deepEqual(note.changed.map((c) => c.path).sort(), ["s.txt", "w.txt"], "s.txt too: changed, and not read again");
+  // Told, but not shown yet (the note comes after the round): still refused; once shown, allowed.
+  assert.equal(await tool("write", { path: "w.txt", content: "again\n" }), refused("w.txt"));
+  await tool("changed", { shown: ["w.txt"] });
   assert.match(await tool("write", { path: "w.txt", content: "again\n" }), /^The file w\.txt has been updated successfully\./);
   assert.equal(await readFile(join(dir, "w.txt"), "utf8"), "again\n");
   // Never read: no record, so nothing to compare (as before).
@@ -1492,7 +1499,7 @@ test("CD251 write's other ways, as Claude Code's Write (tried for real, 2026-11-
   assert.deepEqual(await readFile(join(dir, "plain.txt")), Buffer.from("new\n"), "no mark where there was none");
   // A folder (Claude Code: "/home/user/cc-test5/afolder is a directory, not a file. To create a file inside it, include the file name in file_path.").
   await mkdir(join(dir, "afolder"));
-  assert.equal(await write("afolder", "x\n"), "error: " + join(dir, "afolder") + " is a directory, not a file. To create a file inside it, include the file name in path.");
+  assert.equal(await write("afolder", "x\n"), "error: afolder is a directory, not a file. To create a file inside it, include the file name in path.", "named as given, like every other write message (live, deploy 70)");
   // A script keeps its mode (Claude Code's run.sh stayed 755); line endings are as given (its CRLF file came back "x\ny\n").
   await writeFile(join(dir, "run.sh"), "#!/bin/sh\necho hi\n"); await chmod(join(dir, "run.sh"), 0o755);
   await writeFile(join(dir, "crlf.txt"), "a\r\nb\r\n");
@@ -1854,4 +1861,39 @@ test("CD259 after each write of a file a language server takes, the new errors a
   assert.match(ui, /stepChange\(r, key\) \+\n[^\n]*\n\s+stepProblems\(r, key\) \+/);
   assert.match(ui, /">Found ' \+ all \+ ' new diagnostic issue' \+ \(all === 1 \? '' : 's'\) \+ ' in 1 file/);
   assert.match(ui, /on\('\.cd-probs-row', 'click'/);
+});
+
+test("CD260 a command that changes a file Coder read, and a write over it in the same answer: the write is refused, as Claude Code's Write refused it (live test, 2026-11-09, message 4: Grok ran echo added >> mod.txt and wrote mod.txt in one answer, and Coder's write let it through, as its record of the file was already up to date); after the note that shows the change, it may; a change between messages, with no note, waits for a read", async () => {
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
+  const { execSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-stale-"));
+  const followDir = await mkdtemp(join(tmpdir(), "coder-stale-follow-"));
+  const env = { ...process.env, CODER_SEEN_DIR: followDir };
+  await writeFile(join(dir, "mod.txt"), "mod line one\n");
+  const sh = (command) => { try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8" }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; } };
+  const exec = machine(dir, sh, env);
+  const plan = [
+    [call("read", { path: "mod.txt" }, "r1")],
+    [call("bash", { command: "echo added by a command >> mod.txt" }, "b1"), call("write", { path: "mod.txt", content: "replaced\n" }, "w1")],
+    [call("write", { path: "mod.txt", content: "replaced after the note\n" }, "w2")],
+  ];
+  let k = 0;
+  const out = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async () => { k++; return k <= plan.length ? say("", plan[k - 1]) : say("Done."); } }, { text: "work" });
+  const told = (id) => out.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.match(told("b1"), /\[This command changed 1 file you read before: mod\.txt\. Read it again before editing\.\]/);
+  assert.equal(told("w1"), "error: mod.txt has been modified since read, either by a command or by something running in the background. Read it again before attempting to write it.");
+  assert.ok(out.messages.some((m) => m.appNote && /mod\.txt changed on disk since you last read it[\s\S]*Here are the relevant changes/.test(m.content)), "the note shows the change after the round");
+  assert.match(told("w2"), /^The file mod\.txt has been updated successfully\./, "after the note: allowed, as in Claude Code");
+  assert.equal(await readFile(join(dir, "mod.txt"), "utf8"), "replaced after the note\n");
+  // Between messages (no note, as in Claude Code): the next message's write waits for a read.
+  await writeFile(join(dir, "mod.txt"), "changed between messages\n");
+  const plan2 = [[call("write", { path: "mod.txt", content: "x\n" }, "w3")], [call("read", { path: "mod.txt" }, "r2"), call("write", { path: "mod.txt", content: "y\n" }, "w4")]];
+  let k2 = 0;
+  const out2 = await runCoder({ seen: true, exec, emit: () => {}, afterFile: async () => "", send: async () => { k2++; return k2 <= plan2.length ? say("", plan2[k2 - 1]) : say("Done."); } }, { messages: out.messages, text: "more" });
+  const told2 = (id) => out2.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.match(told2("w3"), /^error: mod\.txt has been modified since read/);
+  assert.match(told2("w4"), /^The file mod\.txt has been updated successfully\./, "read again: allowed");
 });

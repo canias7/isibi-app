@@ -11,6 +11,42 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Write, live in the browser after deploy 70 (your words: "merge deploy and then put everything live and test everything with a browser and check for mistakes and everything. Every single thing on the write tool")
+
+- **Merged and deployed (deploy 70), then tested live** on gofarther.dev with Grok, filmed (recording 17, in two parts):
+  - 13 messages: 12 in one chat on canias7/testingforclaude, and 1 in a chat with two repositories;
+  - then the docs page, as a visitor who isn't signed in.
+- **Worked as in Claude Code:**
+  - a file read only partly, or a notebook not read: refused until read;
+  - an old text encoding: refused, nothing changed;
+  - UTF-16 and the byte-order mark: kept;
+  - links: refused, naming the real file;
+  - a link loop or a link to nowhere: refused;
+  - a hidden null character in the name: refused;
+  - a file whose time alone changed: written;
+  - a big instruction file shown only in part: refused until read whole;
+  - the Allow / Don't allow card for protected files (.husky, .npmrc, .claude);
+  - your own security rules in `.claude/security-patterns.json` read by the check;
+  - each write's change under its step, with "Show 22 more lines" for a long one;
+  - the mistake-check: Python's checker found `rate` not defined, and Grok fixed it; TypeScript found a wrong type;
+  - the memory file over 200 lines: the note;
+  - a file in the chat's other repository: named with its full path.
+- **The docs page:**
+  - "Docs" sits beside Sign in on the landing page;
+  - /docs shows only Read;
+  - it fits a phone;
+  - /docs.html goes to /docs.
+- **Found and fixed (2):**
+  - **Message 4:** Grok ran a command that added a line to mod.txt *and* wrote mod.txt in the same answer, and Coder let the write through over the added line. Claude Code refuses that write, because the model never saw the command's change.
+    - Now a file a command changed is marked "changed, not seen yet". A write to it is refused with the same words as for any other change ("… has been modified since read … Read it again …").
+    - Once Grok reads it again, or the note after that round shows it the change, the write is allowed (as in Claude Code). Test CD260.
+  - **The folder message** named the folder with the machine's full path ("/data/work/testingforclaude-kd8cssav/afolder is a directory …"). Every other write message names the file the way Grok gave it, so now it's "afolder is a directory …". Test CD251.
+  - All 269 tests pass, and the 24 real read checks.
+- **Not live yet:** both fixes need a merge and deploy, then message 4 again in the browser.
+- **Outside write (your call):**
+  - the page shows a numbered list Grok writes with blank lines between its items as "1. 1. 1.";
+  - the line over a group of steps counts writes, not files: "Wrote 6 files" when calc.py was written twice (five files).
+
 ## 2026-11-09: Write: the two extras (your words: "can we do those small optional extras that you said? Yeah, I want it")
 
 - **Mistake-check after each write: done.** Like Claude Code with its language server add-ons: after Coder writes a JavaScript, TypeScript or Python file, the language server checks it, and any *new* errors or warnings go straight to Grok, which fixes them. Under the step the chat shows "Found 1 new diagnostic issue in 1 file"; tap it to see the problem itself, e.g. `✘ [Line 5:25] "rate" is not defined`.

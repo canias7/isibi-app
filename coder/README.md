@@ -187,8 +187,9 @@ code in **each user's own GitHub**.
    Second pass (each tried for real with Claude Code's own Write): it won't replace
    a file that changed since Coder read or wrote it and hasn't been shown again
    ("… has been modified since read … Read it again before attempting to write it";
-   only its time changing is no change, and the note after a command counts as
-   showing it); a file read only in part stays so after `cat` or `head`; a UTF-8
+   only its time changing is no change, and the note after that round counts as
+   showing it, so a write in the same answer as the command that changed the file
+   is refused, as in Claude Code); a file read only in part stays so after `cat` or `head`; a UTF-8
    byte-order mark is kept; a folder is named as one; and it answers in Claude
    Code's words ("File created successfully at: …" / "The file … has been updated
    successfully.", then "(file state is current in your context — no need to Read
