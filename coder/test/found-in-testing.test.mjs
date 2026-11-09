@@ -2130,3 +2130,41 @@ test("CD265 the page shows an edit's change on the card for a protected file, th
   assert.match(ui, /upd \? lines\.map\(\(l\) => '<span class="cd-wl' \+ \(l\[0\] === '\+' \? ' cd-dl-add' : l\[0\] === '-' \? ' cd-dl-del' : ''\)/);
   assert.match(css, /\.cd-writeask \.cd-envchange-pre \.cd-wl \{ display: block;/);
 });
+
+test("CD266 a read-only file is edited all the same and stays read-only, as Claude Code's Edit (its Perforce mode is there to stop it \"silently overwriting\" them; Coder's edit stopped at \"EACCES: permission denied\"); one of another user's is refused in words; and a line over 300 characters on the card for a protected file shows it was cut (Claude Code: \"Fixed the file edit permission dialog sometimes showing a changed line cut short with no indication\"); the owner, 2026-11-09: \"Ok yea fix that\"", async () => {
+  const { mkdtemp, writeFile, readFile, stat, chmod, mkdir } = await import("node:fs/promises");
+  const { spawnSync, execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "coder-readonly-"));
+  // Root may write any file: the tool runs as Coder's commands do, as another user, when the tests run as root.
+  const asRoot = process.getuid() === 0;
+  const tool = (args) => {
+    const b64 = Buffer.from(JSON.stringify({ tool: "edit", args })).toString("base64");
+    const r = asRoot ? spawnSync("setpriv", ["--reuid=1001", "--regid=1001", "--clear-groups", "env", "HOME=/tmp", "node", "--no-warnings", toolsScript, b64], { cwd: dir, encoding: "utf8" }) : spawnSync("node", ["--no-warnings", toolsScript, b64], { cwd: dir, encoding: "utf8" });
+    return String(r.stdout || "").trim();
+  };
+  await writeFile(join(dir, "ro.txt"), "locked line\n");
+  await chmod(join(dir, "ro.txt"), 0o444);
+  if (asRoot) execFileSync("chown", ["-R", "1001:1001", dir]);
+  assert.equal(tool({ path: "ro.txt", old_string: "locked line", new_string: "changed line" }), "The file ro.txt has been updated successfully.");
+  assert.equal(await readFile(join(dir, "ro.txt"), "utf8"), "changed line\n");
+  assert.equal((await stat(join(dir, "ro.txt"))).mode & 0o777, 0o444, "still read-only");
+  if (asRoot) {
+    await writeFile(join(dir, "theirs.txt"), "root's line\n");
+    await chmod(join(dir, "theirs.txt"), 0o444);
+    assert.equal(tool({ path: "theirs.txt", old_string: "root's line", new_string: "x" }), "error: theirs.txt is read-only, and it belongs to another user, so edit cannot change it: change it with a command, or ask the owner.");
+    assert.equal(await readFile(join(dir, "theirs.txt"), "utf8"), "root's line\n");
+  }
+  // The card: a long line ends in "…" (write's too: they share it).
+  const proj = await mkdtemp(join(tmpdir(), "coder-card-"));
+  await mkdir(join(proj, ".husky"));
+  await writeFile(join(proj, ".husky/pre-commit"), "#!/bin/sh\nnpm test\n");
+  const long = "npm run check -- " + "x".repeat(400);
+  const events = [];
+  let k = 0;
+  await runCoder({ exec: machine(proj), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm test", new_string: long }, "e1")]) : say("Done.")) }, { text: "add the check" });
+  const card = events.find((e) => e.type === "writeask");
+  assert.deepEqual(card.change.lines, ["-npm test", "+" + long.slice(0, 300) + "…"]);
+});

@@ -955,7 +955,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           // What it would do: a write's lines; an edit's old lines taken out and new ones put in.
           const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split("\n") : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
           const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : args.content);
-          const all = [...gone.map((l) => "-" + scrub(l.slice(0, 300))), ...come.map((l) => "+" + scrub(l.slice(0, 300)))];
+          // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
+          // dialog sometimes showing a changed line cut short with no indication"); the owner's values hidden before the cut,
+          // so no part of one is left.
+          const cut = (l) => { const x = scrub(l); return x.length > 300 ? x.slice(0, 300) + "…" : x; };
+          const all = [...gone.map((l) => "-" + cut(l)), ...come.map((l) => "+" + cut(l))];
           emit({ type: "writeask", path: shownPath, because: why, ...(c.name === "edit" ? { edit: true } : {}), change: { kind: c.name === "edit" ? "update" : "create", add: come.length, del: gone.length, lines: all.slice(0, 40), ...(all.length > 40 ? { more: all.length - 40 } : {}) } });
           return end("done", { summary: lastSaid || "asked to change " + shownPath });
         }

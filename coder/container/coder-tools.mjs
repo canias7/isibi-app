@@ -7,7 +7,7 @@
 // `node coder-tools.mjs <base64 JSON>` through the same exec). So a tool can do
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
-import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename } from "node:fs/promises";
+import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { isUtf8 } from "node:buffer";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
@@ -776,7 +776,7 @@ export async function toolEdit(args) {
   // Coder's edit wrote it back with every such letter lost ("café" became "caf�").
   if (!u && !isUtf8(buf)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Edit saves the whole file as UTF-8 (or UTF-16 behind its byte-order mark), which would replace every byte it cannot decode with U+FFFD, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first.");
   const raw = u ? fileText(buf) : buf.toString("utf8");
-  const bom = !u && raw.startsWith("﻿");
+  const bom = !u && raw.startsWith("\ufeff");
   const text = bom ? raw.slice(1) : raw;
   const eol = eolOf(text);
   const body = text.replace(/\r\n/g, "\n");
@@ -817,18 +817,34 @@ export async function toolEdit(args) {
   for (const p of all ? at : [at[0]]) { parts.push(body.slice(from, p), newN); from = p + len; }
   parts.push(body.slice(from));
   const outBody = parts.join("");
-  const outText = (bom ? "﻿" : "") + (eol === "\r\n" ? outBody.replace(/\n/g, "\r\n") : outBody);
+  const outText = (bom ? "\ufeff" : "") + (eol === "\r\n" ? outBody.replace(/\n/g, "\r\n") : outBody);
   let bytes;
   if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(outText, "utf16le")]);
   else if (u === "be") { const b = Buffer.from(outText, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
   else bytes = Buffer.from(outText, "utf8");
-  await writeFile(abs, bytes);
+  await writeOver(abs, bytes, rel);
   await remember(abs, bytes);
   // CLAUDE CODE'S WORDS: "(file state is current …)" only for a file Coder had whole and as it is; its note when the file
   // had other changes.
   const known = !!seen && !changed && !seen.partial && !seen.part && !seen.start;
   const said = "The file " + rel + (all ? " has been updated. All occurrences were successfully replaced." : " has been updated successfully.") + (changed ? EDIT_OTHER_CHANGES : known ? WRITE_FRESH : "");
-  return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^﻿/, ""), show_change, check, bytes });
+  return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^\ufeff/, ""), show_change, check, bytes });
+}
+/**
+ * A READ-ONLY FILE IS CHANGED ALL THE SAME, AND STAYS READ-ONLY (the owner, 2026-11-09: "Ok yea fix that"; Claude Code's
+ * docs: its Perforce mode makes Edit "fail on read-only files with a `p4 edit` hint instead of silently overwriting
+ * them", so without it, it overwrites them; tried as root, the file stayed read-only). Coder's edit stopped at "EACCES:
+ * permission denied". Its owner may make it writable for the moment; a file of another user's stays as it is.
+ */
+async function writeOver(abs, bytes, rel) {
+  try { await writeFile(abs, bytes); return; } catch (e) {
+    if (!e || (e.code !== "EACCES" && e.code !== "EPERM")) throw e;
+    let mode;
+    try { mode = (await stat(abs)).mode & 0o7777; } catch { throw e; }
+    if (mode & 0o200) throw e; // writable by its owner already: something else stops it
+    try { await chmod(abs, mode | 0o200); } catch { fail(rel + " is read-only, and it belongs to another user, so edit cannot change it: change it with a command, or ask the owner."); }
+    try { await writeFile(abs, bytes); } finally { await chmod(abs, mode).catch(() => {}); }
+  }
 }
 /** Edit's answer, as write's: its memory note, the language server's new problems (`check`), and the change (`show_change`). */
 async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes }) {

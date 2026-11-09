@@ -11,6 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit: the two small ones fixed, and a third pass through Claude Code's docs (your words: "Ok yea fix that , then go look at claude code docs again for the edit tool")
+
+- **Read-only files:** edit now changes them and leaves them read-only, as Claude Code does. For a read-only file that belongs to another user, it explains why it can't, instead of a raw "permission denied".
+- **The Allow card:** a line over 300 characters now ends in "…", so you can see it was cut. This covers the write card too. Your secret values are hidden before the line is cut, so no part of one can show.
+- **Third pass:**
+  - fetched all 228 pages again (none changed since this morning);
+  - checked the docs' all-in-one file (the same 228 pages, nothing hidden);
+  - read the pages I had only skimmed.
+  - Nothing new about edit itself.
+- Test CD266 (fails without the fixes); all tests pass.
+
 ## 2026-11-09: Edit, a second pass through Claude Code's docs (your words: "What else on the edit tool from claude code docs you havent seen")
 
 - **Searched every page again** for edits in general (diffs, rewind, checkpoints, line counts, read-only files), not only the word "Edit", and tried the cases I hadn't tried.
