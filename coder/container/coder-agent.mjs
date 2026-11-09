@@ -156,6 +156,45 @@ export function tidyPath(p) {
 export const REREAD_FILES = 5, REREAD_ONE = 20_000;
 /** One of coder-tools.mjs's tools, run by Coder's app itself (a step Grok did not ask for). */
 /**
+ * PROTECTED FILES (the owner, 2026-11-09: "Okay, yes, yes, do that"; Claude Code's permission-modes docs: "Writes to a
+ * small set of paths are never auto-approved … This prevents accidental corruption of repository state and Claude's own
+ * configuration"): files that can make code run on the owner's computer when the branch is pulled, or change how the
+ * project is built. Write asks the owner first, on a card (Allow / Don't allow), as Claude Code prompts for them; in a job
+ * from GitHub, where no one can answer, it does not write them. `.git` is off limits already (coder-tools.mjs); `.coder`
+ * is Coder's own, as `.claude` is Claude Code's. Compared without case (a Mac or Windows checkout treats `.HUSKY` as
+ * `.husky`). Edit (tool 3) and commands (tool 4) come with their own turns.
+ */
+export const PROTECTED_DIRS = [".git", ".config/git", ".vscode", ".idea", ".husky", ".cargo", ".devcontainer", ".yarn", ".mvn", ".claude", ".coder"];
+export const PROTECTED_FILES = [".gitconfig", ".gitmodules", ".bashrc", ".bash_profile", ".bash_login", ".bash_aliases", ".bash_logout", ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".profile", ".envrc", ".npmrc", ".yarnrc", ".yarnrc.yml", ".pnp.cjs", ".pnp.loader.mjs", ".pnpmfile.cjs", "bunfig.toml", ".bunfig.toml", ".bazelrc", ".bazelversion", ".bazeliskrc", ".pre-commit-config.yaml", "lefthook.yml", "lefthook.yaml", ".lefthook.yml", ".lefthook.yaml", "gradle-wrapper.properties", "maven-wrapper.properties", ".devcontainer.json", ".ripgreprc", "pyrightconfig.json", ".mcp.json", ".claude.json"];
+/** Whether a path (as the project names it) is a protected file: the folder or file name that makes it one, or "". */
+export function protectedFile(path) {
+  const parts = String(path || "").replace(/\\/g, "/").split("/").filter((x) => x && x !== ".").map((x) => x.toLowerCase());
+  if (!parts.length) return "";
+  for (const d of PROTECTED_DIRS) {
+    const dp = d.split("/");
+    // The folder's names, before the file's own (a file named `.husky` is not the folder).
+    for (let i = 0; i + dp.length <= parts.length - 1; i++) if (dp.every((x, j) => parts[i + j] === x)) return d + "/";
+  }
+  const name = parts[parts.length - 1];
+  return PROTECTED_FILES.includes(name) ? name : "";
+}
+/**
+ * The owner's word for one: their own message, exactly as the card's Allow sends it (after the app's note on an environment
+ * change, which server.mjs puts before their words). Notes from Coder's app (an @-mentioned file's text among them) and
+ * anything with more words in it do not count.
+ */
+export const allowWriteText = (path) => "I allowed Coder to change " + path + ".";
+const ENV_NOTE_START = "(Note from Coder's app, not the owner: since the last message", ENV_NOTE_END = " Go by this, not by what the chat said before.)\n\n";
+function ownerAllowed(convo, path) {
+  const want = allowWriteText(path);
+  return convo.some((m) => {
+    if (!m || m.role !== "user" || m.appNote || m.files || m.reread || m.summary || typeof m.content !== "string") return false;
+    let t = m.content;
+    if (t.startsWith(ENV_NOTE_START) && t.includes(ENV_NOTE_END)) t = t.slice(t.indexOf(ENV_NOTE_END) + ENV_NOTE_END.length);
+    return t.trim() === want;
+  });
+}
+/**
  * INSTRUCTION FILES SHOWN ONLY IN PART: the note Coder's app puts after the part it shows ("[NAME goes on: read the rest
  * of it with the read tool, from line N]", or "… goes on past 40,000 characters: …"), at the job's start, after a summary
  * and after a file tool. Each is marked in the chat's record, so write does not replace it until it is read all at once,
@@ -897,6 +936,22 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // READ'S ROOM (like Claude Code's allow_large, "sized against the room left in the session's context
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
+        // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
+        const guarded = c.name === "write" && typeof args.path === "string" ? projectPath(deps, args.path) : "";
+        const why = guarded ? protectedFile(guarded) : "";
+        if (why && !ownerAllowed(convo, guarded)) {
+          const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
+          if (github) {
+            const m = "error: " + shownPath + " is a protected file (it can make code run on the owner's computer, or change how the project is built), so it is not changed in a job started from GitHub, where no one can allow it: say so in your answer";
+            emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue;
+          }
+          reply("not written yet: " + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, write it again.");
+          for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a protected file first" });
+          const lines = typeof args.content === "string" ? args.content.split("\n") : [];
+          if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+          emit({ type: "writeask", path: shownPath, because: why, change: { kind: "create", add: lines.length, del: 0, lines: lines.slice(0, 40).map((l) => "+" + scrub(l.slice(0, 300))), ...(lines.length > 40 ? { more: lines.length - 40 } : {}) } });
+          return end("done", { summary: lastSaid || "asked to change " + shownPath });
+        }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
         // folder its commands are in).
         emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });

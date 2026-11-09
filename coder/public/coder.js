@@ -285,7 +285,7 @@
       if (!b || b.status !== 'running' || c.status === 'running') continue;
       if (o.openId === c.id && o.focused) continue;
       const name = c.title || c.repo;
-      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : 'Coder asked you something.' }); }
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : 'Coder asked you something.' }); }
       else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
     }
     return out;
@@ -647,7 +647,7 @@
         const name = S.project.title || S.project.repo;
         for (const e of fresh) {
           if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
-          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || '' });
+          else if (['question', 'secret', 'envchange', 'writeask'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || (e.type === 'writeask' ? 'Allow it to change ' + e.path + '?' : '') });
         }
       }
       S.next = r.data.next || S.next;
@@ -905,6 +905,18 @@
             '</div></div>';
         }).join('') + (live ? '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '">Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '">Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
           (live ? '<div class="cd-ask-wait">Needs your input</div>' : ''));
+      }
+      else if (e.type === 'writeask') {
+        // A PROTECTED FILE CODER WANTS TO WRITE (the owner, 2026-11-09: "do that"; like Claude Code's prompt for them): the
+        // lines it would write, then Allow or Don't allow, which become the owner's next message.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+        const more = e.change && Number.isInteger(e.change.more) && e.change.more > 0 ? e.change.more : 0;
+        out.push('<div class="cd-secret cd-envchange cd-writeask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Allow Coder to change ' + esc(e.path) + '?</b>' +
+          '<p class="cd-secret-p">This file can make code run on your computer when you pull the branch, or change how the project is built, so Coder asks you first (Claude Code does too). What it would write:</p>' +
+          '<pre class="cd-envchange-pre">' + (lines.length ? lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n') : '(an empty file)') + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
+          (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-writeask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-writeask-ok="' + i + '">Allow</button></div>' : '') +
+        '</div>');
       }
       else if (e.type === 'envchange') {
         // AN ENVIRONMENT CHANGE CODER PROPOSES (owner, 2026-11-06, like Claude Code): shown exactly, approved here.
@@ -1261,6 +1273,8 @@
       S.envChangeMsg = ''; if (S.env) S.env = r.data;
       send(x.kind === 'allow_host' ? 'I allowed ' + x.host + '.' : 'I approved the new setup script.');
     });
+    on('[data-writeask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskOk)]; if (x && x.path) { e.currentTarget.disabled = true; send('I allowed Coder to change ' + x.path + '.'); } });
+    on('[data-writeask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskNo)]; if (x && x.path) { e.currentTarget.disabled = true; send('Don\'t change ' + x.path + '.'); } });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
     on('.cd-secret-save', 'click', async (e) => {

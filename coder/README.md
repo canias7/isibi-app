@@ -209,9 +209,11 @@ code in **each user's own GitHub**.
    write's parameters are named `path` and `content`. `file_path` was read as `path`.")
    and two different values for one input are refused (`writeInputs`); a file in the
    chat's other repository is named in full; the owner's values are hidden in a
-   write's lines too when a chat is saved (`hideIn`). Not done, the owner's call:
-   Claude Code's protected paths (`.husky`, `.vscode`, `.envrc`, `.npmrc` …), which it
-   never writes without asking.
+   write's lines too when a chat is saved (`hideIn`). And Claude Code's protected
+   paths (`.husky`, `.vscode`, `.envrc`, `.npmrc` …, `PROTECTED_DIRS`/`PROTECTED_FILES`):
+   write asks the owner first on a card (event `writeask`; Allow sends "I allowed
+   Coder to change <path>.", which lets that file through for the chat); from GitHub
+   they are not written.
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

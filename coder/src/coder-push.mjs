@@ -149,6 +149,7 @@ export function pushesFor(events, meta, now = Date.now()) {
     else if (e.type === "question") out.push({ kind: "actions", title: "Coder needs your answer · " + name, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
     else if (e.type === "secret") out.push({ kind: "actions", title: "Coder needs a key · " + name, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
     else if (e.type === "envchange") out.push({ kind: "actions", title: "Coder asks to change the environment · " + name, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
+    else if (e.type === "writeask") out.push({ kind: "actions", title: "Coder asks to change a protected file · " + name, body: "Allow it to change " + String(e.path || "a file") + "?" });
     else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: "Coder finished · " + name, body: e.text || "" });
   }
   return out.slice(0, NOTIFY_MAX + 1);

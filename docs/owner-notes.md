@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Write: Coder asks you before changing a protected file (your word: "Okay, yes, yes, do that")
+
+- **Like Claude Code:** before Coder writes a file that can make code run on your computer, or change how the project is built, it stops and shows a card: "Allow Coder to change .husky/pre-commit?", with the lines it would write, and **Allow** / **Don't allow**.
+  - **Allow** sends "I allowed Coder to change .husky/pre-commit." as your next message, and Coder writes it. That file is then allowed for the rest of the chat.
+  - **Don't allow** tells Coder not to.
+  - The chat shows as waiting for you, with a notification, as for the environment card.
+- **The files** (Claude Code's own list): the folders `.husky`, `.vscode`, `.idea`, `.devcontainer`, `.cargo`, `.yarn`, `.mvn`, `.claude`, `.config/git` (and Coder's own `.coder`); files like `.bashrc`, `.zshrc`, `.profile`, `.envrc`, `.npmrc`, `.yarnrc.yml`, `.pre-commit-config.yaml`, `lefthook.yml`, `.gitconfig`, `.gitmodules`, `.mcp.json`, `gradle-wrapper.properties`, `.devcontainer.json`. Anywhere in the project, whatever their capital letters. `.git` stays off limits.
+- **Only your own Allow counts:** text inside a file Coder reads can't pass for it.
+- **From GitHub** (`@coder` in a comment), where no one can press Allow, Coder doesn't write them and says so.
+- **Still to come:** the same check for edit (tool 3) and for commands (tool 4), in their turns.
+- Tested on Coder's real page (screenshots sent); test CD258 (fails on the old code); all 267 pass, and the 24 real read checks.
+
 ## 2026-11-09: Write: one more full pass through Claude Code's docs (your words: "Before the live browser keep checking the write tool in claude code docs pls we may be missing stuff")
 
 - **Went through everything that names Write:** all 44 changelog entries, every Write error in the error reference, and every other docs page. Where the docs don't give the exact words, I tried Claude Code's own Write.
