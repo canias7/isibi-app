@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { needsCheck, stepWords, gloopyCheck, cleanRules, plain } from "./gloopy-check.mjs";
+import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX } from "./gloopy-schedule.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -520,7 +521,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user" } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -543,7 +544,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   if (typeof text === "string" && text.trim()) {
     convo.push({ role: "user", content: text.trim(), ...(pics.length ? { images: pics.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
     // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it.
-    emit({ type: "user", text: (typeof shown === "string" && shown.trim() ? shown : text).trim(), ...(pics.length ? { images: pics.length } : {}) });
+    // A scheduled run of Gloopy's (2026-11-09) opens with a note in the chat, not as the owner's own message.
+    emit({ type: opening === "note" ? "note" : "user", text: (typeof shown === "string" && shown.trim() ? shown : text).trim(), ...(pics.length ? { images: pics.length } : {}) });
   }
   // THE OWNER'S PICTURES, SAVED AS FILES CODER CAN OPEN AGAIN (the owner, 2026-11-08: "Fix those 3"; Claude Code 2.1.275:
   // pasted and attached images "are now saved where Claude can open them as files"): in the project's .coder-pictures
@@ -597,6 +599,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
   let approvalRequest = null, signinRequest = null, handoffRequest = null;
+  // Gloopy's schedules it stopped in this turn (the Worker keeps the schedules; it takes these off when the turn ends).
+  const scheduleRemovals = [];
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
@@ -616,7 +620,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -703,7 +707,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff" || c.name === "schedule")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -921,6 +925,40 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "signin", id, site, url: pass.url || "", reason: plain(scrub(String(args.reason || ""))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
+      } else if (c.name === "schedule") {
+        // GLOOPY'S SCHEDULES (2026-11-09; gloopy-schedule.mjs): the Worker keeps them and sends their list with each
+        // message. A new one waits for the owner's OK on a card (each run uses Grok), and the turn ends there; one stopped
+        // is taken off when the turn ends (stopping costs nothing, so it needs no OK).
+        const args = c.args || {};
+        const act = ["add", "list", "remove"].includes(args.action) ? args.action : "";
+        const mine = (Array.isArray(schedules) ? schedules : []).filter((x) => x && typeof x.id === "string" && x.id);
+        emit({ type: "bash", id: c.id, tool: "schedule", verb: act === "add" ? "Scheduled" : act === "remove" ? "Stopped" : "Looked at schedules", command: act === "add" ? plain(String(args.name || "")).slice(0, 80) : act === "remove" ? plain(String(args.id || "")).slice(0, 40) : "" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!act) { no("error: action is add, list or remove"); continue; }
+        if (act === "list") { const out = mine.length ? mine.map(scheduleLine).join("\n") : "no schedules yet"; emit({ type: "result", id: c.id, code: 0, output: out }); reply(out); continue; }
+        if (act === "remove") {
+          const it = mine.find((x) => x.id === String(args.id || ""));
+          if (!it) { no("error: no schedule has that id (schedule list shows them)"); continue; }
+          if (!scheduleRemovals.includes(it.id)) scheduleRemovals.push(it.id);
+          const m = "stopped: " + it.name + " (" + it.when + "); it will not run again";
+          emit({ type: "result", id: c.id, code: 0, output: m, label: "Stopped “" + plain(it.name).slice(0, 60) + "”" });
+          reply(m);
+          continue;
+        }
+        let spec;
+        try { spec = checkSchedule(args, now()); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 300)); continue; }
+        if (mine.length - scheduleRemovals.length >= SCHEDULES_MAX) { no("error: you have " + SCHEDULES_MAX + " schedules already: stop one first (schedule list shows them)"); continue; }
+        const first = nextRun(spec, now());
+        if (first === null) { no("error: that schedule would never run (its last day has passed)"); continue; }
+        const id = "ap" + Math.random().toString(36).slice(2, 10);
+        const step = "Run “" + spec.name + "” " + whenWords(spec);
+        const why = "Each run is a message for Gloopy, so it uses Grok. First run: " + whenLocal(first, spec.tz) + ".";
+        emit({ type: "result", id: c.id, code: 0, output: "Waiting for your OK: " + step, label: "Asked you first: " + step });
+        reply("waiting for the owner's OK to: " + step + ". Your turn ends here; their answer comes as the next message.");
+        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
+        emit({ type: "approval", id, kind: "schedule", step, site: "", url: "", why, detail: spec.task.slice(0, 600) });
+        approvalRequest = { id, kind: "schedule", schedule: spec, step, site: "", url: "" };
+        return end("done", { summary: lastSaid || "asked the owner's OK to: " + step });
       } else if (c.name === "handoff") {
         // THE OWNER TAKES OVER FOR A STEP (2026-11-09; Grok Bot "hands you the computer", dots' browser handoff): a card;
         // the owner opens Gloopy's browser, does the step and hands it back. The turn ends here.

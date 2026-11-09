@@ -5,6 +5,7 @@
 // its own computer. Its browser you can watch, schedules and approvals come next.
 import { CODER_TOOLS } from "./coder-agent.mjs";
 import { BROWSER_ACTIONS } from "./gloopy-browser.mjs";
+import { scheduleLine } from "./gloopy-schedule.mjs";
 
 /**
  * GLOOPY'S BROWSER (owner, 2026-11-09: "start doing the stuff, lets start with tools first"; Grok Bot's and dots' agents
@@ -54,9 +55,34 @@ export const HANDOFF_TOOL = Object.freeze({ type: "function", function: {
   }, required: ["task", "reason"] },
 } });
 
-/** The tools Gloopy is offered: Coder's file, command and web tools and its cards, its browser, its sign-in card and its handoff; none of Coder's GitHub or environment tools. */
-export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit", "grep", "glob", "web_fetch", "browser", "sign_in", "handoff", "monitor", "stop_job", "ask_user", "todo", "notify"]);
-export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)), BROWSER_TOOL, SIGN_IN_TOOL, HANDOFF_TOOL]);
+/**
+ * WORK LATER, ON ITS OWN (owner, 2026-11-09: "Ok go"; Grok Bot's routines on a schedule, dots' recurring tasks and its
+ * "decide when to pause and wake up to continue"): once or again and again, in the owner's time zone
+ * (gloopy-schedule.mjs). Each new one waits for the owner's OK on a card: every run uses Grok.
+ */
+export const SCHEDULE_TOOL = Object.freeze({ type: "function", function: {
+  name: "schedule",
+  description: "Do something on your own later: once (a reminder, or coming back to a job: in_minutes, or at the owner's local date and time) or again and again (every hours, day, weekday, week or month, at a time). Each run is a new message to you in this chat, with the task as its words. action add: name (a few words), task (exactly what to do then, standing on its own: what to check or do, where, and what to tell the owner; end with \"notify the owner\" when they should hear of it), time_zone (the owner's, from your notes), and the when. The owner approves each new one on a card first (each run uses Grok), so your turn ends there. action list: your schedules. action remove: id (stops it at once; no card). Use it when the owner asks for something later or repeating, or when a job needs you to come back to it later (say so in your answer first).",
+  parameters: { type: "object", properties: {
+    action: { type: "string", enum: ["add", "list", "remove"] },
+    name: { type: "string", description: "add: a few words, like Morning news" },
+    task: { type: "string", description: "add: what you will do each time, as instructions to yourself" },
+    time_zone: { type: "string", description: "add: the owner's time zone, like Europe/Lisbon" },
+    in_minutes: { type: "number", description: "add, once: in this many minutes (2 to 10080)" },
+    at: { type: "string", description: "add, once: the owner's local date and time, like 2026-11-10 09:00" },
+    every: { type: "string", enum: ["hours", "day", "weekday", "week", "month"], description: "add, repeating" },
+    time: { type: "string", description: "add, repeating (not hours): the owner's local time, like 08:00" },
+    days: { type: "array", items: { type: "string", enum: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }, description: "add, every week: which days" },
+    day: { type: "number", description: "add, every month: the day of the month (1 to 28)" },
+    hours: { type: "number", description: "add, every hours: every this many hours (1 to 12)" },
+    until: { type: "string", description: "add, repeating: the last day, like 2026-12-31 (optional)" },
+    id: { type: "string", description: "remove: the schedule's id, from list" },
+  }, required: ["action"] },
+} });
+
+/** The tools Gloopy is offered: Coder's file, command and web tools and its cards, its browser, its sign-in card, its handoff and its schedules; none of Coder's GitHub or environment tools. */
+export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit", "grep", "glob", "web_fetch", "browser", "sign_in", "handoff", "schedule", "monitor", "stop_job", "ask_user", "todo", "notify"]);
+export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)), BROWSER_TOOL, SIGN_IN_TOOL, HANDOFF_TOOL, SCHEDULE_TOOL]);
 /** The tools that need a browser on the machine. */
 export const BROWSER_TOOL_NAMES = Object.freeze(["browser", "sign_in", "handoff"]);
 
@@ -71,6 +97,7 @@ HOW YOU WORK
 - For a quick fact, search; to read one page, web_fetch; to use a site (search forms, filters, menus, pages behind buttons, prices that change), your browser. Look at the outline and the screenshot before each click, and say what you found with the page's address.
 - When a site needs the owner's account, use sign_in: they sign in on a private card and you never see the password. Never type passwords yourself, and never ask for them in the chat.
 - When a step needs the owner themselves (a CAPTCHA, a passkey or single sign-on, a code sent to them, card details), use handoff: they take over your browser, do it, and hand it back. The owner can also watch your browser live and take over at any time; if the page changed when you look again, they may have used it.
+- For anything later or repeating (a reminder, a daily check, coming back to a job when something should have changed), use schedule; the owner approves each new one on a card. A message that starts with "(Scheduled run" is one of those runs: do its task, and notify the owner when the task says so or when something needs them.
 - Some browser steps (a click, a choice, a submit) are checked first; one that could buy, send, book, post, sign up or delete waits for the owner's OK on a card. If the owner says no, don't try it another way: say what you would have done, and stop.
 - Your commands start in your work folder. Files there may not be kept from one day to the next yet: put what the owner needs in your answer itself (text, tables, links).
 - Check before you say something is true: give a link for each fact you looked up, and say plainly what you could not find or check. Never make up results, prices, dates, names or quotes.
@@ -97,7 +124,7 @@ export const GLOOPY_NOTES_MAX = 25000;
  * `machine`: the machine's tools text (Coder's MACHINE_TOOLS on the full image), or "". `browser`: false on a machine with no
  * browser (Coder's small image), where Gloopy is not offered it.
  */
-export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true } = {}) {
+export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [] } = {}) {
   const notes = String(memory || "").slice(0, GLOOPY_NOTES_MAX);
   const day = new Date(now).toISOString().slice(0, 10);
   return [
@@ -109,5 +136,6 @@ export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir 
     machine ? machine : "",
     "NETWORK: your computer can reach any site on the internet.",
     browser ? "" : "YOUR BROWSER is not on this computer right now (it is a small backup machine): use your web search and web_fetch instead, and say so if the job needed the browser.",
+    "YOUR SCHEDULES (approved by the owner; schedule list says more): " + (Array.isArray(schedules) && schedules.length ? "\n" + schedules.slice(0, 20).map(scheduleLine).join("\n") : "none."),
   ].filter(Boolean).join("\n\n");
 }

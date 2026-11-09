@@ -15,6 +15,7 @@ import { runReviewJobs } from "./src/coder-review.mjs";
 import { runWatchedJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
 import { controlKeySync } from "./src/coder-control.mjs";
 import { flyOn, flyBox, runFlyMachines, dropFlyMachine, snapshotChat, cacheUsable, copyState } from "./src/coder-fly.mjs";
+import { runGloopySchedules } from "./src/gloopy-schedules.mjs";
 
 /**
  * CODER'S CONTAINER: a developer machine (Node, Python, git, build tools), one
@@ -81,6 +82,8 @@ export default {
     const job = (p) => { work.push(p); ctx.waitUntil(p); };
     job(runMentionJobs(env, { coder }).catch((e) => console.log("coder jobs: " + String((e && e.message) || e).slice(0, 200))));
     job(runWatchedJobs(env, { coder }).catch((e) => console.log("coder watch: " + String((e && e.message) || e).slice(0, 200))));
+    // GLOOPY'S SCHEDULES (2026-11-09): the runs that are due start now, each as a message for that person's Gloopy.
+    job(runGloopySchedules(env, { coder }).catch((e) => console.log("gloopy schedules: " + String((e && e.message) || e).slice(0, 200))));
     // CODE REVIEW (owner item 11, like Claude Code's): the reviews GitHub's news asked for, as Coder's app.
     job(runReviewJobs(env, { token: (i) => installationToken(env, i) }).catch((e) => console.log("coder review: " + String((e && e.message) || e).slice(0, 200))));
     // FLY.IO (2026-11-07): machines with nothing to do for 10 minutes are stopped, old ones removed.

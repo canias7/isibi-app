@@ -11,6 +11,29 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's schedules, and waking itself up (your word: "Ok go but we are gonna do the frontend differently tho")
+
+- **What it does now:** Gloopy can do things on its own later, like Grok Bot's routines and dots' recurring tasks.
+  - **Once:** "in 30 minutes", or at a time ("tomorrow at 9"). This is also how it wakes itself up to come back to a job.
+  - **Again and again:** every 1 to 12 hours, every day, every weekday, some days of the week, or one day of the month, at a time, with an end day if you want.
+  - Always in your time zone (from its notes), clock changes included.
+- **Your OK first, every time:** each new schedule shows a card, e.g. "Gloopy wants to run “Morning news” every weekday at 08:00 (Europe/Lisbon)", with the task, the first run, and Deny or Allow. Each run is a message for Gloopy, so it uses Grok (the spending rule).
+- **Stopping one:** just ask Gloopy ("stop the morning news"). No card is needed, since stopping costs nothing.
+- **How it runs:** Coder's Worker keeps the schedules. Its every-minute job starts each one when it's due, as a message to Gloopy in its chat. The chat shows a line, "Scheduled: “Morning news” · every weekday at 08:00 (Europe/Lisbon)", never something you wrote. Gloopy notifies you when the task says to.
+- **Spending limits:**
+  - At most 10 schedules and 24 scheduled runs a day per person.
+  - If Gloopy is busy with another message, the run waits (it's checked every minute). After 30 minutes it's skipped, and the chat says so.
+  - The same goes if Gloopy's computer can't start it.
+- **The frontend:** you'll do it differently, so I only changed the minimum.
+  - The existing approval card now shows a schedule's task and offers Deny or Allow (no "Always allow" for schedules).
+  - Schedule steps get a clock icon, and runs show as a line in the chat.
+  - There's no schedules screen. For your frontend, the list comes with Gloopy's tab data, and a route lists and stops them (`/api/coder/projects/gloopy-main/schedules`).
+- **Tried here** with the Worker and Gloopy's machine (a stand-in for Grok):
+  - You ask, the card comes, you allow it, and it's kept. At its time the every-minute job starts it, the line shows in the chat, and Gloopy notifies you. You ask Gloopy to stop it, and it's gone. One you deny isn't kept.
+  - Times were checked in Lisbon, New York and Tokyo, including the March clock change.
+- **Your call:** dots wakes itself up without asking. Gloopy needs your OK for every wake-up. A daily allowance (say, up to 5 wake-ups a day without a card) is possible if you want it.
+- Tests GL29–GL34. All 289 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Watch Gloopy's browser live, and take over (your word: "Ok you can start")
 
 - **Tools vs features (you asked):** a tool is something the AI itself calls, like `browser` or `sign_in`. Watching live and taking over is mostly an app feature for you, plus one new tool for Gloopy: `handoff`.

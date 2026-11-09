@@ -41,6 +41,8 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
+import { readSchedules, writeSchedules, schedulesForTurn, addSchedule } from "./gloopy-schedules.mjs";
+import { cleanSchedule, whenLocal } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
@@ -550,7 +552,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await getJson(bucket, gloopyRulesKey(uid), []), browser: flyOn(env) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await getJson(bucket, gloopyRulesKey(uid), []), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -615,6 +617,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if ((action === "approve" || action === "signin" || action === "handoff") && request.method === "POST") return gloopyCard(g, action);
     if (action === "screen" && request.method === "GET") return gloopyScreen(g);
     if (action === "screen" && request.method === "POST") return gloopyTakeOver(g);
+    if (action === "schedules") return gloopySchedules(g);
     if (action !== "stop") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
 
@@ -1353,6 +1356,9 @@ async function gloopyMessage(g) {
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev], compacted: true });
   }
+  // A SCHEDULED RUN (2026-11-09; src/gloopy-schedules.mjs): started by the every-minute check, its words are the task the
+  // owner approved; the chat shows a line saying which schedule it is, not a message from the owner.
+  const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120) } : null;
   let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
   // WHAT HAPPENED TO THE LAST CARD (a step the owner allowed or not, a sign-in, a handoff), and the owner having taken over
   // Gloopy's browser meanwhile: said to Gloopy just before this message.
@@ -1387,7 +1393,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: text || "(see the picture)", images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? "Scheduled: “" + sched.name + "” · " + sched.when : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1410,7 +1416,7 @@ async function gloopyMessage(g) {
  * Coder's does.
  */
 async function gloopyState(g) {
-  const { env, bucket, uid, id, meta, url, call, post } = g;
+  const { env, bucket, uid, user, id, meta, url, call, post } = g;
   if (url.searchParams.get("seen") === "1") {
     const was = await getJson(bucket, seenKey(uid), null);
     if (!was || was.id !== id || Date.now() - Number(was.at) > 15_000) await putJson(bucket, seenKey(uid), { id, at: Date.now() }).catch(() => {});
@@ -1448,7 +1454,11 @@ async function gloopyState(g) {
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
     const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff"].includes(e.type)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
-    const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
+    // Schedules Gloopy stopped in this turn come off now.
+    const stopped = Array.isArray(s.result.scheduleRemovals) ? s.result.scheduleRemovals.filter((x) => typeof x === "string") : [];
+    if (stopped.length) { const sd = await readSchedules(bucket, uid); sd.items = sd.items.filter((x) => !stopped.includes(x.id)); await writeSchedules(bucket, uid, user.email, sd); }
+    const asks = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" ? cleanSchedule(s.result.approvalRequest.schedule) : null;
+    const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
     const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
     const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
     await saveMeta(bucket, uid, ended);
@@ -1476,7 +1486,19 @@ async function gloopyCard(g, action) {
   if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser." }[action] }, 409);
   const site = String(p.site || "the site");
   let note = "", said = "", grant = "";
-  if (action === "approve") {
+  if (action === "approve" && p.schedule) {
+    // A NEW SCHEDULE (2026-11-09): kept here when the owner allows it; nothing to do on Gloopy's computer.
+    if (body.decision !== "once" && body.decision !== "always") { note = "(Note from Gloopy's app, not the owner: the owner said no to the schedule: " + p.step + ". Nothing was scheduled. Don't set it up another way.)"; said = "Denied: " + p.step; }
+    else {
+      try {
+        const sd = await readSchedules(bucket, uid);
+        const item = addSchedule(sd, p.schedule, Date.now());
+        await writeSchedules(bucket, uid, g.user.email, sd);
+        note = "(Note from Gloopy's app, not the owner: the owner approved the schedule: " + p.step + ". It is kept as " + item.id + "; its first run is " + whenLocal(item.next, item.tz) + " (" + item.tz + "). Tell the owner so in a line, and that they can ask you to stop it any time.)";
+      } catch (e) { note = "(Note from Gloopy's app, not the owner: the owner approved the schedule " + p.step + ", but it could not be kept (" + String((e && e.message) || e).slice(0, 200) + "). Tell the owner.)"; }
+      said = "Allowed: " + p.step;
+    }
+  } else if (action === "approve") {
     const decision = ["once", "always", "deny"].includes(body.decision) ? body.decision : "deny";
     if (decision === "always") {
       const rules = await getJson(bucket, gloopyRulesKey(uid), []);
@@ -1518,6 +1540,24 @@ async function gloopyCard(g, action) {
   const next = { ...meta, pending: null, waiting: null, note, grant, ...(action === "handoff" && body.skip !== true ? { used: false } : {}), at: Date.now() };
   await saveMeta(bucket, uid, next);
   return json({ ok: true, said, project: next });
+}
+
+/**
+ * GLOOPY'S SCHEDULES, FOR THE PAGE (2026-11-09; the page's own screen for them comes later, the owner's way): GET lists
+ * them; POST { remove: id } stops one at once (stopping costs nothing, so it needs no card), and Gloopy hears of it with
+ * the next message.
+ */
+async function gloopySchedules(g) {
+  const { request, bucket, uid, user } = g;
+  const sd = await readSchedules(bucket, uid);
+  if (request.method === "GET") return json({ ok: true, schedules: schedulesForTurn(sd) });
+  if (request.method !== "POST") return json({ error: "Gloopy has no schedules " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const it = sd.items.find((x) => x.id === String(body.remove || ""));
+  if (!it) return json({ error: "No schedule has that id." }, 404);
+  sd.items = sd.items.filter((x) => x !== it);
+  await writeSchedules(bucket, uid, user.email, sd);
+  return json({ ok: true, removed: it.id, schedules: schedulesForTurn(sd) });
 }
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */
