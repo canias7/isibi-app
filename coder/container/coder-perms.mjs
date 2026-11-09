@@ -313,6 +313,8 @@ function fullPath(word, cwd) {
   if (!word || word.expand || word.subst || word.tilde) return "";
   const p = word.text;
   if (!p) return "";
+  // (A folder that can't be known before the command runs, `false`: a short path there has no known place.)
+  if (cwd === false && !p.startsWith("/")) return "";
   return normalPath(p.startsWith("/") ? p : (cwd || "/") + "/" + p);
 }
 /** A full path with its `.` and `..` worked out and no trailing slash (a `..` at the top stays there, as for the shell). */
@@ -442,11 +444,26 @@ const NO_FILE = new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"])
  * command, nested ones too; `writes`: each file it writes through a redirection or tee (`{ path, raw }`, path "" when
  * unknown); `reads`: each input redirection's file; `cdAway`: a cd out of the folder it starts in, before other commands.
  */
+/**
+ * A PATH WRITTEN FROM "$PWD" (Claude Code 2.1.321: "Fixed Bash reads such as `grep -r foo "$PWD/src"` asking for permission
+ * when the same command with the path typed out runs without asking"; its own pattern: a word that is all one double-quoted
+ * "$PWD/…" or "$(pwd)/…" with a plain path after it): read as that path, from the folder the command is in at that point.
+ * Never when that folder can't be known, nor in a command that sets PWD itself.
+ */
+const PWD_WORD = /^"(?:\$PWD|\$\(pwd\))(\/[^"$`\\\n]*)"$/;
+const SETS_PWD = /(^|[^A-Za-z0-9_])PWD\+?=|\b(?:export|declare|typeset|local|readonly|read|unset|mapfile|readarray|getopts|printf)\b[^;&|\n]*\bPWD\b/;
+const pwdWord = (w, dir) => { const m = w && dir !== false && !w.tilde ? PWD_WORD.exec(String(w.raw || "")) : null; return m ? { ...w, text: normalPath(dir + m[1]), expand: false, subst: false, quoted: true } : w; };
 export function readCommand(command, { cwd = "/" } = {}) {
   const r = parseShell(String(command || ""));
   const writes = [], reads = [];
   let dir = cwd, cdAway = false, unsureDir = false;
+  const setsPwd = SETS_PWD.test(String(command || ""));
   for (const c of r.commands) {
+    // THE FOLDER THIS PART RUNS IN (Claude Code 2.1.321: "Fixed a case where Bash permission checks judged a file write from
+    // the wrong folder and didn't prompt"): where the cds before it at the top level left it, or unknown (`false`) once a cd
+    // could have gone anywhere, or ran inside a subshell, a function or a $(…) (its folder is then not the one tracked here).
+    c.dir = unsureDir ? false : dir;
+    if (!setsPwd && c.dir !== false) { c.words = c.words.map((x) => pwdWord(x, c.dir)); for (const x of c.redirects) if (x.target) x.target = pwdWord(x.target, c.dir); }
     const w = unwrapped(c.words);
     const prog = w[0] ? basename(w[0].text) : "";
     for (const x of c.redirects) {
@@ -460,9 +477,9 @@ export function readCommand(command, { cwd = "/" } = {}) {
     }
     if (prog === "tee") for (let k = 1; k < w.length; k++) { const t = w[k].text; if (t === "--" || (t.startsWith("-") && t.length > 1)) continue; writes.push({ path: unsureDir && !t.startsWith("/") ? "" : fullPath(w[k], dir), raw: w[k].raw }); }
     if ((prog === "cd" || prog === "pushd" || prog === "popd") && c.top >= 0) {
-      const to = w[1] ? fullPath(w[1], dir) : "";
+      const to = w[1] ? fullPath(w[1], unsureDir ? false : dir) : "";
       if (!to || prog !== "cd") unsureDir = true; else if (to !== dir) { dir = to; cdAway = true; }
-    }
+    } else if (prog === "cd" || prog === "pushd" || prog === "popd" || prog === "chdir") unsureDir = true;
   }
   return { ok: r.ok, cmds: r.commands, writes, reads, cdAway, unsureDir };
 }
@@ -591,7 +608,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     const ro = commandReadOnly(c);
     // A cd out of the project, or into another folder before git (its hooks), is asked about (Claude Code's docs).
     if (ro && name === "cd") {
-      const to = c.words.length > 1 ? fullPath((readWords(c.words) || [])[1], cwd) : "";
+      const to = c.words.length > 1 ? fullPath((readWords(c.words) || [])[1], c.dir === undefined ? cwd : c.dir) : "";
       if (!to || !insideWork(to, workdirs)) { why = why || "This command changes to a folder outside the project."; parts.push(c); continue; }
       continue;
     }
@@ -601,7 +618,8 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
       continue;
     }
     if (editsOk) {
-      const fc = fileCommandTargets(c, cwd);
+      // (Its short paths from the folder this part runs in, not the one the command started in.)
+      const fc = fileCommandTargets(c, c.dir === undefined ? cwd : c.dir);
       if (fc && fc.sure) {
         const bare = fc.paths.map((p) => p.replace(/\/\*$/, ""));
         // A protected file is never approved by a rule (Claude Code: "permissions.allow rules … do not pre-approve

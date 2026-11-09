@@ -11,6 +11,24 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: The rest of the Bash docs, and today's Claude Code release (your question: "anything else from the batch docs ?")
+
+- I went through Claude Code's Bash docs again (fresh copies from today), its settings and variables, and Claude Code 2.1.321, released today. Four things were left. All four are done now:
+  - **Paths written from `$PWD`** (new in today's Claude Code). In Accept edits and Plan, `grep -r foo "$PWD/src"` used to ask, while the same command with the folder typed out didn't. Now it's read as that folder.
+  - **Background commands stop when memory runs critically low while the chat is idle**, as in Claude Code. This happens only after 30 minutes with no job running, and only while the machine is really short of memory (under 10% free and under 4 GB). Coder is told why, and not to restart the command on its own. `CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1` in the environment's variables turns it off.
+  - **`CODER_SHELL_PREFIX`** (Claude Code's `CLAUDE_CODE_SHELL_PREFIX`): a program of yours that wraps every command, for logging or auditing. It gets the whole command and runs it.
+  - **The effort level in each command's environment** as `GOFARTHER_CODER_EFFORT` (Claude Code's `CLAUDE_EFFORT`).
+- **A gap in the permission modes, found and fixed while doing this.** In Accept edits, `cd .husky && rm pre-commit` ran without asking, though it deletes a protected file. (`rm .husky/pre-commit` did ask.) Now each part of a command is checked from the folder it really runs in, so it asks. Claude Code fixed the same kind of bug today. The permission modes aren't live yet, so this never reached gofarther.dev.
+- **Not copied, on purpose:**
+  - Choosing zsh instead of bash (`CLAUDE_CODE_SHELL`). Coder's machine runs bash.
+  - Removing keys from commands' environments (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`). Coder's commands already get a bare environment; only your own variables reach them.
+  - Switching off the check of `bash -c '…'` scripts for dangerous removals (`CLAUDE_CODE_DISABLE_INLINE_SHELL_RM_PROMPT`). It turns off a safety check.
+  - Items only for Windows, PowerShell, macOS or Claude Code's desktop sessions.
+- **Different on purpose (your call):** background commands still stop after 2 hours at most. Claude Code lets a variable raise that. Coder keeps the cap because the machine stays awake on your bill while one runs.
+- **Still to come, separate from Bash:** hooks (Claude Code's own scripts that run around each tool), the Monitor tool, and Auto mode's second AI checker (needs your OK on cost).
+- **Tests:** CD336 to CD340 (5 new).
+- **Not live yet:** it goes in with the next merge.
+
 ## 2026-11-09: The last three Bash items from Claude Code's docs (your word: "Yes do that i thought we did that")
 
 - **1. Background commands stop at 5 GB of output, like Claude Code's.** Before, only a command still on screen was stopped at 5 GB; one in the background could fill the disk. Now it is stopped too. Its output file ends with Claude Code's own line, "Command killed: output file exceeded 5GB", then its exit code (137). Coder is told why, and the step shows "over 5 GB". The setup script is covered now as well (it had slipped past the check).

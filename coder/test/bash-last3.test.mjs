@@ -73,7 +73,7 @@ test("CD329 the memory cap's size and place, read as Claude Code 2.1.319 reads t
   // The job: set up from the environment's CODER_TOOL_MEMORY_LIMIT, given to the AI's commands and the owner's (never the tools).
   const s = serverSrc();
   assert.match(s, /const memVar = rawVars\.CODER_TOOL_MEMORY_LIMIT;\n\s+const cgSet = toolMemoryCgroup\(project, memVar\);/);
-  assert.match(s, /\.\.\.\(tool \? \{\} : \{ onMove, onProgress: [^\n]*memCg: typeof t\.memCgNow === "function" \? t\.memCgNow\(\) : "" \}\)/, "only a command's, never a tool's");
+  assert.match(s, /\.\.\.\(tool \? \{\} : \{ onMove, onProgress: [^\n]*memCg: typeof t\.memCgNow === "function" \? t\.memCgNow\(\) : ""[^\n]*\}\)/, "only a command's, never a tool's");
   assert.match(s, /console\.log\("tool cgroup: disabled \(" \+ cgSet\.why \+ "\)"\)/, "the machine's log says why there is none");
 });
 

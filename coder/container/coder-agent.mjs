@@ -297,6 +297,11 @@ export const BG_DEADLINE = "If the work in progress still needs it, start it aga
  * says "Command killed: output file exceeded 5GB").
  */
 export const BG_SIZE_NOTE = "Command killed: output file exceeded 5GB (exit code 137). Its output file holds everything it printed up to then: read only its end (tail), never all of it. If the work still needs the command, run it again so that it prints less (send what you need to a file, or filter it with grep or tail).";
+/**
+ * What Coder is told with one stopped because the machine ran critically low on memory while the chat was idle (Claude Code
+ * 2.1.321's words, with Coder's names).
+ */
+export const BG_MEMORY_NOTE = "This is not a failure of the command. Coder's machine stopped it because the system was critically low on memory while the chat was idle, which says nothing about the command or its own memory use, so there is nothing in it to debug. Do not start it again on your own, even if the work seems to need it: memory may still be short. Report what was stopped and why, and start it again only when asked. The owner can turn this behavior off with CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1 in the environment's variables; setting it from a shell command has no effect.";
 /** The same, with this chat's longest timeout in the background. */
 const bgDeadline = (maxMs) => BG_DEADLINE.replace("7200000 ms (120 minutes)", Math.round(maxMs) + " ms (" + Math.round(maxMs / 60000) + " minutes)");
 /**
@@ -310,6 +315,7 @@ export function bgEndNotice({ id = "", desc = "", command = "", log = "", code =
   const benign = Number.isInteger(code) && code !== 0 && command ? exitMeaning(String(command), code) : null;
   const said = why === "limit" ? name + " was stopped after reaching its background time limit"
     : why === "size" ? name + " was stopped: its output passed 5 GB"
+    : why === "memory" ? name + " was stopped because the system is running low on memory"
     : why === "owner" || why === "lost" ? name + " was stopped"
     : code === 0 ? name + " completed (exit code 0)"
     : benign && !benign.isError ? name + " completed (exit code " + code + (benign.message ? ": " + benign.message : "") + ")"
@@ -317,13 +323,14 @@ export function bgEndNotice({ id = "", desc = "", command = "", log = "", code =
     : name + " ended";
   const more = why === "limit" ? " The command was stopped after reaching its background time limit. " + bgDeadline(bgMaxMs)
     : why === "size" ? " " + BG_SIZE_NOTE
+    : why === "memory" ? " " + BG_MEMORY_NOTE
     : why === "owner" ? " The owner stopped it before it completed."
     : why === "lost" ? " Coder's machine had to stop it before it completed (its commands could not be paused while the machine worked on the files). Start it again only if the work still needs it."
     : "";
   const where = log ? " Its output is in " + log + (id ? " (ID: " + id + ")" : "") + "." : id ? " (ID: " + id + ")." : "";
   // FOR THE PAGE: the step that started it shows how it ended (✓, a failure's exit code, or stopped), not "running".
-  const ok = why !== "limit" && why !== "size" && why !== "owner" && why !== "lost" && (code === 0 || !!(benign && !benign.isError));
-  const label = why === "limit" ? "time limit" : why === "size" ? "over 5 GB" : why === "owner" || why === "lost" ? "stopped" : ok ? "" : Number.isInteger(code) ? "exit " + code : "ended";
+  const ok = why !== "limit" && why !== "size" && why !== "memory" && why !== "owner" && why !== "lost" && (code === 0 || !!(benign && !benign.isError));
+  const label = why === "limit" ? "time limit" : why === "size" ? "over 5 GB" : why === "memory" ? "low memory" : why === "owner" || why === "lost" ? "stopped" : ok ? "" : Number.isInteger(code) ? "exit " + code : "ended";
   return { said, note: said + "." + more + where, end: { ok, label } };
 }
 /**

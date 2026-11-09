@@ -127,13 +127,25 @@ export function envFileLine(value, project) {
   const path = v.startsWith("~/") ? '"$HOME"/' + shellWord(v.slice(2)) : v.startsWith("/") ? shellWord(v) : shellWord(join(project, v));
   return "if [ -r " + path + " ]; then . " + path + "; fi\n";
 }
+/**
+ * THE OWNER'S COMMAND PREFIX (Claude Code's CLAUDE_CODE_SHELL_PREFIX, under Coder's name CODER_SHELL_PREFIX: "Command prefix
+ * that wraps shell commands … Useful for logging or auditing. Setting a bare executable path such as `/path/to/logger.sh`
+ * runs each command as `/path/to/logger.sh '<command>'`. The wrapper receives the command line as a single shell-quoted
+ * argument in `$1`, so the wrapper must re-evaluate `$1` with a shell, for example `exec bash -c "$1"` … For Bash tool calls,
+ * `$1` contains the full shell invocation Claude Code assembles, including environment setup"). The prefix as given, or ""
+ * when unset or unusable (one line, at most 1,000 characters).
+ */
+export function shellPrefixOf(value) {
+  const v = String(value ?? "").trim();
+  return v && v.length <= 1000 && !/[\0\n\r]/.test(v) ? v : "";
+}
 /** A background command's exit code, by its process id, once it ended (the agent's notice says it, like Claude Code's). */
 export const BG_EXITS = new Map();
 /**
  * BACKGROUND COMMANDS THAT OUTLIVE THE ANSWER (tool 4, the owner, 2026-11-09: "do all of those"; Claude Code: one "keeps
  * running after a final response, until it exits, is stopped, or reaches its time limit", and Claude is told when it
  * ends). Every background command on this machine, by its process group: { project, id, pid, log, command, desc, cwd, at,
- * moved, deadline, box, end: null | { code, why: "exit" | "limit" | "size" | "owner" | "coder" | "lost", at }, told, stopping }.
+ * moved, deadline, box, end: null | { code, why: "exit" | "limit" | "size" | "memory" | "owner" | "coder" | "lost", at }, told, stopping }.
  * THE TIME LIMIT (Claude Code 2.1.285 and 2.1.288, in the cloud: "their `timeout` with `run_in_background`, default 30 min,
  * max 2 h"; "A moved command gets 30 minutes from the move"): then it is stopped and Coder is told.
  */
@@ -308,13 +320,71 @@ export async function logTail(file, n = BG_OUT_LINES) {
       .filter((l) => l.trim()).slice(-n).map((l) => l.slice(0, 300));
   } catch { return []; } finally { if (fh) await fh.close().catch(() => {}); }
 }
-/** THE EVERY-FEW-SECONDS LOOK: one past its time limit is stopped; one whose processes are all gone has ended. */
-export function checkJobs(now = Date.now()) {
+/**
+ * BACKGROUND COMMANDS STOPPED WHEN MEMORY RUNS CRITICALLY LOW WHILE THE CHAT IS IDLE (the owner, 2026-11-09: "anything else
+ * from the batch docs ?"; Claude Code's docs: "On macOS and Linux, Claude Code stops your running background tasks when the
+ * operating system reports critical memory pressure, provided the session has been idle for at least 30 minutes and no turn
+ * or subagent is running"; CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1 turns it off). As Claude Code 2.1.321 does it on
+ * Linux: critical is the kernel's memory stall ("some") of 150 ms in 2 seconds (here: 7.5% of the time since the last
+ * look); and only while memory is scarce (MemAvailable under 10% of MemTotal and under 4 GiB); never for a command started
+ * soon (30 minutes) after an earlier stop of this kind with no new message from the owner since. Under Coder's name:
+ * CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1 in the environment's variables, kept with each command when it started.
+ */
+export const PRESSURE_STALL = 150_000 / 2_000_000, PRESSURE_IDLE_MS = 30 * 60 * 1000, PRESSURE_AGAIN_MS = 30 * 60 * 1000;
+export const SCARCE_SHARE = 0.1, SCARCE_KIB = 4 * 1024 * 1024;
+/** The kernel's memory stall so far ("some", in microseconds), from /proc/pressure/memory; null when it can't be read. */
+export function memoryStallUs(read = () => readFileSync("/proc/pressure/memory", "utf8")) {
+  try { const m = /^some\b.*\btotal=(\d+)/m.exec(read()); return m ? Number(m[1]) : null; } catch { return null; }
+}
+/** Whether memory is scarce, from /proc/meminfo (as Claude Code reads it): `{ scarce, detail }`. */
+export function memoryScarce(read = () => readFileSync("/proc/meminfo", "utf8")) {
+  let text;
+  try { text = read(); } catch { return { scarce: false, detail: "/proc/meminfo unreadable" }; }
+  const total = Number((/^MemTotal:\s+(\d+) kB$/m.exec(text) || [])[1]), avail = Number((/^MemAvailable:\s+(\d+) kB$/m.exec(text) || [])[1]);
+  if (!(total > 0) || Number.isNaN(avail)) return { scarce: false, detail: "/proc/meminfo unparseable" };
+  return { scarce: avail / total < SCARCE_SHARE && avail < SCARCE_KIB, detail: "MemAvailable " + avail + " kB of " + total + " kB; scarce is under 10% and under 4 GiB" };
+}
+const PRESSURE = { at: 0, us: null, reaped: new Map(), said: new Map() };
+/** Why this background command is not stopped for memory now ("" when it is). `idleMs`: how long its chat has had no turn. */
+export function pressureSkip(j, { critical, idleMs, running, lastReap = 0, lastInput = 0, scarce = () => ({ scarce: false }) }) {
+  if (j.noReap) return "turned off (CODER_DISABLE_BG_SHELL_PRESSURE_REAP)";
+  if (!critical) return "pressure level is not critical";
+  if (running) return "a turn is running";
+  if (idleMs < PRESSURE_IDLE_MS) return "chat active in the last " + PRESSURE_IDLE_MS / 60000 + "m";
+  if (lastReap && j.at > lastReap && j.at - lastReap < PRESSURE_AGAIN_MS && lastInput <= lastReap) return "started soon after an earlier pressure stop, no new message since";
+  const m = scarce();
+  if (!m.scarce) return "host memory is not scarce" + (m.detail ? " (" + m.detail + ")" : "");
+  return "";
+}
+function checkPressure(now, { stall = memoryStallUs, scarce = memoryScarce } = {}) {
+  const live = [...JOBS.values()].filter((j) => !j.end && !j.stopping);
+  const us = live.length ? stall() : null;
+  const critical = us !== null && PRESSURE.us !== null && now > PRESSURE.at && (us - PRESSURE.us) / ((now - PRESSURE.at) * 1000) >= PRESSURE_STALL;
+  PRESSURE.at = now; PRESSURE.us = us;
+  if (!critical) return;
+  let mem = null;
+  for (const j of live) {
+    const t = turns.get(j.project);
+    const why = pressureSkip(j, { critical, running: !!(t && t.running), idleMs: t && !t.running ? now - (t.ended || t.started || now) : t ? 0 : now - j.at, lastReap: PRESSURE.reaped.get(j.project) || 0, lastInput: t ? t.started || 0 : 0, scarce: () => (mem = mem || scarce()) });
+    if (why) {
+      // (Each reason said at most every 10 minutes, as Claude Code logs it.)
+      const k = j.pid + ":" + why.slice(0, 40);
+      if (!PRESSURE.said.has(k) || now - PRESSURE.said.get(k) >= 600_000) { PRESSURE.said.set(k, now); console.log("background command " + j.id + ": memory-pressure stop skipped: " + why); }
+      continue;
+    }
+    console.log("background command " + j.id + ": stopped under critical memory pressure after " + Math.floor((now - ((t && (t.ended || t.started)) || j.at)) / 60000) + "m idle (" + (mem && mem.detail) + ")");
+    PRESSURE.reaped.set(j.project, now);
+    stopJob(j, "memory");
+  }
+}
+/** THE EVERY-FEW-SECONDS LOOK: one past its time limit is stopped; one whose processes are all gone has ended. (`memory`: the readings, for a test.) */
+export function checkJobs(now = Date.now(), memory = {}) {
   for (const j of JOBS.values()) {
     if (j.end) { if (j.told && now - j.end.at > JOB_KEEP_MS) JOBS.delete(j.pid); continue; }
     if (now >= j.deadline && !j.stopping) { stopJob(j, "limit"); continue; }
     if (!groupAlive(j.pid) && !j.stopping) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null);
   }
+  try { checkPressure(now, memory); } catch { /* never costs the look */ }
 }
 /**
  * A PICTURE A COMMAND PRINTED AS A DATA URL (Claude Code: "data:image/…;base64," output comes back as a picture), saved
@@ -367,7 +437,7 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "" } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "" } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -378,6 +448,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     // The command's own shell goes to its folder first, and follows where it ends.
     // (Then what every command of Coder's reads first: the startup file's aliases and functions, the owner's CODER_ENV_FILE.)
     command = (typeof start === "string" && start && start !== dir ? "cd -- " + shellWord(start) + " || exit 1\n" : "") + (typeof prefix === "string" ? prefix : "") + (follow ? cwdTrap(nonce) : "") + command;
+    // THE OWNER'S COMMAND PREFIX (shellPrefixOf): the whole of it, as one quoted word after the prefix.
+    if (typeof shellPrefix === "string" && shellPrefix) command = shellPrefix + " " + shellWord(command);
     // IN THE JOB'S ADMIN SANDBOX (coder-sandbox.mjs: as `dev`, with sudo for anything, in the room),
     // else in the room: started by this service (root) in the room's network, then made the AI's user (setpriv) before the command runs.
     // IN THE CHAT'S MEMORY CGROUP when it has one (`memCg`, see toolMemoryCgroup): started through CG_WRAP, by root, before
@@ -1865,9 +1937,12 @@ export async function ignoreNew(dir, gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE
  * and the chat's own link from Coder's Worker (the page opens it). The setup script gets GOFARTHER_CODER=1 only (its saved
  * copy serves other chats too).
  */
-export function coderMarks(project, chatUrl) {
+export function coderMarks(project, chatUrl, effort = "") {
   const url = typeof chatUrl === "string" && /^https:\/\/[A-Za-z0-9.-]{1,100}(:\d{1,5})?\/\?chat=[A-Za-z0-9%._~-]{1,100}$/.test(chatUrl) ? chatUrl : "";
-  return { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: String(project || ""), ...(url ? { GOFARTHER_CODER_CHAT_URL: url } : {}) };
+  // THE EFFORT LEVEL (Claude Code's CLAUDE_EFFORT: "Set automatically in Bash tool subprocesses … to the effort level setting
+  // when the subprocess starts … Only set when the current model supports the effort parameter").
+  const lvl = typeof effort === "string" && /^(low|medium|high|xhigh|max)$/.test(effort) ? effort : "";
+  return { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: String(project || ""), ...(url ? { GOFARTHER_CODER_CHAT_URL: url } : {}), ...(lvl ? { GOFARTHER_CODER_EFFORT: lvl } : {}) };
 }
 /**
  * THE CHAT'S LINK AS A COMMIT TRAILER (the owner, 2026-11-09: "yes i want that"; Claude Code's `Claude-Session: <url>`):
@@ -2138,7 +2213,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const ownerVars = safeVars(body.setup && body.setup.vars);
     const extraEnv = { ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
     // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks): after the owner's, so one of theirs cannot hide them.
-    Object.assign(extraEnv, coderMarks(project, body.chatUrl));
+    Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""));
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // WHERE THE COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): where the chat's last command left
     // them (body.cwd, kept by the Worker), while that is still the project's folder, one of the other repositories', or a
@@ -2161,6 +2236,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // moving … timed-out shell commands to the background automatically"): a command still running at its timeout is stopped.
     t.outLimits = bashOutputLimits(rawVars);
     t.noBg = varOn(rawVars.CODER_DISABLE_BACKGROUND_TASKS);
+    // NO MEMORY-PRESSURE STOP for this job's background commands (Claude Code's CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP).
+    t.noReap = varOn(rawVars.CODER_DISABLE_BG_SHELL_PRESSURE_REAP);
+    // THE OWNER'S COMMAND PREFIX (Claude Code's CLAUDE_CODE_SHELL_PREFIX, see shellPrefixOf): wraps each of the chat's commands.
+    t.shellPrefix = shellPrefixOf(rawVars.CODER_SHELL_PREFIX);
     // THE MEMORY CAP (CODER_TOOL_MEMORY_LIMIT, see toolMemoryCgroup): one memory cgroup for all of this chat's commands (the
     // AI's and the owner's own with !; never Coder's file tools, its git or the setup script). The machine's log says why
     // when there is none; nothing in a command's result names it (Claude Code: "the kernel kills a command, and nothing in
@@ -2381,7 +2460,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
           const onMove = (fn) => { t.movable = fn; };
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2403,7 +2482,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (r && r.background && r.pid && !tool) {
             const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
             // (`at`: when the command started, for "running for"; its time limit counts from the move to the background.)
-            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, moved: !inBg, deadline: Date.now() + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "" });
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, moved: !inBg, deadline: Date.now() + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true });
             r.jobId = id;
           }
           let told = "";

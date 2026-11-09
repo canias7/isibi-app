@@ -321,6 +321,16 @@ code in **each user's own GitHub**.
    Whatever root starts for the AI's commands is named in full (`NSENTER`, `SETPRIV`
    in `container/coder-room.mjs`): the AI's PATH starts with folders the AI can write.
    Tests: `test/bash-last3.test.mjs`.
+
+   And the last of them (owner, 2026-11-09: "anything else from the batch docs ?"):
+   background commands of a chat idle for 30 minutes are stopped under critical memory
+   pressure (`checkPressure`: the kernel's memory stall over 7.5% of the time, and
+   MemAvailable under 10% and under 4 GiB; `CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1`
+   turns it off); `CODER_SHELL_PREFIX` wraps each command (`shellPrefixOf`); the effort
+   level is `GOFARTHER_CODER_EFFORT` in each command's environment; and the permission
+   checks read a `"$PWD/…"` word as that path and judge each part of a command from the
+   folder it runs in (`c.dir`, unknown after a `cd` in a subshell, function or `$(…)`).
+   Tests: `test/bash-final.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
