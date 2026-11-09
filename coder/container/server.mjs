@@ -2206,8 +2206,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // the move). It goes on after the answer, and Coder is told when it ends.
           if (r && r.background && r.pid && !tool) {
             const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
-            const at = Date.now();
-            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at, moved: !inBg, deadline: at + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "" });
+            // (`at`: when the command started, for "running for"; its time limit counts from the move to the background.)
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, moved: !inBg, deadline: Date.now() + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "" });
             r.jobId = id;
           }
           let told = "";

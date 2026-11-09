@@ -678,7 +678,8 @@ test("CD25 (tool 4, part 2; the owner, 2026-11-09: \"do all of those\") a backgr
     assert.equal(alive(pid), true, "it goes on after the turn");
     // Listed: in the turn's end (the Worker keeps it with the chat), in the state, and for the Worker's every-minute look.
     assert.deepEqual(st.result.background.map((b) => [b.id, b.desc]), [["job1", "Wait a while"]]);
-    assert.ok(st.result.background[0].deadline - st.result.background[0].at === 30 * 60 * 1000, "moved at its timeout: 30 minutes from the move");
+    const span = st.result.background[0].deadline - st.result.background[0].at;
+    assert.ok(span >= 30 * 60 * 1000 + 900 && span < 30 * 60 * 1000 + 5000, "moved at its timeout (1 second in): 30 minutes from the move, its time counted from its start: " + span);
     assert.deepEqual((await (await fetch(base + "/state?project=shop-bgbg&since=0")).json()).background.map((b) => b.id), ["job1"]);
     let bs = await (await fetch(base + "/bgstate?project=shop-bgbg")).json();
     assert.deepEqual([bs.background.length, bs.untold, bs.running], [1, 0, false]);
