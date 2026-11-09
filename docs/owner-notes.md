@@ -11,6 +11,28 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit, live in the browser after deploy 73, with Claude Code side by side (your words: "merge and deploy and then start testing the edit tool" and "Remember to also do it in Claude Code so you can compare it")
+
+- **11 messages to Coder on gofarther.dev with Grok** (recording 19), and the same steps with Claude Code's own Edit on the same files.
+- **The same as Claude Code:**
+  - every answer's words (not found, appears twice, replace all, same text, no file, a new file made in new folders);
+  - Windows line endings and mixed endings;
+  - curly quotes typed straight;
+  - an old encoding refused and left untouched;
+  - UTF-16 and the byte-order mark kept;
+  - a link refused, naming the real file;
+  - a read-only file edited and kept read-only (live as Coder's normal user, the real test of today's fix);
+  - a file changed since it was read (Claude Code's note word for word, or "modified since read");
+  - 40 lines at once;
+  - a folder's instruction file shown after the edit.
+- **Different on purpose:**
+  - Coder's words for a folder and for a notebook are clearer (Claude Code gives a raw error, and points to a notebook tool Coder doesn't have yet);
+  - Coder always asks for protected files (Claude Code does in its normal mode);
+  - Coder runs the language checker after each code edit (Claude Code needs an add-on). Live, it caught `rate` and Grok fixed it.
+- **Cards:** Allow on `.husky/pre-commit` showed the change (`-npm test`, `+npm run lint`) and edited it. Don't allow on `.npmrc` showed the long line cut with "…" and left it alone.
+- **Not shown cleanly live** (Grok sent different input), but covered by the automated tests: an escape written out (`\u00e9`) and a real null character.
+- **Found:** for a Windows-line-ending file, the change shown under the step keeps a hidden character on each line. It looks right on screen, but copying the change gives a blank line after each line. Small fix, your call.
+
 ## 2026-11-09: Edit: the two small ones fixed, and a third pass through Claude Code's docs (your words: "Ok yea fix that , then go look at claude code docs again for the edit tool")
 
 - **Read-only files:** edit now changes them and leaves them read-only, as Claude Code does. For a read-only file that belongs to another user, it explains why it can't, instead of a raw "permission denied".
