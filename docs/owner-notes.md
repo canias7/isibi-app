@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy starts work from events: webhooks (your word: "2, 4"; files in and out come next)
+
+- **Webhooks, like Grok Bot's routines started by a call:** Gloopy can set up a web address that starts a task whenever a service calls it. That can be GitHub (a push, a new issue), a form, a store, a script, or Zapier, Make or IFTTT, which can pass on an email or a Slack message.
+- **You get a card** with the address, and its key when you press "Show key". Paste both into the service: the key goes in the header "Authorization: Bearer (key)", or, for GitHub, in the webhook's Secret box. Gloopy never sees the key. Nothing secret is stored either, because the key is made from the webhook's id.
+- **Each call sends Gloopy a message:** its task first, then what the call carried, marked as data from outside, never instructions. A GitHub issue that says "ignore your rules" is just text to it.
+- **Limits:**
+  - If Gloopy is busy, up to 5 calls wait and run when it's free, within 30 minutes.
+  - Calls count toward the same 24 runs a day as schedules.
+  - GitHub's first test call ("ping") starts nothing.
+- **A new permissions line, "Start on events":** Always allow for testing. Set to Ask first, you get a card before a webhook is set up. Set to Never, none are set up and calls are refused.
+- **Stopping one:** Gloopy can stop it, or you can from your page; its address stops working at once.
+- **Not yet:** email and Slack without Zapier. They need Gloopy's own email address (11 on the list) and connected apps (1).
+- Not tried live with Grok yet. Tests GL56–GL58 are new. All 313 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy pays with a card, both ways (your word: "can we try both")
 
 - **Both ways at once:**

@@ -731,6 +731,7 @@
     web: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01"/></svg>',
     cloud: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z"/></svg>',
     globe: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+    hook: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h8l-1 8 9-12h-8l1-8z"/></svg>',
     card: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/><path d="M6.5 15h4"/></svg>',
     lock: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2"/></svg>',
     clip: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
@@ -789,7 +790,7 @@
     read: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6', edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     write: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM12 18v-6M9 15h6', grep: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     glob: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', lsp: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', pay: 'M2.5 7.5a2.5 2.5 0 0 1 2.5-2.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5H5a2.5 2.5 0 0 1-2.5-2.5zM2.5 10h19M6.5 15h4', handoff: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M9 14l2 2 4-4', schedule: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2', helpers: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.1a4 4 0 0 1 0 7.8M22 21v-1a6 6 0 0 0-4-5.7', page: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', pay: 'M2.5 7.5a2.5 2.5 0 0 1 2.5-2.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5H5a2.5 2.5 0 0 1-2.5-2.5zM2.5 10h19M6.5 15h4', webhook: 'M13 2L4 14h8l-1 8 9-12h-8l1-8z', handoff: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M9 14l2 2 4-4', schedule: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2', helpers: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.1a4 4 0 0 1 0 7.8M22 21v-1a6 6 0 0 0-4-5.7', page: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
   function stepIcon(e) {
@@ -830,7 +831,7 @@
    * failed }], a step with no tool being a command.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -931,7 +932,7 @@
           (e.why ? '<p class="cd-secret-why">' + esc(e.why) + '</p>' : '') +
           // A NEW SCHEDULE (2026-11-09): its task, and no "Always allow" (each schedule is its own OK).
           (e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
-          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">Deny</button>' + (e.kind === 'schedule' ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + (e.kind === 'schedule' ? 'Allow' : 'Allow once') + '</button></div>' : '') + '</div>');
+          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">Deny</button>' + (e.kind === 'schedule' || e.kind === 'webhook' ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + (e.kind === 'schedule' || e.kind === 'webhook' ? 'Allow' : 'Allow once') + '</button></div>' : '') + '</div>');
       }
       else if (e.type === 'signin') {
         // THE PRIVATE SIGN-IN FORM (Gloopy, 2026-11-09; like Grok Bot's Secure Form and dots' private sign-in): what you type
@@ -972,6 +973,18 @@
                 '<label class="cd-sign-save"><input type="checkbox" id="cdPaySave"> Save this card, so next time you only type its security code (the code itself is never saved)</label>') +
             (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') +
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-pay-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-pay="' + esc(e.id) + '">Fill in card</button></div>' : '') + '</div>');
+      }
+      else if (e.type === 'hook') {
+        // A WEBHOOK GLOOPY SET UP (2026-11-09: "2"; Grok Bot's routine webhook fields): its address, and its key when the
+        // owner asks for it, to paste into the service that should call it.
+        const key = S.hookKey && S.hookKey.id === e.id ? S.hookKey.key : '';
+        out.push('<div class="cd-secret cd-hook"><div class="cd-secret-icon">' + ICON.hook + '</div><b class="cd-secret-t">Webhook: ' + esc(e.name || '') + '</b>' +
+          (e.task ? '<p class="cd-secret-why">' + esc(e.task) + '</p>' : '') +
+          '<p class="cd-secret-p">Gloopy does this task whenever a service calls this address with its key. Paste both into that service.</p>' +
+          '<span class="cd-secret-l">Address</span><code class="cd-hook-v">' + esc(e.url || '') + '</code>' +
+          '<span class="cd-secret-l">Key</span>' + (key ? '<code class="cd-hook-v">' + esc(key) + '</code>' : '<button type="button" class="cd-card-no cd-hook-show" data-hook-key="' + esc(e.id) + '">Show key</button>') +
+          '<p class="cd-hook-how">Send the key as the header <code>Authorization: Bearer &lt;key&gt;</code>. For a GitHub webhook: the address as the Payload URL, content type application/json, and the key as the Secret.</p>' +
+          (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '</div>');
       }
       else if (e.type === 'page') {
         // A PAGE GLOOPY MADE (2026-11-09; Grok Bot's page card, "the page's title and Open"): it opens the latest version;
@@ -1582,6 +1595,15 @@
       if (!S.project) return;
       e.currentTarget.disabled = true;
       cardAnswer(e.currentTarget.dataset.paySkip, 'card', { skip: true }, 'Your answer could not be sent.');
+    });
+    // A WEBHOOK'S KEY, shown on its card when the owner asks (2026-11-09).
+    on('[data-hook-key]', 'click', async (e) => {
+      const id = e.currentTarget.dataset.hookKey;
+      if (!S.project) return;
+      e.currentTarget.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/webhooks', { method: 'POST', body: JSON.stringify({ reveal: id }) });
+      if (r.status !== 200 || !r.data || !r.data.key) { S.cardMsg = { id, text: (r.data && r.data.error) || 'The key could not be shown.' }; return draw(); }
+      S.cardMsg = null; S.hookKey = { id, key: r.data.key }; draw();
     });
     on('[data-handoff-open]', 'click', () => { if (S.web) webTake(); else webOpen(true); });
     on('[data-page-open]', 'click', (e) => openPage(e.currentTarget.dataset.pageOpen));

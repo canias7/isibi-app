@@ -12,6 +12,7 @@
 
 import { cleanSchedule, nextRun, whenWords, whenLocal, SCHEDULES_MAX, RUNS_PER_DAY, WAKEUPS_MAX } from "../container/gloopy-schedule.mjs";
 import { cleanPermissions } from "../container/gloopy-permissions.mjs";
+import { eventText, HOOK_QUEUE_MAX, HOOK_TEXT_MAX } from "./gloopy-webhooks.mjs";
 
 /** Gloopy's chat (src/coder-routes.mjs GLOOPY_ID). */
 export const GLOOPY_CHAT = "gloopy-main";
@@ -37,8 +38,10 @@ export async function readSchedules(bucket, uid) {
   const d = await getJson(bucket, schedulesKey(uid), null);
   const items = (d && Array.isArray(d.items) ? d.items : []).map((x) => {
     const s = cleanSchedule(x);
-    return s && typeof x.id === "string" && /^s[a-z0-9]{4,20}$/.test(x.id) ? { id: x.id, ...s, next: Number.isFinite(x.next) ? x.next : null, last: Number(x.last) || 0, runs: Number(x.runs) || 0, at: Number(x.at) || 0, ...(x.self === true && Number.isFinite(s.once) ? { self: true } : {}) } : null;
-  }).filter((x) => x && x.next !== null).slice(0, SCHEDULES_MAX);
+    // A webhook call waiting while Gloopy was busy (2026-11-09) is a one-time item carrying what the call brought.
+    const ev = Number.isFinite(s && s.once) && x.event && typeof x.event === "object" && typeof x.event.data === "string" ? { event: { hook: String(x.event.hook || "").slice(0, 30), data: x.event.data.slice(0, HOOK_TEXT_MAX + 2000), at: Number(x.event.at) || 0 } } : {};
+    return s && typeof x.id === "string" && /^s[a-z0-9]{4,20}$/.test(x.id) ? { id: x.id, ...s, next: Number.isFinite(x.next) ? x.next : null, last: Number(x.last) || 0, runs: Number(x.runs) || 0, at: Number(x.at) || 0, ...(x.self === true && Number.isFinite(s.once) ? { self: true } : {}), ...ev } : null;
+  }).filter((x) => x && x.next !== null).slice(0, SCHEDULES_MAX + HOOK_QUEUE_MAX);
   return { items, day: d && typeof d.day === "string" ? d.day : "", runs: d && Number.isInteger(d.runs) ? d.runs : 0 };
 }
 
@@ -51,15 +54,18 @@ export async function writeSchedules(bucket, uid, email, data) {
 }
 
 /** The schedules as Gloopy is told of them with each message (and as the page may show them). */
+/** The schedules themselves (not webhook calls waiting their turn). */
+const own = (data) => data.items.filter((x) => !x.event);
+
 export function schedulesForTurn(data) {
-  return data.items.map((s) => ({ id: s.id, name: s.name, when: whenWords(s), nextLocal: s.next ? whenLocal(s.next, s.tz) : "", task: s.task.slice(0, 600), ...(Number.isFinite(s.once) ? { once: true } : {}) }));
+  return own(data).map((s) => ({ id: s.id, name: s.name, when: whenWords(s), nextLocal: s.next ? whenLocal(s.next, s.tz) : "", task: s.task.slice(0, 600), ...(Number.isFinite(s.once) ? { once: true } : {}) }));
 }
 
 /** A new schedule, approved by the owner: kept with its first run; refused past SCHEDULES_MAX. Answers it, or throws. */
 export function addSchedule(data, spec, now = Date.now()) {
   const s = cleanSchedule(spec);
   if (!s) throw new Error("that schedule could not be read");
-  if (data.items.length >= SCHEDULES_MAX) throw new Error("Gloopy has " + SCHEDULES_MAX + " schedules already: ask it to stop one first");
+  if (own(data).length >= SCHEDULES_MAX) throw new Error("Gloopy has " + SCHEDULES_MAX + " schedules already: ask it to stop one first");
   const next = nextRun(s, now);
   if (next === null) throw new Error("that schedule's time has passed");
   const item = { id: "s" + crypto.randomUUID().replace(/-/g, "").slice(0, 10), ...s, next, last: 0, runs: 0, at: now };
@@ -76,7 +82,7 @@ export function addWakeups(data, specs, now = Date.now()) {
   for (const raw of Array.isArray(specs) ? specs.slice(0, WAKEUPS_MAX) : []) {
     const s = cleanSchedule(raw);
     if (!s || !Number.isFinite(s.once) || !(s.once > now)) continue;
-    if (data.items.filter((x) => Number.isFinite(x.once)).length >= WAKEUPS_MAX || data.items.length >= SCHEDULES_MAX) break;
+    if (own(data).filter((x) => Number.isFinite(x.once)).length >= WAKEUPS_MAX || own(data).length >= SCHEDULES_MAX) break;
     try { addSchedule(data, s, now).self = true; kept++; } catch { break; }
   }
   return kept;
@@ -93,11 +99,27 @@ export function addFromTurn(data, specs, perms, now = Date.now()) {
   if (p.schedule === "allow") {
     for (const raw of list.filter((x) => !Number.isFinite(x.once))) {
       const s = cleanSchedule(raw);
-      if (!s || data.items.length >= SCHEDULES_MAX) continue;
+      if (!s || own(data).length >= SCHEDULES_MAX) continue;
       try { addSchedule(data, s, now); kept++; } catch { /* its time has passed */ }
     }
   }
   return kept;
+}
+
+/** The day's count of runs, started over on a new day (UTC); whether one more may start today. */
+export function runsLeft(data, now = Date.now()) {
+  if (data.day !== utcDay(now)) { data.day = utcDay(now); data.runs = 0; }
+  return data.runs < RUNS_PER_DAY;
+}
+
+/**
+ * A WEBHOOK CALL WAITING WHILE GLOOPY IS BUSY (2026-11-09): kept as a one-time item due now, which the every-minute
+ * check starts once Gloopy is free (or skips, saying so, after LATE_MS). At most HOOK_QUEUE_MAX wait; false when full.
+ */
+export function queueEvent(data, { hook, name, task, data: said, at }) {
+  if (data.items.filter((x) => x.event).length >= HOOK_QUEUE_MAX) return false;
+  data.items.push({ id: "s" + crypto.randomUUID().replace(/-/g, "").slice(0, 10), name, task, tz: "UTC", once: at, next: at, last: 0, runs: 0, at, event: { hook, data: said, at } });
+  return true;
 }
 
 /** What Gloopy is sent for a run: when it is, and the task the owner approved (or that Gloopy set itself, for a wake-up). */
@@ -149,7 +171,8 @@ async function runDue(bucket, deps, rec, now) {
   const late = now - due.next > LATE_MS;
   const meta = await getJson(bucket, chatKey(rec.uid, "meta.json"), null);
   if (meta && meta.status === "running") return late ? skip("Gloopy was busy with another message for 30 minutes.") : "waiting";
-  const res = await deps.coder(new Request("https://gofarther.dev/api/coder/projects/" + GLOOPY_CHAT + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: scheduledText(due, now), scheduled: { id: due.id, name: due.name, when: whenWords(due), ...(due.self ? { wake: true } : {}) } }) }), { id: rec.uid, email: rec.email }).catch(() => null);
+  const text = due.event ? eventText(due.name, due.task, due.event.data, due.event.at || due.once, true) : scheduledText(due, now);
+  const res = await deps.coder(new Request("https://gofarther.dev/api/coder/projects/" + GLOOPY_CHAT + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, scheduled: due.event ? { id: due.event.hook, name: due.name, when: "a call to its web address", event: true } : { id: due.id, name: due.name, when: whenWords(due), ...(due.self ? { wake: true } : {}) } }) }), { id: rec.uid, email: rec.email }).catch(() => null);
   if (res && res.status === 200) {
     due.last = now; due.runs++; data.runs++;
     onward();

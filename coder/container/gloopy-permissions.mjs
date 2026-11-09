@@ -23,6 +23,7 @@ export const PERMISSIONS = Object.freeze([
   { key: "login", label: "Sign in with saved logins", hint: "Using a login you saved, without asking" },
   { key: "schedule", label: "Repeating schedules", hint: "Tasks that run every day or week (each run uses Grok)" },
   { key: "wake", label: "Wake-ups", hint: "Coming back to a job later on its own (each one uses Grok)" },
+  { key: "events", label: "Start on events", hint: "Web addresses (webhooks) that start a task when a service calls them (each run uses Grok)" },
 ].map((p) => Object.freeze(p)));
 export const PERMISSION_KEYS = Object.freeze(PERMISSIONS.map((p) => p.key));
 /** Ask: a card each time. Allow: always, without asking. Deny: never. */

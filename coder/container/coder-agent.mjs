@@ -27,7 +27,7 @@ import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS,
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide } from "./gloopy-check.mjs";
 import { cleanPermissions, allAllowed, permissionLabel } from "./gloopy-permissions.mjs";
-import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES } from "./gloopy-schedule.mjs";
+import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -526,7 +526,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/" } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -615,6 +615,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
   // when the turn ends).
   const scheduleRemovals = [], scheduleAdds = [];
+  // Gloopy's webhooks it set up and stopped in this turn (the Worker keeps them; it applies these when the turn ends).
+  const webhookAdds = [], webhookRemovals = [];
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
@@ -634,7 +636,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -721,7 +723,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "helpers" || c.name === "page")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -1050,6 +1052,48 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "result", id: c.id, code: 0, output: report.slice(0, MAX_OUTPUT_CHARS), label: "Helpers finished: " + list.map((t) => t.name).join(", ").slice(0, 200) });
         reply(report);
         if (runs.some((r) => r.status === "stopped")) { emit({ type: "stopped" }); return end("stopped"); }
+      } else if (c.name === "webhook") {
+        // STARTING WORK FROM EVENTS (owner, 2026-11-09: "2"; Grok Bot's routines started by a call to their web address,
+        // dots' event-triggered work): a webhook is kept by the Worker when the turn ends (or once the owner allows it on
+        // a card, as their settings say); its address is shown here, its key only to the owner, never to Gloopy.
+        const args = c.args || {};
+        const act = ["add", "list", "remove"].includes(args.action) ? args.action : "";
+        const mine = (Array.isArray(webhooks) ? webhooks : []).filter((x) => x && HOOK_ID.test(String(x.id || "")));
+        emit({ type: "bash", id: c.id, tool: "webhook", verb: act === "add" ? "Set up a webhook" : act === "remove" ? "Stopped a webhook" : "Looked at webhooks", command: act === "add" ? plain(String(args.name || "")).slice(0, 60) : act === "remove" ? plain(String(args.id || "")).slice(0, 30) : "" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!act) { no("error: action is add, list or remove"); continue; }
+        if (act === "list") { const out = mine.length ? mine.map(webhookLine).join("\n") : "no webhooks yet"; emit({ type: "result", id: c.id, code: 0, output: out }); reply(out); continue; }
+        if (act === "remove") {
+          const it = mine.find((x) => x.id === String(args.id || ""));
+          if (!it) { no("error: no webhook has that id (webhook list shows them)"); continue; }
+          if (!webhookRemovals.includes(it.id)) webhookRemovals.push(it.id);
+          const m = "stopped: " + plain(String(it.name || "")) + "; its address no longer starts anything";
+          emit({ type: "result", id: c.id, code: 0, output: m, label: "Stopped the webhook “" + plain(String(it.name || "")).slice(0, 60) + "”" });
+          reply(m);
+          continue;
+        }
+        if (perms.events === "deny") { no("not done: the owner's settings never allow this (" + permissionLabel("events") + "). Tell the owner it is turned off in Gloopy's settings."); continue; }
+        const w = cleanWebhook(args);
+        if (!w) { no("error: give name (a few words) and task (what you will do each time it is called)"); continue; }
+        if (mine.length - webhookRemovals.length + webhookAdds.length >= WEBHOOKS_MAX) { no("error: you have " + WEBHOOKS_MAX + " webhooks already: stop one first (webhook list shows them)"); continue; }
+        const hook = "h" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+        const url = String(hookBase || "") + hook;
+        if (perms.events === "ask") {
+          // THE OWNER'S OK FIRST (their settings say Ask first): a card; the turn ends there.
+          const id = "ap" + Math.random().toString(36).slice(2, 10);
+          const step = "Start “" + w.name + "” whenever its web address is called";
+          emit({ type: "result", id: c.id, code: 0, output: "Waiting for your OK: " + step, label: "Asked you first: " + step });
+          reply("asked the owner on a card (their settings ask first for webhooks). Your turn ends here; the next message says what they decided.");
+          for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
+          emit({ type: "approval", id, step, site: "", url: "", why: "Each call to its address starts a run (each run uses Grok).", detail: w.task.slice(0, 300), kind: "webhook" });
+          approvalRequest = { id, kind: "webhook", step, site: "", url: "", webhook: { id: hook, ...w } };
+          return end("done", { summary: lastSaid || "asked the owner to allow the webhook " + w.name });
+        }
+        webhookAdds.push({ id: hook, ...w });
+        emit({ type: "result", id: c.id, code: 0, output: "Set up “" + w.name + "”: it starts when " + url + " is called.", label: "Set up the webhook “" + w.name + "”" });
+        emit({ type: "hook", id: hook, name: w.name, task: w.task.slice(0, 300), url });
+        reply("kept (the owner's settings allow webhooks): “" + w.name + "” starts whenever its address is called: " + url + ". The owner gets the address and its key on a card in the chat (you never see the key). Tell them to paste both into the service that should call it: the address, and the key as the header Authorization: Bearer <key>; for a GitHub webhook, the address as the Payload URL, content type application/json, and the key as the Secret.");
+        continue;
       } else if (c.name === "schedule") {
         // GLOOPY'S SCHEDULES (2026-11-09; gloopy-schedule.mjs): the Worker keeps them and sends their list with each
         // message. A new one waits for the owner's OK on a card (each run uses Grok), and the turn ends there; one stopped

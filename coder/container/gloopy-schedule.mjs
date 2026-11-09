@@ -176,3 +176,27 @@ export function scheduleLine(x) {
   const s = x && typeof x === "object" ? x : {};
   return "- " + [String(s.id || ""), String(s.name || ""), String(s.when || ""), s.nextLocal ? "next " + s.nextLocal : "", s.task ? "task: " + String(s.task).replace(/\s+/g, " ").slice(0, 200) : ""].filter(Boolean).join(" · ");
 }
+
+// ── WEBHOOKS: STARTING WORK FROM EVENTS (owner, 2026-11-09: "2"; Grok Bot's routines started by a call to their web
+// address, "Senders include it as Authorization: Bearer <key>"; dots' event-triggered work). A webhook is a web address
+// that starts a Gloopy run with its task each time a service calls it with its key (GitHub, a form, a store, a script, or
+// Zapier, Make or IFTTT passing on an email or a Slack message). What the call carries reaches Gloopy as data, never as
+// instructions. Its id is in its address; its key is made by Coder's Worker from its id and never reaches Gloopy.
+
+/** At most this many webhooks per person. */
+export const WEBHOOKS_MAX = 10;
+/** A webhook's id (the last part of its address). */
+export const HOOK_ID = /^h[a-z0-9]{20}$/;
+
+/** A webhook as Gloopy asked for it, checked: { name, task }, or null. */
+export function cleanWebhook(w) {
+  if (!w || typeof w !== "object") return null;
+  const name = plainText(w.name, 60), task = String(w.task || "").trim().slice(0, 2000);
+  return name && task ? { name, task } : null;
+}
+
+/** One line for Gloopy's list: its id, name, address and how often it was called. */
+export function webhookLine(w) {
+  const calls = Number(w.calls) || 0;
+  return "- " + w.id + " · " + plainText(w.name, 60) + " · " + String(w.url || "") + " · " + (calls ? "called " + calls + " time" + (calls === 1 ? "" : "s") + (w.last ? ", last " + new Date(w.last).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "") : "not called yet") + " · task: " + String(w.task || "").replace(/\s+/g, " ").slice(0, 160);
+}
