@@ -11,6 +11,39 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Bash (tool 4): parts 2 and 3, and the second check against Claude Code's docs (your words: "do all of those and double check again against the claude code docs pls")
+
+Not live yet: it needs your word to merge and deploy, then I test it all in the browser with Grok and record it.
+
+**Part 2: background commands keep running after Coder's answer**, like Claude Code's:
+
+- A command Coder starts in the background (a dev server, a watcher, a long build) keeps running after its answer, until it ends, is stopped, or reaches its time limit: 30 minutes, or the time Coder asks for, up to 2 hours (Claude Code's limits in the cloud). One moved to the background because it was slow gets 30 minutes from the move.
+- **Coder is told when one ends**, in Claude Code's words ("Background command "Start the dev server" completed (exit code 0)"). If Coder is idle, a short turn starts by itself just to tell it, as Claude Code does. You see the line in the chat and Coder's answer to it.
+- **The chat lists them** above the message box, each with how long it has run and a **Stop** button. Coder is told when you stop one.
+- **Your Stop button on a running turn** now stops only that turn's own commands; background ones keep going (Claude Code works the same way).
+- **The safety rule from the audit still holds:** nothing of the AI's may run while the machine's own code works on the chat's files (saving to GitHub, undo, preparing a message). Before, that was done by ending everything at the end of each turn. Now everything of the AI's is **paused** for that moment and resumed afterwards; anything that isn't a kept background command is ended. I tested the pause for real against programs that keep spawning new processes, threads, and a constant file writer: nothing ran or wrote while paused, 5 runs out of 5. If a pause ever fails, everything is ended as before.
+- The machine stays awake while a background command runs (2 hours at most), so it isn't put to sleep under it.
+- If the machine was restarted or slept while one ran, Coder is told at your next message that the work was lost, in Claude Code's words.
+
+**Part 3: run a command yourself with `!`**, like Claude Code's shell mode:
+
+- Start a message with `!`, e.g. `! npm test`. The box turns orange and says "Shell mode". The command runs on Coder's machine, the chat shows what it printed, and Coder then answers it (explains the failure, for example), as Claude Code does.
+- Not possible from GitHub comments (strangers can write there), and not with pictures attached.
+
+**Second check against Claude Code's docs and changelog** found these, now copied:
+
+- Aliases, functions and PATH from the machine's `~/.bashrc` are in every command (Claude Code's "shell snapshot"), so tools a setup script installed into `.bashrc` (nvm, for example) just work.
+- A variable you can set in Environment: `CODER_ENV_FILE`, a script run before every command (Claude Code's `CLAUDE_ENV_FILE`), e.g. to activate a Python virtualenv.
+- `BASH_DEFAULT_TIMEOUT_MS` and `BASH_MAX_TIMEOUT_MS` in Environment variables change the command time limits, as in Claude Code's cloud (Coder keeps a command within its 45-minute turn, and a background one within 2 hours).
+- A **Run in background** button on a running command (Claude Code's Ctrl+B): Coder moves on and is told when it ends.
+- A running command shows how long it has run, its time limit, and its last 5 lines.
+- A background `grep` that finds nothing counts as finished, not failed. A `gh` command that hits GitHub's rate limit gets Claude Code's hint to wait. When the network list blocks a site during a command, the result names the site and why.
+- Coder is reminded which background commands are still running at each message, so it won't start a second copy.
+
+**Not copied (on purpose):** the memory cap (Linux control groups), PowerShell and Windows, the local sandbox, permission rules and asking modes (you said "later"), and Claude Code's per-command file diff (it's off by default there). Background time limits above 2 hours aren't allowed in Coder, because the machine stays on your bill while one runs.
+
+**Tests:** CD276–CD286 added, and the old "background commands end with the turn" test rewritten; all 297 tests pass.
+
 ## 2026-11-09: Bash (tool 4): Claude Code's ways copied, part 1 (your words: "do all of those and double check again against the claude code docs pls")
 
 Copied from Claude Code's docs, from Claude Code itself (its own program text, and real tries of its Bash tool on my side, so the words are its own), into Coder:

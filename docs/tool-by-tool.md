@@ -558,3 +558,29 @@ Seen once, outside edit: the setup's saved copy could not be made ("Fly.io did n
 | Secrets | kept out of commands (cloud) | kept out | same |
 | A file shown by a command | counts as a read | counts as a read | same |
 | Your own command (`!`) | yes | no | missing |
+
+**Coder's bash after the copy** (2026-11-09; commits "part 1", "part 2", "part 3", "docs pass 2", "changelog pass"; tests CD267–CD286):
+
+| | Claude Code | Coder now | |
+|---|---|---|---|
+| Inputs | `command`, `description`, `timeout` (ms), `run_in_background` | the same (and `command_description`, `timeout_s`) | same |
+| Timeouts | 2 min default, 10 max; `BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS` | the same, read from the environment's variables (a foreground command kept within Coder's 45-minute turn) | same |
+| `cd` | carries over; "Shell cwd was reset to"; "Session cwd remains" | the same | same |
+| Startup file | aliases, functions, options, PATH of `~/.bashrc` in every command (a snapshot); `CLAUDE_ENV_FILE` | the same (snapshot at each message's start, after the setup script); `CODER_ENV_FILE` | same |
+| At the timeout | moved to the background, except `sleep`, in its words; "No output had been read from it…" | the same | same |
+| You move it (Ctrl+B) | "Command was manually backgrounded by user" | the page's "Run in background" button, the same words | same |
+| Background after the answer | keeps running (cloud: 30 min, `timeout` up to 2 h, moved 30 min from the move); Claude told when it ends, a turn of its own when idle; "stopped after reaching its background time limit" with its advice | the same; the machine paused (not ended) while root works on the files, so the audit's rule holds | same |
+| Background list | `/tasks`, with Stop; Claude told when you stop one | a list above the message box, with Stop; Coder told | same |
+| Lost with the machine | "The container running this session was restarted before background work reported back…" | the same words, for the chat's machine | same |
+| Output | ~30,000 characters inline, more saved to a file with a 2,000-character preview; failures ~10,000, head and tail | the same | same |
+| Exit code 1 | not a failure for grep, rg, find, diff, test, git diff, git grep (background ones too: "completed (exit code 1: No matches found)") | the same | same |
+| Protected files | `>`, `>>`, `2>`, `tee` targets asked about | the same card | same |
+| `rm` | critical paths, variables, `$(…)`, `bash -c`, refused away from a terminal | the same, in its words | same |
+| Long commands | over 10,000 characters asked about | the same | same |
+| Full disk | said in words, the folder named | the same | same |
+| Pictures in output | a data URL comes back as a picture | the same | same |
+| Running command | its last 5 lines, how long it has run beside its timeout | the same, on the page | same |
+| `gh` rate limit | a hint to wait | the same hint | same |
+| Blocked network request | the host and the reason | the same, from Coder's proxy | same |
+| Your own command (`!`) | runs it, adds `<bash-input>`/`<bash-stdout>` to the conversation, Claude answers | the same (never from GitHub) | same |
+| Not copied | memory cgroup, PowerShell/Windows, local sandbox, permission rules and modes (the owner: "later"), the per-command file diff (off by default), background limits over 2 h | | |
