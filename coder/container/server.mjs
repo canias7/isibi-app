@@ -26,6 +26,7 @@ import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSyn
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
+import { GLOOPY_SYSTEM, GLOOPY_TOOLS, gloopyContext } from "./gloopy-agent.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
@@ -1557,6 +1558,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   async function startTurn(body, { copy = "" } = {}) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
+    // GLOOPY (owner, 2026-11-09: one personal assistant per person, on Coder's engine; container/gloopy-agent.mjs): a
+    // chat with no repository, Gloopy's own instructions, tools and notes, and the whole internet (it has no environment:
+    // no setup script, no variables, no network list, no other repositories).
+    const gloopy = body.agent === "gloopy";
+    if (gloopy) {
+      if (body.repo) return [400, { error: "Gloopy works without a repository" }];
+      body = { ...body, setup: { script: "", vars: {}, network: { mode: "full" } }, extra: [], secrets: [] };
+    }
     const cur = turns.get(project);
     if (cur && cur.running) return [409, { error: "busy" }];
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
@@ -1803,6 +1812,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     };
     const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", ins.later);
+    // Gloopy's own context instead (given to runCoder below): its notes about the owner, today's date, its work folder,
+    // its machine and its network.
+    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH });
     const lastSend = async () => { if (sender) await sender.flush(); };
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
@@ -1884,6 +1896,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // the background could swap a folder on the way to a rule file for a link): the memory file and the repository's
         // top-level CODER.md or AGENTS.md (topNotes); the rest stays as it was read before any command ran.
         freshContext: async () => contextFor(await topNotes(dir, notes), (await readMemory(memFile)) ?? "", later),
+        ...(gloopy ? { freshContext: async () => gloopyNow((await readMemory(memFile)) ?? "") } : {}),
         // The file tools follow the files Coder read or changed (CODER_SEEN_DIR), so a command that changes one says so.
         seen: true,
         afterFile: ({ tool, args }) => {
@@ -1891,7 +1904,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, tools: GLOOPY_TOOLS, nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .finally(() => {

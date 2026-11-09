@@ -517,7 +517,11 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder" } = {}) {
+  // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
+  // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
+  // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
+  const offered = Array.isArray(tools) ? new Set(tools.map((t) => t && t.function && t.function.name).filter(Boolean)) : null;
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -606,8 +610,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
-    if (rounds >= maxRounds) { emit({ type: "error", text: "Coder reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
-    if (now() - started > maxMs) { emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
+    if (rounds >= maxRounds) { emit({ type: "error", text: who + " reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
+    if (now() - started > maxMs) { emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
     rounds++;
     // A LONG JOB IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact "when the context
     // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
@@ -626,7 +630,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room"));
           compactions++;
           if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
-          emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows them all." });
+          emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for " + who + ", to make room (like Claude Code's auto-compact). The chat still shows them all." });
           // The files it was working on, read again, go with the summary (not a message of the owner's).
           const again = await rereadFiles(deps, convo.slice(jobStart + 2), touched, emit, { most: rereadRoom });
           if (again) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + again };
@@ -641,7 +645,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       }
     }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "") + (context ? "\n\n" + context : "") }, ...convo], tools: github ? GITHUB_TOOLS : CODER_TOOLS, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? tools : github ? GITHUB_TOOLS : CODER_TOOLS, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
@@ -662,7 +666,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     // (or the answer to a question, or a greeting).
     saidAll += "\n" + said;
     const raised = /setup/i.test(saidAll) && /fail|exit/i.test(saidAll);
-    if (!calls.length && setupFailed && !setupNudged && !raised && !github && !undoRequest) {
+    if (!calls.length && nudges && setupFailed && !setupNudged && !raised && !github && !undoRequest) {
       setupNudged = true;
       if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
       const why = setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code;
@@ -670,7 +674,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       continue;
     }
     const missing = [...installs].filter((x) => !String(setupScript).includes(x));
-    if (!calls.length && missing.length && !nudged && !github && !undoRequest) {
+    if (!calls.length && nudges && missing.length && !nudged && !github && !undoRequest) {
       nudged = true;
       if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
       convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + ", which the environment's setup script does not do. If every new chat will need it, propose the whole setup script with it added, using propose_env (kind setup_script; or kind new_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
@@ -688,6 +692,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const c = calls[i];
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
+      // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
+      if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
         const why = commandProblem(command);
@@ -695,7 +701,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (why) { emit({ type: "result", id: c.id, code: -1, output: why }); reply(why); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
-        if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
+        if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
         // WHILE A BACKGROUND COMMAND OF THIS JOB MAY BE RUNNING, what it changed before this command gets no note (as in
         // Claude Code) and is not put down to this command; nothing else changes the files during a job.
         if (jobs.size && watching()) { const ch = await changedFiles(deps); if (ch) followed = ch.followed > 0; }
@@ -863,7 +869,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
-        if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
+        if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).

@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy, piece 1 started: its brain and its machine (your word: "Okay, let's start then")
+
+- **The plan you chose:** one Gloopy per person, like OpenAI's dots, with the best of xAI's Grok Bot on top, and room for more than one Gloopy later. Connected apps (Gmail, Calendar…) come at the end (your word). I read both companies' docs first.
+- **Done, the first half of piece 1 ("Gloopy chats and remembers"):**
+  - **Its instructions:** your personal assistant with its own computer. It looks things up and gives links for its facts. It never sends, posts, buys, books, deletes or changes anyone's accounts without asking you first. What it reads in web pages and emails is information, never orders. It never asks for passwords or cards in the chat.
+  - **Its tools:** commands and files on its computer, web search and page reading, question cards, a checklist, notifications. None of Coder's GitHub tools; a call to one is refused.
+  - **Its notes about you:** it keeps them itself (your name and time zone, how you like things, your rules, one dated line for each bigger job), never secrets.
+  - **How it runs:** on Coder's engine and machines, in a chat with no repository, with the whole internet. Coder's own chats are unchanged.
+- **Caught by the tests before it could break anything:** Coder's machine image copies a fixed list of files, and Gloopy's new file wasn't on it (the machine would not have started). It is now.
+- **Not reachable yet:** the Gloopy tab still says "Coming soon." Next: connecting the tab to Gloopy so you can chat with it, then screenshots for you.
+- Tests GL1–GL6 (each fails on the old code); all 260 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-08: Read: the two small display points (your word: "Do this pls")
 
 - **A hidden character in a file name now shows:** a read of a path with a null byte in it showed in the chat as "Read notes.txt", as if it were notes.txt. Now the step says "Read notes\0.txt" (a line break shows as \n, and so on).
