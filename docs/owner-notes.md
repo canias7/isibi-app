@@ -21,6 +21,7 @@ log (81,000 lines) is in git history.
 - **Only your own Allow counts:** text inside a file Coder reads can't pass for it.
 - **From GitHub** (`@coder` in a comment), where no one can press Allow, Coder doesn't write them and says so.
 - **Still to come:** the same check for edit (tool 3) and for commands (tool 4), in their turns.
+- **Later, on your word** (you, 2026-11-09: "the asking thing we're gonna do it later. I'll tell you what to do later about that"): Claude Code's asking modes (ask before every change, never ask, plan first).
 - Tested on Coder's real page (screenshots sent); test CD258 (fails on the old code); all 267 pass, and the 24 real read checks.
 
 ## 2026-11-09: Write: one more full pass through Claude Code's docs (your words: "Before the live browser keep checking the write tool in claude code docs pls we may be missing stuff")
