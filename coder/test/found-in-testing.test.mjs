@@ -1365,10 +1365,11 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   // On the landing page, by Sign in; not in Coder's sidebar.
   assert.match(landing, /<header class="gf-top">[\s\S]*<a class="gf-doclink" id="gfDocs" href="\/docs">Docs<\/a><button type="button" class="gf-signin" id="gfSignin">Sign in<\/button>[\s\S]*<\/header>/);
   assert.doesNotMatch(ui, /\/docs|cdSideDocs/, "not inside Coder");
-  // Only the tools tested so far: read, then write (live, deploys 70 and 71; the owner, 2026-11-09: "Yes").
+  // Only the tools tested so far: read, then write (live, deploys 70 and 71; the owner, 2026-11-09: "Yes"), then edit
+  // (live, deploy 73; the owner, 2026-11-09: "Yes fix").
   const sections = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(sections, ["read", "write"]);
-  for (const other of ["Edit", "Bash", "Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
+  assert.deepEqual(sections, ["read", "write", "edit"]);
+  for (const other of ["Bash", "Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
   // Plain HTML and CSS, its links all go somewhere.
   assert.doesNotMatch(page, /<script|\son[a-z]+=|javascript:/i, "no script of any kind (script-src 'self' would refuse an inline one)");
   assert.match(page, /<link rel="stylesheet" href="\/docs\.css" \/>/);
@@ -1376,7 +1377,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
   const ids = new Set([...page.matchAll(/ id="([a-z-]+)"/g)].map((m) => m[1]));
   const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
-  assert.equal(links.length, 14);
+  assert.equal(links.length, 21);
   for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a part that is there");
   assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
   // The numbers, from the code itself.
@@ -1400,6 +1401,15 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.ok(page.includes("<code>Found 1 new diagnostic issue in 1 file</code>"));
   for (const d of [".husky", ".vscode", ".devcontainer"]) assert.ok(A.PROTECTED_DIRS.includes(d) && page.includes("<code>" + d + "</code>"), d);
   for (const f of [".envrc", ".npmrc", ".pre-commit-config.yaml", ".mcp.json"]) assert.ok(A.PROTECTED_FILES.includes(f) && page.includes("<code>" + f + "</code>"), f);
+  // Edit's, from the code too: its size limit, the notebook's way round, the card's cut mark, a folder's instructions.
+  assert.ok(page.includes("A file over <b>" + T.EDIT_MAX_BYTES / 1048576 + " MB</b>"));
+  assert.match(T.EDIT_NOTEBOOK, /replace it whole with write, or change a cell with a short python3 script/);
+  assert.ok(page.includes("Coder replaces it whole with write, or changes a cell with a short script"));
+  assert.match(agentSrc, /x\.length > 300 \? x\.slice\(0, 300\) \+ "…"/);
+  assert.ok(page.includes("A very long line is cut short, with <code>&hellip;</code> at its end"));
+  const server = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(server, /has\("CODER\.md"\) \? "CODER\.md" : has\("AGENTS\.md"\) \? "AGENTS\.md"/);
+  assert.ok(page.includes("a folder with its own <code>CODER.md</code> (or <code>AGENTS.md</code>)"));
 });
 
 test("CD249 write does not replace a file that has changed since Coder read or wrote it, as Claude Code's Write (tried for real, 2026-11-08, second pass: \"File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.\"), whether a command or something in the background changed it; only its time changing is no change; once read again, or once the note after a command has shown the change, it may", async () => {
@@ -2167,4 +2177,54 @@ test("CD266 a read-only file is edited all the same and stays read-only, as Clau
   await runCoder({ exec: machine(proj), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm test", new_string: long }, "e1")]) : say("Done.")) }, { text: "add the check" });
   const card = events.find((e) => e.type === "writeask");
   assert.deepEqual(card.change.lines, ["-npm test", "+" + long.slice(0, 300) + "…"]);
+});
+
+test("CD267 a Windows-line-ending file's change has no hidden \"\\r\" on its lines, under the step and on the card for a protected file, and a line whose ending alone changed is not counted as changed (live test, 2026-11-09: copying the change gave a blank line after each line; Claude Code's own record of the same edit: \"-first\", \"+FIRST\"; the owner: \"Yes fix\")", async () => {
+  const { WRITE_MARK } = await import("../container/coder-tools.mjs");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const { mkdtemp, writeFile, readFile, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "coder-crlf-change-"));
+  const follow = await mkdtemp(join(tmpdir(), "coder-crlf-follow-"));
+  const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
+  const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
+  const change = async (name, args) => { const raw = await tool(name, { ...args, show_change: true }); assert.ok(raw.startsWith(WRITE_MARK), raw.slice(0, 80)); return JSON.parse(raw.slice(WRITE_MARK.length)).change; };
+  const body = (c) => c.lines.filter((l) => !l.startsWith("@@"));
+  // The live test's file (message 3): its Windows endings kept in the file, and none in the change, as Claude Code's.
+  await writeFile(join(dir, "crlf.txt"), "first\r\nsecond\r\nthird\r\n");
+  const c1 = await change("edit", { path: "crlf.txt", old_string: "first\nsecond", new_string: "FIRST\nSECOND\ninserted" });
+  assert.equal(await readFile(join(dir, "crlf.txt"), "utf8"), "FIRST\r\nSECOND\r\ninserted\r\nthird\r\n");
+  assert.deepEqual({ kind: c1.kind, add: c1.add, del: c1.del }, { kind: "update", add: 3, del: 2 });
+  assert.deepEqual(body(c1), ["-first", "-second", "+FIRST", "+SECOND", "+inserted", " third"]);
+  assert.ok(c1.lines.every((l) => !l.includes("\r")), JSON.stringify(c1.lines));
+  // Mixed endings, made the file's own by the edit: only the line whose text changed is counted.
+  await writeFile(join(dir, "mixed.txt"), "a\r\nb\nc\r\n");
+  const c2 = await change("edit", { path: "mixed.txt", old_string: "a", new_string: "A" });
+  assert.equal(await readFile(join(dir, "mixed.txt"), "utf8"), "A\r\nb\r\nc\r\n");
+  assert.deepEqual({ add: c2.add, del: c2.del }, { add: 1, del: 1 });
+  assert.deepEqual(body(c2), ["-a", "+A", " b", " c"]);
+  // write shares it: a new Windows file's lines, and a replaced one's change.
+  const c3 = await change("write", { path: "new.txt", content: "one\r\ntwo\r\n" });
+  assert.deepEqual({ kind: c3.kind, lines: c3.lines }, { kind: "create", lines: ["+one", "+two"] });
+  await writeFile(join(dir, "old.txt"), "x\r\ny\r\n");
+  await tool("read", { path: "old.txt" });
+  const c4 = await change("write", { path: "old.txt", content: "x\ny\nz\n" });
+  assert.deepEqual({ add: c4.add, del: c4.del }, { add: 1, del: 0 });
+  assert.deepEqual(body(c4), [" x", " y", "+z"]);
+  // The card for a protected file: Grok's old and new text with Windows endings, shown without them.
+  const proj = await mkdtemp(join(tmpdir(), "coder-crlf-card-"));
+  await mkdir(join(proj, ".husky"));
+  await writeFile(join(proj, ".husky/pre-commit"), "#!/bin/sh\r\nnpm test\r\n");
+  const events = [];
+  let k = 0;
+  await runCoder({ exec: machine(proj), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "#!/bin/sh\r\nnpm test\r\n", new_string: "#!/bin/sh\r\nnpm run lint\r\n" }, "e1")]) : say("Done.")) }, { text: "lint in the hook" });
+  const card = events.find((e) => e.type === "writeask");
+  assert.deepEqual(card.change, { kind: "update", add: 2, del: 2, lines: ["-#!/bin/sh", "-npm test", "+#!/bin/sh", "+npm run lint"] });
+});
+
+test("CD268 a long line on the card for a protected file wraps, so the \"…\" that shows it was cut is in view (live test, 2026-11-09: a 380-character line ran past the card's right edge and its \"…\" was seen only by scrolling sideways; the owner: \"Yes fix\")", () => {
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  assert.match(css, /\n\.cd-writeask \.cd-envchange-pre \{ overflow-wrap: anywhere; \}\n/);
+  assert.match(css, /\.cd-envchange-pre\{[^}]*white-space:pre-wrap/, "lines wrap where they have spaces; overflow-wrap breaks the ones without");
 });

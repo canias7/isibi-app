@@ -11,6 +11,37 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit: the two things the live test found are fixed, and the docs page has an Edit section (your words: "Yes fix")
+
+- **Windows line endings:** the change shown under an edit (and on the card for a protected file) has no hidden character on its lines any more, so copying it gives the lines as they are, with no blank lines between them. Claude Code works the change out the same way. A line whose ending was the only thing that changed isn't counted as changed either. Write shares this, so it's fixed there too.
+- **Long lines on the card:** a very long line now wraps inside the card, so the "…" that shows it was cut is in view without scrolling sideways.
+- **Docs:** the /docs page has an Edit section, under Read and Write: what you see, how edit finds the text, what happens when the file changed, the files Coder asks you about, when edit says no, and what stays as it was.
+- **Checked:** automated tests for both fixes and the docs (all 277 pass), and the real page in a browser on my side, with screenshots. Next: merge, deploy, and the same checks live on gofarther.dev with Grok.
+
+## 2026-11-09: Edit, live in the browser after deploy 73, with Claude Code side by side (your words: "merge and deploy and then start testing the edit tool" and "Remember to also do it in Claude Code so you can compare it")
+
+- **11 messages to Coder on gofarther.dev with Grok** (recording 19), and the same steps with Claude Code's own Edit on the same files.
+- **The same as Claude Code:**
+  - every answer's words (not found, appears twice, replace all, same text, no file, a new file made in new folders);
+  - Windows line endings and mixed endings;
+  - curly quotes typed straight;
+  - an old encoding refused and left untouched;
+  - UTF-16 and the byte-order mark kept;
+  - a link refused, naming the real file;
+  - a read-only file edited and kept read-only (live as Coder's normal user, the real test of today's fix);
+  - a file changed since it was read (Claude Code's note word for word, or "modified since read");
+  - 40 lines at once;
+  - a folder's instruction file shown after the edit.
+- **Different on purpose:**
+  - Coder's words for a folder and for a notebook are clearer (Claude Code gives a raw error, and points to a notebook tool Coder doesn't have yet);
+  - Coder always asks for protected files (Claude Code does in its normal mode);
+  - Coder runs the language checker after each code edit (Claude Code needs an add-on). Live, it caught `rate` and Grok fixed it.
+- **Cards:** Allow on `.husky/pre-commit` showed the change (`-npm test`, `+npm run lint`) and edited it. Don't allow on `.npmrc` showed the long line cut with "…" and left it alone.
+- **Not shown cleanly live** (Grok sent different input), but covered by the automated tests: an escape written out (`\u00e9`) and a real null character.
+- **Found (two small ones, your call):**
+  1. For a Windows-line-ending file, the change shown under the step keeps a hidden character on each line. It looks right on screen, but copying the change gives a blank line after each line. Claude Code's change for the same edit has no hidden character.
+  2. On the card for a protected file, a very long line runs past the card's right edge, so the "…" that marks it as cut is seen only by scrolling sideways.
+
 ## 2026-11-09: Edit: the two small ones fixed, and a third pass through Claude Code's docs (your words: "Ok yea fix that , then go look at claude code docs again for the edit tool")
 
 - **Read-only files:** edit now changes them and leaves them read-only, as Claude Code does. For a read-only file that belongs to another user, it explains why it can't, instead of a raw "permission denied".
