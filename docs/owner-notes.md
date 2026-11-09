@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy pays with a card, both ways (your word: "can we try both")
+
+- **Both ways at once:**
+  - **dots' way:** at a checkout Gloopy shows a private card form ("Pay €72.00 on (shop)"), with what's being bought and which payment service the card fields belong to. The card goes straight into the payment form, is used once, and nothing is paid until Gloopy places the order.
+  - **Grok Bot's way:** the form has a "Save this card" box. Next time you pick the saved card and type only its 3-digit security code.
+- **One difference from Grok Bot:** the security code is never saved, because the card industry's rules (PCI) don't allow keeping it. Typing those 3 digits also serves as your OK to pay. Saving it like Grok Bot is a small change if you ever want it.
+- **Gloopy never sees the card:**
+  - Its number, expiry and security code are blanked from what Gloopy reads and greyed out in its screenshots. That includes anything showing them as text, like a card picture beside the fields.
+  - Gloopy can't type into card fields itself, and its browser has no copy and paste (so a card number can't be copied into another box).
+  - The card goes only into the right fields, and only on the page you were asked about.
+  - Saved cards are kept sealed. Your page and Gloopy only ever see "Visa ending 4242" and the expiry date. Up to 10 cards; your settings screen can list and remove them.
+- **Placing the order** stays a separate click, checked like any purchase ("Buy or pay" is on Always allow for testing). With "Buy or pay" set to Never, Gloopy won't ask for a card at all.
+- **Fixed, found while building this:** after a sign-in, if Gloopy clicked the password box, the step line quoted the password, and that line went to Grok and into the chat. Now an element is never named by what's typed in it, and every step line is blanked like the page outline is.
+- Not tried live with Grok yet (your word: no testing yet). Tests GL51–GL55 are new; GL53 and GL54 run in a real Chrome, GL54 being a full purchase with a typed card and then a saved one. All 310 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's key card and saved logins (your word: "4,5")
 
 - **API keys, like Grok Bot's:** when a job needs a site's API (a weather service, say), Gloopy asks with a card: "Gloopy needs a key for api.openweathermap.org". You type the key in the card.

@@ -45,7 +45,7 @@ import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTu
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
-import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor } from "./gloopy-vault.mjs";
+import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
 import { cleanSchedule, whenLocal } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -574,7 +574,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -636,7 +636,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn, awake };
     if (action === "message" && request.method === "POST") return gloopyMessage(g);
     if (action === "state" && request.method === "GET") return gloopyState(g);
-    if ((action === "approve" || action === "signin" || action === "handoff") && request.method === "POST") return gloopyCard(g, action);
+    if ((action === "approve" || action === "signin" || action === "handoff" || action === "card") && request.method === "POST") return gloopyCard(g, action);
     if (action === "screen" && request.method === "GET") return gloopyScreen(g);
     if (action === "screen" && request.method === "POST") return gloopyTakeOver(g);
     if (action === "schedules") return gloopySchedules(g);
@@ -644,6 +644,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "rules") return gloopyRules(g);
     if (action === "pages") return gloopyPages(g);
     if (action === "logins") return gloopyLogins(g);
+    if (action === "cards") return gloopyCards(g);
     // A key from Gloopy's card (2026-11-09) goes through Coder's own key route, into Gloopy's own store (GLOOPY_ENV).
     if (action !== "stop" && action !== "secret") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
@@ -1426,7 +1427,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: sched ? (sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || "(see the picture)", opening: sched ? "note" : "user", schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1487,7 +1488,7 @@ async function gloopyState(g) {
     await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
     const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
-    const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff"].includes(e.type)).at(-1);
+    const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff", "pay"].includes(e.type)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
     // The pages Gloopy published in this turn are kept (2026-11-09).
     if (Array.isArray(s.result.pageRequests) && s.result.pageRequests.length) await keepPages(bucket, uid, s.result.pageRequests);
@@ -1497,7 +1498,7 @@ async function gloopyState(g) {
     const wakes = Array.isArray(s.result.scheduleAdds) ? s.result.scheduleAdds : [];
     if (stopped.length || wakes.length) { const sd = await readSchedules(bucket, uid); sd.items = sd.items.filter((x) => !stopped.includes(x.id)); addFromTurn(sd, wakes, await readPermissions(bucket, uid), Date.now()); await writeSchedules(bucket, uid, user.email, sd); }
     const asks = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" ? cleanSchedule(s.result.approvalRequest.schedule) : null;
-    const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
+    const want = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
     const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
     const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
     await saveMeta(bucket, uid, ended);
@@ -1521,8 +1522,8 @@ async function gloopyCard(g, action) {
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const p = meta.pending && typeof meta.pending === "object" ? meta.pending : null;
   if (meta.status === "running") return json({ error: "Gloopy is still working on the last message" }, 409);
-  const kind = { approve: "approval", signin: "signin", handoff: "handoff" }[action];
-  if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser." }[action] }, 409);
+  const kind = { approve: "approval", signin: "signin", handoff: "handoff", card: "card" }[action];
+  if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser.", card: "Gloopy isn't waiting for a card." }[action] }, 409);
   const site = String(p.site || "the site");
   let note = "", said = "", grant = "";
   if (action === "approve" && p.schedule) {
@@ -1560,6 +1561,38 @@ async function gloopyCard(g, action) {
     const where = r && r.url ? " Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url).slice(0, 500) + "." : "";
     if (body.skip === true) { note = "(Note from Gloopy's app, not the owner: the owner chose not to do this in your browser now: " + task + "." + where + " Go on without it, or say plainly what you could not do.)"; said = "Not now: " + task; }
     else { note = "(Note from Gloopy's app, not the owner: the owner says they did this in your browser: " + task + "." + where + " Look at it before you go on, to see whether it was done.)"; said = "Done: " + task; }
+  } else if (action === "card") {
+    // THE OWNER'S CARD (2026-11-09: "can we try both"): typed on the private card form, or one they saved with only its
+    // security code typed. It goes to Gloopy's machine, which types it into the page's card fields; it is never kept
+    // here (only a card they ticked to save, sealed, without its security code), said in the chat or shown to the AI.
+    const total = String(p.total || "the total");
+    const fields = Array.isArray(p.fields) ? p.fields : [];
+    if (body.skip === true) {
+      try { await post("/gloopy/card", { project: id, id: p.id, skip: true }); } catch { /* nothing to undo */ }
+      note = "(Note from Gloopy's app, not the owner: the owner chose not to give a card to pay " + total + " on " + site + " now. Nothing was paid. Don't pay another way: go on without it, or say plainly what you could not do.)";
+      said = "Not now: paying " + total + " on " + site;
+    } else {
+      let card, saved = null;
+      if (typeof body.use === "string" && body.use) {
+        saved = (await readCards(env, bucket, uid)).find((x) => x.id === body.use) || null;
+        if (!saved) return json({ error: "That saved card is gone. Pick another, or type a card." }, 404);
+        const cvc = String(body.cvc || "").trim();
+        if (fields.includes("cvc") && !/^\d{3,4}$/.test(cvc)) return json({ error: "Type the card's security code (3 or 4 digits, on its back)." }, 400);
+        card = { number: saved.number, month: saved.month, year: saved.year, cvc, name: String(body.name || saved.name || "").slice(0, 100), postal: String(body.postal || saved.postal || "").slice(0, 12) };
+      } else {
+        const c = checkCard(body, { needCvc: fields.includes("cvc") });
+        if (c.error) return json({ error: c.error }, 400);
+        card = c.card;
+      }
+      let r = null;
+      try { r = await post("/gloopy/card", { project: id, id: p.id, card }).then((x) => x.json()); } catch { r = null; }
+      const label = saved ? cardLabel(saved) : cardBrand(card.number) + " ending " + card.number.slice(-4);
+      // SAVED FOR NEXT TIME (when ticked): only a card that went into the page, sealed, without its security code.
+      const kept = r && r.ok && !saved && body.save === true ? await saveCard(env, bucket, uid, card) : null;
+      if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner gave their card (" + label + ") through the private card form, and it was typed into the payment form on " + site + ". You never see it." + (kept ? " They saved it for next time (without its security code)." : "") + " Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total (" + total + ") with no error, place the order, then tell them what you did. Your browser's page is “" + String(r.title || "") + "” at " + String(r.url || "") + ".)";
+      else note = "(Note from Gloopy's app, not the owner: the owner's card could not be typed into the payment form on " + site + " (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Nothing was paid. Look at the page again; use pay again only if the card fields are still there.)";
+      said = r && r.ok ? "Gave my card (" + label + ") to pay " + total + " on " + site : "Tried to give my card to pay on " + site;
+    }
   } else if (body.skip === true) {
     try { await post("/gloopy/signin", { project: id, id: p.id, skip: true }); } catch { /* nothing to undo */ }
     note = "(Note from Gloopy's app, not the owner: the owner chose not to sign in to " + site + " now. Go on without it, or say plainly what you could not do.)";
@@ -1579,7 +1612,7 @@ async function gloopyCard(g, action) {
   // A handoff done says where the browser is now, so the plainer "the owner used your browser" note is not needed too.
   const next = { ...meta, pending: null, waiting: null, note, grant, ...(action === "handoff" && body.skip !== true ? { used: false } : {}), at: Date.now() };
   await saveMeta(bucket, uid, next);
-  return json({ ok: true, said, project: next });
+  return json({ ok: true, said, project: next, ...(action === "card" ? { cards: cardList(await readCards(env, bucket, uid)) } : {}) });
 }
 
 /**
@@ -1714,6 +1747,19 @@ async function gloopyLogins(g) {
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   if (typeof body.remove !== "string" || !(await removeLogin(env, bucket, uid, body.remove))) return json({ error: "No saved login has that id." }, 404);
   return json({ ok: true, logins: loginList(await readLogins(env, bucket, uid)) });
+}
+
+/**
+ * GLOOPY'S SAVED CARDS, FOR THE SETTINGS SCREEN (2026-11-09): GET lists them (brand, last 4 digits, expiry and name;
+ * never a number); POST { remove: id } takes one away.
+ */
+async function gloopyCards(g) {
+  const { request, env, bucket, uid } = g;
+  if (request.method === "GET") return json({ ok: true, cards: cardList(await readCards(env, bucket, uid)) });
+  if (request.method !== "POST") return json({ error: "Gloopy has no cards " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  if (typeof body.remove !== "string" || !(await removeCard(env, bucket, uid, body.remove))) return json({ error: "No saved card has that id." }, 404);
+  return json({ ok: true, cards: cardList(await readCards(env, bucket, uid)) });
 }
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */

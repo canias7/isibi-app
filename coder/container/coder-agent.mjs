@@ -607,7 +607,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
-  let approvalRequest = null, signinRequest = null, handoffRequest = null;
+  let approvalRequest = null, signinRequest = null, handoffRequest = null, cardRequest = null;
   // GLOOPY'S HELPERS (2026-11-09): how many this message has started.
   let helpersUsed = 0;
   // GLOOPY'S PAGES published in this turn (the Worker keeps them when the turn ends).
@@ -634,7 +634,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -721,7 +721,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "handoff" || c.name === "schedule" || c.name === "helpers" || c.name === "page")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "helpers" || c.name === "page")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -957,6 +957,42 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + plain(scrub(String(args.reason || "")))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
+      } else if (c.name === "pay") {
+        // PAYING AT A CHECKOUT (owner, 2026-11-09: "can we try both"; Grok Bot's card form and Vault, dots' asking before
+        // a payment): a private card form in the chat; the owner's card (typed, or saved and only its security code typed)
+        // goes from it straight into the page's card fields, typed by Coder's service. The AI never sees it, and placing
+        // the order stays its own click, checked like any purchase.
+        const args = c.args || {};
+        emit({ type: "bash", id: c.id, tool: "pay", verb: "Asked you for a card", command: "" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        const hub = deps.browser;
+        if (!hub || typeof hub.describe !== "function") { no("error: there is no browser on this computer"); continue; }
+        if (perms.buy === "deny") { no("not done: the owner's settings never allow this (" + permissionLabel("buy") + "). Don't do it another way; tell the owner it is turned off in Gloopy's settings."); continue; }
+        const PARTS = { number: "number_ref", exp: "expiry_ref", month: "month_ref", year: "year_ref", cvc: "cvc_ref", name: "name_ref", postal: "postal_ref" };
+        const WHAT = { number: "card number", exp: "expiry date", month: "expiry month", year: "expiry year", cvc: "security code", name: "name on card", postal: "billing postal code" };
+        const refs = {};
+        for (const [k, a] of Object.entries(PARTS)) if (typeof args[a] === "string" && args[a].trim()) refs[k] = args[a].trim();
+        const total = plain(scrub(String(args.total || ""))).slice(0, 40), reason = plain(scrub(String(args.reason || ""))).slice(0, 300);
+        if (!refs.number) { no("error: give number_ref: the number of the page's card number field, from the latest outline"); continue; }
+        if (!total) { no("error: give total: the total to pay, exactly as the page shows it"); continue; }
+        if ((refs.month && !refs.year) || (refs.year && !refs.month)) { no("error: give both month_ref and year_ref (or expiry_ref when the expiry is one field)"); continue; }
+        const els = {};
+        try { for (const [k, ref] of Object.entries(refs)) els[k] = await hub.describe(ref); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+        // Each one the field it says it is (a card's own fields by what the page calls them; a name or postal code a text field).
+        const off = Object.keys(refs).find((k) => { const el = els[k] && els[k].element; return !el || (["number", "exp", "month", "year", "cvc"].includes(k) ? el.card !== k : el.password || ["number", "cvc", "exp"].includes(el.card) || !["input", "textarea"].includes(el.tag)); });
+        if (off) { no("error: " + PARTS[off] + " is not the page's " + WHAT[off] + " field: look again and give that field's number (leave it out if the page has none)"); continue; }
+        const via = String(els.number.frameHost || "");
+        const elsewhere = ["exp", "month", "year", "cvc"].find((k) => els[k] && els[k].frameHost !== via);
+        if (!via || elsewhere) { no("error: " + (via ? "the " + WHAT[elsewhere] + " field is not on the same site as the card number field" : "the card number field has no web address of its own") + ": give the card fields of one payment form"); continue; }
+        const site = String(els.number.host || "");
+        if (!site) { no("error: the page has no web address of its own: open the shop's checkout page"); continue; }
+        const id = "pc" + Math.random().toString(36).slice(2, 10);
+        emit({ type: "result", id: c.id, code: 0, output: "Asked you for a card to pay " + total + " on " + site, label: "Asked you for a card to pay " + total + " on " + site });
+        reply("asked the owner for a card through the private form, to pay " + total + " on " + site + ". Your turn ends here; the next message says how it went. You never see the card.");
+        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a card first" });
+        emit({ type: "pay", id, site, via: via !== site ? via : "", url: String(els.number.url || ""), total, reason, fields: Object.keys(refs) });
+        cardRequest = { id, site, url: String(els.number.url || ""), total, fields: Object.keys(refs), refs };
+        return end("done", { summary: lastSaid || "asked the owner for a card to pay " + total + " on " + site });
       } else if (c.name === "page") {
         // GLOOPY'S PAGES (owner, 2026-11-09; Grok Bot's Pages): the HTML file Gloopy wrote, read as `dev` from inside its
         // folder (coder-tools.mjs page_file), kept by the Worker when the turn ends; the owner gets a card that opens it.

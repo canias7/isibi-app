@@ -97,7 +97,7 @@ test("GL6 (2026-11-09) on Coder's machine, a Gloopy turn gets Gloopy's instructi
     assert.doesNotMatch(sys, /NETWORK: NONE|THE REPO'S|YOUR MEMORY FOR THIS REPO/, "nothing of Coder's repo context");
     // Not the full image (no Chrome or Playwright): no browser, and Gloopy is told so.
     const { BROWSER_TOOL_NAMES } = await import("../container/gloopy-agent.mjs");
-    assert.deepEqual(BROWSER_TOOL_NAMES, ["browser", "sign_in", "handoff"]);
+    assert.deepEqual(BROWSER_TOOL_NAMES, ["browser", "sign_in", "pay", "handoff"]);
     assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), GLOOPY_TOOL_NAMES.filter((n) => !BROWSER_TOOL_NAMES.includes(n)).sort());
     assert.match(sys, /YOUR BROWSER is not on this computer right now/);
     assert.ok(!st.events.some((e) => e.tool === "setup"), "no setup script ran");
@@ -719,7 +719,7 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   assert.match(css, /\.cd-secret-save,\.cd-card-yes\{/);
   // The password leaves the box as it is sent; the answer goes to the Worker, then its words start Gloopy's next turn.
   assert.match(ui, /const password = pass \? pass\.value : '';\n      if \(!password \|\| !S\.project\) return;\n      e\.currentTarget\.disabled = true;\n[^\n]*\n      if \(pass\) pass\.value = '';\n      const keep = root\.querySelector\('#cdSignSave'\);\n      cardAnswer\(id, 'signin', \{ username: user \? user\.value : '', password, save: !!\(keep && keep\.checked\) \}/);
-  assert.match(ui, /const r = await call\(cardPath\(a\), \{ method: 'POST', body: JSON\.stringify\(\{ id, \.\.\.body \}\) \}\);\n      if \(r\.status !== 200\) \{ S\.cardMsg = \{ id, text: \(r\.data && r\.data\.error\) \|\| failed \}; draw\(\); return; \}\n      S\.cardMsg = null; if \(r\.data && r\.data\.project\) S\.project = r\.data\.project;\n      send\(\(r\.data && r\.data\.said\) \|\| 'Answered\.'\);/);
+  assert.match(ui, /const r = await call\(cardPath\(a\), \{ method: 'POST', body: JSON\.stringify\(\{ id, \.\.\.body \}\) \}\);\n      if \(r\.status !== 200\) \{ S\.cardMsg = \{ id, text: \(r\.data && r\.data\.error\) \|\| failed \}; draw\(\); return; \}\n      S\.cardMsg = null; if \(r\.data && r\.data\.project\) S\.project = r\.data\.project;\n      if \(r\.data && Array\.isArray\(r\.data\.cards\)\) S\.cards = r\.data\.cards;\n      send\(\(r\.data && r\.data\.said\) \|\| 'Answered\.'\);/);
   assert.match(ui, /S\.cardMsg && S\.cardMsg\.id === e\.id \?/, "an error shows on its own card only");
   assert.doesNotMatch(ui, /S\.\w+ = [^;\n]*password/, "the password is never put in the page's state");
   // The notifications.
@@ -803,7 +803,7 @@ test("GL23 (2026-11-09) handoff: Gloopy hands its browser to the owner for a ste
   assert.match((await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }), browser: b }, { text: "go" })).messages.find((m) => m.tool_call_id === "h4").content, /^error: no such tool: handoff/);
   const { HANDOFF_TOOL } = await import("../container/gloopy-agent.mjs");
   assert.deepEqual(HANDOFF_TOOL.function.parameters.required, ["task", "reason"]);
-  assert.match(HANDOFF_TOOL.function.description, /Not for signing in with a password: use sign_in for that\./);
+  assert.match(HANDOFF_TOOL.function.description, /Not for signing in with a password \(use sign_in\) or for a card at a checkout \(use pay\)\./);
   assert.match(GLOOPY_SYSTEM, /use handoff: they take over your browser, do it, and hand it back/);
 });
 
@@ -2010,4 +2010,350 @@ test("GL50 (2026-11-09) on the page: in Gloopy's chat the key card says the key 
   assert.match(ui, /send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ d\.secretHost \+ '\.'\)/);
   assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save this login, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/);
   assert.match(ui, /save: !!\(keep && keep\.checked\)/);
+});
+
+// ── PAYMENT CARDS (owner, 2026-11-09: "can we try both") ────────────────────
+// Both ways at once: a private card form at checkout (dots' asking before a payment; the card used once), and saved
+// cards (Grok Bot's Vault: "Save this card"), kept sealed WITHOUT their security code, so a saved card needs only its 3
+// or 4 digits typed, which is also the owner's OK to pay. Made-up shops and Stripe's public test card numbers only.
+const PAY_ELS = { ...ELS,
+  f1e2: { name: "Card number", tag: "input", type: "", card: "number", frameHost: "pay.example" },
+  f1e3: { name: "Expiration date", tag: "input", type: "", card: "exp", frameHost: "pay.example" },
+  f1e4: { name: "CVC", tag: "input", type: "", card: "cvc", frameHost: "pay.example" },
+  f1e5: { name: "ZIP", tag: "input", type: "", card: "", frameHost: "pay.example" },
+  e4: { name: "Name on card", tag: "input", type: "", card: "name" },
+};
+const PAY_ARGS = { number_ref: "f1e2", expiry_ref: "f1e3", cvc_ref: "f1e4", postal_ref: "f1e5", name_ref: "e4", total: "€72.00", reason: "Strider Red, size 39" };
+
+test("GL51 (2026-11-09) Gloopy's pay tool: at a checkout it asks the owner for a card on a private form (the shop, the total, what is bought, which fields the page has) and its turn ends; each field must be the one it says; never when the owner's settings say Never; Coder has no such tool", async () => {
+  const { gloopyContext, PAY_TOOL, BROWSER_TOOL_NAMES } = await import("../container/gloopy-agent.mjs");
+  assert.ok(GLOOPY_TOOL_NAMES.includes("pay") && BROWSER_TOOL_NAMES.includes("pay"));
+  assert.deepEqual(PAY_TOOL.function.parameters.required, ["number_ref", "total", "reason"]);
+  assert.match(GLOOPY_SYSTEM, /At a checkout the owner asked for, use pay: they give a card on a private form \(or pick one they saved\) and it goes straight into the page; you never see it\. Then check the page and place the order yourself \(that click is checked like any purchase\)\. Never type card numbers yourself\./);
+  const run = async (args, extra = {}, els = PAY_ELS) => { const ev = []; const g = scripted([say("", [call("pay", args, "p1")]), say("Waiting for your card.")]); const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: fakeBrowser(els), emit: (e) => ev.push(e) }, { text: "buy the Strider Red", ...GLOOPY, ...extra }); return { out, ev, g, said: (out.messages.find((m) => m.tool_call_id === "p1") || {}).content }; };
+  let { out, ev, g, said } = await run(PAY_ARGS);
+  const card = ev.find((e) => e.type === "pay");
+  assert.match(card.id, /^pc[a-z0-9]{1,8}$/);
+  assert.deepEqual({ ...card, id: "", at: 0 }, { type: "pay", id: "", at: 0, site: "shop.example", via: "pay.example", url: "https://shop.example/cart", total: "€72.00", reason: "Strider Red, size 39", fields: ["number", "exp", "cvc", "name", "postal"] });
+  assert.deepEqual(out.cardRequest, { id: card.id, site: "shop.example", url: "https://shop.example/cart", total: "€72.00", fields: ["number", "exp", "cvc", "name", "postal"], refs: { number: "f1e2", exp: "f1e3", cvc: "f1e4", name: "e4", postal: "f1e5" } });
+  assert.equal(said, "asked the owner for a card through the private form, to pay €72.00 on shop.example. Your turn ends here; the next message says how it went. You never see the card.");
+  assert.equal(g.seen.length, 1, "the turn ended on the card");
+  assert.equal(ev.find((e) => e.type === "result" && e.id === "p1").label, "Asked you for a card to pay €72.00 on shop.example");
+  // Each field the one it says it is; the card's own fields on one site.
+  ({ out, said } = await run({ ...PAY_ARGS, number_ref: "e4" }));
+  assert.equal(out.cardRequest, undefined);
+  assert.equal(said, "error: number_ref is not the page's card number field: look again and give that field's number (leave it out if the page has none)");
+  ({ said } = await run({ ...PAY_ARGS, cvc_ref: "f1e3" }));
+  assert.match(said, /^error: cvc_ref is not the page's security code field/);
+  ({ said } = await run({ ...PAY_ARGS, name_ref: "e7" }));
+  assert.match(said, /^error: name_ref is not the page's name on card field/, "never a password field");
+  ({ said } = await run(PAY_ARGS, {}, { ...PAY_ELS, f1e4: { ...PAY_ELS.f1e4, frameHost: "evil.example" } }));
+  assert.equal(said, "error: the security code field is not on the same site as the card number field: give the card fields of one payment form");
+  ({ said } = await run({ ...PAY_ARGS, total: "" }));
+  assert.equal(said, "error: give total: the total to pay, exactly as the page shows it");
+  ({ said } = await run({ ...PAY_ARGS, expiry_ref: "", month_ref: "f1e3" }));
+  assert.match(said, /^error: give both month_ref and year_ref/);
+  // Never when Buy or pay is Never; asked for as usual when it is Ask first (the form is the owner's own OK).
+  ({ out, said } = await run(PAY_ARGS, { permissions: { buy: "deny" } }));
+  assert.equal(out.cardRequest, undefined);
+  assert.equal(said, "not done: the owner's settings never allow this (Buy or pay). Don't do it another way; tell the owner it is turned off in Gloopy's settings.");
+  ({ out } = await run(PAY_ARGS, { permissions: { buy: "ask" } }));
+  assert.ok(out.cardRequest);
+  // Coder has no such tool.
+  const c = scripted([say("", [call("pay", PAY_ARGS, "p1")]), say("Done.")]);
+  const co = await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }), browser: fakeBrowser(PAY_ELS) }, { text: "pay" });
+  assert.equal(co.cardRequest, undefined);
+  assert.match(co.messages.find((m) => m.tool_call_id === "p1").content, /^error: no such tool: pay/);
+  // Gloopy knows the owner's saved cards by name only.
+  assert.match(gloopyContext({ memFile: "/m.md", savedCards: ["Visa ending 4242"] }), /SAVED CARDS \(the owner saved these; pay offers them on its form, and you never see their numbers\): Visa ending 4242/);
+  assert.match(gloopyContext({ memFile: "/m.md" }), /SAVED CARDS \(.*\): none\./);
+});
+
+test("GL52 (2026-11-09) the Worker: a card from the form is checked and sent only to Gloopy's machine; one ticked to save is kept sealed with NO security code; a saved card is used with only its security code typed; the page and Gloopy see brand, last 4 and expiry, never a number", async () => {
+  const V = await import("../src/gloopy-vault.mjs");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const now = Date.UTC(2026, 10, 9);
+  // The card's own checks.
+  assert.equal(V.luhn("4242424242424242"), true);
+  assert.equal(V.luhn("4242424242424241"), false);
+  assert.deepEqual(["4242424242424242", "5555555555554444", "2223003122003222", "378282246310005", "6011111111111117", "3530111333300000", "36227206271667", "9999999999999995"].map(V.cardBrand), ["Visa", "Mastercard", "Mastercard", "American Express", "Discover", "JCB", "Diners Club", "Card"]);
+  assert.deepEqual(V.checkCard({ number: "4242 4242 4242 4242", expiry: "12 / 30", cvc: "123", name: " Ana  Example ", postal: "94110" }, { now }), { card: { number: "4242424242424242", month: 12, year: 2030, cvc: "123", name: "Ana Example", postal: "94110" } });
+  assert.deepEqual(V.checkCard({ number: "4242424242424242", expiry: "11/2026", cvc: "1234" }, { now }).card.year, 2026, "this month still works");
+  assert.match(V.checkCard({ number: "4242424242424241", expiry: "12/30", cvc: "123" }, { now }).error, /card number doesn't look right/);
+  assert.match(V.checkCard({ number: "4242424242424242", expiry: "10/26", cvc: "123" }, { now }).error, /expiry date as MM \/ YY \(it can't be in the past\)/);
+  assert.match(V.checkCard({ number: "4242424242424242", expiry: "13/30", cvc: "123" }, { now }).error, /expiry date/);
+  assert.match(V.checkCard({ number: "4242424242424242", expiry: "12/30", cvc: "12" }, { now }).error, /security code \(3 or 4 digits/);
+  assert.equal(V.checkCard({ number: "4242424242424242", expiry: "12/30" }, { now, needCvc: false }).card.cvc, "", "a page with no security code field");
+
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const fills = [];
+  let answer = { ok: true, title: "Checkout", url: "https://shop.example/checkout" };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => ({ fetch: async (req) => { const p = new URL(req.url).pathname; if (p === "/gloopy/card") { fills.push(await req.json()); return Response.json(answer); } return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const meta = () => JSON.parse(bucket.m.get(metaKey));
+  const waitCard = (id, fields = ["number", "exp", "cvc", "name", "postal"]) => bucket.m.set(metaKey, JSON.stringify({ ...meta(), status: "idle", waiting: "pay", pending: { kind: "card", id, site: "shop.example", total: "€72.00", fields } }));
+  const card = (id, body) => go("projects/" + GLOOPY_ID + "/card", { method: "POST", body: JSON.stringify({ id, ...body }) });
+  await go("gloopy");
+  // Not waiting for one: refused. A wrong card: said, and nothing sent.
+  assert.equal((await card("pc1", { number: "4242424242424242", expiry: "12/30", cvc: "123" })).status, 409);
+  waitCard("pc1");
+  let r = await card("pc1", { number: "4242424242424241", expiry: "12/30", cvc: "123" });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /card number doesn't look right/);
+  assert.equal(fills.length, 0);
+  // Typed, not saved: sent to the machine for this card form only; nothing kept.
+  r = await (await card("pc1", { number: "4242 4242 4242 4242", expiry: "12/30", cvc: "123", name: "Ana Example", postal: "94110" })).json();
+  assert.deepEqual(fills.at(-1), { project: GLOOPY_ID, id: "pc1", card: { number: "4242424242424242", month: 12, year: 2030, cvc: "123", name: "Ana Example", postal: "94110" } });
+  assert.equal(r.said, "Gave my card (Visa ending 4242) to pay €72.00 on shop.example");
+  assert.deepEqual(r.cards, []);
+  assert.deepEqual(await V.readCards(env, bucket, "u1"), []);
+  assert.match(meta().note, /^\(Note from Gloopy's app, not the owner: the owner gave their card \(Visa ending 4242\) through the private card form, and it was typed into the payment form on shop\.example\. You never see it\. Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total \(€72\.00\) with no error, place the order, then tell them what you did\./);
+  assert.equal(meta().pending, null);
+  // Ticked, but it could not go into the page: not kept.
+  answer = { ok: false, why: "the card number field is not one" };
+  waitCard("pc2");
+  r = await (await card("pc2", { number: "5555555555554444", expiry: "01/29", cvc: "321", save: true })).json();
+  assert.equal(r.said, "Tried to give my card to pay on shop.example");
+  assert.match(meta().note, /could not be typed into the payment form on shop\.example \(the card number field is not one\)\. Nothing was paid\./);
+  assert.deepEqual(await V.readCards(env, bucket, "u1"), []);
+  // Ticked and it went in: kept, sealed, with no security code; the page and Gloopy see brand, last 4, expiry and name.
+  answer = { ok: true, title: "Checkout", url: "https://shop.example/checkout" };
+  waitCard("pc3");
+  r = await (await card("pc3", { number: "4242424242424242", expiry: "12/30", cvc: "123", name: "Ana Example", postal: "94110", save: true })).json();
+  assert.match(meta().note, /They saved it for next time \(without its security code\)\./);
+  const kept = await V.readCards(env, bucket, "u1");
+  assert.deepEqual(kept.map((x) => [x.brand, x.last4, x.number, x.month, x.year, x.name, x.postal, "cvc" in x]), [["Visa", "4242", "4242424242424242", 12, 2030, "Ana Example", "94110", false]]);
+  assert.deepEqual(r.cards, [{ id: kept[0].id, brand: "Visa", last4: "4242", month: 12, year: 2030, name: "Ana Example", at: kept[0].at }]);
+  for (const [k, v] of bucket.m) assert.ok(!v.includes("4242424242424242") && !v.includes("4242 4242"), "a card number in plain words in " + k);
+  const g = await (await go("gloopy")).json();
+  assert.ok(!JSON.stringify(g).includes("424242424242"), "the page never gets a number");
+  assert.deepEqual(g.cards.map((x) => x.last4), ["4242"]);
+  // A saved card: only its security code typed (needed when the page has that field), then sent like a typed one.
+  waitCard("pc4");
+  r = await card("pc4", { use: kept[0].id });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /security code/);
+  waitCard("pc4");
+  r = await (await card("pc4", { use: kept[0].id, cvc: "456" })).json();
+  assert.deepEqual(fills.at(-1).card, { number: "4242424242424242", month: 12, year: 2030, cvc: "456", name: "Ana Example", postal: "94110" });
+  assert.equal(r.said, "Gave my card (Visa ending 4242) to pay €72.00 on shop.example");
+  waitCard("pc5");
+  assert.equal((await card("pc5", { use: "cnosuchcard1", cvc: "456" })).status, 404);
+  // Not now: nothing sent, nothing paid.
+  waitCard("pc6");
+  r = await (await card("pc6", { skip: true })).json();
+  assert.equal(r.said, "Not now: paying €72.00 on shop.example");
+  assert.match(meta().note, /the owner chose not to give a card to pay €72\.00 on shop\.example now\. Nothing was paid\. Don't pay another way/);
+  // Gloopy is told the saved cards by name with each message; nothing of a number.
+  const turns = [];
+  deps.container = () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns.push(await req.json()); return Response.json({ ok: true }); } });
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "buy it again" }) });
+  assert.deepEqual(turns[0].savedCards, ["Visa ending 4242"]);
+  assert.ok(!JSON.stringify(turns[0]).includes("424242424242"));
+  // The settings screen's list, and taking one away.
+  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/cards")).json()).cards.map((x) => x.last4), ["4242"]);
+  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/cards", { method: "POST", body: JSON.stringify({ remove: kept[0].id }) })).json()).cards, []);
+  assert.equal((await go("projects/" + GLOOPY_ID + "/cards", { method: "POST", body: JSON.stringify({ remove: kept[0].id }) })).status, 404);
+  // At most 10: the oldest goes; the same number again replaces it.
+  for (const n of ["4242424242424242", "4000056655665556", "5555555555554444", "2223003122003222", "5200828282828210", "5105105105105100", "378282246310005", "371449635398431", "6011111111111117", "6011000990139424", "3530111333300000"]) await V.saveCard(env, bucket, "u1", { number: n, month: 12, year: 2030 });
+  await V.saveCard(env, bucket, "u1", { number: "3530111333300000", month: 1, year: 2031 });
+  const all = await V.readCards(env, bucket, "u1");
+  assert.equal(all.length, 10);
+  assert.ok(!all.some((x) => x.number === "4242424242424242"), "the oldest went");
+  assert.deepEqual([all.at(-1).number, all.at(-1).month], ["3530111333300000", 1]);
+  assert.equal(await V.saveCard(env, bucket, "u1", { number: "4242424242424241", month: 1, year: 2031 }), null, "never a number that doesn't add up");
+  // The phone notification says what Gloopy waits for.
+  const { pushesFor } = await import("../src/coder-push.mjs");
+  assert.deepEqual(pushesFor([{ type: "pay", total: "€72.00", site: "shop.example", reason: "Strider Red, size 39" }], { kind: "gloopy", title: "Gloopy", at: Date.now() }).map((p) => [p.kind, p.title, p.body]), [["actions", "Gloopy needs your card", "To pay €72.00 on shop.example: Strider Red, size 39"]]);
+});
+
+// A made-up shop whose card fields are in a frame from a separate payment service (as Stripe's and Shopify's are); the
+// payment service's page reports what is typed in its fields to its own server, as a real one does.
+function payShop() {
+  const got = [], orders = [];
+  const psp = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/got") { let b = ""; req.on("data", (c) => { b += c; }); req.on("end", () => { got.push(b); res.writeHead(204); res.end(); }); return; }
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end('<style>body{margin:0;font:16px sans-serif}input{display:block;margin:6px;width:260px;height:30px}</style><input name="cardnumber" autocomplete="cc-number" aria-label="Card number" placeholder="1234 1234 1234 1234"><input name="exp-date" autocomplete="cc-exp" aria-label="Expiration date" placeholder="MM / YY"><input name="cvc" autocomplete="cc-csc" aria-label="CVC" placeholder="CVC"><input name="postal" autocomplete="postal-code" aria-label="ZIP" placeholder="ZIP"><div id="pn" style="position:absolute;left:10px;top:165px;font:18px monospace"></div><div id="pc" style="position:absolute;left:220px;top:165px;font:18px monospace"></div><script>for (const i of document.querySelectorAll("input")) i.addEventListener("input", () => { fetch("/got", { method: "POST", body: i.name + "=" + i.value }); if (i.name === "cardnumber") pn.textContent = i.value; if (i.name === "cvc") pc.textContent = i.value; });</script>');
+  });
+  const shop = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/order") { req.resume(); req.on("end", () => { orders.push(Date.now()); res.writeHead(302, { location: "/thanks" }); res.end(); }); return; }
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    if (req.url === "/thanks") return res.end("<title>Thank you · Runway Shoes</title><h1>Thank you: your order is placed</h1>");
+    res.end('<title>Checkout · Runway Shoes</title><style>body{margin:0;font:16px sans-serif}iframe{position:absolute;left:0;top:120px;width:300px;height:220px;border:0}form{position:absolute;top:360px}</style><h1>Checkout</h1><label>Name on card <input name="ccname" autocomplete="cc-name"></label><p style="position:absolute;top:60px;left:400px">Strider Red, size 39 · Total €72.00</p><iframe src="' + shop.psp + '/card"></iframe><form method=post action=/order><button>Place order</button></form>');
+  });
+  return { psp, shop, got, orders };
+}
+
+test("GL53 (2026-11-09) the browser for real (where Chromium is installed): a card's number, expiry and security code are blanked from what the AI reads and masked in its screenshots; the AI can never type into a card field; the card goes only into the fields for it, on the page the owner was asked about; and no field's name is ever what was typed in it (a password was, after a sign-in)", async (t) => {
+  const { makeBrowserHub, hasBrowser, CARD_REFUSED, BLANKED, redactCards } = await import("../container/gloopy-browser.mjs");
+  const { spawnSync } = await import("node:child_process");
+  // The blanking itself: a number wherever it is and however it is spaced; a few digits only in their field's own line.
+  const outline = '- textbox "Card number" [ref=f1e2]: 4242 4242 4242 4242\n- text: Card 4242424242424242 and 4242-4242-4242-4242\n- textbox "Expiration date" [ref=f1e3]:\n  - /placeholder: MM / YY\n  - text: 12 / 30\n- textbox "CVC" [ref=f1e4]: "123"\n- text: Order 123 costs 12 / 30 euros\n- textbox "Amex" [ref=f1e6]: 3782 822463 10005\n- generic [ref=f1e9]: "123"';
+  assert.equal(redactCards(outline, ["4242 4242 4242 4242", "12 / 30", "123", "378282246310005"]), '- textbox "Card number" [ref=f1e2]: ' + BLANKED + "\n- text: Card " + BLANKED + " and " + BLANKED + '\n- textbox "Expiration date" [ref=f1e3]:\n  - /placeholder: MM / YY\n  - text: ' + BLANKED + '\n- textbox "CVC" [ref=f1e4]: ' + BLANKED + '\n- text: Order 123 costs 12 / 30 euros\n- textbox "Amex" [ref=f1e6]: ' + BLANKED + '\n- generic [ref=f1e9]: ' + BLANKED);
+  // No copy and paste for the AI (a card field's number could be pasted into a box anyone can read).
+  const { checkAsk, CLIPBOARD_REFUSED } = await import("../container/gloopy-browser.mjs");
+  for (const key of ["Control+C", "Control+X", "Control+V", "Meta+C", "Meta+V", "Control+Shift+V", "Shift+Delete"]) assert.throws(() => checkAsk({ action: "press", key }), (e) => e.message === CLIPBOARD_REFUSED, key);
+  for (const key of ["Shift+Insert", "Control+Insert"]) assert.throws(() => checkAsk({ action: "press", key }), key);
+  for (const key of ["Control+A", "Enter", "c", "Shift+Tab"]) assert.equal(checkAsk({ action: "press", key }).key, key);
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { psp, shop, got } = payShop();
+  const P = await listen(psp); shop.psp = P;
+  const S = await listen(shop), here = new URL(S).host;
+  const site = testSite(), siteBase = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-pay-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    const a = await hub.act({ action: "open", url: S + "/checkout" });
+    const num = refOf(a.text, /textbox "Card number" \[ref=([a-z0-9]+)\]/), exp = refOf(a.text, /textbox "Expiration date" \[ref=([a-z0-9]+)\]/), cvc = refOf(a.text, /textbox "CVC" \[ref=([a-z0-9]+)\]/), zip = refOf(a.text, /textbox "ZIP" \[ref=([a-z0-9]+)\]/), name = refOf(a.text, /textbox "Name on card" \[ref=([a-z0-9]+)\]/);
+    assert.ok(num && exp && cvc && zip && name, a.text);
+    // What each field is, on which site: the card's own in the payment service's frame.
+    const d = {};
+    for (const [k, r] of Object.entries({ num, exp, cvc, zip, name })) d[k] = await hub.describe(r);
+    assert.deepEqual(Object.values(d).map((x) => x.element.card), ["number", "exp", "cvc", "", "name"]);
+    assert.deepEqual([d.num.host, d.num.frameHost, d.name.frameHost], [here, new URL(P).host, here]);
+    // The AI never types into a card field (it uses pay).
+    await assert.rejects(hub.act({ action: "type", ref: num, text: "4111111111111111" }), (e) => e.message === CARD_REFUSED);
+    await assert.rejects(hub.act({ action: "type", ref: cvc, text: "999" }), (e) => e.message === CARD_REFUSED);
+    const card = { number: "4242424242424242", month: 12, year: 2030, cvc: "123", name: "Ana Example", postal: "94110" };
+    const refs = { numberRef: num, expRef: exp, cvcRef: cvc, postalRef: zip, nameRef: name };
+    // Only on the page the owner was asked about; each value only into its own field; nothing typed when refused.
+    await assert.rejects(hub.fillCard({ site: "elsewhere.example", card, ...refs }), /^Error: the browser is not on elsewhere\.example any more \(it is on 127\.0\.0\.1:\d+\), so nothing was typed$/);
+    await assert.rejects(hub.fillCard({ site: here, card, ...refs, numberRef: name }), /the field given for the card number \(e\d+\) is not one, so nothing was typed/);
+    await assert.rejects(hub.fillCard({ site: here, card, ...refs, nameRef: cvc }), /the field given for the name on card \([a-z0-9]+\) is not one/);
+    assert.deepEqual(got, [], "nothing reached the payment service");
+    const f = await hub.fillCard({ site: here, card, ...refs });
+    assert.deepEqual([f.ok, f.filled], [true, ["number", "exp", "cvc", "name", "postal"]]);
+    assert.ok(got.includes("cardnumber=4242424242424242") && got.includes("cvc=123") && got.includes("exp-date=12/30") && got.includes("postal=94110"), "the payment service got the card: " + got.join(" "));
+    // What the AI reads: the number, expiry and security code blanked; the name and postal code as they are.
+    const l = await hub.act({ action: "look" });
+    const seenOutline = l.text.split("\n\n").slice(1).join("\n\n");
+    assert.ok(!/4242 ?4242|424242|12 ?\/ ?30|: "?123"?$/m.test(seenOutline), seenOutline);
+    assert.match(l.text, new RegExp('textbox "CVC" [^\\n]*\\[ref=[a-z0-9]+\\]: ' + BLANKED));
+    assert.match(l.text, /textbox "Name on card" [^\n]*\[ref=[a-z0-9]+\]: Ana Example/);
+    assert.match(l.text, /textbox "ZIP" [^\n]*\[ref=[a-z0-9]+\]: "94110"/);
+    // What it sees: the card's fields masked (grey) in its screenshot; the postal code not.
+    if (spawnSync("convert", ["-version"]).status === 0) {
+      const px = (x, y) => (/(\d+),(\d+),(\d+)/.exec(spawnSync("convert", ["jpeg:-", "-format", "%[pixel:p{" + x + "," + y + "}]", "info:"], { input: Buffer.from(l.shot, "base64") }).stdout.toString()) || []).slice(1).map(Number);
+      const grey = (p) => Math.abs(p[0] - 156) < 30 && Math.abs(p[1] - 163) < 30 && Math.abs(p[2] - 175) < 30;
+      for (const [x, y, what] of [[130, 141, "number"], [130, 177, "expiry"], [130, 213, "security code"], [40, 296, "the card picture's number"], [232, 296, "the card picture's security code"]]) assert.ok(grey(px(x, y)), what + " masked: " + px(x, y));
+      assert.ok(!grey(px(130, 249)), "the postal code is not masked");
+    }
+    // Clicking a card field says its name, never what is in it.
+    assert.match((await hub.act({ action: "click", ref: refOf(l.text, /textbox "Card number" \[ref=([a-z0-9]+)\]/) })).text, /^Did: Clicked “Card number”\n/);
+    // FOUND 2026-11-09: a password field's name was its value, so a click on it after a sign-in said the password.
+    const st = await hub.act({ action: "open", url: siteBase + "/stays" });
+    const pw = refOf(st.text, /textbox "Password" \[ref=([a-z0-9]+)\]/);
+    await hub.fill({ site: new URL(siteBase).host, passRef: pw, submitRef: refOf(st.text, /button "Sign in" \[ref=([a-z0-9]+)\]/), password: "hunter2-SECRET" });
+    const again = await hub.act({ action: "look" });
+    const pw2 = refOf(again.text, /textbox "Password" \[ref=([a-z0-9]+)\]/);
+    const clicked = await hub.act({ action: "click", ref: pw2 });
+    assert.match(clicked.text, /^Did: Clicked “Password”\n/);
+    assert.ok(!clicked.text.includes("hunter2"));
+    assert.equal((await hub.describe(pw2)).element.name, "Password");
+    // Typing into a password field's label is typing into the field: refused too.
+    await assert.rejects(hub.act({ action: "type", ref: refOf(again.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Password/), text: "guess" }), /that is a password field/);
+  } finally {
+    psp.close(); shop.close(); site.close();
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+  }
+});
+
+test("GL54 (2026-11-09) paying, for real (where Chromium is installed): Gloopy asks for a card at the checkout, you type it on the private form and tick Save, it goes into the payment form, Gloopy places the order; next time you pick the saved card and type only its security code; the card number is never in anything sent to Grok, Gloopy's chat, or kept in plain words, and its security code is never kept", async (t) => {
+  const { hasBrowser, BLANKED } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { spawnSync } = await import("node:child_process");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { createApp } = await import("../container/server.mjs");
+  const V = await import("../src/gloopy-vault.mjs");
+  const { psp, shop, got, orders } = payShop();
+  const P = await listen(psp); shop.psp = P;
+  const S = await listen(shop), host = new URL(S).host;
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl-pb-")), "browser");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-pw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-pg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-pm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-pbg-")) };
+  const seen = [];
+  const lastTool = (req) => String(req.messages.filter((m) => m.role === "tool").at(-1).content);
+  const pay = (req) => { const o = lastTool(req); const r = (re) => refOf(o, re); return say("", [call("pay", { number_ref: r(/textbox "Card number" \[ref=([a-z0-9]+)\]/), expiry_ref: r(/textbox "Expiration date" \[ref=([a-z0-9]+)\]/), cvc_ref: r(/textbox "CVC" \[ref=([a-z0-9]+)\]/), postal_ref: r(/textbox "ZIP" \[ref=([a-z0-9]+)\]/), name_ref: r(/textbox "Name on card" \[ref=([a-z0-9]+)\]/), total: "€72.00", reason: "Strider Red, size 39" }, "p" + seen.length)]); };
+  const place = (req) => { const o = lastTool(req); return say("", [call("browser", { action: "look" }, "l" + seen.length)]); };
+  const click = (req) => say("", [call("browser", { action: "click", ref: refOf(lastTool(req), /button "Place order" \[ref=([a-z0-9]+)\]/) }, "c" + seen.length)]);
+  const steps = [
+    () => say("", [call("browser", { action: "open", url: S + "/checkout" }, "o1")]),
+    pay,
+    // After the card form: Gloopy looks (the card is blanked), then places the order.
+    place,
+    (req) => { const o = lastTool(req); assert.ok(o.includes('textbox "CVC"') && o.includes(BLANKED) && !o.includes("4242"), o); return click(req); },
+    () => say("Ordered: Strider Red, size 39, €72.00."),
+    // Next time: the saved card.
+    () => say("", [call("browser", { action: "open", url: S + "/checkout" }, "o2")]),
+    pay,
+    place,
+    click,
+    () => say("Ordered again with your saved Visa."),
+  ];
+  let n = 0;
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  const srv = http.createServer(createApp({ ...roots, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)](req); } }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const until = async () => { let st; for (let i = 0; i < 600; i++) { st = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json(); if (!st.running) return st; await new Promise((r) => setTimeout(r, 50)); } return st; };
+  const message = async (text) => { const r = await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text }) }); assert.equal(r.status, 200, await r.clone().text()); return until(); };
+  const events = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json"));
+  try {
+    await go("gloopy");
+    // 1. Gloopy asks for a card on the private form.
+    let st = await message("Buy the Strider Red in size 39 on Runway Shoes");
+    let form = events().filter((e) => e.type === "pay").at(-1);
+    assert.deepEqual([form.site, form.via, form.total, form.fields], [host, new URL(P).host, "€72.00", ["number", "exp", "cvc", "name", "postal"]]);
+    assert.equal(st.project.pending.kind, "card");
+    // 2. You type it and tick Save; it goes into the payment form; Gloopy places the order.
+    let r = await (await go("projects/" + GLOOPY_ID + "/card", { method: "POST", body: JSON.stringify({ id: form.id, number: "4242 4242 4242 4242", expiry: "12 / 30", cvc: "123", name: "Ana Example", postal: "94110", save: true }) })).json();
+    assert.equal(r.said, "Gave my card (Visa ending 4242) to pay €72.00 on " + host);
+    assert.ok(got.includes("cardnumber=4242424242424242") && got.includes("cvc=123"), "the payment service got it");
+    st = await message(r.said);
+    assert.equal(orders.length, 1, "the order was placed");
+    assert.ok(events().some((e) => e.type === "done" && /^Ordered: Strider Red/.test(e.text)));
+    const saved = await V.readCards(env, bucket, "u1");
+    assert.deepEqual(saved.map((x) => [x.last4, "cvc" in x]), [["4242", false]], "kept, without its security code");
+    // 3. Next time: you pick the saved card and type only its security code.
+    st = await message("Order another pair");
+    form = events().filter((e) => e.type === "pay").at(-1);
+    got.length = 0;
+    r = await (await go("projects/" + GLOOPY_ID + "/card", { method: "POST", body: JSON.stringify({ id: form.id, use: saved[0].id, cvc: "456" }) })).json();
+    assert.equal(r.said, "Gave my card (Visa ending 4242) to pay €72.00 on " + host);
+    assert.ok(got.includes("cardnumber=4242424242424242") && got.includes("cvc=456") && got.includes("exp-date=12/30"), "the saved card went in: " + got.join(" "));
+    st = await message(r.said);
+    assert.equal(orders.length, 2);
+    // Never seen by Gloopy, never in its chat, never kept in plain words; the security codes never kept at all.
+    // (Screenshots left out of the search: what they show is checked in GL53, and their letters could spell anything.)
+    const everything = JSON.stringify(seen, (k, v) => (typeof v === "string" && (v.startsWith("data:image/") || (v.length > 2000 && /^[A-Za-z0-9+/=]+$/.test(v))) ? "[picture]" : v));
+    for (const form of ["4242424242424242", "4242 4242 4242 4242", "cvc=123", "cvc=456", "12/30"]) assert.ok(!everything.includes(form), form + " was in what Grok was sent");
+    for (const [k, v] of bucket.m) { assert.ok(!v.includes("424242424242") && !v.includes("4242 4242"), "a card number in plain words in " + k); assert.ok(!/"cvc":\s*"\d|cvc=\d/.test(v), "a security code kept in " + k); }
+  } finally {
+    srv.close(); psp.close(); shop.close();
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]);
+  }
+});
+
+test("GL55 (2026-11-09) on the page: the card form names the shop, the total and the payment service; offers saved cards (brand, last 4, expiry) or another card; asks a saved card only for its security code; Save is never the security code; every box is emptied as it is sent", async () => {
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  const block = /else if \(e\.type === 'pay'\) \{[\s\S]*?\n      \}\n/.exec(ui)[0];
+  assert.match(block, /<b class="cd-secret-t">Pay ' \+ esc\(e\.total \|\| ''\) \+ ' on ' \+ esc\(e\.site \|\| 'the site'\) \+ '<\/b>/);
+  assert.match(block, /Your card goes straight into the payment form in Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ \(e\.via \? ' \(its card fields are from ' \+ esc\(e\.via\) \+ '\)' : ''\) \+ '\. Gloopy never sees it\. Nothing is paid until Gloopy places the order\./);
+  assert.match(block, /esc\(c\.brand\) \+ ' ending ' \+ esc\(c\.last4\)/);
+  assert.match(block, /> Another card<\/label>/);
+  assert.match(block, /\(use \? cvcBox\n/, "a saved card: its security code only");
+  assert.match(block, /Save this card, so next time you only type its security code \(the code itself is never saved\)/);
+  assert.match(block, /type="password" inputmode="numeric" autocomplete="cc-csc" maxlength="4"/);
+  assert.doesNotMatch(block, /\.number\b/, "a card's number is never put in the page (the Worker never sends one)");
+  assert.match(ui, /const take = \(sel\) => \{ const b = root\.querySelector\(sel\); const v = b \? b\.value : ''; if \(b\) b\.value = ''; return v; \};/);
+  assert.match(ui, /const body = use \? \{ use, cvc: take\('#cdPayCvc'\) \} : \{ number: take\('#cdPayNumber'\), expiry: take\('#cdPayExp'\), cvc: take\('#cdPayCvc'\), name: take\('#cdPayName'\), postal: take\('#cdPayPostal'\), save: !!\(keep && keep\.checked\) \};/);
+  assert.match(ui, /cardAnswer\(e\.currentTarget\.dataset\.paySkip, 'card', \{ skip: true \}/);
+  assert.match(ui, /S\.cards = Array\.isArray\(g\.data\.cards\) \? g\.data\.cards : \[\];/);
+  assert.doesNotMatch(ui, /S\.\w+ = [^;\n]*(cdPayNumber|cdPayCvc)/, "nothing typed is put in the page's state");
 });

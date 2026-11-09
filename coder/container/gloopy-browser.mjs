@@ -13,6 +13,10 @@
 // and `fill` (the owner's sign-in, typed into the page from the private form; the AI never sees it). Whatever is in a
 // password field is blanked out of every outline.
 //
+// PAYMENT CARDS (owner, 2026-11-09: "can we try both"): `fillCard` types the owner's card, from the private card form,
+// into the page's card fields (each value only into a field for it, the card's own fields on one site). The AI never
+// types into a card field; what is in one is blanked out of every outline and masked in every screenshot it gets.
+//
 // THE OWNER WATCHES AND TAKES OVER (owner, 2026-11-09: "Ok you can start"; Grok Bot's "Open computer, Take control",
 // dots' "Take over, Return control"): `screen` is the page as it is now, for the owner's live view (never the AI's), taken
 // at once even while an action runs; the owner's own clicks, typing, keys, scrolling and Back (`input`) are the
@@ -38,6 +42,15 @@ export const KEY_RE = /^(?:(?:Control|Shift|Alt|Meta)\+){0,3}(?:[A-Za-z0-9]|Ente
 // An element's number in the outline: e12, or f2e12 once the page has changed (Playwright numbers each new outline so).
 export const REF_RE = /^(?:f\d{1,5})?e\d{1,6}$/;
 export const PASSWORD_REFUSED = "that is a password field: you never type passwords. When a site needs the owner to sign in, use sign_in: the owner types the password into a private form and it goes straight into the page.";
+/** Copy, cut and paste, which the AI's browser never does (2026-11-09). */
+export const CLIPBOARD_KEY = /^(?:(?:Shift|Alt)\+)*(?:Control|Meta)\+(?:(?:Shift|Alt)\+)*(?:c|x|v|Insert)$|^(?:(?:Control|Alt)\+)*Shift\+(?:(?:Control|Alt)\+)*(?:Insert|Delete)$/i;
+export const CLIPBOARD_REFUSED = "copy and paste aren't available in your browser: read the text from the outline, and type what you need with type.";
+export const CARD_REFUSED = "that is a payment card field: you never type card details. At a checkout the owner asked for, use pay: the owner gives their card on a private form and it goes straight into the page.";
+/**
+ * A PAGE'S PAYMENT CARD FIELDS, in any frame (2026-11-09): the number, security code and expiry, by the words payment
+ * forms give them (autocomplete cc-number, cc-csc, cc-exp; names like cardnumber, cvc, cvv), and any the service filled.
+ */
+export const CARD_FIELDS = ['input[autocomplete~="cc-number" i]', 'input[autocomplete~="cc-csc" i]', 'input[autocomplete~="cc-exp" i]', 'input[autocomplete~="cc-exp-month" i]', 'input[autocomplete~="cc-exp-year" i]', 'input[name*="cardnumber" i]', 'input[name*="card-number" i]', 'input[name*="card_number" i]', 'input[name*="ccnumber" i]', 'input[name*="cc-number" i]', 'input[name*="cvc" i]', 'input[name*="cvv" i]', 'input[name*="securitycode" i]', 'input[name*="security_code" i]', 'input[name*="verification_value" i]', 'input[id*="cardnumber" i]', 'input[id*="card-number" i]', 'input[id*="card_number" i]', 'input[id*="cvc" i]', 'input[id*="cvv" i]', 'input[data-fieldtype^="encrypted" i]', "[data-gloopy-card]"].join(", ");
 /** Said when the machine has no browser (Coder's small image, on Cloudflare's backup machines). */
 export const NO_BROWSER = "there is no browser on this computer (it is a small backup machine): use your web search and web_fetch instead, and tell the owner the browser was not available.";
 /** What a password field holds, as every outline shows it. */
@@ -76,7 +89,13 @@ export function checkAsk(a) {
   if (action === "open") out.url = pageAddress(x.url);
   if (["click", "type", "select"].includes(action)) out.ref = needRef(x);
   if (action === "type") { if (typeof x.text !== "string") throw new Error("give text: what to type"); out.text = x.text.slice(0, 5000); out.submit = x.submit === true; }
-  if (action === "press") { const key = String(x.key || "").trim(); if (!KEY_RE.test(key)) throw new Error("give key: one key like Enter, Escape, Tab, ArrowDown or PageDown (Control+A for a shortcut)"); out.key = key; }
+  if (action === "press") {
+    const key = String(x.key || "").trim();
+    if (!KEY_RE.test(key)) throw new Error("give key: one key like Enter, Escape, Tab, ArrowDown or PageDown (Control+A for a shortcut)");
+    // NO COPY AND PASTE (2026-11-09): what is in a card field could be copied out of it into a box anyone can read.
+    if (CLIPBOARD_KEY.test(key)) throw new Error(CLIPBOARD_REFUSED);
+    out.key = key;
+  }
   if (action === "select") { if (typeof x.option !== "string" || !x.option) throw new Error("give option: the choice to pick, as the outline shows it"); out.option = x.option.slice(0, 500); }
   if (action === "scroll") out.direction = x.direction === "up" ? "up" : "down";
   return out;
@@ -109,6 +128,30 @@ export function redactPasswords(text, values) {
   let out = String(text);
   for (const v of [...new Set((values || []).filter((x) => typeof x === "string" && x))]) out = out.split(v).join(BLANKED);
   return out;
+}
+
+/**
+ * NOTHING IN A PAYMENT CARD FIELD REACHES THE AI (2026-11-09): a card number is blanked wherever it shows, however it is
+ * spaced; a security code or an expiry (a few digits, which elsewhere are other things) in its field's own line.
+ */
+export function redactCards(text, values) {
+  let out = String(text);
+  const short = new Set();
+  for (const v of [...new Set((values || []).filter((x) => typeof x === "string" && x.trim()))]) {
+    const digits = v.replace(/\D/g, "");
+    if (digits.length >= 12) {
+      const spaced = digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+      const amex = digits.length === 15 ? digits.replace(/^(\d{4})(\d{6})(\d{5})$/, "$1 $2 $3") : "";
+      for (const form of [v, v.trim(), digits, spaced, spaced.replace(/ /g, "-"), amex].filter(Boolean)) out = out.split(form).join(BLANKED);
+    } else short.add(v.trim());
+  }
+  if (!short.size) return out;
+  // In any line that holds only that ("- textbox "CVC" [ref=e5]: 123", "- text: 123" under a field with a placeholder, a
+  // card picture's "- generic [ref=f1e9]: 123"); the same few digits inside other words are other things.
+  return out.split("\n").map((line) => {
+    const m = /^(\s*- (?:[^\n]*\]|text|[a-z]+)): "?(.*?)"?$/.exec(line);
+    return m && short.has(m[2]) ? m[1] + ": " + BLANKED : line;
+  }).join("\n");
 }
 
 /** Playwright, from where the machine installed it (NODE_PATH; the image's global folder). */
@@ -148,33 +191,80 @@ export async function serve(dir) {
     await page.waitForLoadState("networkidle", { timeout: 2500 }).catch(() => {});
     await page.waitForTimeout(SETTLE_MS);
   };
-  // What is in the page's password fields now, in every frame (to blank it out of what is reported).
-  const passwords = async () => {
+  // What is in the page's password fields and payment card fields now, in every frame (to blank it out of what is
+  // reported), and the card numbers this browser typed (blanked wherever they show, for as long as it runs).
+  const typedCards = new Set();
+  const secrets = async () => {
+    const passwords = [], cards = [...typedCards];
+    for (const f of page.frames()) {
+      try {
+        const v = await f.evaluate((sel) => ({ p: [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean), c: [...document.querySelectorAll(sel)].map((i) => i.value).filter(Boolean) }), CARD_FIELDS);
+        passwords.push(...v.p); cards.push(...v.c);
+      } catch { /* a frame that went away */ }
+    }
+    return { passwords, cards };
+  };
+  // MASKED IN EACH SCREENSHOT THE AI GETS (the owner's live view shows the page as it is): the card fields of every frame,
+  // and any text that shows what is in them (a card picture beside the fields; a number however it is spaced).
+  const cardMasks = (values) => {
+    const nums = [], shorts = new Set();
+    for (const v of new Set(values)) { const d = v.replace(/\D/g, ""); if (d.length >= 12) nums.push(new RegExp(d.split("").join("[\\s-]?"))); else if (v.trim()) shorts.add(v.trim()); }
     const out = [];
-    for (const f of page.frames()) { try { out.push(...(await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean)))); } catch { /* a frame that went away */ } }
+    for (const f of page.frames()) {
+      if (f.isDetached()) continue;
+      out.push(f.locator(CARD_FIELDS));
+      for (const re of nums) out.push(f.getByText(re));
+      for (const t of shorts) out.push(f.getByText(t, { exact: true }));
+    }
     return out;
   };
   const report = async (did) => {
     const title = await page.title().catch(() => "");
     let outline = await page.locator("body").ariaSnapshot({ mode: "ai", timeout: 10000 }).catch((e) => "(the page's outline could not be read: " + plainError(e, {}) + ")");
-    outline = redactPasswords(outline, await passwords());
+    const hide = await secrets();
+    outline = redactCards(redactPasswords(outline, hide.passwords), hide.cards);
     let cut = "";
     if (outline.length > OUTLINE_MAX) { outline = outline.slice(0, OUTLINE_MAX); cut = "\n[the outline goes on past " + OUTLINE_MAX.toLocaleString("en-US") + " characters; the screenshot shows what is in view: scroll and look to see more]"; }
-    const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000 }).catch(() => null);
+    const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards), maskColor: "#9ca3af" }).catch(() => null);
     const said = dialog ? "\nA dialog came up and was closed (" + dialog + ")." : "";
     dialog = "";
-    return { text: "Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, shot: shot ? shot.toString("base64") : "" };
+    // Blanked in all of it, what was done too (a step's words name an element, never what is typed in it, but never trust that alone).
+    const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
+    return { text, shot: shot ? shot.toString("base64") : "" };
   };
   const target = (ref) => page.locator("aria-ref=" + ref);
   // An element as a person would say it ("Go", "Search"), and what it is: for the words of what was done, and the check.
-  const about = (ref) => target(ref).evaluate((n) => ({
-    name: String(n.getAttribute("aria-label") || n.getAttribute("title") || n.innerText || n.value || n.getAttribute("placeholder") || n.getAttribute("name") || n.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 120),
-    tag: n.tagName.toLowerCase(), type: String(n.getAttribute("type") || "").toLowerCase(), role: String(n.getAttribute("role") || ""),
-    password: n instanceof HTMLInputElement && n.type === "password",
-    form: !!(n.form || (n.closest && n.closest("form"))), formAction: String((n.form && n.form.action) || ""), href: String(n.href || ""),
-    // The site the element itself is on: its own frame's (a box from another site, framed in the page, is that site's).
-    origin: String(window.origin || ""),
-  }), null, { timeout: 8000 });
+  // NEVER WHAT WAS TYPED IN A FIELD (found 2026-11-09: a password field's name was its value, so "Clicked" on it after a
+  // sign-in said the password): a field is named by its label, placeholder or name. A label stands for its field (typing
+  // into a label types into its field). `card`: which part of a payment card a field is for (number, cvc, exp, month,
+  // year, name), or "".
+  const about = (ref) => target(ref).evaluate((n) => {
+    const c = n instanceof HTMLLabelElement && n.control ? n.control : n;
+    const field = (c instanceof HTMLInputElement && !/^(submit|button|reset|image)$/i.test(c.type)) || c instanceof HTMLTextAreaElement || c instanceof HTMLSelectElement;
+    const labels = c.labels ? [...c.labels].map((l) => l.innerText).join(" ") : "";
+    const name = n !== c ? n.innerText : field ? c.getAttribute("aria-label") || c.getAttribute("title") || labels || c.getAttribute("placeholder") || c.getAttribute("name") || ""
+      : n.getAttribute("aria-label") || n.getAttribute("title") || n.innerText || n.value || n.getAttribute("placeholder") || n.getAttribute("name") || n.getAttribute("alt") || "";
+    const ac = String(c.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
+    const attrs = [c.getAttribute("name"), c.id, c.getAttribute("data-fieldtype"), c.getAttribute("data-elements-stable-field-name")].join(" ").toLowerCase();
+    const words = [c.getAttribute("aria-label"), c.getAttribute("placeholder"), labels].join(" ").toLowerCase();
+    const all = attrs + " " + words;
+    const card = !field ? ""
+      : ac.includes("cc-csc") || /cvc|cvv|\bcsc\b|securitycode|security_code|security-code|verification_value|encryptedsecuritycode/.test(attrs) || /\bcvc\b|\bcvv\b|\bcsc\b|card.?security|card.?verification/.test(words) ? "cvc"
+      : ac.includes("cc-exp-month") || /exp\w*.?month|month.?exp/.test(all) ? "month"
+      : ac.includes("cc-exp-year") || /exp\w*.?year|year.?exp/.test(all) ? "year"
+      : ac.includes("cc-exp") || /exp-?date|expiry|expiration|encryptedexpiry/.test(attrs) || /expir|mm\s*\/\s*yy/.test(words) ? "exp"
+      : ac.includes("cc-name") || /cardholder|card.?holder|name.?on.?card|nameoncard/.test(all) ? "name"
+      : ac.includes("cc-number") || /cardnumber|card.?number|ccnumber|cc-number|creditcard|encryptedcardnumber/.test(attrs) || /card number|credit or debit card|\b\d{4} \d{4} \d{4} \d{4}\b/.test(words) ? "number"
+      : "";
+    return {
+      name: String(name).replace(/\s+/g, " ").trim().slice(0, 120),
+      tag: c.tagName.toLowerCase(), type: String(c.getAttribute("type") || "").toLowerCase(), role: String(c.getAttribute("role") || ""),
+      password: c instanceof HTMLInputElement && c.type === "password", card,
+      form: !!(c.form || (c.closest && c.closest("form"))), formAction: String((c.form && c.form.action) || ""), href: String(n.href || ""),
+      // The site the element itself is on: its own frame's (a box from another site, framed in the page, is that site's).
+      origin: String(window.origin || ""),
+    };
+  }, null, { timeout: 8000 });
   const siteOf = (origin) => { try { const u = new URL(origin); return /^https?:$/.test(u.protocol) ? u.host : ""; } catch { return ""; } };
   const quote = (t, max = 60) => "“" + String(t).replace(/\s+/g, " ").trim().slice(0, max) + (String(t).length > max ? "…" : "") + "”";
   const run = async (ask) => {
@@ -185,6 +275,7 @@ export async function serve(dir) {
     else if (ask.action === "click") await target(ask.ref).click({ timeout: 8000 });
     else if (ask.action === "type") {
       if (el.password) throw new Error(PASSWORD_REFUSED);
+      if (["number", "cvc", "exp"].includes(el.card)) throw new Error(CARD_REFUSED);
       await target(ask.ref).fill(ask.text, { timeout: 8000 });
       if (ask.submit) await target(ask.ref).press("Enter", { timeout: 8000 });
     } else if (ask.action === "press") await page.keyboard.press(ask.key);
@@ -222,6 +313,57 @@ export async function serve(dir) {
     let still = false;
     for (const f of page.frames()) { try { if (await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].some((i) => i.offsetParent !== null))) still = true; } catch { /* a frame that went away */ } }
     return { ok: true, url: page.url(), title: await page.title().catch(() => ""), still };
+  };
+  // THE OWNER'S CARD, from the private card form (2026-11-09): typed into the page's card fields here; never reported
+  // back. Only on the page the owner was asked about (`site`); each value only into a field for it (the number into a
+  // card number field, ...), and the card's number, expiry and security code into fields of one site (a payment form's
+  // frames are its payment service's). The fields are marked, so they stay masked and blanked.
+  const CARD_PARTS = { number: "card number", exp: "expiry date", month: "expiry month", year: "expiry year", cvc: "security code", name: "name on card", postal: "postal code" };
+  const fillCard = async (x) => {
+    const c = x.card && typeof x.card === "object" ? x.card : {};
+    const digits = String(c.number || "").replace(/\D/g, "");
+    if (digits.length < 12 || digits.length > 19) throw new Error("no card number was given");
+    let top = "";
+    try { top = new URL(page.url()).host; } catch { top = ""; }
+    if (!x.site || top !== String(x.site)) throw new Error("the browser is not on " + (x.site || "the site") + " any more (it is on " + (top || "no site") + "), so nothing was typed");
+    const refs = {}, els = {};
+    for (const k of Object.keys(CARD_PARTS)) if (x[k + "Ref"]) refs[k] = needRef(x, k + "Ref");
+    if (!refs.number) throw new Error("give the card number field");
+    for (const [k, ref] of Object.entries(refs)) els[k] = await about(ref);
+    for (const [k, el] of Object.entries(els)) {
+      const own = ["number", "exp", "month", "year", "cvc"].includes(k);
+      if (own ? el.card !== k : el.password || ["number", "cvc", "exp"].includes(el.card) || !["input", "textarea"].includes(el.tag)) throw new Error("the field given for the " + CARD_PARTS[k] + " (" + refs[k] + ") is not one, so nothing was typed");
+      if (own && el.origin !== els.number.origin) throw new Error("the " + CARD_PARTS[k] + " field is not on the same site as the card number field, so nothing was typed");
+    }
+    if (!siteOf(els.number.origin)) throw new Error("the card number field has no web address of its own, so nothing was typed");
+    typedCards.add(digits);
+    const mark = (ref) => target(ref).evaluate((n) => (n instanceof HTMLLabelElement && n.control ? n.control : n).setAttribute("data-gloopy-card", "1")).catch(() => {});
+    // Typed at once; a field that formats as it is typed (a payment service's own) and kept nothing of it, key by key.
+    const put = async (ref, value, check = "", own = true) => {
+      if (own) await mark(ref);
+      const loc = target(ref);
+      await loc.fill(value, { timeout: 8000 });
+      if (!check) return;
+      const got = await loc.evaluate((n, want) => String((n instanceof HTMLLabelElement && n.control ? n.control : n).value || "").replace(/\D/g, "").endsWith(want), check);
+      if (!got) { await loc.fill("", { timeout: 8000 }).catch(() => {}); await loc.pressSequentially(check, { delay: 25, timeout: 20000 }); }
+    };
+    const choose = async (ref, options) => {
+      await mark(ref);
+      for (const o of options) { try { await target(ref).selectOption(o, { timeout: 3000 }); return; } catch { /* written another way */ } }
+      throw new Error("the " + CARD_PARTS[Object.keys(refs).find((k) => refs[k] === ref)] + " could not be chosen");
+    };
+    const month = Math.max(1, Math.min(12, Number(c.month) || 0)), year = Number(c.year) || 0;
+    const mm = String(month).padStart(2, "0"), yy = String(year).slice(-2);
+    await put(refs.number, digits, digits.slice(-4));
+    if (refs.exp) await put(refs.exp, mm + "/" + yy, mm + yy);
+    const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    if (refs.month) { if (els.month.tag === "select") await choose(refs.month, [mm, String(month), MONTHS[month - 1], MONTHS[month - 1].slice(0, 3), mm + " - " + MONTHS[month - 1]]); else await put(refs.month, mm, mm); }
+    if (refs.year) { if (els.year.tag === "select") await choose(refs.year, [String(year), yy]); else await put(refs.year, String(year), yy); }
+    if (refs.cvc) { const cvc = String(c.cvc || "").replace(/\D/g, ""); if (cvc) await put(refs.cvc, cvc, cvc); }
+    if (refs.name && c.name) await put(refs.name, String(c.name).slice(0, 100), "", false);
+    if (refs.postal && c.postal) await put(refs.postal, String(c.postal).slice(0, 12), "", false);
+    await settle();
+    return { ok: true, url: page.url(), title: await page.title().catch(() => ""), filled: Object.keys(refs) };
   };
   // THE OWNER'S LIVE VIEW: the page as it is now (a JPEG), with its address and title; nothing new when it has not changed
   // since the one they have (`since`). A moment when no picture can be taken (a page being loaded) gives none.
@@ -267,9 +409,10 @@ export async function serve(dir) {
           if (!x) out = { ok: true };
           else if (x.action === "describe") out = await describe(x);
           else if (x.action === "fill") out = await fill(x);
+          else if (x.action === "fillCard") out = await fillCard(x);
           else if (x.action === "input") out = await input(x);
           else { ask = checkAsk(x); out = await run(ask); }
-        } catch (e) { out = { error: e && e.message === PASSWORD_REFUSED ? PASSWORD_REFUSED : plainError(e, ask || {}) }; }
+        } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
         last = Date.now();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify(out));
@@ -344,6 +487,8 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     act: async (args) => { const r = await call(checkAsk(args)); const shot = typeof r.shot === "string" ? r.shot : ""; return { text: String(r.text || ""), shot, thumb: thumbOf(shot) }; },
     describe: (ref) => call({ action: "describe", ...(ref ? { ref } : {}) }),
     fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password }),
+    // THE OWNER'S CARD (2026-11-09): { site, numberRef, expRef?, monthRef?, yearRef?, cvcRef?, nameRef?, postalRef?, card }.
+    fillCard: ({ site = "", card, numberRef, expRef = "", monthRef = "", yearRef = "", cvcRef = "", nameRef = "", postalRef = "" }) => call({ action: "fillCard", site, card, numberRef, expRef, monthRef, yearRef, cvcRef, nameRef, postalRef }),
     // Only when it is running already (no browser is started to be told nothing).
     running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
     // THE OWNER'S LIVE VIEW: { shot, hash, url, title } (or { same: true } when unchanged since `since`); { off: true } when

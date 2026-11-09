@@ -295,6 +295,12 @@
 .cd:has(.cd-web-screen.is-you) > .cd-composewrap { margin-top: auto; }
 @media (max-width: 640px) { .cd:has(.cd-web) > .cd-log { display: none; } .cd:has(.cd-web) > .cd-composewrap { margin-top: auto; } .cd:has(.cd-web) .cd-web-screen img { max-height: 46vh; } }
 .cd-sign-save { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 13px; color: #4b5563; margin: 12px 4px 0; cursor: pointer; }
+/* Gloopy's card form (2026-11-09): saved cards to pick from, and the expiry next to the security code. */
+.cd-pay-pick { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; text-align: left; }
+.cd-pay-opt { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #e5e2dc; border-radius: 12px; background: #fff; font-size: 14px; cursor: pointer; }
+.cd-pay-opt small { margin-left: auto; color: #6b7280; }
+.cd-pay-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cd-pay-two > div { min-width: 0; }
 .cd-sign-save input { margin-top: 2px; }
 /* GLOOPY'S PAGES (2026-11-09): the card in the chat, and the page opened over the chat. */
 .cd-pagecard { display: flex; align-items: center; gap: 12px; border: 1px solid #e5e3dd; border-radius: 14px; background: #fff; padding: 12px 14px; margin: 10px 0; }
