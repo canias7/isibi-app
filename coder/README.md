@@ -184,6 +184,41 @@ code in **each user's own GitHub**.
    command that keeps the encoding, or asking the owner, or deleting it first); it
    keeps a UTF-16 file UTF-16; and it refuses a path that is a link, naming its
    target. A new file, or a plain one not read, is written as before.
+   Second pass (each tried for real with Claude Code's own Write): it won't replace
+   a file that changed since Coder read or wrote it and hasn't been shown again
+   ("… has been modified since read … Read it again before attempting to write it";
+   only its time changing is no change, and the note after a command counts as
+   showing it); a file read only in part stays so after `cat` or `head`; a UTF-8
+   byte-order mark is kept; a folder is named as one; and it answers in Claude
+   Code's words ("File created successfully at: …" / "The file … has been updated
+   successfully.", then "(file state is current in your context — no need to Read
+   it back)"). Docs pass: an instruction file Coder's app showed only in part (its
+   note "[… goes on …: read the rest of it with the read tool, from line N]") is not
+   written over until it is read all at once ("You were given only the start of this
+   file …"; the agent marks it from that note, `SHOWN_START_RE`); a null byte names
+   the tool ("write path cannot contain null bytes …"); and a link on the way in a
+   loop or leading nowhere is refused before any folder is made ("where it leads on
+   disk could not be determined …").
+   What Claude Code's Write has that Coder's didn't: the chat shows under each write
+   what it wrote (a new file's lines, a replaced file's diff, +N −M on the step; the
+   tool's `show_change` and `WRITE_MARK`, read by the agent's `writeAnswer`, never sent
+   to Grok); `file_text` and `file_content` are taken for `content`; a write to the
+   memory file is measured against what Coder loads of it (`memoryNote`); and Claude
+   Code's `.claude/security-patterns.*` files are read beside Coder's own.
+   Last docs pass: write's other input names are read with Claude Code's note ("Note:
+   write's parameters are named `path` and `content`. `file_path` was read as `path`.")
+   and two different values for one input are refused (`writeInputs`); a file in the
+   chat's other repository is named in full; the owner's values are hidden in a
+   write's lines too when a chat is saved (`hideIn`). And Claude Code's protected
+   paths (`.husky`, `.vscode`, `.envrc`, `.npmrc` …, `PROTECTED_DIRS`/`PROTECTED_FILES`):
+   write asks the owner first on a card (event `writeask`; Allow sends "I allowed
+   Coder to change <path>.", which lets that file through for the chat); from GitHub
+   they are not written.
+   After each write of a JavaScript, TypeScript or Python file, the language server
+   reports the new errors and warnings (`newProblems` in `coder-lsp.mjs`): to Grok as
+   Claude Code's "new diagnostics" note, to the chat as "Found N new diagnostic issues
+   in 1 file". (Showing a write while Grok writes it can't be done: xAI sends a tool
+   call whole, at the end.)
 
    **A `cd` carries over to the next commands, the Claude Code way** (the owner,
    2026-11-08: "lets do it the claude code way"; Claude Code's tools reference: "the

@@ -814,7 +814,7 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
   const dir = await mkdtemp(join(tmpdir(), "coder-tools-"));
   const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
   const tool = (name, args) => { try { return { code: 0, out: execFileSync("node", [script, Buffer.from(JSON.stringify({ tool: name, args })).toString("base64")], { cwd: dir }).toString() }; } catch (e) { return { code: e.status, out: String(e.stdout) }; } };
-  assert.match(tool("write", { path: "src/app.js", content: "const a = 1;\nconst b = 2;\n" }).out, /wrote src\/app\.js/);
+  assert.match(tool("write", { path: "src/app.js", content: "const a = 1;\nconst b = 2;\n" }).out, /^File created successfully at: src\/app\.js \(file state is current in your context — no need to Read it back\)$/);
   assert.match(tool("read", { path: "src/app.js" }).out, /^\s+1\tconst a = 1;\n\s+2\tconst b = 2;/);
   assert.match(tool("edit", { path: "src/app.js", old_string: "const b = 2;", new_string: "const b = 3;" }).out, /edited src\/app\.js/);
   assert.equal(readFileSync(join(dir, "src/app.js"), "utf8"), "const a = 1;\nconst b = 3;\n");

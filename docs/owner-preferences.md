@@ -28,6 +28,12 @@ deleted (the old file is in git history).
   anything that is not that tool in its own list, marked as outside it, and ask
   the owner before fixing it. Something the tool's change breaks elsewhere may be
   fixed with it, but say plainly that it is outside the tool and why.
+- **The order for each tool (2026-11-08, "first of all, we gotta go look on
+  Claude Code's write tool and see what it does and see what ours does. And then
+  … after we copy or use what they do, then we can actually start testing it"):**
+  1) see everything Claude Code's tool does (its docs, and trying the real tool on
+  real files, case by case); 2) see what Coder's does, the same cases; 3) copy what
+  Claude Code's does; 4) only then test it live in the browser. Not before.
 
 ## Coder (2026-11-05)
 - Same style as the old sites agent's chat, its own folder, Worker and container.

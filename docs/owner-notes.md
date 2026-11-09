@@ -11,6 +11,105 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Write: the two extras (your words: "can we do those small optional extras that you said? Yeah, I want it")
+
+- **Mistake-check after each write: done.** Like Claude Code with its language server add-ons: after Coder writes a JavaScript, TypeScript or Python file, the language server checks it, and any *new* errors or warnings go straight to Grok, which fixes them. Under the step the chat shows "Found 1 new diagnostic issue in 1 file"; tap it to see the problem itself, e.g. `✘ [Line 5:25] "rate" is not defined`.
+  - Only new problems are reported (ones the file already had before the write aren't).
+  - It adds a couple of seconds to each write of a code file (the server starts, checks, and stops). Other files aren't checked.
+  - Your secret values are hidden in these messages too when the chat is saved.
+  - Tried on Coder's real page with the real Python language server (screenshot sent).
+- **Watching a long file appear while it's written: can't be done with Grok.** xAI's own docs say "With streaming, the function call is returned in whole in a single chunk, not streamed across chunks": Grok hands over a whole write (all its text) at once, at the end, so there's nothing to show before then. Claude Code can do it because Claude sends a tool's text as it goes. If xAI changes this, Coder can add it.
+- Test CD259 (fails on the old code), with a stand-in language server so the tests don't depend on what's installed; all 268 pass, and the 24 real read checks.
+
+## 2026-11-09: Write: Coder asks you before changing a protected file (your word: "Okay, yes, yes, do that")
+
+- **Like Claude Code:** before Coder writes a file that can make code run on your computer, or change how the project is built, it stops and shows a card: "Allow Coder to change .husky/pre-commit?", with the lines it would write, and **Allow** / **Don't allow**.
+  - **Allow** sends "I allowed Coder to change .husky/pre-commit." as your next message, and Coder writes it. That file is then allowed for the rest of the chat.
+  - **Don't allow** tells Coder not to.
+  - The chat shows as waiting for you, with a notification, as for the environment card.
+- **The files** (Claude Code's own list): the folders `.husky`, `.vscode`, `.idea`, `.devcontainer`, `.cargo`, `.yarn`, `.mvn`, `.claude`, `.config/git` (and Coder's own `.coder`); files like `.bashrc`, `.zshrc`, `.profile`, `.envrc`, `.npmrc`, `.yarnrc.yml`, `.pre-commit-config.yaml`, `lefthook.yml`, `.gitconfig`, `.gitmodules`, `.mcp.json`, `gradle-wrapper.properties`, `.devcontainer.json`. Anywhere in the project, whatever their capital letters. `.git` stays off limits.
+- **Only your own Allow counts:** text inside a file Coder reads can't pass for it.
+- **From GitHub** (`@coder` in a comment), where no one can press Allow, Coder doesn't write them and says so.
+- **Still to come:** the same check for edit (tool 3) and for commands (tool 4), in their turns.
+- **Later, on your word** (you, 2026-11-09: "the asking thing we're gonna do it later. I'll tell you what to do later about that"): Claude Code's asking modes (ask before every change, never ask, plan first).
+- Tested on Coder's real page (screenshots sent); test CD258 (fails on the old code); all 267 pass, and the 24 real read checks.
+
+## 2026-11-09: Write: one more full pass through Claude Code's docs (your words: "Before the live browser keep checking the write tool in claude code docs pls we may be missing stuff")
+
+- **Went through everything that names Write:** all 44 changelog entries, every Write error in the error reference, and every other docs page. Where the docs don't give the exact words, I tried Claude Code's own Write.
+- **Copied:**
+  1. **Other names for write's inputs, with Claude Code's note.** When the AI uses another name (like `file_path` or `file_content`) or adds a stray one, Claude Code writes the file but tells the AI the right names ("`file_content` was read as `content`", "`description` was ignored"). If the AI gives two *different* paths or contents under two names, Claude Code refuses rather than guess. Coder now does both.
+  2. **A file in the chat's other repository is named in full** in write's answer. Before, it was "README.md", as if it were the main project's.
+  3. **Tab-indented code shows at its usual width** in the new preview.
+  4. **Found and fixed in my own work:** the new preview lines weren't covered by the step that hides your secret values when a chat is saved. Now they are.
+- **For you to decide: protected files.** Claude Code never writes certain files without asking you first: things like `.husky` (git hooks), `.vscode`, `.devcontainer`, `.bashrc`, `.envrc`, `.npmrc`, `.pre-commit-config.yaml`, `.mcp.json` and the Gradle wrapper. These can make code run on your computer when you pull the branch. Coder refuses only `.git` and writes the rest without asking.
+- Tests: CD257 (fails on the old code); all 266 pass, and the 24 real read checks.
+
+## 2026-11-09: Write: what Claude Code's Write has that Coder's didn't (your words: "not only compare what we have, but also like what we don't have", then "Go ahead and do those")
+
+- **Each write now shows what it wrote, right under its step,** like Claude Code:
+  - a **new file** shows its first 8 lines, numbered, and "+17" (its line count) on the step;
+  - a **replaced file** shows what changed: lines taken out in red, lines added in green, and "+5 −2" on the step;
+  - "Show N more lines" opens the rest (up to 120 lines; See changes has every line), and "Show less" folds it again.
+  - Grok isn't sent any of it, just as Claude Code's AI isn't. Anything shaped like a key is hidden.
+- **Claude Code's other names for write's inputs now work:** `file_text` and `file_content` (and `file_path`, which already did).
+- **Writing the memory file checks its size,** like Claude Code: over what Coder loads of it (25,000 bytes), Grok is told to shorten it; near that, or over 200 lines, a note.
+  - On your list: Claude Code only loads the first 200 lines of its memory; Coder loads all of it up to 25,000 bytes.
+- **Claude Code's own security rules file** (`.claude/security-patterns.yaml`, `.yml` or `.json`) is now read too, so a repo set up for Claude Code gets its checks in Coder.
+- **One limit for write:** Grok was told 90,000 characters in one place and "about 1 MB" in another; now 90,000 in both.
+- **Not done, your call:** showing a long file while Grok is still writing it, and checking for errors after each write with the language server.
+- Tests CD254 to CD256 (each fails on the old code); all 265 pass, and the 24 real read checks. Screenshots from Coder's real page (stand-in Grok) sent.
+
+## 2026-11-09: Write, docs pass: Claude Code's docs on Write, compared with Coder's (your words: "look on Claude Code Docs and go look for the right writing tool and compare to ours")
+
+- **Read every page of Claude Code's docs that mentions Write** (fetched fresh today; nothing about Write changed since yesterday), plus its changelog. Almost everything already matched after yesterday's two passes. Three more differences, now copied:
+  1. **A big instruction file Coder was shown only the start of** (a CODER.md, AGENTS.md or rules file over the size Coder shows): Claude Code refuses to write over it until it has read all of it, and says so: "You were given only the start of this file … so a Write could lose the rest. To change part of it, use Edit." Tried for real with a 210,000-character file. Coder would have written over it, losing the instructions it never saw. Now it refuses the same way; an edit still works, as in Claude Code.
+  2. **A hidden character in a path:** Claude Code's message names the tool ("Write file_path cannot contain null bytes …"). Coder's write now does too. (Read, edit, grep and glob say it the old way: that's outside write, so it's on your list.)
+  3. **A link that goes in a loop, or leads nowhere:** the docs give one clear message ("where it leads on disk could not be determined"). Coder gave a raw system error. Nothing was ever written, but now it's checked before anything is made, and said plainly.
+- **Where the docs disagree with the real tool:** the docs page says Write may replace a file in an old text format; the changelog and the real tool both refuse it. Coder keeps refusing.
+- **Not for Coder:** Claude Code's permission rules, hooks, IDE diff and the like, which Coder doesn't have. Coder's write never leaves the project anyway.
+- Tests CD252 and CD253 (each fails on the old code); all 262 pass, and the 24 real read checks.
+- Next: test write live in the browser after the next merge and deploy, on your word.
+
+## 2026-11-08: Write, second pass: all of Claude Code's Write, then copied (your words: "first of all, we gotta go look on Claude Code's write tool and see what it does and see what ours does … after we copy or use what they do, then we can actually start testing it")
+
+- **Saved as a standing rule** in owner-preferences: for each tool, first see everything Claude Code's tool does and what Coder's does, copy what Claude Code's does, and only then test it live.
+- **Tried for real with Claude Code's own Write**, the cases the first pass didn't cover. Five more differences:
+  1. **A file that changed after Coder read it** (a command, or something running in the background, changed it): Claude Code refuses ("File has been modified since read … Read it again"); Coder wrote over the change. Same for a file it wrote itself and a command then changed.
+  2. **A file read only in part, then shown with `cat` or `head`:** Claude Code still refuses; Coder took the `cat` as reading it all, so it could replace lines it never saw.
+  3. **A file with a hidden UTF-8 marker at its start** (a byte-order mark, common on Windows): Claude Code keeps it; Coder dropped it.
+  4. **Writing to a folder's name:** Claude Code says "… is a directory, not a file. To create a file inside it, include the file name"; Coder gave a raw system error.
+  5. **Its words:** Claude Code says "File created successfully at: …" or "The file … has been updated successfully.", then "(file state is current in your context — no need to Read it back)". Coder said "wrote a.txt (2 lines)", with the wrong count.
+- **The same in both already:** new folders made as needed, a script stays runnable, line endings as given, an empty file, writing after reading again, and only the file's time changing.
+- **Now Coder does what Claude Code does in all five.** Tests CD249 to CD251 (each fails on the old code); all 260 pass, and the 24 real read checks.
+- Next: test write live in the browser after the next merge and deploy, on your word.
+
+## 2026-11-08: The docs: only read, on their own page, linked from the landing page (your words: "Just make the docs for what we have tested right now, which is the read tool. That's it." and "put it on the landing page … don't put it inside the coding")
+
+- **Out of Coder:** the Docs link in Coder's sidebar is gone.
+- **On the landing page:** a "Docs" link in the top bar, next to Sign in. It opens the docs page, gofarther.dev/docs; its "Open Coder" button comes back.
+- **Only read on it:** the page is now "Coder docs" with the Read tool only (text files, pictures, PDFs, notebooks, what read won't open, @ mentions, what Coder is told on its own), with that list down the side. Write and the other tools, the tools table and the "Testing" badges are gone; each tool is added once its live test passes.
+- Test CD248 checks all of that (the link on the landing page and not in Coder, only read on the page, no script, every link goes somewhere, and every number matches Coder's code); all 257 pass. Live with the next merge and deploy, on your word; then tried in the browser.
+
+## 2026-11-08: Write (tool 2) and read's two display points, tested live in the browser (recording 16)
+
+- **Deploy 69** (with write's checks and read's two display points) went live, then five messages to Coder on gofarther.dev, in a new chat on canias7/testingforclaude, filmed:
+  1. **Writing over a file read only in part: refused**, with "has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view) …". **A notebook not read: refused** the same way.
+  2. **An old-format file: refused**, nothing written (it still holds "café" in its old format). **A UTF-16 file: written and still UTF-16.** **A link: refused**, naming its target, and the target was untouched. **A file inside a linked folder, and a plain file not read: written.**
+  3. **The notebook, once read: written.**
+  4. **A hidden character in a file name now shows:** "Read notes\0.txt" (it took a second try: the first time, Grok typed the six letters \u0000 instead of the character).
+  5. **A PDF's pages and a notebook's chart now show under their step,** small: the three pages of doc.pdf and the orange chart.
+- **Found, for your call with the wording:** after a write, Coder says "wrote u16.txt (2 lines)" for a one-line file (it counts the line break at the end as a line), and "(1 lines)". Claude Code gives no count ("File created successfully at: …" / "The file … has been updated successfully.").
+
+## 2026-11-08: Coder's docs page, gofarther.dev/docs (your word: "start making a section for it in the frontend of our website")
+
+- **A new page, gofarther.dev/docs,** in the app's own look: a list of sections on the left, the text on the right; on a phone, the list sits above the text as a row of buttons.
+- **A "Docs" link in Coder's sidebar,** under Repositories. It opens the docs in a new tab, so a chat stays open.
+- **What it says so far:** what Coder is, how a chat works, a table of all the tools with where each stands (Read: Tested; Write: Testing; the rest: Next), then a full Read section and a Write section. It describes Coder only, in plain English.
+- **It grows tool by tool:** as each tool passes its live test, its section is written and its badge turns to Tested.
+- **Every number on it comes from Coder's code** (100,000 characters a read, 256 KB, 2,000-pixel pictures, 20 PDF pages, and so on). Test CD248 checks them, so the page can't drift from what Coder really does. It also checks the page has no script and every link in its list goes somewhere. All 257 tests pass.
+- Live with the next merge and deploy, on your word; then tried in the browser.
+
 ## 2026-11-08: Read: the two small display points (your word: "Do this pls")
 
 - **A hidden character in a file name now shows:** a read of a path with a null byte in it showed in the chat as "Read notes.txt", as if it were notes.txt. Now the step says "Read notes\0.txt" (a line break shows as \n, and so on).

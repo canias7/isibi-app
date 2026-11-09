@@ -172,9 +172,14 @@ async function hiddenValues(env, bucket, uid, meta) {
   if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, meta.id, "hide.json")); }
   return [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
 }
-/** Those values hidden in a job's steps. */
-function hideIn(events, values) {
-  if (values.length) for (const ev of events) for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") for (const v of values) ev[f] = ev[f].split(v).join("[hidden]");
+/** Those values hidden in a job's steps: their text, and the lines a write shows under its step (the owner, 2026-11-09). */
+export function hideIn(events, values) {
+  const hide = (x) => { let t = String(x); for (const v of values) t = t.split(v).join("[hidden]"); return t; };
+  if (values.length) for (const ev of events) {
+    for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") ev[f] = hide(ev[f]);
+    if (ev && ev.change && Array.isArray(ev.change.lines)) ev.change.lines = ev.change.lines.map(hide);
+    if (ev && Array.isArray(ev.problems)) ev.problems = ev.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || "") } : p));
+  }
   return events;
 }
 /**
@@ -889,7 +894,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
-      const asked = fresh.filter((e) => e && ["question", "secret", "envchange"].includes(e.type)).at(-1);
+      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask"].includes(e.type)).at(-1);
       // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
       // next message's commands too ("This includes commands Claude runs in response to your later messages").
       const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";

@@ -105,3 +105,79 @@ export async function runLsp({ action, path, abs, line, column }, root = process
     })()]);
   } finally { try { proc.kill("SIGKILL"); } catch { /* gone */ } }
 }
+
+/**
+ * NEW PROBLEMS AFTER A WRITE (the owner, 2026-11-09: "can we do those small optional extras that you said? Yeah, I want
+ * it"; Claude Code's code-intelligence plugins: "each time Claude edits or writes a file the server handles, Claude gets
+ * the errors and warnings the server reports", and its conversation shows "Found N new diagnostic issues in M files"):
+ * one language server for the write, the file as it was (`before`; null for a new file) and then as it is now (`after`);
+ * the errors and warnings that are new (matched by kind, message and code, not by line, as lines move). Each report is
+ * taken once the server goes quiet (SETTLE_MS without another), as a server may report in steps. Null when no server takes
+ * the file, it is not installed, or it takes longer than CHECK_MS in all: then nothing is said, as in Claude Code without
+ * a plugin.
+ */
+export const CHECK_MS = 20000, SETTLE_MS = 800, PROBLEMS_SHOWN = 20;
+export async function newProblems({ path, abs, before = null, after }, root = process.cwd()) {
+  const s = serverFor(path);
+  if (!s || typeof after !== "string") return null;
+  let proc;
+  try { proc = spawn(s.cmd, s.args, { cwd: root, stdio: ["pipe", "pipe", "ignore"] }); } catch { return null; }
+  const gone = new Promise((ok) => proc.on("error", () => ok(null)));
+  const timer = new Promise((ok) => setTimeout(() => ok(null), CHECK_MS));
+  const c = connect(proc);
+  const uri = pathToFileURL(abs).href;
+  // Each report for this file, in order; settled(n): the last of those after the n-th, once SETTLE_MS pass with no other.
+  const reports = [];
+  const take = (m) => { if (m.method === "textDocument/publishDiagnostics" && m.params && m.params.uri === uri) reports.push(Array.isArray(m.params.diagnostics) ? m.params.diagnostics : []); };
+  for (const m of c.notes) take(m);
+  c.onNote(take);
+  const settled = (from) => new Promise((ok) => {
+    let seen = -1;
+    const tick = () => {
+      if (reports.length > from && reports.length === seen) return ok(reports[reports.length - 1]);
+      seen = reports.length;
+      setTimeout(tick, reports.length > from ? SETTLE_MS : 100);
+    };
+    tick();
+  });
+  try {
+    return await Promise.race([gone, timer, (async () => {
+      const rootUri = pathToFileURL(root).href;
+      await c.request("initialize", { processId: process.pid, rootUri, workspaceFolders: [{ uri: rootUri, name: "project" }], capabilities: { textDocument: { publishDiagnostics: {} } } });
+      c.notify("initialized", {});
+      let was = [];
+      if (typeof before === "string") {
+        c.notify("textDocument/didOpen", { textDocument: { uri, languageId: s.lang(s.ext), version: 1, text: before } });
+        was = await settled(0);
+        const from = reports.length;
+        c.notify("textDocument/didChange", { textDocument: { uri, version: 2 }, contentChanges: [{ text: after }] });
+        return pickNew(was, await settled(from));
+      }
+      c.notify("textDocument/didOpen", { textDocument: { uri, languageId: s.lang(s.ext), version: 1, text: after } });
+      return pickNew([], await settled(0));
+    })()]);
+  } catch { return null; } finally { try { proc.kill("SIGKILL"); } catch { /* gone */ } }
+}
+/** The errors and warnings in `now` that `was` did not have (each counted, so a second same error is new). */
+function pickNew(was, now) {
+  const key = (d) => (d.severity || 1) + "\u0000" + String(d.message || "") + "\u0000" + String(d.code ?? "");
+  const left = new Map();
+  for (const d of was) left.set(key(d), (left.get(key(d)) || 0) + 1);
+  const out = [];
+  for (const d of now) {
+    if (d.severity && d.severity > 2) continue; // errors and warnings only
+    const k = key(d), n = left.get(k) || 0;
+    if (n) { left.set(k, n - 1); continue; }
+    out.push({ severity: d.severity === 2 ? "warning" : "error", line: (d.range?.start?.line ?? 0) + 1, column: (d.range?.start?.character ?? 0) + 1, message: String(d.message || "").split("\n")[0].slice(0, 300), code: d.code === undefined || d.code === null ? "" : String(d.code).slice(0, 60), source: String(d.source || "").slice(0, 40) });
+  }
+  return out;
+}
+/**
+ * The note for Grok, as Claude Code's diagnostics note reads ("<new-diagnostics>The following new diagnostic issues were
+ * detected: … ✘ [Line 3:5] … [code] (source)"), at most PROBLEMS_SHOWN of them; "" when there are none.
+ */
+export function problemsNote(path, list) {
+  if (!Array.isArray(list) || !list.length) return "";
+  const row = (p) => "  " + (p.severity === "warning" ? "⚠" : "✘") + " [Line " + p.line + ":" + p.column + "] " + p.message + (p.code ? " [" + p.code + "]" : "") + (p.source ? " (" + p.source + ")" : "");
+  return "<new-diagnostics>The following new diagnostic issues were detected:\n\n" + path + ":\n" + list.slice(0, PROBLEMS_SHOWN).map(row).join("\n") + (list.length > PROBLEMS_SHOWN ? "\n  … and " + (list.length - PROBLEMS_SHOWN) + " more" : "") + "\n</new-diagnostics>";
+}

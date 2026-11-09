@@ -23,7 +23,7 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from 
 export { viewedFile };
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS } from "./coder-checks.mjs";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
+import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -155,6 +155,58 @@ export function tidyPath(p) {
  * modified first"; a file over 5,000 tokens comes back as its path, a "Referenced file"). */
 export const REREAD_FILES = 5, REREAD_ONE = 20_000;
 /** One of coder-tools.mjs's tools, run by Coder's app itself (a step Grok did not ask for). */
+/**
+ * PROTECTED FILES (the owner, 2026-11-09: "Okay, yes, yes, do that"; Claude Code's permission-modes docs: "Writes to a
+ * small set of paths are never auto-approved … This prevents accidental corruption of repository state and Claude's own
+ * configuration"): files that can make code run on the owner's computer when the branch is pulled, or change how the
+ * project is built. Write asks the owner first, on a card (Allow / Don't allow), as Claude Code prompts for them; in a job
+ * from GitHub, where no one can answer, it does not write them. `.git` is off limits already (coder-tools.mjs); `.coder`
+ * is Coder's own, as `.claude` is Claude Code's. Compared without case (a Mac or Windows checkout treats `.HUSKY` as
+ * `.husky`). Edit (tool 3) and commands (tool 4) come with their own turns.
+ */
+export const PROTECTED_DIRS = [".git", ".config/git", ".vscode", ".idea", ".husky", ".cargo", ".devcontainer", ".yarn", ".mvn", ".claude", ".coder"];
+export const PROTECTED_FILES = [".gitconfig", ".gitmodules", ".bashrc", ".bash_profile", ".bash_login", ".bash_aliases", ".bash_logout", ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".profile", ".envrc", ".npmrc", ".yarnrc", ".yarnrc.yml", ".pnp.cjs", ".pnp.loader.mjs", ".pnpmfile.cjs", "bunfig.toml", ".bunfig.toml", ".bazelrc", ".bazelversion", ".bazeliskrc", ".pre-commit-config.yaml", "lefthook.yml", "lefthook.yaml", ".lefthook.yml", ".lefthook.yaml", "gradle-wrapper.properties", "maven-wrapper.properties", ".devcontainer.json", ".ripgreprc", "pyrightconfig.json", ".mcp.json", ".claude.json"];
+/** Whether a path (as the project names it) is a protected file: the folder or file name that makes it one, or "". */
+export function protectedFile(path) {
+  const parts = String(path || "").replace(/\\/g, "/").split("/").filter((x) => x && x !== ".").map((x) => x.toLowerCase());
+  if (!parts.length) return "";
+  for (const d of PROTECTED_DIRS) {
+    const dp = d.split("/");
+    // The folder's names, before the file's own (a file named `.husky` is not the folder).
+    for (let i = 0; i + dp.length <= parts.length - 1; i++) if (dp.every((x, j) => parts[i + j] === x)) return d + "/";
+  }
+  const name = parts[parts.length - 1];
+  return PROTECTED_FILES.includes(name) ? name : "";
+}
+/**
+ * The owner's word for one: their own message, exactly as the card's Allow sends it (after the app's note on an environment
+ * change, which server.mjs puts before their words). Notes from Coder's app (an @-mentioned file's text among them) and
+ * anything with more words in it do not count.
+ */
+export const allowWriteText = (path) => "I allowed Coder to change " + path + ".";
+const ENV_NOTE_START = "(Note from Coder's app, not the owner: since the last message", ENV_NOTE_END = " Go by this, not by what the chat said before.)\n\n";
+function ownerAllowed(convo, path) {
+  const want = allowWriteText(path);
+  return convo.some((m) => {
+    if (!m || m.role !== "user" || m.appNote || m.files || m.reread || m.summary || typeof m.content !== "string") return false;
+    let t = m.content;
+    if (t.startsWith(ENV_NOTE_START) && t.includes(ENV_NOTE_END)) t = t.slice(t.indexOf(ENV_NOTE_END) + ENV_NOTE_END.length);
+    return t.trim() === want;
+  });
+}
+/**
+ * INSTRUCTION FILES SHOWN ONLY IN PART: the note Coder's app puts after the part it shows ("[NAME goes on: read the rest
+ * of it with the read tool, from line N]", or "… goes on past 40,000 characters: …"), at the job's start, after a summary
+ * and after a file tool. Each is marked in the chat's record, so write does not replace it until it is read all at once,
+ * as Claude Code's Write refuses one it showed only the start of (tried for real, 2026-11-09: "You were given only the
+ * start of this file …"). Marking only makes write stricter, so a repo that fakes such a note gains nothing.
+ */
+export const SHOWN_START_RE = /\n\[([^\]\n]+?) goes on(?: past [\d,]+ characters)?: read the rest of it with the read tool, from line \d+\]/g;
+export const shownStart = (text) => [...new Set([...String(text || "").matchAll(SHOWN_START_RE)].map((m) => m[1]))].slice(0, 50);
+async function markShownStart(deps, text) {
+  if (!deps || deps.seen !== true) return;
+  for (const name of shownStart(text)) await appTool(deps, "seen", { path: typeof deps.root === "string" && deps.root ? deps.root + "/" + name : name, start: true });
+}
 async function appTool(deps, tool, args) {
   const json = JSON.stringify({ tool, args });
   const b64 = Buffer.from(json).toString("base64");
@@ -184,6 +236,27 @@ export function readAnswer(raw) {
     const thumb = thumbs[0] || "";
     return { text: String((j && j.text) || ""), pics: (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ), thumb, thumbs };
   } catch { return { text: "error: the picture could not be read", pics: [], thumb: "", thumbs: [] }; }
+}
+/**
+ * A WRITE'S ANSWER: its text for Grok, and what it changed for the chat (WRITE_MARK, coder-tools.mjs), checked again here
+ * (numbers, at most WRITE_SHOW_LINES lines of at most 1,001 characters, key-shaped text hidden), or none.
+ */
+export function writeAnswer(raw) {
+  raw = String(raw || "");
+  if (!raw.startsWith(WRITE_MARK)) return { text: raw, change: null, problems: [], problemsAll: 0 };
+  try {
+    const j = JSON.parse(raw.slice(WRITE_MARK.length));
+    const c = j && j.change, n = (x) => (Number.isInteger(x) && x >= 0 ? x : 0);
+    const change = c && (c.kind === "create" || c.kind === "update") ? {
+      kind: c.kind, add: n(c.add), del: n(c.del),
+      lines: (Array.isArray(c.lines) ? c.lines : []).filter((l) => typeof l === "string").slice(0, WRITE_SHOW_LINES).map((l) => scrub(l.slice(0, 1001))),
+      ...(n(c.more) ? { more: n(c.more) } : {}), ...(c.big === true ? { big: true } : {}),
+    } : null;
+    const problems = (Array.isArray(j && j.problems) ? j.problems : []).filter((p) => p && typeof p.message === "string").slice(0, 20).map((p) => ({
+      severity: p.severity === "warning" ? "warning" : "error", line: n(p.line), column: n(p.column), message: scrub(p.message.slice(0, 300)), code: scrub(String(p.code || "").slice(0, 60)),
+    }));
+    return { text: String((j && j.text) || ""), change, problems, problemsAll: Math.max(problems.length, n(j && j.problemsAll)) };
+  } catch { return { text: "The file was written.", change: null, problems: [], problemsAll: 0 }; }
 }
 /** Errors that mean "not a file of this project" (a mention that is not one is left alone). */
 const NOT_A_FILE = /^error: (give a path|no such file|that path (is|leads) outside the project|the \.git folder|the path cannot contain)/;
@@ -222,7 +295,7 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
         if (fit.length) { urls.push(...fit); names.push(p); }
         const lost = got.pics.length - fit.length;
         let more = "";
-        if (typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: "read", args: { path: p } })) || ""); } catch { more = ""; } }
+        if (typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: "read", args: { path: p } })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
         shownOut = text;
         stepThumbs = got.thumbs || [];
         part = "--- " + sayPath(deps, p) + " ---\n" + text + (lost > 0 ? "\n[" + lost + " of its pictures did not fit here: read it yourself to see them]" : "") + (more ? "\n\n" + more : "");
@@ -337,7 +410,7 @@ export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
   fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly (read it first) and appear once, unless replace_all is true. Use this instead of sed.", { path: FILE_PATH, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
-  fn("write", "Write a whole file (new, or replacing everything in it). At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: FILE_PATH, content: { type: "string" } }, ["path", "content"]),
+  fn("write", "Write a whole file: a new one, or one you have read, replaced in full (it is not appended to or merged). For a change to part of a file, use edit instead. At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: FILE_PATH, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: SEARCH_PATH, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
   fn("glob", "List the project's files whose path matches a pattern, e.g. src/**/*.js or **/*.md.", { pattern: { type: "string" }, path: SEARCH_PATH }, ["pattern"]),
   fn("lsp", "Ask a real language server (JavaScript/TypeScript, Python) about the code: definition (where a name is defined), references (everywhere it is used), hover (its type and docs), diagnostics (the file's errors and warnings). line and column count from 1, as read shows them; point them at the name.", { action: { type: "string", enum: ["definition", "references", "hover", "diagnostics"] }, path: FILE_PATH, line: { type: "integer" }, column: { type: "integer" } }, ["action", "path"]),
@@ -426,7 +499,7 @@ The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN,
 
 HOW YOU WORK
 - Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
-- Use read, edit, write, grep and glob for files (write takes up to about 1 MB at once), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
+- Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
@@ -559,6 +632,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // start) follows nothing it read before (the review, 2026-11-08).
   let followed = false;
   if (deps.seen === true) { const ch = await changedFiles(deps, { reset: !(Array.isArray(messages) && messages.length) }); if (ch) followed = ch.followed > 0; }
+  // The instruction files this job's start shows only in part (after the reset above, which would undo the marks).
+  await markShownStart(deps, context);
   const watching = () => deps.seen === true && (followed || touched.size > 0);
   const touch = (p) => { const k = normPath(p); if (!k || k.length > 500) return; touched.delete(k); touched.set(k, ++touchN); if (touched.size > 200) touched.delete(touched.keys().next().value); };
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
@@ -632,7 +707,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           if (again) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + again };
           // The repo's instructions and the memory, fresh from disk (Coder may have changed them in this job), as Claude
           // Code re-injects them "from disk" after compaction (deps.freshContext, from Coder's machine).
-          if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) context = c; } catch { /* the one it had stays */ } }
+          if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) { context = c; await markShownStart(deps, c); } } catch { /* the one it had stays */ } }
           // A SUMMARY THAT CANNOT BRING THE JOB BACK UNDER ITS ROOM (the chat before it is near the room) is not made again
           // until the job has grown by a tenth of the room (Claude Code too stops when "context refills immediately").
           const after = JSON.stringify(convo.map(noPics)).length;
@@ -719,7 +794,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // Its path counts from where the command ran (such a command never changes folders).
         let viewed = "";
         const vf = !bg && code === 0 && typeof deps.afterFile === "function" ? viewedFile(command) : "";
-        if (vf) { touch(projectPath(deps, vf)); if (deps.seen === true) await appTool(deps, "seen", { path: typeof deps.where === "function" ? deps.where(vf) : vf }); try { viewed = String((await deps.afterFile({ tool: "read", args: { path: typeof deps.where === "function" ? deps.where(vf) : vf } })) || ""); } catch { viewed = ""; } }
+        if (vf) { touch(projectPath(deps, vf)); if (deps.seen === true) await appTool(deps, "seen", { path: typeof deps.where === "function" ? deps.where(vf) : vf }); try { viewed = String((await deps.afterFile({ tool: "read", args: { path: typeof deps.where === "function" ? deps.where(vf) : vf } })) || ""); } catch { viewed = ""; } await markShownStart(deps, viewed); }
         // A COMMAND THAT CHANGED FILES CODER HAD READ says so (like Claude Code's "This command modified …").
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); } } }
@@ -852,23 +927,48 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).
         const spec = RUN_TOOLS[c.name];
         const args = c.args || {};
+        // Write gets Grok's inputs as Grok gave them, so its answer can name the ones it read another way (as Claude
+        // Code's does: "Note: Write's parameters are named `file_path` and `content`. `path` was read as `file_path`.").
+        const given = { ...args };
         // `file_path`, Claude Code's own name for it, is taken for `path` (Claude Code 2.1.292: Read "ignore[s] a few
         // stray parameters instead of failing the call"; its Grep "accepts file_path for path").
         if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
+        // And its write's `file_text` or `file_content` for `content` (Claude Code's changelog: "Fixed Write calls failing
+        // validation when a model sends `path`, `file_text`, `file_content` … instead of `file_path` and `content`").
+        if (c.name === "write" && typeof args.content !== "string") { const alt = [args.file_text, args.file_content].find((x) => typeof x === "string"); if (alt !== undefined) args.content = alt; }
         // READ'S ROOM (like Claude Code's allow_large, "sized against the room left in the session's context
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
+        // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
+        const guarded = c.name === "write" && typeof args.path === "string" ? projectPath(deps, args.path) : "";
+        const why = guarded ? protectedFile(guarded) : "";
+        if (why && !ownerAllowed(convo, guarded)) {
+          const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
+          if (github) {
+            const m = "error: " + shownPath + " is a protected file (it can make code run on the owner's computer, or change how the project is built), so it is not changed in a job started from GitHub, where no one can allow it: say so in your answer";
+            emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue;
+          }
+          reply("not written yet: " + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, write it again.");
+          for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a protected file first" });
+          const lines = typeof args.content === "string" ? args.content.split("\n") : [];
+          if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+          emit({ type: "writeask", path: shownPath, because: why, change: { kind: "create", add: lines.length, del: 0, lines: lines.slice(0, 40).map((l) => "+" + scrub(l.slice(0, 300))), ...(lines.length > 40 ? { more: lines.length - 40 } : {}) } });
+          return end("done", { summary: lastSaid || "asked to change " + shownPath });
+        }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
         // folder its commands are in).
         emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
-        const b64 = Buffer.from(JSON.stringify({ tool: c.name, args })).toString("base64");
+        // WHAT A WRITE CHANGED is asked for, for the chat only (writeAnswer).
+        // And whether it made new problems, by the language server (Claude Code's plugins: "Found N new diagnostic issues").
+        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: true } : args;
+        const b64 = Buffer.from(JSON.stringify({ tool: c.name, args: reqArgs })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args }) } : {}) }); }
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -876,8 +976,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
-        let pics = [], thumbs = [];
+        let pics = [], thumbs = [], change = null, problems = [], problemsAll = 0;
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
+        if (c.name === "write" && code === 0) ({ text: raw, change, problems, problemsAll } = writeAnswer(raw));
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
@@ -887,10 +988,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
-        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}) });
+        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
-        if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } }
+        if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
         reply((out || "(nothing)") + (more ? "\n\n" + more : ""));
       } else if (c.name === "todo") {
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);

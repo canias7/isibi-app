@@ -285,7 +285,7 @@
       if (!b || b.status !== 'running' || c.status === 'running') continue;
       if (o.openId === c.id && o.focused) continue;
       const name = c.title || c.repo;
-      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : 'Coder asked you something.' }); }
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : 'Coder asked you something.' }); }
       else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
     }
     return out;
@@ -647,7 +647,7 @@
         const name = S.project.title || S.project.repo;
         for (const e of fresh) {
           if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
-          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || '' });
+          else if (['question', 'secret', 'envchange', 'writeask'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || (e.type === 'writeask' ? 'Allow it to change ' + e.path + '?' : '') });
         }
       }
       S.next = r.data.next || S.next;
@@ -777,11 +777,63 @@
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
         stepIcon(e) + '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
-        tail +
+        changeCounts(r) + tail +
       '</button>' +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
+      // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
+      stepChange(r, key) +
+      // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
+      stepProblems(r, key) +
       (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
+    '</div>';
+  }
+  /**
+   * WHAT A WRITE CHANGED, AS CLAUDE CODE SHOWS IT (the owner, 2026-11-09: "Go ahead and do those"; Claude Code: "Wrote N
+   * lines to …" with the new file's lines, "N additions and M removals" with the diff of a replaced one, folded with "+N
+   * lines" to open): the counts on the step's line, and under it the first CHANGE_FIRST lines, numbered, the rest a tap
+   * away. A new file's lines as they are; a change's with what it added and took out. Only text, never markup.
+   */
+  const CHANGE_FIRST = 8;
+  function changeOf(r) { const c = r && r.change; return c && typeof c === 'object' && (c.kind === 'create' || c.kind === 'update') ? c : null; }
+  function changeCounts(r) {
+    const c = changeOf(r);
+    if (!c || c.big) return '';
+    const add = Number.isInteger(c.add) ? c.add : 0, del = Number.isInteger(c.del) ? c.del : 0;
+    return '<span class="cd-wcount"><span class="cd-add">+' + add + '</span>' + (c.kind === 'update' ? '<span class="cd-del">−' + del + '</span>' : '') + '</span>';
+  }
+  function stepChange(r, key) {
+    const c = changeOf(r);
+    if (!c) return '';
+    if (c.big) return '<div class="cd-wchg"><p class="cd-wchg-note">Too big to show here: See changes has this file.</p></div>';
+    const all = (Array.isArray(c.lines) ? c.lines : []).filter((l) => typeof l === 'string').slice(0, 120);
+    if (!all.length) return '';
+    const k = key + ':change', open = !!S.open[k];
+    const shown = open ? all : all.slice(0, CHANGE_FIRST);
+    let o = 0, n = c.kind === 'create' ? 1 : 0;
+    const rows = shown.map((l) => {
+      const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(l);
+      if (h) { o = Number(h[1]); n = Number(h[2]); return '<span class="cd-dl-hunk">' + esc(l) + '</span>'; }
+      if (c.kind === 'create') return '<span class="cd-wl"><i>' + (n++) + '</i>' + esc(l.slice(1)) + '</span>';
+      const kind = l[0] === '+' ? 'add' : l[0] === '-' ? 'del' : l[0] === '\\' ? 'note' : 'same';
+      const num = kind === 'add' ? n++ : kind === 'del' ? o++ : kind === 'note' ? '' : (o++, n++);
+      return '<span class="cd-wl' + (kind === 'add' ? ' cd-dl-add' : kind === 'del' ? ' cd-dl-del' : '') + '"><i>' + num + '</i>' + esc(l) + '</span>';
+    }).join('');
+    const folded = all.length - shown.length, more = Number.isInteger(c.more) && c.more > 0 ? c.more : 0;
+    return '<div class="cd-wchg"><pre>' + rows + '</pre>' +
+      (folded ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show ' + folded + ' more line' + (folded === 1 ? '' : 's') + '</button>'
+        : open && all.length > CHANGE_FIRST ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show less</button>' : '') +
+      (open && more ? '<p class="cd-wchg-note">' + more + ' more line' + (more === 1 ? '' : 's') + ' not shown here: See changes has the whole file.</p>' : '') +
+    '</div>';
+  }
+  /** "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them). */
+  function stepProblems(r, key) {
+    const list = r && Array.isArray(r.problems) ? r.problems.filter((p) => p && typeof p.message === 'string').slice(0, 20) : [];
+    if (!list.length) return '';
+    const all = Math.max(list.length, Number.isInteger(r.problemsAll) ? r.problemsAll : 0);
+    const k = key + ':problems', open = !!S.open[k];
+    return '<div class="cd-probs"><button type="button" class="cd-probs-row" data-problems="' + esc(k) + '">Found ' + all + ' new diagnostic issue' + (all === 1 ? '' : 's') + ' in 1 file<span>' + (open ? 'Hide' : 'Show') + '</span></button>' +
+      (open ? '<pre class="cd-probs-list">' + list.map((p) => (p.severity === 'warning' ? '⚠' : '✘') + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '')).join('\n') + (all > list.length ? '\n… and ' + (all - list.length) + ' more' : '') + '</pre>' : '') +
     '</div>';
   }
   /** The small copies of the pictures a step opened: only JPEG data URLs, as Coder's machine makes them. */
@@ -865,6 +917,18 @@
             '</div></div>';
         }).join('') + (live ? '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '">Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '">Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
           (live ? '<div class="cd-ask-wait">Needs your input</div>' : ''));
+      }
+      else if (e.type === 'writeask') {
+        // A PROTECTED FILE CODER WANTS TO WRITE (the owner, 2026-11-09: "do that"; like Claude Code's prompt for them): the
+        // lines it would write, then Allow or Don't allow, which become the owner's next message.
+        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+        const more = e.change && Number.isInteger(e.change.more) && e.change.more > 0 ? e.change.more : 0;
+        out.push('<div class="cd-secret cd-envchange cd-writeask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Allow Coder to change ' + esc(e.path) + '?</b>' +
+          '<p class="cd-secret-p">This file can make code run on your computer when you pull the branch, or change how the project is built, so Coder asks you first (Claude Code does too). What it would write:</p>' +
+          '<pre class="cd-envchange-pre">' + (lines.length ? lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n') : '(an empty file)') + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
+          (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-writeask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-writeask-ok="' + i + '">Allow</button></div>' : '') +
+        '</div>');
       }
       else if (e.type === 'envchange') {
         // AN ENVIRONMENT CHANGE CODER PROPOSES (owner, 2026-11-06, like Claude Code): shown exactly, approved here.
@@ -1183,6 +1247,8 @@
     on('[data-review-level]', 'change', (e) => saveReview(e.currentTarget.dataset.reviewLevel, { level: e.currentTarget.value }));
     on('#cdMenu', 'click', () => window.dispatchEvent(new CustomEvent('gf:side', { detail: true })));
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-wchg-more', 'click', (e) => { const k = e.currentTarget.dataset.change; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-probs-row', 'click', (e) => { const k = e.currentTarget.dataset.problems; S.open[k] = !S.open[k]; draw(); });
     // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply).
     const askSend = () => { const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
     const askOf = (el) => { const one = el.closest('.cd-ask-one'); return S.ask && one ? S.ask.answers[Number(one.dataset.q)] : null; };
@@ -1220,6 +1286,8 @@
       S.envChangeMsg = ''; if (S.env) S.env = r.data;
       send(x.kind === 'allow_host' ? 'I allowed ' + x.host + '.' : 'I approved the new setup script.');
     });
+    on('[data-writeask-ok]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskOk)]; if (x && x.path) { e.currentTarget.disabled = true; send('I allowed Coder to change ' + x.path + '.'); } });
+    on('[data-writeask-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.writeaskNo)]; if (x && x.path) { e.currentTarget.disabled = true; send('Don\'t change ' + x.path + '.'); } });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
     on('.cd-secret-save', 'click', async (e) => {

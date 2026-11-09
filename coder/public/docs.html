@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Coder Docs · Go Farther</title>
+  <meta name="description" content="How Coder's tools work, starting with read." />
+  <!-- CODER'S DOCS (the owner, 2026-11-08): their own page, linked from the landing page's top bar ("put it on the
+       landing page … don't put it inside the coding"), and only the tools tested so far ("Just make the docs for what
+       we have tested right now, which is the read tool. That's it."). A tool is added once its live test passes.
+       Plain HTML and CSS: no script, so it works under the page's safety rules as it is. -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="/docs.css" />
+</head>
+<body>
+  <header class="dc-top">
+    <a class="dc-brand" href="/"><span class="dc-logo" aria-hidden="true">GF</span><b>Go Farther</b><span class="dc-tag">Docs</span></a>
+    <a class="dc-open" href="/">Open Coder</a>
+  </header>
+  <div class="dc-wrap">
+    <nav class="dc-nav" aria-label="Docs">
+      <p class="dc-navhead">Coder's tools</p>
+      <a href="#read">Read</a>
+      <a class="dc-sub" href="#read-text">Text files</a>
+      <a class="dc-sub" href="#read-pictures">Pictures</a>
+      <a class="dc-sub" href="#read-pdfs">PDFs</a>
+      <a class="dc-sub" href="#read-notebooks">Notebooks</a>
+      <a class="dc-sub" href="#read-not">What read won't open</a>
+      <a class="dc-sub" href="#read-mentions">Files you mention with @</a>
+      <a class="dc-sub" href="#read-told">What Coder is told on its own</a>
+    </nav>
+    <main class="dc-main">
+      <h1>Coder docs</h1>
+      <p class="dc-lead">How Coder's tools work. Read comes first; more tools are on the way.</p>
+
+      <section id="read">
+        <h2>Read</h2>
+        <p class="dc-lead">Read opens a file in your project and shows it to Coder with line numbers, the way you'd see it in an editor. It never changes anything.</p>
+
+        <h3 id="read-text">Text files</h3>
+        <ul>
+          <li>A whole file comes at once when it fits: up to about <b>100,000 characters</b>.</li>
+          <li>A bigger file comes in parts. The first part ends with a note, such as <code>[PARTIAL view: lines 1-1111 of 1561 (about 90 KB of 127 KB). Read more with offset 1112 and limit 450. …]</code>, and Coder reads on before it answers.</li>
+          <li>A file over <b>256 KB</b> isn't read whole in one go: Coder reads the part it needs, or searches it first.</li>
+          <li>Lines are never cut. A single line too long for one read is read on its own.</li>
+          <li>Files in UTF-8 and UTF-16 are read as text. A file saved in an old text format (such as Windows-1252) shows the letters it can't decode as <code>�</code>, with a note telling Coder to change it only in a way that keeps its format, so the real letters are never lost.</li>
+        </ul>
+
+        <h3 id="read-pictures">Pictures</h3>
+        <ul>
+          <li>PNG, JPEG, GIF, WebP, BMP and TIFF, up to 128 MB. Coder sees the picture, and a small copy shows under the step in your chat.</li>
+          <li>A big picture is shown at up to <b>2,000 pixels</b>. Coder is told its real size, how to map a spot back onto it, and how to crop a part for fine detail.</li>
+          <li>Pictures you paste or attach are saved in your project's <code>.coder-pictures</code> folder (never saved to your branch), so Coder can open them again later in the chat.</li>
+        </ul>
+
+        <h3 id="read-pdfs">PDFs</h3>
+        <ul>
+          <li>Up to 10 pages are read whole. A longer PDF is read by page ranges, at most <b>20 pages</b> at a time.</li>
+          <li>Coder sees every page as a picture as well as its text, so charts and layouts aren't missed. The first pages show small under the step.</li>
+          <li>A password-protected or broken PDF says so, and Coder counts a PDF's real pages, even when the file says otherwise.</li>
+        </ul>
+
+        <h3 id="read-notebooks">Notebooks</h3>
+        <ul>
+          <li>Jupyter notebooks (<code>.ipynb</code>) come as their cells, with each cell's output, charts included. The charts show small under the step.</li>
+        </ul>
+
+        <h3 id="read-not">What read won't open</h3>
+        <ul>
+          <li>A folder: read says it's a folder, and Coder lists what's in it instead.</li>
+          <li>Binary files such as <code>.zip</code> or <code>.xlsx</code>: Coder is told a way to read each kind.</li>
+          <li>Pipes and devices, and anything outside your project, including a link that points out of it.</li>
+        </ul>
+
+        <h3 id="read-mentions">Files you mention with @</h3>
+        <ul>
+          <li>Type <code>@</code> and a file's name in your message, and the file goes into the message, so Coder has it right away. Files whose name matches come first in the list.</li>
+          <li>A folder comes as its list of files, and a picture is shown. A file too big for one read is named, and Coder reads the part it needs.</li>
+        </ul>
+
+        <h3 id="read-told">What Coder is told on its own</h3>
+        <ul>
+          <li>A missing file comes with the folder Coder is in, so a wrong folder is easy to spot.</li>
+          <li>If one of Coder's commands changes a file it has read (a command that shows a file, such as <code>cat</code>, counts as reading it), Coder is told, with the lines that changed.</li>
+          <li>After a long chat is summarized to make room, Coder reads again up to five files it was working on, newest first.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
