@@ -281,6 +281,26 @@ code in **each user's own GitHub**.
    older readers look (`text`, `options`) and all of them in `questions`; older
    one-question cards still show. The notification says how many more; on GitHub
    (@coder) they are numbered and answered in one comment.
+
+   **Permission modes** (owner, 2026-11-09: "lets build the permission things", with
+   the Claude app's Mode menu), like Claude Code's cloud sessions: Auto, Accept edits
+   and Plan, in a menu beside the model and effort (Ctrl/Cmd+Shift+M, then 1–3), kept
+   per chat (`meta.mode`; new chats start in the last pick other than Plan) and
+   changeable while Coder works (the machine's `/mode`, from Coder's next step on).
+   `container/coder-perms.mjs` decides each step, with Claude Code 2.1.319's own
+   read-only lists (each command's safe options) and its rules (`Bash(npm test *)`,
+   `WebFetch(domain:…)`; deny, then ask, then allow; kept per repository on the
+   owner's account, `rulesOf`). Auto runs everything with Coder's own checks; Accept
+   edits runs reads, file edits and `mkdir`/`touch`/`rm`/`rmdir`/`mv`/`cp`/`sed -i`
+   inside the project and asks for any other command, and for a web page that is not
+   one of Claude Code's pre-approved documentation sites; Plan asks for anything that
+   changes something and ends with `exit_plan_mode`. A question is a card the step
+   waits on, inside the job (`deps.ask` on the machine, the owner's answer through
+   `/answer`): Yes, "Yes, and don't ask again for …", "Yes, and switch to auto mode",
+   No (a note can go with it; No alone ends the job, with Claude Code's words). A
+   plan is approved with "Yes, and use auto mode" or "Yes, and accept edits", and
+   Coder goes on in the same job. Protected files, very long commands and, outside
+   Auto, dangerous removals use the same card. Tests: `test/permissions.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.

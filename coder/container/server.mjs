@@ -27,6 +27,7 @@ import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSyn
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
+import { normMode, MODES } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
@@ -1942,7 +1943,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // you when it exits"): not started when there is nothing to tell (another turn told it already).
     if (body.wake === true) { checkJobs(); if (!untoldOf(project).length) return [409, { error: "nothing to tell" }]; }
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
-    const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [] };
+    // (`mode`: the chat's permission mode, which the owner may change while it runs, /mode; `answers`: the owner's answers
+    // to its cards, /answer; `asking`: the card a step waits on.)
+    const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [], mode: normMode(body.mode), answers: new Map(), asking: "" };
     turns.set(project, t);
     // THE CHAT SAVED AS IT GOES (like Claude Code): its steps, the setup's included, go to the Worker every few seconds.
     const live = liveFetch ? liveTarget(body.live) : null;
@@ -2360,6 +2363,22 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         freshContext: async () => contextFor(await topNotes(dir, notes), (await readMemory(memFile)) ?? "", later),
         // THE OWNER'S MESSAGES SENT WHILE CODER WORKS (Coder's Worker hands them here, /queue): each taken once, in order.
         queued: () => { const out = t.queue.filter((q) => !q.read); for (const q of out) q.read = true; return out.map((q) => ({ qid: q.qid, text: q.text })); },
+        // THE PERMISSION MODE (the owner's pick; they may change it while Coder works: /mode), and THE OWNER'S ANSWERS TO
+        // CODER'S CARDS (/answer): a step that asks waits here for one, for the owner's Stop, or for the job's time limit.
+        mode: () => t.mode,
+        setMode: (m) => { t.mode = normMode(m); },
+        ask: async (pid, { until = 0 } = {}) => {
+          t.asking = String(pid);
+          try {
+            for (;;) {
+              if (t.stop) return { choice: "stop" };
+              const a = t.answers.get(String(pid));
+              if (a) { t.answers.delete(String(pid)); return a; }
+              if (until && Date.now() > until) return null;
+              await new Promise((ok) => setTimeout(ok, 250));
+            }
+          } finally { t.asking = ""; }
+        },
         // The file tools follow the files Coder read or changed (CODER_SEEN_DIR), so a command that changes one says so.
         seen: true,
         afterFile: ({ tool, args }) => {
@@ -2367,7 +2386,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
@@ -2506,6 +2525,22 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!/^q[0-9a-z]{6,20}$/.test(qid) || !text.trim()) return send(400, { ok: false, why: "bad message" });
         if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
         if (!t.queue.some((q) => q.qid === qid)) { t.queue.push({ qid, text, at: Date.now(), read: false }); if (t.queue.length > 50) t.queue.shift(); }
+        return send(200, { ok: true });
+      }
+      // THE OWNER CHANGES THE MODE WHILE CODER WORKS (the page's mode menu, like Claude Code's): from Coder's next step on.
+      if (url.pathname === "/mode" && req.method === "POST") {
+        if (!MODES.includes(body.mode)) return send(400, { ok: false, why: "bad mode" });
+        if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
+        t.mode = body.mode;
+        return send(200, { ok: true });
+      }
+      // THE OWNER'S ANSWER TO A CARD (Claude Code's permission prompt: Yes, don't ask again, switch to auto mode, No with a
+      // note; a plan approved with Auto or Accept edits, or not): only for the card a step waits on now.
+      if (url.pathname === "/answer" && req.method === "POST") {
+        const pid = String(body.pid || ""), choice = String(body.choice || "");
+        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
+        if (!t || !t.running || t.result || t.asking !== pid) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
+        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "" });
         return send(200, { ok: true });
       }
       // ITS TAKE-BACK (Claude Code: "click the ✕ on it … If Claude has already read the message, it stays in the conversation").

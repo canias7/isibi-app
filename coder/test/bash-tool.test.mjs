@@ -224,7 +224,7 @@ test("CD275 bash on the page: a command's description is its step's title and th
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /\["question", "secret", "envchange", "writeask", "runask"\]\.includes\(e\.type\)/);
   assert.match(readFileSync(new URL("../src/coder-push.mjs", import.meta.url), "utf8"), /else if \(e\.type === "runask"\)/);
   const df = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
-  assert.match(df, /coder-shell\.mjs coder-bashcheck\.mjs coder-freeze\.mjs \.\//, "the image has the new modules");
+  assert.match(df, /coder-shell\.mjs coder-bashcheck\.mjs coder-perms\.mjs coder-freeze\.mjs \.\//, "the image has the new modules");
 });
 
 test("CD278 (tool 4, part 2) background commands told of in Claude Code's words when they end, whenever: completed, failed, stopped at the time limit (with Claude Code's advice), stopped by the owner; one from an earlier message is known to Coder (looked at, told of when it ends, the machine told so); a new one's id comes from the machine; what ended between messages is said at the start, and a turn only to tell it says the owner sent nothing", async () => {

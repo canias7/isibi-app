@@ -33,6 +33,7 @@
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
+import { normMode, parseRule, MODES } from "../container/coder-perms.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
@@ -187,6 +188,33 @@ export async function shellHistoryOf(bucket, uid, repo) {
   return list.filter((x) => typeof x === "string").slice(0, SHELL_HIST_MAX);
 }
 
+/**
+ * THE OWNER'S PERMISSION RULES FOR EACH REPOSITORY (the permission modes, 2026-11-09; Claude Code saves "Yes, and don't ask
+ * again" to the repository's .claude/settings.local.json, "Permanently per repository and command", and lists every rule in
+ * /permissions): kept on their account, never in the repository; Coder gets them with each message.
+ */
+const rulesKey = (uid, repo) => ["coder", uid, "rules", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".json"].join("/");
+export const RULES_MAX = 200;
+export async function rulesOf(bucket, uid, repo) {
+  const r = await getJson(bucket, rulesKey(uid, repo), {});
+  const out = { allow: [], ask: [], deny: [] };
+  for (const k of Object.keys(out)) out[k] = [...new Set((Array.isArray(r && r[k]) ? r[k] : []).filter((x) => typeof x === "string" && x.length <= 400 && parseRule(x)))].slice(0, RULES_MAX);
+  return out;
+}
+/** Adds (or, with `remove`, takes out) rules of one kind; a rule moves out of the other kinds when added to one. */
+export async function changeRules(bucket, uid, repo, kind, list, { remove = false } = {}) {
+  const now = await rulesOf(bucket, uid, repo);
+  const want = (Array.isArray(list) ? list : []).map((x) => String(x || "").trim()).filter((x) => x.length <= 400 && parseRule(x));
+  if (!["allow", "ask", "deny"].includes(kind) || !want.length) return now;
+  if (remove) now[kind] = now[kind].filter((x) => !want.includes(x));
+  else {
+    for (const k of Object.keys(now)) if (k !== kind) now[k] = now[k].filter((x) => !want.includes(x));
+    now[kind] = [...new Set([...now[kind], ...want])].slice(-RULES_MAX);
+  }
+  await putJson(bucket, rulesKey(uid, repo), now);
+  return now;
+}
+
 const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
 export const MEMORY_MAX = 25000;
 const MAX_EVENTS = 4000;
@@ -220,6 +248,17 @@ function listEntry(meta) {
 // read from them, so nothing is overwritten.
 async function saveMeta(bucket, uid, meta) {
   await putJson(bucket, keyOf(uid, meta.id, "meta.json"), meta);
+}
+/**
+ * THE CHAT'S PERMISSION MODE CHANGED (the page's mode menu, /plan): only the mode is written, on the chat as it is now, so a
+ * job's end saved meanwhile is never undone. `modeAt`: when the owner picked it (a card's switch older than that is not kept).
+ */
+async function saveMode(bucket, uid, id, mode) {
+  const now = await getJson(bucket, keyOf(uid, id, "meta.json"), null);
+  if (!now) return null;
+  const next = { ...now, mode, modeAt: Date.now() };
+  await saveMeta(bucket, uid, next);
+  return next;
 }
 /** The owner's variable and key values a chat must never keep, and this job's (sealed when it started; used up here). */
 async function hiddenValues(env, bucket, uid, meta) {
@@ -547,12 +586,31 @@ export async function handleCoder(request, env, ctx, deps) {
   // THE MODEL LIST AND THE USER'S PICK (kept on their account).
   if (parts[0] === "settings") {
     const saved = await getJson(bucket, settingsKey(uid), {});
-    if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: pickModel(saved.model, saved.effort) });
+    // (`mode`: the permission mode new chats start in: the last one picked other than Plan, as in Claude Code's desktop app
+    // and VS Code, where "Picking Plan … applies to that conversation only".)
+    const startMode = (m) => (m === "acceptEdits" ? "acceptEdits" : "auto");
+    if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: { ...pickModel(saved.model, saved.effort), mode: startMode(saved.mode) } });
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const chosen = pickModel(body.model, body.effort);
-    await putJson(bucket, settingsKey(uid), chosen);
-    return json({ ok: true, pick: chosen });
+    const chosen = pickModel(body.model ?? saved.model, body.effort ?? saved.effort);
+    const mode = MODES.includes(body.mode) && body.mode !== "plan" ? body.mode : startMode(saved.mode);
+    await putJson(bucket, settingsKey(uid), { ...chosen, mode });
+    return json({ ok: true, pick: { ...chosen, mode } });
+  }
+  // THE OWNER'S PERMISSION RULES FOR A REPOSITORY (Claude Code's /permissions: "lists all permission rules", where you add
+  // or remove them): GET ?repo=owner/name; POST { repo, kind: allow | ask | deny, add | remove: "Bash(npm test *)" }.
+  if (parts[0] === "permissions") {
+    const repo = request.method === "GET" ? String(url.searchParams.get("repo") || "") : "";
+    if (request.method === "GET") { if (!REPO.test(repo)) return json({ error: "which repository?" }, 400); return json({ ok: true, repo, rules: await rulesOf(bucket, uid, repo) }); }
+    if (request.method !== "POST") return json({ error: "method" }, 405);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const r = String(body.repo || "");
+    if (!REPO.test(r)) return json({ error: "which repository?" }, 400);
+    const kind = String(body.kind || "");
+    if (!["allow", "ask", "deny"].includes(kind)) return json({ error: "kind is allow, ask or deny" }, 400);
+    const rule = String(body.add ?? body.remove ?? "").trim();
+    if (!parseRule(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash, WebFetch(domain:example.com) or WebFetch" }, 400);
+    return json({ ok: true, repo: r, rules: await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined }) });
   }
 
   // A SLASH COMMAND: { text, project? } → { note?, open?, url?, pick? }.
@@ -625,7 +683,11 @@ export async function handleCoder(request, env, ctx, deps) {
     const envs = await listEnvs(bucket, uid);
     const asked = typeof body.envId === "string" ? envs.find((e) => e.id === body.envId && !e.archived) : null;
     const envId = asked ? asked.id : await envForRepo(bucket, uid, repo, envs);
-    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId, ...(r.readOnly ? { readOnly: true } : {}) };
+    // ITS PERMISSION MODE (Claude Code's cloud sessions: picked "both when you create the task and while the session
+    // runs"): the one picked on the new chat's page, else the account's last pick (never Plan, which is for one chat).
+    const picks = await getJson(bucket, settingsKey(uid), {});
+    const mode = MODES.includes(body.mode) ? body.mode : picks.mode === "acceptEdits" ? "acceptEdits" : "auto";
+    const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId, mode, ...(r.readOnly ? { readOnly: true } : {}) };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed
     // checks, reviews) can reach the right chat (auto-fix, coder-mentions.mjs).
@@ -650,6 +712,20 @@ export async function handleCoder(request, env, ctx, deps) {
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
+    // THE MODE THE PAGE SHOWS goes with the message (the page's mode menu also changes it at once, /mode). And /plan (Claude
+    // Code: "prefixing a single prompt with /plan" enters plan mode): the chat goes to Plan mode, and the rest is the
+    // message; /plan alone only changes the mode. Never from GitHub, where strangers write.
+    if (body.fromGithub !== true) {
+      const planned = typeof body.text === "string" ? /^\s*\/plan(?:\s+([\s\S]*))?$/i.exec(body.text) : null;
+      const want = planned ? "plan" : MODES.includes(body.mode) ? body.mode : "";
+      if (planned) body.text = String(planned[1] || "").trim();
+      if (want && want !== normMode(meta.mode)) {
+        const saved = await saveMode(bucket, uid, id, want);
+        if (saved) Object.assign(meta, { mode: saved.mode, modeAt: saved.modeAt });
+        if (meta.status === "running") await post("/mode", { project: id, mode: want }).catch(() => null);
+      }
+      if (planned && !body.text && !(Array.isArray(body.images) && body.images.length)) return json({ ok: true, project: meta, mode: "plan" });
+    }
     const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
     // A TURN ONLY TO TELL CODER ITS BACKGROUND COMMAND ENDED (tool 4, part 2; Claude Code "re-invokes you when it exits"):
     // started by the every-minute run (coder-watch.mjs), with no message of the owner's; the machine starts it only when it
@@ -795,7 +871,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), cwd: typeof meta.cwd === "string" ? meta.cwd : "", ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -826,6 +902,28 @@ export async function handleCoder(request, env, ctx, deps) {
     const nowMeta = await getJson(bucket, metaKey, null);
     if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
     return json({ ok: true, project: next });
+  }
+
+  // THE CHAT'S PERMISSION MODE, picked in the page's mode menu (Claude Code's cloud sessions: picked "both when you create the
+  // task and while the session runs"): saved with the chat and told to its running job (from its next step on); a pick
+  // other than Plan is also where new chats start.
+  if (action === "mode" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (!MODES.includes(body.mode)) return json({ error: "the modes are Auto, Accept edits and Plan" }, 400);
+    const next = await saveMode(bucket, uid, id, body.mode);
+    if (body.mode !== "plan") { const picks = await getJson(bucket, settingsKey(uid), {}); if (picks.mode !== body.mode) await putJson(bucket, settingsKey(uid), { ...picks, mode: body.mode }); }
+    let told = false;
+    if (next && next.status === "running") told = !!((await post("/mode", { project: id, mode: body.mode }).then((r) => r.json()).catch(() => null)) || {}).ok;
+    return json({ ok: true, project: next || meta, told });
+  }
+  // THE OWNER'S ANSWER ON A CARD A STEP WAITS ON (Claude Code's permission prompt; a plan's approval), for the running job.
+  if (action === "answer" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (meta.status !== "running") return json({ ok: false, error: "Coder is not waiting for an answer any more." }, 409);
+    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "" }).then((r) => r.json()).catch(() => null);
+    if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment." }, 502);
+    if (!m.ok) return json({ ok: false, error: m.why || "That card is no longer waiting for an answer." }, 409);
+    return json({ ok: true });
   }
 
   if (action === "state" && request.method === "GET") {
@@ -989,7 +1087,12 @@ export async function handleCoder(request, env, ctx, deps) {
       // ITS BACKGROUND COMMANDS STILL RUNNING (tool 4, part 2): kept with the chat (the page lists them, with Stop), and the
       // chat goes on the every-minute run's list, which starts a turn to tell Coder when one ends (coder-watch.mjs).
       const background = bgListOf(s.result.background);
-      const ended = { ...meta, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // THE MODE A CARD SWITCHED TO (Auto from a command's card; Auto or Accept edits from an approved plan), unless the owner
+      // picked one since; and the rules "Yes, and don't ask again" added for this repository.
+      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan")).at(-1);
+      const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
+      if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
+      const ended = { ...meta, ...modeNow, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
       if (background.length) await watchBackground(bucket, { uid, email: user.email, id }).catch(() => {});

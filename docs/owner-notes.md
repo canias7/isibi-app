@@ -11,6 +11,25 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Permission modes, like Claude Code's (your words: "lets build the permission things", with the Claude app's Mode menu: "something like this")
+
+- **A Mode menu under the message box**, next to Grok's model and effort, like the Claude app's. Click the chip, or press Ctrl+Shift+M (Cmd+Shift+M on a Mac); 1, 2, 3 pick. Claude Code's cloud sessions have the same three modes:
+  - **Auto** ("Coder handles permission decisions"): Coder works as before, without asking. New: in Auto, Coder is also told Claude Code's auto-mode guidance (go ahead on routine work; still ask before deleting data or touching shared or live systems).
+  - **Accept edits** ("Automatically accept all file edits"): file edits run, and so do `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` and `sed -i` inside the project. Any other command asks you first, unless it only reads (Claude Code's own list: `ls`, `git status`, `git log`, `grep`, `cat` and the rest). A web page asks too, unless it is one of Claude Code's known documentation sites.
+  - **Plan** ("Create a plan before making changes"): Coder reads and explores, changes nothing (any change asks you), and ends with its plan on a card.
+- **Asking happens inside Coder's job, like Claude Code.** The step waits ("waiting for you") and a card shows the command with Claude Code's choices: Yes, "Yes, and don't ask again for `npm test *`", "Yes, and switch to auto mode", No. You can add a note. No stops the job; No with a note tells Coder what to do instead. You also get a phone or computer notification.
+- **The plan card:** "Yes, and use auto mode", "Yes, and accept edits", "No, keep planning" (with what to change). Yes ends Plan mode and Coder starts on it at once, in the same job.
+- **Rules per repository** ("Permission rules…" in the menu, like Claude Code's /permissions): Allow, Ask (asks even in Auto) and Deny (never runs), for example `Bash(git push *)`. "Don't ask again" adds an Allow rule there.
+- **Typing `/plan` before a message** switches the chat to Plan mode, like Claude Code.
+- **Kept per chat:** you can change the mode while Coder works, and it takes effect from Coder's next step. New chats start in your last pick (Plan is for one chat only).
+- **Changed for every mode:**
+  - The cards for protected files and for very long commands now also wait inside the job, instead of ending it.
+  - A file command that changes a protected file (for example `cp hook.sh .husky/pre-commit`) is now asked about too.
+  - A dangerous removal (`rm -rf /` and the like) is still refused in Auto (as Claude Code's Auto does away from a terminal), and is asked about in Accept edits and Plan.
+- **Not in this step (later, and it costs Grok calls, so your OK first):** Claude Code's Auto has a second AI that checks each command before it runs. Coder's Auto uses its built-in safety checks instead.
+- **Tests:** CD305 to CD327 (23 new; 338 in all, all passing). Tried on my side: the real page and Coder's real machine code, with a scripted stand-in for Grok (6 screenshots in the chat).
+- **Not live yet:** it needs your word to merge. After deploy it gets tested live with Grok, recorded.
+
 ## 2026-11-09: Merged and deployed (deploy 76, your word: "merge"); the retest found one more problem, fixed
 
 - **Live after deploy 76, checked in a new chat:**

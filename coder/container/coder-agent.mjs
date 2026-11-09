@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
+import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -214,6 +215,17 @@ export function commandAsk(command, deps, where0 = "") {
     // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known).
     const name = x.afterCd || x.unsure ? x.path : projectPath(deps, x.path);
     if (name && protectedFile(name) && !names.includes(name)) names.push(name);
+  }
+  // THE FILE COMMANDS TOO (mkdir, touch, rm, rmdir, mv, cp, sed -i; the permission modes, 2026-11-09): a protected file or
+  // folder one changes is asked about in every mode (Claude Code: writes to protected paths "are never auto-approved").
+  const from = where0 || (deps && typeof deps.root === "string" ? deps.root : "") || "/";
+  for (const c of readCommand(command, { cwd: from }).cmds) {
+    const fc = fileCommandTargets(c, from);
+    if (!fc || !fc.sure) continue;
+    for (const p of fc.paths) {
+      const name = projectPath(deps, p.replace(/\/\*$/, ""));
+      if (name && (protectedFile(name) || protectedFile(name + "/x")) && !names.includes(name)) names.push(name);
+    }
   }
   if (!names.length) return null;
   // Each name as the chat shows it (a line break written out, never sent as one): the card's Allow becomes the owner's own
@@ -610,6 +622,35 @@ export const CODER_TOOLS = Object.freeze([
   } },
 ]);
 
+/**
+ * PLAN MODE'S WAY OUT (Claude Code's ExitPlanMode: "Presents a plan for approval and exits plan mode"), offered only while
+ * the chat is in Plan mode. The owner approves the plan on a card (then Auto or Accept edits, and Coder goes on in the same
+ * turn) or declines it with what to change (Coder stays in Plan mode).
+ */
+export const EXIT_PLAN_TOOL = fn("exit_plan_mode", "Present your plan to the owner for approval and leave plan mode (only while Plan mode is on, once your plan is final). Give the whole plan, in markdown, as `plan`. The owner sees it on an approval card: if they approve, plan mode ends and you are told to start, in this same turn; if they decline, you stay in plan mode and are told what to change: revise the plan and call this again.", { plan: { type: "string", description: "the whole plan, in markdown" } }, ["plan"]);
+/** Coder's tools that change something outside the files, asked about in Plan mode: what each card says. */
+export const PLAN_ASKS = Object.freeze({
+  pull_request: (a) => "Open a pull request: " + String((a && a.title) || "").slice(0, 200),
+  pr_comments: (a) => "Post " + (Array.isArray(a && a.comments) ? a.comments.length : 0) + " review comment(s) on the pull request",
+  auto_fix: (a) => "Turn auto-fix " + (a && a.on === false ? "off" : "on") + " for " + String((a && a.pr) || "a pull request").slice(0, 200),
+  undo_last_job: () => "Undo the last job that changed files",
+});
+/** What Grok is told of the chat's permission mode, with the system's words (not saved with the chat). */
+export function modeSystem(mode) {
+  const m = normMode(mode);
+  if (m === "plan") return "PERMISSION MODE: Plan (the owner's pick).\n" + PLAN_NOTE;
+  if (m === "acceptEdits") return "PERMISSION MODE: Accept edits (the owner's pick): your file edits and file commands in the project (mkdir, touch, rm, mv, cp, sed -i) run without asking; any other command that is not read-only, and a web_fetch of a site that is not well-known documentation, waits for the owner's approval on a card (you are told their answer: if they say no, do what they say instead, or stop).";
+  return "PERMISSION MODE: Auto (the owner's pick).\n" + AUTO_NOTE;
+}
+/** The note when the owner changes the mode while Coder works (Claude Code's "## Exited Plan Mode" and "## Exited Auto Mode"). */
+export function modeChangeNote(from, to) {
+  const parts = [];
+  if (from === "plan") parts.push(PLAN_EXITED);
+  if (from === "auto") parts.push(AUTO_EXITED);
+  parts.push("The owner's permission mode is now " + MODE_NAMES[normMode(to)] + (to === "plan" ? ": plan mode is active; make no changes, and call exit_plan_mode with your plan when it is final." : "."));
+  return "(Note from Coder's app, not the owner:\n" + parts.join("\n\n") + ")";
+}
+
 // A JOB STARTED FROM GITHUB (@coder, auto-fix) IS NOT OFFERED WHAT IT MAY NOT DO THERE (live test, 2026-11-08:
 // asked on GitHub to undo, Coder first asked which job, then found undo refused). Like Claude Code's GitHub
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
@@ -780,10 +821,45 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
+  // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
+  // Plan): the owner's pick for this chat, which they may change while Coder works (deps.mode, from Coder's machine), and
+  // which a card may change (switch to Auto; an approved plan). A job from GitHub, where no one can answer, is always Auto.
+  let modeHere = github ? "auto" : normMode(mode);
+  const modeNow = () => { if (github) return "auto"; try { if (typeof deps.mode === "function") { const m = deps.mode(); if (MODES.includes(m)) modeHere = m; } } catch { /* the last one known */ } return modeHere; };
+  const setMode = (m, by) => { modeHere = normMode(m); try { if (typeof deps.setMode === "function") deps.setMode(modeHere); } catch { /* told in the record */ } emit({ type: "mode", mode: modeHere, by }); };
+  // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's allow, ask and deny), and those "don't ask again" added in this job.
+  const ownRules = { allow: [], ask: [], deny: [] };
+  for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
+  const rulesAdded = [];
+  const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); rulesAdded.push(r); } };
+  // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
+  const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
+  const isProt = (full) => { const d = workdirs.find((w) => full === w || full.startsWith(w + "/")); if (!d) return ""; const rel = full === d ? "." : full.slice(d.length + 1); return protectedFile(rel) || protectedFile(rel + "/x"); };
+  // ASKING THE OWNER WHILE CODER WORKS (Claude Code's permission prompt): the card shows in the chat and this step waits for
+  // their answer (deps.ask, from Coder's machine), for the Stop button, or for the job's time limit. Answers: yes, always
+  // ("don't ask again"), auto (and switch to Auto mode), acceptEdits (a plan, approved with Accept edits), no (with a
+  // note, maybe), stop, none.
+  let asked = 0;
+  const canAsk = () => !github && typeof deps.ask === "function";
+  const askOwner = async (card) => {
+    const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+    emit({ type: "permission", pid, ...card });
+    let a = null;
+    try { a = await deps.ask(pid, { until: started + maxMs }); } catch { a = null; }
+    const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
+    const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
+    emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}) });
+    return { choice, comment };
+  };
+  // WHAT AN ANSWER MEANS for the step that asked (Claude Code: No without a note stops the turn; No with a note goes on
+  // with it; Stop stops; no answer before the job's time limit ends the job; an answer that never came counts as No).
+  const answerOutcome = (a) => (a.choice === "stop" ? "stop" : a.choice === "none" ? (now() - started > maxMs ? "time" : "no") : a.choice === "no" ? (a.comment ? "said" : "no") : "go");
+  // The owner's note with a Yes, given to Coder after the step's result (Claude Code: "runs the action, then sends your comment").
+  const yesNote = (a) => (a && a.comment && a.choice !== "no" ? "\n\n(The owner approved this with a note: " + a.comment + ")" : "");
   const convo = Array.isArray(messages) ? messages.slice() : [];
   // WHERE THIS JOB BEGINS: what is before it is the chat's saved history (the Worker summarizes that
   // between jobs); this job may summarize only its own steps, after the owner's message (compactJob).
@@ -911,6 +987,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const usage = [];
   const started = now();
   let rounds = 0;
+  // The mode Grok was last told of (the system's note says it each round; a change while Coder works is said in the chat).
+  let toldMode = modeNow();
   let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
@@ -929,7 +1007,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  // (The mode the job ended in, and the rules "don't ask again" added: Coder's Worker keeps them with the chat and the repo.)
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...extra });
 
   // AN OWNER'S COMMAND CODER DOES NOT ANSWER (above): the job ends here, its output kept for later messages; unless a
   // background command ended or was lost, which Coder answers (Claude Code starts a turn for those on its own).
@@ -976,8 +1055,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         }
       }
     }
+    // THE MODE, AS IT IS NOW: a change since the last round is said once (Claude Code's "## Exited Plan Mode"), and the
+    // system's note says the mode each round; in Plan mode Coder also has exit_plan_mode.
+    const modeRound = modeNow();
+    if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "") + (context ? "\n\n" + context : "") }, ...convo], tools: chatTools, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound)) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, tool_choice: "auto" }); }
     catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
     if (answer && answer.usage) usage.push(answer.usage);
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
@@ -1025,6 +1108,16 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
       const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
+      // IN PLAN MODE, CODER'S OTHER TOOLS THAT CHANGE SOMETHING (a pull request, review comments on it, auto-fix, undo) wait
+      // for the owner's Yes on a card, as any action that only reads would not (Claude Code's plan mode).
+      if (PLAN_ASKS[c.name] && modeNow() === "plan" && canAsk()) {
+        const a = await askOwner({ tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name](c.args)).slice(0, 300), why: "Plan mode is on: Coder changes nothing until you approve its plan." });
+        const o = answerOutcome(a);
+        if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+        if (o === "said") { reply(REJECTED_SAID + a.comment); continue; }
+        if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+      }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
         // CLAUDE CODE'S INPUTS (its hooks reference; 2.1.295: "Fixed Bash tool calls failing when the model passes
@@ -1047,18 +1140,42 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // directory, was moved to the background and has been running for …").
         const twin = [...jobs.entries()].find(([, j]) => j.moved && !j.done && j.command === command && j.cwd === where0);
         if (twin && (await jobState(deps, twin[1])).alive) { refuse("Not started: this same command, in this directory, was moved to the background and has been running for " + agoWords(now() - twin[1].at) + " (ID: " + twin[0] + "). Its output is being written to: " + twin[1].log + ". Let it finish, or, to run it again now, stop it first with stop_job."); continue; }
-        // A DANGEROUS REMOVAL (Claude Code's critical paths): away from a terminal, Claude Code's auto mode denies it, and
-        // Coder asks no one about commands, so it is never run.
-        const rmWhy = dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs: [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x) });
-        if (rmWhy) { refuse(RM_REFUSED + rmWhy); continue; }
-        // ASKED FIRST, ON A CARD: a command over 10,000 characters, or one whose redirection or tee writes a protected file.
-        const ask = commandAsk(command, deps, where0);
-        if (ask && !ask.allow.every((a) => ownerSaid(convo, a))) {
-          if (github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
+        // A DANGEROUS REMOVAL (Claude Code's critical paths): in Auto, and where no one can answer, it is refused (Claude
+        // Code's auto mode "denies it" away from a terminal); in Accept edits and Plan the owner is asked, each time (Claude
+        // Code: "Asks you to approve it"; no rule approves one).
+        const modeB = modeNow();
+        const rmWhy = dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs });
+        if (rmWhy && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
+        // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
+        const dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt });
+        if (dec.verdict === "deny") { refuse(dec.why); continue; }
+        // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, or one that writes a protected file.
+        let ask = commandAsk(command, deps, where0);
+        if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
+        if (ask && github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
+        // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
+        if (ask && !canAsk()) {
           reply("not run yet: " + ask.why + ", so the owner is asked first, as Claude Code asks for such commands. Their answer is the next message; when they allow it, run the same command again.");
           for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a command first" });
           emit({ type: "runask", id: c.id, kind: ask.kind, paths: ask.paths, allow: ask.allow.join("\n"), ...cardLines(command), ...(desc ? { desc } : {}) });
           return end("done", { summary: lastSaid || "asked to run a command" });
+        }
+        // ASKED ON A CARD, AND THIS STEP WAITS (Claude Code's Bash prompt: "Yes", "Yes, and don't ask again for …", "Yes, and
+        // switch to auto mode", "No"). Only a one-time Yes for a dangerous removal, a protected file, a very long command
+        // or one an ask rule asks about (Claude Code: no "don't ask again" when it can't cover it all, and no switch to auto
+        // mode on a prompt one of your ask rules forced).
+        let approval = null;
+        if (rmWhy || ask || dec.verdict === "ask") {
+          const once = !!(rmWhy || ask || dec.byRule);
+          const card = { tool: "bash", id: c.id, ...cardLines(command), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? "This command requires approval: " + ask.why : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" ? { toAuto: true } : {}) };
+          approval = await askOwner(card);
+          const o = answerOutcome(approval);
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED_SAID + approval.comment); continue; }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
+          if (approval.choice === "auto" && card.toAuto) setMode("auto", "card");
         }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
@@ -1129,7 +1246,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // A COMMAND THAT CHANGED FILES CODER HAD READ says so (like Claude Code's "This command modified …").
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) { roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); if (typeof x.lines === "string") roundShown.push(x.path); } } } }
-        reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : ""), bg || (r && r.notStarted) ? null : { exitCode: code });
+        reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : "") + yesNote(approval), bg || (r && r.notStarted) ? null : { exitCode: code });
       } else if (c.name === "monitor" || c.name === "stop_job") {
         // A BACKGROUND JOB: read its log, or stop it (as `dev`, like any command).
         const j = jobs.get(String(c.args.job || ""));
@@ -1276,29 +1393,56 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
         const guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? projectPath(deps, args.path) : "";
         const why = guarded ? protectedFile(guarded) : "";
-        if (why && !ownerAllowed(convo, guarded)) {
+        // What a write or an edit would do, for its card: a write's lines; an edit's old lines taken out and new ones put in.
+        // A Windows line ending is not part of the line shown (live test, 2026-11-09: a hidden "\r" on each line).
+        // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
+        // dialog sometimes showing a changed line cut short with no indication"); the owner's values hidden before the cut,
+        // so no part of one is left.
+        const changeShown = () => {
+          const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split(/\r?\n/) : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
+          const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : args.content);
+          const cut = (l) => { const x = scrub(l); return x.length > 300 ? x.slice(0, 300) + "…" : x; };
+          const all = [...gone.map((l) => "-" + cut(l)), ...come.map((l) => "+" + cut(l))];
+          return { kind: c.name === "edit" ? "update" : "create", add: come.length, del: gone.length, lines: all.slice(0, 40), ...(all.length > 40 ? { more: all.length - 40 } : {}) };
+        };
+        if (why && !ownerAllowed(convo, guarded) && (github || !canAsk())) {
           const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
           if (github) {
             const m = "error: " + shownPath + " is a protected file (it can make code run on the owner's computer, or change how the project is built), so it is not changed in a job started from GitHub, where no one can allow it: say so in your answer";
             emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue;
           }
+          // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
           reply((c.name === "edit" ? "not edited yet: " : "not written yet: ") + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, " + (c.name === "edit" ? "make the edit" : "write it") + " again.");
           for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a protected file first" });
-          // What it would do: a write's lines; an edit's old lines taken out and new ones put in.
-          // A Windows line ending is not part of the line shown (live test, 2026-11-09: a hidden "\r" on each line).
-          const rows = (x) => { const l = typeof x === "string" && x !== "" ? x.split(/\r?\n/) : []; if (l.length > 1 && l[l.length - 1] === "") l.pop(); return l; };
-          const gone = c.name === "edit" ? rows(args.old_string) : [], come = rows(c.name === "edit" ? args.new_string : args.content);
-          // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
-          // dialog sometimes showing a changed line cut short with no indication"); the owner's values hidden before the cut,
-          // so no part of one is left.
-          const cut = (l) => { const x = scrub(l); return x.length > 300 ? x.slice(0, 300) + "…" : x; };
-          const all = [...gone.map((l) => "-" + cut(l)), ...come.map((l) => "+" + cut(l))];
-          emit({ type: "writeask", path: shownPath, because: why, ...(c.name === "edit" ? { edit: true } : {}), change: { kind: c.name === "edit" ? "update" : "create", add: come.length, del: gone.length, lines: all.slice(0, 40), ...(all.length > 40 ? { more: all.length - 40 } : {}) } });
+          emit({ type: "writeask", path: shownPath, because: why, ...(c.name === "edit" ? { edit: true } : {}), change: changeShown() });
           return end("done", { summary: lastSaid || "asked to change " + shownPath });
         }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
         // folder its commands are in).
         emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
+        // ASKED ON A CARD, AND THIS STEP WAITS (the permission modes, 2026-11-09): a protected file in any mode; any write or
+        // edit in Plan mode (Claude Code: edits "stay blocked until you approve the plan", each one asked); a web page in
+        // Accept edits and Plan, unless it is one of Claude Code's pre-approved documentation sites or a rule allows it
+        // ("Yes", "Yes, and don't ask again for <domain>", "No, and tell Claude what to do differently"). A deny rule refuses it.
+        const modeT = modeNow();
+        const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
+        if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, output: fetchDec.why }); reply(fetchDec.why); continue; }
+        const fileAsk = (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || modeT === "plan");
+        let approval = null;
+        if (fileAsk || (fetchDec && fetchDec.verdict === "ask")) {
+          const shownPath = guarded ? scrub(visibleChars(guarded)).slice(0, 300) : "";
+          const card = fileAsk
+            ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? shownPath + " is a protected file: it can make code run on your computer when the branch is pulled, or change how the project is built." : "Plan mode is on: files change only after you approve the plan." }
+            : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchDec.why, ...(!fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
+          if (!canAsk()) { const m = "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : "the owner must approve fetching " + (fetchDec.host || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+          approval = await askOwner(card);
+          const o = answerOutcome(approval);
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED_SAID + approval.comment); continue; }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
+        }
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
@@ -1333,7 +1477,23 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
-        reply((out || "(nothing)") + (more ? "\n\n" + more : ""));
+        reply((out || "(nothing)") + (more ? "\n\n" + more : "") + yesNote(approval));
+      } else if (c.name === "exit_plan_mode") {
+        // THE PLAN, FOR THE OWNER'S APPROVAL (Claude Code's ExitPlanMode): "Yes, and use auto mode" or "Yes, and accept
+        // edits" ends Plan mode and Coder starts in this same turn; "No, keep planning" (with what to change) keeps it on.
+        if (modeNow() !== "plan") { reply("error: plan mode is not on (the owner changed the mode), so there is nothing to approve: carry on with the work as asked."); continue; }
+        const plan = scrub(String(c.args.plan || "")).replace(/\r/g, "").trim().slice(0, 40_000);
+        if (!plan) { reply("error: give the whole plan, in markdown, as `plan`"); continue; }
+        if (!canAsk()) { emit({ type: "text", text: plan }); reply("the plan is shown to the owner; they approve it by changing the mode"); return end("done", { summary: plan.slice(0, 4000) }); }
+        const a = await askOwner({ tool: "plan", id: c.id, plan });
+        const o = answerOutcome(a);
+        if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (o === "time") { reply("not approved: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+        if (o === "said") { reply(REJECTED_SAID + a.comment); continue; }
+        if (o === "no" || (a.choice !== "auto" && a.choice !== "acceptEdits")) { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "the plan was not approved" }); }
+        setMode(a.choice, "plan");
+        toldMode = a.choice; // (the approval below says plan mode ended)
+        reply(planApproved(plan) + "\n\n" + PLAN_EXITED + (a.comment ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
       } else if (c.name === "todo") {
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);
         emit({ type: "todo", items });
