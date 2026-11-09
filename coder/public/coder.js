@@ -778,7 +778,7 @@
     read: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6', edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     write: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM12 18v-6M9 15h6', grep: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     glob: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', lsp: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
   function stepIcon(e) {
@@ -788,14 +788,16 @@
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
-    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
+    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Typed into$/, 'Typing into').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : e.verb) : state === 'run' ? 'Running' : 'Ran';
+    // WHAT A BROWSER STEP DID, said in words once it is done ("Clicked “Go”"), in place of its verb and the element's number.
+    const said = r && typeof r.label === 'string' && r.label ? r.label : '';
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
       : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>' : '';
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
-        stepIcon(e) + '<span class="cd-cmd-verb">' + verb + '</span> <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>' +
+        stepIcon(e) + '<span class="cd-cmd-verb">' + (said ? '<span class="cd-cmd-said">' + esc(said) + '</span>' : verb) + '</span>' + (said ? '' : ' <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>') +
         tail +
       '</button>' +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
@@ -817,7 +819,7 @@
    * failed }], a step with no tool being a command.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];

@@ -129,6 +129,8 @@ export const RUN_TOOLS = {
   glob: { verb: "Found", label: (a) => String(a.pattern || "") },
   lsp: { verb: "Looked up", label: (a) => String(a.action || "") + " " + String(a.path || "") + (a.line ? ":" + a.line + (a.column ? ":" + a.column : "") : "") },
   web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
+  // GLOOPY'S BROWSER (2026-11-09): the verb from its action; the chat then shows what it did ("Clicked “Go”").
+  browser: { verb: (a) => ({ open: "Opened", look: "Looked at", click: "Clicked", type: "Typed into", press: "Pressed", select: "Chose in", scroll: "Scrolled", back: "Went back" })[a.action] || "Used the browser", label: (a) => String(a.action === "open" ? a.url || "" : a.action === "look" ? "the page" : a.action === "press" ? a.key || "" : a.action === "scroll" ? (a.direction === "up" ? "up" : "down") : a.action === "back" ? "" : a.ref || "") },
 };
 
 /**
@@ -693,6 +695,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
+      if (!offered && c.name === "browser") { reply("error: no such tool: browser (use Chrome or Playwright through bash)"); continue; }
       if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -866,7 +869,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
         // folder its commands are in).
-        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
+        emit({ type: "bash", id: c.id, tool: c.name, verb: typeof spec.verb === "function" ? spec.verb(args) : spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
@@ -874,7 +877,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args }) } : {}) }); }
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" || c.name === "browser" ? 90 : 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -883,17 +886,19 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
         let pics = [], thumbs = [];
-        if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
+        if ((c.name === "read" || c.name === "browser") && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
+        // WHAT A BROWSER STEP DID, in words the chat shows in place of its numbers ("Clicked “Go”", Gloopy, 2026-11-09).
+        const did = c.name === "browser" && code === 0 ? scrub((/^Did: (.{1,300})$/m.exec(raw) || [])[1] || "") : "";
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
         // tools' output is, to MAX_OUTPUT_CHARS.
         let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : undefined);
-        if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
+        if (pics.length) roundPics.push({ path: scrub(String(c.name === "browser" ? "the browser" : args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
-        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}) });
+        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(did ? { label: did } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } }
@@ -951,7 +956,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     if (roundNotes.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your last commands:\n" + roundNotes.join("\n\n") + ")" });
     if (roundPics.length) {
       const n = roundPics.reduce((a, p) => a + p.urls.length, 0);
-      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });
+      // Gloopy's browser steps' screenshots are said as such (2026-11-09); a read's pictures as before.
+      const shots = roundPics.every((p) => p.path === "the browser");
+      convo.push({ role: "user", appNote: true, content: shots ? "(Note from Gloopy's app, not the owner: the screenshot" + (n === 1 ? "" : "s") + " of the page your browser step" + (n === 1 ? "" : "s") + " showed, attached here in order.)" : "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });
       keepPics(convo);
     }
   }

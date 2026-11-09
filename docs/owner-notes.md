@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy's first new tool: its own browser (your word: "look at the docs of grok bot and dots and start doing the stuff, lets start with tools first")
+
+- **What both have that Gloopy didn't** (from their docs): its own browser; a private sign-in form; approvals with your own rules; schedules (and waking itself up); memory tools; pages; helpers working in parallel; handing coding to a coding agent. Only Grok Bot: images and videos, its own email address, reading X. Only dots: research on its own in the background. Connected apps stay for the end. Started with the browser.
+- **The browser:** Gloopy's own Chrome on its computer, one tool with 8 actions: open, look, click, type, press a key, choose from a list, scroll, go back. Each step gives Gloopy the page's title and address, a numbered outline of everything on the page (more reliable than clicking on a picture), and a screenshot it sees.
+- **In the chat:** each step is a plain sentence, like "Typed “red running shoes” into “Search”" or "Clicked “Under €80”", with a small screenshot under it. Several in a row read "Took 3 browser steps".
+- **Safety:** it never types into a password field (signing in is yours; a private sign-in form comes next). It opens only web pages, never the machine's own settings address. It is told never to press anything that buys, books, sends, posts, signs up or deletes without your yes.
+- **Sign-ins:** the browser has its own profile on Gloopy's machine, so a site stays signed in there. It starts again with each message.
+- **Only on the full machine image:** Chrome and Playwright are only in the full image, the one your deploys use on Fly.io. On Cloudflare's backup machines Gloopy isn't offered the browser, and it is told so.
+- **Tried for real here** with a made-up shop page: it opened the shop, searched, filtered to under €80, and refused a password field.
+- **Not yet:** watching its screen live and taking over; the private sign-in form.
+- Tests GL10–GL14 (GL11 drives a real browser); all 268 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy, piece 1 built: its chat in the Gloopy tab (your word: "copy more Grok Bot and dots")
 
 - **The Gloopy tab now opens your Gloopy's chat** instead of "Coming soon": its figure and name on top, its welcome with three ways to start, and the same message box as Coder's (pictures, model and effort, Stop).

@@ -1814,7 +1814,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", ins.later);
     // Gloopy's own context instead (given to runCoder below): its notes about the owner, today's date, its work folder,
     // its machine and its network.
-    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH });
+    // Its browser only where the machine has one (Chrome and Playwright are in the full image).
+    const hasBrowser = env.CODER_IMAGE === "full";
+    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser });
     const lastSend = async () => { if (sender) await sender.flush(); };
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
@@ -1904,7 +1906,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, tools: GLOOPY_TOOLS, nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
+      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => x.function.name !== "browser"), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .finally(() => {
