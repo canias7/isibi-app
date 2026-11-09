@@ -116,7 +116,10 @@ async function inside(p, { mustExist = false, tool = "" } = {}) {
 
 // THE AUDIT (2026-11-05): huge files would fill the memory, and binary ones come out as garbage (and editing corrupts them).
 export const READ_MAX_BYTES = 20 * 1024 * 1024;
-export const EDIT_MAX_BYTES = 5 * 1024 * 1024;
+// EDIT TAKES MUCH BIGGER FILES (edit, tool 3, 2026-11-09: Claude Code's Edit takes files up to about 1 GiB, "Fixed a
+// potential out-of-memory crash when the Edit tool was used on very large files (>1 GiB)"; Coder's stopped at 5 MB). One
+// JavaScript string holds about 512 MB, so 256 MB is where it stops here.
+export const EDIT_MAX_BYTES = 256 * 1024 * 1024;
 /** A UTF-16 TEXT FILE starts with a byte-order mark: FF FE (little-endian) or FE FF (big-endian). */
 const utf16Of = (b) => (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe ? "le" : b.length >= 2 && b[0] === 0xfe && b[1] === 0xff ? "be" : "");
 /**
@@ -468,6 +471,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // A part that was asked for and does not fit is refused, as in Claude Code; a whole-file read gets its first part.
   if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
   const body = rows.join("\n");
+  if (asked && (from > 1 || last < total)) await markPart(abs);
   if (last >= total) { if (!asked) await clearStart(abs); return body + oldText; }
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   if (!asked) await markPartial(abs); // write will not replace it until the rest is read
@@ -675,20 +679,172 @@ export async function toolWrite(args) {
   return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
 }
 
-export async function toolEdit({ path, old_string, new_string, replace_all = false }) {
-  const { abs, rel } = await inside(path, { mustExist: true });
-  if (typeof old_string !== "string" || !old_string) fail("give old_string: the exact text to replace");
+/**
+ * EDIT, AS CLAUDE CODE'S EDIT (tool 3; the owner, 2026-11-09: "Notebook for later, but yea do this"; its docs read whole,
+ * and its own Edit tried 33 ways, side by side with this one, docs/tool-by-tool.md):
+ * - the exact text (`old_string`) swapped for the new (`new_string`): once, or everywhere with `replace_all`;
+ * - in the file's own line endings: a CRLF file matched with plain line breaks, and written back with the ending most of
+ *   its lines have (Claude Code's: a file mostly CRLF came back all CRLF, one mostly LF all LF);
+ * - curly quotes matched by straight ones, the new text's quotes then made curly where the matched text had curly ones,
+ *   of that kind only ("Fixed Edit tool silently corrupting Unicode curly quotes");
+ * - `\uXXXX` written out in the old text taken for its character (not after another backslash);
+ * - a file changed on disk since Coder last read it: edited when the old text is there once, with Claude Code's note that
+ *   it holds other changes; refused ("modified since read") when it is not there once;
+ * - not valid UTF-8: refused, nothing written; UTF-16 behind its byte-order mark edited as UTF-16; a UTF-8 mark kept;
+ * - a link: refused, naming its target; links that loop or lead nowhere: refused; a notebook: refused (its own tool is
+ *   for later, the owner: "Notebook for later");
+ * - no old text: a new file made, with its folders; one that already has text: "Cannot create new file - file already exists.";
+ * - Claude Code's own words for each answer; `old_str` and `new_str` taken for its inputs, and `replace_all` given as text.
+ */
+export const EDIT_NOT_FOUND = "String to replace not found in file.";
+export const EDIT_SAME = "No changes to make: old_string and new_string are exactly the same.";
+export const EDIT_EXISTS = "Cannot create new file - file already exists.";
+export const EDIT_OTHER_CHANGES = " (note: the file had been modified on disk since you last read it — the edit applied cleanly, but the file contains other changes not in your context. Read it before edits that depend on surrounding content.)";
+export const EDIT_NOTEBOOK = "File is a Jupyter Notebook. edit changes plain text, and a notebook is JSON whose cells a text change can break: read the notebook, then replace it whole with write, or change a cell with a short python3 script that loads it with the json module and saves it again.";
+const editMany = (n) => "Found " + n + " matches of the string to replace, but replace_all is false. To replace all occurrences, set replace_all to true. To replace only one occurrence, please provide more context to uniquely identify the instance.";
+/** The old text, said back after a refusal (as Claude Code's "String: …"), up to 4,000 characters. */
+const saidBack = (x) => "\nString: " + (x.length > 4000 ? x.slice(0, 4000) + "…" : x);
+const CURLY = { "“": '"', "”": '"', "‘": "'", "’": "'" };
+const straighten = (x) => x.replace(/[“”‘’]/g, (q) => CURLY[q]);
+/** The new text's straight quotes made curly, of the kinds the matched text had curly: opening after a space or a bracket. */
+export function curlify(x, doubles, singles) {
+  let out = "";
+  for (let i = 0; i < x.length; i++) {
+    const c = x[i], prev = i ? x[i - 1] : "", next = x[i + 1] || "";
+    const opens = !prev || /[\s([{–—]/.test(prev);
+    if (c === '"' && doubles) out += opens ? "“" : "”";
+    else if (c === "'" && singles) out += /[\p{L}\p{N}]/u.test(prev) && /[\p{L}\p{N}]/u.test(next) ? "’" : opens ? "‘" : "’";
+    else out += c;
+  }
+  return out;
+}
+const ESCAPED = /(?<!\\)\\u([0-9a-fA-F]{4})/g;
+/** `\uXXXX` written out, taken for its character; one after another backslash (an escaped backslash) stays text. */
+const unescapeU = (x) => x.replace(ESCAPED, (_, h) => String.fromCharCode(parseInt(h, 16)));
+/** Where `needle` starts in `hay`, each time, not overlapping. */
+function positions(hay, needle) {
+  const at = [];
+  if (!needle) return at;
+  for (let k = hay.indexOf(needle); k !== -1; k = hay.indexOf(needle, k + needle.length)) at.push(k);
+  return at;
+}
+/** The line ending most of a text's lines have. */
+function eolOf(x) { const crlf = (x.match(/\r\n/g) || []).length; return crlf > (x.match(/\n/g) || []).length - crlf ? "\r\n" : "\n"; }
+export async function toolEdit(args) {
+  const a = args && typeof args === "object" ? args : {};
+  const path = typeof a.path === "string" ? a.path : a.file_path;
+  // Claude Code's Edit takes `old_str` and `new_str` for its inputs, without a word (tried, 2026-11-09).
+  const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str;
+  const new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
+  // `replace_all` as the text "true" or "false" is read as yes or no (Claude Code: "Fixed intermittent 'expected boolean,
+  // received string' validation errors on Edit"); Coder took any text, "false" too, for yes and replaced them all.
+  const all = a.replace_all === true || (typeof a.replace_all === "string" && a.replace_all.trim().toLowerCase() === "true");
+  const show_change = a.show_change === true, check = a.check === true;
+  const { abs, rel: inRel } = await inside(path, { tool: "edit" });
+  // Named in full outside the project's own folder, as write's answers (Claude Code 2.1.304).
+  const rel = abs === ROOT || abs.startsWith(ROOT + sep) ? inRel : abs;
+  if (typeof old_string !== "string") fail("give old_string: the exact text to replace");
   if (typeof new_string !== "string") fail("give new_string");
-  if (old_string === new_string) fail("old_string and new_string are the same");
-  await plainText(abs, rel, EDIT_MAX_BYTES);
-  const text = await readFile(abs, "utf8");
-  const count = text.split(old_string).length - 1;
-  if (count === 0) fail("old_string was not found in " + rel + ". Read the file and copy the text exactly, spaces included.");
-  if (count > 1 && !replace_all) fail("old_string appears " + count + " times in " + rel + ". Add more lines around it so it is unique, or set replace_all.");
-  const out = replace_all ? text.split(old_string).join(new_string) : text.replace(old_string, () => new_string);
-  await writeFile(abs, out);
-  await remember(abs, Buffer.from(out));
-  return "edited " + rel + " (" + (replace_all ? count : 1) + " place" + ((replace_all ? count : 1) > 1 ? "s" : "") + ")";
+  if (old_string === new_string) fail(EDIT_SAME);
+  let st = null;
+  try { st = await lstat(abs); } catch { st = null; }
+  // A LINK, AS FOR WRITE: refused, naming the file it leads to (Claude Code's Edit, tried: "Refusing to write …: it is a
+  // symbolic link. Write to the link's target path instead: …"). Coder's edit changed the file behind it, silently.
+  if (st && st.isSymbolicLink()) {
+    let to = "";
+    try { to = showPath(await realpath(abs)); } catch { to = ""; }
+    fail("Refusing to write " + rel + ": it is a symbolic link. Write to the link's target path instead" + (to ? ": " + to : "") + ".");
+  }
+  if (await brokenLinkOnTheWay(abs)) fail("Refusing to write " + rel + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
+  if (extname(abs).toLowerCase() === ".ipynb" && !(st && st.isDirectory())) fail(EDIT_NOTEBOOK);
+  if (!st) {
+    if (old_string !== "") fail("File does not exist. Note: your current working directory is " + BASE + ".");
+    // NO OLD TEXT, NO FILE: made, with the folders it is in (Claude Code's Edit, tried: "newdir/deeper/made.txt" made).
+    const made = Buffer.from(new_string);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, made);
+    await remember(abs, made);
+    return editAnswer({ rel, abs, said: "The file " + rel + " has been updated successfully." + WRITE_FRESH, before: null, after: new_string, show_change, check, bytes: made });
+  }
+  if (st.isDirectory()) fail(folderError(abs));
+  if (st.size > EDIT_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; use bash (head, tail, sed -n) for parts of it");
+  const buf = await readFile(abs);
+  const u = utf16Of(buf);
+  if (!u && buf.subarray(0, 8192).includes(0)) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file");
+  // NOT VALID UTF-8 (an old encoding, or binary): nothing written, as Claude Code's Edit ("File is not valid UTF-8 … This
+  // tool saves the whole file as UTF-8, which would replace every byte it cannot decode with U+FFFD. Nothing was written.").
+  // Coder's edit wrote it back with every such letter lost ("café" became "caf�").
+  if (!u && !isUtf8(buf)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Edit saves the whole file as UTF-8 (or UTF-16 behind its byte-order mark), which would replace every byte it cannot decode with U+FFFD, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first.");
+  const raw = u ? fileText(buf) : buf.toString("utf8");
+  const bom = !u && raw.startsWith("﻿");
+  const text = bom ? raw.slice(1) : raw;
+  const eol = eolOf(text);
+  const body = text.replace(/\r\n/g, "\n");
+  // WHAT CODER KNEW OF IT: changed on disk since it was read (or a command changed it and its note has not shown that yet).
+  const seen = await seenEntry(abs);
+  const changed = !!seen && (seen.stale === true || ((st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(buf) !== seen.hash)));
+  let oldN = old_string.replace(/\r\n/g, "\n"), newN = new_string.replace(/\r\n/g, "\n");
+  let at, len = oldN.length;
+  if (oldN === "") {
+    // NO OLD TEXT, A FILE WITH NONE EITHER: filled (Claude Code's Edit, tried, filled an empty file); one with text refused.
+    if (body.trim() !== "") fail(EDIT_EXISTS);
+    at = [0]; len = body.length;
+  } else {
+    at = positions(body, oldN);
+    // Curly quotes in the file, straight ones typed: the same text (one character each way, so places line up).
+    const viaQuotes = (o) => { const q = positions(straighten(body), straighten(o)); return q.length ? q : null; };
+    let curled = false;
+    if (!at.length) { const q = viaQuotes(oldN); if (q) { at = q; curled = true; } }
+    // `é` typed for "é".
+    if (!at.length && ESCAPED.test(oldN)) {
+      ESCAPED.lastIndex = 0;
+      const plain = unescapeU(oldN);
+      let q = positions(body, plain);
+      if (!q.length) { q = viaQuotes(plain) || []; curled = q.length > 0; }
+      if (q.length) { at = q; oldN = plain; len = plain.length; newN = unescapeU(newN); }
+    }
+    ESCAPED.lastIndex = 0;
+    if (curled) { const seenText = body.slice(at[0], at[0] + len); newN = curlify(newN, /[“”]/.test(seenText), /[‘’]/.test(seenText)); }
+    if (!(at.length === 1 || (all && at.length))) {
+      // Changed since read, and the old text not there once: read it again (Claude Code's own words for this).
+      if (changed) fail(rel + " " + WRITE_CHANGED + ".");
+      if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
+      fail(editMany(at.length) + saidBack(old_string));
+    }
+  }
+  const parts = [];
+  let from = 0;
+  for (const p of all ? at : [at[0]]) { parts.push(body.slice(from, p), newN); from = p + len; }
+  parts.push(body.slice(from));
+  const outBody = parts.join("");
+  const outText = (bom ? "﻿" : "") + (eol === "\r\n" ? outBody.replace(/\n/g, "\r\n") : outBody);
+  let bytes;
+  if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(outText, "utf16le")]);
+  else if (u === "be") { const b = Buffer.from(outText, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
+  else bytes = Buffer.from(outText, "utf8");
+  await writeFile(abs, bytes);
+  await remember(abs, bytes);
+  // CLAUDE CODE'S WORDS: "(file state is current …)" only for a file Coder had whole and as it is; its note when the file
+  // had other changes.
+  const known = !!seen && !changed && !seen.partial && !seen.part && !seen.start;
+  const said = "The file " + rel + (all ? " has been updated. All occurrences were successfully replaced." : " has been updated successfully.") + (changed ? EDIT_OTHER_CHANGES : known ? WRITE_FRESH : "");
+  return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^﻿/, ""), show_change, check, bytes });
+}
+/** Edit's answer, as write's: its memory note, the language server's new problems (`check`), and the change (`show_change`). */
+async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes }) {
+  const mem = process.env.CODER_MEMORY_FILE;
+  const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
+  let problems = null;
+  if (check) {
+    const { newProblems } = await import("./coder-lsp.mjs");
+    problems = await newProblems({ path: rel, abs, before: before === null ? undefined : before, after }, ROOT).catch(() => null);
+  }
+  let problemsSaid = "";
+  if (problems && problems.length) { const { problemsNote } = await import("./coder-lsp.mjs"); problemsSaid = "\n\n" + problemsNote(rel, problems); }
+  const text = said + (memSaid ? "\n" + memSaid : "") + problemsSaid;
+  if (show_change !== true) return text;
+  const change = await writeChange(before, after).catch(() => null);
+  return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
 }
 
 function run(cmd, args, cwd = ROOT) {
@@ -942,6 +1098,21 @@ async function markStart(abs, st) {
     else list.push({ abs, mtime: st.mtimeMs, size: st.size, hash: "", start: true }); // no fingerprint: its lines were not all seen
     while (list.length > SEEN_FILES) { const old = list.shift(); await unlink(marksFile(dir, old.abs)).catch(() => {}); }
     await seenSave(dir, list);
+  } catch { /* never costs the tool */ }
+}
+/**
+ * ONLY SOME LINES SHOWN, AS ASKED (offset or limit): marked `part`, so an edit after it does not say the whole file is in
+ * Grok's context, as Claude Code's Edit adds "(file state is current in your context — no need to Read it back)" only for
+ * a file read whole (tried, 2026-11-09: a file read with limit 3 was edited without it). Unlike a PARTIAL view, it does not
+ * stop write (Claude Code's Write takes a file read with a limit, on newer models). A whole read makes a new record.
+ */
+async function markPart(abs) {
+  const dir = seenDir();
+  if (!dir) return;
+  try {
+    const list = await seenList(dir);
+    const x = list.find((e) => e.abs === abs);
+    if (x) { x.part = true; await seenSave(dir, list); }
   } catch { /* never costs the tool */ }
 }
 /** Read all at once (no offset or limit, nothing left out): no longer shown only in part. */

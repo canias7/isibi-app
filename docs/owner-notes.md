@@ -11,6 +11,28 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Edit (tool 3), step 3: Coder's edit now works like Claude Code's (your words: "Notebook for later, but yea do this")
+
+- **Fixed: it damaged files in old text formats.** "café" became "caf�" for good. Now such a file is refused and left exactly as it was.
+- **Windows line endings work.** The text matches with ordinary line breaks, and the file keeps its Windows endings. As in Claude Code, a file with mixed endings comes back with the ending most of its lines use.
+- **Curly quotes work.** Grok can type straight quotes, and the file keeps its curly ones.
+- **Escaped characters work:** `\u00e9` finds the real "é".
+- **Links are refused**, naming the real file (as write does). Before, edit changed the file behind the link silently.
+- **Notebooks are refused for now**, with a pointer to the safe way. A proper notebook tool is on the later list (your word).
+- **A file that changed since Coder read it:** if the old text is still there once, it's edited, with Claude Code's note that the file has other changes. If not, it's refused with "modified since read… read it again".
+- **Bug fixed:** `replace_all` sent as the word "false" replaced everything.
+- **Protected files** (`.husky`, `.npmrc` and so on) now get the Allow card for edits too. The card shows the lines taken out in red and the new ones in green.
+- **Each edit shows its change in the chat** ("Edited src/cart.js +3 −1", with the lines), as writes do. The language server checks edited code too.
+- **Smaller ones:**
+  - UTF-16 files can be edited;
+  - an empty old text makes a new file (with its folders);
+  - Claude Code's other input names are taken;
+  - files up to 256 MB (it was 5 MB);
+  - Claude Code's exact words for every answer;
+  - Grok is told to leave read's line numbers out of the old text.
+- Tried on a local copy of Coder's page (screenshots sent). Tests CD263–CD265 fail on the old code; all tests pass, and the 24 real read checks.
+- **Not live yet:** it needs a merge and deploy, then a live test in the browser with Grok.
+
 ## 2026-11-09: Edit (tool 3), step 1: everything Claude Code's Edit does (your words: "start on the edit tool … Look up the entire Claude Code docs for edit")
 
 - **All of Claude Code's docs, fetched fresh** (228 pages): the Edit section of the tools reference, every Edit error, about 60 changelog entries, and the permission, hook, settings, memory and SDK pages.

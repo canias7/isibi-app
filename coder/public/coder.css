@@ -167,6 +167,8 @@
 .cd-diff { margin: 0; padding: 8px 0; background: #fbfaf8; border-top: 1px solid #efece7; font-size: 12px; line-height: 1.55; overflow-x: auto; }
 .cd-diff span { display: block; padding: 0 16px; white-space: pre; }
 .cd-dl-add { background: #e9f7ef; color: #0f5132; }
+/* An edit's change on the card for a protected file (edit, tool 3): one line each, coloured edge to edge. */
+.cd-writeask .cd-envchange-pre .cd-wl { display: block; margin: 0 -12px; padding: 0 12px; white-space: pre-wrap; }
 .cd-dl-del { background: #fdecea; color: #842029; }
 .cd-dl-hunk { color: #8a857d; }
 

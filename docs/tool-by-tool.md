@@ -441,3 +441,26 @@ Next (the owner's order): Coder's edit side by side, then what to copy, then liv
 | A null byte in the path | "Edit file_path cannot contain null bytes (\0). …" | "the path cannot contain null bytes (\0). …" |
 | A folder | "Error calling tool (Edit): EISDIR: illegal operation on a directory, read" | ".../adir is a folder, not a file: list what is in it with glob, or a command such as ls" (clearer; Claude Code's Write says much the same) |
 | Already the same | an unread file, or one read only in part, edited; exact match (a tab is not spaces; a line-number prefix is not the file); two trailing spaces kept; UTF-8 byte-order mark kept; whole lines taken out; replace_all; "twice" refused; "no such file" with the working folder named; a relative path; the folder's instruction file shown after the edit (`laterNotes`); the security check on each edit (`checkEdit`) | |
+
+**Copied** (the owner, 2026-11-09: "Notebook for later, but yea do this"; `toolEdit` in `container/coder-tools.mjs`, the agent's edit branch, the page's card):
+
+| Claude Code's Edit | Coder's edit now |
+|---|---|
+| Not valid UTF-8: refused, nothing written | refused, nothing written: "latin1.txt is not valid UTF-8: … Edit saves the whole file as UTF-8 (or UTF-16 behind its byte-order mark), which would replace every byte it cannot decode with U+FFFD, so nothing was written. …" |
+| CRLF matched with plain line breaks; written in the ending most lines have | the same (`eolOf`: mostly CRLF all CRLF, mostly LF all LF) |
+| Curly quotes matched; the new text curled where the file's were, of that kind | the same (`straighten`, `curlify`: opening after a space or a bracket; an apostrophe between letters ’) |
+| `\uXXXX` taken for its character; not after an escaped backslash | the same (`unescapeU`) |
+| A link refused, naming its target; loops and links to nowhere refused | the same, write's words |
+| A notebook refused ("File is a Jupyter Notebook. Use the NotebookEdit to edit this file.") | refused: "File is a Jupyter Notebook. edit changes plain text, and a notebook is JSON whose cells a text change can break: read the notebook, then replace it whole with write, or change a cell with a short python3 script …" (a notebook tool: later, the owner) |
+| Changed since read: edited with its note when the old text is there once; else "File has been modified since read, …" | the same, the note word for word; the refusal in write's words ("… either by a command or by something running in the background …") |
+| "(file state is current …)" only for a file read whole, or made by the edit | the same (a read of some lines is marked `part` now, `markPart`) |
+| UTF-16 LE behind its mark edited, kept | the same (BE too, as write) |
+| No old text: a new file with its folders; an empty file filled; "Cannot create new file - file already exists." | the same |
+| `replace_all` as the text "true"/"false"; `old_str`, `new_str` | the same, silently |
+| Its words: "The file … has been updated successfully.", "… updated. All occurrences were successfully replaced.", "String to replace not found in file.\nString: …", "Found N matches …", "No changes to make: …", "File does not exist. Note: your current working directory is …", "edit path cannot contain null bytes …" | the same |
+| Protected paths asked | asked on the card, with the lines taken out (red) and put in (green); from GitHub not edited |
+| Each edit's diff in the conversation; language-server problems after it | under each step (+N −M, the lines), as write's; the language server's new problems |
+| The model told to strip read's line prefix, to use short anchors | edit's description: "Copy it from what read showed without read's line-number prefix (the number and the tab before each line): that is not part of the file. Keep old_string short …" |
+| Files up to about 1 GiB | 256 MB (one JavaScript string holds about 512 MB) |
+
+Tests: CD263 (every case, Claude Code's words and the bytes on disk), CD264 (the card, the change, old_str and the security check, the description), CD265 (the card's lines on the page), all failing on the old code; CD36, CD224, CD252 and the file-tools test changed to the new words. Tried on a local copy of the page (the edit's change under its step; the card for `.husky/pre-commit`).
