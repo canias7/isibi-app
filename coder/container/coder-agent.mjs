@@ -1050,6 +1050,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (cwdSaid) text = text === "(Bash completed with no output)" ? cwdSaid : text + "\n" + cwdSaid;
         if (r && typeof r.diskNote === "string" && r.diskNote) text += "\n\n" + r.diskNote;
         if (!bg && ghRateLimited(command, r && r.output)) text += "\n\n(Note from Coder's app: " + GH_RATE_HINT + ")";
+        if (r && typeof r.netNote === "string" && r.netNote) text += "\n\n" + r.netNote;
         emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).

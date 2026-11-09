@@ -2178,7 +2178,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (ok) t.cwd = ok; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
           }
           const moved = here && t.cwd !== home0;
-          const startedIn = t.cwd;
+          const startedIn = t.cwd, startedAt = Date.now();
           // The turn's own commands, while they run (the owner's Stop ends them; its background ones go on).
           let leader = 0;
           const onStart = (pid) => { leader = pid; t.fg.add(pid); };
@@ -2220,7 +2220,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
               else if (ok !== t.cwd) { told = "Working directory: " + saidDir(ok) + " (was " + saidDir(t.cwd) + ")"; t.cwd = ok; t.cwdWas = ""; }
             }
           }
-          return { ...r, ...(notes.length ? { cwdNote: notes.join("\n") } : {}), ...(told ? { cwdTold: told } : {}) };
+          // WHAT THE NETWORK LIST BLOCKED WHILE IT RAN, by host and why (Claude Code names them too, 2.1.224 and 2.1.251).
+          let netNote = "";
+          if (!tool && proxyP) { try { const p0 = await proxyP; const b = typeof p0.blockedSince === "function" ? p0.blockedSince(startedAt) : []; if (b.length) netNote = "Blocked by this chat's network list while this command ran: " + b.slice(0, 10).map((x) => x.host + " (" + x.why + ")").join(", ") + ". If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None."; } catch { /* no proxy */ } }
+          return { ...r, ...(notes.length ? { cwdNote: notes.join("\n") } : {}), ...(told ? { cwdTold: told } : {}), ...(netNote ? { netNote } : {}) };
         },
         // A path Grok gave a tool, as a full path (a short one counts from where the commands are); the project's folder.
         where: (p) => (typeof p === "string" && p ? (isAbsolute(p) ? resolve(p) : resolve(t.cwd, p)) : ""),
