@@ -175,7 +175,7 @@ test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a f
   const tool = await execIn(dir, cmd, 60, { kill: true, outMax: TOOL_OUTPUT_MAX });
   assert.equal(tool.output.length, 3_000_000, "a file tool's answer: all 3 MB");
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, stopAtTimeout: !!sleepFirst \}\)/, "the job's file tools get it; its commands save long output to a file");
+  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: t\.outLimits\.inlineMax, keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| t\.noBg \}\)/, "the job's file tools get it; its commands save long output to a file");
   // The agent: 20 pictures from one read reach Grok, all of them.
   const { runCoder, PICS_PER_READ, PICS_KEEP } = await import("../container/coder-agent.mjs");
   const { PICS_MARK } = await import("../container/coder-tools.mjs");
@@ -1070,7 +1070,7 @@ test("CD229 the @ list puts a file whose name matches first, as Claude Code's do
   assert.deepEqual(rankMentions(list, "cart"), ["src/cart.js", "docs/cart-guide.md", "src/discart.js", "cart/index.js"]);
   assert.deepEqual(rankMentions(list, "CART"), rankMentions(list, "cart"), "any case");
   assert.equal(rankMentions(Array.from({ length: 20 }, (_, i) => "f" + i + ".js"), "f").length, 8);
-  assert.match(ui, /return rankMentions\(S\.files\.list, S\.mention\.q\);/);
+  assert.match(ui, /return S\.mention\.shell \? shellPathMatches\(S\.files\.list, S\.mention\.q\) : rankMentions\(S\.files\.list, S\.mention\.q\);/);
 });
 
 test("CD236 the line over a group of steps names each kind, as Claude Code's does (the owner: \"do it like this … 'Ran 1 command, read 4 files'\"), and what failed by its kind: a failed read said \"a command failed\" (live comparison, 2026-11-08)", async () => {

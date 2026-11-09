@@ -153,6 +153,25 @@ export function bashTimeouts(vars = {}) {
 }
 /** The time limit a background command gets: its timeout given with run_in_background, up to 2 hours; else the default (30 minutes). */
 export const bgLimitMs = (ms, tmo = bashTimeouts()) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Math.min(tmo.bgMaxMs, Math.max(1000, Math.round(Number(ms)))) : tmo.bgDefaultMs);
+/**
+ * HOW MUCH OF A COMMAND'S OUTPUT CODER GETS (Claude Code 2.1.319's own rules, read on 2026-11-09): a command that worked comes
+ * back inline up to 30,000 characters, past that as a file and a preview; the read-back window, which a failure's excerpt is
+ * cut from, is 30,000 characters too. The environment's CODER_BASH_OUTPUT_MAX_CHARS (Claude Code's bashOutputMaxChars setting:
+ * "values clamp to 4000-128000") sizes both; without it, BASH_MAX_OUTPUT_LENGTH (Claude Code's variable of that name, "default:
+ * 30000; maximum: 150000") sizes only the read-back window ("It doesn't raise the inline ceilings").
+ */
+export const OUT_INLINE = 30_000, OUT_CHARS_MIN = 4000, OUT_CHARS_MAX = 128_000, OUT_READ_BACK_MAX = 150_000;
+export function bashOutputLimits(vars = {}) {
+  const int = (v) => { const x = String(v ?? "").trim(); return /^\d{1,9}$/.test(x) ? Number(x) : 0; };
+  const chars = int(vars && vars.CODER_BASH_OUTPUT_MAX_CHARS);
+  if (chars > 0) { const n = Math.min(OUT_CHARS_MAX, Math.max(OUT_CHARS_MIN, chars)); return { inlineMax: n, readBack: n }; }
+  const len = int(vars && vars.BASH_MAX_OUTPUT_LENGTH);
+  return { inlineMax: OUT_INLINE, readBack: len > 0 ? Math.min(OUT_READ_BACK_MAX, len) : OUT_INLINE };
+}
+/** A yes from the environment's variables, as Claude Code reads one ("1", "true", "yes", "on"). */
+export const varOn = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
+/** A no, the same way ("0", "false", "no", "off"). */
+export const varOff = (v) => /^(0|false|no|off)$/i.test(String(v ?? "").trim());
 /** A process's exit as a shell says it: its code, or 128 + the signal that ended it. */
 const exitOf = (code, signal) => (typeof code === "number" ? code : signal && os.constants.signals[signal] ? 128 + os.constants.signals[signal] : null);
 /** A background command ended: its code and why, once (the first reason given wins: a stop says why before the end comes). */
@@ -183,6 +202,29 @@ export function stopJob(j, why) {
 function sweepIfIdle() {
   if ([...turns.values()].some((t) => t.running)) return;
   quietly().then((go) => { if (go) go(); }).catch(() => {});
+}
+/**
+ * A BACKGROUND COMMAND'S LAST LINES, FOR THE OWNER (Claude Code's tasks list shows a background task's output; its notice
+ * names the output file): the end of its log (64 KB read at most; a first line cut by that is left out), with no secrets,
+ * no colour codes, and of a line a progress bar rewrote (\r) only what a terminal would show last; never the folder line.
+ * The log is a plain file this service made in its own folder: never read through a link.
+ */
+export const BG_OUT_LINES = 40, BG_OUT_READ = 64 * 1024;
+export async function logTail(file, n = BG_OUT_LINES) {
+  let fh = null;
+  try {
+    fh = await open(String(file || ""), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const st = await fh.stat();
+    if (!st.isFile()) return [];
+    const len = Math.min(st.size, BG_OUT_READ), buf = Buffer.alloc(len);
+    if (len) await fh.read(buf, 0, len, st.size - len);
+    let text = buf.toString("utf8");
+    if (st.size > len) text = text.slice(text.indexOf("\n") + 1);
+    return scrub(text).split("\n").filter((l) => !l.includes(CWD_MARK))
+      .map((l) => l.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").split("\r").filter((x) => x.trim()).pop() || "")
+      .map((l) => l.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, ""))
+      .filter((l) => l.trim()).slice(-n).map((l) => l.slice(0, 300));
+  } catch { return []; } finally { if (fh) await fh.close().catch(() => {}); }
 }
 /** THE EVERY-FEW-SECONDS LOOK: one past its time limit is stopped; one whose processes are all gone has ended. */
 export function checkJobs(now = Date.now()) {
@@ -243,7 +285,7 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -277,10 +319,10 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       bytes += b.length;
       if (follow) tail = (tail + str).slice(-8192);
       if (!spillDir) { if (out.length < outMax) out += str; else cut = true; return; }
-      if (out.length < READ_BACK_KEEP) out += str;
+      if (out.length < keep) out += str;
       if (!spill && spillPath !== "-") {
         early.push(b); earlyBytes += b.length;
-        if (bytes > SPILL_AT) {
+        if (bytes > spillAt) {
           try {
             mkdirSync(spillDir, { recursive: true, mode: 0o755 });
             spillPath = join(spillDir, randomUUID().replace(/-/g, "").slice(0, 9) + ".txt");
@@ -1717,6 +1759,17 @@ export async function ignoreNew(dir, gitRoot = GIT_ROOT, remote = DEFAULT_REMOTE
   return fresh;
 }
 
+/**
+ * CODER'S OWN MARKS, IN EVERY COMMAND OF CODER'S (Claude Code's CLAUDECODE=1: "Use to detect when a script is running inside
+ * a subprocess spawned by Claude Code"; and in its cloud sessions CLAUDE_CODE_REMOTE_SESSION_ID: "Read this to construct a link
+ * back to the session transcript"), under Coder's own names (CODER alone is coder.com's): GOFARTHER_CODER=1, the chat's id,
+ * and the chat's own link from Coder's Worker (the page opens it). The setup script gets GOFARTHER_CODER=1 only (its saved
+ * copy serves other chats too).
+ */
+export function coderMarks(project, chatUrl) {
+  const url = typeof chatUrl === "string" && /^https:\/\/[A-Za-z0-9.-]{1,100}(:\d{1,5})?\/\?chat=[A-Za-z0-9%._~-]{1,100}$/.test(chatUrl) ? chatUrl : "";
+  return { GOFARTHER_CODER: "1", GOFARTHER_CODER_CHAT_ID: String(project || ""), ...(url ? { GOFARTHER_CODER_CHAT_URL: url } : {}) };
+}
 /** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
 export function safeVars(vars) {
   const out = {};
@@ -1967,6 +2020,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // opens the repo, or when the script changed.
     const ownerVars = safeVars(body.setup && body.setup.vars);
     const extraEnv = { ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
+    // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks): after the owner's, so one of theirs cannot hide them.
+    Object.assign(extraEnv, coderMarks(project, body.chatUrl));
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // WHERE THE COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): where the chat's last command left
     // them (body.cwd, kept by the Worker), while that is still the project's folder, one of the other repositories', or a
@@ -1984,6 +2039,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     t.prefix = (home ? SNAPSHOT_READ : "") + envFileLine(rawVars.CODER_ENV_FILE, home0);
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
     t.tmo = bashTimeouts(rawVars);
+    // HOW MUCH OF A COMMAND'S OUTPUT CODER GETS (see bashOutputLimits); BACKGROUND COMMANDS OFF with CODER_DISABLE_BACKGROUND_TASKS
+    // (Claude Code's CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "remove the run_in_background parameter … Claude Code then also stops
+    // moving … timed-out shell commands to the background automatically"): a command still running at its timeout is stopped.
+    t.outLimits = bashOutputLimits(rawVars);
+    t.noBg = varOn(rawVars.CODER_DISABLE_BACKGROUND_TASKS);
     t.cwd = home0; t.cwdWas = "";
     const askedCwd = typeof body.cwd === "string" ? body.cwd.slice(0, 4096) : "";
     if (!keepHome && askedCwd && askedCwd !== home0 && Array.isArray(body.messages) && body.messages.length) {
@@ -2027,6 +2087,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (!net.limited) netNote = "\n\nNETWORK: FULL. This chat's environment allows any site on the internet (the owner can limit it in Environment, Network access).";
     // THE COMMANDS' TIMEOUTS, when the environment's variables change them (Claude Code: BASH_DEFAULT_TIMEOUT_MS, BASH_MAX_TIMEOUT_MS).
     if (t.tmo.defaultMs !== 120_000 || t.tmo.maxMs !== 600_000 || t.tmo.bgDefaultMs !== BG_LIMIT_MS) netNote += "\n\nCOMMAND TIMEOUTS (this chat's environment sets BASH_DEFAULT_TIMEOUT_MS or BASH_MAX_TIMEOUT_MS): a command's timeout is " + t.tmo.defaultMs + " ms by default, at most " + t.tmo.maxMs + " ms; a background command's time limit is " + Math.round(t.tmo.bgDefaultMs / 60000) + " minutes by default, at most " + Math.round(t.tmo.bgMaxMs / 60000) + " minutes.";
+    // BACKGROUND COMMANDS OFF, AND OUTPUT SIZES, when the environment sets them (see bashOutputLimits and t.noBg).
+    if (t.noBg) netNote += "\n\nBACKGROUND COMMANDS ARE OFF (this chat's environment sets CODER_DISABLE_BACKGROUND_TASKS): bash has no run_in_background, and a command still running at its timeout is stopped, not moved to the background. Start a server or watcher only for a bounded check (for example `timeout 20 npm run dev`), never to keep it running.";
+    if (t.outLimits.inlineMax !== OUT_INLINE || t.outLimits.readBack !== OUT_INLINE) netNote += "\n\nCOMMAND OUTPUT SIZES (this chat's environment sets " + (t.outLimits.inlineMax !== OUT_INLINE ? "CODER_BASH_OUTPUT_MAX_CHARS" : "BASH_MAX_OUTPUT_LENGTH") + "): output of a command that worked comes back inline up to " + t.outLimits.inlineMax.toLocaleString("en-US") + " characters, past that as a file and a preview; a failure's excerpt is cut from its first " + t.outLimits.readBack.toLocaleString("en-US") + " characters.";
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && !githubOn && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); p0.setGithub(false); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
@@ -2089,7 +2152,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
           // (The owner's Stop ends it: it is one of the turn's own commands.)
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: net.limited ? proxyEnv : {}, onStart: (pid) => t.fg.add(pid) });
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -2187,7 +2250,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
           const onMove = (fn) => { t.movable = fn; };
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; } }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, stopAtTimeout: !!sleepFirst }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; } }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2288,7 +2351,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, lost, timeouts: t.tmo, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
@@ -2413,6 +2476,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
       if (url.pathname === "/bgstate") { checkJobs(); return send(200, { ok: true, background: jobsOf(project), untold: untoldOf(project).length, running: !!(t && t.running) }); }
+      // ONE'S OUTPUT, FOR THE OWNER (the page's background list, like Claude Code's tasks list, where a task shows its
+      // output): its last lines and its output file's path; once it ended, its exit too.
+      if (url.pathname === "/bgout") {
+        const j = [...JOBS.values()].find((x) => x.project === project && x.id === String(url.searchParams.get("id") || ""));
+        if (!j) return send(200, { ok: false, why: "that background command is not running" });
+        return send(200, { ok: true, id: j.id, file: String(j.log || ""), lines: await logTail(j.log), ...(j.end ? { ended: { code: j.end.code, why: j.end.why } } : {}) });
+      }
       // A MESSAGE THE OWNER SENT WHILE CODER WORKS (Claude Code's queue): Coder reads it once its running tool calls finish,
       // in this turn. One that comes when the turn is over is left to Coder's Worker (it goes out as the next message).
       if (url.pathname === "/queue" && req.method === "POST") {
@@ -2433,6 +2503,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE OWNER MOVES THE RUNNING COMMAND TO THE BACKGROUND (the page's "Run in background", Claude Code's Ctrl+B): Coder
       // gets "Command was manually backgrounded by user" and goes on.
       if (url.pathname === "/bgmove" && req.method === "POST") {
+        if (t && t.noBg) return send(200, { ok: false, why: "background commands are off in this chat's environment (CODER_DISABLE_BACKGROUND_TASKS)" });
         const moved = !!(t && t.running && typeof t.movable === "function" && t.movable());
         return send(200, moved ? { ok: true } : { ok: false, why: "no command of Coder's is running now" });
       }

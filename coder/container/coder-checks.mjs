@@ -152,19 +152,30 @@ export function kbSize(bytes) {
   const one = (x) => x.toFixed(1).replace(/\.0$/, "");
   return n < 1024 ? n + " bytes" : n < 1024 * 1024 ? one(n / 1024) + "KB" : n < 1024 ** 3 ? one(n / 1024 / 1024) + "MB" : one(n / 1024 ** 3) + "GB";
 }
-export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "" }) {
+/**
+ * `inlineMax` and `readBack`: the environment's sizes (Coder's machine, bashOutputLimits; Claude Code's bashOutputMaxChars and
+ * BASH_MAX_OUTPUT_LENGTH), 30,000 each by default. A read-back window smaller than what a command that worked printed keeps
+ * its start, " ... [N lines truncated] ...", as Claude Code 2.1.319 does.
+ */
+export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK }) {
   // The output's last line break is no part of what is shown (Claude Code, tried: "2c2\n< b\n---\n> c" from diff).
   const text = scrub(output).replace(/\n+$/, "");
   const total = Number.isFinite(size) && size !== null ? size : Buffer.byteLength(text);
+  const inline = Number.isInteger(inlineMax) && inlineMax > 0 ? inlineMax : BASH_INLINE_MAX;
+  const back = Number.isInteger(readBack) && readBack > 0 ? readBack : BASH_READ_BACK;
   if (!isError) {
     if (!text.length) return "(Bash completed with no output)";
-    if (text.length <= BASH_INLINE_MAX && !(file && total > BASH_INLINE_MAX)) return text;
+    if (text.length <= inline && !(file && total > inline)) {
+      if (text.length <= back) return text;
+      const rest = text.slice(back).split("\n").length;
+      return text.slice(0, back) + " ... [" + rest + " lines truncated] ...";
+    }
     const preview = text.slice(0, BASH_PREVIEW);
     return file
       ? "<persisted-output>\nOutput too large (" + kbSize(total) + "). Full output saved to: " + file + "\n\nPreview (first 2KB):\n" + preview + "\n...\n</persisted-output>"
-      : capOutput(text, BASH_INLINE_MAX);
+      : capOutput(text, inline);
   }
-  const full = "Exit code " + code + "\n" + text.slice(0, BASH_READ_BACK);
+  const full = "Exit code " + code + "\n" + text.slice(0, back);
   if (full.length <= BASH_FAIL_MAX) return full.replace(/\n$/, "");
   return full.slice(0, BASH_FAIL_MAX / 2) + "\n\n... [" + (full.length - BASH_FAIL_MAX) + " characters truncated] ...\n\n" + full.slice(-BASH_FAIL_MAX / 2);
 }

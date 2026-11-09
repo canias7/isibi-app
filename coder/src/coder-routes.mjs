@@ -144,6 +144,33 @@ export function commentsText(list) {
   return lines.length ? "Comments on the changes:\n" + lines.join("\n") : "";
 }
 const settingsKey = (uid) => ["coder", uid, "settings.json"].join("/");
+/**
+ * THE CHAT'S OWN LINK (the page opens a chat from /?chat=<id>, as a notification does): every command of Coder's gets it,
+ * like Claude Code's CLAUDE_CODE_REMOTE_SESSION_ID in a cloud session ("Use this to put a traceable link in PR bodies,
+ * commit messages, Slack posts, or generated reports").
+ */
+export const chatLinkOf = (env, id) => String((env && env.APP_ORIGIN) || "https://gofarther.dev").replace(/\/+$/, "") + "/?chat=" + encodeURIComponent(String(id || ""));
+/**
+ * THE OWNER'S ! COMMANDS, KEPT ON THEIR ACCOUNT FOR EACH REPOSITORY (Claude Code's shell mode: "type a partial command and
+ * press Tab to complete from previous ! commands in the current project"): the page's Tab completes from them, in any chat
+ * of that repository, on any device. The newest SHELL_HIST_MAX a repository, for the SHELL_HIST_REPOS used last.
+ */
+export const SHELL_HIST_MAX = 100, SHELL_HIST_REPOS = 30;
+const shellHistKey = (uid) => ["coder", uid, "shell-history.json"].join("/");
+export async function rememberShell(bucket, uid, repo, cmd) {
+  const c = String(cmd || "").trim().slice(0, 2000), r = String(repo || "");
+  if (!c || !/^[\w.-]+\/[\w.-]+$/.test(r)) return;
+  const all = await getJson(bucket, shellHistKey(uid), {});
+  const was = all && typeof all === "object" && Array.isArray(all[r]) ? all[r].filter((x) => typeof x === "string" && x !== c) : [];
+  const next = { [r]: [c, ...was].slice(0, SHELL_HIST_MAX) };
+  for (const [k, v] of Object.entries(all && typeof all === "object" ? all : {})) if (k !== r && Array.isArray(v) && Object.keys(next).length < SHELL_HIST_REPOS) next[k] = v;
+  await putJson(bucket, shellHistKey(uid), next);
+}
+export async function shellHistoryOf(bucket, uid, repo) {
+  const all = await getJson(bucket, shellHistKey(uid), {});
+  const list = all && typeof all === "object" && Array.isArray(all[String(repo || "")]) ? all[String(repo || "")] : [];
+  return list.filter((x) => typeof x === "string").slice(0, SHELL_HIST_MAX);
+}
 
 const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
 export const MEMORY_MAX = 25000;
@@ -604,7 +631,7 @@ export async function handleCoder(request, env, ctx, deps) {
   const summarizeFn = (m, f) => (typeof deps.summarize === "function" ? deps.summarize(m, f) : summarize(env, m, f, { fetchFn }));
   const action = parts[2] || "";
 
-  if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []) });
+  if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo) });
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -625,6 +652,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (pics.error) return json({ error: pics.error }, 400);
     if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);
     if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
+    if (shell && body.fromQueue !== true) await rememberShell(bucket, uid, meta.repo, shell).catch(() => {});
     if (meta.status === "running") {
       // QUEUED WHILE CODER WORKS (Claude Code's queue): the owner's message, or `!` command, typed in the page; not a review,
       // a /compact, pictures or line comments, nor anything from GitHub. A message goes to the running job at once (Coder
@@ -752,7 +780,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, cwd: typeof meta.cwd === "string" ? meta.cwd : "", ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), cwd: typeof meta.cwd === "string" ? meta.cwd : "", ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1001,6 +1029,18 @@ export async function handleCoder(request, env, ctx, deps) {
   // answer, from its machine, and how many ended that Coder was not told of yet (GET); the owner's Stop on one (POST { id }:
   // Coder is told, Claude Code 2.1.257). The chat keeps the list, for the page.
   if (action === "background" && (request.method === "GET" || request.method === "POST")) {
+    // ONE'S OUTPUT (GET ?output=<id>; like Claude Code's tasks list, where a background task shows its output): its last
+    // lines from the machine, with no secrets, and its output file's path, as Coder was told it.
+    const want = request.method === "GET" ? new URL(request.url).searchParams.get("output") : null;
+    if (want !== null) {
+      if (!/^job\d{1,6}$/.test(want)) return json({ error: "no such background command" }, 400);
+      let o = null;
+      try { const r = await call("/bgout?project=" + id + "&id=" + want, { method: "GET" }); o = r.ok ? await r.json() : null; } catch { o = null; }
+      if (!o) return json({ error: "Coder's machine could not be reached" }, 502);
+      if (o.ok !== true) return json({ error: String(o.why || "that background command is not running") }, 404);
+      const ended = o.ended && typeof o.ended === "object" ? { code: Number.isInteger(o.ended.code) ? o.ended.code : null, why: String(o.ended.why || "") } : null;
+      return json({ ok: true, id: want, file: String(o.file || "").slice(0, 300), lines: (Array.isArray(o.lines) ? o.lines : []).slice(-40).map((l) => String(l).slice(0, 300)), ...(ended ? { ended } : {}) });
+    }
     let body = {};
     if (request.method === "POST") { try { body = await request.json(); } catch { body = {}; } }
     // THE OWNER MOVES THE RUNNING COMMAND TO THE BACKGROUND (the page's "Run in background", Claude Code's Ctrl+B).

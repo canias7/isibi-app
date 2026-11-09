@@ -11,6 +11,26 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Bash: the last things from Claude Code's docs (your words: "what about claude code docs , we got everything ?")
+
+Not live yet: it waits for your word to merge, with the rest of the bash work.
+
+I went through Claude Code's docs again, and its own code (version 2.1.319), and copied what was still missing:
+
+- **See a background command's output.** Each row in the background list now has an **Output** button: its last 40 lines, updated every few seconds, and the path of its full output file (ask Coder to read it for the rest). Secrets are hidden.
+- **A background step now shows how it ended.** Before, the step stayed "running" after the command finished. Now it shows ✓, "✕ exit N", or "stopped" once Coder is told.
+- **Tab in the `!` box.** Type the start of a command and press Tab: it fills in an earlier `!` command (Tab again for the one before). They are kept on your account for each repository, so any chat or device has them. Typing a word with a `/` in it lists the files and folders there.
+- **Taking back a waiting `!` command** now works like Claude Code's: it comes back only into an empty box with nothing else waiting. Otherwise it stays and runs when Coder is done, and the page says why.
+- **Every command knows it runs in Coder.** `GOFARTHER_CODER=1`, plus the chat's id and link (`GOFARTHER_CODER_CHAT_ID`, `GOFARTHER_CODER_CHAT_URL`), like Claude Code's `CLAUDECODE=1` and its session link. A script or a report can link back to the chat.
+- **Three new settings**, set in the environment's variables (Environment, then Environment variables):
+  - `CODER_RESPOND_TO_BASH_COMMANDS=false`: your `!` commands run and show their output, and Coder stays quiet until your next message. Claude Code also never answers a `!` command that was moved to the background or stopped, so Coder now does the same.
+  - `CODER_BASH_OUTPUT_MAX_CHARS` (4,000 to 128,000) and `BASH_MAX_OUTPUT_LENGTH` (up to 150,000): how much command output Coder reads, as in Claude Code.
+  - `CODER_DISABLE_BACKGROUND_TASKS=1`: no background commands at all. A command still running at its time limit is stopped, and the "Run in background" button is gone.
+- **Found while taking the screenshots, and fixed:** while Coder works, the page refreshes every 1.5 seconds, and each refresh moved the text cursor in the message box to the end. Now that you can type while Coder works, that mattered. The cursor and any selection now stay put.
+- **Already the same, no change needed:** commands with hidden control characters are refused, and the shell snapshot leaves out the same helper functions Claude Code's does.
+- **Not copied:** Claude Code's notice for a command stuck waiting for typed input. Coder's commands have no keyboard, so such a prompt ends at once instead of getting stuck.
+- **Tests:** CD291–CD299; all 310 pass. Screenshots taken on my copy of the site.
+
 ## 2026-11-09: Send a message while Coder works (your words: "yeah fix that separately")
 
 Not live yet: it waits for your word to merge, together with the bash work below.

@@ -583,4 +583,13 @@ Seen once, outside edit: the setup's saved copy could not be made ("Fly.io did n
 | `gh` rate limit | a hint to wait | the same hint | same |
 | Blocked network request | the host and the reason | the same, from Coder's proxy | same |
 | Your own command (`!`) | runs it, adds `<bash-input>`/`<bash-stdout>` to the conversation, Claude answers | the same (never from GitHub) | same |
-| Not copied | memory cgroup, PowerShell/Windows, local sandbox, permission rules and modes (the owner: "later"), the per-command file diff (off by default), background limits over 2 h | | |
+| Background output | `/tasks` shows a task's output; its notice names the output file | Output on each row of the list: its last 40 lines (no secrets), and the file's path | same |
+| A background step after it ends | shown as finished | ✓, "✕ exit N", or "stopped" on its step once Coder is told | same |
+| Marks in commands | `CLAUDECODE=1`; in the cloud `CLAUDE_CODE_REMOTE_SESSION_ID` (a link back to the session) | `GOFARTHER_CODER=1`, `GOFARTHER_CODER_CHAT_ID`, `GOFARTHER_CODER_CHAT_URL` (the setup script gets `GOFARTHER_CODER=1`) | same, under Coder's names (asked: also `CLAUDECODE=1`?) |
+| No answer after `!` | `respondToBashCommands: false`; never when the command was moved to the background or stopped (2.1.319's code) | `CODER_RESPOND_TO_BASH_COMMANDS=false`; the same note to Coder; never after a move or a stop | same |
+| Output sizes | `bashOutputMaxChars` (4,000–128,000: inline and read-back); `BASH_MAX_OUTPUT_LENGTH` (up to 150,000: read-back only) | `CODER_BASH_OUTPUT_MAX_CHARS` and `BASH_MAX_OUTPUT_LENGTH`, the same rules | same |
+| Background off | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`: no `run_in_background`, no Ctrl+B, a timed-out command stopped | `CODER_DISABLE_BACKGROUND_TASKS`: the same (no Run in background button) | same |
+| Taking back a queued `!` | only into an empty box with nothing else queued | the same | same |
+| `!` completion | Tab: earlier `!` commands of the project; a word with `/` lists paths | the same (kept on the account per repository, so any device has them) | same |
+| Already the same (checked in this pass) | control characters refused; the snapshot leaves out `_` functions (2.1.319 does too) | | same |
+| Not copied | memory cgroup, PowerShell/Windows, local sandbox, permission rules and modes (the owner: "later"), the per-command file diff (off by default), background limits over 2 h, the "stuck on a prompt" notice (Coder's commands have no keyboard: a prompt ends at once) | | |

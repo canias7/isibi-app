@@ -489,6 +489,13 @@
 .cd-bg-stop { border: 1px solid #e0dbd2; background: #fff; color: #0d1b2a; border-radius: 999px; padding: 2px 10px; font: 600 12px Inter, system-ui, sans-serif; cursor: pointer; flex: none; }
 .cd-bg-stop:hover { border-color: #b42318; color: #b42318; }
 .cd-bg-stop:disabled { opacity: .6; cursor: default; }
+.cd-st-stopped { color: #6b7280; font-size: 12px; }
+.cd-bg-outbtn:hover { border-color: #0d1b2a; color: #0d1b2a; }
+.cd-bg-out { margin: 2px 0 6px 15px; min-width: 0; }
+.cd-bg-outlines { margin: 0; max-height: 220px; overflow: auto; background: #0d1b2a; color: #e5e7eb; border-radius: 8px; padding: 8px 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cd-bg-outnote { color: #6b7280; font-size: 12.5px; padding: 2px 0; }
+.cd-bg-file { color: #6b7280; font-size: 12px; padding-top: 4px; overflow-wrap: anywhere; }
+.cd-bg-file code { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; }
 
 /* SHELL MODE (tool 4, part 3, like Claude Code's "!"): the box, the hint under it, and the owner's command in the chat. */
 .cd-compose.is-shell { border-color: #b45309; box-shadow: 0 0 0 1px #b45309 inset; }

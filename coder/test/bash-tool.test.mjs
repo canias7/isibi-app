@@ -229,7 +229,7 @@ test("CD275 bash on the page: a command's description is its step's title and th
 
 test("CD278 (tool 4, part 2) background commands told of in Claude Code's words when they end, whenever: completed, failed, stopped at the time limit (with Claude Code's advice), stopped by the owner; one from an earlier message is known to Coder (looked at, told of when it ends, the machine told so); a new one's id comes from the machine; what ended between messages is said at the start, and a turn only to tell it says the owner sent nothing", async () => {
   const { runCoder, bgEndNotice, BG_DEADLINE } = await import("../container/coder-agent.mjs");
-  assert.deepEqual(bgEndNotice({ id: "job3", desc: "Run the tests", log: "/l/bg-3.log", code: 0 }), { said: "Background command \"Run the tests\" completed (exit code 0)", note: "Background command \"Run the tests\" completed (exit code 0). Its output is in /l/bg-3.log (ID: job3)." });
+  assert.deepEqual(bgEndNotice({ id: "job3", desc: "Run the tests", log: "/l/bg-3.log", code: 0 }), { said: "Background command \"Run the tests\" completed (exit code 0)", note: "Background command \"Run the tests\" completed (exit code 0). Its output is in /l/bg-3.log (ID: job3).", end: { ok: true, label: "" } });
   assert.equal(bgEndNotice({ desc: "Run the tests", code: 3 }).said, "Background command \"Run the tests\" failed with exit code 3");
   assert.equal(bgEndNotice({ command: "npm run dev\nmore", why: "exit", code: null }).said, "Background command \"npm run dev\" ended", "no description: the command's first line");
   const lim = bgEndNotice({ id: "job1", desc: "Watch", log: "/l/1.log", why: "limit" });
