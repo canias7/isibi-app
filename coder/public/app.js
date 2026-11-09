@@ -31,19 +31,20 @@
 
   // WHICH AGENT: the address says (/gloopy), Coder otherwise.
   const agentNow = () => (/^\/gloopy\/?$/.test(location.pathname) ? 'gloopy' : 'coder');
-  let coderMounted = false;
+  let coderMounted = false, gloopyMounted = false;
   function pick(agent, push) {
     if (push && agentNow() !== agent) { try { history.pushState({}, '', agent === 'gloopy' ? '/gloopy' : '/'); } catch (e) {} }
     document.querySelectorAll('.gf-tab').forEach((t) => t.classList.toggle('on', t.dataset.agent === agent));
     $('gfApp').hidden = agent !== 'coder';
-    $('gfSoon').hidden = agent !== 'gloopy';
-    $('gfAgentName').textContent = agent === 'gloopy' ? 'Gloopy agent' : 'Coder';
+    $('gfGloopyApp').hidden = agent !== 'gloopy';
+    $('gfAgentName').textContent = agent === 'gloopy' ? 'Gloopy' : 'Coder';
     if (agent === 'coder') {
       if (!coderMounted) { coderMounted = true; window.CoderView.mount($('gfApp'), { tools: $('gfColTools'), recents: $('gfRecents') }); }
       else window.CoderView.drawSide();
     } else {
-      $('gfColTools').innerHTML = '';
-      $('gfRecents').innerHTML = '<p class="gf-none">No chats yet.</p>';
+      // GLOOPY'S CHAT (owner, 2026-11-09): your own Gloopy, drawn by coder.js as Gloopy.
+      if (!gloopyMounted) { gloopyMounted = true; window.GloopyView.mount($('gfGloopyApp'), { tools: $('gfColTools'), recents: $('gfRecents') }); }
+      else window.GloopyView.drawSide();
     }
     sideOpen(false);
   }
@@ -57,7 +58,6 @@
     $('gfMenuMail').textContent = mail;
     $('gfMeAv').textContent = (mail[0] || '?').toUpperCase();
     $('gfTabGloopy').innerHTML = window.gloopyHTML(34);
-    $('gfSoonFig').innerHTML = window.gloopyHTML(150);
     document.querySelectorAll('.gf-tab').forEach((t) => t.addEventListener('click', () => pick(t.dataset.agent, true)));
     $('gfGear').addEventListener('click', (e) => { e.stopPropagation(); $('gfMenu').hidden = !$('gfMenu').hidden; });
     document.addEventListener('click', () => { $('gfMenu').hidden = true; });

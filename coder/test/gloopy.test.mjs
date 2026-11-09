@@ -99,3 +99,91 @@ test("GL6 (2026-11-09) on Coder's machine, a Gloopy turn gets Gloopy's instructi
     assert.equal(st.result.memory, "Name: Ana", "the notes come back for the Worker to keep");
   } finally { srv.close(); }
 });
+
+// ── GLOOPY'S ROUTES (the Worker), with the real machine service and a stand-in Grok ──
+function fakeBucket() {
+  const m = new Map();
+  return { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, typeof v === "string" ? v : String(v)); }, async delete(k) { m.delete(k); },
+    async list({ prefix = "" } = {}) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; } };
+}
+
+test("GL7 (2026-11-09) your Gloopy: made the first time with no GitHub, not one of Coder's chats; it remembers you between messages, keeps its notes, and never pushes anything", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { createApp } = await import("../container/server.mjs");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-rw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-rg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-rm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-rb-")) };
+  const notesFile = join(roots.memRoot, GLOOPY_ID, "MEMORY.md");
+  const seen = [];
+  let n = 0;
+  const steps = [say("", [call("write", { path: notesFile, content: "Name: Ana\n" }, "w1")]), say("Nice to meet you, Ana!"), say("You're Ana.")];
+  const srv = http.createServer(createApp({ ...roots, send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)]; } }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const outside = [];
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const deps = { fetchFn: async (u) => { outside.push(String(u)); return new Response("{}", { status: 404 }); }, authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const until = async () => { let st; for (let i = 0; i < 200; i++) { st = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json(); if (!st.running) return st; await new Promise((r) => setTimeout(r, 50)); } return st; };
+  try {
+    const g = await (await go("gloopy")).json();
+    assert.equal(g.gloopy.id, "gloopy-main");
+    assert.equal(g.gloopy.kind, "gloopy");
+    assert.equal(g.gloopy.title, "Gloopy");
+    assert.deepEqual((await (await go("projects")).json()).projects, [], "not in Coder's chat list");
+    const sent = await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "My name is Ana. Remember it." }) });
+    assert.equal(sent.status, 200, await sent.clone().text());
+    assert.equal((await sent.json()).project.status, "running");
+    const st = await until();
+    assert.equal(st.running, false);
+    assert.equal(st.project.status, "idle");
+    assert.equal(bucket.m.get("coder/u1/gloopy/gloopy-main.md"), "Name: Ana\n", "its notes about you are kept");
+    const events = JSON.parse(bucket.m.get("coder/u1/gloopy-main/events.json"));
+    assert.ok(events.some((e) => e.type === "done" && e.text === "Nice to meet you, Ana!"));
+    assert.ok(!events.some((e) => e.type === "github"), "nothing about GitHub in its chat");
+    assert.ok(seen[0].messages[0].content.startsWith("You are Gloopy"), "Gloopy's instructions on the machine");
+    // The next message: Gloopy is given its notes.
+    await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "Who am I?" }) });
+    await until();
+    assert.match(seen.at(-1).messages[0].content, /YOUR NOTES ABOUT THE OWNER, kept between conversations, in .*MEMORY\.md:\nName: Ana/);
+    assert.deepEqual(outside, [], "no call to GitHub or anywhere else");
+    // Coder's own buttons are not Gloopy's.
+    for (const action of ["pr", "undo", "changes", "env", "files"]) {
+      const r = await go("projects/" + GLOOPY_ID + "/" + action, { method: action === "pr" || action === "undo" ? "POST" : "GET" });
+      assert.equal(r.status, 400, action);
+      assert.match((await r.json()).error, /^Gloopy has no /);
+    }
+  } finally { srv.close(); }
+});
+
+test("GL8 (2026-11-09) Gloopy's notifications say Gloopy and open its tab; Coder's are as before", async () => {
+  const { pushesFor } = await import("../src/coder-push.mjs");
+  const { readFileSync } = await import("node:fs");
+  const ev = [{ type: "question", text: "Which day?" }, { type: "notify", text: "The flights are cheaper on Friday." }];
+  assert.deepEqual(pushesFor(ev, { kind: "gloopy", title: "Gloopy", at: Date.now() }).map((p) => p.title), ["Gloopy needs your answer", "Gloopy"]);
+  assert.deepEqual(pushesFor(ev, { title: "Fix the tests", repo: "ana/shop", at: Date.now() }).map((p) => p.title), ["Coder needs your answer · Fix the tests", "Coder · Fix the tests"]);
+  assert.match(readFileSync(new URL("../src/coder-push.mjs", import.meta.url), "utf8"), /url: chat === "gloopy-main" \? "\/gloopy" : chat \? "\/\?chat=" \+ encodeURIComponent\(chat\) : "\/"/);
+});
+
+// ── GLOOPY'S TAB ON THE PAGE ────────────────────────────────────────────────
+test("GL9 (2026-11-09) the Gloopy tab opens Gloopy's chat (no more \"Coming soon\"), drawn by the same screen code as Coder's; every id in the page is unique", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (f) => readFileSync(new URL("../public/" + f, import.meta.url), "utf8");
+  const html = read("index.html"), app = read("app.js"), ui = read("coder.js");
+  // Found while taking the screenshots: the chat's area once had the id of Gloopy's drawing (#gfGloopy), so the chat
+  // was drawn inside the hidden drawing and the tab's figure went blank.
+  const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids.filter((x, i) => ids.indexOf(x) !== i), [], "an id used twice");
+  assert.match(html, /<section class="gf-app" id="gfGloopyApp" hidden><\/section>/);
+  assert.doesNotMatch(html, /id="gfSoon"|<p>Coming soon\.<\/p>/, "the old \"Coming soon\" page is gone");
+  assert.match(app, /window\.GloopyView\.mount\(\$\('gfGloopyApp'\), \{ tools: \$\('gfColTools'\), recents: \$\('gfRecents'\) \}\)/);
+  assert.match(app, /\$\('gfGloopyApp'\)\.hidden = agent !== 'gloopy';/);
+  // One screen code, two views, each with its own state.
+  assert.match(ui, /function makeView\(KIND\) \{\n  const GLOOPY = KIND === 'gloopy';/);
+  assert.match(ui, /window\.CoderView = makeView\('coder'\);\n  window\.GloopyView = makeView\('gloopy'\);/);
+  assert.match(ui, /const g = await call\('\/gloopy'\);/, "Gloopy's tab asks for your Gloopy");
+  assert.match(ui, /if \(!S\.root \|\| S\.root\.hidden\) return;/, "only the tab that shows draws the side");
+  assert.match(ui, /<b>Hi, I’m Gloopy<\/b>/);
+  assert.match(ui, /GLOOPY \? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file'/);
+  assert.match(ui, /\(mark && !GLOOPY \? '<button type="button" class="cd-rewind"/, "no Rewind in Gloopy's chat (it rewinds a branch)");
+});

@@ -450,3 +450,8 @@
 .cd-notify-note { margin-top: 10px; font-size: 13px; color: #1f1e1d; }
 .cd-sure-row .cd-notify-done { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
 .cd-notify-hint { flex-basis: 100%; font-size: 12px; color: #6b7280; }
+
+/* GLOOPY'S CHAT (owner, 2026-11-09): its figure beside its name on top, and bigger in its welcome. */
+.cd-gl-av { display: inline-flex; align-items: center; height: 26px; }
+.cd-gl-fig { display: flex; justify-content: center; margin-bottom: 10px; }
+.cd-gl-empty p { max-width: 460px; margin-left: auto; margin-right: auto; }

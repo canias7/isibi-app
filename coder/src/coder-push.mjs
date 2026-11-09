@@ -123,7 +123,8 @@ export async function notifyOwner(env, uid, { kind, title, body, chat = "" }, { 
     if (seen && seen.id === chat && now - Number(seen.at) < PRESENCE_MS) return { sent: 0, why: "watching" };
   }
   const vapid = await vapidKeys(env, bucket);
-  const data = { title: String(title || "Coder").slice(0, 120), body: String(body || "").replace(/\s+/g, " ").trim().slice(0, 240), tag: chat || "coder", url: chat ? "/?chat=" + encodeURIComponent(chat) : "/" };
+  // Gloopy's chat (GLOOPY_ID in coder-routes.mjs) opens in its own tab, /gloopy.
+  const data = { title: String(title || "Coder").slice(0, 120), body: String(body || "").replace(/\s+/g, " ").trim().slice(0, 240), tag: chat || "coder", url: chat === "gloopy-main" ? "/gloopy" : chat ? "/?chat=" + encodeURIComponent(chat) : "/" };
   let sent = 0;
   const gone = [];
   for (const s of cfg.subs) {
@@ -142,14 +143,17 @@ export async function notifyOwner(env, uid, { kind, title, body, chat = "" }, { 
  */
 export function pushesFor(events, meta, now = Date.now()) {
   const name = String((meta && (meta.title || meta.repo)) || "a chat").slice(0, 80);
+  // GLOOPY'S (owner, 2026-11-09): from Gloopy, with no chat name after it (it has one chat); Coder's are as before.
+  const gl = !!meta && meta.kind === "gloopy";
+  const who = gl ? "Gloopy" : "Coder", tail = gl ? "" : " · " + name;
   const out = [];
   for (const e of Array.isArray(events) ? events : []) {
     if (!e || typeof e !== "object") continue;
-    if (e.type === "notify" && e.text) out.push({ kind: "decides", title: "Coder · " + name, body: e.text });
-    else if (e.type === "question") out.push({ kind: "actions", title: "Coder needs your answer · " + name, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
-    else if (e.type === "secret") out.push({ kind: "actions", title: "Coder needs a key · " + name, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
-    else if (e.type === "envchange") out.push({ kind: "actions", title: "Coder asks to change the environment · " + name, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
-    else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: "Coder finished · " + name, body: e.text || "" });
+    if (e.type === "notify" && e.text) out.push({ kind: "decides", title: who + tail, body: e.text });
+    else if (e.type === "question") out.push({ kind: "actions", title: who + " needs your answer" + tail, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
+    else if (e.type === "secret") out.push({ kind: "actions", title: who + " needs a key" + tail, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
+    else if (e.type === "envchange") out.push({ kind: "actions", title: who + " asks to change the environment" + tail, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
+    else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: who + " finished" + tail, body: e.text || "" });
   }
   return out.slice(0, NOTIFY_MAX + 1);
 }

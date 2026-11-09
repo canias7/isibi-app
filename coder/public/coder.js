@@ -4,6 +4,10 @@
 // (`window.CoderView.mount`). Served by Coder's own Worker, same address.
 (function () {
   'use strict';
+  // ONE SCREEN, TWO AGENTS (owner, 2026-11-09): Coder's chat, and Gloopy's in its own tab, drawn by the same code (each
+  // with its own state), so the two look and work alike. KIND is 'coder' or 'gloopy'; the code inside keeps its indent.
+  function makeView(KIND) {
+  const GLOOPY = KIND === 'gloopy';
   const API = '/api/coder';
   const POLL_MS = 1500;
   // THE MODEL LIST AND THE USER'S PICK come from the server
@@ -96,6 +100,7 @@
 
   // ── LOADING: who am I on GitHub, which projects ───────────────────────────
   async function load() {
+    if (GLOOPY) return loadGloopy();
     loadSettings().then(() => draw());
     S.phase = 'loading'; draw();
     const g = await call('/github');
@@ -113,6 +118,17 @@
     if (want && S.projects.some((x) => x.id === want)) return openProject(want);
     if (S.projects.length) return openProject(S.projects[0].id);
     return showPicker('new');
+  }
+
+  // GLOOPY'S TAB (owner, 2026-11-09): your one Gloopy, made the first time it is asked for; its chat opens at once.
+  async function loadGloopy() {
+    loadSettings().then(() => draw());
+    S.phase = 'loading'; draw();
+    const g = await call('/gloopy');
+    if (g.status === 404) { S.phase = 'off'; return draw(); }
+    if (g.status === 403) { S.phase = 'error'; S.error = 'Gloopy is not open to this account yet.'; return draw(); }
+    if (g.status !== 200 || !g.data || !g.data.gloopy) { S.phase = 'error'; S.error = (g.data && g.data.error) || 'Gloopy could not be reached.'; return draw(); }
+    return openProject(g.data.gloopy.id);
   }
 
   async function showPicker(mode) {
@@ -389,6 +405,7 @@
   // THE CHAT'S ENVIRONMENT (owner, 2026-11-06: environments like Claude Code's):
   // its name, and the list for the picker under the box before the first message.
   async function loadEnvInfo() {
+    if (GLOOPY) return; // Gloopy has no environment, branches or repositories
     if (!S.project) return;
     const id = S.project.id;
     const r = await call('/projects/' + encodeURIComponent(id) + '/env');
@@ -399,6 +416,7 @@
   // SEVERAL REPOSITORIES IN ONE CHAT (2026-11-06, like Claude Code): up to 3 more,
   // added or taken away before the first message.
   async function loadAllRepos() {
+    if (GLOOPY) return;
     if (S.allRepos || !S.project || S.project.turn) return;
     const r = await call('/github/repos');
     S.allRepos = ((r.data && r.data.repos) || []).map((x) => x.repo).filter(Boolean);
@@ -414,6 +432,7 @@
   }
   // THE STARTING BRANCH (like Claude Code): picked before the first message.
   async function loadBranches() {
+    if (GLOOPY) return;
     if (!S.project || S.project.turn) return;
     const id = S.project.id;
     const r = await call('/projects/' + encodeURIComponent(id) + '/branches');
@@ -626,7 +645,7 @@
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {
       S.fails = (S.fails || 0) + 1;
-      if (S.fails === 5) { S.events = S.events.concat([{ at: Date.now(), type: 'error', text: "Coder's machine is not answering. Still trying…" }]); draw(true); }
+      if (S.fails === 5) { S.events = S.events.concat([{ at: Date.now(), type: 'error', text: GLOOPY ? "Gloopy's computer is not answering. Still trying…" : "Coder's machine is not answering. Still trying…" }]); draw(true); }
       if (S.running) S.poll = setTimeout(tick, Math.min(POLL_MS * Math.pow(2, S.fails), 30000));
       return;
     }
@@ -646,8 +665,8 @@
         const info = S.pushInfo || { decides: true, actions: true };
         const name = S.project.title || S.project.repo;
         for (const e of fresh) {
-          if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
-          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || '' });
+          if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: GLOOPY ? 'Gloopy' : 'Coder · ' + name, body: e.text });
+          else if (['question', 'secret', 'envchange'].includes(e.type) && info.actions !== false) showLocal({ id, title: GLOOPY ? 'Gloopy needs your answer' : 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || '' });
         }
       }
       S.next = r.data.next || S.next;
@@ -841,7 +860,7 @@
       if (e.type === 'result') return;
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
-      if (e.type === 'user') out.push('<div class="cd-user">' + (mark ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble">' + esc(e.text) + '</div></div>');
+      if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble">' + esc(e.text) + '</div></div>');
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
@@ -912,7 +931,29 @@
 
   // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
   // See changes. ☰ opens the chats on a phone.
+  // GLOOPY'S CHAT (owner, 2026-11-09): its figure and name on top (the ☰ opens the side on a phone, the way back to
+  // Coder), one chat in the side, and its welcome before the first message, with ways to start.
+  const gloopyFig = (h) => (typeof window.gloopyHTML === 'function' ? window.gloopyHTML(h) : '');
+  function gloopyHeadHTML() {
+    return '<div class="cd-head">' +
+      '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
+      '<span class="cd-gl-av" aria-hidden="true">' + gloopyFig(26) + '</span><b class="cd-title-bar">' + esc((S.project && S.project.title) || 'Gloopy') + '</b>' +
+    '</div>';
+  }
+  function gloopySide(sd) {
+    if (!sd || !sd.tools || !sd.tools.isConnected) return;
+    sd.tools.innerHTML = '';
+    sd.recents.innerHTML = '<div class="gf-item on" title="Your chat with Gloopy"><span class="gf-item-t">Your chat with Gloopy</span>' + (S.running ? '<i class="gf-dot" title="Gloopy is working"></i>' : '') + '</div>';
+  }
+  const GLOOPY_STARTS = ['Introduce yourself and ask me about my work', 'Research something for me, with sources', 'Help me plan my week'];
+  function gloopyEmptyHTML() {
+    return '<div class="cd-empty cd-gl-empty"><div class="cd-gl-fig" aria-hidden="true">' + gloopyFig(120) + '</div>' +
+      '<b>Hi, I’m Gloopy</b><p>Your own assistant, with my own computer in the cloud. I look things up, keep track of what you hand me, and remember what matters to you. I always ask before I send, buy or delete anything.</p>' +
+      '<div class="cd-starts">' + GLOOPY_STARTS.map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>';
+  }
+
   function headHTML() {
+    if (GLOOPY) return gloopyHeadHTML();
     const p = S.project;
     const title = p ? (p.title || 'New chat') : '';
     return '<div class="cd-head">' +
@@ -938,6 +979,9 @@
   };
   function drawSide() {
     const sd = S.side;
+    // Only the tab that is showing draws the side (the other may still be following a job).
+    if (!S.root || S.root.hidden) return;
+    if (GLOOPY) return gloopySide(sd);
     if (!sd || !sd.tools || !sd.tools.isConnected) return;
     const ready = S.github && S.github.connected;
     sd.tools.innerHTML =
@@ -1076,7 +1120,7 @@
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<div class="cd-composewrap">' + mentionHTML() + commentsHTML() + picsHTML() +
       '<form class="cd-compose" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? 'Coder is working… you can close this tab' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Coder is working… you can close this tab') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="Attach a picture" title="Attach a picture (or paste one)">' + ICON.clip + '</button><input type="file" id="cdFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>' +
         (S.running
           ? '<button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
@@ -1105,7 +1149,7 @@
 
   function bodyHTML() {
     if (S.phase === 'loading') return centerHTML('<span class="cd-spin cd-spin-lg"></span>');
-    if (S.phase === 'off') return centerHTML('<b class="cd-title">Coder is not switched on yet.</b>');
+    if (S.phase === 'off') return centerHTML('<b class="cd-title">' + (GLOOPY ? 'Gloopy is not switched on yet.' : 'Coder is not switched on yet.') + '</b>');
     if (S.phase === 'error') return centerHTML('<b class="cd-title">' + esc(S.error) + '</b><button type="button" class="cd-btn-2" id="cdRetry">Try again</button>');
     if (S.phase === 'connect') return centerHTML(
       '<div class="cd-mark">' + ICON.gh.replace('width="16" height="16"', 'width="40" height="40"') + '</div>' +
@@ -1143,7 +1187,8 @@
     const empty = !S.events.length && !S.running;
     return headHTML() +
       '<div class="cd-log" id="cdLog">' +
-        (empty ? '<div class="cd-empty"><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
+        (empty && GLOOPY ? gloopyEmptyHTML() : '') +
+        (empty && !GLOOPY ? '<div class="cd-empty"><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
           '<div class="cd-starts">' + ['Explain how this project is laid out', 'Run the tests and fix what fails', 'Add a README with setup steps'].map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>' : '') +
         '<div class="cd-thread">' + stepsHTML() + '</div>' +
       '</div>' +
@@ -1317,7 +1362,7 @@
       input.addEventListener('input', async () => {
         S.draft = input.value; grow(input);
         const before = input.value.slice(0, input.selectionStart);
-        const m = /(^|\s)@([\w./-]*)$/.exec(before);
+        const m = GLOOPY ? null : /(^|\s)@([\w./-]*)$/.exec(before);
         const had = mentionMatches().length;
         S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : null; S.mentionSel = 0;
         if (S.mention) await loadFiles();
@@ -1336,16 +1381,17 @@
   }
 
   // ── THE HOOK chat.js CALLS ────────────────────────────────────────────────
-  window.CoderView = {
+  const view = {
     mount(el, side) {
       const first = !S.root;
       S.root = el;
       if (side) S.side = side;
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
       if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu) { S.reviewMenu = false; draw(); } }); }
-      if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
+      // The notifications panel and GitHub's return are Coder's (one of each on the page).
+      if (!S.notifyHook && !GLOOPY) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
       const q = new URLSearchParams(location.search);
-      if (q.has('github')) {
+      if (q.has('github') && !GLOOPY) {
         const g = q.get('github');
         try { history.replaceState(history.state, '', location.pathname); } catch (e) {}
         if (g !== 'connected') S.error = g === 'failed' ? 'GitHub did not connect. Try again.' : 'GitHub is not set up for Coder yet.';
@@ -1358,4 +1404,8 @@
     // For tests and screenshots only.
     _state: S,
   };
+  return view;
+  }
+  window.CoderView = makeView('coder');
+  window.GloopyView = makeView('gloopy');
 })();

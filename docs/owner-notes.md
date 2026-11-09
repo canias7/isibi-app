@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-09: Gloopy, piece 1 built: its chat in the Gloopy tab (your word: "copy more Grok Bot and dots")
+
+- **The Gloopy tab now opens your Gloopy's chat** instead of "Coming soon": its figure and name on top, its welcome with three ways to start, and the same message box as Coder's (pictures, model and effort, Stop).
+- **Your Gloopy is made the first time you open the tab.** One per person for now (room for more later). It isn't in Coder's chat list.
+- **Each message:** Gloopy works on its own computer (one per person, the same kind as Coder's), with its notes about you. When it finishes, the chat and its notes are saved; nothing goes to GitHub. Closing the tab doesn't stop it, as with Coder. Its notifications say "Gloopy" and open its tab.
+- **On a phone,** Gloopy's chat has the ☰ button, so you can get back to Coder (the old page had no way back).
+- **Not in Gloopy's chat:** Rewind, @ for files, and Coder's GitHub and Environment buttons.
+- **Found in the screenshots, fixed:** the chat's area first had the same name as Gloopy's drawing in the page, so the chat was drawn inside the hidden drawing and the tab's figure went blank. A test now checks that every name in the page is used once.
+- **Your call, later:** when Gloopy updates its notes, the step shows the file's path ("Edited /srv/coder-memory/gloopy-main/MEMORY.md"); it could say "Updated my notes about you" instead.
+- **Not live yet.** To try it with the real Grok: merge and deploy (your word), then I test it in the browser, recorded. That spends Grok calls, so it needs your OK too.
+- Tests GL7–GL9 (each fails on the old code); all 263 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy, piece 1 started: its brain and its machine (your word: "Okay, let's start then")
 
 - **The plan you chose:** one Gloopy per person, like OpenAI's dots, with the best of xAI's Grok Bot on top, and room for more than one Gloopy later. Connected apps (Gmail, Calendar…) come at the end (your word). I read both companies' docs first.

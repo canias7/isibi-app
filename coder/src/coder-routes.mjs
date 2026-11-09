@@ -133,6 +133,18 @@ const settingsKey = (uid) => ["coder", uid, "settings.json"].join("/");
 const memoryKey = (uid, repo) => ["coder", uid, "memory", String(repo).replace(/[^A-Za-z0-9._-]+/g, "__") + ".md"].join("/");
 export const MEMORY_MAX = 25000;
 const MAX_EVENTS = 4000;
+/**
+ * GLOOPY (owner, 2026-11-09: one personal assistant per person, like OpenAI's dots, with the best of Grok Bot on top):
+ * a chat of its own kind on Coder's chat machinery (its turns, live saving, the watch list, Stop), with no repository,
+ * no GitHub and no environment. Its notes about the owner are kept here between conversations (its memory). One Gloopy
+ * for now; the id leaves room for more later.
+ */
+export const GLOOPY_ID = "gloopy-main";
+export const isGloopy = (meta) => !!meta && meta.kind === "gloopy";
+const gloopyNotesKey = (uid, id) => ["coder", uid, "gloopy", id + ".md"].join("/");
+export function newGloopy(now = Date.now()) {
+  return { id: GLOOPY_ID, kind: "gloopy", name: "Gloopy", repo: "", title: "Gloopy", base: "", branch: "", turn: 0, saved: 0, status: "idle", pr: null, at: now };
+}
 
 export function coderOn(env) { return !!env && env.CODER_ON === "on"; }
 /** Whether this signed-in user may use Coder: their email is in CODER_USERS (comma-separated). */
@@ -227,7 +239,8 @@ export async function listChats(bucket, uid) {
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
   const metas = await Promise.all(keys.map((k) => getJson(bucket, k, null)));
-  return metas.filter((m) => m && m.id).map(listEntry).sort((a, b) => (b.at || 0) - (a.at || 0));
+  // Gloopy's chat is not one of Coder's chats (it has its own tab).
+  return metas.filter((m) => m && m.id && !isGloopy(m)).map(listEntry).sort((a, b) => (b.at || 0) - (a.at || 0));
 }
 /**
  * AUTO-FIX FOR A PULL REQUEST, ASKED FOR IN THE CHAT (owner item 2; Claude Code's docs, read 2026-11-07:
@@ -530,6 +543,14 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true, environment: { id: target.id, name: target.name, archived: !!target.archived }, environments: envListOut(list) });
   }
 
+  // YOUR GLOOPY (owner, 2026-11-09), made the first time it is asked for: its meta and its chat. Its turns then go
+  // through /projects/gloopy-main/(message|state|stop), as a chat's do.
+  if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
+    let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
+    if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []) });
+  }
+
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
   if (parts.length === 1) {
     const index = await listChats(bucket, uid);
@@ -581,6 +602,14 @@ export async function handleCoder(request, env, ctx, deps) {
   const action = parts[2] || "";
 
   if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []) });
+
+  // GLOOPY'S CHAT: its own turns and their end (no GitHub, no environment), and Stop as a chat's; nothing of Coder's else.
+  if (isGloopy(meta)) {
+    const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn };
+    if (action === "message" && request.method === "POST") return gloopyMessage(g);
+    if (action === "state" && request.method === "GET") return gloopyState(g);
+    if (action !== "stop") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
+  }
 
   if (action === "message" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -1285,4 +1314,134 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   return json({ error: "not found" }, 404);
+}
+
+/**
+ * A MESSAGE TO GLOOPY (owner, 2026-11-09): Coder's turn without GitHub or an environment. The chat is marked running and
+ * put on the watch list (it goes on, and is saved, with the tab closed), then Gloopy's machine (one per person, like a
+ * chat's) is handed the turn: Gloopy's notes about the owner, the conversation so far, and the AI's pass. /compact works
+ * as in Coder's chats. `g`: what handleCoder knows of the request.
+ */
+async function gloopyMessage(g) {
+  const { request, env, bucket, uid, user, id, meta, metaKey, post, summarizeFn } = g;
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const text = String(body.text || "").trim();
+  const pics = checkImages(body.images);
+  if (pics.error) return json({ error: pics.error }, 400);
+  if (!text && !pics.images.length) return json({ error: "write something first" }, 400);
+  if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
+  if (meta.status === "running") return json({ error: "Gloopy is still working on the last message" }, 409);
+  const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(text);
+  if (compact && !pics.images.length) {
+    const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+    if (!Array.isArray(msgs) || !msgs.length) return json({ error: "There is nothing to summarize yet." }, 400);
+    const focus = String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    const sum = await summarizeFn(msgs, focus);
+    if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
+    const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    const ev = { at: Date.now(), type: "note", text: "Compacted: the conversation so far is now a summary for Gloopy" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
+    await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs))]);
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, ev].slice(-MAX_EVENTS));
+    const next = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: msgs.length }), at: Date.now() };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next, events: [ev], compacted: true });
+  }
+  let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+  // A long chat is summarized, not cut (as Coder's).
+  let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
+  const squeezed = await compactHistory(messages, summarizeFn);
+  if (squeezed.to) {
+    messages = squeezed.messages;
+    await putJson(bucket, keyOf(uid, id, "messages.json"), messages);
+    const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, { at: Date.now(), type: "note", text: "Compacted: the earlier part of this chat is now a summary for Gloopy, to make room. The chat still shows it all." }].slice(-MAX_EVENTS));
+    baseMarks = marksAfter(baseMarks, { from: squeezed.from, to: squeezed.to });
+  }
+  const saved = await getJson(bucket, settingsKey(uid), {});
+  const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
+  const livePassNow = env.CODER_PUBLIC_URL ? await livePass(env, uid + "/" + id, meta.turn + 1) : "";
+  const live = livePassNow ? { url: String(env.CODER_PUBLIC_URL).replace(/\/+$/, "") + LIVE_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: livePassNow } : null;
+  const no = await bucket.get(gloopyNotesKey(uid, id));
+  const memory = no ? (await no.text()).slice(0, MEMORY_MAX) : "";
+  const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
+  const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, marks };
+  await saveMeta(bucket, uid, next);
+  await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
+  const notStarted = async () => {
+    await saveMeta(bucket, uid, meta);
+    if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, next.turn)).catch(() => {});
+    await dropLive(bucket, uid, id).catch(() => {});
+  };
+  let r;
+  try {
+    r = await post("/turn", { agent: "gloopy", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || "(see the picture)", shown: text || "(see the picture)", images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+  } catch (e) {
+    await notStarted();
+    return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
+  }
+  if (!r.ok) {
+    await notStarted();
+    const raw = await r.text().catch(() => "");
+    let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
+    return json({ error: r.status === 409 ? "Gloopy is still working on the last message" : "Gloopy's computer could not start (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
+  }
+  // Stopped while its machine was starting (the chat was freed meanwhile): the machine stops it too.
+  const nowMeta = await getJson(bucket, metaKey, null);
+  if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
+  return json({ ok: true, project: next });
+}
+
+/**
+ * GLOOPY'S CHAT AS IT WORKS (owner, 2026-11-09): Coder's state, whose turn's end keeps the chat and Gloopy's notes about
+ * the owner and nothing else (no commit, no push, no pull request). A machine that lost the turn frees the chat, as
+ * Coder's does.
+ */
+async function gloopyState(g) {
+  const { env, bucket, uid, id, meta, url, call, post } = g;
+  if (url.searchParams.get("seen") === "1") {
+    const was = await getJson(bucket, seenKey(uid), null);
+    if (!was || was.id !== id || Date.now() - Number(was.at) > 15_000) await putJson(bucket, seenKey(uid), { id, at: Date.now() }).catch(() => {});
+  }
+  const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+  let s = null;
+  try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }
+  const unwatch = () => (typeof bucket.delete === "function" ? bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {}) : null);
+  const free = async (why) => {
+    const { steps, ev, idle } = await endLostJob(env, bucket, uid, meta, { type: "error", text: why });
+    return json({ ok: true, events: [ev], next: since, running: false, project: idle, ...(steps.length ? { reload: true } : {}) });
+  };
+  if (!s) {
+    if (meta.status === "running" && Date.now() - (meta.at || 0) > STALE_MS) return free("Gloopy's computer stopped answering, so this job was ended. What it did so far is above. Send your message again to carry on.");
+    if (meta.status !== "running") return json({ ok: true, events: [], next: since, running: false, project: meta, reload: true });
+    return json({ ok: false, error: "Gloopy's computer could not be reached", project: meta }, 502);
+  }
+  if (meta.status === "running" && !s.running && !s.result) {
+    if (Date.now() - (meta.at || 0) < START_GRACE_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
+    return free("Gloopy's computer restarted, so this job ended here. What it did so far is above. Send your message again to carry on.");
+  }
+  // THE TURN ENDED: the chat and Gloopy's notes are kept, once (the machine hands the end to the first asker only).
+  if (s.result && meta.status === "running" && meta.saved < meta.turn) {
+    const claim = await post("/claim", { project: id }).then((r) => r.json()).catch(() => ({ ok: false }));
+    if (!claim.ok) return json({ ok: true, events: s.events || [], next: s.next || since, running: true, project: meta });
+    const all = await call("/state?project=" + id + "&since=0", { method: "GET" }).then((r) => r.json()).catch(() => ({ events: [] }));
+    const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    const fresh = Array.isArray(all.events) ? all.events.slice() : [];
+    const capped = capHistoryInfo(s.result.messages);
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capped.messages);
+    if (typeof s.result.memory === "string") await bucket.put(gloopyNotesKey(uid, id), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
+    const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
+    await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
+    const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
+    const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
+    const asked = fresh.filter((e) => e && e.type === "question").at(-1);
+    const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
+    const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
+    await saveMeta(bucket, uid, ended);
+    await unwatch();
+    await dropLive(bucket, uid, id).catch(() => {});
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: false, project: ended });
+  }
+  const elsewhere = !!s.result && !s.running && meta.status !== "running";
+  return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, ...(elsewhere ? { reload: true } : {}) });
 }
