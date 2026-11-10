@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Grok's prompt cache, and the effort on Low (your words: "I want to do something kind of cache. The model", and "can you do the effort level on low and make sure it's actually on low")
+
+- **Caching.** xAI keeps the start of a request it has already seen, and charges a quarter of the price for that part ($0.50 instead of $2.00 a million tokens on Grok 4.7). Coder resends the whole chat to Grok on every step, so most of each request is a repeat. But xAI only finds its copy when every call of a chat carries the same key ("prompt_cache_key"). Without one, "requests can land on a cold server" and pay full price. Coder sent none. Now Coder's server adds the chat's own key to every call: Coder's, its checker's and its summaries'. The key is a scrambled form of the chat, so xAI never sees your account or the chat's name, and no machine can use another chat's key.
+- **What can still miss the cache:** switching the mode in the middle of a chat, a chat being summarized to make room, and very long command outputs the saved chat shortens between messages. After any of these, the next steps cache again. Claude Code loses its cache in the same places.
+- **Effort.** Low is now Coder's default (xAI: "Uses some reasoning tokens, but still fast"). A "High" saved on an account before today was mostly the old default, saved along with other settings, so it now counts as not chosen and Low applies. Picking High (or anything else) on the page from now on is kept. The auto mode checker was already on Low.
+- **"Make sure it's actually on low":** every call now records the effort it sent, the effort xAI says it used, its reasoning tokens and how much of its input came from the cache. The chat's record keeps the sum for the last message, with the checker's calls counted apart. Before this, if xAI had ever refused the effort, Coder would have quietly carried on at xAI's default (High) and nobody would have known; now the record shows it.
+- Tests CD378 and CD379; all 390 pass. This changes Coder's machine too (the model file), so its deploy is the first real run of the faster deploy: it builds and stores the tools once (slow, one last time), and later machine changes are quick.
+
+## 2026-11-10: Both merged and deployed (deploy 91), and the block display tested live (recording 28) (your words: "yea merge and deploy both and test pls")
+
+- **Deploy 91** (main f705dcfd) took about 2.5 minutes. Coder's machine didn't change, so its build step took 3 seconds: the version already on Fly.io was kept, as before.
+- **The faster deploy is in place, but this deploy could not show it.** It only works when Coder's machine changes. The first such deploy builds the tools once and keeps them on Fly.io, so it is still slow. Every machine change after that builds only Coder's own files.
+- **Recording 28, live on gofarther.dev with Grok, on recording 27's chat:**
+  - The chat's earlier blocks now show their reasons without opening the step, for example "Blocked by auto mode / Auto mode: [Plan] Plan mode forbids creating or changing files".
+  - A new block, live: "Install the Ollama command-line tool on this machine." Grok chose the install script, and the checker blocked it: "✕ blocked", then "Blocked by auto mode / Auto mode: [Code from External] The owner asked to install Ollama but did not name piping the remote install.sh into a shell." It showed the moment the block came in, while Coder was still working, as Claude Code shows it.
+
 ## 2026-11-10: Auto mode's second checker tested live with Grok (recording 27), and its blocks shown like Claude Code's
 
 - **Deploy 87 went live at 10:35.** The build-and-upload step alone took 18 minutes. The faster deploy (below) removes that for most deploys, once it is merged.

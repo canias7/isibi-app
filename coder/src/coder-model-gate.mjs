@@ -9,6 +9,19 @@
 import { CODER_ENDPOINT, CODER_MODELS, coderModel } from "../container/coder-model.mjs";
 
 export const MODEL_PATH = "/api/coder/model";
+/**
+ * THE PROMPT CACHE'S KEY FOR A CHAT (owner, 2026-11-10: "I want to do something kind of cache [for] the model"). xAI caches
+ * the start of a request it has seen; its docs: "For the Responses API, use the `prompt_cache_key` field" (it sends every
+ * request with the same key to the same server, where the cache is), "a UUID or your application's session ID works well";
+ * without one "requests can land on a cold server" and pay the full input price. Cached input costs a quarter of it
+ * ($0.50 for $2.00 a million tokens on grok-4.7). One key per chat, made here from the chat the pass is for, so every call
+ * of the chat (Coder's, its checker's, its summaries) carries it, from any machine, and no machine can choose another
+ * chat's: a hash, so xAI is never shown the account or the chat's name.
+ */
+export async function cacheKeyFor(chat) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode("coder-cache-v1|" + chat)));
+  return "coder-" + [...d.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 /** A pass lasts 3 hours: a job works 45 minutes at most, after a setup of up to 5. */
 export const MODEL_PASS_MS = 3 * 60 * 60 * 1000;
 /** The largest AI call taken (a conversation with pictures). */
@@ -61,12 +74,15 @@ export async function handleModel(request, env, { fetchFn = fetch, now = Date.no
   if (Number(request.headers.get("content-length")) > MODEL_BODY_MAX) return answer("that AI call is too large", 413);
   const body = await request.text();
   if (body.length > MODEL_BODY_MAX) return answer("that AI call is too large", 413);
-  let model = "";
-  try { model = String(JSON.parse(body).model || ""); } catch { return answer("that AI call could not be read", 400); }
+  let model = "", req = null;
+  try { req = JSON.parse(body); model = String((req && req.model) || ""); } catch { return answer("that AI call could not be read", 400); }
+  if (!req || typeof req !== "object" || Array.isArray(req)) return answer("that AI call could not be read", 400);
   const models = new Set([...CODER_MODELS.map((m) => m.id), coderModel(env)]);
   if (!models.has(model)) return answer("not one of Coder's models", 403);
+  // The chat's own cache key, in place of any the machine sent.
+  req.prompt_cache_key = await cacheKeyFor(chat);
   let r;
-  try { r = await fetchFn(CODER_ENDPOINT, { method: "POST", body, headers: { authorization: "Bearer " + key, "content-type": "application/json" } }); }
+  try { r = await fetchFn(CODER_ENDPOINT, { method: "POST", body: JSON.stringify(req), headers: { authorization: "Bearer " + key, "content-type": "application/json" } }); }
   catch { return answer("xAI could not be reached", 502); }
   // Only xAI's answer and its type come back (nothing of the key).
   return new Response(r.body, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json", "cache-control": "no-store" } });

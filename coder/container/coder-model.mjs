@@ -16,8 +16,10 @@ export const CODER_CALL_MS = 4 * 60 * 1000;
 // the screen shows this list and the Worker refuses anything not on it.
 export const CODER_MODELS = [
   // xAI's docs (docs.x.ai/docs/guides/reasoning, checked 2026-11-06): grok-4.7 takes
-  // reasoning.effort low / medium / high (its default) / xhigh; reasoning cannot be turned off.
-  { id: "grok-4.7", name: "Grok 4.7", efforts: ["low", "medium", "high", "xhigh"], effort: "high" },
+  // reasoning.effort low / medium / high (xAI's default) / xhigh; reasoning cannot be turned off.
+  // CODER'S DEFAULT IS LOW (owner, 2026-11-10: "can you do the effort level on low and make sure it's actually on low"):
+  // xAI's "Uses some reasoning tokens, but still fast", for "latency-sensitive agentic use and simple tool calling".
+  { id: "grok-4.7", name: "Grok 4.7", efforts: ["low", "medium", "high", "xhigh"], effort: "low" },
 ];
 /** A model and effort from the list: `{ model, effort }`, the defaults for anything else. */
 export function pickModel(model, effort) {
@@ -112,7 +114,13 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
       if (!message) throw new Error("the AI answered with no message");
       const u = j.usage || {};
       const web = (u.server_side_tool_usage_details && u.server_side_tool_usage_details.web_search_calls) || searches.length;
-      return { message, searches, usage: { in: u.input_tokens || 0, out: u.output_tokens || 0, searches: web || 0, cost_ticks: u.cost_in_usd_ticks || 0 } };
+      // WHAT THE CALL REALLY USED (owner, 2026-11-10: "make sure it's actually on low", and the prompt cache): the input
+      // tokens xAI's cache served (usage.input_tokens_details.cached_tokens, a quarter of the input price), the reasoning
+      // tokens (usage.output_tokens_details.reasoning_tokens), the effort sent ("" when the safety net above had to leave it
+      // out) and the effort xAI's answer says it used (its `reasoning.effort`, when it says).
+      const num = (x) => (Number.isFinite(Number(x)) && Number(x) > 0 ? Math.round(Number(x)) : 0);
+      const said = j.reasoning && typeof j.reasoning.effort === "string" ? j.reasoning.effort.slice(0, 20) : "";
+      return { message, searches, usage: { in: u.input_tokens || 0, out: u.output_tokens || 0, searches: web || 0, cost_ticks: u.cost_in_usd_ticks || 0, cached: num(u.input_tokens_details && u.input_tokens_details.cached_tokens), reasoning: num(u.output_tokens_details && u.output_tokens_details.reasoning_tokens), effort: withEffort ? String(req.effort) : "", ...(said ? { effortSaid: said } : {}) } };
     }
     throw new Error("AI call failed");
   };

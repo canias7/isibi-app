@@ -162,7 +162,9 @@ export async function checkAction(deps, { model = "", convo = [], skipId = "", c
   } catch (e) { return { error: String((e && e.message) || e).slice(0, 200) }; }
   const said = a && a.message && typeof a.message.content === "string" ? a.message.content : "";
   const v = parseVerdict(said);
-  return v ? { ...v, usage: a && a.usage } : { error: "its answer could not be read", usage: a && a.usage };
+  // (Its usage is marked as the checker's, so a chat's record keeps it apart from Coder's own calls.)
+  const usage = a && a.usage && typeof a.usage === "object" ? { ...a.usage, kind: "check" } : undefined;
+  return v ? { ...v, usage } : { error: "its answer could not be read", usage };
 }
 
 // ── CLAUDE CODE'S WORDS (2.1.322) ───────────────────────────────────────────────────────────────────────────────────────
