@@ -25,6 +25,16 @@ Tool by tool, the first tool is the browser. I compared it against everything Gr
 
 Tests GL85 to GL89 are new. GL89 runs everything end to end with a real browser: your time zone, an upload you OK'd (the site got the CV), a download from a step you OK'd, a screenshot, and both files read in Gloopy's folder.
 
+**Tried live on test.gofarther.dev with Grok (recorded):**
+- **Time zone:** webbrowsertools.com saw America/New_York (5:37 AM EST), though Gloopy's computer runs on UTC.
+- **"Are you sure?":** on the-internet.herokuapp.com, Gloopy said the page asked "I am a JS Confirm" and it was answered Cancel ("You clicked: Cancel"). Asked to answer OK, it did ("You clicked: Ok").
+- **Screenshot:** "Took a screenshot of the whole page", then sent as a file card (js-confirm-ok.png, 37 KB). The preview showed the real page.
+- **Download:** Wikipedia's "Download as PDF" button. The browser downloaded Example.com.pdf (234,853 bytes) into `files/`, and Gloopy read it. (Given a PDF's address alone, Gloopy fetched it with a command instead, which is fine.)
+- **Upload, no asking twice:** with "Share your details" on Ask first, Gloopy didn't ask in the chat. The card asked once. After the fix above it was one card for choosing the file and pressing Upload, and the site said "File Uploaded!".
+- **A CAPTCHA:** at Google's reCAPTCHA demo, Gloopy stopped and handed the step to you ("Tick “I'm not a robot”, then press Submit"). After **Not now** it said it "didn't try to get around it".
+- Afterwards, the test copy's settings went back to the testing defaults. The test files Gloopy made or downloaded stay in its folder on the test copy.
+- Small thing noticed: Gloopy gave the screenshot's time in UTC ("10:39 UTC"), not your time. It's easy to change if you want.
+
 Still waiting for your choice (the bigger items from the report): per-site permissions, notes on a page, "Teach a task", codes by email, routing through your own computer, hardware keys, and connected apps.
 
 ## 2026-11-10: Testing Gloopy live on the test copy: three things found and fixed
