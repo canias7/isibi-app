@@ -4049,6 +4049,9 @@ test("GL85 (2026-11-10) the browser fixes' parts: a screenshot as a file, an upl
   assert.throws(() => B.checkAsk({ action: "upload", ref: "e4", path: "files/cv.pdf" }), /give path: the file in your work folder to upload/);
   assert.throws(() => B.checkAsk({ action: "upload", ref: "e4", staged: "../../etc" }), /give path/);
   assert.deepEqual(B.checkAsk({ action: "upload", ref: "e4", staged: "u0123456789ab", path: "x", name: "cv.pdf" }), { action: "upload", ref: "e4", staged: "u0123456789ab" });
+  // With the button that sends it, in the same step (found live: two cards for one upload).
+  assert.deepEqual(B.checkAsk({ action: "upload", ref: "e4", staged: "u0123456789ab", submit_ref: "e5", submitName: "Send" }), { action: "upload", ref: "e4", staged: "u0123456789ab", submit_ref: "e5" });
+  assert.throws(() => B.checkAsk({ action: "upload", ref: "e4", staged: "u0123456789ab", submit_ref: "the button" }), /give submit_ref/);
   // 6. confirm: true only on the steps that can bring a question up, and only when true.
   for (const a of [{ action: "open", url: "example.com" }, { action: "click", ref: "e1" }, { action: "type", ref: "e1", text: "x" }, { action: "press", key: "Enter" }, { action: "select", ref: "e1", option: "A" }, { action: "back" }]) assert.equal(B.checkAsk({ ...a, confirm: true }).confirm, true, a.action);
   for (const a of [{ action: "look" }, { action: "scroll" }, { action: "screenshot" }]) assert.equal(B.checkAsk({ ...a, confirm: true }).confirm, undefined, a.action);
@@ -4062,6 +4065,8 @@ test("GL85 (2026-11-10) the browser fixes' parts: a screenshot as a file, an upl
   const cv = { element: { name: "Your CV", tag: "input", type: "file" } }, del = { element: { name: "Delete", tag: "button" } };
   assert.equal(stepWords({ action: "upload", ref: "e4", name: "cv.pdf" }, cv), "Upload the file “cv.pdf” with “Your CV”");
   assert.equal(stepWords({ action: "upload", ref: "e4", path: "files/cv.pdf" }, cv), "Upload the file “cv.pdf” with “Your CV”");
+  assert.equal(stepWords({ action: "upload", ref: "e4", name: "cv.pdf", submit_ref: "e5", submitName: "Send" }, cv), "Upload the file “cv.pdf” with “Your CV” and click “Send”");
+  assert.equal(stepWords({ action: "upload", ref: "e4", name: "cv.pdf", submit_ref: "e5" }, cv), "Upload the file “cv.pdf” with “Your CV” and click e5");
   assert.equal(stepWords({ action: "click", ref: "e2" }, del), "Click the button “Delete”", "as before");
   assert.equal(stepWords({ action: "click", ref: "e2", confirm: true }, del), "Click the button “Delete”, answering OK if the page asks to confirm");
   assert.equal(stepWords({ action: "type", ref: "e2", text: "hi", submit: true }, { element: { name: "Search" } }), "Type “hi” into “Search” and press Enter", "as before");
@@ -4083,8 +4088,8 @@ test("GL85 (2026-11-10) the browser fixes' parts: a screenshot as a file, an upl
   assert.deepEqual([BROWSER_STEP.verb({ action: "upload" }), BROWSER_STEP.label({ action: "upload", path: "files/cv.pdf", ref: "e4" })], ["Uploaded", "cv.pdf"]);
   const tool = BROWSER_TOOL.function;
   assert.deepEqual(tool.parameters.properties.action.enum, [...B.BROWSER_ACTIONS]);
-  assert.deepEqual([tool.parameters.properties.full.type, tool.parameters.properties.path.type, tool.parameters.properties.confirm.type], ["boolean", "string", "boolean"]);
-  assert.match(tool.description, /screenshot \(saves a picture of the page in your work folder, as evidence for the owner; full: true for the whole page\), upload \(path: a file in your work folder, at most 5 MB; ref: the page's file field or upload button\)\. What a page downloads goes in files\/ in your work folder \(at most 25 MB\)\./);
+  assert.deepEqual([tool.parameters.properties.full.type, tool.parameters.properties.path.type, tool.parameters.properties.confirm.type, tool.parameters.properties.submit_ref.type], ["boolean", "string", "boolean", "string"]);
+  assert.match(tool.description, /screenshot \(saves a picture of the page in your work folder, as evidence for the owner; full: true for the whole page\), upload \(path: a file in your work folder, at most 5 MB; ref: the page's file field or upload button; submit_ref: the button that then sends it, such as Upload or Send, when the page has one: it is pressed in the same step, so the owner OKs the upload once\)\. What a page downloads goes in files\/ in your work folder \(at most 25 MB\)\./);
   assert.match(tool.description, /When a page asks "Are you sure\?" \(or "Leave this page\?"\), it is answered Cancel and the step's answer says so; if the owner wants that done, do the step again with confirm: true\./);
   assert.match(tool.description, /Steps that could change something \(a click, a choice, a submit, Enter, an upload, a step with confirm\) are checked first/);
   // 4. Not asked twice: a step the check covers asks on its card, not in the chat first too.
@@ -4227,6 +4232,12 @@ test("GL87 (2026-11-10) for real (where Chromium is installed): a screenshot as 
     assert.match(a.text, /\nPage: Got it\n/);
     assert.equal(got.length, 1);
     assert.match(got[0], /filename="cv\.pdf"[^]*%PDF my cv/);
+    // Or in one step with the button that sends it (found live: one upload, two cards).
+    a = await hub.act({ action: "back" });
+    a = await hub.act({ action: "upload", ref: button(a.text, "Your CV"), staged: st.staged, submit_ref: button(a.text, "Send") });
+    assert.match(a.text, /^Did: Uploaded “cv\.pdf” with “Your CV” and clicked “Send”\nPage: Got it\n/);
+    assert.equal(got.length, 2);
+    assert.match(got[1], /filename="cv\.pdf"[^]*%PDF my cv/);
     // Through an upload button that opens a file chooser.
     a = await hub.act({ action: "back" });
     const pic = await hub.stage({ name: "photo.png", data: b64("not really a png") });
@@ -4302,6 +4313,13 @@ test("GL88 (2026-11-10) the job: a screenshot and downloads are put in files/ in
   const card = ev.find((e) => e.type === "approval");
   assert.deepEqual([card.step, card.site, card.why, card.warn], ["Upload the file “cv.pdf” with “Your CV”", "jobs.example", "This gives your CV to jobs.example.", "This shares your details outside this chat."]);
   assert.deepEqual(ev.filter((e) => e.type === "bash").map((e) => [e.verb, e.command]), [["Uploaded", "cv.pdf"]]);
+  // With the button that sends it: both described, one card for the whole upload.
+  hub = fakeHub();
+  ({ out, g } = await job([say("", [call("browser", { action: "upload", ref: "e4", path: "files/cv.pdf", submit_ref: "e5" }, "u2")]), say("Waiting.")], [SHARE_ASK], hub, { permissions: { share: "ask" } }));
+  assert.deepEqual(hub.described, ["e5", "e4"]);
+  assert.match(g.checks[0].messages[1].content, /THE STEP: Upload the file “cv\.pdf” with “Your CV” and click “Get invoice”/);
+  assert.deepEqual(out.approvalRequest.args, { action: "upload", ref: "e4", staged: "u0123456789ab", name: "cv.pdf", submit_ref: "e5", submitName: "Get invoice" });
+  assert.equal(g.checks.length, 1);
   // Allowed: done with the file made ready.
   hub = fakeHub();
   ({ said } = await job([say("", [call("browser", { action: "upload", ref: "e4", path: "files/cv.pdf" }, "u1")]), say("Uploaded.")], [{ kind: "share", decision: "allow", why: "The owner asked to send their CV here." }], hub));
@@ -4335,7 +4353,7 @@ test("GL88 (2026-11-10) the job: a screenshot and downloads are put in files/ in
   assert.equal(g.seen[0].messages.at(-1).content, "Apply for the job with my CV", "nothing to say");
 });
 
-test("GL89 (2026-11-10) all of it, for real (where Chromium is installed): in the owner's time zone (from their device), Gloopy uploads their CV after their OK on a card (the site gets it), sends the form, gets the receipt after another OK (the download waits in the browser, then is put in its work folder before its next turn), takes a screenshot as proof, and reads both files in its work folder", async (t) => {
+test("GL89 (2026-11-10) all of it, for real (where Chromium is installed): in the owner's time zone (from their device), Gloopy uploads their CV and sends it after one OK on a card (the site gets it), gets the receipt after another OK (the download waits in the browser, then is put in its work folder before its next turn), takes a screenshot as proof, and reads both files in its work folder", async (t) => {
   const { hasBrowser } = await import("../container/gloopy-browser.mjs");
   if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
   const { spawnSync } = await import("node:child_process");
@@ -4360,10 +4378,9 @@ test("GL89 (2026-11-10) all of it, for real (where Chromium is installed): in th
   const steps = [
     () => say("", [call("bash", { command: "mkdir -p files && printf 'My CV: Ana, 10 years of baking' > files/cv.txt" }, "b1")]),
     () => say("", [call("browser", { action: "open", url: siteBase + "/apply" }, "o1")]),
-    (req) => { assert.match(lastTool(req), /Zone: Asia\/Tokyo/, "the page reads the owner's time zone"); return say("", [call("browser", { action: "upload", ref: button(lastTool(req), "Your CV"), path: "files/cv.txt" }, "u1")]); },
-    (req) => { assert.match(all(req), /It was done: Uploaded “cv\.txt” with “Your CV”\. Your browser's page is now “Apply”/); return say("", [call("browser", { action: "look" }, "l1")]); },
-    (req) => say("", [call("browser", { action: "click", ref: button(lastTool(req), "Send") }, "c1")]),
-    (req) => { assert.match(lastTool(req), /\nPage: Thanks\n/); return say("", [call("browser", { action: "click", ref: refOf(lastTool(req), /link "Get the receipt"[^\n]*?\[ref=([a-z0-9]+)\]/) }, "c2")]); },
+    (req) => { assert.match(lastTool(req), /Zone: Asia\/Tokyo/, "the page reads the owner's time zone"); return say("", [call("browser", { action: "upload", ref: button(lastTool(req), "Your CV"), path: "files/cv.txt", submit_ref: button(lastTool(req), "Send") }, "u1")]); },
+    (req) => { assert.match(all(req), /It was done: Uploaded “cv\.txt” with “Your CV” and clicked “Send”\. Your browser's page is now “Thanks”/); return say("", [call("browser", { action: "look" }, "l1")]); },
+    (req) => say("", [call("browser", { action: "click", ref: refOf(lastTool(req), /link "Get the receipt"[^\n]*?\[ref=([a-z0-9]+)\]/) }, "c2")]),
     (req) => { assert.match(all(req), /\(Note from Gloopy's app, about your browser: Downloaded “receipt\.txt” \(1 KB\) into your work folder: files\/receipt\.txt\.\)/); return say("", [call("browser", { action: "screenshot" }, "s1")]); },
     (req) => { assert.match(lastTool(req), /\n\nSaved the screenshot in your work folder: files\/screenshot-127\.0\.0\.1-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\dZ\.png \(taken /); return say("", [call("bash", { command: "cat files/receipt.txt; echo; ls files" }, "b2")]); },
     (req) => { assert.match(lastTool(req), /Application 42: received/); assert.match(lastTool(req), /screenshot-127\.0\.0\.1-.*\.png/); return say("Applied, and the receipt is in your files."); },
@@ -4397,11 +4414,11 @@ test("GL89 (2026-11-10) all of it, for real (where Chromium is installed): in th
     // 1. In the owner's time zone, Gloopy opens the page and goes to upload their CV: a card first, nothing sent.
     await message("Apply for the baker job with my CV, and keep the receipt", "Asia/Tokyo");
     let ap = events().filter((e) => e.type === "approval").at(-1);
-    assert.deepEqual([ap.step, ap.site, ap.warn], ["Upload the file “cv.txt” with “Your CV”", host, "This shares your details outside this chat."]);
+    assert.deepEqual([ap.step, ap.site, ap.warn], ["Upload the file “cv.txt” with “Your CV” and click “Send”", host, "This shares your details outside this chat."]);
     assert.equal(got.length, 0);
-    // 2. The owner allows it: uploaded by Gloopy's machine; Gloopy sends the form; the site has the CV.
+    // 2. The owner allows it, once: uploaded and sent by Gloopy's machine; the site has the CV.
     let r = await allow(ap);
-    assert.equal(r.said, "Allowed: Upload the file “cv.txt” with “Your CV”");
+    assert.equal(r.said, "Allowed: Upload the file “cv.txt” with “Your CV” and click “Send”");
     await message(r.said);
     assert.equal(got.length, 1);
     assert.match(got[0], /filename="cv\.txt"[^]*My CV: Ana, 10 years of baking/);
@@ -4413,7 +4430,7 @@ test("GL89 (2026-11-10) all of it, for real (where Chromium is installed): in th
     // 4. Put in its work folder, said to it; a screenshot as proof; both files read there.
     assert.ok(events().some((e) => e.type === "done" && e.text === "Applied, and the receipt is in your files."), JSON.stringify(events().slice(-3)).slice(0, 600));
     assert.equal(n, steps.length, "every step ran");
-    assert.equal(checks.length, 3, "the upload and the two clicks were checked (not the open, the look or the screenshot)");
+    assert.equal(checks.length, 2, "the upload (with its Send) and the receipt's click were checked, once each (not the open, the look or the screenshot)");
     assert.equal(st.project.pending, null);
     assert.ok(events().some((e) => e.type === "result" && e.label === "Took a screenshot of what is in view"));
   } finally {

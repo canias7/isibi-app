@@ -70,7 +70,7 @@ export function stepWords(a, about) {
   if (a.action === "select") return "Choose " + quote(a.option, 60) + " in " + it + sure;
   if (a.action === "type") return "Type " + quote(a.text, 60) + " into " + it + (a.submit === true ? " and press Enter" : "") + sure;
   if (a.action === "press") return "Press " + plain(a.key) + (plain(el.name) ? " on " + it : "") + sure;
-  if (a.action === "upload") return "Upload the file " + quote(a.name || String(a.path || "").split("/").pop(), 80) + " with " + it;
+  if (a.action === "upload") return "Upload the file " + quote(a.name || String(a.path || "").split("/").pop(), 80) + " with " + it + (a.submit_ref ? " and click " + (plain(a.submitName) ? quote(a.submitName) : plain(a.submit_ref)) : "");
   if (a.action === "open") return "Open " + plain(a.url).slice(0, 200) + sure;
   if (a.action === "back") return "Go back" + sure;
   return String(a.action || "");

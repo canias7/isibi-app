@@ -119,7 +119,14 @@ export function checkAsk(a) {
   const out = { action };
   if (action === "open") out.url = pageAddress(x.url);
   if (["click", "type", "select", "upload"].includes(action)) out.ref = needRef(x);
-  if (action === "upload") { const id = String(x.staged || ""); if (!STAGED_RE.test(id)) throw new Error("give path: the file in your work folder to upload"); out.staged = id; }
+  if (action === "upload") {
+    const id = String(x.staged || "");
+    if (!STAGED_RE.test(id)) throw new Error("give path: the file in your work folder to upload");
+    out.staged = id;
+    // The button that then sends it, pressed in the same step (found live, 2026-11-10: choosing the file and pressing
+    // Upload were two steps, so the owner OK'd one upload twice).
+    if (x.submit_ref) out.submit_ref = needRef(x, "submit_ref");
+  }
   if (action === "screenshot") out.full = x.full === true;
   if (x.confirm === true && CONFIRM_ACTIONS.includes(action)) out.confirm = true;
   if (x.keep === true) out.keep = true;
@@ -440,6 +447,7 @@ export async function serve(dir) {
         if (!fc) throw new Error("that did not open a file chooser: give the page's file field or its upload button (look again)");
         await fc.setFiles(file.path);
       }
+      if (ask.submit_ref) await target(ask.submit_ref).click({ timeout: 8000 });
       // Kept (STAGED_MS): the page reads the file only when it sends it (found 2026-11-10: gone at once, the form failed).
     }
   };
@@ -449,6 +457,7 @@ export async function serve(dir) {
     const it = el && el.name ? quote(el.name) : ask.ref;
     const file = ask.action === "upload" ? await stagedFile(ask.staged) : null;
     let did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back", screenshot: "Took a screenshot of " + (ask.full ? "the whole page" : "what is in view"), upload: "Uploaded " + quote(file ? file.name : "") + " with " + it }[ask.action];
+    if (ask.action === "upload" && ask.submit_ref) { const b = await about(ask.submit_ref); did += " and clicked " + (b && b.name ? quote(b.name) : ask.submit_ref); }
     dialogs = [];
     // Armed through the step and the wait after it (a page may ask a moment after the click).
     armed = ask.confirm === true;

@@ -1055,6 +1055,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           let st;
           try { st = await hub.stage({ name: fileNameOf(file.name, "file"), data: file.data }); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 300)); continue; }
           act = { action: "upload", ref: String(args.ref).trim(), staged: String(st.staged || ""), name: String(st.name || file.name) };
+          // The button that sends it, pressed in the same step: one card for the whole upload (its name for the card).
+          if (String(args.submit_ref || "").trim()) {
+            act.submit_ref = String(args.submit_ref).trim();
+            try { const b = await hub.describe(act.submit_ref); act.submitName = plain(String((b && b.element && b.element.name) || "")).slice(0, 120); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+          }
         }
         if (needsCheck(act)) {
           let about;
