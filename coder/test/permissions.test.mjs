@@ -82,7 +82,9 @@ test("CD309 rules: deny, then ask, then allow; * is any text, a trailing ' *' al
   assert.deepEqual(parseRule("Bash(*)"), { tool: "Bash", spec: null });
   assert.deepEqual(parseRule("WebFetch(domain:example.com)"), { tool: "WebFetch", spec: "domain:example.com" });
   assert.deepEqual(parseRule("Read(./.env)"), { tool: "Read", spec: "./.env" }, "a file rule (file-rules.test.mjs)");
-  assert.equal(parseRule("WebSearch"), null);
+  // (Pass 6: WebSearch, Grok's own web search, takes a rule on the whole tool.)
+  assert.deepEqual(parseRule("WebSearch"), { tool: "WebSearch", spec: null });
+  assert.equal(parseRule("WebSearch(x)"), null);
   assert.equal(parseRule("WebFetch(https://x)"), null);
   // Its table of what each rule matches.
   assert.ok(bashSpecMatches("npm run build", "npm run build") && !bashSpecMatches("npm run build", "npm run build --watch"));
@@ -421,7 +423,7 @@ test("CD325 the Worker keeps the rules per repository (Claude Code's /permission
   const w = await worker();
   assert.equal((await w.go("permissions?repo=bad")).status, 400);
   assert.deepEqual((await w.go("permissions?repo=ana/shop")).data.rules, { allow: [], ask: [], deny: [], dirs: [] });
-  assert.equal((await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "WebSearch" }) })).status, 400);
+  assert.equal((await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "NotebookEdit" }) })).status, 400);
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "Bash(npm test *)" }) });
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "ask", add: "Bash(git push *)" }) });
   const moved = await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "deny", add: "Bash(npm test *)" }) });

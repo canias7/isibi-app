@@ -598,7 +598,9 @@ export function readCommand(command, { cwd = "/", home = "" } = {}) {
  * them at the tool level"; one with a path is kept and never matches: ruleKept).
  */
 export function parseRule(text) {
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // (A tool name with a wildcard, `*`, `B*`, `mcp__*`: see toolGlob.)
+  if (toolGlob(text)) return { tool: String(text).trim(), spec: null, glob: true };
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|AskUserQuestion|ExitPlanMode|TodoWrite)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   const spec = m[2] === undefined ? null : m[2].trim();
   if (m[1] === "WebFetch" && spec !== null && !/^domain:[A-Za-z0-9.*-]+$/.test(spec)) return null;
@@ -610,9 +612,27 @@ export function parseRule(text) {
     if (spec !== null && (spec.includes(":*") || /^file_path\s*:/.test(spec))) return null;
     return { tool: m[1], spec: spec === "*" || spec === "**" ? null : spec };
   }
-  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
+  // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
+  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor") ? null : spec };
 }
+/**
+ * A RULE ON TOOL NAMES BY WILDCARD (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's "Tool name
+ * wildcards": "Deny and ask rules also accept glob patterns in the tool-name position. The pattern must match the full tool
+ * name: "*" matches every tool, and "mcp__*" matches every MCP tool across all servers. A tool matched by a bare-name glob
+ * deny rule is removed from Claude's context, the same as a bare tool name"; "Allow rules accept tool-name globs only after a
+ * literal mcp__<server>__ prefix … An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped and doesn't
+ * auto-approve anything"): a bare name with a `*`, matched against Claude Code's name for each of Coder's tools (Bash,
+ * Monitor, Read, Write, Edit, Grep, Glob, LSP, WebFetch, WebSearch, TaskStop, AskUserQuestion, ExitPlanMode, TodoWrite; Coder's
+ * own tools by their own names). Coder has no MCP servers, so an allow one never approves anything.
+ */
+export const toolGlob = (t) => /^[A-Za-z0-9_-]*\*[A-Za-z0-9_*-]*$/.test(String(t ?? "").trim());
+/** Whether a tool-name wildcard matches a tool's whole name. */
+export function toolGlobMatches(glob, name) {
+  return new RegExp("^" + String(glob).trim().split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$").test(String(name ?? ""));
+}
+/** An allow rule's wildcard that names one MCP server's tools (`mcp__github__*`), the only kind Claude Code applies. */
+const anchoredGlob = (t) => /^mcp__[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*__/.test(String(t ?? "").trim());
 /**
  * MONITOR'S RULES (Bash docs, the owner, 2026-11-10: "yea do all of them"; Claude Code: "When Monitor runs a command, it uses
  * the same permission rules as Bash", and a rule naming Monitor covers its calls; "While auto mode is active, Claude Code sets
@@ -623,6 +643,8 @@ export function monitorRules(rules, mode = "auto") {
   const out = { allow: [], ask: [], deny: [] };
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k] : []) {
     const x = parseRule(r);
+    // (A wildcard naming Monitor but not Bash, `Mon*`, is a rule on all of Monitor; one naming Bash applies to it as it is.)
+    if (x && x.glob) { out[k].push(k !== "allow" && toolGlobMatches(x.tool, "Monitor") && !toolGlobMatches(x.tool, "Bash") ? "Bash" : r); continue; }
     if (!x || x.tool !== "Monitor") { out[k].push(r); continue; }
     if (k === "allow" && mode === "auto") continue;
     out[k].push(x.spec === null ? "Bash" : "Bash(" + x.spec + ")");
@@ -632,7 +654,7 @@ export function monitorRules(rules, mode = "auto") {
 /** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
 export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";
 /** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`), or "". */
-export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.tool === tool && x.spec === null; }) || "";
+export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && (x.glob ? kind !== "allow" && toolGlobMatches(x.tool, tool) : x.tool === tool); }) || "";
 /**
  * A WEBSOCKET WATCH'S QUESTION (Claude Code's Monitor `ws` source): a rule denying every Bash command refuses it, as one
  * denying Monitor does; one asking for every Bash command asks the owner, and only the owner (or a PermissionRequest hook)
@@ -796,6 +818,9 @@ export function ruleWarning(kind, text) {
 function ruleWarningOf(kind, text) {
   const t = String(text ?? "").trim();
   const k = String(kind || "");
+  // AN ALLOW RULE WITH A WILDCARD TOOL NAME (Claude Code: "An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped
+  // and doesn't auto-approve anything"): saved, with that said.
+  if (toolGlob(t)) return k === "allow" && !anchoredGlob(t) ? { warning: 'Allow rule "' + t + '" names tools with a wildcard. An allow rule takes a wildcard only after a literal mcp__<server>__ prefix, so this one is skipped and doesn\'t auto-approve anything.', notice: t + " is skipped · it approves nothing" } : null;
   // A DENY OR ASK RULE THAT CAN NEVER MATCH (Claude Code 2.1.322, its words: "Permission deny rule "Bash(command:rm *)"
   // targets command as a raw string and will not match — use Bash(…) for Bash's own matcher."; "Permission deny rule "Bsh"
   // matches no known tool — check for typos."). An allow one is kept without a word, as Claude Code keeps it.
@@ -920,9 +945,9 @@ export function allowRuleCovers(cmd, rules) {
   const allow = rulesFor(rules && rules.allow, "Bash");
   return allowTexts(cmd).some((t) => allow.some((x) => ruleApproves(cmd, x, t)));
 }
-/** The rules a list holds for one tool: `[{ text, spec }]`. */
-function rulesFor(list, tool) {
-  return (Array.isArray(list) ? list : []).map((t) => ({ t, r: parseRule(t) })).filter((x) => x.r && x.r.tool === tool).map((x) => ({ text: x.t, spec: x.r.spec }));
+/** The rules a list holds for one tool: `[{ text, spec }]` (with `globs`, a deny or ask list: its tool-name wildcards too). */
+function rulesFor(list, tool, globs = false) {
+  return (Array.isArray(list) ? list : []).map((t) => ({ t, r: parseRule(t) })).filter((x) => x.r && (x.r.glob ? globs && toolGlobMatches(x.r.tool, tool) : x.r.tool === tool)).map((x) => ({ text: x.t, spec: x.r.spec }));
 }
 
 // ── "DON'T ASK AGAIN" ────────────────────────────────────────────────────────
@@ -983,7 +1008,7 @@ export function suggestFor(cmd) {
  */
 export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [] } = {}) {
   const read = readCommand(command, { cwd, home });
-  const deny = rulesFor(rules.deny, "Bash"), ask = rulesFor(rules.ask, "Bash"), allow = rulesFor(rules.allow, "Bash");
+  const deny = rulesFor(rules.deny, "Bash", true), ask = rulesFor(rules.ask, "Bash", true), allow = rulesFor(rules.allow, "Bash");
   // DENY, THEN ASK: a rule on one of the call's settings (Bash(run_in_background:true), see settingSpec), or a rule on the
   // command matching any part of it, nested ones too (Claude Code: "including a command nested inside a subshell, a command
   // substitution, or a control-flow body"). A rule on a setting is no command pattern.
@@ -1185,14 +1210,16 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   if (!name) return { verdict: "", rule: "", why: "" };
   const ctx = { root, home, isDir, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
-  const whole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.tool === name && x.spec === null; }) || "";
+  const whole = (kind) => wholeRule(rules, kind, name);
+  // (A tool-name wildcard naming this tool, or the rules' tool for it, Read or Edit: a rule on the whole tool.)
+  const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, edits ? "Edit" : "Read"].some((n) => toolGlobMatches(x.tool, n)); }) || "";
   const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null; };
   const p = typeof path === "string" && path ? path : root;
   // (A search's folder: the rule matches the folder, or what is in it.)
   const search = tool === "grep" || tool === "glob";
   const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, search ? { ...ctx, isDir: true } : ctx) || (search ? fileRuleHit(list, t, p.replace(/\/+$/, "") + "/coder-any-file", kind, ctx) : "");
   // DENY.
-  const wd = name !== "Read" && name !== "Edit" ? whole("deny") : "";
+  const wd = (name !== "Read" && name !== "Edit" ? whole("deny") : "") || globWhole("deny");
   if (wd) return { verdict: "deny", rule: wd, why: "Permission to use " + name + " has been denied." };
   if (edits) {
     const e = hit(rules.deny, "Edit", "deny");
@@ -1204,7 +1231,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
     if (r) return { verdict: "deny", rule: r, why: isWhole(r) ? "Permission to use " + name + " has been denied." : "Permission to read " + p + " has been denied." };
   }
   // ASK (the owner's rule asks each time: no "don't ask again" for it).
-  const wa = name !== "Read" && name !== "Edit" ? whole("ask") : "";
+  const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
   const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
   if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" ? "reading " : "searching ") + p + "." };
   return { verdict: "", rule: "", why: "" };
@@ -1708,10 +1735,10 @@ function domainMatches(spec, host) {
 export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
   let host = "";
   try { host = new URL(String(url)).hostname.toLowerCase(); } catch { host = ""; }
-  const pick = (list) => rulesFor(list, "WebFetch").find((x) => domainMatches(x.spec, host));
-  const d = pick(rules.deny);
+  const pick = (list, globs = false) => rulesFor(list, "WebFetch", globs).find((x) => domainMatches(x.spec, host));
+  const d = pick(rules.deny, true);
   if (d) return { verdict: "deny", rule: d.text, why: "Permission to use WebFetch on " + host + " has been denied.", suggest: null };
-  const a = pick(rules.ask);
+  const a = pick(rules.ask, true);
   if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this site.", suggest: null, byRule: true };
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   if (pick(rules.allow) || docSite(url)) return { verdict: "allow", why: "", suggest: null };

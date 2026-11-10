@@ -472,11 +472,14 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
  * THE HOOKS FOR ONE MESSAGE (Bash docs, the owner, 2026-11-10: "yea do all 4"; coder-hooks.mjs): the owner's own, from the
  * Worker (`account`, Claude Code's user settings), then the repository's (.claude/settings.json and .claude/settings.local.json,
  * Claude Code's project settings), read as plain files inside the project, never through a link, at most 1 MB each, and never
- * in a job started from GitHub (strangers may write there). None at all when either says disableAllHooks.
+ * in a job started from GitHub (strangers may write there). None at all when disableAllHooks says so after Claude Code's
+ * settings precedence (its hooks reference: "a "disableAllHooks": false in a project's .claude/settings.json overrides a true
+ * in your user settings"): .claude/settings.local.json, then .claude/settings.json, then the owner's own.
  */
 export function hooksForTurn(root, account, { github = false } = {}) {
   const mine = hooksFrom(account && typeof account === "object" ? account : null, "settings");
   const repo = { list: [], disabled: false, httpUrls: null, httpEnvVars: null };
+  const offIn = {}; // each file's own disableAllHooks, when it sets one
   if (!github && root) {
     let inside = false;
     try { const rr = realpathSync(root), cd = realpathSync(join(root, ".claude")); inside = cd.startsWith(rr + "/"); } catch { inside = false; }
@@ -488,15 +491,18 @@ export function hooksForTurn(root, account, { github = false } = {}) {
         if (!st.isFile() || st.size > 1_000_000) continue;
         const buf = Buffer.alloc(st.size);
         readSync(fd, buf, 0, st.size, 0);
-        const r = hooksFrom(JSON.parse(buf.toString("utf8")), "project");
+        const j = JSON.parse(buf.toString("utf8"));
+        const r = hooksFrom(j, "project");
         repo.list.push(...r.list);
-        if (r.disabled) repo.disabled = true;
+        if (j && typeof j === "object" && typeof j.disableAllHooks === "boolean") offIn[f] = j.disableAllHooks;
         if (r.httpUrls) repo.httpUrls = [...(repo.httpUrls || []), ...r.httpUrls];
         if (r.httpEnvVars) repo.httpEnvVars = [...(repo.httpEnvVars || []), ...r.httpEnvVars];
       } catch { /* none here, or not JSON */ } finally { if (fd !== null) { try { closeSync(fd); } catch { /* closed */ } } }
     }
   }
-  if (mine.disabled || repo.disabled) return [];
+  const mineOff = account && typeof account === "object" && typeof account.disableAllHooks === "boolean" ? account.disableAllHooks : null;
+  const off = "settings.local.json" in offIn ? offIn["settings.local.json"] : "settings.json" in offIn ? offIn["settings.json"] : mineOff === true;
+  if (off) return [];
   // THE HTTP HOOK ALLOWLISTS (Claude Code: "Arrays merge across settings files"; unset: any address, each hook's own
   // allowedEnvVars), on each HTTP hook.
   const merge = (a, b) => (a || b ? [...new Set([...(a || []), ...(b || [])])] : null);
@@ -2926,7 +2932,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

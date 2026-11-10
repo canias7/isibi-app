@@ -92,7 +92,7 @@ test("CD382b Read and Edit rules are saved and applied; Claude Code's error for 
   assert.match(P.ruleWarning("deny", "Edit(file_path:a.js)").warning, /targets file_path as a raw string and will not match — use Edit\(…\) for Edit's own matcher\.$/);
   assert.equal(P.ruleWarning("deny", "Read(./.env)"), null);
   // A tool of Claude Code's that Coder has no copy of is still refused.
-  for (const r of ["NotebookEdit", "WebSearch", "Agent"]) assert.equal(P.ruleSaved(r), false, r);
+  for (const r of ["NotebookEdit", "Agent"]) assert.equal(P.ruleSaved(r), false, r);
   // The Worker takes them, and its message names them.
   const R = await import("../src/coder-routes.mjs");
   const bucket = { m: new Map(), async get(k) { return this.m.has(k) ? { text: async () => this.m.get(k) } : null; }, async put(k, v) { this.m.set(k, String(v)); } };

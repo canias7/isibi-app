@@ -30,7 +30,7 @@ import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
-import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
+import { toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -851,6 +851,8 @@ export const CODER_TOOLS = Object.freeze([
  */
 export const EXIT_PLAN_TOOL = fn("exit_plan_mode", "Present your plan to the owner for approval and leave plan mode (only while Plan mode is on, once your plan is final). Give the whole plan, in markdown, as `plan`. The owner sees it on an approval card: if they approve, plan mode ends and you are told to start, in this same turn; if they decline, you stay in plan mode and are told what to change: revise the plan and call this again.", { plan: { type: "string", description: "the whole plan, in markdown" } }, ["plan"]);
 /** Coder's tools that change something outside the files, asked about in Plan mode: what each card says. */
+/** The tools whose calls Coder's permission rules check one by one (the others: only a rule on the whole tool, below). */
+const RULED_TOOLS = new Set(["bash", "monitor", "read", "write", "edit", "grep", "glob", "lsp", "web_fetch"]);
 export const PLAN_ASKS = Object.freeze({
   pull_request: (a) => "Open a pull request: " + String((a && a.title) || "").slice(0, 200),
   pr_comments: (a) => "Post " + (Array.isArray(a && a.comments) ? a.comments.length : 0) + " review comment(s) on the pull request",
@@ -1051,7 +1053,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, planExit = "auto", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
@@ -1355,9 +1357,10 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const modeW = modeNow();
     let dec = github ? { verdict: "check" } : wsDecision({ rules: ownRules, mode: modeW });
     if (dec.verdict === "deny") { refuse(dec.why); return null; }
-    // A PreToolUse hook's ask asks; its allow approves, never under a rule asking for every Bash command.
+    // A PreToolUse hook's ask asks; its allow approves, never under a rule asking for every Bash command, and never in Plan
+    // mode (a watch isn't read-only; Claude Code's "Hook approvals in plan mode").
     if (c.hook && c.hook.decision === "ask" && !github && dec.verdict !== "ask") dec = { verdict: "ask", byRule: true, why: c.hook.reason || "A PreToolUse hook asks first." };
-    else if (c.hook && c.hook.decision === "allow" && !dec.strict) dec = { verdict: "allow" };
+    else if (c.hook && c.hook.decision === "allow" && !dec.strict && modeW !== "plan") dec = { verdict: "allow" };
     let host = "";
     try { host = new URL(url).host; } catch { host = ""; }
     if (dec.verdict === "check") {
@@ -1468,7 +1471,14 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // CODER_DISABLE_BACKGROUND_TASKS; the machine works them out): see toolsFor.
   const lim = outLimits && Number.isInteger(outLimits.inlineMax) && Number.isInteger(outLimits.readBack) ? outLimits : { inlineMax: BASH_INLINE_MAX, readBack: BASH_READ_BACK };
   // (A rule denying every Bash command at the start: no Monitor tool, as Claude Code: "Claude doesn't have the Monitor tool".)
-  const chatTools = toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs }).filter((t) => !(t && t.function && t.function.name === "monitor" && !github && wholeRule(ownRules, "deny", "Bash")));
+  // A TOOL A DENY RULE NAMES BARE, OR BY A WILDCARD, IS NOT OFFERED AT ALL (Bash docs pass 6; Claude Code: "A bare tool name
+  // like Bash removes the tool from Claude's context entirely, so Claude never sees it"; "A tool matched by a bare-name glob
+  // deny rule is removed from Claude's context, the same as a bare tool name"). A call to one anyway is refused below.
+  const ccName = (name) => (name === "web_search" ? "WebSearch" : ccTool(name));
+  const toolDenied = (name) => !github && !!(name && (wholeRule(ownRules, "deny", ccName(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
+  const chatTools = toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs }).filter((t) => !(t && t.function && toolDenied(t.function.name)));
+  // (Grok's own web search is Claude Code's WebSearch: off under a rule denying it.)
+  const searchDenied = toolDenied("web_search");
   // THIS CHAT'S TIMEOUTS (the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS; the machine works them out).
   const fgMaxS = timeouts && timeouts.maxMs > 0 ? Math.round(timeouts.maxMs / 1000) : MAX_TIMEOUT_S;
   const bgMaxMs = timeouts && timeouts.bgMaxMs > 0 ? timeouts.bgMaxMs : 7_200_000;
@@ -1732,7 +1742,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const modeRound = modeNow();
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound)) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound)) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -1828,7 +1838,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           continue;
         }
         if (pre && pre.updatedInput) { const ni = toolInputFromHook(c.name, pre.updatedInput); if (ni) c.args = ni; }
-        if (pre) c.hook = { decision: pre.decision, reason: scrub(pre.reason || ""), context: pre.context };
+        if (pre) c.hook = { decision: pre.decision, reason: scrub(pre.reason || ""), context: pre.context, ...(pre.updatedInput ? { updated: true } : {}) };
         postFor = c;
       }
       // A MONITOR goes the bash way, in the background and marked (Claude Code: "When Monitor runs a command, it uses the same
@@ -1844,9 +1854,29 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       if (c.name === "monitor" && !github && wholeRule(ownRules, "deny", "Bash")) { emit({ type: "bash", id: c.id, command: scrub(String((c.args && c.args.command) || "")).slice(0, 2000), monitor: true }); emit({ type: "result", id: c.id, code: -1, output: MONITOR_BASH_DENIED }); reply(MONITOR_BASH_DENIED); continue; }
       if (c.name === "monitor" && c.args && typeof c.args === "object") { c.monitor = true; c.name = "bash"; c.args = { command: c.args.command, description: c.args.description, run_in_background: true, timeout: monitorMs(c.args.timeout_ms) }; }
       if (hookList.length) postFor = c;
+      // CODER'S OTHER TOOLS UNDER A RULE ON THE WHOLE TOOL (Bash docs pass 6: a bare name, or a wildcard such as `*`, Claude
+      // Code's "Tool name wildcards"): a deny rule refuses the call, in Claude Code's words ("Permission to use … has been
+      // denied."); an ask rule asks on a card first (its own question or plan is already the question for ask_user and
+      // exit_plan_mode). The tools with rules of their own (bash, monitor, the file tools, web_fetch) check them below.
+      let askedByRule = false;
+      if (!github && !RULED_TOOLS.has(c.name)) {
+        const cc = ccTool(c.name);
+        if (toolDenied(c.name)) { const m = "Permission to use " + cc + " has been denied."; emit({ type: "note", text: m, warn: true }); reply(m); continue; }
+        const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc);
+        if (askRule) {
+          if (!canAsk()) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
+          const a = await askOwner({ tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: "Your rule " + askRule + " asks first for " + cc + "." });
+          const o = answerOutcome(a);
+          if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { reply(saidReply(a)); continue; }
+          if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          askedByRule = true;
+        }
+      }
       // IN PLAN MODE, CODER'S OTHER TOOLS THAT CHANGE SOMETHING (a pull request, review comments on it, auto-fix, undo) wait
       // for the owner's Yes on a card, as any action that only reads would not (Claude Code's plan mode).
-      if (PLAN_ASKS[c.name] && modeNow() === "plan" && canAsk()) {
+      if (PLAN_ASKS[c.name] && modeNow() === "plan" && canAsk() && !askedByRule) {
         const a = await askOwner({ tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name](c.args)).slice(0, 300), why: "Plan mode is on: Coder changes nothing until you approve its plan." });
         const o = answerOutcome(a);
         if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -1892,7 +1922,11 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
         // skips the mode's question and the auto mode checker, never an ask rule or one of Coder's own safety checks.
         if (c.hook && c.hook.decision === "ask" && dec.verdict === "allow" && !github) dec = { verdict: "ask", why: c.hook.reason || "A PreToolUse hook asks first for this command.", suggest: null, byRule: true };
-        if (c.hook && c.hook.decision === "allow" && dec.verdict === "ask" && !dec.byRule && !dec.safety) dec = { verdict: "allow", why: "", suggest: null };
+        // HOOK APPROVALS IN PLAN MODE (Claude Code: "In plan mode, apart from ExitPlanMode, your PreToolUse hook's "allow" has
+        // no effect on a file edit or another call that isn't read-only. You get the same prompt, block, or approval the call
+        // would get with no hook, and Claude Code still applies any updatedInput the hook returns."): a command Plan mode asks
+        // about is one that isn't read-only, so there the hook's allow changes nothing, the checker's judging included.
+        if (c.hook && c.hook.decision === "allow" && dec.verdict === "ask" && !dec.byRule && !dec.safety && modeB !== "plan") dec = { verdict: "allow", why: "", suggest: null };
         // THE ACCOUNT'S EMAIL WITH A USER-AGENT: refused, without asking, in every mode (see namesUserAgentWithAddress).
         if (emailMark && namesUserAgentWithAddress(inputText(c.args), emailMark)) { refuse(ACCOUNT_EMAIL_REFUSED); continue; }
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
@@ -1923,7 +1957,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let pausedCard = false;
         const checkSt = checkerState((checkWhere && checkWhere.key) || deps.root || "");
         const autoLike = modeB === "auto" || github;
-        if (checker && !rmWhy && !ask && !dec.byRule && !(c.hook && c.hook.decision === "allow") && ((autoLike && dec.verdict === "allow" && !wholeReadOnly(command) && !autoRulesCover(command)) || (modeB === "plan" && checkerInPlan && dec.verdict === "ask"))) {
+        if (checker && !rmWhy && !ask && !dec.byRule && !(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !wholeReadOnly(command) && !autoRulesCover(command)) || (modeB === "plan" && checkerInPlan && dec.verdict === "ask"))) {
           if (checkSt.paused) {
             if (canAsk()) pausedCard = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
@@ -2313,6 +2347,17 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (modeNow() !== "plan") { reply("error: plan mode is not on (the owner changed the mode), so there is nothing to approve: carry on with the work as asked."); continue; }
         const plan = scrub(String(c.args.plan || "")).replace(/\r/g, "").trim().slice(0, 40_000);
         if (!plan) { reply("error: give the whole plan, in markdown, as `plan`"); continue; }
+        // APPROVED BY A HOOK (Claude Code: "If the hook answers ExitPlanMode with "allow" and updatedInput, that tool still runs
+        // without a prompt"; plan mode then returns to the mode before it, here the owner's own start mode).
+        if (c.hook && c.hook.decision === "allow" && c.hook.updated) {
+          const back = planExit === "acceptEdits" ? "acceptEdits" : "auto";
+          emit({ type: "text", text: plan });
+          emit({ type: "note", text: "A PreToolUse hook approved the plan: Plan mode is off (now " + MODE_NAMES[back] + ").", hook: "PreToolUse" });
+          setMode(back, "plan");
+          toldMode = back;
+          reply(planApproved(plan) + "\n\n" + PLAN_EXITED);
+          continue;
+        }
         if (!canAsk()) { emit({ type: "text", text: plan }); reply("the plan is shown to the owner; they approve it by changing the mode"); return end("done", { summary: plan.slice(0, 4000) }); }
         const a = await askOwner({ tool: "plan", id: c.id, plan });
         const o = answerOutcome(a);
