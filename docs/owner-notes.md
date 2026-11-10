@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Gloopy keeps its computer, signs out, previews files; tables in answers (your word: "do all of that"; part 4 of 4)
+
+- **Gloopy's work folder and browser sign-ins survive a new computer.** Before, an unused Gloopy computer was deleted with its disk after 30 days, losing its files and sign-ins (and the backup machine has no kept disk at all).
+  - Now, after each job, Gloopy's computer sends Coder a copy: its work folder (up to 25 MB packed, without caches and installed packages) and its browser's sign-ins. The sign-ins are sealed, like your saved passwords.
+  - Only what changed is sent.
+  - On a new computer, both come back before Gloopy starts, and the chat says so.
+- **Signing Gloopy out of a site.** Type **`/signins`** to see where Gloopy is signed in (and how), with a **Sign out** button for each site and **Forget** for each saved login. Or type `/signout shop.example` for any site.
+  - Signing out removes that site's cookies and stored data from Gloopy's browser and from Coder's copy, so a new computer won't sign it back in. Gloopy is told.
+  - **Found and fixed while testing:** one of Chromium's "clear this site" calls, when given an address it couldn't read, wiped every site's cookies. Sign-out no longer uses it for cookies. A test (GL76) now checks that other sites stay signed in.
+- **Preview for PDFs and pictures.** Files Gloopy makes have a **Preview** button next to Download. It opens the file over the chat (Escape closes it). The preview address is signed and lasts 10 minutes. Files are always shown as what they are, never as a web page of the site. Other kinds are only downloaded.
+- **Tables in answers.** When Gloopy (or Coder) answers with a table, it now shows as a table instead of lines of `|` marks. Wide ones scroll sideways on a phone.
+- **The welcome text is true now:** "I never see your passwords or card numbers, and when I work on my own, I ask before I send, buy or delete anything."
+- Tests: GL75 to GL78 are new (GL75 and GL76 use a real machine and a real Chromium browser). All 333 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
 ## 2026-11-10: Pause, edit and Run now for Gloopy's schedules, with a history (your word: "do all of that"; part 3 of 4)
 
 - **Type `/schedules` in Gloopy's chat** to see a card with every schedule: when it runs, its next run, and buttons **Run now** and **Pause** / **Resume**. It also shows the last runs (ran, test run, or skipped and why). No Grok call.

@@ -2750,7 +2750,7 @@ test("GL62 (2026-11-09) on the page: in Gloopy's chat the clip attaches document
   assert.match(ui, /\.\.\.\(raw \? \{ 'content-type': raw\.type \|\| 'application\/octet-stream', 'x-file-name': encodeURIComponent\(raw\.name \|\| 'file'\) \}/);
   assert.match(ui, /if \(\(S\.attach \|\| \[\]\)\.some\(\(f\) => f\.up\)\) return note\('Wait for the file to finish attaching\.'\);/);
   assert.match(ui, /\.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\)/);
-  assert.match(ui, /else if \(e\.type === 'file'\) \{[\s\S]{0,700}data-file-get="' \+ esc\(e\.id\) \+ '" data-file-name="' \+ esc\(e\.name \|\| 'file'\) \+ '">Download<\/button>/);
+  assert.match(ui, /else if \(e\.type === 'file'\) \{[\s\S]{0,1200}data-file-get="' \+ esc\(e\.id\) \+ '" data-file-name="' \+ esc\(e\.name \|\| 'file'\) \+ '">Download<\/button>/);
   assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/files\/' \+ encodeURIComponent\(id\), \{ file: name \}\);/);
   assert.match(ui, /const a = document\.createElement\('a'\); a\.href = href; a\.download = name;/);
   assert.match(ui, /Array\.isArray\(e\.files\) && e\.files\.length \? '<div class="cd-user-files">'/);
@@ -3425,7 +3425,7 @@ test("GL74 (2026-11-10) Gloopy's schedule tool, when the owner asks: pause and r
   assert.match(a.project.note, /the owner approved: Change “Morning briefing” with a new task\. It is paused\./);
   // What Gloopy is told.
   assert.match(gloopyContext({ memFile: "/m", schedulesPaused: true }), /YOUR BACKGROUND WORK IS PAUSED by the owner: no schedule, wake-up or webhook call runs until they type \/resume\./);
-  assert.match(GLOOPY_SYSTEM, /The owner can type \/schedules to see your schedules \(with Run now and Pause\), \/pause to pause all your background work and \/resume to start it again\./);
+  assert.match(GLOOPY_SYSTEM, /The owner can type \/schedules to see your schedules \(with Run now and Pause\), \/pause to pause all your background work and \/resume to start it again, and \/signins to see where your browser is signed in and sign you out of a site\./);
   assert.equal(SCHED.scheduleLine({ id: "s1", name: "n", when: "w", paused: true, nextLocal: "Tue" }), "- s1 · n · w · paused by the owner");
   // The page: the card, its buttons, kept up to date.
   const { readFileSync } = await import("node:fs");
@@ -3435,4 +3435,230 @@ test("GL74 (2026-11-10) Gloopy's schedule tool, when the owner asks: pause and r
   assert.match(ui, /data-sched-all="' \+ \(d\.paused \? 'resume' : 'pause'\) \+ '">' \+ \(d\.paused \? 'Resume all' : 'Pause all'\)/);
   assert.match(ui, /if \(r\.data\.started && r\.data\.project\) \{ S\.project = r\.data\.project; S\.running = true; syncEntry\(\); S\.next = 0; startPoll\(\); return draw\(true\); \}/);
   assert.match(css, /\.cd-sched\{/);
+});
+
+test("GL75 (2026-11-10) Gloopy's computer kept when it is replaced, for real: its work folder is packed without caches (the same bytes when nothing changed) and sent with the job's pass when its turn ends, only when it changed; on a new disk it comes back before Gloopy starts, and Gloopy is told its folder is kept", async () => {
+  const { createApp, packWork, unpackWork, WORK_SKIP } = await import("../container/server.mjs");
+  const { mkdir: mk, writeFile: wf, readFile: rf, readdir: rd } = await import("node:fs/promises");
+  // Packed and unpacked: caches out, the same bytes for the same folder, null when over the limit.
+  const a = await mkdtemp(join(tmpdir(), "gl-pk-"));
+  await mk(join(a, "files"), { recursive: true }); await mk(join(a, "node_modules", "x"), { recursive: true }); await mk(join(a, ".cache"), { recursive: true });
+  await wf(join(a, "files", "notes.txt"), "Lisbon: 3 nights"); await wf(join(a, "node_modules", "x", "big.js"), "x".repeat(5000)); await wf(join(a, ".cache", "c"), "c");
+  const p1 = await packWork(a), p2 = await packWork(a);
+  assert.ok(p1 && p1.equals(p2), "the same bytes when nothing changed");
+  assert.equal(await packWork(a, { max: 10 }), null, "over the limit: none");
+  const b = await mkdtemp(join(tmpdir(), "gl-up-"));
+  assert.deepEqual(await unpackWork(b, p1), { ok: true, why: "" });
+  assert.equal(await rf(join(b, "files", "notes.txt"), "utf8"), "Lisbon: 3 nights");
+  assert.deepEqual((await rd(b)).sort(), ["files"], "no caches or installed packages");
+  assert.deepEqual([...WORK_SKIP].slice(0, 3), ["node_modules", ".cache", "__pycache__"]);
+  // The machine: a stand-in Worker keeps the copy, with this job's pass only.
+  const kept = { work: null }, asked = [];
+  const worker = http.createServer((req, res) => {
+    const c = []; req.on("data", (x) => c.push(x)); req.on("end", () => {
+      const body = Buffer.concat(c);
+      if (req.headers["x-coder-egress"] !== "PASS-1") { res.writeHead(403); return res.end("{}"); }
+      asked.push(req.url);
+      if (req.url === "/api/coder/gloopy-backup-put?part=work") { kept.work = body; res.writeHead(200, { "content-type": "application/json" }); return res.end('{"ok":true}'); }
+      if (req.url === "/api/coder/gloopy-backup-get?part=work") { if (!kept.work) { res.writeHead(404); return res.end("{}"); } res.writeHead(200, { "content-type": "application/gzip" }); return res.end(kept.work); }
+      res.writeHead(404); res.end("{}");
+    });
+  });
+  const W = await listen(worker);
+  // One computer: its service runs from one job to the next (as Gloopy's machine's does).
+  const computer = async () => {
+    const [root, gitRoot, memRoot, bgRoot] = await Promise.all(["gl-kw-", "gl-kg-", "gl-km-", "gl-kb-"].map((x) => mkdtemp(join(tmpdir(), x))));
+    let steps = [], n = 0;
+    const srv = http.createServer(createApp({ root, gitRoot, memRoot, bgRoot, send: async () => steps[Math.min(n++, steps.length - 1)] }));
+    await new Promise((r) => srv.listen(0, r));
+    const base = "http://127.0.0.1:" + srv.address().port;
+    let turn = 0;
+    return {
+      close: () => srv.close(),
+      run: async (s) => {
+        steps = s; n = 0; turn++;
+        await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", agent: "gloopy", text: "x", messages: [], egress: { url: W + "/api/coder/egress", chat: "u1/gloopy-main", turn, pass: "PASS-1" }, files: [] }) });
+        let st;
+        for (let i = 0; i < 300; i++) { st = await (await fetch(base + "/state?project=gloopy-main&since=0")).json(); if (st.result && !st.running) break; await new Promise((ok) => setTimeout(ok, 50)); }
+        await fetch(base + "/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main" }) }).catch(() => {});
+        return st;
+      },
+    };
+  };
+  const one = await computer(), two = await computer();
+  try {
+    // First computer: Gloopy writes a file; when the turn ends, the folder goes to the copy.
+    let st = await one.run([say("", [call("write", { path: "files/plan.md", content: "# Lisbon plan\n" }, "w1")]), say("Saved.")]);
+    assert.equal(st.result.status, "done");
+    assert.ok(kept.work && kept.work.length > 0, "sent when the turn ended");
+    assert.deepEqual(asked.filter((u) => u.includes("put")), ["/api/coder/gloopy-backup-put?part=work"]);
+    // Nothing changed in the next turn: nothing sent again.
+    asked.length = 0;
+    st = await one.run([say("Nothing to do.")]);
+    assert.equal(st.result.status, "done");
+    assert.deepEqual(asked.filter((u) => u.includes("put")), [], "the same folder is not sent twice");
+    // A new computer: the folder comes back before Gloopy starts, and the chat says so.
+    st = await two.run([say("", [call("bash", { command: "cat files/plan.md" }, "b1")]), say("It's there.")]);
+    assert.match(st.result.messages.find((m) => m.tool_call_id === "b1").content, /# Lisbon plan/);
+    assert.ok(st.events.some((e) => e.type === "note" && e.text === "Gloopy's work folder was put back on this new computer."));
+  } finally { one.close(); two.close(); worker.close(); }
+  assert.match(GLOOPY_SYSTEM, /Your commands start in your work folder\. It is kept between jobs, even on a new computer \(up to 25 MB packed; caches and installed packages are not kept, so install again what you need\)\./);
+});
+
+test("GL76 (2026-11-10) the browser's sign-ins, for real (where Chromium is installed): their copy (cookies and each site's local storage) comes back on a new disk; signing Gloopy out of one site takes its cookies away and keeps the others", async (t) => {
+  const { makeBrowserHub, hasBrowser, RESTORE_FILE } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { spawnSync } = await import("node:child_process");
+  const { writeFile: wf } = await import("node:fs/promises");
+  const seen = [];
+  const site = http.createServer((q, r) => {
+    seen.push({ host: q.headers.host, url: q.url, cookie: q.headers.cookie || "" });
+    if (q.url === "/login") { r.writeHead(200, { "content-type": "text/html", "set-cookie": "sid=s3cr3t-session; Path=/; HttpOnly" }); return r.end("<title>Signed in</title><script>localStorage.setItem('theme','dark')</script>"); }
+    r.writeHead(200, { "content-type": "text/html" }); r.end("<title>Home</title><script>document.title = 'Home ' + (localStorage.getItem('theme') || 'none')</script>");
+  });
+  const S = await listen(site), port = new URL(S).port;
+  const A = "http://127.0.0.1:" + port, B = "http://localhost:" + port;
+  const dir1 = join(await mkdtemp(join(tmpdir(), "gl-st1-")), "browser");
+  const hub1 = makeBrowserHub({ dir: dir1 });
+  let state;
+  try {
+    await hub1.act({ action: "open", url: A + "/login" });
+    await hub1.act({ action: "open", url: B + "/login" });
+    state = await hub1.state();
+    assert.deepEqual(state.cookies.map((c) => [c.domain, c.name]).sort(), [["127.0.0.1", "sid"], ["localhost", "sid"]]);
+    assert.ok(state.origins.some((o) => o.origin === A && o.localStorage.some((x) => x.name === "theme" && x.value === "dark")), JSON.stringify(state.origins));
+    // Signed out of one site: its cookies go; the other's stay.
+    const out = await hub1.signOut({ site: "127.0.0.1:" + port });
+    assert.deepEqual([out.ok, out.cookies, out.storage], [true, 1, 1]);
+    const after = await hub1.state();
+    assert.deepEqual(after.cookies.map((c) => c.domain), ["localhost"], "the other site's cookie stays (found 2026-11-10: Chromium's clear-an-origin wiped it)");
+    assert.deepEqual(after.origins.map((o) => o.origin), [B], "and its local storage");
+    await assert.rejects(hub1.signOut({ site: "not a site" }), /give a site, like shop\.example/);
+  } catch (e) { spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir1]); site.close(); throw e; }
+  finally { spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir1]); }
+  // A new disk: the copy left for the browser comes back when it starts (read once, then gone).
+  const dir2 = join(await mkdtemp(join(tmpdir(), "gl-st2-")), "browser");
+  const { mkdirSync, existsSync } = await import("node:fs");
+  mkdirSync(dir2, { recursive: true, mode: 0o700 });
+  await wf(join(dir2, RESTORE_FILE), JSON.stringify(state), { mode: 0o600 });
+  const hub2 = makeBrowserHub({ dir: dir2 });
+  try {
+    seen.length = 0;
+    const a = await hub2.act({ action: "open", url: A + "/home" });
+    assert.equal(seen.at(-1).cookie, "sid=s3cr3t-session", "signed in again on the new disk");
+    assert.match(a.text, /Page: Home dark/, "its local storage too");
+    assert.equal(existsSync(join(dir2, RESTORE_FILE)), false, "the copy is read once, then gone");
+  } finally { spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir2]); site.close(); }
+});
+
+test("GL77 (2026-11-10) on Coder's Worker: the copy of Gloopy's computer (only with its running job's pass; the sign-ins sealed); where Gloopy is signed in, and signing it out of a site (its browser, the copy, and Gloopy told); /signins and /signout; a PDF or a picture shown at a signed address for 10 minutes, as its own type, never as a page", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const B = await import("../src/gloopy-backup.mjs");
+  const E = await import("../src/coder-egress.mjs");
+  const F = await import("../src/gloopy-files.mjs");
+  const { cookieForSite } = await import("../container/gloopy-check.mjs");
+  const bucket = bytesBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  const machine = [];
+  let signoutAnswer = { ok: true, site: "shop.example", cookies: 2 };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); const body = req.method === "POST" ? await req.json() : null; machine.push({ path: u.pathname, body }); if (u.pathname === "/gloopy/signout") return Response.json(signoutAnswer); if (u.pathname === "/gloopy/signin") return Response.json({ ok: true, still: false, title: "Orders", url: "https://shop.example/orders" }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json", ...(init.headers || {}) } }), env, {}, deps);
+  await go("gloopy");
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const setMeta = (o) => bucket.m.set(metaKey, JSON.stringify({ ...JSON.parse(bucket.m.get(metaKey)), ...o }));
+  // The copy: only with the running job's own pass.
+  setMeta({ status: "running", turn: 7 });
+  const pass = await E.egressPass(env, "u1/" + GLOOPY_ID, 7);
+  const job = (path, body, extra = {}) => handleCoder(new Request("https://gofarther.example/api/coder/" + path, { method: "POST", headers: { "x-coder-chat": "u1/" + GLOOPY_ID, "x-coder-turn": "7", "x-coder-egress": pass, ...extra }, body }), env, {}, deps);
+  const STATE = { cookies: [{ name: "sid", value: "shop-session-123", domain: ".shop.example", path: "/" }, { name: "sid", value: "news-session-456", domain: "news.example", path: "/" }], origins: [{ origin: "https://shop.example", localStorage: [{ name: "cart", value: "3" }] }] };
+  assert.equal((await job("gloopy-backup-put?part=browser", JSON.stringify(STATE), { "x-coder-egress": "nope" })).status, 403);
+  assert.equal((await job("gloopy-backup-put?part=other", "x")).status, 403);
+  let r = await job("gloopy-backup-put?part=browser", JSON.stringify(STATE));
+  assert.deepEqual(await r.json(), { ok: true, cookies: 2 });
+  assert.ok(!String(bucket.m.get("coder/u1/gloopy/backup-browser.json")).includes("shop-session-123"), "sealed, as the owner's saved logins are");
+  r = await job("gloopy-backup-put?part=work", Buffer.from("made-up tgz bytes"));
+  assert.equal(r.status, 200);
+  r = await job("gloopy-backup-get?part=work", "");
+  assert.equal(Buffer.from(await r.arrayBuffer()).toString(), "made-up tgz bytes");
+  assert.deepEqual((await (await job("gloopy-backup-get?part=browser", "")).json()).state, STATE);
+  setMeta({ status: "idle" });
+  assert.equal((await job("gloopy-backup-get?part=browser", "")).status, 403, "not once the job is over");
+  // Where Gloopy is signed in: kept when the owner signs it in (here on the private card), and from a turn's saved-login sign-ins.
+  setMeta({ pending: { kind: "signin", id: "si1", site: "shop.example", at: Date.now() } });
+  await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: "si1", username: "ana", password: "pw-123456" }) });
+  let s = await (await go("projects/" + GLOOPY_ID + "/signins")).json();
+  assert.deepEqual(s.sites.map((x) => [x.site, x.how]), [["shop.example", "form"]]);
+  // Signed out: the browser asked, the copy cleared of that site (the other stays), the list, and Gloopy told.
+  r = await (await go("projects/" + GLOOPY_ID + "/signout", { method: "POST", body: JSON.stringify({ site: "https://shop.example/account" }) })).json();
+  assert.deepEqual(machine.find((x) => x.path === "/gloopy/signout").body, { project: GLOOPY_ID, site: "shop.example" });
+  assert.equal(r.said, "Signed Gloopy out of shop.example (2 cookies gone).");
+  assert.deepEqual(r.sites, []);
+  const copy = await B.readBackup(env, bucket, "u1", "browser");
+  assert.deepEqual([copy.cookies.map((c) => c.domain), copy.origins], [["news.example"], []]);
+  assert.match(JSON.parse(bucket.m.get(metaKey)).note, /the owner signed you out of shop\.example\. To use it again, use sign_in\./);
+  assert.equal((await go("projects/" + GLOOPY_ID + "/signout", { method: "POST", body: JSON.stringify({ site: "nope" }) })).status, 400);
+  setMeta({ status: "running" });
+  assert.equal((await go("projects/" + GLOOPY_ID + "/signout", { method: "POST", body: JSON.stringify({ site: "news.example" }) })).status, 409);
+  setMeta({ status: "idle", note: "" });
+  // The commands.
+  const msg = (text) => go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text }) });
+  const before = machine.filter((x) => x.path === "/turn").length;
+  r = await (await msg("/signins")).json();
+  assert.deepEqual([r.handled, r.events[0].type, r.events[0].sites, r.events[0].saved], [true, "signins", [], []]);
+  signoutAnswer = { ok: true, site: "news.example", cookies: 1 };
+  r = await (await msg("/signout news.example")).json();
+  assert.equal(r.events[0].text, "Signed Gloopy out of news.example (1 cookie gone).");
+  r = await (await msg("/signout")).json();
+  assert.match(r.events[0].text, /^Type the site after \/signout, like \/signout shop\.example\./);
+  assert.equal(machine.filter((x) => x.path === "/turn").length, before, "no job ran");
+  assert.equal(cookieForSite(".shop.example", "www.shop.example"), true);
+  assert.equal(cookieForSite("accounts.shop.example", "shop.example"), true);
+  assert.equal(cookieForSite("shop.example.evil", "shop.example"), false);
+  assert.equal(cookieForSite("example", "shop.example"), false, "never a bare ending");
+  // A preview: a signed address, 10 minutes, the file's own type, inline; never another kind.
+  const pdf = await F.keepFile(bucket, "u1", { name: "Trip budget.pdf", bytes: new TextEncoder().encode("%PDF-1.4 made-up"), dir: "out" });
+  const png = await F.keepFile(bucket, "u1", { name: "Chart.png", bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), dir: "out" });
+  const doc = await F.keepFile(bucket, "u1", { name: "Notes.docx", bytes: new Uint8Array([1, 2, 3]), dir: "out" });
+  let v = await (await go("projects/" + GLOOPY_ID + "/files/" + pdf.id + "/view")).json();
+  assert.match(v.url, new RegExp("^/api/coder/gloopy-view/u1/" + pdf.id + "\\?e=\\d+&t=[\\w-]+$"));
+  assert.equal(v.type, "application/pdf");
+  const show = (u) => handleCoder(new Request("https://gofarther.example" + u), env, {}, deps);
+  r = await show(v.url);
+  assert.deepEqual([r.status, r.headers.get("content-type"), r.headers.get("content-disposition"), r.headers.get("x-content-type-options"), await r.text()], [200, "application/pdf", 'inline; filename="Trip budget.pdf"', "nosniff", "%PDF-1.4 made-up"]);
+  v = await (await go("projects/" + GLOOPY_ID + "/files/" + png.id + "/view")).json();
+  r = await show(v.url);
+  assert.deepEqual([r.status, r.headers.get("content-type"), r.headers.get("content-security-policy")], [200, "image/png", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"]);
+  assert.equal((await show(v.url.replace(/t=[\w-]+/, "t=nope"))).status, 404);
+  assert.equal((await show(v.url.replace(/e=\d+/, "e=" + (Date.now() - 1000)))).status, 404, "past its 10 minutes");
+  r = await go("projects/" + GLOOPY_ID + "/files/" + doc.id + "/view");
+  assert.deepEqual([r.status, (await r.json()).error], [400, "That kind of file can't be shown here: download it."]);
+  assert.equal(F.VIEW_PASS_MS, 10 * 60 * 1000);
+});
+
+test("GL78 (2026-11-10) on the page: answers with a table show a table (Coder's too); a PDF or a picture Gloopy made has Preview, shown over the chat with Download; the sign-ins card; the welcome says only what is true while testing", async () => {
+  const { readFileSync } = await import("node:fs");
+  const vm = await import("node:vm");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  // The answer's formatting, run as the page runs it.
+  const pick = (re) => { const m = re.exec(ui); assert.ok(m, String(re)); return m[0]; };
+  const code = pick(/  const esc = \(s\) => [^\n]*\n/) + pick(/  function inline\(s\) \{[\s\S]*?\n  \}\n/) + pick(/  const SEP_ROW = [\s\S]*?\n  function blocks\(text\) \{[\s\S]*?\n  \}\n  function prose\(t\) \{[\s\S]*?\n  \}\n/);
+  const box = {};
+  vm.runInNewContext(code + "\nthis.prose = prose;", box);
+  const html = box.prose("Here are the three:\n| Hotel | Price | Rating |\n|---|---:|:-:|\n| **Casa** | €120 | 4.5 |\n| Lumen \\| Rio | €95 | 4.1 |\nThe cheapest is Lumen.\n\n- a list after");
+  assert.equal(html, '<p>Here are the three:</p><div class="cd-table"><table><thead><tr><th>Hotel</th><th style="text-align:right">Price</th><th style="text-align:center">Rating</th></tr></thead><tbody><tr><td><b>Casa</b></td><td style="text-align:right">€120</td><td style="text-align:center">4.5</td></tr><tr><td>Lumen | Rio</td><td style="text-align:right">€95</td><td style="text-align:center">4.1</td></tr></tbody></table></div><p>The cheapest is Lumen.</p><ul><li>a list after</li></ul>');
+  assert.equal(box.prose("a | b in a sentence"), "<p>a | b in a sentence</p>", "a bar in words is not a table");
+  assert.match(css, /\.cd-table\{overflow-x:auto/);
+  // Preview: on PDFs and pictures only; the viewer over the chat with Download; Escape closes it.
+  assert.match(ui, /const viewable = \/\^\(pdf\|png\|jpe\?g\|gif\|webp\)\$\/i\.test\(ext\);/);
+  assert.match(ui, /data-file-view="' \+ esc\(e\.id\) \+ '" data-file-name="' \+ esc\(e\.name \|\| 'file'\) \+ '">Preview<\/button>/);
+  assert.match(ui, /\(v\.type === 'application\/pdf' \? '<iframe src="' \+ esc\(v\.url\) \+ '"/);
+  assert.match(ui, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/files\/' \+ encodeURIComponent\(id\) \+ '\/view'\)/);
+  assert.match(ui, /if \(e\.key === 'Escape' && S\.view\) \{ S\.view = null; draw\(\); \}/);
+  // The sign-ins card.
+  assert.match(ui, /data-signout="' \+ esc\(x\.site\) \+ '">Sign out<\/button>/);
+  assert.match(ui, /data-login-forget="' \+ esc\(l\.id\) \+ '">Forget<\/button>/);
+  // The welcome: true in every setting.
+  assert.doesNotMatch(ui, /I always ask before I send, buy or delete anything/);
+  assert.match(ui, /I never see your passwords or card numbers, and when I work on my own, I ask before I send, buy or delete anything\./);
 });

@@ -640,6 +640,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // Schedules Gloopy changed, paused or set going again when the owner asked (the audit, 2026-11-10; applied when the turn
   // ends, the changes as the owner's settings allow them there).
   const scheduleEdits = [], schedulePauses = [];
+  // The sites Gloopy signed in to on its own with a login the owner saved (the Worker lists them, for signing out).
+  const signedIn = [];
   // Gloopy's webhooks it set up and stopped in this turn (the Worker keeps them; it applies these when the turn ends).
   const webhookAdds = [], webhookRemovals = [];
   // How many files Gloopy has sent in this turn.
@@ -700,7 +702,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -1054,6 +1056,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           let s = null;
           try { s = await hub.signInSaved({ site, userRef, passRef, submitRef }); } catch { s = null; }
           if (s && s.ok && !s.still) {
+            if (!signedIn.includes(site)) signedIn.push(site);
             emit({ type: "result", id: c.id, code: 0, output: "Signed in to " + site + " with your saved login", label: "Signed in to " + site + " with your saved login", saved: true });
             reply("signed in to " + site + " with the owner's saved login (you never see it). Your browser's page is now “" + plain(s.title) + "” at " + String(s.url || "") + ". Look at it before you go on.");
             continue;

@@ -101,7 +101,7 @@ test("CD119 the machine sends a job's new steps every few seconds and its conver
   assert.match(server, /http\.createServer\(createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, sandbox: true, data: process\.env\.CODER_DATA \|\| null, image: process\.env\.CODER_IMAGE_REF \|\| imageId\(\), liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\) \}\)\)\.listen\(8080/);
   assert.match(server, /turns\.set\(project, t\);[\s\S]{0,300}const live = liveFetch \? liveTarget\(body\.live\) : null;\n\s+const sender = live \? liveSender\(t, live, liveFetch\) : null;\n\s+const fail = \(status, why\) => \{ if \(sender\) sender\.stop\(\);/, "from the start of the job, the setup included; stopped if the job does not start");
   assert.match(server, /watch: \(now\) => \{ const before = Array\.isArray\(body\.messages\) \? body\.messages\.length : 0; t\.convoNow = \(\) => now\(\)\.slice\(before\); \},/, "only this job's part of the conversation");
-  assert.match(server, /\.then\(async \(r\) => \{ const memory = await readMemory\(memFile\); await lastSend\(\); t\.result = \{ \.\.\.r, memory, cwd: t\.cwd \}; \}, async \(e\) => \{ await lastSend\(\); t\.result = /);
+  assert.match(server, /\.then\(async \(r\) => \{ const memory = await readMemory\(memFile\); if \(gloopy\) await Promise\.race\(\[backupGloopy\(\)\.catch\(\(\) => \{\}\), new Promise\(\(ok\) => setTimeout\(ok, 30_000\)\)\]\); await lastSend\(\); t\.result = \{ \.\.\.r, memory, cwd: t\.cwd \}; \}, async \(e\) => \{ await lastSend\(\); t\.result = /);
 });
 
 test("CD120 the Worker keeps a job's steps sealed, in parts of 200, only for that job's pass while it runs; they come back in order", async () => {

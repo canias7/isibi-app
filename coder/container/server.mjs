@@ -27,7 +27,7 @@ import { join, dirname, relative, resolve, basename, isAbsolute } from "node:pat
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
 import { GLOOPY_SYSTEM, GLOOPY_TOOLS, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_TOOLS, gloopyContext } from "./gloopy-agent.mjs";
-import { makeBrowserHub } from "./gloopy-browser.mjs";
+import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
@@ -1205,6 +1205,37 @@ export function gitFrom(body, { via = false, remote = DEFAULT_REMOTE } = {}) {
   return { remote, headers: [], token: String((body && body.token) || "") };
 }
 
+// ── GLOOPY'S WORK FOLDER, PACKED FOR ITS COPY (the audit, owner 2026-11-10: "do all of that"; src/gloopy-backup.mjs) ──
+// Packed and unpacked as the AI's own user (`dev`): only what it may read goes in, and nothing comes out anywhere it may
+// not write. Caches and installed packages stay out (they come back by themselves).
+export const WORK_SKIP = Object.freeze(["node_modules", ".cache", "__pycache__", ".venv", "venv", ".npm", ".git", ".coder-pictures"]);
+export const WORK_PACK_MAX = 25 * 1024 * 1024;
+/** The folder packed (gzip'd tar, the same bytes when nothing changed), or null: empty, over `max`, or it failed. */
+export function packWork(dir, { uid = RUN_UID, gid = RUN_GID, max = WORK_PACK_MAX } = {}) {
+  return new Promise((done) => {
+    let p;
+    try { p = spawn("tar", ["-czf", "-", ...WORK_SKIP.map((x) => "--exclude=" + x), "-C", dir, "."], { stdio: ["ignore", "pipe", "ignore"], ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) }); } catch { return done(null); }
+    const chunks = [];
+    let size = 0, over = false;
+    p.stdout.on("data", (c) => { size += c.length; if (size > max) { over = true; p.kill("SIGKILL"); } else chunks.push(c); });
+    p.on("error", () => done(null));
+    p.on("close", (code) => done(over || code !== 0 || !size ? null : Buffer.concat(chunks)));
+  });
+}
+/** A packed folder put back into `dir` (as `dev`; never over its owner or modes): { ok, why }. */
+export function unpackWork(dir, buf, { uid = RUN_UID, gid = RUN_GID } = {}) {
+  return new Promise((done) => {
+    let p;
+    try { p = spawn("tar", ["-xzf", "-", "--no-same-owner", "--no-same-permissions", "--no-overwrite-dir", "-C", dir], { stdio: ["pipe", "ignore", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) }); } catch (e) { return done({ ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
+    let err = "";
+    p.stderr.on("data", (c) => { if (err.length < 2000) err += c; });
+    p.on("error", (e) => done({ ok: false, why: String((e && e.message) || e).slice(0, 200) }));
+    p.on("close", (code) => done({ ok: code === 0, why: err.trim().slice(0, 300) }));
+    p.stdin.on("error", () => {});
+    p.stdin.end(buf);
+  });
+}
+
 // ── ON FLY.IO (owner, 2026-11-07: "YES OPTION 2", "OK LETS START THEN") ───
 // Each chat's machine is a small VM there, stopped when quiet with its disk
 // kept, like Claude Code's. The chat's files live on that kept disk
@@ -1566,6 +1597,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env }));
   // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), until they answer or a turn starts.
   const pending = new Map();
+  // What of Gloopy's computer was last sent to its copy (the audit, 2026-11-10): "<project>:work" / ":browser" → its hash.
+  const backups = new Map();
   // THE OWNER HAS TAKEN OVER GLOOPY'S BROWSER (owner, 2026-11-09: "Ok you can start"; Grok Bot's Take control, dots'
   // Take over): only while no Gloopy turn runs; Gloopy's browser steps are refused meanwhile, and the owner's next message
   // hands it back (Grok Bot: "tell the Bot to continue").
@@ -1624,6 +1657,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A CHAT WITHOUT A REPOSITORY (the audit, 2026-11-06): its folder is made
         // here, as root, and only that folder is handed to the AI's user.
         const pd = await makeProjectDir(dir, { root, owner: DEV });
+        // Made just now: a new disk (Gloopy's folder comes back from its copy before it starts: restoreGloopy).
+        t.madeDir = pd.made === true;
         if (pd.why) return fail(500, pd.why);
       }
     } catch (e) { return fail(500, String((e && e.message) || e).slice(0, 200)); }
@@ -1884,6 +1919,43 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         return { id: String(out.id), name: String(out.name || name), size: Number(out.size) || 0 };
       },
     } : null;
+    // GLOOPY'S COMPUTER, KEPT WHEN IT IS REPLACED (the audit, 2026-11-10; src/gloopy-backup.mjs): on a new disk, its work
+    // folder and its browser's sign-ins come back from the copy Coder's Worker keeps, before it starts; after each job,
+    // the copy is brought up to date (only what changed is sent).
+    const browserDir = browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser");
+    const restoreGloopy = async () => {
+      if (!gloopy || !jobHeaders || !eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return;
+      if (t.madeDir) {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-backup-get") + "?part=work", { method: "POST", headers: jobHeaders }).catch(() => null);
+        if (r && r.ok) {
+          const buf = Buffer.from(await r.arrayBuffer());
+          const u = await unpackWork(dir, buf);
+          if (u.ok) { backups.set(project + ":work", createHash("sha256").update(buf).digest("hex")); t.events.push({ at: Date.now(), type: "note", text: "Gloopy's work folder was put back on this new computer." }); }
+        }
+      }
+      if (hasBrowser && !existsSync(join(browserDir, "profile"))) {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-backup-get") + "?part=browser", { method: "POST", headers: jobHeaders }).catch(() => null);
+        const j = r && r.ok ? await r.json().catch(() => null) : null;
+        if (j && j.state && typeof j.state === "object") {
+          // Left in the browser's own folder, only its user's; read once when the browser starts (gloopy-browser.mjs).
+          mkdirSync(browserDir, { recursive: true, mode: 0o700 });
+          if (webUid !== null) chownSync(browserDir, webUid, webGid ?? webUid);
+          const f = join(browserDir, RESTORE_FILE);
+          writeFileSync(f, JSON.stringify(j.state), { mode: 0o600 });
+          if (webUid !== null) chownSync(f, webUid, webGid ?? webUid);
+        }
+      }
+    };
+    const backupGloopy = async () => {
+      if (!gloopy || !jobHeaders || !eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return;
+      const send = async (part, body, type) => { const sum = createHash("sha256").update(body).digest("hex"); if (backups.get(project + ":" + part) === sum) return; const r = await (filesFetch || fetch)(filesAt("gloopy-backup-put") + "?part=" + part, { method: "POST", headers: { "content-type": type, ...jobHeaders }, body }).catch(() => null); if (r && r.ok) backups.set(project + ":" + part, sum); };
+      const pack = await packWork(dir);
+      if (pack) await send("work", pack, "application/gzip");
+      if (hasBrowser && (await browserHub().running().catch(() => false))) {
+        const st = await browserHub().state().catch(() => null);
+        if (st && Array.isArray(st.cookies)) await send("browser", Buffer.from(JSON.stringify(st)), "application/json");
+      }
+    };
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
     // THE COPY IS SAVED NOW (above: takeCopy): a setup that ran on this fresh disk and worked, with all it
@@ -1978,7 +2050,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); }, signInSaved: (x) => { notWhileOwner(); return signInSaved(x); } } } : {}),
       }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], webhooks, hookBase, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
-        .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+        // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
+        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, a sign-in, or a card), for /gloopy/approve,
         // /gloopy/signin or /gloopy/card.
         .then(() => { const r = t.result; if (gloopy && r && (r.approvalRequest || r.signinRequest || r.cardRequest)) pending.set(project, r.approvalRequest ? { kind: "approval", ...r.approvalRequest } : r.signinRequest ? { kind: "signin", ...r.signinRequest } : { kind: "card", ...r.cardRequest }); })
@@ -2008,6 +2081,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         return [200, { ok: true, held: true }];
       } catch { /* no copy this time */ }
     }
+    if (gloopy) await restoreGloopy().catch(() => {});
     begin();
     return [200, { ok: true }];
   }
@@ -2154,6 +2228,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const r = await browserHub().fill({ site: p.site, userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || "") });
           return send(200, { ok: true, still: r.still === true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
         } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // GLOOPY SIGNED OUT OF A SITE BY THE OWNER (the audit, 2026-11-10): that site's cookies and its pages' storage go from
+      // Gloopy's browser; not while Gloopy works in it.
+      if (url.pathname === "/gloopy/signout" && req.method === "POST") {
+        if (env.CODER_IMAGE !== "full") return send(200, { none: true });
+        if (t && t.running) return send(409, { error: "Gloopy is working. Stop it first, or try again when it is done." });
+        try { return send(200, await browserHub().signOut({ site: String(body.site || "") })); }
+        catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
       }
       // THE OWNER'S CARD, from the private card form (2026-11-09): typed into the page's card fields here, never kept or
       // said. Only what this chat's last turn asked for, on the page it asked about, and once.

@@ -109,3 +109,46 @@ export function fileDownload(item, body) {
 
 /** A file's size in words: "1.2 MB", "40 KB". */
 export const sizeWords = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+
+// A PREVIEW IN THE CHAT (the audit, owner 2026-11-10: "do all of that"; Grok Bot's file cards open PDFs and pictures): a
+// PDF or a picture, shown in the page's own viewer by a plain visit from its frame or picture (no sign-in header), at a
+// signed address that says whose file it is, for VIEW_PASS_MS (as Gloopy's pages are). Only these kinds, served as
+// their own type and never sniffed, so a file is never opened as a page of this site; anything else is downloaded.
+export const PREVIEW_TYPES = Object.freeze({ pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" });
+export const VIEW_PASS_MS = 10 * 60 * 1000;
+const enc = new TextEncoder();
+const b64url = (buf) => { const b = new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+async function viewPass(env, uid, id, until) {
+  const raw = String((env && env.CODER_TOKEN_KEY) || "");
+  if (raw.length < 32) return "";
+  const k = await crypto.subtle.importKey("raw", enc.encode("coder-file-view-v1|" + raw), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return b64url(await crypto.subtle.sign("HMAC", k, enc.encode("view:" + uid + ":" + id + ":" + until)));
+}
+/** Whether a file can be shown in the chat (a PDF or a picture). */
+export const canPreview = (name) => !!PREVIEW_TYPES[extOf(name)];
+/** The address that shows one of the owner's files, for the next VIEW_PASS_MS (the page asks for it with their sign-in); "" when it can't be shown. */
+export async function fileViewAddress(env, uid, item, now = Date.now()) {
+  if (!item || !canPreview(item.name)) return "";
+  const until = now + VIEW_PASS_MS;
+  const t = await viewPass(env, uid, item.id, until);
+  return t ? "/api/coder/gloopy-view/" + encodeURIComponent(uid) + "/" + item.id + "?e=" + until + "&t=" + t : "";
+}
+/** A FILE, SHOWN (a plain visit with its signed address): a PDF or a picture as its own type, inline; anything wrong is "not found". */
+export async function serveFileView(env, bucket, uid, id, url, now = Date.now()) {
+  const nope = () => new Response("This file could not be shown. Open it again from Gloopy's chat.", { status: 404, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+  const until = Number(url.searchParams.get("e"));
+  const given = String(url.searchParams.get("t") || "");
+  if (!FILE_ID.test(String(id || "")) || !/^[\w-]{1,80}$/.test(String(uid || "")) || !Number.isFinite(until) || until < now || until > now + VIEW_PASS_MS + 60_000 || !given) return nope();
+  const want = await viewPass(env, uid, id, until);
+  if (!want || want.length !== given.length) return nope();
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ given.charCodeAt(i);
+  if (diff) return nope();
+  const f = await fileOf(bucket, uid, id);
+  const type = f ? PREVIEW_TYPES[extOf(f.item.name)] : "";
+  if (!f || !type) return nope();
+  const ascii = f.item.name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return new Response(f.body, { status: 200, headers: { "content-type": type, "content-disposition": "inline; filename=\"" + ascii + "\"", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "private, no-store",
+    // A picture's own rules (it can load nothing); a PDF's are its viewer's (a sandbox would stop the viewer).
+    ...(type.startsWith("image/") ? { "content-security-policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'" } : {}) } });
+}

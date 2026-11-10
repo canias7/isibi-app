@@ -642,7 +642,7 @@
     }
     // /compact (like Claude Code's): the summary is made; no job runs.
     // /pause, /resume and /schedules in Gloopy's chat (the audit, 2026-11-10): done by the Worker; no job runs either.
-    if (r.data.compacted || r.data.handled) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); if (r.data.handled) { S.sched = null; S.schedMsg = ''; } syncEntry(); return draw(true); }
+    if (r.data.compacted || r.data.handled) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); if (r.data.handled) { S.sched = null; S.schedMsg = ''; S.signins = null; S.signinsMsg = ''; } syncEntry(); return draw(true); }
     S.project = r.data.project; S.running = true; syncEntry();
     S.next = 0;
     startPoll(); draw(true);
@@ -767,11 +767,31 @@
       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
     return h.replace(/\u0000(\d+)\u0000/g, (_, i) => links[Number(i)]);
   }
+  // A TABLE (the audit, 2026-11-10: answers showed "| Hotel | Price |" lines as they were): a header row, a line of dashes
+  // (":---:" for centred, "---:" for right), then rows; the cells formatted as the rest of the answer is.
+  const SEP_ROW = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+  const cellsOf = (l) => { const t = l.trim().replace(/^\|/, '').replace(/\|$/, ''); return t.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|')); };
+  function tableHTML(lines) {
+    const head = cellsOf(lines[0]), align = cellsOf(lines[1]).map((c) => (/^:-+:$/.test(c) ? 'center' : /-:$/.test(c) ? 'right' : ''));
+    const cell = (tag, c, k) => '<' + tag + (align[k] ? ' style="text-align:' + align[k] + '"' : '') + '>' + inline(c) + '</' + tag + '>';
+    return '<div class="cd-table"><table><thead><tr>' + head.map((c, k) => cell('th', c, k)).join('') + '</tr></thead><tbody>' +
+      lines.slice(2).map((l) => { const cs = cellsOf(l); return '<tr>' + head.map((_, k) => cell('td', cs[k] || '', k)).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+  }
   function blocks(text) {
     const out = [];
     for (const block of String(text).trim().split(/\n{2,}/)) {
       const lines = block.split('\n');
       const bullet = (l) => /^\s*[-*•]\s+/.test(l), num = (l) => /^\s*\d{1,3}[.)]\s+/.test(l);
+      // A table, with or without a line of words before it and after it in the same block.
+      const at = lines.findIndex((l, k) => l.includes('|') && k + 1 < lines.length && SEP_ROW.test(lines[k + 1]) && cellsOf(l).length > 1);
+      if (at >= 0) {
+        let to = at + 2;
+        while (to < lines.length && lines[to].includes('|')) to++;
+        if (at > 0) out.push(blocks(lines.slice(0, at).join('\n')));
+        out.push(tableHTML(lines.slice(at, to)));
+        if (to < lines.length) out.push(blocks(lines.slice(to).join('\n')));
+        continue;
+      }
       if (lines.every(bullet)) out.push('<ul>' + lines.map((l) => '<li>' + inline(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('') + '</ul>');
       else if (lines.every(num)) out.push('<ol>' + lines.map((l) => '<li>' + inline(l.replace(/^\s*\d{1,3}[.)]\s+/, '')) + '</li>').join('') + '</ol>');
       else if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) out.push('<h4>' + inline(lines[0].replace(/^#{1,4}\s+/, '')) + '</h4>');
@@ -1011,7 +1031,9 @@
       else if (e.type === 'file') {
         // A FILE GLOOPY MADE (2026-11-09: "4"; Grok Bot's file cards): its name, size and Download (always saved, never opened here).
         const ext = (/\.([A-Za-z0-9]{1,6})$/.exec(String(e.name || '')) || [])[1] || '';
-        out.push('<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(e.name || 'File') + '</b><small>' + esc(sizeWords(Number(e.size) || 0)) + '</small></span><button type="button" class="cd-card-yes cd-filecard-get" data-file-get="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Download</button></div>');
+        // A PDF or a picture can be looked at here first (the audit, 2026-11-10).
+        const viewable = /^(pdf|png|jpe?g|gif|webp)$/i.test(ext);
+        out.push('<div class="cd-filecard"><span class="cd-filecard-icon">' + ICON.doc + (ext ? '<b>' + esc(ext.toUpperCase()) + '</b>' : '') + '</span><span class="cd-filecard-t"><b>' + esc(e.name || 'File') + '</b><small>' + esc(sizeWords(Number(e.size) || 0)) + '</small></span>' + (viewable ? '<button type="button" class="cd-card-no cd-filecard-view" data-file-view="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Preview</button>' : '') + '<button type="button" class="cd-card-yes cd-filecard-get" data-file-get="' + esc(e.id) + '" data-file-name="' + esc(e.name || 'file') + '">Download</button></div>');
       }
       else if (e.type === 'hook') {
         // A WEBHOOK GLOOPY SET UP (2026-11-09: "2"; Grok Bot's routine webhook fields): its address, and its key when the
@@ -1024,6 +1046,20 @@
           '<span class="cd-secret-l">Key</span>' + (key ? '<code class="cd-hook-v">' + esc(key) + '</code>' : '<button type="button" class="cd-card-no cd-hook-show" data-hook-key="' + esc(e.id) + '">Show key</button>') +
           '<p class="cd-hook-how">Send the key as the header <code>Authorization: Bearer &lt;key&gt;</code>. For a GitHub webhook: the address as the Payload URL, content type application/json, and the key as the Secret.</p>' +
           (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '</div>');
+      }
+      else if (e.type === 'signins') {
+        // WHERE GLOOPY'S BROWSER IS SIGNED IN (the audit, 2026-11-10), as /signins showed it: Sign out for each site (its
+        // cookies go, from the browser and from the copy Coder keeps), Forget for each saved login.
+        const newest = !S.events.slice(i + 1).some((x) => x.type === 'signins');
+        const d = newest && S.signins ? S.signins : { sites: e.sites || [], saved: e.saved || [] };
+        const HOW = { form: 'You signed in on the card', saved: 'With your saved login', code: 'With a code', 'took over': 'You signed in yourself' };
+        const when = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        out.push('<div class="cd-sched cd-signins"><div class="cd-sched-head"><b>Where Gloopy is signed in</b></div>' +
+          (d.sites.length ? d.sites.map((x) => '<div class="cd-sched-row"><div class="cd-sched-t"><b>' + esc(x.site) + '</b><small>' + esc(HOW[x.how] || 'Signed in') + (x.at ? ' · ' + esc(when(x.at)) : '') + '</small></div>' + (newest ? '<div class="cd-sched-btns"><button type="button" class="cd-card-no cd-sched-btn" data-signout="' + esc(x.site) + '">Sign out</button></div>' : '') + '</div>').join('')
+            : '<p class="cd-sched-none">Gloopy hasn’t signed in anywhere for you yet.</p>') +
+          '<p class="cd-sched-none">For any other site: type /signout and the site, like /signout shop.example.</p>' +
+          (d.saved.length ? '<div class="cd-sched-log"><small>Saved logins</small>' + d.saved.map((l) => '<div class="cd-signins-saved"><span>' + esc(l.site) + (l.username ? ' · ' + esc(l.username) : '') + '</span>' + (newest ? '<button type="button" class="cd-card-no cd-sched-btn" data-login-forget="' + esc(l.id) + '">Forget</button>' : '') + '</div>').join('') + '</div>' : '') +
+          (newest && S.signinsMsg ? '<p class="cd-secret-err">' + esc(S.signinsMsg) + '</p>' : '') + '</div>');
       }
       else if (e.type === 'schedules') {
         // YOUR SCHEDULES (the audit, 2026-11-10; Grok Bot's routines: pause, run once, past runs), as /schedules showed them;
@@ -1093,7 +1129,15 @@
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       '<span class="cd-gl-av" aria-hidden="true">' + gloopyFig(26) + '</span><b class="cd-title-bar">' + esc((S.project && S.project.title) || 'Gloopy') + '</b>' +
       (S.webOK && S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"' + (S.web ? ' aria-pressed="true"' : '') + '>' + ICON.web + 'Browser' + (S.web && S.web.control ? ' · You' : S.running ? ' · Live' : '') + '</button>' : '') +
-    '</div>' + (S.web ? webHTML() : '');
+    '</div>' + (S.web ? webHTML() : '') + (S.view ? viewHTML() : '');
+  }
+  // A PREVIEW OF A FILE (the audit, 2026-11-10): a PDF or a picture Gloopy made, shown over the chat at its signed address
+  // (10 minutes), with Download; Escape or × closes it.
+  function viewHTML() {
+    const v = S.view;
+    return '<div class="cd-view" id="cdView" role="dialog" aria-modal="true" aria-label="' + esc(v.name) + '"><div class="cd-view-box">' +
+      '<div class="cd-view-bar"><b>' + esc(v.name) + '</b><button type="button" class="cd-card-no cd-sched-btn" data-file-get="' + esc(v.id) + '" data-file-name="' + esc(v.name) + '">Download</button><button type="button" class="cd-view-x" id="cdViewClose" aria-label="Close">×</button></div>' +
+      '<div class="cd-view-body">' + (v.type === 'application/pdf' ? '<iframe src="' + esc(v.url) + '" title="' + esc(v.name) + '"></iframe>' : '<img src="' + esc(v.url) + '" alt="' + esc(v.name) + '">') + '</div></div></div>';
   }
 
   // A PAGE GLOOPY MADE, OPENED (2026-11-09; src/gloopy-pages.mjs): over the chat, from its own short-lived address, in a
@@ -1283,7 +1327,7 @@
   const GLOOPY_STARTS = ['Introduce yourself and ask me about my work', 'Research something for me, with sources', 'Help me plan my week'];
   function gloopyEmptyHTML() {
     return '<div class="cd-empty cd-gl-empty"><div class="cd-gl-fig" aria-hidden="true">' + gloopyFig(120) + '</div>' +
-      '<b>Hi, I’m Gloopy</b><p>Your own assistant, with my own computer in the cloud. I look things up, keep track of what you hand me, and remember what matters to you. I always ask before I send, buy or delete anything.</p>' +
+      '<b>Hi, I’m Gloopy</b><p>Your own assistant, with my own computer in the cloud. I look things up, keep track of what you hand me, and remember what matters to you. I never see your passwords or card numbers, and when I work on my own, I ask before I send, buy or delete anything.</p>' +
       '<div class="cd-starts">' + GLOOPY_STARTS.map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>';
   }
 
@@ -1667,6 +1711,34 @@
       draw();
     };
     on('[data-sched-run]', 'click', (e) => schedCall({ run: e.currentTarget.dataset.schedRun }, e.currentTarget));
+    // THE SIGN-INS CARD'S BUTTONS (the audit, 2026-11-10): each answer brings the list as it is now.
+    const signinsCall = async (path, body, btn) => {
+      if (!S.project) return;
+      if (btn) btn.disabled = true;
+      const base = '/projects/' + encodeURIComponent(S.project.id);
+      const r = await call(base + path, { method: 'POST', body: JSON.stringify(body) });
+      if (r.status !== 200) { S.signinsMsg = (r.data && r.data.error) || 'That could not be done.'; return draw(); }
+      if (r.data && r.data.project) S.project = r.data.project;
+      if (r.data && Array.isArray(r.data.logins)) S.logins = r.data.logins;
+      const l = await call(base + '/signins');
+      S.signinsMsg = ''; S.signins = l.status === 200 && l.data ? { sites: l.data.sites || [], saved: l.data.saved || [] } : S.signins;
+      draw();
+    };
+    on('[data-signout]', 'click', (e) => signinsCall('/signout', { site: e.currentTarget.dataset.signout }, e.currentTarget));
+    on('[data-login-forget]', 'click', (e) => signinsCall('/logins', { remove: e.currentTarget.dataset.loginForget }, e.currentTarget));
+    // A PREVIEW (the audit, 2026-11-10): its signed address, asked for with the owner's sign-in.
+    on('[data-file-view]', 'click', async (e) => {
+      const b = e.currentTarget, id = b.dataset.fileView, name = b.dataset.fileName || 'file';
+      if (!S.project) return;
+      b.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/files/' + encodeURIComponent(id) + '/view');
+      b.disabled = false;
+      if (r.status !== 200 || !r.data || !r.data.url) { note((r.data && r.data.error) || 'That file could not be shown.'); return; }
+      S.view = { id, name, url: r.data.url, type: r.data.type || '' };
+      draw();
+    });
+    on('#cdViewClose', 'click', () => { S.view = null; draw(); });
+    on('#cdView', 'click', (e) => { if (e.target === e.currentTarget) { S.view = null; draw(); } });
     on('[data-sched-pause]', 'click', (e) => schedCall({ pause: e.currentTarget.dataset.schedPause }, e.currentTarget));
     on('[data-sched-resume]', 'click', (e) => schedCall({ resume: e.currentTarget.dataset.schedResume }, e.currentTarget));
     on('[data-sched-all]', 'click', (e) => schedCall({ paused: e.currentTarget.dataset.schedAll === 'pause' }, e.currentTarget));
@@ -1886,6 +1958,8 @@
       if (side) S.side = side;
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
       if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu) { S.reviewMenu = false; draw(); } }); }
+      // Escape closes a file's preview (the audit, 2026-11-10).
+      if (GLOOPY && !S.viewCloser) { S.viewCloser = true; document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.view) { S.view = null; draw(); } }); }
       // The notifications panel and GitHub's return are Coder's (one of each on the page).
       if (!S.notifyHook && !GLOOPY) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
       const q = new URLSearchParams(location.search);

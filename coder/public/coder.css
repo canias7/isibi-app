@@ -566,3 +566,21 @@
 .cd-sched-log{border-top:1px solid #ecebe6;margin-top:6px;padding-top:8px;font-size:12.5px;color:#6b6a66;line-height:1.6}
 .cd-sched-log small{display:block;font-weight:600;color:#4b4a46;margin-bottom:2px}
 @media (max-width: 640px) { .cd-sched-row { flex-direction: column; align-items: stretch; } .cd-sched-btns { justify-content: flex-start; } }
+/* Tables in answers (the audit, 2026-11-10): scrolled sideways when wide. */
+.cd-table{overflow-x:auto;margin:8px 0 10px;border:1px solid #e5e3dd;border-radius:10px}
+.cd-table table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.45}
+.cd-table th,.cd-table td{padding:7px 11px;text-align:left;vertical-align:top;border-bottom:1px solid #ecebe6}
+.cd-table th{background:#f4f3ef;font-weight:600;color:#1f1e1d;white-space:nowrap}
+.cd-table tr:last-child td{border-bottom:0}
+/* A file's preview over the chat, and where Gloopy is signed in (the audit, 2026-11-10). */
+.cd-filecard-view{margin-right:6px}
+.cd-view{position:fixed;inset:0;z-index:60;background:rgba(20,20,18,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.cd-view-box{background:#fff;border-radius:16px;width:min(980px,100%);height:min(88vh,1100px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.cd-view-bar{display:flex;align-items:center;gap:10px;padding:10px 12px 10px 16px;border-bottom:1px solid #ecebe6}
+.cd-view-bar b{flex:1;min-width:0;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cd-view-x{font:inherit;font-size:22px;line-height:1;width:34px;height:34px;border:0;border-radius:999px;background:transparent;cursor:pointer;color:#4b4a46}
+.cd-view-x:hover{background:#f1efe9}
+.cd-view-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#f4f3ef}
+.cd-view-body iframe{width:100%;height:100%;border:0;background:#fff}
+.cd-view-body img{max-width:100%;max-height:100%;object-fit:contain}
+.cd-signins-saved{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0}

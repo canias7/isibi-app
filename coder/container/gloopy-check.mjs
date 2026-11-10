@@ -248,3 +248,17 @@ export function signinWarning(v, page = {}) {
   if (v && v.real === "unsure") return { level: "caution", text: "Check the address before you type: " + host + "." + (v.why ? " " + v.why.replace(/\.?$/, ".") : "") };
   return null;
 }
+
+/**
+ * WHETHER A COOKIE IS A SITE'S, for signing Gloopy out of it (the audit, 2026-11-10): its domain (".shop.example" or
+ * "shop.example") is the site's, a page under it, or a parent the site shares cookies with; "www." and a port do not
+ * count. Shared by Gloopy's browser and Coder's Worker (which keeps a copy of the browser's sign-ins).
+ */
+export function cookieForSite(domain, site) {
+  const d = String(domain || "").toLowerCase().replace(/^\./, "");
+  const s = String(site || "").toLowerCase().replace(/:\d+$/, "").replace(/^www\./, "");
+  if (!d || !s) return false;
+  return d === s || d.endsWith("." + s) || (s.endsWith("." + d) && d.includes("."));
+}
+/** Whether a page's origin ("https://shop.example") is a site's, in the same way. */
+export const originForSite = (origin, site) => { try { return cookieForSite(new URL(String(origin)).hostname, site); } catch { return false; } };

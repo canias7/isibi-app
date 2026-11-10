@@ -42,7 +42,7 @@ import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEV
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
-import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload } from "./gloopy-files.mjs";
+import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS } from "../container/gloopy-check.mjs";
@@ -52,6 +52,7 @@ import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
+import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./gloopy-backup.mjs";
 import { watchJob, watchKey } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
@@ -387,6 +388,8 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── ONE OF GLOOPY'S PAGES, SHOWN (2026-11-09; src/gloopy-pages.mjs): a plain visit from the page's frame, with no
   // sign-in header; its signed address says whose page it is, for 10 minutes. ──
   if (parts[0] === "gloopy-page" && parts.length === 3 && request.method === "GET") return servePageFile(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
+  // ── ONE OF GLOOPY'S FILES, SHOWN (the audit, 2026-11-10; src/gloopy-files.mjs): a PDF or a picture, the same way. ──
+  if (parts[0] === "gloopy-view" && parts.length === 3 && request.method === "GET") return serveFileView(env, bucket, decodeURIComponent(parts[1]), parts[2], url);
   // ── A SAVED LOGIN, FOR GLOOPY'S MACHINE (2026-11-09; src/gloopy-vault.mjs): asked by its service with the running
   // job's own pass (as the Worker's egress is), for the one site its browser is on; never by the page or the AI. ──
   if (parts[0] === "gloopy-vault" && parts.length === 1 && request.method === "POST") return gloopyVaultAsk(request, env, bucket);
@@ -396,6 +399,9 @@ export async function handleCoder(request, env, ctx, deps) {
   // ── GLOOPY'S FILES, FOR ITS MACHINE (2026-11-09; src/gloopy-files.mjs): with the running job's own pass, as the vault's;
   // an attachment of the owner's to put in its folder, or a file Gloopy hands over. ──
   if ((parts[0] === "gloopy-file-get" || parts[0] === "gloopy-file-put") && parts.length === 1 && request.method === "POST") return gloopyJobFile(request, env, bucket, parts[0] === "gloopy-file-put");
+  // GLOOPY'S COMPUTER'S COPY (the audit, 2026-11-10; src/gloopy-backup.mjs): its work folder and its browser's sign-ins,
+  // kept and given back with its running job's own pass.
+  if ((parts[0] === "gloopy-backup-get" || parts[0] === "gloopy-backup-put") && parts.length === 1 && request.method === "POST") return gloopyJobBackup(request, env, bucket, parts[0] === "gloopy-backup-put", url.searchParams.get("part") || "");
 
   // ── THE GITHUB SIGN-IN'S RETURN: a plain visit from GitHub, with no sign-in
   // header; the signed state says whose it is. ──
@@ -656,6 +662,8 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "cards") return gloopyCards(g);
     if (action === "webhooks") return gloopyWebhooks(g);
     if (action === "files") return gloopyFiles(g);
+    if (action === "signout" && request.method === "POST") { let b = {}; try { b = await request.json(); } catch { b = {}; } const r = await signGloopyOut(g, b.site); return r.ok ? json({ ok: true, said: r.said, sites: await readSignins(bucket, uid), project: await getJson(bucket, keyOf(uid, id, "meta.json"), meta) }) : json({ error: r.error }, r.status || 400); }
+    if (action === "signins" && request.method === "GET") return json({ ok: true, sites: await readSignins(bucket, uid), saved: loginList(await readLogins(env, bucket, uid)) });
     // A key from Gloopy's card (2026-11-09) goes through Coder's own key route, into Gloopy's own store (GLOOPY_ENV).
     if (action !== "stop" && action !== "secret") return json({ error: "Gloopy has no " + action.slice(0, 40) }, 400);
   }
@@ -1407,6 +1415,17 @@ async function gloopyMessage(g) {
   const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120), wake: body.scheduled.wake === true, event: body.scheduled.event === true, test: body.scheduled.test === true } : null;
   // THE OWNER'S COMMANDS FOR GLOOPY'S BACKGROUND WORK (the audit, 2026-11-10), as /compact is: no job runs. /pause and
   // /resume (schedules, wake-ups and webhook calls), /schedules (each one, with Run now and Pause, and the last runs).
+  // /signins and /signout <site> (the audit, 2026-11-10): where Gloopy's browser is signed in, and signing it out of one.
+  const outCmd = !sched && !pics.images.length && !attached.length ? /^\/(signins|signout)(?:\s+(\S+))?\s*$/i.exec(text) : null;
+  if (outCmd) {
+    let ev;
+    if (outCmd[1].toLowerCase() === "signins") ev = { at: Date.now(), type: "signins", sites: await readSignins(bucket, uid), saved: loginList(await readLogins(env, bucket, uid)) };
+    else if (!outCmd[2]) ev = { at: Date.now(), type: "note", text: "Type the site after /signout, like /signout shop.example. /signins shows where Gloopy is signed in." };
+    else { const r = await signGloopyOut(g, outCmd[2]); ev = { at: Date.now(), type: "note", text: r.ok ? r.said : "Not signed out: " + r.error }; }
+    const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ev].slice(-MAX_EVENTS));
+    return json({ ok: true, project: await getJson(bucket, keyOf(uid, id, "meta.json"), meta), events: [ev], handled: true });
+  }
   const command = !sched && !pics.images.length && !attached.length ? /^\/(pause|resume|schedules)\s*$/i.exec(text) : null;
   if (command) {
     const what = command[1].toLowerCase();
@@ -1543,6 +1562,8 @@ async function gloopyState(g) {
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
     const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff", "pay"].includes(e.type)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
+    // Where Gloopy signed in with a saved login in this turn (the audit, 2026-11-10), for signing out.
+    for (const site of (Array.isArray(s.result.signedIn) ? s.result.signedIn : []).slice(0, 10)) await noteSignin(bucket, uid, site, "saved");
     // The pages Gloopy published in this turn are kept (2026-11-09).
     if (Array.isArray(s.result.pageRequests) && s.result.pageRequests.length) await keepPages(bucket, uid, s.result.pageRequests);
     // Schedules Gloopy stopped in this turn come off now, and the ones it set are kept when the owner's settings allow
@@ -1592,6 +1613,44 @@ async function gloopyState(g) {
   }
   const elsewhere = !!s.result && !s.running && meta.status !== "running";
   return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, ...(elsewhere ? { reload: true } : {}) });
+}
+
+// WHERE GLOOPY'S BROWSER IS SIGNED IN (the audit, 2026-11-10): the sites the owner signed it in to (on the private card,
+// with a saved login, or by taking over), newest first, so the owner can sign it out of one (/signins, /signout).
+const SIGNINS_MAX = 50;
+const signinsKey = (uid) => ["coder", uid, "gloopy", "signins.json"].join("/");
+const SITE_RE = /^[a-z0-9.-]+\.[a-z0-9-]+(:\d{1,5})?$/;
+async function readSignins(bucket, uid) {
+  const l = await getJson(bucket, signinsKey(uid), []);
+  return (Array.isArray(l) ? l : []).filter((x) => x && SITE_RE.test(String(x.site || ""))).map((x) => ({ site: String(x.site), at: Number(x.at) || 0, how: ["form", "saved", "code", "took over"].includes(x.how) ? x.how : "form" })).slice(0, SIGNINS_MAX);
+}
+async function noteSignin(bucket, uid, site, how) {
+  const s0 = String(site || "").toLowerCase();
+  if (!SITE_RE.test(s0)) return;
+  const list = (await readSignins(bucket, uid)).filter((x) => x.site !== s0);
+  await putJson(bucket, signinsKey(uid), [{ site: s0, at: Date.now(), how }, ...list].slice(0, SIGNINS_MAX));
+}
+
+/**
+ * GLOOPY SIGNED OUT OF A SITE (the audit, 2026-11-10: "a way for the owner to sign Gloopy out of a site"): its browser
+ * forgets the site's cookies and its pages' storage, the copy Coder keeps forgets them too (so a new computer does not
+ * sign it back in), and Gloopy hears of it. Saved logins stay (they are taken away on their own). Answers { ok, said }.
+ */
+async function signGloopyOut(g, siteIn) {
+  const { env, bucket, uid, id, post } = g;
+  const site = String(siteIn || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (!SITE_RE.test(site)) return { error: "Give a site, like shop.example.", status: 400 };
+  if (g.meta.status === "running") return { error: "Gloopy is working. Stop it first, or try again when it is done.", status: 409 };
+  let r = null;
+  try { r = await post("/gloopy/signout", { project: id, site }).then((x) => x.json()); } catch { r = null; }
+  if (r && r.error) return { error: r.error, status: 409 };
+  const kept = await forgetSite(env, bucket, uid, site).catch(() => 0);
+  await putJson(bucket, signinsKey(uid), (await readSignins(bucket, uid)).filter((x) => x.site !== site && x.site.replace(/^www\./, "") !== site.replace(/^www\./, "")));
+  const browserSaid = r && r.ok ? (r.cookies ? " (" + r.cookies + " cookie" + (r.cookies === 1 ? "" : "s") + " gone)" : "") : r && r.none ? "" : " (Gloopy's browser could not be reached now; its copy was cleared)";
+  const note = "(Note from Gloopy's app, not the owner: the owner signed you out of " + site + ". To use it again, use sign_in.)";
+  const meta = await getJson(bucket, keyOf(uid, id, "meta.json"), g.meta);
+  await saveMeta(bucket, uid, { ...meta, note: [meta.note, note].filter(Boolean).join("\n\n") });
+  return { ok: true, site, said: "Signed Gloopy out of " + site + browserSaid + ".", copy: kept };
 }
 
 /** "Always allow" on a card: an allow rule for steps like it (at most RULES_MAX: the oldest goes). Answers what to say when one went. */
@@ -1761,6 +1820,7 @@ async function gloopyCard(g, action) {
     let r = null;
     try { r = await post("/gloopy/control", { project: id, take: false }).then((x) => x.json()); } catch { r = null; }
     const where = r && r.url ? " Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url).slice(0, 500) + "." : "";
+    if (!p.code) await noteSignin(bucket, uid, p.site, "took over");
     note = "(Note from Gloopy's app, not the owner: the owner says they " + (p.code ? "typed the code from " + site : "signed in to " + site) + " themselves, in your browser (they took over). You never see what they typed." + where + " Look at it before you go on, to see whether it worked.)";
     said = p.code ? "Typed the code for " + site + " myself" : "Signed in to " + site + " myself";
   } else if (p.code) {
@@ -1769,6 +1829,7 @@ async function gloopyCard(g, action) {
     if (!/^[A-Za-z0-9-]{3,16}$/.test(code)) return json({ error: "Type the code (3 to 16 letters or digits)." }, 400);
     let r = null;
     try { r = await post("/gloopy/signin", { project: id, id: p.id, code }).then((x) => x.json()); } catch { r = null; }
+    if (r && r.ok) await noteSignin(bucket, uid, p.site, "code");
     if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner typed the code from " + site + " through the private card, and it went into the page. You never see it. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
     else note = "(Note from Gloopy's app, not the owner: the owner's code for " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in with code_ref again only if the code field is still there.)";
     said = r && r.ok ? "Typed the code for " + site : "Tried to type the code for " + site;
@@ -1780,6 +1841,7 @@ async function gloopyCard(g, action) {
     if (!login) return json({ error: "No login is saved for " + site + " any more. Type it instead." }, 404);
     let r = null;
     try { r = await post("/gloopy/signin", { project: id, id: p.id, username: login.username, password: login.password }).then((x) => x.json()); } catch { r = null; }
+    if (r && r.ok && !r.still) await noteSignin(bucket, uid, p.site, "saved");
     if (r && r.ok && !r.still) note = "(Note from Gloopy's app, not the owner: the owner had you use the login they saved for " + site + ". You never see it. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
     else if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner's saved login for " + site + " was typed in, but the site still shows a sign-in form: it may be out of date, or the site asks for another step (a code, a CAPTCHA). Look at the page and tell the owner plainly.)";
     else note = "(Note from Gloopy's app, not the owner: the owner's saved login for " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in again only if the sign-in form is still there.)";
@@ -1791,6 +1853,7 @@ async function gloopyCard(g, action) {
     try { r = await post("/gloopy/signin", { project: id, id: p.id, username, password }).then((x) => x.json()); } catch { r = null; }
     // SAVED FOR NEXT TIME (2026-11-09, when ticked): only a login that worked, sealed (src/gloopy-vault.mjs).
     const kept = r && r.ok && !r.still && body.save === true ? await saveLogin(env, bucket, uid, { site: p.site, username, password }) : null;
+    if (r && r.ok && !r.still) await noteSignin(bucket, uid, p.site, "form");
     if (r && r.ok && !r.still) note = "(Note from Gloopy's app, not the owner: the owner signed in to " + site + " through the private sign-in form. You never see what they typed." + (kept ? " They saved this login: next time you sign in to " + site + ", it is used for you." : "") + " Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
     else if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner's sign-in to " + site + " was typed in, but the site still shows a sign-in form: the username or password may be wrong, or the site asks for another step (a code, a CAPTCHA). Look at the page and tell the owner plainly; ask them to sign in again only if it makes sense.)";
     else note = "(Note from Gloopy's app, not the owner: the owner's sign-in to " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in again only if the sign-in form is still there.)";
@@ -1991,6 +2054,24 @@ async function gloopyJobFile(request, env, bucket, put) {
   return new Response(f.body, { status: 200, headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(f.item.name), "cache-control": "no-store" } });
 }
 
+/**
+ * GLOOPY'S COMPUTER'S COPY, FOR ITS MACHINE (the audit, 2026-11-10): with its running job's own pass. `put` ?part=work
+ * (the packed work folder) or ?part=browser (the browser's sign-ins, kept sealed); `get` gives the same back (404: none).
+ */
+async function gloopyJobBackup(request, env, bucket, put, part) {
+  const uid = await gloopyJob(request, env, bucket);
+  if (!uid || !["work", "browser"].includes(part)) return json({ error: "not allowed" }, 403);
+  if (put) {
+    const len = Number(request.headers.get("content-length") || 0);
+    if (len > (part === "work" ? WORK_MAX : BROWSER_MAX)) return json({ error: "too big to keep" }, 413);
+    const r = await keepBackup(env, bucket, uid, part, new Uint8Array(await request.arrayBuffer()));
+    return r.error ? json({ error: r.error }, 400) : json(r);
+  }
+  const got = await readBackup(env, bucket, uid, part);
+  if (!got) return json({ error: "none kept" }, 404);
+  return part === "work" ? new Response(got, { status: 200, headers: { "content-type": "application/gzip", "cache-control": "no-store" } }) : json({ ok: true, state: got });
+}
+
 async function gloopyVaultAsk(request, env, bucket) {
   const no = () => json({ error: "not allowed" }, 403);
   const uid = await gloopyJob(request, env, bucket);
@@ -2071,6 +2152,13 @@ async function gloopyFiles(g) {
     try { name = decodeURIComponent(String(request.headers.get("x-file-name") || "")); } catch { name = ""; }
     const r = await keepFile(bucket, uid, { name, bytes: new Uint8Array(await request.arrayBuffer()), dir: "in" });
     return r.error ? json({ error: r.error }, r.error.includes("MB") ? 413 : 400) : json({ ok: true, file: { id: r.id, name: r.name, size: r.size, dir: r.dir } });
+  }
+  // A PREVIEW (the audit, 2026-11-10): the signed address that shows a PDF or a picture in the chat, for 10 minutes.
+  if (request.method === "GET" && sub && url.pathname.split("/").filter(Boolean)[6] === "view") {
+    const item = (await readFiles(bucket, uid)).find((x) => x.id === sub);
+    if (!item) return json({ error: "That file is gone." }, 404);
+    const address = await fileViewAddress(g.env, uid, item);
+    return address ? json({ ok: true, url: address, type: PREVIEW_TYPES[extOf(item.name)] }) : json({ error: "That kind of file can't be shown here: download it." }, 400);
   }
   if (request.method === "GET" && sub) {
     const f = await fileOf(bucket, uid, sub);

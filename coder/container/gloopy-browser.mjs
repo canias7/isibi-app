@@ -24,7 +24,8 @@
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, chownSync, chmodSync, openSync, closeSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, readFile } from "node:fs/promises";
+import { cookieForSite, originForSite } from "./gloopy-check.mjs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -180,6 +181,9 @@ export async function serve(dir) {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const { chromium } = loadPlaywright();
   const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: false });
+  // ITS SIGN-INS, BACK ON A NEW COMPUTER (the audit, 2026-11-10): the copy Coder's Worker kept (cookies, and each site's
+  // local storage), left here by Coder's service before the browser first started on this disk, then gone.
+  await restoreState(ctx, join(dir, RESTORE_FILE)).catch(() => {});
   let page = ctx.pages()[0] || (await ctx.newPage());
   let dialog = "";
   const watch = (p) => p.on("dialog", (d) => { dialog = d.type() + ": " + String(d.message()).slice(0, 300); d.dismiss().catch(() => {}); });
@@ -438,6 +442,8 @@ export async function serve(dir) {
           else if (x.action === "fill") out = await fill(x);
           else if (x.action === "fillCard") out = await fillCard(x);
           else if (x.action === "fillCode") out = await fillCode(x);
+          else if (x.action === "state") out = await stateOf(ctx);
+          else if (x.action === "signOut") out = await signOutOf(ctx, page, x);
           else if (x.action === "input") out = await input(x);
           else { ask = checkAsk(x); out = await run(ask); }
         } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
@@ -451,6 +457,54 @@ export async function serve(dir) {
   const idle = setInterval(() => { if (Date.now() - last > IDLE_MS) shutdown(); }, 60_000);
   process.on("SIGTERM", shutdown);
   await new Promise((ok) => server.listen(sock, ok));
+}
+
+/** Where Coder's service leaves the copy of the browser's sign-ins for a new disk (read once, then gone). */
+export const RESTORE_FILE = "restore.json";
+/** The most of a copy of the sign-ins: cookies, and each site's local storage in all. */
+export const STATE_COOKIES_MAX = 3000, STATE_STORAGE_MAX = 1024 * 1024;
+
+/** What is kept of the browser's sign-ins: { cookies, origins: [{ origin, localStorage: [{ name, value }] }] }, within the limits. */
+export async function stateOf(ctx) {
+  const st = await ctx.storageState();
+  const origins = [];
+  let size = 0;
+  for (const o of Array.isArray(st.origins) ? st.origins : []) {
+    const n = JSON.stringify(o).length;
+    if (size + n > STATE_STORAGE_MAX) continue;
+    size += n; origins.push(o);
+  }
+  return { cookies: (Array.isArray(st.cookies) ? st.cookies : []).slice(0, STATE_COOKIES_MAX), origins };
+}
+
+/** The copy of the sign-ins put back (cookies at once; each site's local storage when a page of it opens, never over what is there), and the file gone. */
+export async function restoreState(ctx, file) {
+  let st;
+  try { st = JSON.parse(await readFile(file, "utf8")); } finally { await rm(file, { force: true }).catch(() => {}); }
+  if (!st || typeof st !== "object") return { cookies: 0 };
+  const cookies = (Array.isArray(st.cookies) ? st.cookies : []).filter((c) => c && typeof c.name === "string" && typeof c.domain === "string").slice(0, STATE_COOKIES_MAX);
+  if (cookies.length) await ctx.addCookies(cookies);
+  const origins = (Array.isArray(st.origins) ? st.origins : []).filter((o) => o && typeof o.origin === "string" && Array.isArray(o.localStorage));
+  if (origins.length) await ctx.addInitScript((list) => { const o = list.find((x) => x.origin === location.origin); if (!o) return; try { for (const { name, value } of o.localStorage) if (localStorage.getItem(name) === null) localStorage.setItem(name, value); } catch { /* storage not allowed here */ } }, origins);
+  return { cookies: cookies.length };
+}
+
+/**
+ * SIGNED OUT OF ONE SITE (the audit, 2026-11-10): its cookies (and its parent's it shares), one by one, and its pages'
+ * own storage (local storage, databases, caches), only for the exact page addresses the browser has. Never a cookie by
+ * Chromium's "clear this origin" (found 2026-11-10: given an address it could not place, like "https://www.127.0.0.1",
+ * it cleared every site's cookies and storage).
+ */
+export async function signOutOf(ctx, page, x) {
+  const site = String((x && x.site) || "").toLowerCase().trim();
+  if (!/^[a-z0-9.-]+\.[a-z0-9-]+(:\d+)?$/.test(site)) throw new Error("give a site, like shop.example");
+  const gone = (await ctx.cookies()).filter((c) => cookieForSite(c.domain, site));
+  for (const c of gone) await ctx.clearCookies({ name: c.name, domain: c.domain, path: c.path });
+  const st = await ctx.storageState().catch(() => ({ origins: [] }));
+  const origins = [...new Set((st.origins || []).map((o) => String(o.origin || "")).filter((o) => /^https?:\/\/[^/\s]+$/.test(o) && originForSite(o, site)))];
+  let cdp = null;
+  try { cdp = origins.length ? await ctx.newCDPSession(page) : null; for (const origin of origins) await cdp.send("Storage.clearDataForOrigin", { origin, storageTypes: "local_storage,indexeddb,cache_storage,service_workers,file_systems,websql" }).catch(() => {}); } catch { /* not Chromium's own protocol */ } finally { if (cdp) await cdp.detach().catch(() => {}); }
+  return { ok: true, site, cookies: gone.length, storage: origins.length };
 }
 
 /** One request to the running browser, or { down: true } when none answers. */
@@ -519,6 +573,10 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     fillCard: ({ site = "", card, numberRef, expRef = "", monthRef = "", yearRef = "", cvcRef = "", nameRef = "", postalRef = "" }) => call({ action: "fillCard", site, card, numberRef, expRef, monthRef, yearRef, cvcRef, nameRef, postalRef }),
     // A code from the private sign-in card (the audit, 2026-11-10), typed into the page's code field.
     fillCode: ({ site = "", codeRef, submitRef = "", code }) => call({ action: "fillCode", site, codeRef, submitRef, code }),
+    // ITS SIGN-INS (the audit, 2026-11-10): what to keep a copy of (cookies, each site's local storage), and one site's
+    // taken away (the owner signs Gloopy out of it).
+    state: () => call({ action: "state" }),
+    signOut: ({ site = "" }) => call({ action: "signOut", site }),
     // Only when it is running already (no browser is started to be told nothing).
     running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
     // THE OWNER'S LIVE VIEW: { shot, hash, url, title } (or { same: true } when unchanged since `since`); { off: true } when
