@@ -149,6 +149,9 @@ export function pushesFor(events, meta, now = Date.now()) {
   const out = [];
   for (const e of Array.isArray(events) ? events : []) {
     if (!e || typeof e !== "object") continue;
+    // A card from a run the owner did not start waits 30 minutes for them (the audit, 2026-11-10): the push says so.
+    const until = Number(e.expires) > now ? " · answer within " + Math.max(1, Math.round((Number(e.expires) - now) / 60000)) + " min" : "";
+    if (until && ["approval", "signin", "pay", "handoff"].includes(e.type)) { const one = pushesFor([{ ...e, expires: 0 }], meta, now)[0]; if (one) out.push({ ...one, title: one.title + until }); continue; }
     if (e.type === "notify" && e.text) out.push({ kind: "decides", title: who + tail, body: e.text });
     else if (e.type === "question") out.push({ kind: "actions", title: who + " needs your answer" + tail, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
     else if (e.type === "approval") out.push({ kind: "actions", title: who + " needs your OK" + tail, body: String(e.step || "") + (e.site ? " on " + e.site : "") + (e.why ? ": " + e.why : "") });

@@ -857,6 +857,15 @@
     for (const e of S.events) if (e.type === 'result' && e.id) results[e.id] = e;
     let lastUser = -1;
     S.events.forEach((e, i) => { if (e.type === 'user') lastUser = i; });
+    // A CARD STILL OPEN (Gloopy's): no message of the owner's after it, not marked expired, and its time not up (a card
+    // from a run the owner did not start waits 30 minutes for them; the audit, 2026-11-10). A card that expired says so.
+    const expiredOf = (i, e) => S.events.slice(i + 1).find((x) => x.type === 'expired' && x.id === e.id) || (Number(e.expires) > 0 && Date.now() > Number(e.expires) ? { text: 'Expired: not answered within 30 minutes. Nothing was done.' } : null);
+    const cardOpen = (i, e) => !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user') && !expiredOf(i, e);
+    const until = (i, e) => (cardOpen(i, e) && Number(e.expires) > 0 ? '<p class="cd-card-until">Waits for you until ' + esc(new Date(Number(e.expires)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) + '</p>' : '');
+    const gone = (i, e) => { const x = !S.events.slice(i + 1).some((y) => y.type === 'user') && expiredOf(i, e); return x ? '<p class="cd-card-expired">' + esc(x.text || 'Expired.') + '</p>' : ''; };
+    // Redrawn when the soonest open card's time is up.
+    const soon = S.events.map((e, i) => (['approval', 'signin', 'pay', 'handoff'].includes(e.type) && cardOpen(i, e) && Number(e.expires) > 0 ? Number(e.expires) : 0)).filter(Boolean).sort((a, b) => a - b)[0];
+    clearTimeout(S.expiryTimer); if (soon) S.expiryTimer = setTimeout(draw, Math.max(1000, soon - Date.now() + 500));
     const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.background ? 'bg' : r.code === 0 ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
@@ -931,22 +940,24 @@
       else if (e.type === 'approval') {
         // A BROWSER STEP WAITING FOR YOUR OK (Gloopy, 2026-11-09; like Grok Bot's approval cards and dots' Auto-review):
         // the step, the site and why it asks; Allow once, Always allow (a rule for steps like it) or Deny. Live on the last card.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        // A request one of Gloopy's commands sent with a saved key (`request`, the audit, 2026-11-10) shows what it sends.
+        const live = cardOpen(i, e);
         const step = String(e.step || '');
         out.push('<div class="cd-secret cd-approve"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Gloopy wants to ' + esc(step.charAt(0).toLowerCase() + step.slice(1)) + '</b>' +
           (e.site ? '<p class="cd-secret-how">On <code>' + esc(e.site) + '</code></p>' : '') +
           (e.why ? '<p class="cd-secret-why">' + esc(e.why) + '</p>' : '') +
           // A NEW SCHEDULE (2026-11-09): its task, and no "Always allow" (each schedule is its own OK).
-          (e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
+          (e.request && e.detail ? '<span class="cd-secret-l">What it sends</span><pre class="cd-envchange-pre cd-approve-body">' + esc(e.detail) + '</pre>' : e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
+          until(i, e) + gone(i, e) +
           (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">Deny</button>' + (e.kind === 'schedule' || e.kind === 'webhook' ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + (e.kind === 'schedule' || e.kind === 'webhook' ? 'Allow' : 'Allow once') + '</button></div>' : '') + '</div>');
       }
       else if (e.type === 'signin') {
         // THE PRIVATE SIGN-IN FORM (Gloopy, 2026-11-09; like Grok Bot's Secure Form and dots' private sign-in): what you type
         // goes straight into Gloopy's browser on that site. Never kept in this page's state; the box is emptied once sent.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const live = cardOpen(i, e);
         out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Sign in to ' + esc(e.site || 'the site') + '</b>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved only if you tick the box below.</p>' +
+          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved only if you tick the box below.</p>' + until(i, e) + gone(i, e) +
           (live ? (e.user ? '<label class="cd-secret-l" for="cdSignUser">' + esc(e.user) + '</label><input id="cdSignUser" class="cd-secret-in" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">' : '') +
             '<label class="cd-secret-l" for="cdSignPass">Password</label><input id="cdSignPass" class="cd-secret-in" type="password" autocomplete="off">' +
             // SAVE FOR NEXT TIME (2026-11-09; Grok Bot's Vault, dots' "Save to Passwords"): kept sealed only if signing in works.
@@ -958,7 +969,7 @@
         // PAYING AT A CHECKOUT (Gloopy, 2026-11-09: "can we try both"; Grok Bot's card form and Vault, dots' asking before a
         // payment): the card goes straight into the payment form in Gloopy's browser. A card can be saved (never its
         // security code); a saved one needs only its security code. Nothing typed here is kept in this page's state.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const live = cardOpen(i, e);
         const has = (f) => Array.isArray(e.fields) && e.fields.includes(f);
         const now = new Date(), thisMonth = now.getFullYear() * 12 + now.getMonth();
         const saved = (S.cards || []).filter((c) => Number(c.year) * 12 + Number(c.month) - 1 >= thisMonth);
@@ -968,7 +979,7 @@
         const cvcBox = has('cvc') ? box('cdPayCvc', 'Security code', 'type="password" inputmode="numeric" autocomplete="cc-csc" maxlength="4" placeholder="CVC"') : '';
         out.push('<div class="cd-secret cd-pay"><div class="cd-secret-icon">' + ICON.card + '</div><b class="cd-secret-t">Pay ' + esc(e.total || '') + ' on ' + esc(e.site || 'the site') + '</b>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">Your card goes straight into the payment form in Gloopy’s browser on ' + esc(e.site || 'the site') + (e.via ? ' (its card fields are from ' + esc(e.via) + ')' : '') + '. Gloopy never sees it. Nothing is paid until Gloopy places the order.</p>' +
+          '<p class="cd-secret-p">Your card goes straight into the payment form in Gloopy’s browser on ' + esc(e.site || 'the site') + (e.via ? ' (its card fields are from ' + esc(e.via) + ')' : '') + '. Gloopy never sees it. Nothing is paid until Gloopy places the order.</p>' + until(i, e) + gone(i, e) +
           (live ? (saved.length ? '<div class="cd-pay-pick">' + saved.map((c) => '<label class="cd-pay-opt"><input type="radio" name="cdPayUse" value="' + esc(c.id) + '" data-pay-for="' + esc(e.id) + '"' + (use === c.id ? ' checked' : '') + '> ' + esc(c.brand) + ' ending ' + esc(c.last4) + ' <small>' + esc(String(c.month).padStart(2, '0') + '/' + String(c.year).slice(-2)) + '</small></label>').join('') + '<label class="cd-pay-opt"><input type="radio" name="cdPayUse" value="" data-pay-for="' + esc(e.id) + '"' + (use ? '' : ' checked') + '> Another card</label></div>' : '') +
             (use ? cvcBox
               : box('cdPayNumber', 'Card number', 'type="text" inputmode="numeric" autocomplete="cc-number" placeholder="1234 1234 1234 1234"') +
@@ -1007,11 +1018,11 @@
       else if (e.type === 'handoff') {
         // A STEP ONLY YOU CAN DO, IN GLOOPY'S BROWSER (2026-11-09; Grok Bot hands you the computer, dots' browser handoff):
         // Open browser takes over at once; "Done, hand it back" answers it there.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const live = cardOpen(i, e);
         out.push('<div class="cd-secret cd-handoff"><div class="cd-secret-icon">' + ICON.web.replace('width="16" height="16"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Gloopy needs you in its browser</b>' +
           '<p class="cd-secret-how">' + esc(e.task || '') + (e.site ? ' · <code>' + esc(e.site) + '</code>' : '') + '</p>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">Open Gloopy’s browser, do only this step, then hand it back. Gloopy sees the page again after.</p>' +
+          '<p class="cd-secret-p">Open Gloopy’s browser, do only this step, then hand it back. Gloopy sees the page again after.</p>' + until(i, e) + gone(i, e) +
           (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-handoff-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-handoff-open="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + '>Open browser</button></div>' : '') + '</div>');
       }
       else if (e.type === 'secret') {
@@ -1031,6 +1042,7 @@
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
       else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
+      else if (e.type === 'expired') return;
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();
@@ -1581,6 +1593,8 @@
     const cardPath = (a) => '/projects/' + encodeURIComponent(S.project.id) + '/' + a;
     const cardAnswer = async (id, a, body, failed) => {
       const r = await call(cardPath(a), { method: 'POST', body: JSON.stringify({ id, ...body }) });
+      // A card whose time was up (the audit, 2026-11-10): the chat is shown again, with the card marked expired.
+      if (r.status === 409 && r.data && r.data.expired) { if (r.data.project) S.project = r.data.project; return reloadChat(S.project.id); }
       if (r.status !== 200) { S.cardMsg = { id, text: (r.data && r.data.error) || failed }; draw(); return; }
       S.cardMsg = null; if (r.data && r.data.project) S.project = r.data.project;
       if (r.data && Array.isArray(r.data.cards)) S.cards = r.data.cards;

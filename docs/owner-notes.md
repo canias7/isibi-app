@@ -11,6 +11,26 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Gloopy's safety, as Grok Bot and dots do it (your word: "do all of that"; part 1 of 4)
+
+- **The check runs all the time now.** Before, it was skipped while everything was Always allow. Now every click, choice or submit in Gloopy's browser is checked first, as both apps do. That costs one small Grok call per such step.
+  - While testing, everything is still Always allow, so steps you allow still go ahead with no card.
+  - A step only you may do is always yours, whatever the settings or rules: changing a password or security settings, closing your account, card details, CAPTCHAs.
+  - When the check can't tell what a step does, it asks you.
+- **Gloopy's commands are checked when they use your saved keys.** Before, a command could send an email through your saved Mailgun key (for example) even with Send set to Ask or Never.
+  - The check happens where the key is added (on Coder's server side), so no command can get around it. Reading (GET) isn't checked.
+  - Anything else is checked like a browser step. If it should ask you, the request is held and not sent. You get a card showing exactly what it would send. Allow sends that same request; Deny drops it.
+  - The same request isn't checked twice in a job, and the check looks at most 30 requests per job.
+  - Commands that don't use a saved key can't act as you, so they aren't checked.
+- **Runs you didn't start never act on their own.** In a scheduled run, a wake-up or a webhook's run, anything that would buy, book, send, post, sign up, delete, change an account or share your details waits for your OK, even on Always allow. Grok Bot does the same.
+  - Gloopy is told to get it ready first (the message drafted, the form filled in), so you only press Allow.
+- **Cards from those runs wait 30 minutes**, as Grok Bot's do. The card says "Waits for you until 9:30" and the phone notification says "answer within 30 min". Then it's marked "Expired: nothing was done", and Gloopy hears it wasn't answered.
+  - A card from your own message never expires.
+  - A scheduled run waits up to 30 minutes for an open card. After that, the card expires and the run goes ahead.
+- **After testing:** one switch (TESTING in gloopy-permissions.mjs) turns the risky kinds back to Ask first: buy, book, send, post, sign up, delete, account, share, saved logins, schedules and webhooks. Wake-ups stay allowed. It's ready but not on yet.
+- Small fix: a long web address in a card's title now wraps on a phone instead of running off the card.
+- Tests: GL64 to GL68 are new; older tests that expected no check while testing were updated. All 323 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok (you said no testing yet).
+
 ## 2026-11-10: Gloopy checked against Grok Bot's and dots' docs (your word: "double check it against the docs of dots and grok bot")
 
 - **How it was checked:** every part of Gloopy was compared, item by item, with Grok Bot's 33 doc pages and dots' pages (plus the ChatGPT pages dots relies on), quoting the docs.

@@ -171,6 +171,10 @@ async function runDue(bucket, deps, rec, now) {
   const late = now - due.next > LATE_MS;
   const meta = await getJson(bucket, chatKey(rec.uid, "meta.json"), null);
   if (meta && meta.status === "running") return late ? skip("Gloopy was busy with another message for 30 minutes.") : "waiting";
+  // A CARD STILL WAITING FOR THE OWNER (the audit, 2026-11-10): the run waits for their answer, up to 30 minutes from the
+  // card (then the run goes ahead and the card is over: a card from a run they did not start has expired by then).
+  const card = meta && meta.pending && typeof meta.pending === "object" ? meta.pending : null;
+  if (card && now - Number(card.at || meta.at || 0) < LATE_MS && !(Number(card.expires) > 0 && now > Number(card.expires))) return late ? skip("Gloopy was waiting for your answer on a card.") : "waiting";
   const text = due.event ? eventText(due.name, due.task, due.event.data, due.event.at || due.once, true) : scheduledText(due, now);
   const res = await deps.coder(new Request("https://gofarther.dev/api/coder/projects/" + GLOOPY_CHAT + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, scheduled: due.event ? { id: due.event.hook, name: due.name, when: "a call to its web address", event: true } : { id: due.id, name: due.name, when: whenWords(due), ...(due.self ? { wake: true } : {}) } }) }), { id: rec.uid, email: rec.email }).catch(() => null);
   if (res && res.status === 200) {

@@ -25,8 +25,8 @@ import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_C
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide } from "./gloopy-check.mjs";
-import { cleanPermissions, allAllowed, permissionLabel } from "./gloopy-permissions.mjs";
+import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide, requestWords, bodyPreview, CARD_TTL_MS } from "./gloopy-check.mjs";
+import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -181,6 +181,8 @@ async function appTool(deps, tool, args) {
  */
 /** A file's size in words: "1.2 MB", "40 KB". */
 const sizeWords = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+/** The most requests with the owner's saved keys Gloopy's check looks at in one job (each is a small AI call). */
+export const WRITE_CHECKS_MAX = 30;
 /** At most this many files Gloopy sends in one message. */
 const FILES_PER_TURN = 10;
 export const visibleChars = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, (c) => ({ "\0": "\\0", "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] || "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0"));
@@ -530,7 +532,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], files: keptFiles = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], files: keptFiles = [], background = false, checkWrites = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -540,11 +542,14 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // A step the owner allowed that could not be done then: it goes ahead once, without asking again.
   const granted = (Array.isArray(grantedIn) ? grantedIn : []).filter((x) => typeof x === "string" && x);
   // WHAT GLOOPY MAY DO ON ITS OWN (owner, 2026-11-09; gloopy-permissions.mjs): Ask, Always allow or Deny for each kind
-  // of action. Everything allowed and no "ask first" rule: browser steps go ahead with no check at all.
+  // of action. The check before a browser step runs whatever they are (the audit, 2026-11-10: both apps run theirs
+  // always): a step only the owner may do stays theirs.
   const perms = cleanPermissions(permsIn);
-  const noCheck = allAllowed(perms) && !rules.some((r) => r.mode === "ask" || r.mode === "deny");
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
-  const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
+  // A RUN THE OWNER DID NOT START (`background`: a schedule, a wake-up, a webhook's call; the audit, 2026-11-10, Grok Bot's):
+  // a card it ends on waits 30 minutes for the owner (CARD_TTL_MS), then it has expired.
+  const CARDS = new Set(["approval", "signin", "pay", "handoff"]);
+  const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e, ...(background && CARDS.has(e.type) ? { expires: now() + CARD_TTL_MS } : {}) }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   const convo = Array.isArray(messages) ? messages.slice() : [];
   // WHERE THIS JOB BEGINS: what is before it is the chat's saved history (the Worker summarizes that
@@ -636,6 +641,43 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const webhookAdds = [], webhookRemovals = [];
   // How many files Gloopy has sent in this turn.
   let filesSent = 0;
+  // REQUESTS SENT WITH THE OWNER'S SAVED KEYS, CHECKED (the audit, owner 2026-11-10: "do all of that"; Grok Bot checks
+  // commands). A command's request to a site with a saved key comes through Coder's service, which asks this (`deps.writes`)
+  // before the request goes on to Coder's Worker, which adds the key: any request but a read (GET, HEAD, OPTIONS) is
+  // checked like a browser step and follows the owner's settings and rules. One the owner should OK first is HELD by the
+  // Worker (not sent) and the turn ends on a card showing what it sends; if they allow it, the Worker sends that same
+  // request. Nothing on Gloopy's computer, the AI's commands least of all, can get the key another way.
+  let writeHold = null, writeChecks = 0;
+  const writeVerdicts = new Map();
+  const strictRules = rules.some((r) => r.mode === "ask" || r.mode === "deny");
+  if (checkWrites && deps.writes && typeof deps.writes === "object") deps.writes.check = async ({ method, url, type, body } = {}) => {
+    const m = String(method || "").toUpperCase();
+    if (["GET", "HEAD", "OPTIONS"].includes(m)) return { go: true };
+    let site = "";
+    try { site = new URL(String(url)).hostname; } catch { return { go: false, text: "Not sent: that is not a web address." }; }
+    const busy = { go: false, text: "Not sent: another request of yours is already waiting for the owner's OK. Your turn ends after this command; don't try it another way." };
+    if (writeHold) return busy;
+    const step = "Send a request with your saved key: " + requestWords(m, url);
+    const preview = bodyPreview(type, body instanceof Uint8Array ? body : new Uint8Array(0));
+    // The same request again is not checked again; with no "ask first" or "never" rule, nor is another to the same address.
+    const sig = strictRules || background ? m + " " + url + "\n" + preview : m + " " + requestWords(m, url);
+    let v = writeVerdicts.get(sig);
+    if (!v) {
+      if (writeChecks >= WRITE_CHECKS_MAX) return { go: false, text: "Not sent: Gloopy's check has looked at " + WRITE_CHECKS_MAX + " requests in this job, the most it looks at in one job. Tell the owner what is left to send." };
+      writeChecks++;
+      v = await gloopyCheck({ send: deps.send, model, step, request: { method: m, url: String(url), preview }, convo, rules, background });
+      if (v.usage) usage.push(v.usage);
+      writeVerdicts.set(sig, v);
+    }
+    const d = decide(v, perms, { background });
+    if (d === "allow") return { go: true };
+    if (d === "deny") return { go: false, text: "Not sent: " + (v.rule === "deny" ? "one of the owner's rules says never to do this" : "the owner's settings never allow this (" + permissionLabel(v.kind) + ")") + ": " + step + ". Don't do it another way; tell the owner it is turned off in Gloopy's settings." };
+    if (d === "handoff") return { go: false, text: "Not sent: this is the owner's own to do (" + v.why + "). Tell them plainly what to do, and stop." };
+    if (writeHold) return busy;
+    const id = "wr" + Math.random().toString(36).slice(2, 12);
+    writeHold = { id, step, site, url: String(url).slice(0, 500), why: v.why, detail: preview, held: false };
+    return { hold: id, step, done: (ok) => { if (writeHold && writeHold.id === id) { if (ok) writeHold.held = true; else writeHold = null; } } };
+  };
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
@@ -737,7 +779,20 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     // they go to Grok right after the round's answers, as a note from Coder's app with them attached.
     const roundPics = [];
     const roundNotes = [];
+    // A REQUEST HELD FOR THE OWNER'S OK (above): the turn ends on its card, after the call that sent it.
+    const heldEnd = (from) => {
+      const w = writeHold;
+      const last = convo[convo.length - 1];
+      const said = "[Gloopy's app: " + w.step + " was held for the owner's OK and not sent (" + w.why + "). They see what it sends on a card; if they allow it, Gloopy's app sends that same request for you, so don't send it again. Your turn ends here; their answer comes as the next message.]";
+      if (last && last.role === "tool") convo[convo.length - 1] = { ...last, content: String(last.content || "") + "\n\n" + said };
+      else convo.push({ role: "user", appNote: true, content: "(Note from Gloopy's app, not the owner: " + said.slice(15, -1) + ")" });
+      for (const rest of calls.slice(from)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: one of your requests is waiting for the owner's OK" });
+      emit({ type: "approval", id: w.id, step: w.step, site: w.site, url: w.url, why: w.why, ...(w.detail ? { detail: w.detail.slice(0, 1500) } : {}), request: true });
+      approvalRequest = { id: w.id, kind: "write", step: w.step, site: w.site, url: w.url };
+      return end("done", { summary: lastSaid || "asked the owner's OK to send: " + w.step });
+    };
     for (let i = 0; i < calls.length; i++) {
+      if (writeHold && writeHold.held) return heldEnd(i);
       const c = calls[i];
       const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
@@ -915,14 +970,14 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (!hub || typeof hub.act !== "function") { no("error: there is no browser on this computer: use your web search and web_fetch instead"); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
-        if (needsCheck(args) && !noCheck) {
+        if (needsCheck(args)) {
           let about;
           try { about = await hub.describe(args.action === "press" ? "" : String(args.ref || "")); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
           const step = stepWords(args, about);
           const g = granted.indexOf(step);
-          const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules });
+          const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules, background });
           if (v.usage) usage.push(v.usage);
-          const d = decide(v, perms);
+          const d = decide(v, perms, { background });
           if (d === "deny") { no("not done: " + (v.rule === "deny" ? "one of the owner's rules says never to do this" : "the owner's settings never allow this (" + permissionLabel(v.kind) + ")") + ": " + step + ". Don't do it another way; tell the owner it is turned off in Gloopy's settings."); continue; }
           if (d === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Use handoff to ask the owner to do it in your browser on " + (about.host || "the site") + " (say exactly what to do), or tell them what to do, and stop."); continue; }
           if (d === "ask") {
@@ -1324,6 +1379,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words)");
     }
+    if (writeHold && writeHold.held) return heldEnd(calls.length);
     if (roundNotes.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your last commands:\n" + roundNotes.join("\n\n") + ")" });
     if (roundPics.length) {
       const n = roundPics.reduce((a, p) => a + p.urls.length, 0);

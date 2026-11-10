@@ -173,16 +173,38 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // THE WORKER ADDS THE KEYS (2026-11-06, like Claude Code): a keyed request goes
   // to Coder's server with this job's pass; the key's value never comes here.
   let egress = null; // { url, chat, turn, pass }
-  const toEgress = (req, res, host, target) => {
-    if (!egress) { res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy: the key for " + host + " is added by Coder's server, and this job has no pass for it"); }
+  // A CHECK BEFORE A KEYED REQUEST GOES ON (the audit, 2026-11-10; Gloopy's turn sets it): any request but a read is
+  // asked about first, its body read here. It answers { go: true }, { go: false, text } (refused here) or
+  // { hold: id, step, done } (the Worker keeps it, not sent, for the owner's OK; `done` hears whether it did).
+  let writeCheck = null;
+  // `body`: the request's body, read here already (a checked request); `hold`: { id, step, done } to have the Worker keep it.
+  const toEgress = (req, res, host, target, { body = null, hold = null } = {}) => {
+    if (!egress) { if (hold) hold.done(false); res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy: the key for " + host + " is added by Coder's server, and this job has no pass for it"); }
     const u = new URL(egress.url);
     const fwd = {};
     for (const [k, v] of Object.entries(req.headers)) if (!/^(host|proxy-.*|connection|keep-alive|transfer-encoding|te|trailer|upgrade|content-length)$/i.test(k)) fwd[k] = Array.isArray(v) ? v.join(", ") : String(v);
-    const headers = { "content-type": "application/octet-stream", "x-coder-chat": egress.chat, "x-coder-turn": egress.turn, "x-coder-egress": egress.pass, "x-coder-url": "https://" + host + target, "x-coder-method": String(req.method || "GET"), "x-coder-headers": Buffer.from(JSON.stringify(fwd)).toString("base64url") };
+    const headers = { "content-type": "application/octet-stream", "x-coder-chat": egress.chat, "x-coder-turn": egress.turn, "x-coder-egress": egress.pass, "x-coder-url": "https://" + host + target, "x-coder-method": String(req.method || "GET"), "x-coder-headers": Buffer.from(JSON.stringify(fwd)).toString("base64url"),
+      ...(hold ? { "x-coder-hold": hold.id, "x-coder-step": Buffer.from(String(hold.step || "")).toString("base64url") } : {}), ...(body ? { "content-length": String(body.length) } : {}) };
     const lib = u.protocol === "http:" ? http : https;
-    const up = lib.request({ host: u.hostname, port: u.port || (u.protocol === "http:" ? 80 : 443), method: "POST", path: u.pathname, headers }, (r) => { r.on("error", () => res.destroy()); res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); });
-    up.on("error", (e) => { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); res.end("Coder's proxy could not reach Coder's server for " + host + ": " + String(e.code || e.message)); });
-    req.pipe(up);
+    const up = lib.request({ host: u.hostname, port: u.port || (u.protocol === "http:" ? 80 : 443), method: "POST", path: u.pathname, headers }, (r) => {
+      if (hold) hold.done(r.statusCode === 202 && String(r.headers["x-coder-held"] || "") === hold.id);
+      r.on("error", () => res.destroy()); res.writeHead(r.statusCode || 502, r.headers); r.pipe(res);
+    });
+    up.on("error", (e) => { if (hold) hold.done(false); if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); res.end("Coder's proxy could not reach Coder's server for " + host + ": " + String(e.code || e.message)); });
+    if (body) up.end(body); else req.pipe(up);
+  };
+  /** A keyed request checked first (writeCheck): its body read (at most 10 MB), then sent on, held, or refused. */
+  const checkedEgress = async (req, res, host, target) => {
+    const chunks = []; let size = 0;
+    try { for await (const c of req) { size += c.length; if (size > 10 * 1024 * 1024) throw new Error("the request body is over 10 MB"); chunks.push(c); } }
+    catch (e) { res.writeHead(413, { "content-type": "text/plain" }); return res.end("Coder's proxy: " + String((e && e.message) || e)); }
+    const body = Buffer.concat(chunks);
+    let v;
+    try { v = await writeCheck({ method: String(req.method || "GET").toUpperCase(), url: "https://" + host + target, type: String(req.headers["content-type"] || ""), body: new Uint8Array(body.buffer, body.byteOffset, body.length) }); }
+    catch (e) { v = { go: false, text: "Not sent: the check could not be made (" + String((e && e.message) || e).slice(0, 200) + ")." }; }
+    if (v && v.hold && typeof v.done === "function") return toEgress(req, res, host, target, { body, hold: { id: String(v.hold), step: String(v.step || ""), done: v.done } });
+    if (!v || v.go !== true) { res.writeHead(403, { "content-type": "text/plain", "x-coder-refused": "check" }); return res.end(String((v && v.text) || "Not sent.")); }
+    return toEgress(req, res, host, target, { body });
   };
   // GITHUB'S API FOR `gh` (owner, 2026-11-07, item 6; like Claude Code's GitHub proxy: requests "from gh under
   // the proxy-injected placeholder go out with your real credentials substituted", "independent of the
@@ -210,7 +232,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     // that secret, it is not reachable at all.
     if (!pathOk && !hostAllowed(host, network, [])) { res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host + " (outside the secret's paths)")); }
     const s = pathOk ? rule : null;
-    if (s && s.egress) return toEgress(req, res, host, target);
+    if (s && s.egress) return writeCheck && !["GET", "HEAD", "OPTIONS"].includes(String(req.method || "GET").toUpperCase()) ? checkedEgress(req, res, host, target) : toEgress(req, res, host, target);
     const headers = { ...req.headers, host };
     for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     const set = (name, value) => { for (const k of Object.keys(headers)) if (k.toLowerCase() === name.toLowerCase()) delete headers[k]; headers[name] = value; };
@@ -323,6 +345,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     setEgress(e) { egress = e && typeof e.url === "string" && /^https?:\/\//.test(e.url) && typeof e.pass === "string" && e.pass ? { url: e.url, chat: String(e.chat || ""), turn: String(e.turn ?? ""), pass: e.pass } : null; },
     /** `gh` for this job's chat (its own repositories), through Coder's server: on or off. */
     setGithub(on) { github = on === true; },
+    /** The check before a keyed request other than a read goes on (Gloopy's turn: the audit, 2026-11-10), or null for none. */
+    setWriteCheck(fn) { writeCheck = typeof fn === "function" ? fn : null; },
     /** The repo's network setting: { mode: full | limited | none, hosts }. */
     setNetwork(n) { network = normNetwork(n); },
     /** What the AI's commands get, so their HTTPS goes through here and trusts it. */
