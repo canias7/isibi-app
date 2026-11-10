@@ -194,8 +194,11 @@ export async function serve(dir) {
   // What is in the page's password fields and payment card fields now, in every frame (to blank it out of what is
   // reported), and the card numbers this browser typed (blanked wherever they show, for as long as it runs).
   const typedCards = new Set();
+  // The codes the owner typed on the sign-in card (the audit, 2026-11-10): blanked as a card's few digits are, wherever a
+  // field shows one again (a page that asks again with the code still in its box is a new page, not marked).
+  const typedCodes = new Set();
   const secrets = async () => {
-    const passwords = [], cards = [...typedCards];
+    const passwords = [], cards = [...typedCards, ...typedCodes];
     for (const f of page.frames()) {
       try {
         const v = await f.evaluate((sel) => ({ p: [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean), c: [...document.querySelectorAll(sel)].map((i) => i.value).filter(Boolean) }), CARD_FIELDS);
@@ -314,6 +317,30 @@ export async function serve(dir) {
     for (const f of page.frames()) { try { if (await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].some((i) => i.offsetParent !== null))) still = true; } catch { /* a frame that went away */ } }
     return { ok: true, url: page.url(), title: await page.title().catch(() => ""), still };
   };
+  // A CODE THE SITE SENT THE OWNER, from the private sign-in card (the audit, 2026-11-10; dots' sign-in card has a code
+  // box): typed into the page's code field here, then sent; never reported back. Only into a field on that site (`site`);
+  // the field (and a code split into one box per character, every box) is marked, so it stays masked and blanked.
+  const fillCode = async (x) => {
+    const codeRef = needRef(x, "codeRef"), submitRef = x.submitRef ? needRef(x, "submitRef") : "";
+    const code = String(x.code || "").replace(/\s+/g, "");
+    if (!/^[A-Za-z0-9-]{3,16}$/.test(code)) throw new Error("no code was given");
+    const el = await about(codeRef);
+    if (!["input", "textarea"].includes(el.tag) || /^(checkbox|radio|file|hidden|submit|button|reset|image|range|color)$/.test(el.type) || el.card) throw new Error("the field asked for is not one for a code, so nothing was typed");
+    const on = siteOf(el.origin);
+    if (!x.site || on !== String(x.site)) throw new Error("the code field is not on " + (x.site || "the site") + " (it is on " + (on || "no site") + "), so nothing was typed");
+    typedCodes.add(code);
+    const boxes = await target(codeRef).evaluate((n) => {
+      const split = Number(n.maxLength) === 1;
+      const all = split ? [...((n.form || n.parentElement || document).querySelectorAll("input"))].filter((i) => Number(i.maxLength) === 1) : [n];
+      for (const i of all) i.setAttribute("data-gloopy-card", "code");
+      return split ? all.length : 1;
+    }).catch(() => 1);
+    if (boxes > 1) { await target(codeRef).click({ timeout: 8000 }); await page.keyboard.type(code, { delay: 40 }); }
+    else await target(codeRef).fill(code, { timeout: 8000 });
+    if (submitRef) await target(submitRef).click({ timeout: 8000 }); else await page.keyboard.press("Enter");
+    await settle();
+    return { ok: true, url: page.url(), title: await page.title().catch(() => "") };
+  };
   // THE OWNER'S CARD, from the private card form (2026-11-09): typed into the page's card fields here; never reported
   // back. Only on the page the owner was asked about (`site`); each value only into a field for it (the number into a
   // card number field, ...), and the card's number, expiry and security code into fields of one site (a payment form's
@@ -410,6 +437,7 @@ export async function serve(dir) {
           else if (x.action === "describe") out = await describe(x);
           else if (x.action === "fill") out = await fill(x);
           else if (x.action === "fillCard") out = await fillCard(x);
+          else if (x.action === "fillCode") out = await fillCode(x);
           else if (x.action === "input") out = await input(x);
           else { ask = checkAsk(x); out = await run(ask); }
         } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
@@ -489,6 +517,8 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password }),
     // THE OWNER'S CARD (2026-11-09): { site, numberRef, expRef?, monthRef?, yearRef?, cvcRef?, nameRef?, postalRef?, card }.
     fillCard: ({ site = "", card, numberRef, expRef = "", monthRef = "", yearRef = "", cvcRef = "", nameRef = "", postalRef = "" }) => call({ action: "fillCard", site, card, numberRef, expRef, monthRef, yearRef, cvcRef, nameRef, postalRef }),
+    // A code from the private sign-in card (the audit, 2026-11-10), typed into the page's code field.
+    fillCode: ({ site = "", codeRef, submitRef = "", code }) => call({ action: "fillCode", site, codeRef, submitRef, code }),
     // Only when it is running already (no browser is started to be told nothing).
     running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
     // THE OWNER'S LIVE VIEW: { shot, hash, url, title } (or { same: true } when unchanged since `since`); { off: true } when

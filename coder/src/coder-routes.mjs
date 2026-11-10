@@ -1534,7 +1534,7 @@ async function gloopyState(g) {
     if (hooksOn.length && (await readPermissions(bucket, uid)).events === "allow") for (const w of hooksOn) await addWebhook(bucket, uid, user.email, w);
     const asks = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" ? cleanSchedule(s.result.approvalRequest.schedule) : null;
     const hookAsk = s.result.approvalRequest && s.result.approvalRequest.kind === "webhook" && s.result.approvalRequest.webhook && HOOK_ID.test(String(s.result.approvalRequest.webhook.id || "")) && cleanWebhook(s.result.approvalRequest.webhook) ? { id: s.result.approvalRequest.webhook.id, ...cleanWebhook(s.result.approvalRequest.webhook) } : null;
-    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
+    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200), ...(s.result.signinRequest.code === true ? { code: true } : {}) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
     // When the card was raised; in a run the owner did not start, until when it waits for them (the audit, 2026-11-10).
     const want = want0 ? { ...want0, at: Date.now(), ...(meta.bg ? { expires: Date.now() + CARD_TTL_MS } : {}) } : null;
     // A request held for the owner's OK that no card asks about (the turn ended another way first) is let go.
@@ -1697,8 +1697,37 @@ async function gloopyCard(g, action) {
     }
   } else if (body.skip === true) {
     try { await post("/gloopy/signin", { project: id, id: p.id, skip: true }); } catch { /* nothing to undo */ }
-    note = "(Note from Gloopy's app, not the owner: the owner chose not to sign in to " + site + " now. Go on without it, or say plainly what you could not do.)";
-    said = "Not now: signing in to " + site;
+    note = "(Note from Gloopy's app, not the owner: the owner chose not to " + (p.code ? "type the code from " + site : "sign in to " + site) + " now. Go on without it, or say plainly what you could not do.)";
+    said = "Not now: " + (p.code ? "the code for " : "signing in to ") + site;
+  } else if (body.tookOver === true) {
+    // THE OWNER SIGNED IN THEMSELVES, IN GLOOPY'S BROWSER (the audit, 2026-11-10; dots' "Take over to sign in"): the
+    // browser is Gloopy's again, and Gloopy hears where it is.
+    let r = null;
+    try { r = await post("/gloopy/control", { project: id, take: false }).then((x) => x.json()); } catch { r = null; }
+    const where = r && r.url ? " Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url).slice(0, 500) + "." : "";
+    note = "(Note from Gloopy's app, not the owner: the owner says they " + (p.code ? "typed the code from " + site : "signed in to " + site) + " themselves, in your browser (they took over). You never see what they typed." + where + " Look at it before you go on, to see whether it worked.)";
+    said = p.code ? "Typed the code for " + site + " myself" : "Signed in to " + site + " myself";
+  } else if (p.code) {
+    // A CODE THE SITE SENT THE OWNER (the audit, 2026-11-10): from the private card straight into the page's code field.
+    const code = String(body.code || "").replace(/\s+/g, "");
+    if (!/^[A-Za-z0-9-]{3,16}$/.test(code)) return json({ error: "Type the code (3 to 16 letters or digits)." }, 400);
+    let r = null;
+    try { r = await post("/gloopy/signin", { project: id, id: p.id, code }).then((x) => x.json()); } catch { r = null; }
+    if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner typed the code from " + site + " through the private card, and it went into the page. You never see it. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
+    else note = "(Note from Gloopy's app, not the owner: the owner's code for " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in with code_ref again only if the code field is still there.)";
+    said = r && r.ok ? "Typed the code for " + site : "Tried to type the code for " + site;
+  } else if (body.useSaved === true) {
+    // "USE SAVED LOGIN" ON THE CARD (the audit, 2026-11-10; dots asks before reusing a saved login): the one kept for this
+    // very site, from the vault straight to Gloopy's machine, while the owner's settings don't turn saved logins off.
+    if ((await readPermissions(bucket, uid)).login === "deny") return json({ error: "Saved logins are turned off in Gloopy's settings." }, 403);
+    const login = loginFor(await readLogins(env, bucket, uid), p.site);
+    if (!login) return json({ error: "No login is saved for " + site + " any more. Type it instead." }, 404);
+    let r = null;
+    try { r = await post("/gloopy/signin", { project: id, id: p.id, username: login.username, password: login.password }).then((x) => x.json()); } catch { r = null; }
+    if (r && r.ok && !r.still) note = "(Note from Gloopy's app, not the owner: the owner had you use the login they saved for " + site + ". You never see it. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
+    else if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner's saved login for " + site + " was typed in, but the site still shows a sign-in form: it may be out of date, or the site asks for another step (a code, a CAPTCHA). Look at the page and tell the owner plainly.)";
+    else note = "(Note from Gloopy's app, not the owner: the owner's saved login for " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in again only if the sign-in form is still there.)";
+    said = r && r.ok && !r.still ? "Signed in to " + site + " with my saved login" : "Tried my saved login for " + site;
   } else {
     const username = String(body.username || "").slice(0, 500), password = String(body.password || "");
     if (!password || password.length > 1000) return json({ error: "Type your password (at most 1000 characters)." }, 400);

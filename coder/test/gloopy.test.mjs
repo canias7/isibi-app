@@ -12,7 +12,11 @@ import { GLOOPY_SYSTEM, GLOOPY_TOOLS, GLOOPY_TOOL_NAMES, gloopyContext } from ".
 
 const call = (name, args, id = name + Math.random().toString(36).slice(2, 7)) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
-const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: async (req) => { seen.push(req); return steps[Math.min(i++, steps.length - 1)]; } }; };
+// The look at a sign-in page before its card (the audit, 2026-11-10) answers "it is the real page" unless a test says
+// otherwise; it is kept apart from the job's own calls (`signinChecks`).
+const isSigninCheck = (req) => String((req && req.messages && req.messages[0] && req.messages[0].content) || "").startsWith("You check a sign-in page");
+const SIGNIN_REAL = { message: { role: "assistant", content: '{"real":"yes","service":"","why":""}' }, usage: { in: 2, out: 1 } };
+const scripted = (steps, signin = SIGNIN_REAL) => { let i = 0; const seen = [], signinChecks = []; return { seen, signinChecks, send: async (req) => { if (isSigninCheck(req)) { signinChecks.push(req); return typeof signin === "function" ? signin(req) : signin; } seen.push(req); return steps[Math.min(i++, steps.length - 1)]; } }; };
 const GLOOPY = { system: GLOOPY_SYSTEM, tools: GLOOPY_TOOLS, nudges: false, who: "Gloopy" };
 
 // ── GLOOPY'S BRAIN ──────────────────────────────────────────────────────────
@@ -495,7 +499,7 @@ test("GL17 (2026-11-09) sign_in: only into the page's password field; it ends th
   assert.match(none.messages.find((m) => m.tool_call_id === "s4").content, /^error: there is no browser on this computer/);
   // Gloopy's instructions: sign_in for accounts, never a password typed or asked for.
   const { SIGN_IN_TOOL, BROWSER_TOOL } = await import("../container/gloopy-agent.mjs");
-  assert.deepEqual(SIGN_IN_TOOL.function.parameters.required.sort(), ["password_ref", "reason"]);
+  assert.deepEqual(SIGN_IN_TOOL.function.parameters.required, ["reason"], "a password field, or a code field (the audit, 2026-11-10)");
   assert.match(BROWSER_TOOL.function.description, /sign_in/);
   assert.match(GLOOPY_SYSTEM, /sign_in/);
   assert.match(GLOOPY_SYSTEM, /never (?:type|ask)[^.]*password/i);
@@ -646,6 +650,8 @@ test("GL19 (2026-11-09) all of it, for real (where Chromium is installed): Gloop
   const send = async (req) => {
     seen.push(req);
     if (String(req.messages[0].content).startsWith(CHECK_SYSTEM)) { checks.push(req); return say(/Place order/.test(req.messages[1].content) ? '{"kind":"buy","decision":"ask","why":"This would place the order."}' : '{"kind":"none","decision":"allow","why":"It only moves through the site."}'); }
+    // The look at the sign-in page before its card (the audit, 2026-11-10): what it is sent counts as sent to Grok too.
+    if (isSigninCheck(req)) return SIGNIN_REAL;
     return steps[Math.min(n++, steps.length - 1)](req);
   };
   const srv = http.createServer(createApp({ ...roots, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, send }));
@@ -715,7 +721,7 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   assert.match(ui, /<button type="button" class="cd-card-no" data-approve="deny" data-card="' \+ esc\(e\.id\) \+ '">Deny<\/button>' \+ \(e\.kind === 'schedule' \|\| e\.kind === 'webhook' \? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' \+ esc\(e\.id\) \+ '"[^>]*>Always allow<\/button>'\) \+ '<button type="button" class="cd-card-yes" data-approve="once" data-card="' \+ esc\(e\.id\) \+ '">' \+ \(e\.kind === 'schedule' \|\| e\.kind === 'webhook' \? 'Allow' : 'Allow once'\) \+ '<\/button>/);
   assert.match(ui, /<input id="cdSignPass" class="cd-secret-in" type="password" autocomplete="off">/);
   assert.match(ui, /What you type goes straight into Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ '\. Gloopy never sees it, and it’s saved only if you tick the box below\./);
-  assert.match(ui, /<button type="button" class="cd-card-no" data-signin-skip="' \+ esc\(e\.id\) \+ '">Not now<\/button><button type="button" class="cd-card-yes" data-signin="' \+ esc\(e\.id\) \+ '" disabled>Sign in<\/button>/);
+  assert.match(ui, /<button type="button" class="cd-card-no" data-signin-skip="' \+ esc\(e\.id\) \+ '">Not now<\/button>' \+ take \+ '<button type="button" class="cd-card-yes" data-signin="' \+ esc\(e\.id\) \+ '" disabled>Sign in<\/button>/);
   // Found while writing these: the secret card's handlers are bound by its button classes, so the cards' buttons have
   // their own (a Deny would also have sent "I declined the secret for undefined.").
   for (const block of [/else if \(e\.type === 'approval'\) \{[\s\S]*?\n      \}/, /else if \(e\.type === 'signin'\) \{[\s\S]*?\n      \}/]) assert.doesNotMatch(block.exec(ui)[0], /cd-secret-no|cd-secret-save|cdSecretIn/);
@@ -2782,7 +2788,7 @@ test("GL63 (2026-11-09) after checking Gloopy against Grok Bot's and dots' docs:
   // What Gloopy is told.
   assert.match(GLOOPY_SYSTEM, /Browser steps that could change something \(a click, a choice, a submit\) follow YOUR PERMISSIONS and the owner's rules: one they say to ask first about waits for the owner's OK on a card; one they allow goes ahead with no card, so be sure it is what the owner wants first\./);
   assert.doesNotMatch(GLOOPY_SYSTEM, /one that could buy, send, book, post, sign up or delete waits for the owner's OK on a card/);
-  assert.match(GLOOPY_SYSTEM, /Never ask the owner to paste a password, a one-time code, a card number or a key into the chat \(nor into ask_user\)[^\n]*When a site asks for a code sent to the owner, use handoff: they type it in your browser themselves\./);
+  assert.match(GLOOPY_SYSTEM, /Never ask the owner to paste a password, a one-time code, a card number or a key into the chat \(nor into ask_user\)[^\n]*When a site asks for a code sent to the owner, use sign_in with code_ref: they type it on a private card and it goes straight into the page\./);
 });
 
 // ── THE AUDIT AGAINST GROK BOT'S AND DOTS' DOCS, DONE (owner, 2026-11-10: "do all of that") ──
@@ -3082,4 +3088,161 @@ test("GL68 (2026-11-10) runs the owner did not start, on Coder's Worker: the mac
   assert.deepEqual(Object.values(P.DEFAULTS), P.PERMISSION_KEYS.map(() => "allow"), "while testing, everything is allowed");
   const perms = await (await go("projects/" + GLOOPY_ID + "/permissions")).json();
   assert.deepEqual([perms.testing, perms.default, perms.defaults.send], [true, "allow", "allow"]);
+});
+
+test("GL69 (2026-11-10) the sign-in card, as dots' is: a look first at whether the page is the real one (a fake or unsecured page gets a warning, and Gloopy hears it); a saved login offered on the card when the owner's setting is Ask (used with no card, and no look, when it is Always allow); a code the site sent the owner, typed on the card; nothing typed by Gloopy", async () => {
+  const { signinCheckMessages, readSigninVerdict, signinWarning, SIGNIN_CHECK_SYSTEM } = await import("../container/gloopy-check.mjs");
+  const C = { ...ELS, e10: { name: "Verification code", tag: "input", type: "text" }, e11: { name: "Remember me", tag: "input", type: "checkbox" }, e12: { name: "Verify", tag: "button", type: "submit" } };
+  const job = async (calls, { signin = SIGNIN_REAL, opts = {}, browser = fakeBrowser(C) } = {}) => {
+    const events = [];
+    const g = scripted([say("", calls), say("SHOULD NOT BE ASKED")], signin);
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser, emit: (e) => events.push(e) }, { text: "check my orders on shop.example", ...GLOOPY, ...opts });
+    return { out, events, g, card: events.find((e) => e.type === "signin") };
+  };
+  // The look: the page, where the field is and where the form sends, the owner's words, Gloopy's reason.
+  let r = await job([call("sign_in", { password_ref: "e7", username_ref: "e8", submit_ref: "e9", reason: "To see your orders" }, "s1")]);
+  assert.equal(r.g.signinChecks.length, 1);
+  assert.equal(r.g.signinChecks[0].messages[0].content, SIGNIN_CHECK_SYSTEM);
+  assert.equal(r.g.signinChecks[0].messages[1].content, "THE OWNER'S LAST MESSAGES (their own words, newest last):\n- check my orders on shop.example\n\nWHAT GLOOPY ASKS FOR: the owner's username and password, because: To see your orders\n\nTHE PAGE: Your cart — https://shop.example/cart\nTHE FIELD IS ON: shop.example");
+  assert.deepEqual([r.card.warn, r.card.saved, r.card.code], [undefined, undefined, undefined], "a real page: no warning");
+  // A fake one: the card warns, and Gloopy hears it.
+  r = await job([call("sign_in", { password_ref: "e7", reason: "To see your orders" }, "s1")], { signin: say('{"real":"no","service":"Shop","why":"The address is sh0p-login.example, not shop.example."}') });
+  assert.deepEqual(r.card.warn, { level: "danger", text: "This may not be the real Shop sign-in page: the address is sh0p-login.example, not shop.example." }, "the address is said once");
+  assert.match(r.out.messages.find((m) => m.tool_call_id === "s1").content, / The owner sees a warning on the card: This may not be the real Shop sign-in page: .* Don't argue them out of it\.$/);
+  assert.equal(readSigninVerdict("not json").real, "unsure");
+  assert.deepEqual(signinWarning({ real: "unsure", why: "" }, { url: "https://a.example/login", host: "a.example" }), { level: "caution", text: "Check the address before you type: a.example." });
+  assert.equal(signinWarning({ real: "yes" }, { url: "http://a.example/login", host: "a.example" }).text, "This page isn't secure (its address starts with http://): what you type could be seen by others.", "plain http always warns");
+  assert.equal(signinWarning({ real: "yes" }, { url: "http://127.0.0.1:8080/login", host: "127.0.0.1:8080" }), null, "but not this computer itself");
+  assert.match(signinCheckMessages({ page: { url: "https://a.example/x", host: "a.example", title: "T" }, field: { frameHost: "auth.b.example", element: { formAction: "https://evil.example/collect" } }, reason: "r", convo: [] })[1].content, /\nTHE FIELD IS ON: auth\.b\.example \(a box from that site, framed in the page\)\nTHE FORM SENDS WHAT IS TYPED TO: https:\/\/evil\.example\/collect$/);
+  // A saved login, the owner's setting Ask: offered on the card.
+  r = await job([call("sign_in", { password_ref: "e7", reason: "x" }, "s1")], { opts: { savedLogins: ["shop.example"], permissions: { login: "ask" } } });
+  assert.equal(r.card.saved, true);
+  assert.match(r.out.messages.find((m) => m.tool_call_id === "s1").content, /^asked the owner to sign in to shop\.example through the private form \(or to use the login they saved for it\)\./);
+  // Always allow: used with no card and no look (it is only ever typed on the very site it was saved for).
+  const b = { ...fakeBrowser(C), signInSaved: async (x) => ({ ok: true, still: false, title: "Your orders", url: "https://shop.example/orders", x }) };
+  r = await job([call("sign_in", { password_ref: "e7", reason: "x" }, "s1")], { browser: b, opts: { savedLogins: ["shop.example"] } });
+  assert.deepEqual([r.card, r.g.signinChecks.length], [undefined, 0]);
+  // Never: no saved login offered.
+  r = await job([call("sign_in", { password_ref: "e7", reason: "x" }, "s1")], { opts: { savedLogins: ["shop.example"], permissions: { login: "deny" } } });
+  assert.equal(r.card.saved, undefined);
+  // A code the site sent the owner: its own card; only into a field for it.
+  r = await job([call("sign_in", { code_ref: "e10", submit_ref: "e12", reason: "The shop sent a code to your phone" }, "s1"), call("browser", { action: "look" }, "s2")]);
+  assert.deepEqual({ ...r.card, id: "", at: 0 }, { type: "signin", id: "", at: 0, site: "shop.example", url: "https://shop.example/cart", reason: "The shop sent a code to your phone", code: true });
+  assert.deepEqual(r.out.signinRequest, { id: r.card.id, site: "shop.example", url: "https://shop.example/cart", codeRef: "e10", submitRef: "e12", code: true });
+  assert.equal(r.events.find((e) => e.type === "bash" && e.id === "s1").verb, "Asked you for a code");
+  assert.match(r.out.messages.find((m) => m.tool_call_id === "s1").content, /^asked the owner for the code shop\.example sent them, through the private card: it goes straight into the code field\./);
+  assert.equal(r.out.messages.find((m) => m.tool_call_id === "s2").content, "not run: you asked the owner for a code first");
+  assert.match(r.g.signinChecks[0].messages[1].content, /WHAT GLOOPY ASKS FOR: a code the site sent the owner, because: The shop sent a code to your phone/);
+  r = await job([call("sign_in", { code_ref: "e11", reason: "x" }, "s1")]);
+  assert.match(r.out.messages.find((m) => m.tool_call_id === "s1").content, /^error: code_ref is not a field to type a code into/);
+  r = await job([call("sign_in", { reason: "x" }, "s1")]);
+  assert.equal(r.out.messages.find((m) => m.tool_call_id === "s1").content, "error: give password_ref (the page's password field), or code_ref when the site asks for a code it sent the owner");
+  assert.deepEqual(r.out.signinRequest, undefined);
+});
+
+test("GL70 (2026-11-10) the sign-in card's answers on Coder's Worker: a code goes to Gloopy's machine (never kept); Use saved login sends the login kept for that very site (not when saved logins are turned off); Take over hands the browser back and Gloopy hears where it is; what Gloopy is told", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { saveLogin } = await import("../src/gloopy-vault.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  const machine = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); const body = req.method === "POST" ? await req.json() : null; machine.push({ path: u.pathname, body }); if (u.pathname === "/gloopy/signin") return Response.json({ ok: true, still: false, title: "Your orders", url: "https://shop.example/orders" }); if (u.pathname === "/gloopy/control") return Response.json({ control: false, had: true, title: "Your orders", url: "https://shop.example/orders" }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  await go("gloopy");
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const setMeta = (o) => bucket.m.set(metaKey, JSON.stringify({ ...JSON.parse(bucket.m.get(metaKey)), status: "idle", ...o }));
+  const answer = (body) => go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify(body) });
+  // A code.
+  setMeta({ pending: { kind: "signin", id: "si1", site: "shop.example", code: true, at: Date.now() } });
+  assert.equal((await answer({ id: "si1", code: "12" })).status, 400);
+  let r = await (await answer({ id: "si1", code: " 482 913 " })).json();
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/signin", body: { project: GLOOPY_ID, id: "si1", code: "482913" } });
+  assert.equal(r.said, "Typed the code for shop.example");
+  assert.match(r.project.note, /^\(Note from Gloopy's app, not the owner: the owner typed the code from shop\.example through the private card, and it went into the page\. You never see it\./);
+  assert.ok(!JSON.stringify(bucket.m.get(metaKey)).includes("482913") && !JSON.stringify([...bucket.m.values()]).includes("482913"), "the code is kept nowhere");
+  // Use saved login: the one kept for that very site.
+  await saveLogin(env, bucket, "u1", { site: "other.example", username: "ana", password: "other-pass-123" });
+  await saveLogin(env, bucket, "u1", { site: "shop.example", username: "ana@example.com", password: "shop-pass-456" });
+  setMeta({ pending: { kind: "signin", id: "si2", site: "shop.example", at: Date.now() } });
+  r = await (await answer({ id: "si2", useSaved: true })).json();
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, id: "si2", username: "ana@example.com", password: "shop-pass-456" });
+  assert.equal(r.said, "Signed in to shop.example with my saved login");
+  assert.ok(!r.project.note.includes("shop-pass-456"));
+  setMeta({ pending: { kind: "signin", id: "si3", site: "nologin.example", at: Date.now() } });
+  r = await answer({ id: "si3", useSaved: true });
+  assert.deepEqual([r.status, (await r.json()).error], [404, "No login is saved for nologin.example any more. Type it instead."]);
+  await go("projects/" + GLOOPY_ID + "/permissions", { method: "POST", body: JSON.stringify({ set: { login: "deny" } }) });
+  setMeta({ pending: { kind: "signin", id: "si4", site: "shop.example", at: Date.now() } });
+  r = await answer({ id: "si4", useSaved: true });
+  assert.deepEqual([r.status, (await r.json()).error], [403, "Saved logins are turned off in Gloopy's settings."]);
+  // Take over: the browser handed back; Gloopy hears where it is.
+  const n = machine.length;
+  r = await (await answer({ id: "si4", tookOver: true })).json();
+  assert.deepEqual(machine.slice(n).map((x) => [x.path, x.body.take]), [["/gloopy/control", false]]);
+  assert.equal(r.said, "Signed in to shop.example myself");
+  assert.equal(r.project.note, "(Note from Gloopy's app, not the owner: the owner says they signed in to shop.example themselves, in your browser (they took over). You never see what they typed. Your browser's page is now “Your orders” at https://shop.example/orders. Look at it before you go on, to see whether it worked.)");
+  // A turn ending on a code card keeps that it is one.
+  let state = { running: false, events: [], next: 0, result: { status: "done", messages: [], summary: "", signinRequest: { id: "si9", site: "shop.example", codeRef: "e10", code: true } } };
+  deps.container = () => ({ fetch: async (req) => { const u = new URL(req.url); if (u.pathname === "/state") return Response.json(state); return Response.json({ ok: true }); } });
+  setMeta({ status: "running", turn: 9, saved: 8, pending: null });
+  await go("projects/" + GLOOPY_ID + "/state?since=0");
+  assert.deepEqual({ ...JSON.parse(bucket.m.get(metaKey)).pending, at: 0 }, { kind: "signin", id: "si9", site: "shop.example", code: true, at: 0 });
+  // The page: the code card, Use your saved login, Take over, the warning.
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(ui, /<b class="cd-secret-t">Enter the code for ' \+ site \+ '<\/b>' \+ warn/);
+  assert.match(ui, /<input id="cdSignCode" class="cd-secret-in cd-sign-code" type="text" autocomplete="one-time-code"/);
+  assert.match(ui, /data-signin-saved="' \+ esc\(e\.id\) \+ '">Use your saved login' \+ \(mine && mine\.username \? ' · ' \+ esc\(mine\.username\) : ''\) \+ '<\/button>/);
+  assert.match(ui, /data-signin-take="' \+ esc\(e\.id\) \+ '"' \+ \(S\.webOK \? '' : ' disabled'\)/);
+  assert.match(ui, /if \(box\) box\.value = '';\n      cardAnswer\(id, 'signin', \{ code \}, 'The code could not be sent\.'\);/, "the code leaves its box as it is sent");
+  assert.match(ui, /p\.kind === 'signin' && S\.signTake === p\.id \? \{ \.\.\.p, task:/);
+  assert.match(ui, /JSON\.stringify\(ho\.signin \? \{ id: ho\.id, tookOver: true \} : \{ id: ho\.id, done: true \}\)/);
+  assert.doesNotMatch(ui, /S\.\w+ = [^;\n]*\bcode\b(?!\w)/, "a code is never put in the page's state");
+  assert.match(css, /\.cd-sign-warn\.is-danger\{/);
+  // What Gloopy is told.
+  const { SIGN_IN_TOOL, HANDOFF_TOOL } = await import("../container/gloopy-agent.mjs");
+  assert.match(SIGN_IN_TOOL.function.description, /When the site asks for a code it sent the owner \(by text message, email or an app\), give code_ref \(the code field\) instead of password_ref/);
+  assert.doesNotMatch(HANDOFF_TOOL.function.description, /a code sent to their phone or email/);
+  assert.match(GLOOPY_SYSTEM, /When the site then asks for a code it sent them, use sign_in again with code_ref\./);
+});
+
+test("GL71 (2026-11-10) a code, for real (where Chromium is installed): it goes only into a field for it on the site asked about; one box, or one box per digit; and it never shows in what Gloopy reads, not even when the site shows it again", async (t) => {
+  const { makeBrowserHub, hasBrowser, BLANKED } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const got = [];
+  const site = http.createServer((q, r) => {
+    const u = new URL(q.url, "http://x");
+    const html = (b) => { r.writeHead(200, { "content-type": "text/html" }); r.end(b); };
+    if (u.pathname === "/code") return html('<title>Enter code</title><form action=/verify method=post><label for=c>Verification code</label><input id=c name=code autocomplete=one-time-code><button>Verify</button></form>');
+    if (u.pathname === "/split") return html('<title>Enter code</title><form action=/verify method=post>' + [1, 2, 3, 4, 5, 6].map((k) => '<input aria-label="Digit ' + k + '" name=d' + k + ' maxlength=1>').join("") + '<button>Verify</button></form><script>const a=[...document.querySelectorAll("input")];a.forEach((i,k)=>i.addEventListener("input",()=>{if(i.value&&a[k+1])a[k+1].focus();}));</script>');
+    if (u.pathname === "/verify" && q.method === "POST") { let b = ""; q.on("data", (c) => { b += c; }); q.on("end", () => { got.push(b); if (b === "code=000000") return html('<title>Try again</title><p>Wrong code</p><form action=/verify method=post><label for=c>Verification code</label><input id=c name=code value="000000"><button>Verify</button></form>'); html("<title>Welcome</title><h1>Signed in</h1>"); }); return; }
+    r.writeHead(404); r.end();
+  });
+  const S = await listen(site), here = new URL(S).host;
+  const { spawnSync } = await import("node:child_process");
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-code-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    let a = await hub.act({ action: "open", url: S + "/code" });
+    const box = refOf(a.text, /textbox "Verification code" \[ref=([a-z0-9]+)\]/), btn = refOf(a.text, /button "Verify" \[ref=([a-z0-9]+)\]/);
+    assert.ok(box && btn, a.text);
+    await assert.rejects(hub.fillCode({ site: "elsewhere.example", codeRef: box, code: "482913" }), /the code field is not on elsewhere\.example \(it is on 127\.0\.0\.1:\d+\), so nothing was typed/);
+    await assert.rejects(hub.fillCode({ site: here, codeRef: btn, code: "482913" }), /the field asked for is not one for a code, so nothing was typed/);
+    await assert.rejects(hub.fillCode({ site: here, codeRef: box, code: "1" }), /no code was given/);
+    assert.deepEqual(got, []);
+    // A wrong code: the site shows it again in its box; Gloopy's next look has it blanked.
+    let f = await hub.fillCode({ site: here, codeRef: box, submitRef: btn, code: "000000" });
+    assert.deepEqual([f.ok, f.title, got], [true, "Try again", ["code=000000"]]);
+    a = await hub.act({ action: "look" });
+    assert.ok(!a.text.includes("000000") && a.text.includes(BLANKED), a.text);
+    const box2 = refOf(a.text, /textbox "Verification code" \[ref=([a-z0-9]+)\]/);
+    f = await hub.fillCode({ site: here, codeRef: box2, code: "482913" });
+    assert.deepEqual([f.title, got.at(-1)], ["Welcome", "code=482913"]);
+    // One box per digit: typed from the first, the page moving along; sent with Enter.
+    a = await hub.act({ action: "open", url: S + "/split" });
+    const first = refOf(a.text, /textbox "Digit 1" \[ref=([a-z0-9]+)\]/);
+    f = await hub.fillCode({ site: here, codeRef: first, code: "123456" });
+    assert.deepEqual([f.title, got.at(-1)], ["Welcome", "d1=1&d2=2&d3=3&d4=4&d5=5&d6=6"]);
+  } finally { site.close(); spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
 });

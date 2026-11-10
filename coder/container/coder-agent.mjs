@@ -25,7 +25,7 @@ import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_C
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide, requestWords, bodyPreview, CARD_TTL_MS } from "./gloopy-check.mjs";
+import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
@@ -1000,12 +1000,43 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       } else if (c.name === "sign_in") {
         // THE OWNER SIGNS IN THROUGH A PRIVATE FORM (2026-11-09, like Grok Bot's Secure Form and dots' private sign-in): a card
         // in the chat; what they type goes from it straight into the page, filled by Coder's service. The AI never sees it.
+        // Or a CODE the site sent them (code_ref; the audit, 2026-11-10: dots' sign-in card has a code box), the same way.
+        // Before a card, a look at whether the page is the real one (signinCheck); a login the owner saved is used for them
+        // when their settings allow it, or offered on the card ("Use saved login") when they say to ask.
         const args = c.args || {};
-        emit({ type: "bash", id: c.id, tool: "sign_in", verb: "Asked you to sign in", command: "" });
+        const codeRef = String(args.code_ref || "").trim();
+        const asCode = !!codeRef && !String(args.password_ref || "").trim();
+        emit({ type: "bash", id: c.id, tool: "sign_in", verb: asCode ? "Asked you for a code" : "Asked you to sign in", command: "" });
         const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
         const hub = deps.browser;
         if (!hub || typeof hub.describe !== "function") { no("error: there is no browser on this computer"); continue; }
+        const reason0 = plain(scrub(String(args.reason || ""))).slice(0, 300);
+        // The look at the page, and what the card and Gloopy are told of it.
+        const looked = async (page, field) => {
+          const v = await signinCheck({ send: deps.send, model, page, field, reason: reason0, convo, code: asCode });
+          if (v.usage) usage.push(v.usage);
+          const warn = signinWarning(v, page);
+          return { warn, said: warn ? " The owner sees a warning on the card: " + warn.text + " Don't argue them out of it." : "" };
+        };
+        if (asCode) {
+          const submitRef = String(args.submit_ref || "");
+          let field;
+          try { field = await hub.describe(codeRef); if (submitRef) await hub.describe(submitRef); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+          const el = field.element || {};
+          if (!["input", "textarea"].includes(el.tag) || /^(checkbox|radio|file|hidden|submit|button|reset|image|range|color)$/.test(String(el.type || "")) || el.card) { no("error: code_ref is not a field to type a code into: look again and give the number of the page's code field"); continue; }
+          const site = String(field.frameHost || "");
+          if (!site) { no("error: that code field has no web address of its own (it is in a frame that belongs to no site): open the site's own page"); continue; }
+          const { warn, said } = await looked({ url: field.url, host: field.host, title: field.title }, field);
+          const id = "si" + Math.random().toString(36).slice(2, 10);
+          emit({ type: "result", id: c.id, code: 0, output: "Asked you for the code from " + site, label: "Asked you for the code from " + site });
+          reply("asked the owner for the code " + site + " sent them, through the private card: it goes straight into the code field. Your turn ends here; the next message says how it went. You never see it." + said);
+          for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a code first" });
+          emit({ type: "signin", id, site, url: field.url || "", reason: reason0, code: true, ...(warn ? { warn } : {}) });
+          signinRequest = { id, site, url: field.url || "", codeRef, submitRef, code: true };
+          return end("done", { summary: lastSaid || "asked the owner for the code from " + site });
+        }
         const passRef = String(args.password_ref || ""), userRef = String(args.username_ref || ""), submitRef = String(args.submit_ref || "");
+        if (!passRef.trim()) { no("error: give password_ref (the page's password field), or code_ref when the site asks for a code it sent the owner"); continue; }
         let pass, user = null;
         try { pass = await hub.describe(passRef); if (userRef) user = await hub.describe(userRef); if (submitRef) await hub.describe(submitRef); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
         if (!pass.element || !pass.element.password) { no("error: password_ref is not a password field: look again and give the number of the page's password field"); continue; }
@@ -1027,10 +1058,14 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           savedFailed = true;
         }
         const id = "si" + Math.random().toString(36).slice(2, 10);
+        const { warn, said } = await looked({ url: pass.url, host: pass.host, title: pass.title }, pass);
+        // A SAVED LOGIN THE OWNER IS ASKED ABOUT (their setting is Ask; dots always asks before reusing one): "Use saved
+        // login" on the card, when one is kept for this very site and it was not just tried.
+        const offer = !savedFailed && (Array.isArray(savedLogins) ? savedLogins : []).includes(site) && perms.login === "ask";
         emit({ type: "result", id: c.id, code: 0, output: "Asked you to sign in to " + site, label: "Asked you to sign in to " + site });
-        reply("asked the owner to sign in to " + site + " through the private form. Your turn ends here; the next message says how it went. You never see what they type.");
+        reply("asked the owner to sign in to " + site + " through the private form" + (offer ? " (or to use the login they saved for it)" : "") + ". Your turn ends here; the next message says how it went. You never see what they type." + said);
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to sign in first" });
-        emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + plain(scrub(String(args.reason || "")))).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "" });
+        emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + reason0).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "", ...(offer ? { saved: true } : {}), ...(warn ? { warn } : {}) });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
       } else if (c.name === "pay") {

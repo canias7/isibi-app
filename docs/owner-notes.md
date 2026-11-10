@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Gloopy's sign-in card, as dots' is (your word: "do all of that"; part 2 of 4)
+
+- **"Use your saved login" on the card.** When your setting for saved logins is Ask (as dots always asks), the sign-in card shows a button with the saved username. One press signs in with it; nothing to retype.
+  - Always allow: used with no card, as before. Never: not offered.
+- **A box for one-time codes.** When a site sends you a code (text message, email or an app), Gloopy asks for it on a card. You type it there and it goes straight into the page. Gloopy never sees it.
+  - Codes split into one box per digit work too.
+  - The code is hidden from what Gloopy reads, even if the site shows it again after a wrong try.
+  - Before, Gloopy had to hand you its whole browser just to type a code.
+- **"Take over" on the sign-in card.** Opens Gloopy's browser so you can sign in yourself (for single sign-on, passkeys, anything odd). "Done, hand it back" tells Gloopy where the page is.
+- **A check for fake sign-in pages.** Before the card shows, one small Grok call looks at the page's address and where the form sends what you type. A look-alike address, a free hosting site or a bare IP address gets a red warning on the card. You still decide.
+  - A page on plain http:// always gets the warning.
+  - Saved logins skip this check: they're only ever typed on the exact site they were saved for.
+- Small fix: the three buttons fit on a phone.
+- Tests: GL69 to GL71 are new (GL71 types codes into a real Chromium browser). All 326 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
 ## 2026-11-10: Gloopy's safety, as Grok Bot and dots do it (your word: "do all of that"; part 1 of 4)
 
 - **The check runs all the time now.** Before, it was skipped while everything was Always allow. Now every click, choice or submit in Gloopy's browser is checked first, as both apps do. That costs one small Grok call per such step.

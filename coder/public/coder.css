@@ -539,3 +539,13 @@
 .cd-card-expired{font-size:13px;color:#6b6a66;background:#f1efe9;border-radius:8px;padding:6px 10px;margin:4px 0 0;text-align:left}
 /* What a request held for the owner's OK sends. */
 .cd-approve-body{margin:2px 0 12px;max-height:200px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+/* The sign-in card's other ways (the audit, 2026-11-10): the login you saved, and a warning when the page may be fake. */
+.cd-sign-saved{display:block;width:100%;margin:2px 0 4px;font:inherit;font-size:15px;font-weight:600;border-radius:999px;padding:11px 12px;cursor:pointer;overflow-wrap:anywhere}
+.cd-sign-saved:disabled{opacity:.6;cursor:default}
+/* Three buttons on the sign-in card (Not now, Take over, Sign in) fit a phone. */
+@media (max-width: 640px) { .cd-signin .cd-secret-btns { gap: 8px; } .cd-signin .cd-secret-btns button { font-size: 14px; padding: 11px 4px; } }
+.cd-sign-or{font-size:12.5px;color:#8a8984;margin:6px 0 2px;text-align:center}
+.cd-sign-warn{font-size:13.5px;line-height:1.45;text-align:left;border-radius:10px;padding:8px 12px;margin:0 0 10px}
+.cd-sign-warn.is-danger{color:#8c1d18;background:#fdecea;border:1px solid #f5c2bd}
+.cd-sign-warn.is-caution{color:#7a5a00;background:#fdf6e3;border:1px solid #f0dfaa}
+.cd-sign-code{letter-spacing:.2em;font-size:18px;text-align:center}

@@ -49,6 +49,7 @@
     webOK: false,   // Gloopy: its machine has a browser (the full image, on Fly.io)
     attach: [],     // Gloopy: files attached to the next message, already sent to the Worker: [{ id, name, size }] (or { name, up: true } while sending)
     cards: [],      // Gloopy: the owner's saved cards, as the Worker lists them (brand, last 4 digits, expiry; never a number)
+    logins: [],     // Gloopy: the owner's saved logins, as the Worker lists them (site and username; never a password)
     payUse: null,   // Gloopy: on the card form, { id, use } (a saved card's id, or '' for another card)
     web: null,      // Gloopy: the live view of its browser, while open (webOpen)
   };
@@ -137,6 +138,7 @@
     if (g.status !== 200 || !g.data || !g.data.gloopy) { S.phase = 'error'; S.error = (g.data && g.data.error) || 'Gloopy could not be reached.'; return draw(); }
     S.webOK = g.data.browser === true;
     S.cards = Array.isArray(g.data.cards) ? g.data.cards : [];
+    S.logins = Array.isArray(g.data.logins) ? g.data.logins : [];
     return openProject(g.data.gloopy.id);
   }
 
@@ -954,16 +956,30 @@
       else if (e.type === 'signin') {
         // THE PRIVATE SIGN-IN FORM (Gloopy, 2026-11-09; like Grok Bot's Secure Form and dots' private sign-in): what you type
         // goes straight into Gloopy's browser on that site. Never kept in this page's state; the box is emptied once sent.
+        // The audit (2026-11-10), as dots' card: a code the site sent you (`code`), the login you saved for the site
+        // (`saved`: when your setting for saved logins is Ask), Take over (do it yourself in Gloopy's browser), and a
+        // warning when the page may not be the real one (`warn`).
         const live = cardOpen(i, e);
-        out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Sign in to ' + esc(e.site || 'the site') + '</b>' +
+        const site = esc(e.site || 'the site');
+        const warn = e.warn && e.warn.text ? '<p class="cd-sign-warn ' + (e.warn.level === 'danger' ? 'is-danger' : 'is-caution') + '">' + esc(e.warn.text) + '</p>' : '';
+        const mine = e.saved ? (S.logins || []).filter((l) => l.site === e.site).slice(-1)[0] : null;
+        const msg = S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '';
+        const take = '<button type="button" class="cd-card-no" data-signin-take="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + ' title="Open Gloopy’s browser and do it yourself there">Take over</button>';
+        if (e.code) out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Enter the code for ' + site + '</b>' + warn +
+          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+          '<p class="cd-secret-p">Type the code ' + site + ' sent you (by text message, email or an app). It goes straight into Gloopy’s browser; Gloopy never sees it.</p>' + until(i, e) + gone(i, e) +
+          (live ? '<label class="cd-secret-l" for="cdSignCode">Code</label><input id="cdSignCode" class="cd-secret-in cd-sign-code" type="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="16">' + msg +
+            '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button>' + take + '<button type="button" class="cd-card-yes" data-signin-code="' + esc(e.id) + '" disabled>Enter code</button></div>' : '') + '</div>');
+        else out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Sign in to ' + site + '</b>' + warn +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
           '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved only if you tick the box below.</p>' + until(i, e) + gone(i, e) +
-          (live ? (e.user ? '<label class="cd-secret-l" for="cdSignUser">' + esc(e.user) + '</label><input id="cdSignUser" class="cd-secret-in" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">' : '') +
+          (live ? (e.saved ? '<button type="button" class="cd-card-yes cd-sign-saved" data-signin-saved="' + esc(e.id) + '">Use your saved login' + (mine && mine.username ? ' · ' + esc(mine.username) : '') + '</button><p class="cd-sign-or">or type it</p>' : '') +
+            (e.user ? '<label class="cd-secret-l" for="cdSignUser">' + esc(e.user) + '</label><input id="cdSignUser" class="cd-secret-in" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">' : '') +
             '<label class="cd-secret-l" for="cdSignPass">Password</label><input id="cdSignPass" class="cd-secret-in" type="password" autocomplete="off">' +
             // SAVE FOR NEXT TIME (2026-11-09; Grok Bot's Vault, dots' "Save to Passwords"): kept sealed only if signing in works.
             '<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save this login, so Gloopy can sign in to ' + esc(e.site || 'the site') + ' for you next time</label>' +
-            (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') +
-            '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-signin="' + esc(e.id) + '" disabled>Sign in</button></div>' : '') + '</div>');
+            msg +
+            '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button>' + take + '<button type="button" class="cd-card-yes" data-signin="' + esc(e.id) + '" disabled>Sign in</button></div>' : '') + '</div>');
       }
       else if (e.type === 'pay') {
         // PAYING AT A CHECKOUT (Gloopy, 2026-11-09: "can we try both"; Grok Bot's card form and Vault, dots' asking before a
@@ -1095,7 +1111,8 @@
   // a computer that is asleep (its browser is closed then).
   const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 * 60 * 1000, WEB_HOLD_MS = 15 * 60 * 1000;
   const webPath = () => '/projects/' + encodeURIComponent(S.project.id) + '/screen';
-  const webHandoff = () => (S.project && S.project.pending && S.project.pending.kind === 'handoff' ? S.project.pending : null);
+  // What you were asked to do in Gloopy's browser: a handoff, or a sign-in you chose to do there yourself (Take over on its card).
+  const webHandoff = () => { const p = S.project && S.project.pending; return !p ? null : p.kind === 'handoff' ? p : p.kind === 'signin' && S.signTake === p.id ? { ...p, task: (p.code ? 'Type the code for ' : 'Sign in to ') + (p.site || 'the site'), signin: true } : null; };
   function webHTML() {
     const w = S.web;
     const st = w.control ? ['is-you', 'You have control'] : w.working || S.running ? ['is-work', 'Gloopy is using it'] : w.asleep ? ['', 'Asleep'] : w.off ? ['', 'Closed'] : ['', 'Gloopy isn’t using it'];
@@ -1199,7 +1216,7 @@
     if (!w) return;
     const ho = webHandoff();
     if (ho) {
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/handoff', { method: 'POST', body: JSON.stringify({ id: ho.id, done: true }) });
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/' + (ho.signin ? 'signin' : 'handoff'), { method: 'POST', body: JSON.stringify(ho.signin ? { id: ho.id, tookOver: true } : { id: ho.id, done: true }) });
       if (r.status !== 200) { w.msg = (r.data && r.data.error) || 'Your answer could not be sent.'; return draw(); }
       if (r.data && r.data.project) S.project = r.data.project;
       w.control = false; w.touched = Date.now();
@@ -1607,6 +1624,20 @@
       cardAnswer(d.card, 'approve', { decision: d.approve }, 'Your answer could not be sent.');
     });
     on('#cdSignPass', 'input', (e) => { const b = root.querySelector('[data-signin]'); if (b) b.disabled = !e.currentTarget.value; });
+    // THE SIGN-IN CARD'S OTHER WAYS (the audit, 2026-11-10): the login you saved, a code (emptied from its box as it is
+    // sent, never kept here), or doing it yourself in Gloopy's browser (handing it back answers the card).
+    on('[data-signin-saved]', 'click', (e) => { const id = e.currentTarget.dataset.signinSaved; if (!S.project) return; e.currentTarget.disabled = true; cardAnswer(id, 'signin', { useSaved: true }, 'Your saved login could not be used.'); });
+    on('#cdSignCode', 'input', (e) => { const b = root.querySelector('[data-signin-code]'); if (b) b.disabled = !e.currentTarget.value.trim(); });
+    on('#cdSignCode', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = root.querySelector('[data-signin-code]'); if (b && !b.disabled) b.click(); } });
+    on('[data-signin-code]', 'click', (e) => {
+      const id = e.currentTarget.dataset.signinCode, box = root.querySelector('#cdSignCode');
+      const code = box ? box.value.trim() : '';
+      if (!code || !S.project) return;
+      e.currentTarget.disabled = true;
+      if (box) box.value = '';
+      cardAnswer(id, 'signin', { code }, 'The code could not be sent.');
+    });
+    on('[data-signin-take]', 'click', (e) => { S.signTake = e.currentTarget.dataset.signinTake; if (S.web) webTake(); else webOpen(true); });
     on('#cdSignPass', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = root.querySelector('[data-signin]'); if (b && !b.disabled) b.click(); } });
     on('[data-signin]', 'click', (e) => {
       const id = e.currentTarget.dataset.signin, user = root.querySelector('#cdSignUser'), pass = root.querySelector('#cdSignPass');

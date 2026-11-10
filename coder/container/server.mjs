@@ -2143,6 +2143,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!p || p.kind !== "signin" || p.id !== body.id) return send(409, { error: "no sign-in is waiting" });
         pending.delete(project);
         if (body.skip === true) return send(200, { skipped: true });
+        // A CODE THE SITE SENT THE OWNER (the audit, 2026-11-10), from the same private card, into the page's code field.
+        if (p.code === true) {
+          try {
+            const r = await browserHub().fillCode({ site: p.site, codeRef: p.codeRef, submitRef: p.submitRef, code: String(body.code || "") });
+            return send(200, { ok: true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
+          } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+        }
         try {
           const r = await browserHub().fill({ site: p.site, userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || "") });
           return send(200, { ok: true, still: r.still === true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
