@@ -11,6 +11,38 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: All 11 of the last Bash-docs items (your words: "yea do all of them")
+
+Not merged or deployed yet: on the branch, waiting for your word. All 419 tests pass.
+
+- **More kinds of hooks.** Besides a command, a hook can now be:
+  - a web address Coder's machine sends the details to;
+  - a question to Coder's own model (Grok, low effort), like "is this command safe?";
+  - an "agent" hook that can look through the project first.
+  Hooks can also run in the background and tell Coder later. One of those can even wake a quiet chat when it finds a problem (Claude Code's `asyncRewake`).
+- **Six more hook moments:**
+  - after a whole round of steps;
+  - when auto mode's checker refuses something;
+  - when the model call fails;
+  - when Coder changes folder;
+  - when a file you name changes;
+  - when Coder's machine goes to sleep.
+- **Hooks behave like Claude Code's in the small ways too:**
+  - A hook that fails can block the action, if you ask for that.
+  - A hook can name the chat.
+  - A hook can set variables for Coder's later commands (Claude Code's `CLAUDE_ENV_FILE`).
+  - A hook that leaves a program running no longer freezes Coder: Coder waits 10 seconds, then refuses to trust its "allow".
+  - Your command prefix wraps hooks too.
+  - The memory cap's list of what it covers works as in Claude Code.
+- **Monitor on a WebSocket.** Coder can watch a live feed directly (Claude Code's Monitor `ws`). Each message is one event, and Coder is told the close code when the feed ends. It always asks you first, unless you add a `Monitor` allow rule; in Auto, the checker decides. A rule that blocks every Bash command blocks it too, as in Claude Code. Tried for real here against a public echo server.
+- **Monitor rules.** `Monitor` and `Monitor(…)` rules work in the rules list, and Auto sets the allow ones aside, as Claude Code does.
+- **zsh.** Set `CODER_SHELL` to `zsh` in an environment and Coder's commands run in zsh, with your `.zshrc` aliases (Claude Code's `CLAUDE_CODE_SHELL`). zsh is added to Coder's machine, so the next deploy rebuilds the machine's tools once (slow, one time).
+- **Settings, two new sections:**
+  - **Permissions: "Refuse instead of asking"** (Claude Code's `denyInsteadOfPrompting`). A step that would wait for your answer is refused at once, and Coder carries on with the rest. After 20 refusals in a row, it stops.
+  - **Auto mode rules** (Claude Code's `autoMode`): your trusted services, extra blocks, extra exceptions, and "check every command".
+- **Working folders** in the rules list (Claude Code's `additionalDirectories`): folders on Coder's machine where it works as in the project.
+- **What's next:** merge and deploy when you say so. Then I'll test each one live with Grok in the browser, recorded.
+
 ## 2026-11-10: The last 4 from the Bash docs, and the 2 optional ones in Settings (your words: "yea do all 4, plus do the 2 u left out optional, the setting put it in setings")
 
 Not merged or deployed yet: on the branch, waiting for your word. All 405 tests pass.

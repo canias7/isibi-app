@@ -62,6 +62,9 @@ export function savedEffort(saved) {
  *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off);
  * - `hooks`: the owner's own hooks (the owner, 2026-11-10: "yea do all 4"; Claude Code's hooks in its user settings), as the
  *   JSON they typed, in Claude Code's shape, checked when saved (hooksSetting); given to Coder's machine with each message.
+ * - `autoMode`: the owner's rules for auto mode's checker (the owner, 2026-11-10: "yea do all of them"; Claude Code's
+ *   `autoMode` block, which it reads only from the user's own settings), as JSON text, checked when saved (autoModeSetting);
+ * - `denyInstead`: refuse a step that would ask, instead of asking (Claude Code's permissions.denyInsteadOfPrompting).
  */
 export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
 export function prefsOf(saved) {
@@ -71,6 +74,8 @@ export function prefsOf(saved) {
     endDetached: s.endDetached !== false,
     diskWarnGib: DISK_GIB.includes(Number(s.diskWarnGib)) ? Number(s.diskWarnGib) : 2,
     hooks: typeof s.hooks === "string" && hooksSetting(s.hooks).ok ? s.hooks : "",
+    autoMode: typeof s.autoMode === "string" && autoModeSetting(s.autoMode).ok ? s.autoMode : "",
+    denyInstead: s.denyInstead === true,
   };
 }
 /** A change to the settings, checked: `{ prefs }` (only what was sent, with the rest kept) or `{ error }`. */
@@ -80,10 +85,15 @@ export function prefsChange(saved, body) {
   if ("endDetached" in b && typeof b.endDetached !== "boolean") return { error: "Stop's choice is on or off." };
   if ("diskWarnGib" in b && !DISK_GIB.includes(Number(b.diskWarnGib))) return { error: "The low-disk warning is one of " + DISK_GIB.join(", ") + " GB (0 is off)." };
   if ("hooks" in b) { if (typeof b.hooks !== "string") return { error: "The hooks are JSON text." }; const h = hooksSetting(b.hooks); if (!h.ok) return { error: h.error }; }
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks } };
+  let warnings = [];
+  if ("autoMode" in b) { if (typeof b.autoMode !== "string") return { error: "The auto mode rules are JSON text." }; const a = autoModeSetting(b.autoMode); if (!a.ok) return { error: a.error }; warnings = a.warnings; }
+  if ("denyInstead" in b && typeof b.denyInstead !== "boolean") return { error: "Refusing instead of asking is on or off." };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
-export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib }; };
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}) }; };
+/** The owner's auto mode rules as Coder's machine takes them (Claude Code's autoMode block), or null. */
+export const machineAutoMode = (saved) => { const a = autoModeSetting(prefsOf(saved).autoMode); return a.ok && a.value ? a.value : null; };
 /** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */
 export const machineHooks = (saved) => { const h = hooksSetting(prefsOf(saved).hooks); return h.ok && h.value ? h.value : null; };
 export function usageSummary(list, turn) {
@@ -96,6 +106,7 @@ export function usageSummary(list, turn) {
 }
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
 import { hooksSetting } from "../container/coder-hooks.mjs";
+import { autoModeSetting } from "../container/coder-checker.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
@@ -272,16 +283,41 @@ export async function rulesOf(bucket, uid, repo) {
   const r = await getJson(bucket, rulesKey(uid, repo), {});
   const out = { allow: [], ask: [], deny: [] };
   for (const k of Object.keys(out)) out[k] = [...new Set((Array.isArray(r && r[k]) ? r[k] : []).filter((x) => typeof x === "string" && x.length <= 400 && ruleSaved(x)))].slice(0, RULES_MAX);
+  // (Its working folders: Claude Code's additionalDirectories.)
+  out.dirs = [...new Set((Array.isArray(r && r.dirs) ? r.dirs : []).filter((x) => typeof x === "string" && !dirProblem(x)).map((x) => x.trim()))].slice(0, DIRS_MAX);
   return out;
+}
+/**
+ * THE REPOSITORY'S ADDITIONAL WORKING FOLDERS (the owner, 2026-11-10: "yea do all of them"; Claude Code's
+ * permissions.additionalDirectories, "Additional working directories for file access"): folders on Coder's machine, outside
+ * the project, where Coder works as in the project. A full path, or one in Coder's home (~/…); "" when it is right.
+ */
+export const DIRS_MAX = 20;
+export function dirProblem(d) {
+  const t = String(d ?? "").trim();
+  if (!t) return "Give the folder's path.";
+  if (t.length > 400) return "That path is too long.";
+  if (/[\u0000-\u001f\u007f]/.test(t)) return "That path has characters a path can't have.";
+  if (!(t.startsWith("/") || t === "~" || t.startsWith("~/"))) return "A working folder is a full path (/data/notes) or one in Coder's home (~/notes).";
+  if (t.split("/").includes("..")) return "A working folder's path can't use ..";
+  if (/^\/+$/.test(t)) return "Not the whole machine: name a folder.";
+  return "";
 }
 /** Adds (or, with `remove`, takes out) rules of one kind; a rule moves out of the other kinds when added to one. */
 export async function changeRules(bucket, uid, repo, kind, list, { remove = false } = {}) {
   const now = await rulesOf(bucket, uid, repo);
+  if (kind === "dirs") {
+    const dirs = (Array.isArray(list) ? list : []).map((x) => String(x || "").trim()).filter((x) => !dirProblem(x));
+    if (!dirs.length) return now;
+    now.dirs = remove ? now.dirs.filter((x) => !dirs.includes(x)) : [...new Set([...now.dirs, ...dirs])].slice(-DIRS_MAX);
+    await putJson(bucket, rulesKey(uid, repo), now);
+    return now;
+  }
   const want = (Array.isArray(list) ? list : []).map((x) => String(x || "").trim()).filter((x) => x.length <= 400 && ruleSaved(x));
   if (!["allow", "ask", "deny"].includes(kind) || !want.length) return now;
   if (remove) now[kind] = now[kind].filter((x) => !want.includes(x));
   else {
-    for (const k of Object.keys(now)) if (k !== kind) now[k] = now[k].filter((x) => !want.includes(x));
+    for (const k of ["allow", "ask", "deny"]) if (k !== kind) now[k] = now[k].filter((x) => !want.includes(x));
     now[kind] = [...new Set([...now[kind], ...want])].slice(-RULES_MAX);
   }
   await putJson(bucket, rulesKey(uid, repo), now);
@@ -678,7 +714,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // (A page from before Low became the default sends no pickV: what it saves still counts as the old default.)
     const keepPick = body.prefs && typeof body.prefs === "object" && !("model" in body) && !("effort" in body) ? { model: saved.model, effort: saved.effort } : chosen;
     await putJson(bucket, settingsKey(uid), { ...saved, ...keepPick, mode, ...(body.pickV === PICK_V || saved.pickV === PICK_V ? { pickV: PICK_V } : {}), ...change.prefs });
-    return json({ ok: true, pick: { ...chosen, mode }, prefs: change.prefs });
+    return json({ ok: true, pick: { ...chosen, mode }, prefs: change.prefs, ...(change.warnings ? { warnings: change.warnings } : {}) });
   }
   // THE OWNER'S PERMISSION RULES FOR A REPOSITORY (Claude Code's /permissions: "lists all permission rules", where you add
   // or remove them): GET ?repo=owner/name; POST { repo, kind: allow | ask | deny, add | remove: "Bash(npm test *)" }.
@@ -692,7 +728,14 @@ export async function handleCoder(request, env, ctx, deps) {
     const r = String(body.repo || "");
     if (!REPO.test(r)) return json({ error: "which repository?" }, 400);
     const kind = String(body.kind || "");
-    if (!["allow", "ask", "deny"].includes(kind)) return json({ error: "kind is allow, ask or deny" }, 400);
+    if (!["allow", "ask", "deny", "dirs"].includes(kind)) return json({ error: "kind is allow, ask, deny or dirs" }, 400);
+    // A WORKING FOLDER (Claude Code's additionalDirectories): its path checked, then kept with the repository's rules.
+    if (kind === "dirs") {
+      const d = String(body.add ?? body.remove ?? "").trim();
+      if (body.add !== undefined && dirProblem(d)) return json({ error: dirProblem(d) }, 400);
+      const rules = await changeRules(bucket, uid, r, "dirs", [d], { remove: body.remove !== undefined });
+      return json({ ok: true, repo: r, rules, notices: notices(rules) });
+    }
     const rule = String(body.add ?? body.remove ?? "").trim();
     // (A rule Claude Code would skip as malformed is refused in its words; one it keeps but that never matches, a rule on
     // the command itself, Bash(command:…), or one naming no known tool, is saved with its warning, as Claude Code does.)
@@ -963,7 +1006,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);

@@ -229,9 +229,11 @@
     let note = '', err = '';
     // (The hooks box keeps what is typed in it until it is saved, while the rest of the dialog is drawn again.)
     let hooksDraft = typeof prefs.hooks === 'string' ? prefs.hooks : '';
+    // (And the auto mode rules box; what saving it warned about: a list without "$defaults".)
+    let autoDraft = typeof prefs.autoMode === 'string' ? prefs.autoMode : '', warns = [];
     const save = async (field, value) => {
       const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
-      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; }
+      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; }
       else { err = (x.data && x.data.error) || 'Not saved. Try again.'; note = ''; }
       paint();
     };
@@ -251,6 +253,15 @@
         '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too; <code>"disableAllHooks": true</code> turns them all off.</div>' +
         '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
+        // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
+        '<div class="cd-set-head">Permissions</div>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>A step that would wait for your answer is refused at once, and Coder goes on with the rest; after 20 in a row, it stops. Claude Code’s permissions.denyInsteadOfPrompting.</span></label>' +
+        // AUTO MODE'S CHECKER (Claude Code's autoMode block, from your own settings only).
+        '<div class="cd-set-head">Auto mode rules</div>' +
+        '<div class="cd-set-hint">What the checker in Auto mode goes by, as in Claude Code’s <code>autoMode</code>: <code>environment</code> (your trusted repos, domains and services), <code>allow</code> (exceptions to blocks), <code>soft_deny</code> (blocked unless you ask for it) and <code>hard_deny</code> (always blocked), each a list of plain sentences. Put <code>"$defaults"</code> in a list to keep the built-in entries; a list without it replaces them. <code>"classifyAllShell": true</code> sends every command to the checker, whatever your allow rules.</div>' +
+        '<textarea id="cdSetAuto" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Auto mode rules (JSON)" placeholder="' + esc('{ "environment": [ "$defaults", "Trusted internal domains: *.corp.example.com" ], "soft_deny": [ "$defaults", "Never change the billing tables" ] }') + '">' + esc(autoDraft) + '</textarea>' +
+        '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetAutoSave">Save auto mode rules</button></div>' +
+        (warns.length ? warns.map((w) => '<p class="cd-rules-warn">⚠ ' + esc(w) + '</p>').join('') : '') +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
         '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdSetDone">Done</button></div>';
       const $ = (id) => box.querySelector('#' + id);
@@ -260,6 +271,9 @@
       $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
       $('cdSetHooks').oninput = (e) => { hooksDraft = e.currentTarget.value; };
       $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
+      $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
+      $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
+      $('cdSetAutoSave').onclick = () => save('autoMode', autoDraft);
     };
     paint();
     box.querySelector('#cdSetBg').focus();
@@ -1184,7 +1198,7 @@
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
       // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
-      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(e.text) + '</div>');
+      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(e.text) + '</div>');
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();
@@ -1612,7 +1626,7 @@
     const repo = S.project.repo;
     // (`notices`: Claude Code's short warning row for a rule it keeps but warns about, "⚠ … allows any option at its * · use
     // an exact value"; `warn`: its full warning, shown when such a rule is added. Bash docs pass 5.)
-    let rules = { allow: [], ask: [], deny: [] }, err = '', notices = {}, warn = '';
+    let rules = { allow: [], ask: [], deny: [], dirs: [] }, err = '', notices = {}, warn = '';
     const r = await call('/permissions?repo=' + encodeURIComponent(repo));
     if (r.status === 200 && r.data && r.data.rules) { rules = r.data.rules; notices = r.data.notices || {}; } else err = (r.data && r.data.error) || 'The rules could not be loaded.';
     const wrap = document.createElement('div'); wrap.className = 'cd-sure';
@@ -1622,7 +1636,8 @@
     const key = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', key);
     wrap.onclick = (e) => { if (e.target === wrap) close(); };
-    const KINDS = [['allow', 'Allow', 'runs without asking'], ['ask', 'Ask', 'always asks first, even in Auto'], ['deny', 'Deny', 'never runs']];
+    // (And its working folders, Claude Code's additionalDirectories: Coder works there as in the project.)
+    const KINDS = [['allow', 'Allow', 'runs without asking'], ['ask', 'Ask', 'always asks first, even in Auto'], ['deny', 'Deny', 'never runs'], ['dirs', 'Working folders', 'Coder works there as in the project (Claude Code’s additionalDirectories): a full path, or ~/ for Coder’s home']];
     const change = async (body) => {
       const x = await call('/permissions', { method: 'POST', body: JSON.stringify({ repo, ...body }) });
       if (x.status === 200 && x.data && x.data.rules) { rules = x.data.rules; notices = x.data.notices || {}; warn = typeof x.data.warning === 'string' ? x.data.warning : ''; err = ''; return true; }
@@ -1633,7 +1648,7 @@
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Permission rules</div>' +
         '<div class="cd-sure-text">For ' + esc(repo) + ', in all its chats. Deny rules come first, then ask, then allow, as in Claude Code. A rule looks like <code>Bash(npm test *)</code> (a <code>*</code> is any text), <code>Bash(git push *)</code>, or <code>WebFetch(domain:example.com)</code>. For files, <code>Read(./.env)</code> or <code>Edit(src/**)</code>, written as in a .gitignore: <code>//</code> starts at the machine\'s root, <code>~/</code> at Coder\'s home, any other path at the project.</div>' +
-        KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + (rules[k].length ? '<ul>' + rules[k].map((x) => '<li><span class="cd-rules-r"><code>' + esc(x) + '</code>' + (notices[k + '\n' + x] ? '<span class="cd-rules-note">⚠ ' + esc(notices[k + '\n' + x]) + '</span>' : '') + '</span><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
+        KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + ((rules[k] || []).length ? '<ul>' + rules[k].map((x) => '<li><span class="cd-rules-r"><code>' + esc(x) + '</code>' + (notices[k + '\n' + x] ? '<span class="cd-rules-note">⚠ ' + esc(notices[k + '\n' + x]) + '</span>' : '') + '</span><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
         '<form class="cd-rules-add"><select aria-label="Kind">' + KINDS.map(([k, n]) => '<option value="' + k + '">' + n + '</option>').join('') + '</select><input type="text" placeholder="Bash(npm test *)" aria-label="Rule" maxlength="300" autocomplete="off" spellcheck="false"><button type="submit">Add</button></form>' +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : '') +
         (warn ? '<p class="cd-rules-warn">⚠ ' + esc(warn) + '</p>' : '') +
@@ -1641,6 +1656,7 @@
       box.querySelector('[data-close]').onclick = close;
       box.querySelectorAll('[data-rule-del]').forEach((b) => { b.onclick = async () => { await change({ kind: b.dataset.ruleDel, remove: b.dataset.rule }); paint(); }; });
       const form = box.querySelector('.cd-rules-add');
+      form.querySelector('select').onchange = (e) => { form.querySelector('input').placeholder = e.currentTarget.value === 'dirs' ? '~/shared or /data/notes' : 'Bash(npm test *)'; };
       form.onsubmit = async (e) => { e.preventDefault(); const v = form.querySelector('input').value.trim(); if (!v) return; const kind = form.querySelector('select').value; const ok = await change({ kind, add: v }); paint(); if (!ok) { const i = box.querySelector('.cd-rules-add input'); i.value = v; box.querySelector('.cd-rules-add select').value = kind; i.focus(); } };
     };
     paint();

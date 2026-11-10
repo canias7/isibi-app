@@ -414,18 +414,18 @@ test("CD324 the Worker: the owner's answer reaches the step that waits (only tha
   await idle.go("projects/" + idle.id + "/message", { method: "POST", body: JSON.stringify({ text: "run the tests" }) });
   const turn = idle.toMachine.find((x) => x.p === "/turn").body;
   assert.equal(turn.mode, "acceptEdits");
-  assert.deepEqual(turn.rules, { allow: ["Bash(npm test *)"], ask: [], deny: ["Bash(git push *)"] });
+  assert.deepEqual(turn.rules, { allow: ["Bash(npm test *)"], ask: [], deny: ["Bash(git push *)"], dirs: [] });
 });
 
 test("CD325 the Worker keeps the rules per repository (Claude Code's /permissions: list, add, remove; a rule moves between allow, ask and deny), and saves 'don't ask again' rules and a card's mode switch when the job ends", async () => {
   const w = await worker();
   assert.equal((await w.go("permissions?repo=bad")).status, 400);
-  assert.deepEqual((await w.go("permissions?repo=ana/shop")).data.rules, { allow: [], ask: [], deny: [] });
+  assert.deepEqual((await w.go("permissions?repo=ana/shop")).data.rules, { allow: [], ask: [], deny: [], dirs: [] });
   assert.equal((await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "WebSearch" }) })).status, 400);
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "Bash(npm test *)" }) });
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "ask", add: "Bash(git push *)" }) });
   const moved = await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "deny", add: "Bash(npm test *)" }) });
-  assert.deepEqual(moved.data.rules, { allow: [], ask: ["Bash(git push *)"], deny: ["Bash(npm test *)"] });
+  assert.deepEqual(moved.data.rules, { allow: [], ask: ["Bash(git push *)"], deny: ["Bash(npm test *)"], dirs: [] });
   const gone = await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "ask", remove: "Bash(git push *)" }) });
   assert.deepEqual(gone.data.rules.ask, []);
   // The job's end: the rule it added and the mode a card switched to.

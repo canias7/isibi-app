@@ -190,6 +190,13 @@ export function tidyPath(p) {
 /** AFTER A SUMMARY, the files the job was working on are read again, like Claude Code ("up to five", "the most recently
  * modified first"; a file over 5,000 tokens comes back as its path, a "Referenced file"). */
 export const REREAD_FILES = 5, REREAD_ONE = 20_000;
+/**
+ * REFUSED INSTEAD OF ASKED (Settings, the owner, 2026-11-10: "yea do all of them"; Claude Code's
+ * permissions.denyInsteadOfPrompting: calls that would wait on a prompt are denied and the turn goes on), in Claude Code's
+ * words, and how many in a row end the turn.
+ */
+export const DENY_INSTEAD_TEXT = "Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not claim it succeeded, and do not retry it: this action, and anything else that requires approval, will be denied the same way for the rest of this session. Tell the user what was blocked and why you needed it, then continue with the parts of the task that do not require approval. What required approval: ";
+export const DENY_INSTEAD_MAX = 20;
 /** One of coder-tools.mjs's tools, run by Coder's app itself (a step Grok did not ask for). */
 /**
  * PROTECTED FILES (the owner, 2026-11-09: "Okay, yes, yes, do that"; Claude Code's permission-modes docs: "Writes to a
@@ -1044,7 +1051,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
@@ -1065,7 +1072,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); rulesAdded.push(r); } };
   // (In Auto, a command every part of which a narrow allow rule of the owner's approves runs without the checker; broad ones,
   // such as Bash or Bash(python *), are dropped in Auto: droppedInAuto.)
-  const autoRulesCover = (command) => { const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; const r = readCommand(command); return r.ok && r.cmds.length > 0 && r.cmds.every((part) => allowRuleCovers(part, keep)); };
+  // (The owner's classifyAllShell, Claude Code's autoMode.classifyAllShell: "suspend every Bash and PowerShell allow rule while
+  // auto mode is active, so the classifier evaluates every shell command regardless of your allow list".)
+  const autoRulesCover = (command) => { if (autoMode && autoMode.classifyAllShell === true) return false; const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; const r = readCommand(command); return r.ok && r.cmds.length > 0 && r.cmds.every((part) => allowRuleCovers(part, keep)); };
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
   const isProt = (full) => { const d = workdirs.find((w) => full === w || full.startsWith(w + "/")); if (!d) return ""; const rel = full === d ? "." : full.slice(d.length + 1); return protectedFile(rel) || protectedFile(rel + "/x"); };
@@ -1089,6 +1098,15 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       if (o && o.decision === "deny") { if (o.stop) return { choice: "stop", comment: "" }; return { choice: "no", comment: "(a PermissionRequest hook of the owner's denied it" + (o.reason ? ": " + scrub(o.reason) : "") + ")" }; }
       runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + tool, notification_type: "permission_prompt" }).catch(() => {});
     }
+    // REFUSED INSTEAD OF ASKED (Settings; Claude Code's permissions.denyInsteadOfPrompting): no card; the call is refused at
+    // once in Claude Code's words, and Coder goes on; 20 refused in a row end the turn.
+    if (denyInstead === true) {
+      deniedRow++; deniedLast = true;
+      const target = Array.isArray(card.lines) && card.lines.length ? card.lines.join("\n").slice(0, 500) : String(card.path || card.url || card.what || "").slice(0, 500);
+      const what = scrub(String(card.why || (card.tool === "plan" ? "approving Coder's plan" : "using " + ccTool(card.tool))) + (target ? " (" + target + ")" : "")).slice(0, 1000);
+      emit({ type: "note", text: "Refused without asking you (Settings: refuse instead of asking): " + what.slice(0, 300), denied: true });
+      return { choice: "no", comment: DENY_INSTEAD_TEXT + what, denied: true };
+    }
     const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
     emit({ type: "permission", pid, ...card });
     let a = null;
@@ -1098,8 +1116,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}) });
     return { choice, comment };
   };
+  // (Refused instead of asked: how many in a row; the last call was one.)
+  let deniedRow = 0, deniedLast = false;
   // WHAT AN ANSWER MEANS for the step that asked (Claude Code: No without a note stops the turn; No with a note goes on
   // with it; Stop stops; no answer before the job's time limit ends the job; an answer that never came counts as No).
+  const saidReply = (a) => (a && a.denied ? a.comment : REJECTED_SAID + a.comment);
+  const saidShown = (a) => (a && a.denied ? "Not run: refused without asking you (Settings: refuse instead of asking)." : "Not run: you said no.");
   const answerOutcome = (a) => (a.choice === "stop" ? "stop" : a.choice === "none" ? (now() - started > maxMs ? "time" : "no") : a.choice === "no" ? (a.comment ? "said" : "no") : "go");
   // The owner's note with a Yes, given to Coder after the step's result (Claude Code: "runs the action, then sends your comment").
   const yesNote = (a) => (a && a.comment && a.choice !== "no" ? "\n\n(The owner approved this with a note: " + a.comment + ")" : "");
@@ -1346,7 +1368,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (canAsk()) dec = { verdict: "ask", why: pausedWhy(checkSt.byRow), paused: checkSt };
           else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
         } else {
-          const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: "monitor: open a WebSocket to " + url + (Array.isArray(ws.protocols) && ws.protocols.length ? " (protocols " + ws.protocols.join(", ") + ")" : "") + (desc ? " (" + desc + ")" : ""), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
+          const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: "monitor: open a WebSocket to " + url + (Array.isArray(ws.protocols) && ws.protocols.length ? " (protocols " + ws.protocols.join(", ") + ")" : "") + (desc ? " (" + desc + ")" : ""), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
           if (v.usage) usage.push(v.usage);
           if (v.error) { refuse(checkUnavailable(model || "The classifier", "this WebSocket watch") + await deniedHooks(c, "Classifier unavailable")); return null; }
           if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
@@ -1362,7 +1384,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       const o = answerOutcome(a);
       if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
       if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
-      if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED_SAID + a.comment); return null; }
+      if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(a) }); reply(saidReply(a)); return null; }
       if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return { end: end("done", { summary: lastSaid || "stopped: the owner said no" }) }; }
       if (dec.paused) resume(dec.paused);
     }
@@ -1782,6 +1804,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     for (let i = 0; i < calls.length; i++) {
       await runPost();
       if (hookStop) return stopByHook(hookStop);
+      if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: " + m }); return end("done", { summary: lastSaid || m }); }
+      if (!deniedLast) deniedRow = 0;
+      deniedLast = false;
       if (hookEnd) { for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(hookEnd); }
       const c = calls[i];
       // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
@@ -1826,7 +1851,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const o = answerOutcome(a);
         if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-        if (o === "said") { reply(REJECTED_SAID + a.comment); continue; }
+        if (o === "said") { reply(saidReply(a)); continue; }
         if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
       }
       if (c.name === "bash") {
@@ -1903,7 +1928,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
             if (canAsk()) pausedCard = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
           } else {
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("bash", c.args), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("bash", c.args), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             if (v.error) { refuse(checkUnavailable(model || "The classifier", "this bash command") + await deniedHooks(c, "Classifier unavailable")); continue; }
             if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
@@ -1923,7 +1948,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED_SAID + approval.comment); continue; }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (approval.choice === "auto" && card.toAuto) setMode("auto", "card");
@@ -2216,7 +2241,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
             if (canAsk()) fetchPaused = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
           } else {
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             if (v.error) { const m = checkUnavailable(model || "The classifier", "this page fetch"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, "Classifier unavailable")); continue; }
             if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
@@ -2239,7 +2264,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED_SAID + approval.comment); continue; }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (fetchPaused) resume(checkStF);
@@ -2293,7 +2318,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const o = answerOutcome(a);
         if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (o === "time") { reply("not approved: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-        if (o === "said") { reply(REJECTED_SAID + a.comment); continue; }
+        if (o === "said") { reply(saidReply(a)); continue; }
         if (o === "no" || (a.choice !== "auto" && a.choice !== "acceptEdits")) { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "the plan was not approved" }); }
         setMode(a.choice, "plan");
         toldMode = a.choice; // (the approval below says plan mode ended)
@@ -2351,6 +2376,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     await runPost();
     if (hookStop) return stopByHook(hookStop);
     if (hookEnd) return endByHook(hookEnd);
+    if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); return end("done", { summary: lastSaid || m }); }
     // POSTTOOLBATCH HOOKS (Claude Code: "Runs after a full batch of parallel tool calls resolves, before the next model
     // call"): the round's calls and their results; what they add goes to Coder; one that blocks (decision "block", exit 2)
     // or says "continue": false ends the turn, its reason a warning that stays in the chat.

@@ -28,6 +28,9 @@ import { join, dirname, relative, resolve, basename, isAbsolute } from "node:pat
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT } from "./coder-agent.mjs";
 import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed } from "./coder-hooks.mjs";
+import { autoModeSetting } from "./coder-checker.mjs";
+/** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
+export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
 import { normMode, MODES } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
@@ -260,7 +263,30 @@ export function prefsIn(p) {
     bgMaxMs: Number.isFinite(bg) && bg > BG_LIMIT_MAX_MS ? Math.min(BG_MAX_CAP_MS, Math.round(bg)) : BG_LIMIT_MAX_MS,
     endDetached: x.endDetached !== false,
     diskWarnGib: Number.isInteger(disk) && disk > 0 && disk <= 1000 ? disk : 0,
+    // (Settings: refuse a step that would ask, Claude Code's permissions.denyInsteadOfPrompting.)
+    denyInstead: x.denyInstead === true,
   };
+}
+/**
+ * THE REPOSITORY'S ADDITIONAL WORKING FOLDERS (the owner's, with its rules; Claude Code's permissions.additionalDirectories):
+ * each a full path or one in Coder's home (~/…) that is a folder on this machine, its links followed; never the machine's
+ * root, nor /proc, /sys or /dev. At most 20.
+ */
+export async function extraDirsOf(list, home) {
+  const out = [];
+  for (const d0 of (Array.isArray(list) ? list : []).slice(0, 20)) {
+    if (typeof d0 !== "string") continue;
+    const d = d0.trim();
+    if (!d || d.length > 400 || /[\u0000-\u001f\u007f]/.test(d) || d.split("/").includes("..")) continue;
+    const full = d === "~" ? home : d.startsWith("~/") ? (home ? join(home, d.slice(2)) : "") : d.startsWith("/") ? d : "";
+    if (!full) continue;
+    let real = "";
+    try { real = await realpath(full); } catch { continue; }
+    if (real === "/" || /^\/(proc|sys|dev)(\/|$)/.test(real)) continue;
+    try { if (!(await stat(real)).isDirectory()) continue; } catch { continue; }
+    if (!out.includes(real)) out.push(real);
+  }
+  return out;
 }
 /** This machine's settings, from the last message it was given (one chat to a machine). */
 let PREFS = prefsIn({});
@@ -2486,6 +2512,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR (Claude Code's CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR, under Coder's name:
     // "To disable this carry-over so every Bash command starts in the project directory").
     const workRoots = await Promise.all([dir, ...extras.map((x) => x.dir)].map((d) => realpath(d).catch(() => d)));
+    // THE OWNER'S ADDITIONAL WORKING FOLDERS for this repository (extraDirsOf): working directories of the chat too (Accept
+    // edits changes files there without asking, a cd there carries over, the read block reads there).
+    const addDirs = (await extraDirsOf(body.rules && body.rules.dirs, home || DEV_HOME)).filter((d) => !workRoots.includes(d));
+    workRoots.push(...addDirs);
     const home0 = workRoots[0];
     // (A setting for Coder itself, read from the owner's variables as given: names starting with CODER_ never reach the
     // commands, see safeVars.)
@@ -2666,7 +2696,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // On the full image, Coder knows its machine's tools (2026-11-07).
     // WHERE YOUR COMMANDS RUN, as Claude Code tells Claude its working directory: said at the job's start, and again in the
     // context made after a summary, as it is then.
-    const workNote = () => (isZsh(t.shell) ? "\n\nYOUR SHELL: your commands run in zsh (" + t.shell + "), the owner's CODER_SHELL, not bash: write them for zsh (its arrays start at 1)." : "") + "\n\nWHERE YOUR COMMANDS RUN (like Claude Code): the project is in " + home0 + ". " + (keepHome
+    const workNote = () => (addDirs.length ? "\n\nTHE OWNER'S ADDITIONAL WORKING DIRECTORIES (Claude Code's additionalDirectories): " + addDirs.join(", ") + ". Work in them as in the project: read and change files there as the task needs." : "") + (isZsh(t.shell) ? "\n\nYOUR SHELL: your commands run in zsh (" + t.shell + "), the owner's CODER_SHELL, not bash: write them for zsh (its arrays start at 1)." : "") + "\n\nWHERE YOUR COMMANDS RUN (like Claude Code): the project is in " + home0 + ". " + (keepHome
       ? "Every command starts there (the owner's variables set CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR): a cd lasts for that one command only."
       : "Your next command starts in " + saidDir(t.cwd) + (t.cwd !== home0 ? " (where an earlier cd left it)" : t.cwdWas ? " (an earlier cd had left it in " + saidDir(t.cwdWas) + ", which is gone or not inside the project now)" : "") +
         ". A cd carries over to your later commands, in this message and the next ones, when the command succeeds and stays inside the project or this chat's other repositories; if it leaves them, the next command starts back in " + home0 + " (\"Shell cwd was reset to\" says so). A command in the background never moves it.") +
@@ -2896,7 +2926,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
