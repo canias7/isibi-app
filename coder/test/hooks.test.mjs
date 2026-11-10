@@ -227,4 +227,13 @@ test("CD383d Settings has the owner's hooks: a box of Claude Code's settings JSO
   assert.match(page, /<textarea id="cdSetHooks" class="cd-set-hooks"/);
   assert.match(page, /\$\('cdSetHooksSave'\)\.onclick = \(\) => save\('hooks', hooksDraft\);/);
   assert.match(read("container/Dockerfile"), / coder-filerules\.mjs coder-hooks\.mjs /);
+  // A call a hook blocked shows the hook's words under its step, and "✕ blocked by hook" (as an auto mode block does).
+  const grab = (name) => page.slice(page.indexOf("  function " + name + "("), page.indexOf("\n  }\n", page.indexOf("  function " + name + "(")) + 4);
+  const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const { stepAutoBlock, hookBlockOf } = new Function("esc", grab("autoBlockOf") + grab("hookBlockOf") + grab("stepAutoBlock") + "return { stepAutoBlock, hookBlockOf };")(esc);
+  const r = { code: -1, hookBlocked: true, output: "PreToolUse:Bash hook error: [./no-rm.sh]: Blocked: rm commands are not allowed" };
+  assert.deepEqual(hookBlockOf(r), { event: "PreToolUse:Bash", why: "[./no-rm.sh]: Blocked: rm commands are not allowed" });
+  assert.equal(stepAutoBlock(r), '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why">PreToolUse:Bash hook error: [./no-rm.sh]: Blocked: rm commands are not allowed</div></div>');
+  assert.equal(hookBlockOf({ code: -1, output: r.output }), null, "only a step the loop marked as blocked by a hook");
+  assert.match(page, /hookBlockOf\(r\) \? 'blocked by hook'/);
 });

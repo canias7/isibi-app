@@ -895,8 +895,16 @@
     const m = r && r.code === -1 ? /^Blocked by auto mode · (\[[^\]\n]{1,80}\][\s\S]*)$/.exec(String(r.output || '')) : null;
     return m ? m[1].replace(/\s+/g, ' ').trim().slice(0, 600) : '';
   }
+  // A CALL ONE OF THE OWNER'S HOOKS BLOCKED (hooks, 2026-11-10; Claude Code shows the hook's error under the call): the hook's
+  // words, shown without opening the step.
+  function hookBlockOf(r) {
+    const m = r && r.hookBlocked === true ? /^(PreToolUse:[A-Za-z_]+) hook error: (\[[\s\S]*)$/.exec(String(r.output || '')) : null;
+    return m ? { event: m[1], why: m[2].replace(/\s+/g, ' ').trim().slice(0, 600) } : null;
+  }
   function stepAutoBlock(r) {
     const why = autoBlockOf(r);
+    const hb = why ? null : hookBlockOf(r);
+    if (hb) return '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why">' + esc(hb.event) + ' hook error: ' + esc(hb.why) + '</div></div>';
     return why ? '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by auto mode</div><div class="cd-autoblock-why">Auto mode: ' + esc(why) + '</div></div>' : '';
   }
   function cmdHTML(e, r, state, key) {
@@ -904,7 +912,7 @@
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
     const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
-      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
+      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'
