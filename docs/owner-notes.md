@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Deploy 92, and Low effort and the cache checked live with Grok (recording 29) (your words: "Ok merge and deploy")
+
+- **Deploy 92** (main 750f662a) changed Coder's machine, so it built the machine's tools and stored them on Fly.io for the first time: the build step took 13 minutes. From the next change to Coder's machine on, only Coder's own files are built.
+- **Effort, checked from xAI's own answers.** After a fresh load, the picker said Low on the test account, which had High saved before. Every message sent "low", and xAI's answers said "low" too. A three-step message at Low used 36 thinking tokens in all.
+- **The cache, checked from xAI's own counts.** A three-step message (four calls to Grok): 22,784 of 41,417 input tokens came from the cache (55%; the first call has nothing to reuse). It cost $0.049; without the cache it would have cost about $0.084. The next messages at the same effort: 96% and 98% from the cache, under a cent each.
+- **One thing to know:** switching the effort in the middle of a chat makes the next message miss the cache once (11% when I switched to High). It looks like xAI keeps a separate cache for each effort level: the message after it, back on Low, hit Low's cache again (96%). Staying on one level keeps the cache.
+- Pictures: the picker on Low, and the chat. Recording 29.
+
 ## 2026-11-10: Grok's prompt cache, and the effort on Low (your words: "I want to do something kind of cache. The model", and "can you do the effort level on low and make sure it's actually on low")
 
 - **Caching.** xAI keeps the start of a request it has already seen, and charges a quarter of the price for that part ($0.50 instead of $2.00 a million tokens on Grok 4.7). Coder resends the whole chat to Grok on every step, so most of each request is a repeat. But xAI only finds its copy when every call of a chat carries the same key ("prompt_cache_key"). Without one, "requests can land on a cold server" and pay full price. Coder sent none. Now Coder's server adds the chat's own key to every call: Coder's, its checker's and its summaries'. The key is a scrambled form of the chat, so xAI never sees your account or the chat's name, and no machine can use another chat's key.
