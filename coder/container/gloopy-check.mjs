@@ -174,7 +174,9 @@ export function taughtNote(t) {
  * 2026-11-10): each field's label and value as the page has them, hidden characters taken out; at most 15 lines.
  */
 export function formWords(fields) {
-  return (Array.isArray(fields) ? fields : []).filter((f) => f && plain(f.value)).slice(0, 15).map((f) => (plain(f.label).slice(0, 60) || "Field") + ": " + plain(f.value).slice(0, 300)).join("\n");
+  // A label's own colon is left out ("Customer name:" read "Customer name:: Test Owner" on the card: live test, 2026-11-10).
+  const label = (f) => plain(f.label).replace(/\s*[:：]+$/, "").slice(0, 60) || "Field";
+  return (Array.isArray(fields) ? fields : []).filter((f) => f && plain(f.value)).slice(0, 15).map((f) => label(f) + ": " + plain(f.value).slice(0, 300)).join("\n");
 }
 
 const hostOf = (u) => { try { return new URL(String(u)).hostname; } catch { return ""; } };

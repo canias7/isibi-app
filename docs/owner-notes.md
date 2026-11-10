@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
+
+Being tested now on test.gofarther.dev with Grok, recorded; the full results go here when it's done.
+
+**Found and fixed so far:**
+- **The live view stayed paused when Gloopy started working.** It pauses after 2 minutes of only watching, which is meant to happen. But when you then sent a message, it said "Gloopy is using it" over an old picture (or "asleep"), without Gloopy's steps, until you pressed Refresh. Now a turn that starts wakes it, and while Gloopy's computer wakes it says so.
+- **The card's form list doubled colons** ("Customer name:: Test Owner"), because the page's own label ends with one. Now it reads "Customer name: Test Owner".
+
+Test GL96 is new.
+
 ## 2026-11-10: The browser's missing pieces, added (your word: "if we missing stuff in the browser tool add it and then test the entire browser tool")
 
 From the second check against Grok Bot's and dots' docs:

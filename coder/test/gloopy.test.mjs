@@ -4753,3 +4753,20 @@ test("GL95 (2026-11-10) on the page: the live view marks where Gloopy acted and 
   assert.match(css, /\.cd-web-sel \{ position: absolute; border: 2px dashed #1f6feb;/);
   assert.match(css, /\.cd-web-screen\.is-marking img \{ cursor: crosshair; touch-action: none; \}/);
 });
+
+test("GL96 (2026-11-10) found in the live test: a form's labels keep one colon on the card; a turn that starts wakes a paused live view (and only a paused one); a view waiting for the computer during a turn says it is waking up", async () => {
+  const C = await import("../container/gloopy-check.mjs");
+  assert.equal(C.formWords([{ label: "Customer name:", value: "Test Owner" }, { label: "Telephone :", value: "555-0100" }, { label: "Medium", value: "chosen" }, { label: "名前：", value: "x" }]), "Customer name: Test Owner\nTelephone: 555-0100\nMedium: chosen\n名前: x");
+  assert.equal(C.formWords([{ label: ":", value: "v" }]), "Field: v");
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /function startPoll\(\) \{ stopPoll\(\); S\.poll = setTimeout\(tick, 300\); webWake\(\); \}/, "every turn that starts (a message, an answered card, a chat opened mid-turn) goes through startPoll");
+  const src = /function webWake\(\) \{[^\n]+\}/.exec(ui)[0];
+  const run = (web) => { let ticks = 0; new Function("S", "webTick", src + "\nwebWake();")({ web }, () => { ticks++; }); return ticks; };
+  const paused = { paused: true, touched: 0 };
+  assert.equal(run(paused), 1);
+  assert.equal(paused.paused, false);
+  assert.ok(Date.now() - paused.touched < 5000, "counted as touched now, so it doesn't pause again at once");
+  assert.equal(run({ paused: false, touched: 5 }), 0, "a view that is not paused keeps its own timer (never two)");
+  assert.equal(run(null), 0, "no view open, nothing");
+  assert.match(ui, /: w\.asleep \? \(S\.running \? 'Gloopy’s computer is waking up\. Its browser shows here once Gloopy opens it\.' : 'Gloopy’s computer is asleep\. Its browser opens when Gloopy uses it, or when you take over\.'\)/);
+});

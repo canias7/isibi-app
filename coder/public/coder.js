@@ -661,7 +661,10 @@
     startPoll(); draw(true);
   }
 
-  function startPoll() { stopPoll(); S.poll = setTimeout(tick, 300); }
+  function startPoll() { stopPoll(); S.poll = setTimeout(tick, 300); webWake(); }
+  // A TURN THAT STARTS WAKES A PAUSED LIVE VIEW (live test, 2026-11-10: opened more than 2 minutes before the message, it
+  // said "Gloopy is using it" over an old picture, without Gloopy's steps, until Refresh).
+  function webWake() { const w = S.web; if (w && w.paused) { w.paused = false; w.touched = Date.now(); webTick(); } }
   function stopPoll() { if (S.poll) clearTimeout(S.poll); S.poll = 0; }
   async function tick() {
     S.poll = 0;
@@ -1216,7 +1219,7 @@
     const st = w.control ? ['is-you', 'You have control'] : w.working || S.running ? ['is-work', 'Gloopy is using it'] : w.asleep ? ['', 'Asleep'] : w.off ? ['', 'Closed'] : ['', 'Gloopy isn’t using it'];
     const host = (() => { try { return w.url && /^https?:/.test(w.url) ? new URL(w.url).host : ''; } catch (e) { return ''; } })();
     const empty = w.none ? 'Gloopy’s browser isn’t on this computer.'
-      : w.asleep ? 'Gloopy’s computer is asleep. Its browser opens when Gloopy uses it, or when you take over.'
+      : w.asleep ? (S.running ? 'Gloopy’s computer is waking up. Its browser shows here once Gloopy opens it.' : 'Gloopy’s computer is asleep. Its browser opens when Gloopy uses it, or when you take over.')
       : w.off ? 'Gloopy’s browser is closed. It opens when Gloopy uses it, or when you take over.'
       : !w.shot ? (w.error ? 'The browser could not be shown: ' + w.error : 'Opening…') : '';
     const ho = webHandoff();
