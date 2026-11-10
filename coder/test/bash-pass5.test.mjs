@@ -82,7 +82,7 @@ test("CD357 Claude Code's checks of a rule: its errors for a rule it can't use, 
   assert.equal(P.ruleProblem("Bash(:*)"), "Prefix cannot be empty before :*. Specify a command prefix before :*. Examples: Bash(npm *), Bash(git *)");
   for (const r of ["Bash(ls *)", "Bash", "WebFetch(domain:x.com)", "Bash(Finance (2024) *)"]) assert.equal(P.ruleProblem(r), "", r);
   // An allow rule whose * comes before the word that says which command it is.
-  assert.deepEqual(P.ruleWarning("allow", "Bash(git * main)"), { warning: "Bash(git * main) has a wildcard before the rest of the command, so it also matches any options inserted at that position and approves them without a prompt. For git, options such as -c and --exec-path can run arbitrary commands. Replace that * with the exact value you mean, or only use * after the subcommand (for example Bash(git status *)).", notice: "Bash(git * main) allows any option at its * · use an exact value" });
+  assert.deepEqual(P.ruleWarning("allow", "Bash(git * main)"), { warning: "Bash(git * main) has a wildcard before the rest of the command, so it also matches any options inserted at that position and approves them without a prompt. For git, options such as -c and --exec-path can run arbitrary commands. Replace that * with the exact value you mean, or only use * after the subcommand (for example Bash(git status *)).", notice: "Allow rule Bash(git * main) allows any option at its * · use an exact value" });
   assert.match(P.ruleWarning("allow", "Bash(git -C * status *)").notice, /allows any option at its \*/);
   assert.equal(P.ruleWarning("allow", "Bash(docker * ps)").warning, "Bash(docker * ps) has a wildcard before the rest of the command, so it also matches any options inserted at that position and approves them without a prompt. Replace that * with the exact value you mean, or only use * after the subcommand.");
   for (const r of ["Bash(npm test *)", "Bash(git * | grep x)", "Bash(git *)", "Bash(* --version)"]) assert.equal(P.ruleWarning("allow", r), null, r);
@@ -96,10 +96,13 @@ test("CD357 Claude Code's checks of a rule: its errors for a rule it can't use, 
   assert.equal(d("npm run * x", ["Bash(npm run *:*)"]), "allow");
   for (const [c, v] of [["npm run test", "allow"], ["npm run test --watch", "allow"], ["npm run testing", "ask"]]) assert.equal(d(c, ["Bash(npm run test:*)"]), v, c);
   assert.deepEqual(P.ruleWarning("allow", "Bash(npm run *:*)"), { warning: "Bash(npm run *:*) mixes * with the trailing :* prefix syntax, so it is matched as a literal prefix (the * is not expanded) and matches only commands containing a literal * at that position. Replace that * with the exact value you mean.", notice: "" });
-  assert.equal(P.ruleWarning("deny", "Bash(npm run *:*)").notice, "Bash(npm run *:*) reads its * literally · use Bash(npm run *)");
+  assert.equal(P.ruleWarning("deny", "Bash(npm run *:*)").notice, "Deny rule Bash(npm run *:*) reads its * literally · use Bash(npm run *)");
   assert.match(P.ruleWarning("deny", "Bash(npm * test:*)").warning, /and will likely never match\. Use Bash\(npm \* test\*\) for wildcard matching\.$/);
-  assert.equal(P.ruleWarning("allow", "Bash(git:* status)").notice, "Bash(git:* status) reads its :* as a wildcard · use an exact value");
-  assert.match(P.ruleWarning("ask", "Bash(git:* status)").warning, /has a :\* that is not at the end, so it is matched as a \* wildcard \(the : is literal\), not as the trailing :\* prefix syntax\. It already matches as a \* wildcard; moving :\* to the end would make it a literal prefix and change which commands match\.$/);
+  // (A :* in the middle after a name and a colon, git:* status: Claude Code 2.1.322 checks no content that starts with a
+  // name and a colon, and printed nothing for Bash(git:* status) or Bash(ls:* x); one after words still warns.)
+  for (const k of ["allow", "ask", "deny"]) for (const r of ["Bash(git:* status)", "Bash(ls:* x)"]) assert.equal(P.ruleWarning(k, r), null, k + " " + r);
+  assert.equal(P.ruleWarning("allow", "Bash(npm run:* x)").notice, "Allow rule Bash(npm run:* x) allows any option at its * · use an exact value");
+  assert.match(P.ruleWarning("ask", "Bash(git log:* --oneline)").warning, /has a :\* that is not at the end, so it is matched as a \* wildcard \(the : is literal\), not as the trailing :\* prefix syntax\. It already matches as a \* wildcard; moving :\* to the end would make it a literal prefix and change which commands match\.$/);
   assert.equal(P.ruleWarning("allow", "Bash(npm test:*)"), null);
   assert.equal(P.ruleWarning("allow", "Bash(run_in_background:true)"), null);
 });
@@ -136,10 +139,10 @@ test("CD358 the rules list says Claude Code's warnings: in full when such a rule
   assert.equal(a.status, 200);
   assert.deepEqual(a.data.rules.allow, ["Bash(git * main)"], "kept, as Claude Code keeps it");
   assert.match(a.data.warning, /^Bash\(git \* main\) has a wildcard before the rest of the command/);
-  assert.deepEqual(a.data.notices, { "allow\nBash(git * main)": "Bash(git * main) allows any option at its * · use an exact value" });
+  assert.deepEqual(a.data.notices, { "allow\nBash(git * main)": "Allow rule Bash(git * main) allows any option at its * · use an exact value" });
   const b = await add("allow", "Bash(npm test *)");
   assert.equal(b.data.warning, undefined);
-  assert.deepEqual((await w.go("permissions?repo=ana/shop")).data.notices, { "allow\nBash(git * main)": "Bash(git * main) allows any option at its * · use an exact value" });
+  assert.deepEqual((await w.go("permissions?repo=ana/shop")).data.notices, { "allow\nBash(git * main)": "Allow rule Bash(git * main) allows any option at its * · use an exact value" });
   const bad = await add("allow", "Bash(ls) x");
   assert.equal(bad.status, 400);
   assert.match(bad.data.error, /^Malformed Tool\(content\) rule/);

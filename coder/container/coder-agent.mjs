@@ -27,7 +27,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
+import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -239,12 +239,15 @@ export const allowRunText = (command) => "I allowed Coder to run command " + cre
  * owner's Allow on either card covers the other. Null when it needs no one.
  */
 export function commandAsk(command, deps, where0 = "", { real = null, allowed = null } = {}) {
-  if (String(command).length > MAX_COMMAND_CHARS) return { kind: "long", paths: [], allow: [allowRunText(command)], why: "this command is over 10,000 characters, more than Coder's checks read through", github: "this command is over 10,000 characters" };
-  const names = [];
+  if (String(command).length > MAX_COMMAND_CHARS) return { kind: "long", paths: [], allow: [allowRunText(command)], why: "This command is over 10,000 characters, more than Coder's checks read through", note: "this command is over 10,000 characters, more than Coder's checks read through", github: "this command is over 10,000 characters" };
+  // (`says`: each one in Claude Code's words, for the card: "Claude requested permissions to edit … which is a sensitive
+  // file.", with the link it was reached through.)
+  const names = [], says = [];
+  const add = (name, say) => { if (!names.includes(name)) { names.push(name); says.push(say); } };
   for (const x of writeTargets(command).targets) {
     // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known).
     const name = x.afterCd || x.unsure ? x.path : projectPath(deps, x.path);
-    if (name && protectedFile(name) && !names.includes(name)) names.push(name);
+    if (name && protectedFile(name)) add(name, sensitiveWhy(x.afterCd || x.unsure || !deps || typeof deps.where !== "function" ? x.path : deps.where(x.path)));
   }
   // THE FILE COMMANDS TOO (mkdir, touch, rm, rmdir, mv, cp, sed -i; the permission modes, 2026-11-09): a protected file or
   // folder one changes is asked about in every mode (Claude Code: writes to protected paths "are never auto-approved").
@@ -255,7 +258,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   const read = readCommand(command, { cwd: from });
   const parts = read.cmds;
   // A cd into a protected folder, at any level (in a subshell too), and a file command in the same command: asked about.
-  let into = "";
+  let into = "", intoFull = "";
   for (const c of parts) {
     const w = c.words.map((x) => x.text);
     if ((w[0] === "cd" || w[0] === "pushd") && w[1] && !c.words[1].expand && !c.words[1].subst) {
@@ -263,8 +266,8 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
       const segs = [];
       for (const x of p0.split("/")) { if (!x || x === ".") continue; if (x === "..") segs.pop(); else segs.push(x); }
       const name = projectPath(deps, "/" + segs.join("/"));
-      if (name && protectedFile(name + "/x")) into = into || name;
-    } else if (into && fileCommandTargets(c, "/") && !names.includes(into)) names.push(into);
+      if (name && protectedFile(name + "/x") && !into) { into = name; intoFull = "/" + segs.join("/"); }
+    } else if (into && fileCommandTargets(c, "/")) add(into, sensitiveWhy(intoFull));
   }
   // WHERE EACH WRITE REALLY LANDS (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code's permissions
   // docs, "Writes through a symlink": a write by a Bash command whose file "resolves to a protected path that the requested
@@ -281,8 +284,8 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
     const to = leadsTo(full, workdirs, real);
     if (to === full) return;
     const rel = to ? relIn(to) : "";
-    if (rel && (protectedFile(rel) || protectedFile(rel + "/x"))) { const n = name + " (which leads to " + rel + ")"; if (!names.includes(n)) names.push(n); return; }
-    if (relIn(full) && !rel && !(part && typeof allowed === "function" && allowed(part)) && !outs.some((o) => o.name === name)) outs.push({ name, to });
+    if (rel && (protectedFile(rel) || protectedFile(rel + "/x"))) { add(name + " (which leads to " + rel + ")", sensitiveWhy(to, full)); return; }
+    if (relIn(full) && !rel && !(part && typeof allowed === "function" && allowed(part)) && !outs.some((o) => o.name === name)) outs.push({ name, to, full });
   };
   for (const x of read.writes) if (x.path) through(x.path, projectPath(deps, x.path), null);
   for (const c of parts) {
@@ -293,7 +296,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
       if (!p) continue;
       const bare = p.replace(/\/\*$/, "");
       const name = known ? projectPath(deps, bare) : bare.replace(/^\/+/, "");
-      if (name && (protectedFile(name) || protectedFile(name + "/x"))) { if (!names.includes(name)) names.push(name); continue; }
+      if (name && (protectedFile(name) || protectedFile(name + "/x"))) { add(name, sensitiveWhy(bare)); continue; }
       if (known) through(bare, name, c);
     }
   }
@@ -301,13 +304,15 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
     // A WRITE THAT LEADS OUT OF THE PROJECT THROUGH A LINK: asked about in every mode, the card naming where it leads.
     const list = outs.map((o) => scrub(visibleChars(o.name)).slice(0, 300) + (o.to ? " (which leads to " + scrub(visibleChars(o.to)).slice(0, 300) + ")" : " (a link that can't be followed)"));
     const where = outs.some((o) => o.to) ? ", outside the project" : "";
-    return { kind: "link", paths: list, allow: [allowRunText(command)], why: "this command writes " + list.join(", ") + where, github: "this command writes " + list.join(", ") + where };
+    // (Claude Code's words: "… resolves through a symlink to …, which is outside the allowed working directories".)
+    const why = outs.map((o) => o.to ? linkOutWhy(scrub(visibleChars(o.full)).slice(0, 300), scrub(visibleChars(o.to)).slice(0, 300)) : scrub(visibleChars(o.full)).slice(0, 300) + " is a link that can't be followed").join("; ");
+    return { kind: "link", paths: list, allow: [allowRunText(command)], why, note: "this command writes " + list.join(", ") + where, github: "this command writes " + list.join(", ") + where };
   }
   if (!names.length) return null;
   // Each name as the chat shows it (a line break written out, never sent as one): the card's Allow becomes the owner's own
   // message, so a file's name can never add words of its own to it; write's card names a file the same way.
   const list = names.map((n) => scrub(visibleChars(n)).slice(0, 300));
-  return { kind: "protected", paths: list, allow: list.map((n) => allowWriteText(n)), why: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") };
+  return { kind: "protected", paths: list, allow: list.map((n) => allowWriteText(n)), why: says.map((x) => scrub(visibleChars(x)).slice(0, 700)).join(" "), note: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") };
 }
 /** What a card shows of a command: its first 40 lines, a long line cut with "…". */
 export function cardLines(command) {
@@ -364,7 +369,8 @@ export function namesUserAgentWithAddress(text, mark) {
   return UA_WORDS.test(rest) || UA_FLAGS.some(([a, b]) => a.test(rest) && b.test(rest));
 }
 export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
-export const READ_BLOCKED = "error: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the project. Ask the owner to remove that setting if you need to read there.";
+/** The file tools' refusal under the read block (Claude Code 2.1.322's words: "/etc/hostname is outside /home/user/cc-live-bash; the permissions.blockReadsOutsideWorkingDirectories setting blocks reads outside the working directories. Ask the user to add the directory with /add-dir, or to remove that setting."), with Coder's setting; Coder has no /add-dir. */
+export const READ_BLOCKED = (path, dirs) => "error: " + path + " is outside " + (Array.isArray(dirs) ? dirs : []).filter((x) => typeof x === "string" && x).join(", ") + "; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories. Ask the owner to remove that setting.";
 /** Said of one moved to the background at its timeout (Claude Code's words in the cloud: 30 minutes from the move). */
 export const BG_MOVED_LIMIT = "If it is still running after 30m in the background, it will be stopped and you will be notified.";
 /** A time as Claude Code says it in that sentence ("30m", "1h 30m", "2h"). */
@@ -1304,7 +1310,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (rmWhy && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
         // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
         // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
-        const dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args });
+        const dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // THE ACCOUNT'S EMAIL WITH A USER-AGENT: refused, without asking, in every mode (see namesUserAgentWithAddress).
         if (emailMark && namesUserAgentWithAddress(inputText(c.args), emailMark)) { refuse(ACCOUNT_EMAIL_REFUSED); continue; }
@@ -1316,13 +1322,13 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
         if (!ask && readBlock) {
           const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs, home: deps.home || "", real: (p) => realPath(p), ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
-          if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: w, github: w }; }
+          if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: rb, note: w, github: w }; }
         }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
         if (ask && github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
         // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
         if (ask && !canAsk()) {
-          reply("not run yet: " + ask.why + ", so the owner is asked first, as Claude Code asks for such commands. Their answer is the next message; when they allow it, run the same command again.");
+          reply("not run yet: " + (ask.note || ask.why) + ", so the owner is asked first, as Claude Code asks for such commands. Their answer is the next message; when they allow it, run the same command again.");
           for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a command first" });
           emit({ type: "runask", id: c.id, kind: ask.kind, paths: ask.paths, allow: ask.allow.join("\n"), ...cardLines(command), ...(desc ? { desc } : {}) });
           return end("done", { summary: lastSaid || "asked to run a command" });
@@ -1334,7 +1340,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let approval = null;
         if (rmWhy || ask || dec.verdict === "ask") {
           const once = !!(rmWhy || ask || dec.byRule);
-          const card = { tool: "bash", id: c.id, ...cardLines(command), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? "This command requires approval: " + ask.why : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" ? { toAuto: true } : {}) };
+          const card = { tool: "bash", id: c.id, ...cardLines(command), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" ? { toAuto: true } : {}) };
           approval = await askOwner(card);
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -1605,7 +1611,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           const own = [...workdirs, ...(Array.isArray(deps.ownDirs) ? deps.ownDirs : [])].filter((x) => typeof x === "string" && x);
           const within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
           const to = within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
-          if (!within(full) || !within(to)) { emit({ type: "result", id: c.id, code: 1, output: READ_BLOCKED }); reply(READ_BLOCKED); continue; }
+          if (!within(full) || !within(to)) { const msg = READ_BLOCKED(within(full) && to ? to : full, workdirs); emit({ type: "result", id: c.id, code: 1, output: msg }); reply(msg); continue; }
         }
         const modeT = modeNow();
         const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;

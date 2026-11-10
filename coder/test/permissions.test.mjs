@@ -51,9 +51,9 @@ test("CD307 Accept edits: file edits and mkdir, touch, rm, rmdir, mv, cp, sed in
   // Outside the project, or a protected file: asked, never approved by a rule.
   assert.equal(ask("rm /tmp/x").verdict, "ask");
   assert.equal(ask("mv a.txt ../b.txt").verdict, "ask");
-  assert.match(ask("echo x > .husky/pre-commit").why, /protected file/);
+  assert.match(ask("echo x > .husky/pre-commit").why, /^Coder requested permissions to edit \S+\/\.husky\/pre-commit which is a sensitive file\.$/);
   assert.equal(ask("rm -rf .husky").suggest, null);
-  assert.match(ask("rm -rf .husky").why, /protected file/);
+  assert.match(ask("rm -rf .husky").why, /^Coder requested permissions to edit \S+\/\.husky which is a sensitive file\.$/);
   // touch with anything beyond plain file paths asks (Claude Code: "an option, a glob, or a prefix such as timeout 5").
   assert.equal(ask("timeout 5 touch a").verdict, "ask");
   assert.equal(ask("touch -d yesterday a").verdict, "ask");
@@ -303,7 +303,7 @@ test("CD321 a dangerous removal: refused in Auto (Claude Code's auto mode away f
   assert.equal(b.cards[0].rules, undefined);
   const c = await job([say("", [call("bash", { command: "cp hook.sh .husky/pre-commit" }, "b1")]), say("ok")], { mode: "auto", answers: [{ choice: "no", comment: "leave the hooks" }] });
   assert.equal(c.cards.length, 1, "a file command writing a protected file asks in Auto too");
-  assert.match(c.cards[0].why, /protected file/);
+  assert.match(c.cards[0].why, /^Coder requested permissions to edit \S+\/\.husky\/pre-commit which is a sensitive file\.$/);
   assert.equal(c.cards[0].rules, undefined);
   const d = await job([say("", [call("write", { path: ".husky/pre-commit", content: "npm test\n" }, "w1")]), say("ok")], { mode: "auto", answers: [{ choice: "no", comment: "not now" }] });
   assert.equal(d.cards[0].tool, "write");

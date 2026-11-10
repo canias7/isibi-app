@@ -33,7 +33,7 @@
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
-import { normMode, parseRule, ruleProblem, ruleWarning, MODES } from "../container/coder-perms.mjs";
+import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
@@ -209,13 +209,13 @@ export const RULES_MAX = 200;
 export async function rulesOf(bucket, uid, repo) {
   const r = await getJson(bucket, rulesKey(uid, repo), {});
   const out = { allow: [], ask: [], deny: [] };
-  for (const k of Object.keys(out)) out[k] = [...new Set((Array.isArray(r && r[k]) ? r[k] : []).filter((x) => typeof x === "string" && x.length <= 400 && parseRule(x)))].slice(0, RULES_MAX);
+  for (const k of Object.keys(out)) out[k] = [...new Set((Array.isArray(r && r[k]) ? r[k] : []).filter((x) => typeof x === "string" && x.length <= 400 && ruleSaved(x)))].slice(0, RULES_MAX);
   return out;
 }
 /** Adds (or, with `remove`, takes out) rules of one kind; a rule moves out of the other kinds when added to one. */
 export async function changeRules(bucket, uid, repo, kind, list, { remove = false } = {}) {
   const now = await rulesOf(bucket, uid, repo);
-  const want = (Array.isArray(list) ? list : []).map((x) => String(x || "").trim()).filter((x) => x.length <= 400 && parseRule(x));
+  const want = (Array.isArray(list) ? list : []).map((x) => String(x || "").trim()).filter((x) => x.length <= 400 && ruleSaved(x));
   if (!["allow", "ask", "deny"].includes(kind) || !want.length) return now;
   if (remove) now[kind] = now[kind].filter((x) => !want.includes(x));
   else {
@@ -627,9 +627,10 @@ export async function handleCoder(request, env, ctx, deps) {
     const kind = String(body.kind || "");
     if (!["allow", "ask", "deny"].includes(kind)) return json({ error: "kind is allow, ask or deny" }, 400);
     const rule = String(body.add ?? body.remove ?? "").trim();
-    // (Claude Code ignores a rule on the command itself, Bash(command:…), and warns: so does Coder, when it is added.)
+    // (A rule Claude Code would skip as malformed is refused in its words; one it keeps but that never matches, a rule on
+    // the command itself, Bash(command:…), or one naming no known tool, is saved with its warning, as Claude Code does.)
     if (ruleProblem(rule)) return json({ error: ruleProblem(rule) }, 400);
-    if (!parseRule(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com) or WebFetch" }, 400);
+    if (!ruleSaved(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com) or WebFetch" }, 400);
     const rules = await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined });
     // A RULE CLAUDE CODE KEEPS BUT WARNS ABOUT (Bash docs pass 5: its error reference, "Has a wildcard before the rest of the
     // command"; its rule check's :* warnings): saved, with the warning in its words.

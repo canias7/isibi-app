@@ -34,29 +34,34 @@ test("CD351 the read block: what makes a command ask (Claude Code: \"recognized 
   const why = (c, o = {}) => P.readBlockWhy(c, { cwd: W, workdirs: [W], home: "/home/dev", ownDirs: ["/data/out"], ...o });
   // Reads inside the project, Coder's own folders, and programs it can't see into by name: run.
   for (const c of ["cat README.md", "ls", "grep -r foo src", "cd src && cat a.js", "head -5 /work/shop/a.txt", "cat /data/out/long.txt", "npm test", "git diff", "git status", "python3 script.py", "python3 --version", "find . -name '*.js'", "rg foo", "jq . package.json", "sed -n 1p README.md"]) assert.equal(why(c), "", c);
-  // Outside the project, by each command's own rule for its paths.
-  const outside = { "cat /etc/passwd": "cat names /etc/passwd, a path outside the project,", "ls /": "ls names /,", "grep foo /etc/hosts": "grep names /etc/hosts,", "cat ~/.bashrc": "cat names ~/.bashrc,", "find / -name x": "find names /,", "awk -f /etc/prog.awk a": "awk names /etc/prog.awk,", "jq . /etc/x.json": "jq names /etc/x.json,", "sed -n 1p /etc/passwd": "sed names /etc/passwd,", "git diff -- /etc/passwd": "git names /etc/passwd,", "git -C /tmp status": "git names /tmp,", "bash -c 'cat /etc/passwd'": "cat names /etc/passwd,", "rg foo /etc": "rg names /etc," };
-  for (const [c, w] of Object.entries(outside)) { assert.ok(why(c).startsWith(w), c + " → " + why(c)); assert.match(why(c), /CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES/); }
-  assert.match(why("cd /tmp"), /^cd moves later reads to \/tmp, a folder outside the project/);
-  assert.match(why("cat < /etc/passwd"), /^This command reads \/etc\/passwd, outside the project/);
-  // What can't be checked.
-  assert.match(why("cd src; cd ..; cat a"), /changes folder more than once/);
-  assert.match(why("echo $(cat /etc/x)"), /subshell/);
-  assert.match(why("(cat a)"), /subshell/);
-  assert.match(why("cat $FILE"), /computed at run time/);
-  assert.match(why("cat /etc/*.conf"), /expanded by the shell/);
-  assert.match(why("cat < *.txt"), /expanded by the shell/);
-  assert.match(why("python3 -c 'print(1)'"), /^python3 runs inline code/);
-  assert.match(why("node -e 'x'"), /^node runs inline code/);
-  assert.match(why("node"), /^node runs code from stdin/);
-  assert.match(why("python3 -"), /^python3 runs code from stdin/);
-  assert.match(why("LD_PRELOAD=x cat a"), /environment variable in front of cat/);
-  assert.match(why("sed 'w /tmp/x' a"), /sed script is not on the allowlist/);
-  assert.match(why("npm test &&"), /cannot analyze/);
-  assert.match(why("cd -"), /can't be known/);
+  // Outside the project, by each command's own rule for its paths: Claude Code 2.1.322's words (cat /etc/hostname, cd /tmp,
+  // cat ~/.bashrc, cat < /etc/hostname and cat /etc/*.conf all said this), with Coder's setting.
+  const OUT = "Reads outside the working directories are blocked (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES). Remove that setting to allow them.";
+  assert.equal(P.RB_OUTSIDE, OUT);
+  for (const c of ["cat /etc/passwd", "ls /", "grep foo /etc/hosts", "cat ~/.bashrc", "find / -name x", "awk -f /etc/prog.awk a", "jq . /etc/x.json", "sed -n 1p /etc/passwd", "git diff -- /etc/passwd", "git -C /tmp status", "bash -c 'cat /etc/passwd'", "rg foo /etc", "cd /tmp", "cat < /etc/passwd", "cat /etc/*.conf", "cat $HOME/.bashrc"]) assert.equal(why(c), OUT, c);
+  // A wildcard inside the project is checked by its folder (Claude Code read `cat /etc/*.conf` as a read in /etc).
+  assert.equal(why("cat docs/*.md"), "");
+  assert.equal(why("cat docs/*/../../../etc/x"), "A glob before the '..' in 'docs/*/../../../etc/x' is expanded by the shell before the path is opened, so the target cannot be checked against the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES). Spell the path without the glob.");
+  // What can't be checked, in Claude Code's words (each seen from 2.1.322 itself): its reason, then why it asks.
+  const UNSURE = "; under the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) a command the shell parser cannot analyze asks the person";
+  assert.equal(why("cd src; cd ..; cat a"), "multiple directory changes cannot be checked against the read block" + UNSURE);
+  assert.equal(why("echo $(cat /etc/x)"), "a subshell cannot be checked against the read block" + UNSURE);
+  assert.equal(why("(cat a)"), "a subshell cannot be checked against the read block" + UNSURE);
+  assert.equal(why("cat $FILE"), "A variable in this command can't be checked before it runs" + UNSURE);
+  assert.equal(why("cat < *.txt"), "Input redirection from '*.txt' requires manual approval: the file it names depends on glob expansion or a directory change in the same command.");
+  assert.equal(why("python3 -c 'print(1)'"), "python3 runs inline code, which cannot be checked against the read block" + UNSURE);
+  assert.equal(why("node -e 'x'"), "node runs inline code, which cannot be checked against the read block" + UNSURE);
+  assert.equal(why("python3 -"), "python3 runs code from stdin, which cannot be checked against the read block" + UNSURE);
+  for (const c of ["echo 1 | node", "node <<'EOF'\nconsole.log(1)\nEOF", "python3 <<< 'print(1)'"]) assert.equal(why(c), "code on stdin cannot be checked against the read block" + UNSURE, c);
+  assert.equal(why("node"), "", "nothing fed to it: Claude Code checks code on stdin only when something is");
+  assert.equal(why("LD_PRELOAD=x cat a"), "an environment variable prefix outside the safe list cannot be checked against the read block" + UNSURE);
+  assert.equal(why("sed 'w /tmp/x' a"), "This sed script is not on the allowlist and can read or write any file, which cannot be checked against the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES)");
+  assert.equal(why("npm test &&"), "Parse error" + UNSURE);
+  assert.equal(why('echo "unterminated'), "Parse error" + UNSURE);
+  assert.equal(why("cd -"), "A variable in this command can't be checked before it runs" + UNSURE);
   // A link inside the project that leads out of it: followed (with Coder's resolver on the machine).
   const real = (p) => (p.startsWith(W + "/etc-link") ? "/etc" + p.slice((W + "/etc-link").length) : p);
-  assert.match(why("cat etc-link/passwd", { real }), /^cat names etc-link\/passwd, a path outside the project/);
+  assert.equal(why("cat etc-link/passwd", { real }), OUT);
   assert.equal(why("cat etc-link/passwd"), "", "without the resolver (the Worker's view): as written");
 });
 
@@ -97,7 +102,12 @@ test("CD352 the read block in Coder's loop: a command that reads outside asks in
     assert.equal(inside.result("b0").output.trim(), "# Shop");
     // The file tools: read, grep, glob and lsp outside the project are refused, never run; inside, they run.
     const tools = await run([call("read", { path: "/etc/hostname" }, "r0"), call("grep", { pattern: "x", path: "/etc" }, "r1"), call("glob", { pattern: "/etc/*.conf" }, "r2"), call("read", { path: "etc-link/hostname" }, "r3"), call("read", { path: "README.md" }, "r4"), call("grep", { pattern: "Shop" }, "r5")], { readBlock: true });
-    for (const id of ["r0", "r1", "r2", "r3"]) assert.equal(tools.result(id).output, A.READ_BLOCKED, id);
+    // (Claude Code 2.1.322's words: "/etc/hostname is outside /home/user/cc-live-bash; the permissions.blockReadsOutsideWorkingDirectories
+    // setting blocks reads outside the working directories. Ask the user to add the directory with /add-dir, or to remove
+    // that setting.", with Coder's setting and no /add-dir; through a link, where it leads.)
+    const said = (p) => "error: " + p + " is outside " + work + "; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories. Ask the owner to remove that setting.";
+    assert.equal(A.READ_BLOCKED("/etc/hostname", [work]), said("/etc/hostname"));
+    for (const [id, p] of [["r0", "/etc/hostname"], ["r1", "/etc"], ["r2", "/etc"], ["r3", "/etc/hostname"]]) assert.equal(tools.result(id).output, said(p), id);
     assert.deepEqual(tools.toolsRan.map((x) => x.split(" ")[0]), ["read", "grep"], "only the reads inside ran");
     assert.ok(!tools.toolsRan.some((x) => /etc/.test(x)), "nothing outside reached the tool");
     // Block off (the default): as before (in Auto, so the outside read runs without a card).
