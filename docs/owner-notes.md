@@ -26,6 +26,7 @@ log (81,000 lines) is in git history.
 - Where Claude Code names its own setting or `/add-dir`, Coder names its own setting and leaves `/add-dir` out (Coder has none).
 - Found in my own check before the live test, and fixed: `(cd src && cat a.js)` would have asked in Accept edits (Coder loses track of the folder after a `cd` inside brackets). It runs again; only a path that climbs out with `..` from there asks. And "A variable in this command…" is now said only for a real variable, not for `$(…)`.
 - The first deploy (81) stopped at the tests: an older test of Stop (CD345) counted its processes before one had really started, on GitHub's busy machine. Not a Coder problem; the test now waits for them to start (passes 3 times out of 3 with every CPU busy). Nothing was deployed by that run.
+- Deploy 82: I cancelled it after 2 minutes, wrongly thinking it was stuck; it had deployed nothing. Deploy 83 ran instead.
 - Tests: 378 pass (7 new, CD361–CD367). Merge, deploy and the live test with Grok follow below.
 
 ## 2026-11-10: Bash tested side by side with Claude Code (your words: "merge deploy and test everything in the bash thing , test it with claude code and coder , and see the differences pls")
