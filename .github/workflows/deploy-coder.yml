@@ -149,21 +149,36 @@ jobs:
           # ALL OF CLAUDE CODE'S TOOLS (owner, 2026-11-07): Fly.io's machines get the full image
           # (Cloudflare's backup machines keep the small one, which wrangler builds below). It
           # takes a while to build, so a version already sent is not built again.
-          if docker manifest inspect "$img" >/dev/null 2>&1; then
-            echo "Coder's machine $img is already on Fly.io: not built again."
-          else
-            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-            docker build --build-arg CODER_IMAGE=full -t "$img" container
-            # FLY.IO'S IMAGE STORE SOMETIMES CUTS A BIG UPLOAD OFF (deploy 86, 2026-11-10: "connection
-            # reset by peer" at the last layer, twice in a row). What it already has is not sent again,
-            # so the upload is tried up to five times before the deploy gives up.
+          # FLY.IO'S IMAGE STORE SOMETIMES CUTS A BIG UPLOAD OFF (deploy 86, 2026-11-10: "connection
+          # reset by peer" at the last layer, twice in a row). What it already has is not sent again,
+          # so an upload is tried up to five times before the deploy gives up.
+          send() {
             for try in 1 2 3 4 5; do
-              if docker push "$img"; then break; fi
-              if [ "$try" = 5 ]; then echo "The upload to Fly.io failed five times."; exit 1; fi
+              if docker push "$1"; then return 0; fi
+              if [ "$try" = 5 ]; then echo "The upload to Fly.io failed five times."; return 1; fi
               echo "The upload to Fly.io was cut off; trying again ($try of 5)."
               sleep $((try * 20))
               flyctl auth docker
             done
+          }
+          if docker manifest inspect "$img" >/dev/null 2>&1; then
+            echo "Coder's machine $img is already on Fly.io: not built again."
+          else
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+            # THE TOOLS ARE BUILT ONCE (owner, 2026-11-10: "yea do that lol, do it from now on"): the
+            # Dockerfile up to its last stage (every tool, container/tools too) is its own image on
+            # Fly.io, named after what it is built from and the month, so it is built again only when
+            # those change, or once a month to stay fresh. A deploy that changes only Coder's own files
+            # builds just the last stage on top of it: a few minutes, not a quarter of an hour.
+            base="registry.fly.io/$FLY_APP:coder-tools-$({ sed '/^FROM \${CODER_IMAGE} AS app/,$d' container/Dockerfile; git rev-parse HEAD:coder/container/tools; date -u +%Y-%m; } | sha256sum | cut -c1-12)"
+            if docker manifest inspect "$base" >/dev/null 2>&1; then
+              echo "The machine's tools ($base) are already on Fly.io: only Coder's own files are built."
+            else
+              docker build --build-arg CODER_IMAGE=full --target full -t "$base" container
+              send "$base"
+            fi
+            docker build --build-arg CODER_IMAGE="$base" -t "$img" container || { sleep 20; flyctl auth docker; docker build --build-arg CODER_IMAGE="$base" -t "$img" container; }
+            send "$img"
           fi
           echo "image=$img" >> "$GITHUB_OUTPUT"
       - name: "Fly.io: give the Worker the token"

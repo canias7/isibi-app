@@ -151,7 +151,8 @@ test("CD135 the master key's jobs (step 4): sudo lets Coder's commands run one c
 
 test("CD136 the full image is built for Fly.io only, built again only when Coder's machine changes, and checked on GitHub before any deploy; Coder is told its tools there", () => {
   const Y = read("../.github/workflows/deploy-coder.yml");
-  assert.match(Y, /docker build --build-arg CODER_IMAGE=full -t "\$img" container/);
+  assert.match(Y, /docker build --build-arg CODER_IMAGE=full --target full -t "\$base" container/);
+  assert.match(Y, /docker build --build-arg CODER_IMAGE="\$base" -t "\$img" container/);
   assert.match(Y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then/);
   const C = read("../.github/workflows/check-coder-image.yml");
   assert.match(C, /branches-ignore: \[main\]\n\s+paths:\n\s+- "coder\/container\/\*\*"/);

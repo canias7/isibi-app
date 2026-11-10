@@ -536,7 +536,11 @@ commands have a home of their own (`cleanEnv`: `/home/dev`, or on Fly.io
 `/data/home` on the chat's kept disk), where what they install for themselves
 and every download cache go, never in a project. On the full image Coder is
 told its tools (`MACHINE_TOOLS`). The deploy builds the full image only when
-that version is not on Fly.io yet, and `.github/workflows/check-coder-image.yml`
+that version is not on Fly.io yet, and then builds only Coder's own stage: the
+Dockerfile up to that stage (every tool) is its own image on Fly.io,
+`coder-tools-…`, named after that text, `container/tools` and the month, so it
+is built again only when those change or once a month (`test/deploy-tools.test.mjs`).
+Each upload to Fly.io is tried up to five times. `.github/workflows/check-coder-image.yml`
 builds both images whenever the machine changes on a branch and tries every
 tool as dev (`test/machine-tools.sh`).
 

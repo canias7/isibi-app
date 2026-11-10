@@ -379,9 +379,10 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   assert.match(y, /for k in XAI_API_KEY CODER_CONTROL_KEY; do\n[\s\S]{0,240}flyctl secrets unset "\$k" -a "\$FLY_APP" --stage/);
   assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)"\n/, "named after the machine's own folder: a deploy that does not change it leaves the machines as they are");
   // ALL OF CLAUDE CODE'S TOOLS (2026-11-07): Fly.io's machines get the full image, built only when that version is not there yet.
-  assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n\s+docker build --build-arg CODER_IMAGE=full -t "\$img" container\n(\s+#[^\n]*\n)*\s+for try in 1 2 3 4 5; do\n\s+if docker push "\$img"; then break; fi\n[\s\S]*?\s+done\n\s+fi\n/);
-  // (Fly.io's image store cut the upload off twice in a row on 2026-11-10: it is tried up to five times.)
-  assert.match(y, /if \[ "\$try" = 5 \]; then echo "The upload to Fly\.io failed five times\."; exit 1; fi/);
+  // (2026-11-10: the tools are built once and kept on Fly.io; each deploy builds only Coder's own files on top, CD376.)
+  assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n(\s+#[^\n]*\n)*\s+base="registry\.fly\.io\/\$FLY_APP:coder-tools-[^\n]*\n\s+if docker manifest inspect "\$base" >\/dev\/null 2>&1; then\n[^\n]*only Coder's own files are built[^\n]*\n\s+else\n\s+docker build --build-arg CODER_IMAGE=full --target full -t "\$base" container\n\s+send "\$base"\n\s+fi\n\s+docker build --build-arg CODER_IMAGE="\$base" -t "\$img" container [^\n]*\n\s+send "\$img"\n\s+fi\n/);
+  // (Fly.io's image store cut the upload off twice in a row on 2026-11-10: each upload is tried up to five times.)
+  assert.match(y, /send\(\) \{\n\s+for try in 1 2 3 4 5; do\n\s+if docker push "\$1"; then return 0; fi\n\s+if \[ "\$try" = 5 \]; then echo "The upload to Fly\.io failed five times\."; return 1; fi\n/);
   // The name is the same as long as coder/container is (a change elsewhere, like the notes, keeps it).
   const { execFileSync } = await import("node:child_process");
   const tree = (rev) => execFileSync("git", ["rev-parse", rev + ":coder/container"], { cwd: new URL("../..", import.meta.url).pathname }).toString().trim();
