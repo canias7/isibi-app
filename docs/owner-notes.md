@@ -11,6 +11,19 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: The last 4 from the Bash docs, and the 2 optional ones in Settings (your words: "yea do all 4, plus do the 2 u left out optional, the setting put it in setings")
+
+Not merged or deployed yet: on the branch, waiting for your word. All 405 tests pass.
+
+- **Settings** (the gear's menu, new). Three choices for all your chats, each saved as soon as you change it:
+  - **Longest a background command may run:** 2 hours (Claude Code's limit), or 4, 8, 12 or 24 hours. Coder's machine stays on that long.
+  - **Stopping a background command also stops what it started on its own** (with `setsid` or `timeout`): on unless you turn it off. Off is what Claude Code really does today.
+  - **Low-disk warning:** Coder is told once, in Claude Code's words, when the work disk has less than 2 GB free (or 1, 5, 10, 20 GB, or off). Claude Code's `CLAUDE_CODE_WARN_DISK_FREE_GIB`.
+- **Monitor** (Claude Code's Monitor tool). Coder can start a watcher, like "tell me when the server prints an error". Every line it prints reaches Coder while it works, and the chat shows each one under an eye icon. It stops at its deadline (5 minutes unless Coder asks for up to 30), when its command ends, or when Coder stops it. If it prints too much, it is stopped. An idle chat is woken for its lines. Coder's old "monitor" (a look at a background command's output) is gone, as Claude Code's is: Coder reads the output file instead. I also fixed one thing I found while testing: when a watcher ended, Coder was told twice.
+- **Read(…) and Edit(…) rules** (in the rules list, next to Bash and WebFetch rules). For example, `Read(./.env)` as a deny rule stops Coder from reading any `.env` file, through its read and search tools, `cat`, `head`, `< .env`, `cp .env …` and @-mentions. `Edit(src/**)` covers edits, `> file`, `tee`, `rm`, `mv`, `cp`, `mkdir` and `touch`. They are written like a `.gitignore`, exactly as Claude Code's are: `//` starts at the machine's root, `~/` at Coder's home, any other path at the project. Allow rules let commands read or write outside the project without asking. "Yes, and don't ask again" on a `cd` outside the project now saves a Read rule for that folder, as Claude Code does. The refusals use Claude Code's own words.
+- **Hooks** (Claude Code's hooks). Your own commands that run at points in Coder's work: before or after each tool, when you send a message, when Coder finishes, at a chat's start, before and after a summary, and when a card waits for you. You write them in Settings, in Claude Code's settings format, and the repository's own `.claude/settings.json` hooks run too. A hook can block a command, change it, ask you first, add notes for Coder, or keep Coder going until the tests pass. They run on Coder's machine like its commands. The repository's hooks never run in a job started from GitHub. `"disableAllHooks": true` turns them all off.
+- **What's next:** merge and deploy when you say so, then test each one live with Grok in the browser (recorded).
+
 ## 2026-11-10: Deploy 92, and Low effort and the cache checked live with Grok (recording 29) (your words: "Ok merge and deploy")
 
 - **Deploy 92** (main 750f662a) changed Coder's machine, so it built the machine's tools and stored them on Fly.io for the first time: the build step took 13 minutes. From the next change to Coder's machine on, only Coder's own files are built.
