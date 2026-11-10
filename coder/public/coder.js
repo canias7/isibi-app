@@ -885,7 +885,9 @@
    * A MONITOR'S EVENT IN THE CHAT (Claude Code's Monitor, 2026-11-10): what it watches, the lines its command printed (the
    * newest 40), and how it ended, when it did. Only text, never markup.
    */
-  const MONITOR_END = { exit: (e) => 'ended (exit ' + esc(String(e.code)) + ')', limit: () => 'reached its deadline', flood: () => 'stopped: too many lines', stopped: () => 'stopped', coder: () => 'stopped' };
+  // (A WebSocket watch's end: how its socket closed, CD385.)
+  const wsEnd = (w) => (w.error ? 'could not connect' : w.tooBig ? 'ended: a message over 1 MiB' : 'closed (code ' + esc(String(w.close)) + ')');
+  const MONITOR_END = { exit: (e) => (e.ws && typeof e.ws === 'object' ? wsEnd(e.ws) : 'ended (exit ' + esc(String(e.code)) + ')'), limit: () => 'reached its deadline', flood: () => 'stopped: too many lines', stopped: () => 'stopped', coder: () => 'stopped' };
   function monitorHTML(m) {
     const lines = Array.isArray(m.lines) ? m.lines.filter((l) => typeof l === 'string').slice(-40) : [];
     const end = m.end && typeof m.end === 'object' ? (MONITOR_END[m.end.why] || MONITOR_END.exit)(m.end) : '';
@@ -926,7 +928,7 @@
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
     const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
-      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
+      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.denied === true ? 'refused' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'

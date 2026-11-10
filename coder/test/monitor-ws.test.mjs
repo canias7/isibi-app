@@ -168,8 +168,9 @@ test("CD385c a WebSocket watch in Coder's loop: asked about on a card (no \"don'
   assert.equal(said({ code: 0, why: "exit", ws: { error: "blocked by this repo's network list: feed.example.com (ask the owner with propose_env, allow_host)" } }), "Monitor \"Deploy feed\" (job3) ended: the WebSocket could not be opened: blocked by this repo's network list: feed.example.com (ask the owner with propose_env, allow_host).");
   assert.equal(said({ code: 143, why: "limit", ws: { close: 1006 } }), 'Monitor "Deploy feed" (job3) reached its deadline and ended. Start it again if you still need it.');
   assert.deepEqual([A.monitorEndLabel({ why: "exit", code: 0, ws: { close: 1000 } }), A.monitorEndLabel({ why: "exit", code: 0, ws: { close: 1011 } }), A.monitorEndLabel({ why: "exit", code: 0, ws: { error: "x" } })], [{ ok: true, label: "" }, { ok: false, label: "closed 1011" }, { ok: false, label: "could not connect" }]);
-  // The page: its card.
+  // The page: its card, and how it ended ("closed (code 1000)").
   const page = read("public/coder.js");
+  assert.match(page, /const wsEnd = \(w\) => \(w\.error \? 'could not connect' : w\.tooBig \? 'ended: a message over 1 MiB' : 'closed \(code ' \+ esc\(String\(w\.close\)\) \+ '\)'\);/);
   assert.match(page, /monitor: 'WebSocket watch'/);
   assert.match(page, /else if \(e\.tool === 'monitor'\) body = /);
 });

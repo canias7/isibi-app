@@ -1384,7 +1384,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       const o = answerOutcome(a);
       if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
       if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
-      if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(a) }); reply(saidReply(a)); return null; }
+      if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(a), ...(a && a.denied ? { denied: true } : {}) }); reply(saidReply(a)); return null; }
       if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return { end: end("done", { summary: lastSaid || "stopped: the owner said no" }) }; }
       if (dec.paused) resume(dec.paused);
     }
@@ -1948,7 +1948,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval) }); reply(saidReply(approval)); continue; }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (approval.choice === "auto" && card.toAuto) setMode("auto", "card");
@@ -2264,7 +2264,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval) }); reply(saidReply(approval)); continue; }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (fetchPaused) resume(checkStF);

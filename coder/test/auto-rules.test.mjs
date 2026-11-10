@@ -87,7 +87,8 @@ test("CD386c refusing instead of asking (Claude Code's permissions.denyInsteadOf
   assert.ok(t.told("b1").startsWith(A.DENY_INSTEAD_TEXT));
   assert.match(t.told("b1"), /npm publish/);
   assert.ok(t.events.some((e) => e.type === "note" && e.denied === true && /^Refused without asking you \(Settings: refuse instead of asking\): /.test(e.text)));
-  assert.ok(t.events.some((e) => e.type === "result" && e.id === "b1" && e.output === "Not run: refused without asking you (Settings: refuse instead of asking)."));
+  assert.ok(t.events.some((e) => e.type === "result" && e.id === "b1" && e.output === "Not run: refused without asking you (Settings: refuse instead of asking)." && e.denied === true), "the step says \"✕ refused\"");
+  assert.match(read("public/coder.js"), /r\.denied === true \? 'refused' : /);
   // TWENTY IN A ROW: the turn ends.
   const many = Array.from({ length: 22 }, (_, k) => call("bash", { command: "npm publish --tag t" + k }, "p" + k));
   t = await job([say("", many), say("never")], { mode: "acceptEdits", denyInstead: true, checker: false });
