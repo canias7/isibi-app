@@ -149,8 +149,12 @@ test("CD301 (the live test after deploy 75) a background command in the admin sa
     assert.equal(state(job.pid), "T", "nsenter stopped itself with its command");
     assert.equal(p.procs.has(job.pid), false, "and is none of the AI's processes, so resumeAI does not wake it");
     // What is not kept is ended: the sandbox's first process's own sleep among it (the retest after deploy 76: with
-    // `set -e` that ended the first process, and so everything in the sandbox).
-    assert.ok((await F.endOthers(p.procs, new Set([job.pid]), { spare: new Set([box.pid]) })) >= 1);
+    // `set -e` that ended the first process, and so everything in the sandbox). Only the sandbox's own processes here (its
+    // users' range): on GitHub's machines user 1001 is the runner itself, and ending its processes stopped the check's own
+    // runner, so every check hung with no log (2026-11-10). On Coder's machine user 1001 is the AI's, as quietly() means.
+    const uidOf = (pid) => { try { return Number((/^Uid:\s+(\d+)/m.exec(readFileSync("/proc/" + pid + "/status", "utf8")) || [])[1]); } catch { return -1; } };
+    const boxOnly = new Map([...p.procs].filter(([pid]) => { const u = uidOf(pid); return u >= S.SBX_BASE && u < S.SBX_BASE + S.SBX_RANGE; }));
+    assert.ok((await F.endOthers(boxOnly, new Set([job.pid]), { spare: new Set([box.pid]) })) >= 1);
     F.resumeAI(p.procs, { boxPid: box.pid });
     await wait(3500);
     assert.equal(/done/.test(out), true, "the command went on after the pause and finished");
