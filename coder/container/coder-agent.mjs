@@ -30,7 +30,7 @@ import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
-import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
+import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -348,7 +348,11 @@ export function monitorSaid(n) {
   if (lines.length) parts.push("Monitor event: " + name + "\n" + lines.join("\n") + (n.dropped > 0 ? "\n(" + n.dropped + " more line" + (n.dropped === 1 ? " was" : "s were") + " left out: too many at once)" : ""));
   const e = n && n.end;
   if (e) {
-    const why = e.why === "limit" ? "reached its deadline and ended. Start it again if you still need it."
+    const ws = e.ws && typeof e.ws === "object" ? e.ws : null;
+    const why = ws && e.why === "exit" && ws.error ? "ended: the WebSocket could not be opened: " + ws.error + "."
+      : ws && e.why === "exit" && ws.tooBig ? "ended: a message was larger than 1 MiB (" + ws.tooBig + " bytes). Subscribe to a filtered feed if the server has one."
+      : ws && e.why === "exit" && Number.isInteger(ws.close) ? "ended: the WebSocket closed with code " + ws.close + (ws.reason ? " (" + ws.reason + ")" : "") + "."
+      : e.why === "limit" ? "reached its deadline and ended. Start it again if you still need it."
       : e.why === "flood" ? "was stopped: it printed too many lines. Start it again with a tighter filter (grep --line-buffered, or awk with fflush()) if you still need it."
       : e.why === "stopped" || e.why === "coder" ? "was stopped."
       : e.why === "owner" ? "was stopped by the owner."
@@ -363,6 +367,8 @@ export function monitorSaid(n) {
 /** How the step that started a monitor shows its end (as a background command's: ✓, or what stopped it). */
 export function monitorEndLabel(e) {
   const why = (e && e.why) || "exit", code = e && Number.isInteger(e.code) ? e.code : null;
+  const ws = e && e.ws && typeof e.ws === "object" ? e.ws : null;
+  if (ws && why === "exit") return ws.error ? { ok: false, label: "could not connect" } : ws.tooBig ? { ok: false, label: "message over 1 MiB" } : { ok: ws.close === 1000, label: ws.close === 1000 ? "" : "closed " + ws.close };
   if (why === "exit") return code === 0 ? { ok: true, label: "" } : { ok: false, label: code === null ? "ended" : "exit " + code };
   return { ok: false, label: why === "limit" ? "deadline" : why === "flood" ? "too many lines" : why === "size" ? "over 5 GB" : why === "memory" ? "low memory" : "stopped" };
 }
@@ -776,7 +782,7 @@ export const CODER_TOOLS = Object.freeze([
   // background and feeds each output line back to Claude, so it can react to log entries, file changes, or polled status
   // mid-conversation"). It took the place of Coder's old monitor, which looked at a background command's output: Claude Code
   // dropped that tool (TaskOutput, 2.1.277), and Claude reads output files with Read.
-  fn("monitor", "Start a monitor: a shell command that runs in the background and whose every stdout line comes to you as an event while you work, so you can react when something happens (a server's ready line, an error in a log, a build or deploy that finishes, a file that changes, a status you poll in a loop) instead of checking again and again. Lines that come close together arrive together. Stderr goes to a file of its own and is no event. It ends when its command exits, at its deadline (timeout_ms: default 300000, 5 minutes; at most 1800000, 30 minutes; you are told once, so you can start it again if you still need it), or with stop_job. One that prints too many lines is stopped, so filter what it prints (grep --line-buffered, awk with fflush()). It is checked like a bash command (the same rules and questions). To read a background command's output, read its output file.", { command: { type: "string", description: "The shell command; each line it prints on stdout is an event" }, description: { type: "string", description: "What it watches, in a few words (shown with each event)" }, timeout_ms: { type: "integer", description: "Its deadline in milliseconds (default 300000, at most 1800000)" } }, ["command", "description"]),
+  fn("monitor", "Start a monitor: a shell command that runs in the background and whose every stdout line comes to you as an event while you work, so you can react when something happens (a server's ready line, an error in a log, a build or deploy that finishes, a file that changes, a status you poll in a loop) instead of checking again and again. Lines that come close together arrive together. Stderr goes to a file of its own and is no event. Or, for a server that already pushes events, a WebSocket (ws) instead of a command: each text message is one event, a binary one comes as a placeholder line, a message over 1 MiB ends the watch, and when the socket closes the watch ends and you are told its close code. It ends when its command exits, at its deadline (timeout_ms: default 300000, 5 minutes; at most 1800000, 30 minutes; you are told once, so you can start it again if you still need it), or with stop_job. One that prints too many lines is stopped, so filter what it prints (grep --line-buffered, awk with fflush()). A command is checked like a bash command (the same rules and questions); a WebSocket is asked about first, or judged by auto mode's checker. To read a background command's output, read its output file.", { command: { type: "string", description: "Shell command or script. Each stdout line is an event; exit ends the watch. Not with ws." }, ws: { type: "object", description: "WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command.", properties: { url: { type: "string", description: "A ws:// or wss:// URL, ASCII only, with no user name or password" }, protocols: { type: "array", items: { type: "string" }, description: "WebSocket subprotocols to offer (RFC 6455 tokens, each once)" } }, required: ["url"] }, description: { type: "string", description: "What it watches, in a few words (shown with each event)" }, timeout_ms: { type: "integer", description: "Its deadline in milliseconds (default 300000, at most 1800000)" } }, ["description"]),
   fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { job: { type: "string" } }, ["job"]),
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved on this chat's environment (every chat using it gets it) and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
   fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "trusted", "full"], description: "new_environment: network level (default trusted)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
@@ -1307,6 +1313,81 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     if (o && o.stop) hookStop = o;
     if (o && o.endTurn) hookEnd = hookEnd || o.endTurn;
   };
+  /**
+   * A WEBSOCKET WATCH (Claude Code's Monitor `ws` source): its input checked; refused under a rule denying every Bash command
+   * or Monitor; asked about without a Monitor allow rule (in Auto, judged by the checker instead), and only by the owner
+   * under a rule asking for every Bash command; then opened on Coder's machine as a monitor whose events are its messages
+   * (coder-tools.mjs's ws_watch). `{ end }` when the turn ends with it.
+   */
+  const wsWatch = async (c, i) => {
+    const reply = (content) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content) });
+    c.monitor = true;
+    const ws = c.args.ws && typeof c.args.ws === "object" ? c.args.ws : {};
+    const desc = typeof c.args.description === "string" ? scrub(visibleChars(c.args.description.trim().replace(/\s+/g, " "))).slice(0, 200) : "";
+    const url = typeof ws.url === "string" ? ws.url : "";
+    const shownUrl = scrub(visibleChars(url)).slice(0, 500);
+    emit({ type: "bash", id: c.id, command: "WebSocket " + shownUrl, ...(desc ? { desc } : {}), monitor: true, ws: true });
+    const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); };
+    const bad = wsProblem(c.args);
+    if (bad) { refuse("error: " + bad); return null; }
+    const modeW = modeNow();
+    let dec = github ? { verdict: "check" } : wsDecision({ rules: ownRules, mode: modeW });
+    if (dec.verdict === "deny") { refuse(dec.why); return null; }
+    // A PreToolUse hook's ask asks; its allow approves, never under a rule asking for every Bash command.
+    if (c.hook && c.hook.decision === "ask" && !github && dec.verdict !== "ask") dec = { verdict: "ask", byRule: true, why: c.hook.reason || "A PreToolUse hook asks first." };
+    else if (c.hook && c.hook.decision === "allow" && !dec.strict) dec = { verdict: "allow" };
+    let host = "";
+    try { host = new URL(url).host; } catch { host = ""; }
+    if (dec.verdict === "check") {
+      if (!checker) dec = { verdict: "allow" };
+      else {
+        const checkSt = checkerState((checkWhere && checkWhere.key) || deps.root || "");
+        if (checkSt.paused) {
+          if (canAsk()) dec = { verdict: "ask", why: pausedWhy(checkSt.byRow), paused: checkSt };
+          else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
+        } else {
+          const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: "monitor: open a WebSocket to " + url + (Array.isArray(ws.protocols) && ws.protocols.length ? " (protocols " + ws.protocols.join(", ") + ")" : "") + (desc ? " (" + desc + ")" : ""), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
+          if (v.usage) usage.push(v.usage);
+          if (v.error) { refuse(checkUnavailable(model || "The classifier", "this WebSocket watch") + await deniedHooks(c, "Classifier unavailable")); return null; }
+          if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
+          countAllowed(checkSt);
+          dec = { verdict: "allow" };
+        }
+      }
+    }
+    if (dec.verdict === "ask") {
+      if (!canAsk()) { refuse("not run: " + (dec.rule ? "the owner's rule " + dec.rule + " asks them first" : "the owner must approve opening a WebSocket to " + (host || "this address")) + ", and no one can answer here"); return null; }
+      // (Claude Code's card has no "don't ask again" for a host.)
+      const a = await askOwner({ tool: "monitor", id: c.id, url: shownUrl, ...(desc ? { desc } : {}), why: dec.why || "Coder wants to open a WebSocket to " + (host || "this address") + " and watch its messages.", ...(dec.byRule ? { byRule: true } : {}) });
+      const o = answerOutcome(a);
+      if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
+      if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
+      if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED_SAID + a.comment); return null; }
+      if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return { end: end("done", { summary: lastSaid || "stopped: the owner said no" }) }; }
+      if (dec.paused) resume(dec.paused);
+    }
+    if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
+    const limitMs = monitorMs(c.args.timeout_ms);
+    const req = Buffer.from(JSON.stringify({ tool: "ws_watch", args: { url, protocols: Array.isArray(ws.protocols) ? ws.protocols : [] } })).toString("base64");
+    let r;
+    try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + req, timeoutS: 1, here: true, inBg: true, desc: desc || "WebSocket " + host, limitMs, monitor: true, ws: true }); }
+    catch (e) { r = { code: -1, output: "the watch could not be started: " + String((e && e.message) || e).slice(0, 200) }; }
+    let text = "";
+    if (r && r.background && r.pid && r.log) {
+      const job = typeof r.jobId === "string" && /^job\d+$/.test(r.jobId) ? r.jobId : "job" + (1 + Math.max(0, ...[...jobs.keys()].map((k) => Number(k.slice(3)) || 0)));
+      jobs.set(job, { pid: r.pid, log: r.log, command: "WebSocket " + url, desc: desc || "WebSocket " + host, at: now(), moved: false, cwd: "", done: false, monitor: true });
+      text = "Monitor started with ID: " + job + ". Each message the WebSocket at " + url + " sends comes to you as an event while it runs (a binary one as a placeholder line). It ends when the socket closes (you are told its close code), when a message is over 1 MiB, at its deadline in " + Math.round(limitMs / 60000) + " minutes (you are told), or with stop_job. Its messages are written, one JSON value a line, to: " + r.log + ".";
+      emit({ type: "result", id: c.id, code: -1, background: true, job, output: text });
+    } else {
+      // Done in its first second: it could not connect, or the socket closed at once.
+      const lines = String((r && r.output) || "").split("\n").map((l) => { try { return JSON.parse(l); } catch { return undefined; } }).filter((v) => v !== undefined);
+      const msgs = lines.filter((v) => typeof v === "string"), last = lines.find((v) => v && typeof v === "object") || {};
+      text = "Monitor \"" + (desc || "WebSocket") + "\" ended at once: " + (last.error ? "the WebSocket could not be opened: " + last.error : last.tooBig ? "a message was larger than 1 MiB" : Number.isInteger(last.close) ? "the WebSocket closed with code " + last.close + (last.reason ? " (" + last.reason + ")" : "") : "it ended in its first second") + ", so no events follow." + (msgs.length ? " What it got first:\n" + msgs.slice(0, 20).join("\n") : "");
+      emit({ type: "result", id: c.id, code: 1, output: scrub(text).slice(0, MAX_OUTPUT_CHARS) });
+    }
+    reply(scrub(text));
+    return null;
+  };
   /** A command's changed files as Claude Code's bashEditDiff gives them: `{ changedFiles, files, moreFiles }` (absolute paths). */
   const editDiffFor = (f) => {
     if (!f || !Array.isArray(f.files)) return null;
@@ -1364,7 +1445,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // THIS CHAT'S OUTPUT SIZES AND TOOL LIST (the environment's CODER_BASH_OUTPUT_MAX_CHARS, BASH_MAX_OUTPUT_LENGTH and
   // CODER_DISABLE_BACKGROUND_TASKS; the machine works them out): see toolsFor.
   const lim = outLimits && Number.isInteger(outLimits.inlineMax) && Number.isInteger(outLimits.readBack) ? outLimits : { inlineMax: BASH_INLINE_MAX, readBack: BASH_READ_BACK };
-  const chatTools = toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs });
+  // (A rule denying every Bash command at the start: no Monitor tool, as Claude Code: "Claude doesn't have the Monitor tool".)
+  const chatTools = toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs }).filter((t) => !(t && t.function && t.function.name === "monitor" && !github && wholeRule(ownRules, "deny", "Bash")));
   // THIS CHAT'S TIMEOUTS (the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS; the machine works them out).
   const fgMaxS = timeouts && timeouts.maxMs > 0 ? Math.round(timeouts.maxMs / 1000) : MAX_TIMEOUT_S;
   const bgMaxMs = timeouts && timeouts.bgMaxMs > 0 ? timeouts.bgMaxMs : 7_200_000;
@@ -1726,6 +1808,15 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       }
       // A MONITOR goes the bash way, in the background and marked (Claude Code: "When Monitor runs a command, it uses the same
       // permission rules as Bash"); its lines come back as events at each step (deps.monitorNews, below).
+      // A WEBSOCKET MONITOR (Claude Code's Monitor `ws` source): its own way, never a shell command's (wsWatch).
+      if (c.name === "monitor" && c.args && typeof c.args === "object" && c.args.ws !== undefined) {
+        const out = await wsWatch(c, i);
+        if (out && out.end) return out.end;
+        continue;
+      }
+      // A rule denying every Bash command refuses a monitor (Claude Code: "If you add the rule during a session, Claude's next
+      // Monitor call is refused").
+      if (c.name === "monitor" && !github && wholeRule(ownRules, "deny", "Bash")) { emit({ type: "bash", id: c.id, command: scrub(String((c.args && c.args.command) || "")).slice(0, 2000), monitor: true }); emit({ type: "result", id: c.id, code: -1, output: MONITOR_BASH_DENIED }); reply(MONITOR_BASH_DENIED); continue; }
       if (c.name === "monitor" && c.args && typeof c.args === "object") { c.monitor = true; c.name = "bash"; c.args = { command: c.args.command, description: c.args.description, run_in_background: true, timeout: monitorMs(c.args.timeout_ms) }; }
       if (hookList.length) postFor = c;
       // IN PLAN MODE, CODER'S OTHER TOOLS THAT CHANGE SOMETHING (a pull request, review comments on it, auto-fix, undo) wait
@@ -1768,7 +1859,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (rmWhy && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
         // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
         // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
-        let dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
+        // (A monitor's command: Bash's rules and Monitor's, monitorRules.)
+        const rulesB = c.monitor ? monitorRules(ownRules, modeB) : ownRules;
+        let dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
@@ -1779,7 +1872,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (emailMark && namesUserAgentWithAddress(inputText(c.args), emailMark)) { refuse(ACCOUNT_EMAIL_REFUSED); continue; }
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
-        let ask = commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (part) => !github && allowRuleCovers(part, ownRules) });
+        let ask = commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (part) => !github && allowRuleCovers(part, rulesB) });
         // THE READ BLOCK (Bash docs pass 4: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES, Claude Code's
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).

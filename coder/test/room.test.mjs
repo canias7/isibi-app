@@ -87,7 +87,7 @@ test("CD141 the service runs the AI's commands in the room (as the AI's user), f
   const { readFileSync } = await import("node:fs");
   const s = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.deepEqual(R.roomArgs(1001, 1001, "echo hi"), ["--net=/run/netns/coder-room", "--", "/usr/bin/setpriv", "--reuid=1001", "--regid=1001", "--clear-groups", "--", "bash", "-c", "echo hi"]);
-  assert.match(s, /\? run\(NSENTER, roomArgs\(uid, g, command\), \{ cwd: dir, env, detached: true, stdio: \["ignore", "pipe", "pipe"\] \}\)/, "in the room: nsenter (by its full name), then the AI's user");
+  assert.match(s, /\? run\(NSENTER, roomArgs\(uid, g, command, undefined, sh\), \{ cwd: dir, env, detached: true, stdio: \["ignore", "pipe", "pipe"\] \}\)/, "in the room: nsenter (by its full name), then the AI's user, in the owner's CODER_SHELL (bash unless it says zsh)");
   assert.match(s, /t\.room = walled = await enterRoom\(px, true\);/, "a limited network: the room, with the gate and no link");
   assert.match(s, /if \(!net\.limited\) t\.room = await enterRoom\(px, false\);/, "Full access: the room with its link");
   assert.match(s, /\+ \(walled \|\| fwOn \? "" : " \(On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall\.\)"\);/, "Coder is told when it is only a guard");

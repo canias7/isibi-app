@@ -598,7 +598,7 @@ export function readCommand(command, { cwd = "/", home = "" } = {}) {
  * them at the tool level"; one with a path is kept and never matches: ruleKept).
  */
 export function parseRule(text) {
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   const spec = m[2] === undefined ? null : m[2].trim();
   if (m[1] === "WebFetch" && spec !== null && !/^domain:[A-Za-z0-9.*-]+$/.test(spec)) return null;
@@ -611,7 +611,65 @@ export function parseRule(text) {
     return { tool: m[1], spec: spec === "*" || spec === "**" ? null : spec };
   }
   if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
-  return { tool: m[1], spec: spec === "*" && m[1] === "Bash" ? null : spec };
+  return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor") ? null : spec };
+}
+/**
+ * MONITOR'S RULES (Bash docs, the owner, 2026-11-10: "yea do all of them"; Claude Code: "When Monitor runs a command, it uses
+ * the same permission rules as Bash", and a rule naming Monitor covers its calls; "While auto mode is active, Claude Code sets
+ * aside allow rules that name Monitor itself"): the rules for a monitor's command, Bash's and Monitor's together, Monitor's
+ * written as Bash's (`Monitor` the whole tool, `Monitor(x)` as `Bash(x)`); in Auto, none of Monitor's allow rules.
+ */
+export function monitorRules(rules, mode = "auto") {
+  const out = { allow: [], ask: [], deny: [] };
+  for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k] : []) {
+    const x = parseRule(r);
+    if (!x || x.tool !== "Monitor") { out[k].push(r); continue; }
+    if (k === "allow" && mode === "auto") continue;
+    out[k].push(x.spec === null ? "Bash" : "Bash(" + x.spec + ")");
+  }
+  return out;
+}
+/** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
+export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";
+/** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`), or "". */
+export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.tool === tool && x.spec === null; }) || "";
+/**
+ * A WEBSOCKET WATCH'S QUESTION (Claude Code's Monitor `ws` source): a rule denying every Bash command refuses it, as one
+ * denying Monitor does; one asking for every Bash command asks the owner, and only the owner (or a PermissionRequest hook)
+ * may approve it ("You can't have an allow rule, a PreToolUse hook, bypassPermissions mode, or the auto mode classifier
+ * approve it for you"): `strict`; a Monitor ask rule asks. Otherwise "Without a Monitor allow rule, you're prompted before
+ * Claude opens a WebSocket; in auto mode the classifier decides instead" (`check`).
+ */
+export function wsDecision({ rules = {}, mode = "auto" } = {}) {
+  if (wholeRule(rules, "deny", "Bash")) return { verdict: "deny", why: MONITOR_BASH_DENIED };
+  if (wholeRule(rules, "deny", "Monitor")) return { verdict: "deny", why: "Permission to use Monitor has been denied." };
+  const bashAsk = wholeRule(rules, "ask", "Bash");
+  if (bashAsk) return { verdict: "ask", byRule: true, strict: true, rule: bashAsk, why: "Your rule " + bashAsk + " asks first for every command, and a WebSocket watch runs code as Bash does, so only you can approve it." };
+  const monAsk = wholeRule(rules, "ask", "Monitor");
+  if (monAsk) return { verdict: "ask", byRule: true, rule: monAsk, why: "Your rule " + monAsk + " asks first." };
+  if (mode !== "auto" && wholeRule(rules, "allow", "Monitor")) return { verdict: "allow" };
+  return mode === "auto" ? { verdict: "check" } : { verdict: "ask", why: "" };
+}
+/**
+ * A MONITOR CALL'S `ws` INPUT CHECKED, in Claude Code's words (its Monitor tool's input): "" when it is right.
+ */
+const HIDDEN_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
+export function wsProblem(args) {
+  const a = args && typeof args === "object" ? args : {};
+  if (a.command !== undefined && a.ws !== undefined) return "ws cannot be combined with command: give one of them";
+  const ws = a.ws;
+  if (!ws || typeof ws !== "object" || Array.isArray(ws)) return "ws must be an object with url (and protocols)";
+  if (typeof ws.url !== "string") return "ws.url is required";
+  if (HIDDEN_CHARS.test(ws.url)) return "url contains control characters that would be hidden in the approval dialog";
+  let ok = false;
+  try { const u = new URL(ws.url); ok = (u.protocol === "ws:" || u.protocol === "wss:") && !u.username && !u.password && !/[\t\n\r ]/.test(ws.url) && /^[\x00-\x7F]*$/.test(ws.url); } catch { ok = false; }
+  if (!ok) return "url must be a valid ASCII ws:// or wss:// URL with no userinfo or whitespace";
+  if (ws.protocols !== undefined) {
+    if (!Array.isArray(ws.protocols) || ws.protocols.some((p) => typeof p !== "string" || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(p))) return "protocol must be an RFC 6455 token";
+    if (new Set(ws.protocols).size !== ws.protocols.length) return "protocols must be unique";
+  }
+  if (typeof a.description !== "string" || !a.description.trim()) return "description is required";
+  return "";
 }
 /**
  * RULES ON ONE OF THE COMMAND'S SETTINGS (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code's

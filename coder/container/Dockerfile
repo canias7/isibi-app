@@ -80,7 +80,8 @@ ENV CODER_IMAGE=full
 
 # Ubuntu's own packages, the versions Claude Code's machine has: C and C++
 # (clang 18, cmake, ninja), PHP 8.3, Java 21, PostgreSQL 16, Redis 7, rbenv, the
-# libraries native extensions build against, Chrome's libraries, everyday tools,
+# libraries native extensions build against, Chrome's libraries, everyday tools
+# (zsh too, for the owner's CODER_SHELL, Claude Code's CLAUDE_CODE_SHELL),
 # and what Docker needs to run without admin rights (uidmap, slirp4netns).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang cmake ninja-build pkg-config gdb python3-dev \
@@ -89,7 +90,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php-cli php-curl php-mbstring php-xml php-zip php-intl php-sqlite3 php-pgsql php-mysql php-bcmath php-gd \
     openjdk-21-jdk-headless \
     postgresql postgresql-contrib redis-server \
-    rbenv git-lfs tmux vim nano file tree wget rsync sqlite3 sudo \
+    rbenv git-lfs tmux vim nano file tree wget rsync sqlite3 sudo zsh \
     uidmap slirp4netns fuse-overlayfs iproute2 e2fsprogs \
     fonts-liberation libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libcairo2 libcups2t64 libdbus-1-3 \
     libdrm2 libgbm1 libglib2.0-0t64 libgtk-3-0t64 libnspr4 libnss3 libpango-1.0-0 libvulkan1 \

@@ -16,8 +16,9 @@ const call = (name, args, id = "c1") => ({ id, type: "function", function: { nam
 
 test("CD381 the monitor tool: Claude Code's inputs (command, description, timeout_ms), run the bash way in the background (the same checks and rules), its deadline 5 minutes unless asked and 30 at most, and what Coder is told when it starts", async () => {
   const tool = A.CODER_TOOLS.find((t) => t.function.name === "monitor").function;
-  assert.deepEqual(Object.keys(tool.parameters.properties), ["command", "description", "timeout_ms"]);
-  assert.deepEqual(tool.parameters.required, ["command", "description"]);
+  // (Or a WebSocket, `ws`, in place of the command: CD385.)
+  assert.deepEqual(Object.keys(tool.parameters.properties), ["command", "ws", "description", "timeout_ms"]);
+  assert.deepEqual(tool.parameters.required, ["description"]);
   assert.match(tool.description, /every stdout line comes to you as an event while you work/);
   assert.match(tool.description, /default 300000, 5 minutes; at most 1800000, 30 minutes/);
   assert.deepEqual([A.monitorMs(undefined), A.monitorMs(600000), A.monitorMs(99_999_999), A.monitorMs(5)], [300000, 600000, 1800000, 1000]);

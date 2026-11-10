@@ -1539,7 +1539,7 @@
   // The step waits in Coder's job until the answer comes (this page sends it: /answer); a note can go with it.
   // (A folder's Read rule, saved for a cd out of the project, as the folder: "reading /tmp/data/".)
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
-  const PERM_TITLE = { bash: 'Bash command', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo' };
+  const PERM_TITLE = { bash: 'Bash command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo' };
   function permOptions(e) {
     if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']];
     const o = [['yes', 'Yes']];
@@ -1576,6 +1576,8 @@
       const upd = !!(e.change && e.change.kind === 'update');
       body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><pre class="cd-perm-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>';
     } else if (e.tool === 'web_fetch') body = '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
+    // A WebSocket a monitor would open (Claude Code's Monitor `ws`): what it watches, and its address.
+    else if (e.tool === 'monitor') body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
     // A file a rule of the owner's asks about (Read(…) on a read or a search): its path.
     else if (/^(read|grep|glob|lsp)$/.test(e.tool || '')) body = '<pre class="cd-perm-pre">' + esc(e.path || '') + '</pre>';
     else body = '<p class="cd-perm-desc">' + esc(e.what || '') + '</p>';

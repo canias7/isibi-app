@@ -209,6 +209,8 @@ export function resume(st) { st.paused = false; st.row = 0; }
  * like Bash(npm test) stay.
  */
 export function droppedInAuto(rule) {
+  // (Every rule naming Monitor: "together with every rule that names Monitor, because Monitor commands run through the shell".)
+  if (/^Monitor(\(|$)/.test(String(rule || "").trim())) return true;
   const m = /^Bash(?:\(([\s\S]*)\))?$/.exec(String(rule || "").trim());
   if (!m) return false;
   const spec = m[1] === undefined ? "" : m[1].trim();

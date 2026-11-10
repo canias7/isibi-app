@@ -156,10 +156,10 @@ export function makeUpper({ data, image } = {}) {
  * makes it admin), in `wd` (a path inside it): its user, mount and process
  * namespaces and its network (the room).
  */
-export function sandboxArgs(pid, wd, command, { uid = SBX_FILES, gid = SBX_FILES } = {}) {
+export function sandboxArgs(pid, wd, command, { uid = SBX_FILES, gid = SBX_FILES, shell = "/bin/bash" } = {}) {
   // Into `wd` from inside (nsenter's own --wd=DIR opens DIR outside the sandbox first).
   const q = "'" + String(wd).replace(/'/g, "'\\''") + "'";
-  return ["-t", String(pid), "--user", "--mount", "--pid", "--net", "--root", "--wd", "-S", String(uid), "-G", String(gid), "--", "/bin/bash", "-c", "cd -- " + q + " || exit 1\n" + command];
+  return ["-t", String(pid), "--user", "--mount", "--pid", "--net", "--root", "--wd", "-S", String(uid), "-G", String(gid), "--", shell || "/bin/bash", "-c", "cd -- " + q + " || exit 1\n" + command];
 }
 
 /** The process the sandbox's first process is, seen from outside (the child of `unshare`). */

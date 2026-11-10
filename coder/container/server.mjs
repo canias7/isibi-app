@@ -117,6 +117,39 @@ printf "__CODER_SNAP_B__\n"
 ' </dev/null 2>/dev/null | sed -n '/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p' | sed '1d;$d' | head -c ` + SNAPSHOT_MAX + String.raw` > "$f.new" && mv -f "$f.new" "$f"`;
 export const SNAPSHOT_READ = '{ if [ -r "$HOME/' + SNAPSHOT_FILE + '" ]; then . "$HOME/' + SNAPSHOT_FILE + '"; fi; } >/dev/null 2>&1\n';
 /**
+ * ZSH'S SNAPSHOT (CODER_SHELL; Claude Code: "sources ~/.zshrc, ~/.bashrc, or ~/.profile depending on your shell"): an
+ * interactive zsh of the AI's user prints the options it set, its functions (not completion's, nor `which`), its aliases and
+ * PATH, into a file of its own, which every command run in zsh reads first.
+ */
+export const SNAPSHOT_FILE_ZSH = ".cache/coder/shell-snapshot.zsh";
+const SNAP_ZSH_LINES = [
+  'printf "\\n__CODER_SNAP_A__\\n"',
+  'for o in $(setopt); do case "$o" in interactive|monitor|zle|shinstdin|login|singlecommand|norcs|interactivecomments) ;; *) print -r -- "setopt $o";; esac; done',
+  'for n in ${(k)functions}; do case "$n" in _*|which|command_not_found_handler) ;; *) print -r -- "eval ${(q)$(functions -- $n)} >/dev/null 2>&1";; esac; done',
+  'alias -L | sed -e "1001,\\$d" -e "/^alias which=/d"',
+  'print -r -- "export PATH=${(q)PATH}"',
+  'printf "__CODER_SNAP_B__\\n"',
+];
+export const SNAPSHOT_TAKE_ZSH = 'd="$HOME/.cache/coder"; mkdir -p "$d" && f="$d/shell-snapshot.zsh" && zsh -i -c \'\n' + SNAP_ZSH_LINES.join("\n") + '\n\' </dev/null 2>/dev/null | sed -n \'/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p\' | sed \'1d;$d\' | head -c ' + SNAPSHOT_MAX + ' > "$f.new" && mv -f "$f.new" "$f"';
+export const SNAPSHOT_READ_ZSH = '{ if [ -r "$HOME/' + SNAPSHOT_FILE_ZSH + '" ]; then . "$HOME/' + SNAPSHOT_FILE_ZSH + '"; fi; } >/dev/null 2>&1\n';
+/** zsh's extended patterns off in every command, as bash's are (EXTGLOB_OFF). */
+export const EXTGLOB_OFF_ZSH = "unsetopt extendedglob kshglob 2>/dev/null || true\n";
+/**
+ * THE SHELL CODER'S COMMANDS RUN IN (Claude Code's CLAUDE_CODE_SHELL, under Coder's name CODER_SHELL: "Override automatic shell
+ * detection. Useful when your login shell differs from your preferred working shell (for example, bash vs zsh)"): a bash or a
+ * zsh of this machine's own, by its name or its full path in /bin, /usr/bin or /usr/local/bin; anything else, bash (what
+ * Coder's machine finds). Its hooks always run in bash, as Claude Code's do ("Defaults to bash").
+ */
+export function shellOf(value, { exists = (p) => existsSync(p) } = {}) {
+  const v = String(value ?? "").trim();
+  const name = v.split("/").pop();
+  if (!v || (name !== "bash" && name !== "zsh")) return "bash";
+  if (v.includes("/")) return /^\/(usr\/(local\/)?)?bin\/(bash|zsh)$/.test(v) && exists(v) ? v : "bash";
+  for (const d of ["/usr/bin", "/bin", "/usr/local/bin"]) if (exists(d + "/" + name)) return name === "bash" ? "bash" : d + "/" + name;
+  return "bash";
+}
+const isZsh = (shell) => /(^|\/)zsh$/.test(String(shell || ""));
+/**
  * BASH'S EXTENDED PATTERNS OFF, IN EVERY COMMAND (Bash docs pass 5; Claude Code 2.1.321 puts `shopt -u extglob` before each
  * command, after the shell snapshot): `!(…)`, `@(…)` and the like stay a syntax error, so a command runs the way Coder's
  * checks read it, even when the snapshot turned them on (Ubuntu's bash-completion does: `shopt -s extglob progcomp`).
@@ -126,7 +159,7 @@ export const EXTGLOB_OFF = "shopt -u extglob 2>/dev/null || true\n";
  * WHAT EVERY COMMAND OF CODER'S (and the owner's own with !) READS FIRST: the shell startup file's snapshot (only where the
  * AI has a home of its own), Claude Code's extended patterns off and its pgrep/pkill/pidwait, then the owner's CODER_ENV_FILE.
  */
-export const commandPrefix = (home, envLine = "") => (home ? SNAPSHOT_READ : "") + EXTGLOB_OFF + PROC_WRAPPERS + envLine;
+export const commandPrefix = (home, envLine = "", shell = "bash") => (home ? (isZsh(shell) ? SNAPSHOT_READ_ZSH : SNAPSHOT_READ) : "") + (isZsh(shell) ? EXTGLOB_OFF_ZSH : EXTGLOB_OFF) + PROC_WRAPPERS + envLine;
 /**
  * AN AI AGENT'S NAME FOR THE PROGRAMS IT RUNS (Bash docs pass 5; Claude Code 2.1.120: "Set `AI_AGENT` environment variable
  * for subprocesses so `gh` can attribute traffic to Claude Code"), Coder's own: after the owner's variables, like its marks.
@@ -390,10 +423,22 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
   const all = (j.part || "") + got;
   const lines = all.split("\n");
   j.part = j.end ? "" : lines.pop();
-  const fresh = lines.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim() && !l.includes(CWD_MARK) && !/^\[finished, exit code -?\d+\]$/.test(l.trim()) && l.trim() !== SIZE_KILLED.trim());
+  let fresh = lines.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim() && !l.includes(CWD_MARK) && !/^\[finished, exit code -?\d+\]$/.test(l.trim()) && l.trim() !== SIZE_KILLED.trim());
+  // A WEBSOCKET MONITOR (coder-tools.mjs's ws_watch): each line one JSON value, a message (one event, however many lines it
+  // has) or, at its end, how the socket ended (`wsEnd`: { close, reason }, { tooBig } or { error }).
+  if (j.ws) {
+    const msgs = [];
+    for (const l of fresh) {
+      let v;
+      try { v = JSON.parse(l); } catch { continue; }
+      if (typeof v === "string") msgs.push(v);
+      else if (v && typeof v === "object" && !j.wsEnd) j.wsEnd = { ...(Number.isInteger(v.close) ? { close: v.close } : {}), ...(typeof v.reason === "string" && v.reason ? { reason: v.reason.slice(0, 300) } : {}), ...(Number.isFinite(v.tooBig) ? { tooBig: v.tooBig } : {}), ...(typeof v.error === "string" ? { error: v.error.slice(0, 300) } : {}) };
+    }
+    fresh = msgs;
+  }
   if (!fresh.length) return 0;
   j.pending = Array.isArray(j.pending) ? j.pending : [];
-  for (const l of fresh) { if (j.pending.length < MONITOR_PENDING) j.pending.push(l.slice(0, 2000)); else j.dropped = (j.dropped || 0) + 1; }
+  for (const l of fresh) { if (j.pending.length < MONITOR_PENDING) j.pending.push(l.slice(0, j.ws ? 20_000 : 2000)); else j.dropped = (j.dropped || 0) + 1; }
   if (!j.end && !j.stopping && fresh.length > flood) stopJob(j, "flood");
   return fresh.length;
 }
@@ -440,7 +485,7 @@ export function monitorNews(project) {
     readMonitor(j);
     const lines = Array.isArray(j.pending) ? j.pending.splice(0) : [];
     const dropped = j.dropped || 0; j.dropped = 0;
-    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "" } : null;
+    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}) } : null;
     if (end) j.told = true;
     if (lines.length || end) out.push({ id: j.id, desc: j.desc, lines, dropped, ...(end ? { end } : {}), ...(j.errLog ? { errLog: j.errLog } : {}) });
   }
@@ -632,7 +677,9 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "", quietMs = 0 } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "", quietMs = 0, shell = "bash" } = {}) {
+  // (`shell`: the owner's CODER_SHELL for the AI's commands, shellOf; bash otherwise.)
+  const sh = typeof shell === "string" && /^(bash|\/(usr\/(local\/)?)?bin\/(bash|zsh))$/.test(shell) ? shell : "bash";
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -642,7 +689,9 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     const nonce = follow ? randomUUID().replace(/-/g, "").slice(0, 16) : "";
     // The command's own shell goes to its folder first, and follows where it ends.
     // (Then what every command of Coder's reads first: the startup file's aliases and functions, the owner's CODER_ENV_FILE.)
-    command = (typeof start === "string" && start && start !== dir ? "cd -- " + shellWord(start) + " || exit 1\n" : "") + (typeof prefix === "string" ? prefix : "") + (follow ? cwdTrap(nonce) : "") + command;
+    // (In zsh, the command itself through eval, as Claude Code runs it: zsh reads all of a `-c` script before it runs any of
+    // it, so the snapshot's aliases would not apply to it otherwise.)
+    command = (typeof start === "string" && start && start !== dir ? "cd -- " + shellWord(start) + " || exit 1\n" : "") + (typeof prefix === "string" ? prefix : "") + (follow ? cwdTrap(nonce) : "") + (isZsh(sh) ? "eval " + shellWord(command) : command);
     // THE OWNER'S COMMAND PREFIX (shellPrefixOf): the whole of it, as one quoted word after the prefix.
     if (typeof shellPrefix === "string" && shellPrefix) command = shellPrefix + " " + shellWord(command);
     // IN THE JOB'S ADMIN SANDBOX (coder-sandbox.mjs: as `dev`, with sudo for anything, in the room),
@@ -653,12 +702,12 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     const cg = typeof memCg === "string" && memCg.startsWith("/sys/fs/cgroup/") ? memCg : "";
     const run = (file, args, o) => (cg ? spawn("/bin/sh", ["-c", CG_WRAP, cg, file, ...args], o) : spawn(file, args, o));
     const p = box && uid !== null
-      ? run(NSENTER, sandboxArgs(box.pid, dir, command), { cwd: "/", env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      ? run(NSENTER, sandboxArgs(box.pid, dir, command, sh === "bash" ? {} : { shell: sh }), { cwd: "/", env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
       : room && Number.isInteger(uid)
-      ? run(NSENTER, roomArgs(uid, g, command), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      ? run(NSENTER, roomArgs(uid, g, command, undefined, sh), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
       : cg && Number.isInteger(uid)
-      ? run(SETPRIV, ["--reuid=" + uid, "--regid=" + g, "--clear-groups", "--", "bash", "-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
-      : run("bash", ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
+      ? run(SETPRIV, ["--reuid=" + uid, "--regid=" + g, "--clear-groups", "--", sh, "-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+      : run(sh, ["-c", command], { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: g } : {}) });
     // Its leader's end, as a shell says it (a background command's notice needs it even when its output stays open).
     let exited = null;
     p.once("exit", (code, signal) => { exited = exitOf(code, signal); });
@@ -2445,7 +2494,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // What every command of Coder's reads first (tool 4, docs pass 2 and 5): see commandPrefix.
     // (And the chat's hook env file, which SessionStart, CwdChanged and FileChanged hooks write: Claude Code's "Persist
     // environment variables", "Each Bash command runs the file's contents as shell code before the command itself".)
-    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""));
+    // (In the owner's CODER_SHELL: shellOf.)
+    t.shell = shellOf(rawVars.CODER_SHELL);
+    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""), t.shell);
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
     t.tmo = bashTimeouts(rawVars, usePrefs(body.prefs));
     // HOW MUCH OF A COMMAND'S OUTPUT CODER GETS (see bashOutputLimits); BACKGROUND COMMANDS OFF with CODER_DISABLE_BACKGROUND_TASKS
@@ -2615,13 +2666,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // On the full image, Coder knows its machine's tools (2026-11-07).
     // WHERE YOUR COMMANDS RUN, as Claude Code tells Claude its working directory: said at the job's start, and again in the
     // context made after a summary, as it is then.
-    const workNote = () => "\n\nWHERE YOUR COMMANDS RUN (like Claude Code): the project is in " + home0 + ". " + (keepHome
+    const workNote = () => (isZsh(t.shell) ? "\n\nYOUR SHELL: your commands run in zsh (" + t.shell + "), the owner's CODER_SHELL, not bash: write them for zsh (its arrays start at 1)." : "") + "\n\nWHERE YOUR COMMANDS RUN (like Claude Code): the project is in " + home0 + ". " + (keepHome
       ? "Every command starts there (the owner's variables set CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR): a cd lasts for that one command only."
       : "Your next command starts in " + saidDir(t.cwd) + (t.cwd !== home0 ? " (where an earlier cd left it)" : t.cwdWas ? " (an earlier cd had left it in " + saidDir(t.cwdWas) + ", which is gone or not inside the project now)" : "") +
         ". A cd carries over to your later commands, in this message and the next ones, when the command succeeds and stays inside the project or this chat's other repositories; if it leaves them, the next command starts back in " + home0 + " (\"Shell cwd was reset to\" says so). A command in the background never moves it.") +
       " Give the file tools full paths, as Claude Code does (a short path counts from where your commands start); grep and glob search from there when given no path.";
     // THE SHELL STARTUP FILE'S ALIASES, FUNCTIONS AND OPTIONS, taken now, after the setup script (see SNAPSHOT_TAKE).
-    if (home) { try { await execIn(dir, SNAPSHOT_TAKE, 20, { bgDir, kill: true, home, room: t.room, box: t.box, onStart: (pid) => t.fg.add(pid) }); } catch { /* commands run without it */ } }
+    if (home) { try { await execIn(dir, isZsh(t.shell) ? SNAPSHOT_TAKE_ZSH : SNAPSHOT_TAKE, 20, { bgDir, kill: true, home, room: t.room, box: t.box, onStart: (pid) => t.fg.add(pid) }); } catch { /* commands run without it */ } }
     // ITS BACKGROUND COMMANDS THAT ENDED SINCE CODER'S LAST ANSWER (Claude Code tells Claude when one ends): told when the job
     // begins, once. And those this machine no longer knows (Claude Code's cloud docs: when the machine goes, "Claude Code tells
     // Claude which commands stopped"): the chat's list, as its Worker last saw it, against this machine's.
@@ -2667,7 +2718,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -2721,7 +2772,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             }
             return r;
           }
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "", shell: t.shell || "bash" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2743,7 +2794,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (r && r.background && r.pid && !tool) {
             const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
             // (`at`: when the command started, for "running for"; its time limit counts from the move to the background.)
-            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, deadline: Date.now() + (monitor ? monitorMs(limitMs) : inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, ...(monitor ? { monitor: true, readAt: 0, part: "", pending: [], dropped: 0, ...(errLog ? { errLog } : {}) } : {}) });
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, deadline: Date.now() + (monitor ? monitorMs(limitMs) : inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, ...(monitor ? { monitor: true, readAt: 0, part: "", pending: [], dropped: 0, ...(errLog ? { errLog } : {}), ...(ws ? { ws: true } : {}) } : {}) });
             r.jobId = id;
           }
           let told = "";

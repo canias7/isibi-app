@@ -124,7 +124,7 @@ test("CD331 root starts the AI's commands with root's own programs, never one fo
   assert.equal(R.roomArgs(1001, 1001, "echo hi")[2], "/usr/bin/setpriv", "setpriv, started by root's nsenter, by its full name");
   const s = serverSrc();
   assert.doesNotMatch(s, /spawn\("nsenter"|run\("nsenter"|run\("setpriv"|spawn\("setpriv"/, "no program root starts for the AI's commands is named alone");
-  assert.match(s, /\? run\(NSENTER, sandboxArgs\(box\.pid, dir, command\)/);
+  assert.match(s, /\? run\(NSENTER, sandboxArgs\(box\.pid, dir, command, sh === "bash" \? \{\} : \{ shell: sh \}\)/);
   if (!root) { t.diagnostic("the real try needs root"); return; }
   // For real: a "nsenter" and a "setpriv" of the AI's in its ~/.local/bin are never run.
   const S = await import("../container/server.mjs");

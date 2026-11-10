@@ -98,7 +98,7 @@ test("CD382b Read and Edit rules are saved and applied; Claude Code's error for 
   const bucket = { m: new Map(), async get(k) { return this.m.has(k) ? { text: async () => this.m.get(k) } : null; }, async put(k, v) { this.m.set(k, String(v)); } };
   await R.changeRules(bucket, "u1", "ana/shop", "deny", ["Read(./.env)", "Edit(secrets/**)", "Write"]);
   assert.deepEqual((await R.rulesOf(bucket, "u1", "ana/shop")).deny, ["Read(./.env)", "Edit(secrets/**)", "Write"]);
-  assert.match(read("src/coder-routes.mjs"), /Read\(\.\/\.env\), Edit\(src\/\*\*\), Read, Edit, Write, Grep or Glob/);
+  assert.match(read("src/coder-routes.mjs"), /Read\(\.\/\.env\), Edit\(src\/\*\*\), Read, Edit, Write, Grep, Glob or Monitor/);
 });
 
 test("CD382c the files Coder's commands name go by the owner's Read and Edit rules, in every mode: a deny refuses (cat, head, < file, > file, tee, rm, cp's source) in Claude Code's words; an ask asks; allow rules open paths outside the project, never a protected file and never in Plan; a cd outside is offered its own Read rule", () => {

@@ -111,8 +111,9 @@ test("CD343 a write through a link to a protected file is asked about in every m
 
 test("CD344 the machine wires it in: both checks get the link resolver, the permission check the call's settings; the page's card for a write through a link", () => {
   const agent = src("coder-agent.mjs");
-  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(part\) => !github && allowRuleCovers\(part, ownRules\) \}\)/);
-  assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: ownRules, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\] \}\)/);
+  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(part\) => !github && allowRuleCovers\(part, rulesB\) \}\)/);
+  assert.match(agent, /const rulesB = c\.monitor \? monitorRules\(ownRules, modeB\) : ownRules;/, "a monitor's command: Bash's rules and Monitor's (CD385)");
+  assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: rulesB, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\] \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /link = e\.kind === 'link' && paths\.length/);
   assert.match(page, /This command writes through a link that leads out of the project/);

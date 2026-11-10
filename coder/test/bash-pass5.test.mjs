@@ -69,7 +69,7 @@ test("CD356 bash's extended patterns are off in every command, after the shell s
     assert.ok(S.commandPrefix("").startsWith(S.EXTGLOB_OFF), "with no home of its own too");
     assert.ok(S.commandPrefix(home, "if [ -r /x ]; then . /x; fi\n").endsWith("if [ -r /x ]; then . /x; fi\n"), "the owner's CODER_ENV_FILE last");
     const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-    assert.match(server, /t\.prefix = commandPrefix\(home, envFileLine\(rawVars\.CODER_ENV_FILE, home0\) \+ \(home \? hookEnvLine\(project\) : ""\)\);/, "and the chat's hook env file after it (CD384)");
+    assert.match(server, /t\.prefix = commandPrefix\(home, envFileLine\(rawVars\.CODER_ENV_FILE, home0\) \+ \(home \? hookEnvLine\(project\) : ""\), t\.shell\);/, "and the chat's hook env file after it (CD384), for the owner's CODER_SHELL (CD385e)");
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
