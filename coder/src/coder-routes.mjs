@@ -41,14 +41,14 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
-import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
+import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
-import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS } from "../container/gloopy-check.mjs";
+import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
-import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID } from "../container/gloopy-schedule.mjs";
+import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
@@ -589,6 +589,8 @@ export async function handleCoder(request, env, ctx, deps) {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
     g = await expireCard(bucket, uid, GLOOPY_ID, g);
+    // Only whether it waits for the owner (the page's mark on Gloopy's tab, the docs 2026-11-10).
+    if (url.searchParams.get("brief") === "1") return json({ ok: true, gloopy: { id: g.id, status: g.status, waiting: g.waiting || null, pending: g.pending ? { kind: g.pending.kind } : null } });
     return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
@@ -1412,7 +1414,7 @@ async function gloopyMessage(g) {
   // A SCHEDULED RUN (2026-11-09; src/gloopy-schedules.mjs): started by the every-minute check, its words are the task the
   // owner approved; the chat shows a line saying which schedule it is, not a message from the owner. A test run (`test`:
   // the owner's "Run now", the audit 2026-11-10) is one too, said to be a try.
-  const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120), wake: body.scheduled.wake === true, event: body.scheduled.event === true, test: body.scheduled.test === true } : null;
+  const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { id: typeof body.scheduled.id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(body.scheduled.id) ? body.scheduled.id : "", name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120), wake: body.scheduled.wake === true, event: body.scheduled.event === true, test: body.scheduled.test === true } : null;
   // THE OWNER'S COMMANDS FOR GLOOPY'S BACKGROUND WORK (the audit, 2026-11-10), as /compact is: no job runs. /pause and
   // /resume (schedules, wake-ups and webhook calls), /schedules (each one, with Run now and Pause, and the last runs).
   // /signins and /signout <site> (the audit, 2026-11-10): where Gloopy's browser is signed in, and signing it out of one.
@@ -1479,7 +1481,19 @@ async function gloopyMessage(g) {
   const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
   const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
   // `bg`: a run the owner did not start (a schedule, a wake-up, a webhook's call): its cards wait 30 minutes for them.
-  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, marks, bg: !!sched };
+  // STEPS THE OWNER SAID NO TO (the docs, 2026-11-10; Grok Bot's Deny): kept while the messages are only a card's answer
+  // (the page says so), gone with the owner's own next message.
+  const denied = body.card === true && Array.isArray(meta.denied) ? meta.denied.filter((x) => typeof x === "string").slice(-20) : [];
+  // THE OWNER'S TIME ZONE, from their device (the docs, 2026-11-10; Grok Bot's Timezone "Auto-detect"): the last one seen.
+  const tz = typeof body.tz === "string" && okZone(body.tz) ? body.tz : typeof meta.tz === "string" && okZone(meta.tz) ? meta.tz : "";
+  // THE RUN THIS JOB IS PART OF (the docs, 2026-11-10: each run's history says how it went): a scheduled, test or webhook
+  // run, or the owner's answer to its card, which carries it on. Its card closed another way: that run failed.
+  // (The owner's answer to a card, or to a question of Gloopy's, which is an ordinary message, goes on with the run.)
+  const oldRun = meta.run && typeof meta.run === "object" && typeof meta.run.id === "string" ? meta.run : null;
+  const carried = !sched && (body.card === true || (meta.waiting === "question" && !meta.pending)) ? oldRun : null;
+  if (oldRun && !carried) await endRun(bucket, uid, oldRun.id, "failed", sched ? "It was still waiting for you when Gloopy's next run began." : meta.pending ? "Its card closed: you sent a new message instead." : "You sent a new message instead.");
+  const run = sched && sched.id ? { id: sched.id } : carried;
+  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, marks, bg: !!sched, denied, run, ...(tz ? { tz } : {}) };
   const rules = await readRules(bucket, uid);
   // GLOOPY'S KEYS (2026-11-09, as Coder's): its machine gets where they apply and this job's pass for the Worker's egress,
   // which adds them; their values are kept sealed here to hide them in its chat.
@@ -1496,7 +1510,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", background: !!sched, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1512,6 +1526,9 @@ async function gloopyMessage(g) {
   if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
   return json({ ok: true, project: next });
 }
+
+/** Why a run failed, by how its job ended. */
+const RUN_FAILED = Object.freeze({ stopped: "You stopped it.", time: "It ran out of time.", rounds: "It took too many steps.", "no-tool": "The AI gave no answer." });
 
 /**
  * GLOOPY'S CHAT AS IT WORKS (owner, 2026-11-09): Coder's state, whose turn's end keeps the chat and Gloopy's notes about
@@ -1533,6 +1550,7 @@ async function gloopyState(g) {
   const unwatch = () => (typeof bucket.delete === "function" ? bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {}) : null);
   const free = async (why) => {
     const { steps, ev, idle } = await endLostJob(env, bucket, uid, meta, { type: "error", text: why });
+    if (meta.run && typeof meta.run.id === "string") await endRun(bucket, uid, meta.run.id, "failed", "Gloopy's computer stopped during it.");
     return json({ ok: true, events: [ev], next: since, running: false, project: idle, ...(steps.length ? { reload: true } : {}) });
   };
   if (!s) {
@@ -1605,7 +1623,10 @@ async function gloopyState(g) {
     // A request held for the owner's OK that no card asks about (the turn ended another way first) is let go.
     if (!(want && want.write)) await dropHeld(bucket, uid, id);
     const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
-    const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
+    // HOW THE RUN WENT (the docs, 2026-11-10): Succeeded; Failed, and why; or waiting for the owner on a card or a question.
+    const st = s.result.status, waits = st === "done" && !!(want || asked);
+    if (meta.run && typeof meta.run.id === "string") await endRun(bucket, uid, meta.run.id, st === "done" ? (waits ? "waiting" : "succeeded") : "failed", st === "done" ? (waits ? "It is waiting for your answer." : "") : RUN_FAILED[st] || String(s.result.summary || "Something went wrong.").slice(0, 200));
+    const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, run: waits ? meta.run || null : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
     await saveMeta(bucket, uid, ended);
     await unwatch();
     await dropLive(bucket, uid, id).catch(() => {});
@@ -1659,7 +1680,8 @@ async function allowRule(bucket, uid, text) {
   const allows = list.filter((r) => r.mode === "allow");
   const dropped = allows.length >= RULES_MAX ? allows[0] : null;
   await putJson(bucket, gloopyRulesKey(uid), [...list.filter((r) => r !== dropped), { id: newRuleId(), text, mode: "allow" }]);
-  return dropped ? " (to make room, your oldest Always allow rule was removed: “" + String(dropped.text).slice(0, 120) + "”)" : "";
+  // Grok Bot's card says where it went: "Saved to Custom Rules" (the docs, 2026-11-10).
+  return " (saved to your rules" + (dropped ? "; to make room, your oldest Always allow rule was removed: “" + String(dropped.text).slice(0, 120) + "”" : "") + ")";
 }
 
 /** What a card asked for, in words for Gloopy: "your OK to: Click “Send”". */
@@ -1681,12 +1703,29 @@ const unansweredNote = (p, when) => "(Note from Gloopy's app, not the owner: you
 export async function expireCard(bucket, uid, id, meta, now = Date.now()) {
   const p = meta && meta.pending && typeof meta.pending === "object" ? meta.pending : null;
   if (!p || meta.status === "running" || !(Number(p.expires) > 0) || now <= Number(p.expires)) return meta;
+  return closeCard(bucket, uid, id, meta, p, "Expired: not answered within 30 minutes. Nothing was done.", unansweredNote(p, "within 30 minutes"), now, "Its card was not answered within 30 minutes.");
+}
+
+/** A card over before it was answered: marked so in the chat, a request held for it let go, Gloopy told with the next message. */
+async function closeCard(bucket, uid, id, meta, p, text, note, now = Date.now(), runWhy = "") {
   if (p.write) await dropHeld(bucket, uid, id);
+  if (meta.run && typeof meta.run.id === "string") await endRun(bucket, uid, meta.run.id, "failed", runWhy);
   const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-  await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), { at: now, type: "expired", id: String(p.id || ""), text: "Expired: not answered within 30 minutes. Nothing was done." }].slice(-MAX_EVENTS));
-  const next = { ...meta, pending: null, waiting: null, note: unansweredNote(p, "within 30 minutes") };
+  await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), { at: now, type: "expired", id: String(p.id || ""), text }].slice(-MAX_EVENTS));
+  const next = { ...meta, pending: null, waiting: null, run: null, note: [meta.note, note].filter(Boolean).join("\n\n") };
   await saveMeta(bucket, uid, next);
   return next;
+}
+
+/**
+ * A CHANGE TO GLOOPY'S CHECKS CLOSES AN OPEN APPROVAL CARD (the docs, 2026-11-10; Grok Bot's "Changing your Auto-review
+ * settings also closes open cards"): a card asked under the old settings is not answered under the new ones. Its "Always
+ * allow next time" stays. Answers the meta as it now is.
+ */
+async function closeForSettings(bucket, uid, id, meta) {
+  const p = meta && meta.pending && typeof meta.pending === "object" ? meta.pending : null;
+  if (!p || p.kind !== "approval" || meta.status === "running") return meta;
+  return closeCard(bucket, uid, id, meta, p, "Expired: your settings for Gloopy's checks changed. Nothing was done.", unansweredNote(p, "before the owner changed their settings for your checks"), Date.now(), "Its card closed when your settings changed.");
 }
 
 /**
@@ -1860,7 +1899,9 @@ async function gloopyCard(g, action) {
     said = r && r.ok && !r.still ? "Signed in to " + site : "Tried to sign in to " + site;
   }
   // A handoff done says where the browser is now, so the plainer "the owner used your browser" note is not needed too.
-  const next = { ...meta, pending: null, waiting: null, note, grant, ...(action === "handoff" && body.skip !== true ? { used: false } : {}), at: Date.now() };
+  // A step the owner said no to is not tried or asked about again until their own next message (the docs, 2026-11-10).
+  const saidNo = action === "approve" && !p.schedule && !p.edit && !p.webhook && body.decision !== "once" && body.decision !== "always";
+  const next = { ...meta, pending: null, waiting: null, note, grant, ...(action === "handoff" && body.skip !== true ? { used: false } : {}), ...(saidNo ? { denied: [...(Array.isArray(meta.denied) ? meta.denied : []), String(p.step || "")].filter(Boolean).slice(-20) } : {}), at: Date.now() };
   await saveMeta(bucket, uid, next);
   return json({ ok: true, said, project: next, ...(action === "card" ? { cards: cardList(await readCards(env, bucket, uid)) } : {}) });
 }
@@ -1948,7 +1989,9 @@ async function gloopyPermissions(g) {
   if (bad || !Object.keys(set).length) return json({ error: "Give set: one or more of " + PERMISSION_KEYS.join(", ") + ", each ask, allow or deny." }, 400);
   const next = cleanPermissions({ ...now, ...set });
   await putJson(bucket, gloopyPermsKey(uid), next);
-  return out(next);
+  const before = PERMISSION_KEYS.some((k) => next[k] !== now[k]) ? await getJson(bucket, keyOf(uid, g.id, "meta.json"), g.meta) : null;
+  const meta = before ? await closeForSettings(bucket, uid, g.id, before) : null;
+  return json({ ...(await out(next).json()), ...(meta && meta !== before ? { closed: true, project: meta } : {}) });
 }
 
 /**
@@ -1960,23 +2003,24 @@ async function gloopyPermissions(g) {
 async function gloopyRules(g) {
   const { request, bucket, uid } = g;
   let list = await readRules(bucket, uid);
-  const out = (l) => json({ ok: true, rules: l, modes: ["allow", "ask", "deny"], max: RULES_MAX });
+  // The kinds of rule (the docs, 2026-11-10): Grok Bot's two, Gloopy's "Never", and dots' "Hand off to me" and "Only when I ask".
+  const out = (l) => json({ ok: true, rules: l, modes: [...RULE_MODES], words: RULE_WORDS, max: RULES_MAX });
   if (request.method === "GET") return out(list);
   if (request.method !== "POST") return json({ error: "Gloopy has no rules " + request.method }, 400);
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const words = (t) => String(t == null ? "" : t).replace(/\s+/g, " ").replace(/[\p{Cf}\p{Cc}]/gu, "").trim();
-  const okMode = (m) => ["allow", "ask", "deny"].includes(m);
+  const okMode = (m) => RULE_MODES.includes(m);
   const full = (mode, l) => l.filter((r) => r.mode === mode).length >= RULES_MAX;
   if (body.add && typeof body.add === "object") {
     const text = words(body.add.text), mode = body.add.mode;
-    if (!text || text.length > RULE_MAX || !okMode(mode)) return json({ error: "Write the rule in your own words (at most " + RULE_MAX.toLocaleString("en-US") + " characters), and choose allow, ask or deny." }, 400);
+    if (!text || text.length > RULE_MAX || !okMode(mode)) return json({ error: "Write the rule in your own words (at most " + RULE_MAX.toLocaleString("en-US") + " characters), and choose " + RULE_MODES.join(", ") + "." }, 400);
     if (full(mode, list)) return json({ error: "There are " + RULES_MAX + " rules of that kind already: remove one first." }, 400);
     list = [...list, { id: newRuleId(), text, mode }];
   } else if (body.change && typeof body.change === "object") {
     const it = list.find((r) => r.id === String(body.change.id || ""));
     if (!it) return json({ error: "No rule has that id." }, 404);
     const text = body.change.text === undefined ? it.text : words(body.change.text), mode = body.change.mode === undefined ? it.mode : body.change.mode;
-    if (!text || text.length > RULE_MAX || !okMode(mode)) return json({ error: "Write the rule in your own words (at most " + RULE_MAX.toLocaleString("en-US") + " characters), and choose allow, ask or deny." }, 400);
+    if (!text || text.length > RULE_MAX || !okMode(mode)) return json({ error: "Write the rule in your own words (at most " + RULE_MAX.toLocaleString("en-US") + " characters), and choose " + RULE_MODES.join(", ") + "." }, 400);
     if (mode !== it.mode && full(mode, list)) return json({ error: "There are " + RULES_MAX + " rules of that kind already: remove one first." }, 400);
     list = list.map((r) => (r === it ? { id: it.id, text, mode } : r));
   } else if (typeof body.remove === "string") {
@@ -1984,7 +2028,9 @@ async function gloopyRules(g) {
     list = list.filter((r) => r.id !== body.remove);
   } else return json({ error: "Give add, change or remove." }, 400);
   await putJson(bucket, gloopyRulesKey(uid), list);
-  return out(list);
+  const before = await getJson(bucket, keyOf(uid, g.id, "meta.json"), g.meta);
+  const meta = await closeForSettings(bucket, uid, g.id, before);
+  return json({ ...(await out(list).json()), ...(meta !== before ? { closed: true, project: meta } : {}) });
 }
 
 /**

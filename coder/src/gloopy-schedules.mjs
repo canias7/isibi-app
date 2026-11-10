@@ -51,13 +51,14 @@ export async function readSchedules(bucket, uid) {
     return s && typeof x.id === "string" && /^s[a-z0-9]{4,20}$/.test(x.id) ? { id: x.id, ...s, next: Number.isFinite(x.next) ? x.next : null, last: Number(x.last) || 0, runs: Number(x.runs) || 0, at: Number(x.at) || 0, ...(x.self === true && Number.isFinite(s.once) ? { self: true } : {}), ...(x.paused === true && !ev.event ? { paused: true } : {}), ...ev } : null;
   }).filter((x) => x && x.next !== null).slice(0, SCHEDULES_MAX + HOOK_QUEUE_MAX);
   const plain = (t, max) => String(t == null ? "" : t).replace(/\s+/g, " ").replace(/[\p{Cf}\p{Cc}]/gu, "").trim().slice(0, max);
-  const log = (d && Array.isArray(d.log) ? d.log : []).filter((e) => e && Number.isFinite(e.at) && ["ran", "skipped", "test"].includes(e.result)).map((e) => ({ at: e.at, id: plain(e.id, 30), name: plain(e.name, 60), kind: ["schedule", "wake", "event"].includes(e.kind) ? e.kind : "schedule", result: e.result, ...(e.why ? { why: plain(e.why, 200) } : {}) })).slice(-LOG_MAX);
+  const log = (d && Array.isArray(d.log) ? d.log : []).filter((e) => e && Number.isFinite(e.at) && ["ran", "skipped", "test"].includes(e.result)).map((e) => ({ at: e.at, id: plain(e.id, 30), name: plain(e.name, 60), kind: ["schedule", "wake", "event"].includes(e.kind) ? e.kind : "schedule", result: e.result, ...(OUTCOMES.includes(e.outcome) ? { outcome: e.outcome } : {}), ...(e.why ? { why: plain(e.why, 200) } : {}) })).slice(-LOG_MAX);
   return { items, day: d && typeof d.day === "string" ? d.day : "", runs: d && Number.isInteger(d.runs) ? d.runs : 0, ...(d && d.paused === true ? { paused: true, pausedAt: Number(d.pausedAt) || 0 } : {}), log };
 }
 
 /** Kept, with the person's record of when their next run is (none when they have no schedules left). */
+const stored = (data) => ({ items: data.items, day: data.day, runs: data.runs, ...(data.paused ? { paused: true, pausedAt: data.pausedAt || 0 } : {}), log: Array.isArray(data.log) ? data.log.slice(-LOG_MAX) : [] });
 export async function writeSchedules(bucket, uid, email, data) {
-  await putJson(bucket, schedulesKey(uid), { items: data.items, day: data.day, runs: data.runs, ...(data.paused ? { paused: true, pausedAt: data.pausedAt || 0 } : {}), log: Array.isArray(data.log) ? data.log.slice(-LOG_MAX) : [] });
+  await putJson(bucket, schedulesKey(uid), stored(data));
   // Nothing is due while Gloopy's background work is paused, nor a schedule that is paused.
   const next = data.paused ? null : data.items.reduce((m, s) => (!s.paused && Number.isFinite(s.next) && (m === null || s.next < m) ? s.next : m), null);
   if (next === null) await bucket.delete(dueKey(uid));
@@ -74,9 +75,31 @@ export function schedulesForTurn(data) {
 
 /** What a run is, for the history: a schedule, a wake-up Gloopy set itself, or a webhook's call. */
 const kindOf = (it) => (it.event ? "event" : Number.isFinite(it.once) && it.self ? "wake" : "schedule");
-/** A run kept in the history (the last LOG_MAX): { at, id, name, kind, result: ran | skipped | test, why? }. */
+/**
+ * A run kept in the history (the last LOG_MAX): { at, id, name, kind, result: ran | skipped | test, why?, outcome? }; a
+ * run that started gets its outcome when its job ends (endRun).
+ */
 export function logRun(data, it, result, why = "", now = Date.now()) {
   data.log = [...(Array.isArray(data.log) ? data.log : []), { at: now, id: String(it.event ? it.event.hook || it.id : it.id), name: it.name, kind: kindOf(it), result, ...(why ? { why: String(why).slice(0, 200) } : {}) }].slice(-LOG_MAX);
+}
+
+/** How a run went, in the history. */
+export const OUTCOMES = Object.freeze(["succeeded", "failed", "waiting"]);
+/**
+ * HOW A RUN WENT (the docs, 2026-11-10; Grok Bot's run history shows each run as Running, Succeeded or Failed, a failed
+ * one with its reason): the latest run of `id` still going (no outcome, or waiting for the owner's answer on its card)
+ * gets one. Only the history changes. Answers whether there was such a run.
+ */
+export async function endRun(bucket, uid, id, outcome, why = "") {
+  if (typeof id !== "string" || !id || !OUTCOMES.includes(outcome)) return false;
+  const data = await readSchedules(bucket, uid);
+  const log = Array.isArray(data.log) ? data.log : [];
+  const i = log.findLastIndex((e) => e && e.id === id && (e.result === "ran" || e.result === "test") && (!e.outcome || e.outcome === "waiting"));
+  if (i < 0) return false;
+  const { why: _old, ...rest } = log[i];
+  log[i] = { ...rest, outcome, ...(why ? { why: String(why).slice(0, 200) } : {}) };
+  await putJson(bucket, schedulesKey(uid), stored({ ...data, log }));
+  return true;
 }
 
 /**

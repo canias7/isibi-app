@@ -11,6 +11,51 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Gloopy checked against Grok Bot's and dots' docs again (your word: "Go against the docs again")
+
+The small fixes that clearly match the docs are done. The bigger differences are listed at the end for you to decide.
+
+- **A "no" sticks.** After you press Deny on a card, Gloopy won't try that step again, or ask about it again, until you send your own next message. (Grok Bot's Deny works this way.)
+- **The check can now block a step.** It blocks a step that a web page, an email or a file told Gloopy to do (not you), or one that would send your passwords, keys or card details somewhere. Nothing on a card can let it go. When the check isn't sure, it asks you instead.
+- **Two new kinds of rule, from dots:**
+  - **"Hand off to me":** Gloopy leaves that step to you.
+  - **"Only when I ask":** Gloopy does it only when your own message asks for that very thing.
+  - When several rules match, this order wins: Never, Hand off to me, Ask first, Only when I ask, Always allow.
+- **An "Always allow" rule now lets a step go only when nothing else is a reason to stop**, as Grok Bot's does. It no longer overrides the check.
+- **Cards say what a step does** in a red line: "This spends money.", "This reaches other people.", "This can't be undone.", "This changes sign-in or security settings." or "This shares your details outside this chat."
+- **A card that one of your own "Ask first" rules asked for** says so, with **Not now** and **Allow** (no Always allow), as Grok Bot's does.
+- **Always allow now says where it went:** "(saved to your rules)".
+- **An expired card can still become a rule.** It shows **Always allow next time** (Grok Bot's).
+- **Changing Gloopy's permissions or rules closes an open approval card.** The card is marked Expired and nothing is done. A request held for it is let go, and Gloopy is told.
+- **New schedules and webhooks are checked too, even on Always allow.** One you didn't ask for gets a card. One that a page or an email asked for isn't set up. (Grok Bot checks changes to routines and triggers.) This costs one small Grok call per new repeating schedule or webhook.
+- **A request Gloopy can't read in full always asks you first**, even when allowed. That covers files or data that isn't text, and anything longer than the check reads. (Grok Bot does the same with attachments it can't read.)
+- **What a web page shows is marked for Gloopy** as the site's words, never instructions.
+- **Your time zone comes from your device.** Gloopy uses it for schedules unless you name another (Grok Bot's auto-detect).
+- **Contact details:** when you give Gloopy your name, address, phone or email for shipping or billing, it keeps them in its notes under "Contact details" and tells you. You can ask it to forget them.
+- **20 files with one message** (was 10), as Grok Bot allows.
+- **The schedules card (`/schedules`):**
+  - each schedule shows its task;
+  - **Edit** puts "Edit your schedule “name”: " in the box for you to finish;
+  - **Delete** asks first;
+  - recent runs now say **Succeeded**, **Failed** (and why), **Waiting for you** or **Running** (Grok Bot's run history).
+- **Resume after Stop** (dots' Pause and Resume): a **Resume** button next to "Stopped." asks Gloopy to carry on.
+- **A red dot on Gloopy's tab** while it waits for your answer, whichever tab you're on (Grok Bot's "Needs attention").
+- **A correction to my first check:** Grok Bot's Auto-review *can* be turned off (it's on by default). dots has no off switch. Gloopy's check stays always on.
+- Tests: GL79 to GL83 are new, and 15 older tests were updated for these deliberate changes. All 338 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
+**Bigger differences, for you to decide** (not done):
+
+- **Steering while Gloopy works:** both apps take a new message mid-job; Gloopy says "still working".
+- **An on/off switch for the check** (Grok Bot has one).
+- **Checking every command too**, not only browser steps, keyed requests, schedules and webhooks (Grok Bot checks shell commands, app calls and more).
+- **Standing permission for a recurring task.** dots lets an approved routine send what it names; Grok Bot always waits. Gloopy follows Grok Bot.
+- **Reset or Recover buttons** for Gloopy's computer, and a low-disk notice.
+- **Making strong passwords for new sign-ups**, plus a vault for contact details and password hints, and importing a CSV of logins.
+- **dots' proactive research** (it looks into things for you without being asked).
+- **Connected apps, Gloopy's own email address, images and video, and using your own computers** (dots now allows several).
+- **Bigger documents** (Grok Bot allows 250 MB; Gloopy 25 MB).
+- **Pausing one webhook** from the schedules card.
+
 ## 2026-11-10: Gloopy keeps its computer, signs out, previews files; tables in answers (your word: "do all of that"; part 4 of 4)
 
 - **Gloopy's work folder and browser sign-ins survive a new computer.** Before, an unused Gloopy computer was deleted with its disk after 30 days, losing its files and sign-ins (and the backup machine has no kept disk at all).

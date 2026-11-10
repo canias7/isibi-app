@@ -117,3 +117,6 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
   .dl-app span { display: none; }
   .gf-gate:not(.signing) { display: flex; flex-direction: column; align-items: center; justify-content: center; }
 }
+/* GLOOPY NEEDS YOU (the docs, 2026-11-10): a mark on its tab while it waits for your answer. */
+.gf-tab { position: relative; }
+.gf-tab.needs-you::after { content: ''; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #d93025; box-shadow: 0 0 0 2px #f4f2ee; }

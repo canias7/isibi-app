@@ -11,7 +11,7 @@
 /** At most: one file the owner attaches; one Gloopy sends (as its machine reads them); files kept; all of them together. */
 export const FILE_IN_MAX = 25 * 1024 * 1024, FILE_OUT_MAX = 5 * 1024 * 1024, FILES_MAX = 100, FILES_TOTAL_MAX = 300 * 1024 * 1024;
 /** At most this many files with one message. */
-export const ATTACH_MAX = 10;
+export const ATTACH_MAX = 20;
 export const FILE_ID = /^f[a-z0-9]{12}$/;
 
 /** The kinds of file kept (by their ending, with the type each is served as): documents, data, text and code, pictures, sound and video, and zip files. Never programs. */

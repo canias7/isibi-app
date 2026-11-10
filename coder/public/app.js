@@ -65,6 +65,10 @@
     addEventListener('gf:side', (e) => sideOpen(e.detail !== false));
     addEventListener('popstate', () => pick(agentNow(), false));
     pick(agentNow(), false);
+    // GLOOPY NEEDS YOU (the docs, 2026-11-10): the mark on its tab, asked for when the page opens and when you come back.
+    const attention = () => { if (window.GloopyView && window.GloopyView.attention) window.GloopyView.attention().catch(() => {}); };
+    attention();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') attention(); });
   }
   function showGate() {
     $('gfShell').hidden = true;

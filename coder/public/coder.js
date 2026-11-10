@@ -6,6 +6,16 @@
   'use strict';
   // ONE SCREEN, TWO AGENTS (owner, 2026-11-09): Coder's chat, and Gloopy's in its own tab, drawn by the same code (each
   // with its own state), so the two look and work alike. KIND is 'coder' or 'gloopy'; the code inside keeps its indent.
+  // GLOOPY NEEDS YOU (the docs, 2026-11-10; Grok Bot's sidebar shows "Needs attention" for a question, approval or
+  // handoff): a mark on Gloopy's tab while Gloopy waits for your answer, whichever tab you are on.
+  const gloopyWaits = (p) => !!(p && p.status !== 'running' && (p.pending || p.waiting));
+  function markGloopy(on) {
+    const t = typeof document !== 'undefined' && document.querySelector('.gf-tab[data-agent="gloopy"]');
+    if (!t) return;
+    t.classList.toggle('needs-you', !!on);
+    t.title = on ? 'Gloopy agent · needs you' : 'Gloopy agent';
+    t.setAttribute('aria-label', t.title);
+  }
   function makeView(KIND) {
   const GLOOPY = KIND === 'gloopy';
   const API = '/api/coder';
@@ -55,6 +65,8 @@
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // THE OWNER'S TIME ZONE, from this device (the docs, 2026-11-10; Grok Bot's Timezone "Auto-detect follows this computer").
+  const deviceZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } };
   // CODER'S QUESTIONS (owner pick 4, 2026-11-08): 1 to 4 in a card; a card from before has one (text, options, multi).
   const askQuestions = (e) => (Array.isArray(e.questions) && e.questions.length ? e.questions : [e]).slice(0, 4).map((q) => ({
     text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true),
@@ -616,7 +628,8 @@
   // ── A MESSAGE, THEN FOLLOWING THE WORK ────────────────────────────────────
   const PR_ASK = 'Create a pull request for this branch. Write its title and description from the changes.';
   const PR_ASK_DRAFT = 'Create a draft pull request for this branch. Write its title and description from the changes.';
-  async function send(text) {
+  // `opts.card`: the message only answers one of Gloopy's cards (a step the owner said no to stays refused until their own next message).
+  async function send(text, opts) {
     text = String(text || '').trim();
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
@@ -631,7 +644,7 @@
     const base = S.events.length;
     S.events.push({ type: 'user', text: text || (att.length ? '(see the attached file' + (att.length > 1 ? 's' : '') + ')' : pics.length ? '(see the picture)' : '(comments on the changes)'), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}), ...(att.length ? { files: att.map((f) => ({ id: f.id, name: f.name, size: f.size })) } : {}) });
     draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
     S.sending = false; S.unsent = '';
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
@@ -966,13 +979,21 @@
         // A request one of Gloopy's commands sent with a saved key (`request`, the audit, 2026-11-10) shows what it sends.
         const live = cardOpen(i, e);
         const step = String(e.step || '');
+        // A card a rule of the owner's asked for (Grok Bot's: "Allow" and "Not now"); one that offers no rule (a schedule, a
+        // webhook, a change to one): "Allow" only. A warning by what the step does (the docs, 2026-11-10).
+        const ruleOffered = !(e.kind === 'schedule' || e.kind === 'webhook');
+        const yes = e.byRule || !ruleOffered ? 'Allow' : 'Allow once', nay = e.byRule ? 'Not now' : 'Deny';
         out.push('<div class="cd-secret cd-approve"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Gloopy wants to ' + esc(step.charAt(0).toLowerCase() + step.slice(1)) + '</b>' +
           (e.site ? '<p class="cd-secret-how">On <code>' + esc(e.site) + '</code></p>' : '') +
+          (e.warn ? '<p class="cd-card-warn">' + esc(e.warn) + '</p>' : '') +
           (e.why ? '<p class="cd-secret-why">' + esc(e.why) + '</p>' : '') +
+          (e.byRule ? '<p class="cd-card-rule">One of your rules says to ask first.</p>' : '') +
           // A NEW SCHEDULE (2026-11-09): its task, and no "Always allow" (each schedule is its own OK).
           (e.request && e.detail ? '<span class="cd-secret-l">What it sends</span><pre class="cd-envchange-pre cd-approve-body">' + esc(e.detail) + '</pre>' : e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
           until(i, e) + gone(i, e) +
-          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">Deny</button>' + (e.kind === 'schedule' || e.kind === 'webhook' ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + (e.kind === 'schedule' || e.kind === 'webhook' ? 'Allow' : 'Allow once') + '</button></div>' : '') + '</div>');
+          // EXPIRED, IT CAN STILL BECOME A RULE (Grok Bot's "Always allow next time").
+          (!live && ruleOffered && !e.byRule && expiredOf(i, e) && !S.events.slice(i + 1).some((x) => x.type === 'user') ? (S.ruleSaved === e.id ? '<p class="cd-card-until">Saved: next time Gloopy goes ahead.</p>' : '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-allow-next="' + esc(e.id) + '" data-step="' + esc(step + (e.site ? ' on ' + e.site : '')) + '">Always allow next time</button></div>') : '') +
+          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">' + nay + '</button>' + (!ruleOffered || e.byRule ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + yes + '</button></div>' : '') + '</div>');
       }
       else if (e.type === 'signin') {
         // THE PRIVATE SIGN-IN FORM (Gloopy, 2026-11-09; like Grok Bot's Secure Form and dots' private sign-in): what you type
@@ -1062,6 +1083,13 @@
           (newest && S.signinsMsg ? '<p class="cd-secret-err">' + esc(S.signinsMsg) + '</p>' : '') + '</div>');
       }
       else if (e.type === 'schedules') {
+        const runWords = (l, log) => {
+          if (l.result === 'skipped') return esc('Skipped' + (l.why ? ': ' + l.why : ''));
+          const how = l.result === 'test' ? 'Test run · ' : l.kind === 'event' ? 'Called · ' : '';
+          const going = !l.outcome && S.running && S.project && S.project.run && S.project.run.id === l.id && log.filter((x) => x.id === l.id).at(-1) === l;
+          const word = l.outcome === 'succeeded' ? '<b class="cd-run-ok">Succeeded</b>' : l.outcome === 'failed' ? '<b class="cd-run-bad">Failed</b>' + (l.why ? ': ' + esc(l.why) : '') : l.outcome === 'waiting' ? '<b class="cd-run-wait">Waiting for you</b>' : going ? '<b class="cd-run-wait">Running</b>' : esc(l.kind === 'event' ? 'called' : 'ran');
+          return esc(how) + word;
+        };
         // YOUR SCHEDULES (the audit, 2026-11-10; Grok Bot's routines: pause, run once, past runs), as /schedules showed them;
         // the newest such card stays up to date (S.sched) and has the buttons: Run now, Pause or Resume, Pause all.
         const newest = !S.events.slice(i + 1).some((x) => x.type === 'schedules');
@@ -1071,10 +1099,12 @@
         out.push('<div class="cd-sched"><div class="cd-sched-head"><b>Your schedules</b>' +
           (newest ? '<button type="button" class="cd-card-no cd-sched-btn" data-sched-all="' + (d.paused ? 'resume' : 'pause') + '">' + (d.paused ? 'Resume all' : 'Pause all') + '</button>' : '') + '</div>' +
           (d.paused ? '<p class="cd-sched-paused">Paused: no schedule, wake-up or webhook call runs until you resume.</p>' : '') +
-          (d.items.length ? d.items.map((x) => '<div class="cd-sched-row' + (x.paused ? ' is-paused' : '') + '"><div class="cd-sched-t"><b>' + esc(x.name) + '</b><small>' + esc(x.when) + (x.paused ? ' · Paused' : x.nextLocal ? ' · Next: ' + esc(x.nextLocal) : '') + '</small></div>' +
-            (newest ? '<div class="cd-sched-btns"><button type="button" class="cd-card-no cd-sched-btn" data-sched-run="' + esc(x.id) + '"' + (S.running ? ' disabled' : '') + '>Run now</button><button type="button" class="cd-card-no cd-sched-btn" data-sched-' + (x.paused ? 'resume' : 'pause') + '="' + esc(x.id) + '">' + (x.paused ? 'Resume' : 'Pause') + '</button></div>' : '') + '</div>').join('')
+          // Each one's task too, as Grok Bot's routine shows its Instruction; Edit starts the words in the box, Delete asks first.
+          (d.items.length ? d.items.map((x) => '<div class="cd-sched-row' + (x.paused ? ' is-paused' : '') + '"><div class="cd-sched-t"><b>' + esc(x.name) + '</b><small>' + esc(x.when) + (x.paused ? ' · Paused' : x.nextLocal ? ' · Next: ' + esc(x.nextLocal) : '') + '</small>' + (x.task ? '<span class="cd-sched-task">' + esc(x.task) + '</span>' : '') + '</div>' +
+            (newest ? '<div class="cd-sched-btns"><button type="button" class="cd-card-no cd-sched-btn" data-sched-run="' + esc(x.id) + '"' + (S.running ? ' disabled' : '') + '>Run now</button><button type="button" class="cd-card-no cd-sched-btn" data-sched-' + (x.paused ? 'resume' : 'pause') + '="' + esc(x.id) + '">' + (x.paused ? 'Resume' : 'Pause') + '</button><button type="button" class="cd-card-no cd-sched-btn" data-sched-edit="' + esc(x.name) + '">Edit</button><button type="button" class="cd-card-no cd-sched-btn cd-sched-del" data-sched-remove="' + esc(x.id) + '" data-name="' + esc(x.name) + '">Delete</button></div>' : '') + '</div>').join('')
             : '<p class="cd-sched-none">No schedules yet. Ask Gloopy to do something every day or week.</p>') +
-          (d.log.length ? '<div class="cd-sched-log"><small>Recent runs</small>' + d.log.slice(-6).reverse().map((l) => '<div>' + esc(when(l.at)) + ' · ' + esc(l.name) + ' · ' + esc(l.result === 'ran' ? (l.kind === 'event' ? 'called' : 'ran') : l.result === 'test' ? 'test run' : 'skipped' + (l.why ? ': ' + l.why : '')) + '</div>').join('') + '</div>' : '') +
+          // RECENT RUNS, each with how it went (Grok Bot's run history: Running, Succeeded or Failed, with the reason).
+          (d.log.length ? '<div class="cd-sched-log"><small>Recent runs</small>' + d.log.slice(-6).reverse().map((l) => '<div>' + esc(when(l.at)) + ' · ' + esc(l.name) + ' · ' + runWords(l, d.log) + '</div>').join('') + '</div>' : '') +
           (newest && S.schedMsg ? '<p class="cd-secret-err">' + esc(S.schedMsg) + '</p>' : '') + '</div>');
       }
       else if (e.type === 'page') {
@@ -1109,7 +1139,9 @@
           : '') + '</div>');
       }
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
-      else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
+      // STOPPED, AND GOING ON FROM THERE (the docs, 2026-11-10; dots' Pause stops the current task, Resume continues it):
+      // on Gloopy's last stop, while nothing came after it, a Resume button.
+      else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.' + (GLOOPY && !S.running && !S.sending && i === S.events.length - 1 ? ' <button type="button" class="cd-card-no cd-resume" data-resume="1">Resume</button>' : '') + '</div>');
       else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
       else if (e.type === 'expired') return;
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
@@ -1282,7 +1314,7 @@
       if (r.data && r.data.project) S.project = r.data.project;
       w.control = false; w.touched = Date.now();
       draw();
-      return send((r.data && r.data.said) || 'Done.');
+      return send((r.data && r.data.said) || 'Done.', { card: true });
     }
     const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: false }) });
     if (S.web !== w) return;
@@ -1452,7 +1484,7 @@
   const sizeWords = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
   async function addFiles(files) {
     for (const f of files) {
-      if ((S.attach || []).length >= 10) { note('At most 10 files with one message.'); break; }
+      if ((S.attach || []).length >= 20) { note('At most 20 files with one message.'); break; }
       if (f.size > 25 * 1048576) { note(f.name + ' is over 25 MB.'); continue; }
       const chip = { name: f.name, size: f.size, up: true };
       S.attach = [...(S.attach || []), chip]; draw();
@@ -1606,6 +1638,7 @@
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
+    if (GLOOPY && S.project) markGloopy(!S.running && gloopyWaits(S.project));
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
@@ -1676,7 +1709,7 @@
       if (r.status !== 200) { S.cardMsg = { id, text: (r.data && r.data.error) || failed }; draw(); return; }
       S.cardMsg = null; if (r.data && r.data.project) S.project = r.data.project;
       if (r.data && Array.isArray(r.data.cards)) S.cards = r.data.cards;
-      send((r.data && r.data.said) || 'Answered.');
+      send((r.data && r.data.said) || 'Answered.', { card: true });
     };
     on('[data-approve]', 'click', (e) => {
       const d = e.currentTarget.dataset;
@@ -1685,6 +1718,18 @@
       cardAnswer(d.card, 'approve', { decision: d.approve }, 'Your answer could not be sent.');
     });
     on('#cdSignPass', 'input', (e) => { const b = root.querySelector('[data-signin]'); if (b) b.disabled = !e.currentTarget.value; });
+    // ALWAYS ALLOW NEXT TIME, on a card that expired (the docs, 2026-11-10): an allow rule for steps like it.
+    on('[data-allow-next]', 'click', async (e) => {
+      const b = e.currentTarget, id = b.dataset.allowNext;
+      if (!S.project) return;
+      b.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rules', { method: 'POST', body: JSON.stringify({ add: { text: b.dataset.step, mode: 'allow' } }) });
+      if (r.status !== 200) { b.disabled = false; S.cardMsg = { id, text: (r.data && r.data.error) || 'The rule could not be saved.' }; return draw(); }
+      S.ruleSaved = id;
+      // Another card that was open closes with a change to the rules (Grok Bot's); the chat shows it.
+      if (r.data && r.data.closed) return reloadChat(S.project.id);
+      draw();
+    });
     // THE SIGN-IN CARD'S OTHER WAYS (the audit, 2026-11-10): the login you saved, a code (emptied from its box as it is
     // sent, never kept here), or doing it yourself in Gloopy's browser (handing it back answers the card).
     on('[data-signin-saved]', 'click', (e) => { const id = e.currentTarget.dataset.signinSaved; if (!S.project) return; e.currentTarget.disabled = true; cardAnswer(id, 'signin', { useSaved: true }, 'Your saved login could not be used.'); });
@@ -1740,6 +1785,17 @@
     on('#cdViewClose', 'click', () => { S.view = null; draw(); });
     on('#cdView', 'click', (e) => { if (e.target === e.currentTarget) { S.view = null; draw(); } });
     on('[data-sched-pause]', 'click', (e) => schedCall({ pause: e.currentTarget.dataset.schedPause }, e.currentTarget));
+    on('[data-resume]', 'click', (e) => { e.currentTarget.disabled = true; send('Carry on with what you were doing when I stopped you.'); });
+    // EDIT, in the owner's own words (Grok Bot's Edit starts "Edit your routine:" in the box); DELETE, once they say so.
+    on('[data-sched-edit]', 'click', (e) => {
+      S.draft = 'Edit your schedule “' + e.currentTarget.dataset.schedEdit + '”: '; draw();
+      const i = S.root && S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(S.draft.length, S.draft.length); }
+    });
+    on('[data-sched-remove]', 'click', async (e) => {
+      const b = e.currentTarget;
+      if (!(await askSure('Delete this schedule?', '“' + b.dataset.name + '” won’t run again.', 'Delete'))) return;
+      schedCall({ remove: b.dataset.schedRemove }, b);
+    });
     on('[data-sched-resume]', 'click', (e) => schedCall({ resume: e.currentTarget.dataset.schedResume }, e.currentTarget));
     on('[data-sched-all]', 'click', (e) => schedCall({ paused: e.currentTarget.dataset.schedAll === 'pause' }, e.currentTarget));
     on('#cdSignPass', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = root.querySelector('[data-signin]'); if (b && !b.disabled) b.click(); } });
@@ -1973,6 +2029,14 @@
       draw();
     },
     drawSide,
+    // Whether Gloopy waits for you, for its tab's mark (the page asks when it opens, and on coming back to it).
+    attention: async () => {
+      if (!GLOOPY) return false;
+      const r = await call('/gloopy?brief=1');
+      const on = r.status === 200 && r.data ? gloopyWaits(r.data.gloopy) : false;
+      markGloopy(on);
+      return on;
+    },
     // For tests and screenshots only.
     _state: S,
   };
