@@ -33,6 +33,32 @@
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
+/**
+ * THE EFFORT SAVED ON AN ACCOUNT, AS IT COUNTS NOW (owner, 2026-11-10: "can you do the effort level on low and make sure
+ * it's actually on low"). Coder's default became Low. A "high" saved before then was the old default (a save of the
+ * model or effort stored it with them), so it counts as not chosen and Low applies; a pick the page saves from now on
+ * carries `pickV` 2 and counts as chosen, High included.
+ */
+export const PICK_V = 2;
+export function savedEffort(saved) {
+  if (!saved || typeof saved !== "object") return undefined;
+  return saved.pickV === PICK_V || saved.effort !== "high" ? saved.effort : undefined;
+}
+/**
+ * WHAT A MESSAGE'S AI CALLS USED, kept on the chat's record (`usage`, the last message's): how many calls, their input
+ * tokens and how many of those xAI's prompt cache served, their output and reasoning tokens, their cost in xAI's ticks
+ * (10,000,000,000 to the dollar), the efforts sent ("default" when none was) and the efforts xAI said it used. The auto
+ * mode checker's calls are counted apart (`checker`). To check, with the owner's word of 2026-11-10, that the effort is
+ * really Low and that the cache works.
+ */
+export function usageSummary(list, turn) {
+  const all = (Array.isArray(list) ? list : []).filter((u) => u && typeof u === "object").slice(0, 5000);
+  const add = (arr, k) => arr.reduce((n, u) => n + (Number.isFinite(Number(u[k])) && Number(u[k]) > 0 ? Math.round(Number(u[k])) : 0), 0);
+  const kinds = (arr, f) => [...new Set(arr.map(f).filter(Boolean))].slice(0, 5);
+  const part = (arr) => ({ calls: arr.length, in: add(arr, "in"), cached: add(arr, "cached"), out: add(arr, "out"), reasoning: add(arr, "reasoning"), costTicks: add(arr, "cost_ticks"), efforts: kinds(arr, (u) => String(u.effort || "default").slice(0, 20)), said: kinds(arr, (u) => (typeof u.effortSaid === "string" ? u.effortSaid.slice(0, 20) : "")) });
+  const check = all.filter((u) => u.kind === "check");
+  return { turn: Number(turn) || 0, ...part(all.filter((u) => u.kind !== "check")), ...(check.length ? { checker: part(check) } : {}) };
+}
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
@@ -605,12 +631,13 @@ export async function handleCoder(request, env, ctx, deps) {
     // (`mode`: the permission mode new chats start in: the last one picked other than Plan, as in Claude Code's desktop app
     // and VS Code, where "Picking Plan … applies to that conversation only".)
     const startMode = (m) => (m === "acceptEdits" ? "acceptEdits" : "auto");
-    if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: { ...pickModel(saved.model, saved.effort), mode: startMode(saved.mode) } });
+    if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: { ...pickModel(saved.model, savedEffort(saved)), mode: startMode(saved.mode) } });
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const chosen = pickModel(body.model ?? saved.model, body.effort ?? saved.effort);
+    const chosen = pickModel(body.model ?? saved.model, body.effort ?? savedEffort(saved));
     const mode = MODES.includes(body.mode) && body.mode !== "plan" ? body.mode : startMode(saved.mode);
-    await putJson(bucket, settingsKey(uid), { ...chosen, mode });
+    // (A page from before Low became the default sends no pickV: what it saves still counts as the old default.)
+    await putJson(bucket, settingsKey(uid), { ...chosen, mode, ...(body.pickV === PICK_V || saved.pickV === PICK_V ? { pickV: PICK_V } : {}) });
     return json({ ok: true, pick: { ...chosen, mode } });
   }
   // THE OWNER'S PERMISSION RULES FOR A REPOSITORY (Claude Code's /permissions: "lists all permission rules", where you add
@@ -818,7 +845,7 @@ export async function handleCoder(request, env, ctx, deps) {
       baseMarks = marksAfter(baseMarks, { from: squeezed.from, to: squeezed.to });
     }
     const saved = await getJson(bucket, settingsKey(uid), {});
-    const pick = pickModel(body.model || saved.model, body.effort || saved.effort);
+    const pick = pickModel(body.model || saved.model, body.effort || savedEffort(saved));
     // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message).
     const envId = await envIdOf(bucket, uid, meta);
     const envEntry = (await listEnvs(bucket, uid)).find((e) => e.id === envId) || { id: envId, name: "Default" };
@@ -1117,7 +1144,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
       if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
-      const ended = { ...meta, ...modeNow, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      const ended = { ...meta, ...modeNow, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
       if (background.length) await watchBackground(bucket, { uid, email: user.email, id }).catch(() => {});

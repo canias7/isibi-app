@@ -434,9 +434,10 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.deepEqual(CODER_MODELS.map((m) => [m.id, m.efforts]), [["grok-4.7", ["low", "medium", "high", "xhigh"]]]);
   assert.deepEqual(pickModel("grok-4.7", "high"), { model: "grok-4.7", effort: "high" });
   assert.deepEqual(pickModel("grok-4.7", "xhigh"), { model: "grok-4.7", effort: "xhigh" }, "Extra high (xAI docs)");
-  assert.deepEqual(pickModel("grok-4.7", "max"), { model: "grok-4.7", effort: "high" }, "an effort it does not take: xAI's default");
+  // (Coder's default is Low since the owner's word of 2026-11-10; see CD378.)
+  assert.deepEqual(pickModel("grok-4.7", "max"), { model: "grok-4.7", effort: "low" }, "an effort it does not take: Coder's default");
   assert.deepEqual(pickModel("gpt-9", "low"), { model: "grok-4.7", effort: "low" }, "a model not on the list");
-  assert.deepEqual(pickModel(undefined, undefined), { model: "grok-4.7", effort: "high" });
+  assert.deepEqual(pickModel(undefined, undefined), { model: "grok-4.7", effort: "low" });
   const sent = [];
   const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }] })); } });
   await send({ model: "grok-4.7", effort: "high", messages: [], tools: [] });
@@ -448,7 +449,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
   assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| saved\.effort\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -609,8 +610,8 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), renv, {}, deps);
   const s0 = await (await go("settings")).json();
   // (`mode`: the permission mode new chats start in, 2026-11-09.)
-  assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "high", mode: "auto" });
-  assert.equal((await go("settings", { method: "POST", body: JSON.stringify({ model: "grok-4.7", effort: "high" }) })).status, 200);
+  assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "low", mode: "auto" });
+  assert.equal((await go("settings", { method: "POST", body: JSON.stringify({ model: "grok-4.7", effort: "high", pickV: 2 }) })).status, 200);
   assert.deepEqual((await (await go("settings")).json()).pick, { model: "grok-4.7", effort: "high", mode: "auto" }, "kept on the account");
   assert.equal((await go("command", { method: "POST", body: JSON.stringify({ text: "/new" }) })).status, 404, "no slash commands");
 });
@@ -933,7 +934,7 @@ test("CD37 Grok's own web search through xAI's Responses request: the chat turne
   assert.deepEqual(o.searches, [{ query: "latest stable Node.js version", sources: ["https://nodejs.org/en/blog"] }]);
   const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify(answer)) });
   const r = await send({ model: "grok-4.7", messages: msgs, tools: [] });
-  assert.deepEqual(r.usage, { in: 2314, out: 116, searches: 1, cost_ticks: 78280000 });
+  assert.deepEqual(r.usage, { in: 2314, out: 116, searches: 1, cost_ticks: 78280000, cached: 0, reasoning: 0, effort: "" });
   // The loop shows the search like a step.
   const events = [];
   let n = 0;

@@ -13,7 +13,7 @@
   const SHELL_TAKEBACK = 'A ! command comes back only when the message box is empty and nothing else is waiting. Otherwise it runs when Coder is done.';
   // THE MODEL LIST AND THE USER'S PICK come from the server
   // (2026-11-05: "put it server side"); the page only shows them.
-  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'high' }];
+  let MODELS = [{ id: 'grok-4.7', name: 'Grok 4.7', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'low' }];
   const EFFORT_NAME = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high' };
   async function loadSettings() {
     const r = await call('/settings');
@@ -22,7 +22,9 @@
       if (r.data.pick) S.pick = r.data.pick;
     }
   }
-  function savePick() { call('/settings', { method: 'POST', body: JSON.stringify(S.pick) }); }
+  // (pickV 2: a pick made on this page counts as chosen; one saved before Low became the default does not. The owner,
+  // 2026-11-10: "can you do the effort level on low and make sure it's actually on low".)
+  function savePick() { call('/settings', { method: 'POST', body: JSON.stringify({ ...S.pick, pickV: 2 }) }); }
 
   // ONE STATE for the whole screen, kept across redraws: chat.js redraws the
   // right-hand area often, and the screen must come back where it was.

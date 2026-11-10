@@ -643,6 +643,19 @@ the chat's current turn, allows only Coder's own models, adds `XAI_API_KEY` and
 passes the call to xAI. Neither Fly.io's machines (the deploy takes the old
 Fly secret away) nor Cloudflare's backup machines are given the key.
 
+**Grok's prompt cache and the effort** (owner, 2026-11-10: "something kind of
+cache [for] the model", and "can you do the effort level on low and make sure
+it's actually on low"). The Worker puts the chat's own `prompt_cache_key` on
+every call it passes to xAI (`cacheKeyFor`: a hash of the chat, the same for all
+its calls, Coder's, its checker's and its summaries'), so xAI sends them to the
+server that has the chat's start cached; cached input costs a quarter of the
+input price. Coder's effort is Low unless the owner picks another (`CODER_MODELS`);
+a "high" an account saved before then counts as not chosen (`savedEffort`, and
+`pickV` 2 on picks the page saves from now on). Each call records what it really
+used (`coderSend`: cached and reasoning tokens, the effort sent and the one xAI
+says it used), and the chat's record keeps the last message's sum as `usage`
+(`usageSummary`, the auto mode checker's calls apart). Tests CD378 and CD379.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a
