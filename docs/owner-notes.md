@@ -22,6 +22,22 @@ On test.gofarther.dev, signed in as the test account, with Grok. Recorded (the v
 - Run now showed "Running", then "Succeeded".
 - Edit started "Edit your schedule …" in the box, and the change was kept.
 - Your "Ask first" rule held: Gloopy didn't follow the link and asked you first.
+- Stop ended the job, and the chat showed **Resume**. Resume carried the job on from where it stopped (four news outlets compared).
+- The red dot showed on Gloopy's tab while it waited for your answer, from the Coder tab too. It went away once you answered.
+- A webhook was checked and set up, with its address on the test copy.
+- Contact details were kept in Gloopy's notes, and Gloopy said so.
+- Changing a setting closed an open schedule card: "Expired: your settings for Gloopy's checks changed. Nothing was done." Gloopy told you on its own next time that the reminder was never set.
+- Delete asked first, and the schedule's past runs stayed in the history.
+- Tables in answers showed as tables (the weather in five cities).
+- **After the browser fix was deployed:**
+  - Gloopy's browser opened example.com on its Fly.io computer.
+  - Your "Ask first" rule raised the card "One of your rules says to ask first", with **Not now** and **Allow**.
+  - After **Not now**, Gloopy said "I won't try another way".
+  - Gloopy filled in and submitted a practice order form (httpbin.org, which only echoes it back).
+  - The schedules card said "Succeeded" by itself after Run now.
+- **Not seen live:** "Always allow next time" on an expired card. Even with "Buy or pay" on Ask first, the check let the practice order through, rightly, since nothing is bought. The automated tests cover it.
+- **For you to decide: asked twice.** With an "Ask first" rule, Gloopy asked in the chat ("Click the Learn more link?"), and then the check's card asked again for the same click. The card even said "You already said yes to this click". Grok Bot only asks on the card. My suggestion: Gloopy leaves steps the check covers to the card, and doesn't ask about them in the chat first.
+- Cleaned up afterwards: the test schedules and the test webhook are gone, and the test copy's settings are back to the testing defaults.
 
 **Found and fixed:**
 - **Gloopy's browser didn't start on its Fly.io computer.** Gloopy said "the browser isn't available". Chromium was there, but Playwright (which runs the browser) wasn't told where the image keeps it. It's only told in my own sandbox, so every test passed here. Gloopy's browser had never run on a real Fly.io computer before (it isn't on `main`). Its code now points Playwright there itself.
