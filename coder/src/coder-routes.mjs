@@ -33,7 +33,7 @@
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
-import { normMode, parseRule, ruleProblem, MODES } from "../container/coder-perms.mjs";
+import { normMode, parseRule, ruleProblem, ruleWarning, MODES } from "../container/coder-perms.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
@@ -151,6 +151,17 @@ const settingsKey = (uid) => ["coder", uid, "settings.json"].join("/");
  * commit messages, Slack posts, or generated reports").
  */
 export const chatLinkOf = (env, id) => String((env && env.APP_ORIGIN) || "https://gofarther.dev").replace(/\/+$/, "") + "/?chat=" + encodeURIComponent(String(id || ""));
+/**
+ * THE ACCOUNT'S EMAIL, AS COMMANDS ARE CHECKED FOR IT (Bash docs pass 5; Claude Code 2.1.321: "the account email check …
+ * refuse[s] only a shell command that holds your email and names a User-Agent, without asking"): the machine gets its
+ * length and SHA-256, never the address, and looks for it in Grok's commands ("<length>:<sha256>"; "" without an email).
+ */
+export async function emailMark(email) {
+  const e = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (!e || !e.includes("@") || e.length > 254) return "";
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(e));
+  return e.length + ":" + [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 /**
  * THE CHAT'S LINK ON ITS COMMITS AND PULL REQUESTS (the owner, 2026-11-09: "yes i want that"; Claude Code's cloud sessions add a
  * `Claude-Session: <url>` trailer to each commit and the session's link to pull request descriptions, unless its setting
@@ -606,7 +617,9 @@ export async function handleCoder(request, env, ctx, deps) {
   // or remove them): GET ?repo=owner/name; POST { repo, kind: allow | ask | deny, add | remove: "Bash(npm test *)" }.
   if (parts[0] === "permissions") {
     const repo = request.method === "GET" ? String(url.searchParams.get("repo") || "") : "";
-    if (request.method === "GET") { if (!REPO.test(repo)) return json({ error: "which repository?" }, 400); return json({ ok: true, repo, rules: await rulesOf(bucket, uid, repo) }); }
+    // (Claude Code's short warning row for each rule it keeps but warns about, keyed "kind\nrule": Bash docs pass 5.)
+    const notices = (rules) => { const out = {}; for (const k of ["allow", "ask", "deny"]) for (const x of (rules && rules[k]) || []) { const w = ruleWarning(k, x); if (w && w.notice) out[k + "\n" + x] = w.notice; } return out; };
+    if (request.method === "GET") { if (!REPO.test(repo)) return json({ error: "which repository?" }, 400); const rules = await rulesOf(bucket, uid, repo); return json({ ok: true, repo, rules, notices: notices(rules) }); }
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const r = String(body.repo || "");
@@ -617,7 +630,11 @@ export async function handleCoder(request, env, ctx, deps) {
     // (Claude Code ignores a rule on the command itself, Bash(command:…), and warns: so does Coder, when it is added.)
     if (ruleProblem(rule)) return json({ error: ruleProblem(rule) }, 400);
     if (!parseRule(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com) or WebFetch" }, 400);
-    return json({ ok: true, repo: r, rules: await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined }) });
+    const rules = await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined });
+    // A RULE CLAUDE CODE KEEPS BUT WARNS ABOUT (Bash docs pass 5: its error reference, "Has a wildcard before the rest of the
+    // command"; its rule check's :* warnings): saved, with the warning in its words.
+    const w = body.remove === undefined ? ruleWarning(kind, rule) : null;
+    return json({ ok: true, repo: r, rules, notices: notices(rules), ...(w ? { warning: w.warning } : {}) });
   }
 
   // A SLASH COMMAND: { text, project? } → { note?, open?, url?, pick? }.
@@ -878,7 +895,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);

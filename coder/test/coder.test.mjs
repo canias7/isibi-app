@@ -24,7 +24,10 @@ const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: a
 
 // ── THE CHECKS ───────────────────────────────────────────────────────────────
 test("CD1 dangerous commands are refused with the reason; ordinary ones run", async () => {
-  for (const c of [":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "pkill node"]) assert.match(commandProblem(c), /refused/, c);
+  for (const c of [":(){ :|:& };:", "mkfs.ext4 /dev/sda", "dd if=x of=/dev/sda", "shutdown now", "cat /proc/1/environ", "su - root", "kill -9 1", "kill -TERM -1"]) assert.match(commandProblem(c), /refused/, c);
+  // (`pkill node` runs since Bash docs pass 5: the commands' sandbox can't see Coder's service; Claude Code refuses only a
+  // pattern matching its own process.)
+  assert.equal(commandProblem("pkill node"), "");
   // Removals are read as Claude Code reads them (coder-bashcheck.mjs: its critical paths, in its words); a folder beside the
   // project is none of them.
   const { dangerousRm } = await import("../container/coder-bashcheck.mjs");
