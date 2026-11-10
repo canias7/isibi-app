@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Pause, edit and Run now for Gloopy's schedules, with a history (your word: "do all of that"; part 3 of 4)
+
+- **Type `/schedules` in Gloopy's chat** to see a card with every schedule: when it runs, its next run, and buttons **Run now** and **Pause** / **Resume**. It also shows the last runs (ran, test run, or skipped and why). No Grok call.
+- **`/pause` pauses all of Gloopy's background work** (schedules, wake-ups and webhook calls); **`/resume`** starts it again. You can still chat with Gloopy while it's paused.
+  - Anything that came due while paused is skipped, not run late. You get one line listing what was skipped.
+  - A webhook call while paused gets "Gloopy is paused" back, and it goes in the history.
+- **Run now** tries a schedule straight away, the way it would really run. Anything that would send or buy still waits for your OK. Its normal times don't change. (Grok Bot has the same.)
+- **Changing a schedule:** ask Gloopy ("make the morning news 7:30 on weekdays"). A change follows your setting for new schedules: kept at once on Always allow, a card on Ask. Gloopy can also pause or resume one when you ask.
+- The routes for a full schedules screen (pause, resume, edit, run, remove, history) are ready for when you design it.
+- Also fixed: a webhook call no longer starts a run over a card that's still waiting for you; it waits its turn, as schedules do.
+- Tests: GL72 to GL74 are new. All 329 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
 ## 2026-11-10: Gloopy's sign-in card, as dots' is (your word: "do all of that"; part 2 of 4)
 
 - **"Use your saved login" on the card.** When your setting for saved logins is Ask (as dots always asks), the sign-in card shows a button with the saved username. One press signs in with it; nothing to retype.

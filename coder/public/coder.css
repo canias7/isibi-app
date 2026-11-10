@@ -549,3 +549,20 @@
 .cd-sign-warn.is-danger{color:#8c1d18;background:#fdecea;border:1px solid #f5c2bd}
 .cd-sign-warn.is-caution{color:#7a5a00;background:#fdf6e3;border:1px solid #f0dfaa}
 .cd-sign-code{letter-spacing:.2em;font-size:18px;text-align:center}
+/* Your schedules, from /schedules (the audit, 2026-11-10): each with Run now and Pause, Pause all, and the recent runs. */
+.cd-sched{border:1px solid #e5e3dd;border-radius:18px;padding:16px 18px;margin:10px 0;background:#faf9f5}
+.cd-sched-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.cd-sched-head b{font-size:16px;color:#1f1e1d}
+.cd-sched-paused{font-size:13.5px;color:#7a5a00;background:#fdf6e3;border:1px solid #f0dfaa;border-radius:10px;padding:7px 11px;margin:0 0 8px}
+.cd-sched-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid #ecebe6}
+.cd-sched-row.is-paused .cd-sched-t{opacity:.6}
+.cd-sched-t{display:flex;flex-direction:column;min-width:0}
+.cd-sched-t b{font-size:14.5px;color:#1f1e1d;overflow-wrap:anywhere}
+.cd-sched-t small{font-size:12.5px;color:#6b6a66;margin-top:2px;overflow-wrap:anywhere}
+.cd-sched-btns{display:flex;gap:6px;flex-shrink:0}
+.cd-sched-btn{font:inherit;font-size:13px;font-weight:600;border-radius:999px;padding:6px 12px;cursor:pointer}
+.cd-sched-btn:disabled{opacity:.5;cursor:default}
+.cd-sched-none{font-size:13.5px;color:#6b6a66;margin:4px 0}
+.cd-sched-log{border-top:1px solid #ecebe6;margin-top:6px;padding-top:8px;font-size:12.5px;color:#6b6a66;line-height:1.6}
+.cd-sched-log small{display:block;font-weight:600;color:#4b4a46;margin-bottom:2px}
+@media (max-width: 640px) { .cd-sched-row { flex-direction: column; align-items: stretch; } .cd-sched-btns { justify-content: flex-start; } }

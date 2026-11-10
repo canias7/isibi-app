@@ -3246,3 +3246,193 @@ test("GL71 (2026-11-10) a code, for real (where Chromium is installed): it goes 
     assert.deepEqual([f.title, got.at(-1)], ["Welcome", "d1=1&d2=2&d3=3&d4=4&d5=5&d6=6"]);
   } finally { site.close(); spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
 });
+
+test("GL72 (2026-11-10) schedules paused, changed and kept in a history: one schedule paused does not run and goes on from now when resumed; all of Gloopy's background work paused runs nothing and, when it goes again, skips what came due (said once, kept in the history); a change keeps the schedule's id, runs and pause; the last 30 runs are kept", async () => {
+  const S2 = await import("../src/gloopy-schedules.mjs");
+  const bucket = fakeBucket();
+  const T = Date.UTC(2026, 10, 10, 7, 0); // Tue 10 Nov, 07:00 in Lisbon
+  const data = await S2.readSchedules(bucket, "u1");
+  const news = S2.addSchedule(data, SCHED.checkSchedule({ name: "Morning news", task: "Send me the news.", time_zone: "Europe/Lisbon", every: "day", time: "08:00" }, T), T);
+  const wake = S2.addSchedule(data, SCHED.checkSchedule({ name: "Price check", task: "Check the price.", time_zone: "Europe/Lisbon", in_minutes: 30 }, T), T);
+  wake.self = true;
+  await S2.writeSchedules(bucket, "u1", "me@x.y", data);
+  assert.equal(JSON.parse(bucket.m.get("coder/gloopy-due/u1.json")).next, T + 30 * 60000, "the wake-up is first");
+  // One paused: not due; the due record follows the others.
+  S2.setPaused(data, wake.id, true, T);
+  await S2.writeSchedules(bucket, "u1", "me@x.y", data);
+  assert.equal(JSON.parse(bucket.m.get("coder/gloopy-due/u1.json")).next, Date.UTC(2026, 10, 10, 8, 0));
+  let kept = await S2.readSchedules(bucket, "u1");
+  assert.deepEqual(S2.schedulesForTurn(kept).map((x) => [x.name, x.paused === true, x.tz]), [["Morning news", false, "Europe/Lisbon"], ["Price check", true, "Europe/Lisbon"]]);
+  // Resumed after its time: a one-time run is over (kept in the history); a repeating one goes on from now.
+  const later = T + 2 * 3600000;
+  const gone = S2.setPaused(kept, wake.id, false, later);
+  assert.equal(gone.gone, true);
+  assert.deepEqual(kept.items.map((x) => x.id), [news.id]);
+  assert.deepEqual(kept.log.map((l) => [l.name, l.kind, l.result, l.why]), [["Price check", "wake", "skipped", "its time passed while it was paused"]]);
+  S2.setPaused(kept, news.id, true, T);
+  S2.setPaused(kept, news.id, false, later);
+  assert.equal(kept.items[0].next, Date.UTC(2026, 10, 11, 8, 0), "from now: tomorrow at 08:00");
+  // All paused: nothing is due; going again, what came due is skipped, said once, and kept in the history.
+  assert.deepEqual(S2.pauseAll(kept, true, later), []);
+  await S2.writeSchedules(bucket, "u1", "me@x.y", kept);
+  assert.equal(bucket.m.has("coder/gloopy-due/u1.json"), false, "nothing is due while paused");
+  kept = await S2.readSchedules(bucket, "u1");
+  assert.deepEqual([kept.paused, kept.pausedAt], [true, later]);
+  const twoDays = Date.UTC(2026, 10, 12, 9, 0);
+  assert.deepEqual(S2.pauseAll(kept, false, twoDays), ["Morning news"]);
+  assert.equal(kept.paused, undefined);
+  assert.equal(kept.items[0].next, Date.UTC(2026, 10, 13, 8, 0));
+  assert.deepEqual(kept.log.at(-1).why, "Gloopy was paused");
+  // A change: its words, or when it runs; its id, runs and pause stay.
+  kept.items[0].runs = 4; kept.items[0].paused = true;
+  S2.editSchedule(kept, news.id, { name: "Morning briefing", task: "Send me the news and the weather." }, twoDays);
+  assert.deepEqual([kept.items[0].id, kept.items[0].name, kept.items[0].task, kept.items[0].runs, kept.items[0].paused, kept.items[0].time], [news.id, "Morning briefing", "Send me the news and the weather.", 4, true, "08:00"]);
+  S2.editSchedule(kept, news.id, { spec: SCHED.checkSchedule({ name: "x", task: "y", time_zone: "Europe/Lisbon", every: "weekday", time: "07:30" }, twoDays) }, twoDays);
+  assert.deepEqual([kept.items[0].name, kept.items[0].task, kept.items[0].every, kept.items[0].time, kept.items[0].next], ["x", "y", "weekday", "07:30", Date.UTC(2026, 10, 13, 7, 30)]);
+  assert.throws(() => S2.editSchedule(kept, "snope", { name: "z" }, twoDays), /No schedule has that id/);
+  // The history: the last 30.
+  for (let i = 0; i < 40; i++) S2.logRun(kept, kept.items[0], "ran", "", twoDays + i);
+  assert.equal(kept.log.length, S2.LOG_MAX);
+  assert.equal(S2.LOG_MAX, 30);
+  assert.equal(S2.testText({ ...kept.items[0] }, twoDays), "(Test run of “x”, every weekday at 07:30 (Europe/Lisbon): the owner started it now to try it. Do its task as it would run then. It is Thu 12 Nov, 09:00 now in Europe/Lisbon.)\n\ny");
+  // The every-minute check: a paused schedule is never started, and what runs is kept in the history.
+  const calls = [];
+  const deps = { coder: async (req) => { calls.push(await req.json()); return new Response("{}", { status: 200 }); } };
+  const env = { CODER_BUCKET: bucket };
+  bucket.m.set("coder/u1/gloopy-main/meta.json", JSON.stringify({ id: "gloopy-main", kind: "gloopy", status: "idle", turn: 3 }));
+  kept.items[0].paused = true;
+  const w2 = S2.addSchedule(kept, SCHED.checkSchedule({ name: "Reminder", task: "Remind me.", time_zone: "UTC", in_minutes: 5 }, twoDays), twoDays);
+  await S2.writeSchedules(bucket, "u1", "me@x.y", kept);
+  assert.deepEqual(await S2.runGloopySchedules(env, deps, twoDays + 5 * 60000), { checked: 1, started: 1, waiting: 0, skipped: 0 });
+  assert.equal(calls[0].scheduled.name, "Reminder");
+  kept = await S2.readSchedules(bucket, "u1");
+  assert.deepEqual([kept.items.map((x) => x.id), kept.log.at(-1).name, kept.log.at(-1).result], [[news.id], "Reminder", "ran"]);
+  assert.equal(bucket.m.has("coder/gloopy-due/u1.json"), false, "only a paused one is left: nothing is due");
+  void w2;
+});
+
+test("GL73 (2026-11-10) the owner's schedule controls on Coder's Worker: /pause, /resume and /schedules in the chat (no job runs); pause, resume, change and Run now for one schedule; while paused a webhook's call is not run; while a card waits, a call waits its turn", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const S2 = await import("../src/gloopy-schedules.mjs");
+  const { addWebhook, hookKey } = await import("../src/gloopy-webhooks.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  const machine = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); machine.push({ path: u.pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json", ...(init.headers || {}) } }), env, {}, deps);
+  await go("gloopy");
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const setMeta = (o) => bucket.m.set(metaKey, JSON.stringify({ ...JSON.parse(bucket.m.get(metaKey)), ...o }));
+  const now = Date.now();
+  const sd = await S2.readSchedules(bucket, "u1");
+  const news = S2.addSchedule(sd, SCHED.checkSchedule({ name: "Morning news", task: "Send me the news.", time_zone: "UTC", every: "day", time: "08:00" }, now), now);
+  await S2.writeSchedules(bucket, "u1", "me@x.y", sd);
+  const msg = (text) => go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text }) });
+  const sch = (body) => go("projects/" + GLOOPY_ID + "/schedules", { method: "POST", body: JSON.stringify(body) });
+  // /schedules: a card with them, and no job.
+  let r = await (await msg("/schedules")).json();
+  assert.deepEqual([r.handled, r.events[0].type, r.events[0].items.map((x) => x.name), machine.length], [true, "schedules", ["Morning news"], 0]);
+  // /pause and /resume.
+  r = await (await msg("/pause")).json();
+  assert.match(r.events[0].text, /^Paused Gloopy's background work: schedules, wake-ups and webhook calls won't run until you type \/resume\./);
+  assert.equal((await S2.readSchedules(bucket, "u1")).paused, true);
+  const got = await (await go("projects/" + GLOOPY_ID + "/schedules")).json();
+  assert.deepEqual([got.paused, got.schedules.length], [true, 1]);
+  // A webhook's call while paused: not run, said to the caller, kept in the history.
+  const hook = await addWebhook(bucket, "u1", "me@x.y", { id: "h" + "a".repeat(20), name: "New issues", task: "Sum it up." });
+  const call = (headers = {}) => handleCoder(new Request("https://gofarther.example/api/coder/gloopy-hook/" + hook.id, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + headers.key, ...headers.extra }, body: '{"action":"opened"}' }), env, {}, deps);
+  const key = await hookKey(env, hook.id);
+  let c = await call({ key });
+  assert.deepEqual([c.status, (await c.json()).paused], [503, true]);
+  assert.deepEqual((await S2.readSchedules(bucket, "u1")).log.at(-1), { at: (await S2.readSchedules(bucket, "u1")).log.at(-1).at, id: hook.id, name: "New issues", kind: "event", result: "skipped", why: "Gloopy was paused" });
+  r = await (await msg("/resume")).json();
+  assert.equal(r.events[0].text, "Gloopy's background work is going again.");
+  assert.equal((await (await msg("/resume")).json()).events[0].text, "Gloopy's background work wasn't paused.");
+  // While a card waits for the owner, a call waits its turn (and does not overtake the card).
+  setMeta({ status: "idle", pending: { kind: "approval", id: "ap1", step: "x", at: Date.now() } });
+  c = await call({ key });
+  assert.deepEqual([c.status, (await c.json()).queued], [202, true]);
+  assert.equal(JSON.parse(bucket.m.get(metaKey)).pending.id, "ap1");
+  setMeta({ pending: null });
+  // One schedule: pause, resume, change; refused ones.
+  r = await (await sch({ pause: news.id })).json();
+  assert.equal(r.schedules[0].paused, true);
+  r = await (await sch({ resume: news.id })).json();
+  assert.equal(r.schedules[0].paused, undefined);
+  r = await (await sch({ edit: { id: news.id, name: "Morning briefing", every: "weekday", time: "07:30" } })).json();
+  assert.deepEqual([r.edited, r.schedules[0].name, r.schedules[0].when, r.schedules[0].task], [news.id, "Morning briefing", "every weekday at 07:30 (UTC)", "Send me the news."]);
+  r = await sch({ edit: { id: news.id, every: "week", time: "07:30" } });
+  assert.deepEqual([r.status, (await r.json()).error], [400, "give days: which days of the week, like [\"mon\", \"thu\"]"]);
+  assert.equal((await sch({ pause: "snope" })).status, 404);
+  assert.equal((await sch({})).status, 400);
+  // Run now: a test run starts at once (a run the owner did not start: what would send waits); its times stay.
+  const before = (await S2.readSchedules(bucket, "u1")).items.find((x) => x.id === news.id).next;
+  r = await (await sch({ run: news.id })).json();
+  assert.equal(r.started, true);
+  const turn = machine.filter((x) => x.path === "/turn").at(-1).body;
+  assert.match(turn.text, /^\(Test run of “Morning briefing”, every weekday at 07:30 \(UTC\): the owner started it now to try it\./);
+  assert.deepEqual([turn.shown, turn.opening, turn.background], ["Test run: “Morning briefing” · every weekday at 07:30 (UTC)", "note", true]);
+  const after = await S2.readSchedules(bucket, "u1");
+  assert.deepEqual([after.items.find((x) => x.id === news.id).next, after.log.at(-1).result, after.log.at(-1).name], [before, "test", "Morning briefing"]);
+  assert.equal((await sch({ run: news.id })).status, 409, "not while Gloopy works");
+});
+
+test("GL74 (2026-11-10) Gloopy's schedule tool, when the owner asks: pause and resume one (kept when its turn ends), change one (kept when the owner's settings allow it, on a card when they say to ask, the card's OK keeping it); it knows when all its background work is paused; the chat's card and its buttons", async () => {
+  const sched = [{ id: "sabc12345", name: "Morning news", when: "every day at 08:00 (UTC)", task: "Send me the news.", tz: "UTC" }, { id: "swake12345", name: "Price check", when: "once, on Tue 10 Nov at 09:00 (UTC)", task: "Check.", tz: "UTC", once: true, self: true }];
+  const job = async (calls, opts = {}) => { const ev = []; const g = scripted([say("", calls), say("Done.")]); const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e), now: () => MON_2130 }, { text: "x", ...GLOOPY, schedules: sched, ...opts }); return { out, ev }; };
+  let { out } = await job([call("schedule", { action: "pause", id: "sabc12345" }, "p1"), call("schedule", { action: "resume", id: "swake12345" }, "p2")]);
+  assert.deepEqual(out.schedulePauses, [{ id: "sabc12345", paused: true }, { id: "swake12345", paused: false }]);
+  ({ out } = await job([call("schedule", { action: "resume", id: "sabc12345" }, "p3")], { permissions: { schedule: "deny" } }));
+  assert.match(out.messages.find((m) => m.tool_call_id === "p3").content, /^not done: the owner's settings never allow repeating schedules/);
+  // A change, allowed: kept when the turn ends.
+  ({ out } = await job([call("schedule", { action: "edit", id: "sabc12345", every: "weekday", time: "07:30" }, "e1")]));
+  assert.deepEqual(out.scheduleEdits.map((x) => [x.id, x.name, x.task, x.spec.every, x.spec.time]), [["sabc12345", "Morning news", "Send me the news.", "weekday", "07:30"]]);
+  assert.equal(out.messages.find((m) => m.tool_call_id === "e1").content, "changed (the owner's settings allow it): Change “Morning news” to run every weekday at 07:30 (UTC). Tell the owner in a line.");
+  // On Ask: a card; its turn ends there.
+  const r2 = await job([call("schedule", { action: "edit", id: "sabc12345", task: "Send me the news and the weather." }, "e2")], { permissions: { schedule: "ask" } });
+  assert.deepEqual([r2.out.approvalRequest.kind, r2.out.approvalRequest.edit, r2.out.approvalRequest.step], ["schedule", { id: "sabc12345", name: "Morning news", task: "Send me the news and the weather." }, "Change “Morning news” with a new task"]);
+  assert.equal(r2.ev.find((e) => e.type === "approval").detail, "Send me the news and the weather.");
+  ({ out } = await job([call("schedule", { action: "edit", id: "sabc12345" }, "e3"), call("schedule", { action: "edit", id: "snope" }, "e4")]));
+  assert.equal(out.messages.find((m) => m.tool_call_id === "e3").content, "error: give what changes: name, task, or the whole when (as for add)");
+  assert.match(out.messages.find((m) => m.tool_call_id === "e4").content, /^error: no schedule has that id/);
+  // The Worker keeps them when the turn ends (as its settings allow), and keeps a change the owner allows on its card.
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const S2 = await import("../src/gloopy-schedules.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  let state = null;
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => ({ fetch: async (req) => (new URL(req.url).pathname === "/state" && state ? Response.json(state) : Response.json({ ok: true })) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  await go("gloopy");
+  const now = Date.now();
+  const sd = await S2.readSchedules(bucket, "u1");
+  const it = S2.addSchedule(sd, SCHED.checkSchedule({ name: "Morning news", task: "Send me the news.", time_zone: "UTC", every: "day", time: "08:00" }, now), now);
+  await S2.writeSchedules(bucket, "u1", "me@x.y", sd);
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const setMeta = (o) => bucket.m.set(metaKey, JSON.stringify({ ...JSON.parse(bucket.m.get(metaKey)), ...o }));
+  const end = async (result) => { setMeta({ status: "running", turn: 5, saved: 4 }); state = { running: false, events: [], next: 0, result: { status: "done", messages: [], summary: "", ...result } }; await go("projects/" + GLOOPY_ID + "/state?since=0"); return S2.readSchedules(bucket, "u1"); };
+  let kept = await end({ schedulePauses: [{ id: it.id, paused: true }], scheduleEdits: [{ id: it.id, name: "Morning briefing", task: "Send me the news.", spec: SCHED.checkSchedule({ name: "Morning briefing", task: "Send me the news.", time_zone: "UTC", every: "weekday", time: "07:30" }, now) }] });
+  assert.deepEqual([kept.items[0].paused, kept.items[0].name, kept.items[0].every], [true, "Morning briefing", "weekday"]);
+  await go("projects/" + GLOOPY_ID + "/permissions", { method: "POST", body: JSON.stringify({ set: { schedule: "ask" } }) });
+  kept = await end({ scheduleEdits: [{ id: it.id, name: "Not kept", task: "x" }] });
+  assert.equal(kept.items[0].name, "Morning briefing", "on Ask, a change is never kept from the machine's word");
+  kept = await end({ approvalRequest: { id: "ap9", kind: "schedule", edit: { id: it.id, name: "Morning briefing", task: "Send me the news and the weather." }, step: "Change “Morning briefing” with a new task" } });
+  assert.deepEqual(JSON.parse(bucket.m.get(metaKey)).pending.edit, { id: it.id, name: "Morning briefing", task: "Send me the news and the weather." });
+  const a = await (await go("projects/" + GLOOPY_ID + "/approve", { method: "POST", body: JSON.stringify({ id: "ap9", decision: "once" }) })).json();
+  assert.equal(a.said, "Allowed: Change “Morning briefing” with a new task");
+  assert.equal((await S2.readSchedules(bucket, "u1")).items[0].task, "Send me the news and the weather.");
+  assert.match(a.project.note, /the owner approved: Change “Morning briefing” with a new task\. It is paused\./);
+  // What Gloopy is told.
+  assert.match(gloopyContext({ memFile: "/m", schedulesPaused: true }), /YOUR BACKGROUND WORK IS PAUSED by the owner: no schedule, wake-up or webhook call runs until they type \/resume\./);
+  assert.match(GLOOPY_SYSTEM, /The owner can type \/schedules to see your schedules \(with Run now and Pause\), \/pause to pause all your background work and \/resume to start it again\./);
+  assert.equal(SCHED.scheduleLine({ id: "s1", name: "n", when: "w", paused: true, nextLocal: "Tue" }), "- s1 · n · w · paused by the owner");
+  // The page: the card, its buttons, kept up to date.
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(ui, /else if \(e\.type === 'schedules'\) \{/);
+  assert.match(ui, /data-sched-run="' \+ esc\(x\.id\) \+ '"' \+ \(S\.running \? ' disabled' : ''\) \+ '>Run now<\/button>/);
+  assert.match(ui, /data-sched-all="' \+ \(d\.paused \? 'resume' : 'pause'\) \+ '">' \+ \(d\.paused \? 'Resume all' : 'Pause all'\)/);
+  assert.match(ui, /if \(r\.data\.started && r\.data\.project\) \{ S\.project = r\.data\.project; S\.running = true; syncEntry\(\); S\.next = 0; startPoll\(\); return draw\(true\); \}/);
+  assert.match(css, /\.cd-sched\{/);
+});

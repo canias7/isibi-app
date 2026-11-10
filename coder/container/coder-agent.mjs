@@ -637,6 +637,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // Gloopy's schedules it stopped in this turn, and the wake-ups it set (the Worker keeps the schedules; it applies these
   // when the turn ends).
   const scheduleRemovals = [], scheduleAdds = [];
+  // Schedules Gloopy changed, paused or set going again when the owner asked (the audit, 2026-11-10; applied when the turn
+  // ends, the changes as the owner's settings allow them there).
+  const scheduleEdits = [], schedulePauses = [];
   // Gloopy's webhooks it set up and stopped in this turn (the Worker keeps them; it applies these when the turn ends).
   const webhookAdds = [], webhookRemovals = [];
   // How many files Gloopy has sent in this turn.
@@ -697,7 +700,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...extra });
 
   while (true) {
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
@@ -1248,12 +1251,55 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // message. A new one waits for the owner's OK on a card (each run uses Grok), and the turn ends there; one stopped
         // is taken off when the turn ends (stopping costs nothing, so it needs no OK).
         const args = c.args || {};
-        const act = ["add", "list", "remove"].includes(args.action) ? args.action : "";
+        const act = ["add", "list", "remove", "edit", "pause", "resume"].includes(args.action) ? args.action : "";
         const mine = (Array.isArray(schedules) ? schedules : []).filter((x) => x && typeof x.id === "string" && x.id);
         const wake = act === "add" && ((args.in_minutes !== undefined && args.in_minutes !== null && args.in_minutes !== "") || !!args.at);
-        emit({ type: "bash", id: c.id, tool: "schedule", verb: wake ? "Will come back" : act === "add" ? "Scheduled" : act === "remove" ? "Stopped" : "Looked at schedules", command: act === "add" ? plain(String(args.name || "")).slice(0, 80) : act === "remove" ? plain(String(args.id || "")).slice(0, 40) : "" });
+        emit({ type: "bash", id: c.id, tool: "schedule", verb: wake ? "Will come back" : act === "add" ? "Scheduled" : act === "remove" ? "Stopped" : act === "edit" ? "Changed a schedule" : act === "pause" ? "Paused a schedule" : act === "resume" ? "Resumed a schedule" : "Looked at schedules", command: act === "add" ? plain(String(args.name || "")).slice(0, 80) : ["remove", "edit", "pause", "resume"].includes(act) ? plain(String(args.id || "")).slice(0, 40) : "" });
         const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
-        if (!act) { no("error: action is add, list or remove"); continue; }
+        if (!act) { no("error: action is add, list, edit, pause, resume or remove"); continue; }
+        // PAUSED, OR GOING AGAIN, WHEN THE OWNER ASKS (the audit, 2026-11-10): applied when the turn ends; going again only
+        // while the owner's settings allow that kind of schedule.
+        if (act === "pause" || act === "resume") {
+          const it = mine.find((x) => x.id === String(args.id || ""));
+          if (!it) { no("error: no schedule has that id (schedule list shows them)"); continue; }
+          if (act === "resume" && (it.once ? perms.wake : perms.schedule) === "deny") { no("not done: the owner's settings never allow " + (it.once ? "wake-ups" : "repeating schedules") + ". Tell the owner it is turned off in Gloopy's settings."); continue; }
+          schedulePauses.push({ id: it.id, paused: act === "pause" });
+          const m = act === "pause" ? "paused: “" + it.name + "” won't run until it is resumed" : "resumed: “" + it.name + "” runs again from now on (" + it.when + ")";
+          emit({ type: "result", id: c.id, code: 0, output: m, label: (act === "pause" ? "Paused “" : "Resumed “") + plain(it.name).slice(0, 60) + "”" });
+          reply(m);
+          continue;
+        }
+        // CHANGED WHEN THE OWNER ASKS: its name, its task, or when it runs (given whole, as for add). As a new one would be:
+        // kept when the owner's settings allow it, asked about on a card when they say to ask, never when they say never.
+        if (act === "edit") {
+          const it = mine.find((x) => x.id === String(args.id || ""));
+          if (!it) { no("error: no schedule has that id (schedule list shows them)"); continue; }
+          const timing = ["every", "time", "days", "day", "hours", "until", "at", "in_minutes"].some((k) => args[k] !== undefined && args[k] !== null && args[k] !== "");
+          let words, spec = null;
+          try {
+            words = checkSchedule({ name: args.name || it.name, task: args.task || it.task, time_zone: it.tz || args.time_zone, in_minutes: 5 }, now());
+            if (timing) spec = checkSchedule({ ...args, name: words.name, task: words.task, time_zone: args.time_zone || it.tz }, now());
+          } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 300)); continue; }
+          if (!timing && words.name === it.name && words.task === it.task) { no("error: give what changes: name, task, or the whole when (as for add)"); continue; }
+          const once = spec ? Number.isFinite(spec.once) : it.once === true;
+          const mode = once ? perms.wake : perms.schedule;
+          if (mode === "deny") { no("not done: the owner's settings never allow " + (once ? "wake-ups" : "repeating schedules") + ". Tell the owner it is turned off in Gloopy's settings."); continue; }
+          const change = { id: it.id, name: words.name, task: words.task, ...(spec ? { spec } : {}) };
+          const step = "Change “" + it.name + "”" + [spec ? " to run " + whenWords(spec) : "", words.name !== it.name ? " (now named “" + words.name + "”)" : "", words.task !== it.task ? " with a new task" : ""].join("");
+          if (mode === "allow") {
+            scheduleEdits.push(change);
+            emit({ type: "result", id: c.id, code: 0, output: step, label: step });
+            reply("changed (the owner's settings allow it): " + step + ". Tell the owner in a line.");
+            continue;
+          }
+          const id = "ap" + Math.random().toString(36).slice(2, 10);
+          emit({ type: "result", id: c.id, code: 0, output: "Waiting for your OK: " + step, label: "Asked you first: " + step });
+          reply("waiting for the owner's OK to: " + step + ". Your turn ends here; their answer comes as the next message.");
+          for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
+          emit({ type: "approval", id, kind: "schedule", step, site: "", url: "", why: "Each run is a message for Gloopy, so it uses Grok.", detail: words.task.slice(0, 600) });
+          approvalRequest = { id, kind: "schedule", edit: change, step, site: "", url: "" };
+          return end("done", { summary: lastSaid || "asked the owner's OK to: " + step });
+        }
         if (act === "list") { const out = mine.length ? mine.map(scheduleLine).join("\n") : "no schedules yet"; emit({ type: "result", id: c.id, code: 0, output: out }); reply(out); continue; }
         if (act === "remove") {
           const it = mine.find((x) => x.id === String(args.id || ""));

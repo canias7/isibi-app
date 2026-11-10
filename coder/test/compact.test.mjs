@@ -182,7 +182,8 @@ test("CD168 the page: Rewind's choices like Claude Code's (the code ones only wh
   assert.match(ui, /const changed = \(S\.project\.commits \|\| \[\]\)\.some\(\(c\) => Number\(c\.turn\) >= turn\);/);
   assert.match(ui, /body = \{ turn, summarize: pick === 'sumfrom' \? 'from' : 'upto', focus \};/);
   assert.match(ui, /if \(\(pick === 'both' \|\| pick === 'chat' \|\| pick === 'sumfrom'\) && said && !S\.draft\) S\.draft = said;/);
-  assert.match(ui, /if \(r\.data\.compacted\) \{ S\.project = r\.data\.project; S\.events = S\.events\.slice\(0, base\)\.concat\(r\.data\.events \|\| \[\]\); syncEntry\(\); return draw\(true\); \}/);
+  // Gloopy's /pause, /resume and /schedules (2026-11-10) are shown the same way.
+  assert.match(ui, /if \(r\.data\.compacted \|\| r\.data\.handled\) \{ S\.project = r\.data\.project; S\.events = S\.events\.slice\(0, base\)\.concat\(r\.data\.events \|\| \[\]\); if \(r\.data\.handled\) \{ S\.sched = null; S\.schedMsg = ''; \} syncEntry\(\); return draw\(true\); \}/);
 });
 
 test("CD214 every summary made between messages names the files its part worked on (read, edited, written, viewed with a command, @-mentioned, or named by an earlier summary), so Coder's next job reads the most recently changed of them again, like Claude Code (\"Right after compaction, Claude Code re-reads up to five of the files Claude has read or edited\"): /compact, a long chat summarized before a job, and Rewind's summaries", async () => {

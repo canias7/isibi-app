@@ -8,6 +8,8 @@
 
 /** At most this many schedules per person, and this many runs a day (UTC) in all, so a schedule can never run up a bill. */
 export const SCHEDULES_MAX = 10, RUNS_PER_DAY = 24;
+/** The most past runs kept in the history (the audit, 2026-11-10). */
+export const LOG_MAX = 30;
 /**
  * WAKE-UPS (owner, 2026-11-09: "just automatically wake up"): a one-time run Gloopy sets for itself, to come back to a
  * job later, is kept at once with no card. At most this many wait at a time, each at least this many minutes ahead.
@@ -174,7 +176,7 @@ export function whenWords(s) {
 /** One of Gloopy's schedules in a line: "- s1a2b3 · Morning news · every weekday at 08:00 (Europe/Lisbon) · next Tue 10 Nov, 08:00 · task: …". */
 export function scheduleLine(x) {
   const s = x && typeof x === "object" ? x : {};
-  return "- " + [String(s.id || ""), String(s.name || ""), String(s.when || ""), s.nextLocal ? "next " + s.nextLocal : "", s.task ? "task: " + String(s.task).replace(/\s+/g, " ").slice(0, 200) : ""].filter(Boolean).join(" · ");
+  return "- " + [String(s.id || ""), String(s.name || ""), String(s.when || ""), s.paused ? "paused by the owner" : s.nextLocal ? "next " + s.nextLocal : "", s.task ? "task: " + String(s.task).replace(/\s+/g, " ").slice(0, 200) : ""].filter(Boolean).join(" · ");
 }
 
 // ── WEBHOOKS: STARTING WORK FROM EVENTS (owner, 2026-11-09: "2"; Grok Bot's routines started by a call to their web

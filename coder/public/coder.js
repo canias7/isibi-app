@@ -641,7 +641,8 @@
       return draw();
     }
     // /compact (like Claude Code's): the summary is made; no job runs.
-    if (r.data.compacted) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); syncEntry(); return draw(true); }
+    // /pause, /resume and /schedules in Gloopy's chat (the audit, 2026-11-10): done by the Worker; no job runs either.
+    if (r.data.compacted || r.data.handled) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); if (r.data.handled) { S.sched = null; S.schedMsg = ''; } syncEntry(); return draw(true); }
     S.project = r.data.project; S.running = true; syncEntry();
     S.next = 0;
     startPoll(); draw(true);
@@ -863,7 +864,7 @@
     // from a run the owner did not start waits 30 minutes for them; the audit, 2026-11-10). A card that expired says so.
     const expiredOf = (i, e) => S.events.slice(i + 1).find((x) => x.type === 'expired' && x.id === e.id) || (Number(e.expires) > 0 && Date.now() > Number(e.expires) ? { text: 'Expired: not answered within 30 minutes. Nothing was done.' } : null);
     const cardOpen = (i, e) => !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user') && !expiredOf(i, e);
-    const until = (i, e) => (cardOpen(i, e) && Number(e.expires) > 0 ? '<p class="cd-card-until">Waits for you until ' + esc(new Date(Number(e.expires)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) + '</p>' : '');
+    const until = (i, e) => (cardOpen(i, e) && Number(e.expires) > 0 ? '<p class="cd-card-until">Waits for you until ' + esc(new Date(Number(e.expires)).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) + '</p>' : '');
     const gone = (i, e) => { const x = !S.events.slice(i + 1).some((y) => y.type === 'user') && expiredOf(i, e); return x ? '<p class="cd-card-expired">' + esc(x.text || 'Expired.') + '</p>' : ''; };
     // Redrawn when the soonest open card's time is up.
     const soon = S.events.map((e, i) => (['approval', 'signin', 'pay', 'handoff'].includes(e.type) && cardOpen(i, e) && Number(e.expires) > 0 ? Number(e.expires) : 0)).filter(Boolean).sort((a, b) => a - b)[0];
@@ -1023,6 +1024,22 @@
           '<span class="cd-secret-l">Key</span>' + (key ? '<code class="cd-hook-v">' + esc(key) + '</code>' : '<button type="button" class="cd-card-no cd-hook-show" data-hook-key="' + esc(e.id) + '">Show key</button>') +
           '<p class="cd-hook-how">Send the key as the header <code>Authorization: Bearer &lt;key&gt;</code>. For a GitHub webhook: the address as the Payload URL, content type application/json, and the key as the Secret.</p>' +
           (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '</div>');
+      }
+      else if (e.type === 'schedules') {
+        // YOUR SCHEDULES (the audit, 2026-11-10; Grok Bot's routines: pause, run once, past runs), as /schedules showed them;
+        // the newest such card stays up to date (S.sched) and has the buttons: Run now, Pause or Resume, Pause all.
+        const newest = !S.events.slice(i + 1).some((x) => x.type === 'schedules');
+        if (newest && !S.sched && !S.schedLoading && S.project) { S.schedLoading = true; call('/projects/' + encodeURIComponent(S.project.id) + '/schedules').then((r) => { S.schedLoading = false; if (r.status === 200 && r.data) { S.sched = { items: r.data.schedules || [], paused: !!r.data.paused, log: r.data.log || [] }; draw(); } }); }
+        const d = newest && S.sched ? S.sched : { items: e.items || [], paused: !!e.paused, log: e.log || [] };
+        const when = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        out.push('<div class="cd-sched"><div class="cd-sched-head"><b>Your schedules</b>' +
+          (newest ? '<button type="button" class="cd-card-no cd-sched-btn" data-sched-all="' + (d.paused ? 'resume' : 'pause') + '">' + (d.paused ? 'Resume all' : 'Pause all') + '</button>' : '') + '</div>' +
+          (d.paused ? '<p class="cd-sched-paused">Paused: no schedule, wake-up or webhook call runs until you resume.</p>' : '') +
+          (d.items.length ? d.items.map((x) => '<div class="cd-sched-row' + (x.paused ? ' is-paused' : '') + '"><div class="cd-sched-t"><b>' + esc(x.name) + '</b><small>' + esc(x.when) + (x.paused ? ' · Paused' : x.nextLocal ? ' · Next: ' + esc(x.nextLocal) : '') + '</small></div>' +
+            (newest ? '<div class="cd-sched-btns"><button type="button" class="cd-card-no cd-sched-btn" data-sched-run="' + esc(x.id) + '"' + (S.running ? ' disabled' : '') + '>Run now</button><button type="button" class="cd-card-no cd-sched-btn" data-sched-' + (x.paused ? 'resume' : 'pause') + '="' + esc(x.id) + '">' + (x.paused ? 'Resume' : 'Pause') + '</button></div>' : '') + '</div>').join('')
+            : '<p class="cd-sched-none">No schedules yet. Ask Gloopy to do something every day or week.</p>') +
+          (d.log.length ? '<div class="cd-sched-log"><small>Recent runs</small>' + d.log.slice(-6).reverse().map((l) => '<div>' + esc(when(l.at)) + ' · ' + esc(l.name) + ' · ' + esc(l.result === 'ran' ? (l.kind === 'event' ? 'called' : 'ran') : l.result === 'test' ? 'test run' : 'skipped' + (l.why ? ': ' + l.why : '')) + '</div>').join('') + '</div>' : '') +
+          (newest && S.schedMsg ? '<p class="cd-secret-err">' + esc(S.schedMsg) + '</p>' : '') + '</div>');
       }
       else if (e.type === 'page') {
         // A PAGE GLOOPY MADE (2026-11-09; Grok Bot's page card, "the page's title and Open"): it opens the latest version;
@@ -1638,6 +1655,21 @@
       cardAnswer(id, 'signin', { code }, 'The code could not be sent.');
     });
     on('[data-signin-take]', 'click', (e) => { S.signTake = e.currentTarget.dataset.signinTake; if (S.web) webTake(); else webOpen(true); });
+    // THE SCHEDULES CARD'S BUTTONS (the audit, 2026-11-10): each answer brings the schedules as they are now; Run now starts
+    // a test run, which the chat then shows as it goes.
+    const schedCall = async (body, btn) => {
+      if (!S.project) return;
+      if (btn) btn.disabled = true;
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/schedules', { method: 'POST', body: JSON.stringify(body) });
+      if (r.status !== 200 || !r.data) { S.schedMsg = (r.data && r.data.error) || 'That could not be done.'; return draw(); }
+      S.schedMsg = ''; S.sched = { items: r.data.schedules || [], paused: !!r.data.paused, log: r.data.log || [] };
+      if (r.data.started && r.data.project) { S.project = r.data.project; S.running = true; syncEntry(); S.next = 0; startPoll(); return draw(true); }
+      draw();
+    };
+    on('[data-sched-run]', 'click', (e) => schedCall({ run: e.currentTarget.dataset.schedRun }, e.currentTarget));
+    on('[data-sched-pause]', 'click', (e) => schedCall({ pause: e.currentTarget.dataset.schedPause }, e.currentTarget));
+    on('[data-sched-resume]', 'click', (e) => schedCall({ resume: e.currentTarget.dataset.schedResume }, e.currentTarget));
+    on('[data-sched-all]', 'click', (e) => schedCall({ paused: e.currentTarget.dataset.schedAll === 'pause' }, e.currentTarget));
     on('#cdSignPass', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = root.querySelector('[data-signin]'); if (b && !b.disabled) b.click(); } });
     on('[data-signin]', 'click', (e) => {
       const id = e.currentTarget.dataset.signin, user = root.querySelector('#cdSignUser'), pass = root.querySelector('#cdSignPass');

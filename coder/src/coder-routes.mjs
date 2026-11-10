@@ -41,14 +41,14 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
-import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent } from "./gloopy-schedules.mjs";
+import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
-import { cleanSchedule, whenLocal, cleanWebhook, HOOK_ID } from "../container/gloopy-schedule.mjs";
+import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
@@ -1402,8 +1402,32 @@ async function gloopyMessage(g) {
     return json({ ok: true, project: next, events: [ev], compacted: true });
   }
   // A SCHEDULED RUN (2026-11-09; src/gloopy-schedules.mjs): started by the every-minute check, its words are the task the
-  // owner approved; the chat shows a line saying which schedule it is, not a message from the owner.
-  const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120), wake: body.scheduled.wake === true, event: body.scheduled.event === true } : null;
+  // owner approved; the chat shows a line saying which schedule it is, not a message from the owner. A test run (`test`:
+  // the owner's "Run now", the audit 2026-11-10) is one too, said to be a try.
+  const sched = body.scheduled && typeof body.scheduled === "object" && typeof body.scheduled.name === "string" ? { name: body.scheduled.name.replace(/\s+/g, " ").slice(0, 60), when: String(body.scheduled.when || "").replace(/\s+/g, " ").slice(0, 120), wake: body.scheduled.wake === true, event: body.scheduled.event === true, test: body.scheduled.test === true } : null;
+  // THE OWNER'S COMMANDS FOR GLOOPY'S BACKGROUND WORK (the audit, 2026-11-10), as /compact is: no job runs. /pause and
+  // /resume (schedules, wake-ups and webhook calls), /schedules (each one, with Run now and Pause, and the last runs).
+  const command = !sched && !pics.images.length && !attached.length ? /^\/(pause|resume|schedules)\s*$/i.exec(text) : null;
+  if (command) {
+    const what = command[1].toLowerCase();
+    const sd = await readSchedules(bucket, uid);
+    let ev;
+    if (what === "schedules") ev = { at: Date.now(), type: "schedules", items: schedulesForTurn(sd), ...(sd.paused ? { paused: true } : {}), log: (sd.log || []).slice(-8) };
+    else if (what === "pause") {
+      pauseAll(sd, true, Date.now());
+      await writeSchedules(bucket, uid, user.email, sd);
+      ev = { at: Date.now(), type: "note", text: "Paused Gloopy's background work: schedules, wake-ups and webhook calls won't run until you type /resume. You can still talk to Gloopy." };
+    } else {
+      const was = !!sd.paused;
+      const skipped = pauseAll(sd, false, Date.now());
+      await writeSchedules(bucket, uid, user.email, sd);
+      const named = [...new Set(skipped)].map((n) => "“" + n + "”" + (skipped.filter((x) => x === n).length > 1 ? " ×" + skipped.filter((x) => x === n).length : ""));
+      ev = { at: Date.now(), type: "note", text: !was ? "Gloopy's background work wasn't paused." : "Gloopy's background work is going again." + (named.length ? " Skipped while paused: " + named.join(", ") + "." : "") };
+    }
+    const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ev].slice(-MAX_EVENTS));
+    return json({ ok: true, project: meta, events: [ev], handled: true });
+  }
   let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
   // A CARD STILL WAITING WHEN A RUN THE OWNER DID NOT START BEGINS (the audit, 2026-11-10; the every-minute check waits
   // for a card up to 30 minutes first): it is over, marked so in the chat, and Gloopy hears it was not answered.
@@ -1453,7 +1477,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", background: !!sched, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", background: !!sched, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1525,16 +1549,36 @@ async function gloopyState(g) {
     // them with no card (2026-11-09).
     const stopped = Array.isArray(s.result.scheduleRemovals) ? s.result.scheduleRemovals.filter((x) => typeof x === "string") : [];
     const wakes = Array.isArray(s.result.scheduleAdds) ? s.result.scheduleAdds : [];
-    if (stopped.length || wakes.length) { const sd = await readSchedules(bucket, uid); sd.items = sd.items.filter((x) => !stopped.includes(x.id)); addFromTurn(sd, wakes, await readPermissions(bucket, uid), Date.now()); await writeSchedules(bucket, uid, user.email, sd); }
+    // Schedules Gloopy paused or set going again, and changed, when the owner asked (the audit, 2026-11-10): a change kept
+    // only as the owner's settings, as kept here, allow it with no card; going again not while they say never.
+    const pauses = Array.isArray(s.result.schedulePauses) ? s.result.schedulePauses.filter((x) => x && typeof x.id === "string").slice(0, 20) : [];
+    const edits = Array.isArray(s.result.scheduleEdits) ? s.result.scheduleEdits.filter((x) => x && typeof x.id === "string").slice(0, 10) : [];
+    if (stopped.length || wakes.length || pauses.length || edits.length) {
+      const sd = await readSchedules(bucket, uid), perms = await readPermissions(bucket, uid), at = Date.now();
+      const modeOf = (once) => (once ? perms.wake : perms.schedule);
+      sd.items = sd.items.filter((x) => !stopped.includes(x.id));
+      addFromTurn(sd, wakes, perms, at);
+      for (const p of pauses) { const it = sd.items.find((x) => !x.event && x.id === p.id); if (it && (p.paused === true || modeOf(Number.isFinite(it.once)) !== "deny")) setPaused(sd, it.id, p.paused === true, at); }
+      for (const e of edits) {
+        const it = sd.items.find((x) => !x.event && x.id === e.id);
+        const spec = e.spec ? cleanSchedule(e.spec) : null;
+        if (!it || modeOf(spec ? Number.isFinite(spec.once) : Number.isFinite(it.once)) !== "allow") continue;
+        try { editSchedule(sd, it.id, { name: String(e.name || ""), task: String(e.task || ""), spec }, at); } catch { /* its time has passed */ }
+      }
+      await writeSchedules(bucket, uid, user.email, sd);
+    }
     // Webhooks Gloopy stopped come off now; the ones it set up are kept when the owner's settings allow them with no card
     // (2026-11-09; checked again here, never as the machine says).
     const hooksOff = Array.isArray(s.result.webhookRemovals) ? s.result.webhookRemovals.filter((x) => typeof x === "string" && HOOK_ID.test(x)) : [];
     for (const h of hooksOff) await removeWebhook(bucket, uid, h);
     const hooksOn = Array.isArray(s.result.webhookAdds) ? s.result.webhookAdds.slice(0, 10) : [];
     if (hooksOn.length && (await readPermissions(bucket, uid)).events === "allow") for (const w of hooksOn) await addWebhook(bucket, uid, user.email, w);
-    const asks = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" ? cleanSchedule(s.result.approvalRequest.schedule) : null;
+    const asks = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" && !s.result.approvalRequest.edit ? cleanSchedule(s.result.approvalRequest.schedule) : null;
+    // A CHANGE TO A SCHEDULE, asked about on a card (the audit, 2026-11-10): which one, its words, and its new times if any.
+    const ed = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" && s.result.approvalRequest.edit && typeof s.result.approvalRequest.edit === "object" ? s.result.approvalRequest.edit : null;
+    const editAsk = ed && typeof ed.id === "string" && /^s[a-z0-9]{4,20}$/.test(ed.id) ? { id: ed.id, name: String(ed.name || "").slice(0, 60), task: String(ed.task || "").slice(0, 2000), ...(ed.spec && cleanSchedule(ed.spec) ? { spec: cleanSchedule(ed.spec) } : {}) } : null;
     const hookAsk = s.result.approvalRequest && s.result.approvalRequest.kind === "webhook" && s.result.approvalRequest.webhook && HOOK_ID.test(String(s.result.approvalRequest.webhook.id || "")) && cleanWebhook(s.result.approvalRequest.webhook) ? { id: s.result.approvalRequest.webhook.id, ...cleanWebhook(s.result.approvalRequest.webhook) } : null;
-    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200), ...(s.result.signinRequest.code === true ? { code: true } : {}) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
+    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(editAsk ? { edit: editAsk } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200), ...(s.result.signinRequest.code === true ? { code: true } : {}) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
     // When the card was raised; in a run the owner did not start, until when it waits for them (the audit, 2026-11-10).
     const want = want0 ? { ...want0, at: Date.now(), ...(meta.bg ? { expires: Date.now() + CARD_TTL_MS } : {}) } : null;
     // A request held for the owner's OK that no card asks about (the turn ended another way first) is let go.
@@ -1618,6 +1662,18 @@ async function gloopyCard(g, action) {
         await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(ev) ? ev : []), { at: Date.now(), type: "hook", id: item.id, name: item.name, task: item.task.slice(0, 300), url: hookAddress(env, item.id) }].slice(-MAX_EVENTS));
         note = "(Note from Gloopy's app, not the owner: the owner allowed the webhook “" + item.name + "”. Its address is " + hookAddress(env, item.id) + "; the owner has it and its key on a card in the chat (you never see the key). Tell them in a line to paste both into the service that should call it.)";
       } else note = "(Note from Gloopy's app, not the owner: the owner allowed the webhook “" + w.name + "”, but it could not be kept (Gloopy has the most webhooks it can have, or its id was taken). Tell the owner.)";
+      said = "Allowed: " + p.step;
+    }
+  } else if (action === "approve" && p.edit) {
+    // A CHANGE TO A SCHEDULE (the audit, 2026-11-10): kept here when the owner allows it; nothing to do on Gloopy's computer.
+    if (body.decision !== "once" && body.decision !== "always") { note = "(Note from Gloopy's app, not the owner: the owner said no to: " + p.step + ". The schedule stays as it was. Don't change it another way.)"; said = "Denied: " + p.step; }
+    else {
+      try {
+        const sd = await readSchedules(bucket, uid);
+        const item = editSchedule(sd, p.edit.id, { name: p.edit.name, task: p.edit.task, spec: p.edit.spec || null }, Date.now());
+        await writeSchedules(bucket, uid, g.user.email, sd);
+        note = "(Note from Gloopy's app, not the owner: the owner approved: " + p.step + ". " + (item.paused ? "It is paused." : "Its next run is " + whenLocal(item.next, item.tz) + " (" + item.tz + ").") + " Tell the owner so in a line.)";
+      } catch (e) { note = "(Note from Gloopy's app, not the owner: the owner approved: " + p.step + ", but it could not be done (" + String((e && e.message) || e).slice(0, 200) + "). Tell the owner.)"; }
       said = "Allowed: " + p.step;
     }
   } else if (action === "approve" && p.schedule) {
@@ -1754,14 +1810,62 @@ async function gloopyCard(g, action) {
 async function gloopySchedules(g) {
   const { request, bucket, uid, user } = g;
   const sd = await readSchedules(bucket, uid);
-  if (request.method === "GET") return json({ ok: true, schedules: schedulesForTurn(sd) });
+  const out = (extra = {}) => json({ ok: true, schedules: schedulesForTurn(sd), paused: !!sd.paused, log: sd.log || [], ...extra });
+  if (request.method === "GET") return out();
   if (request.method !== "POST") return json({ error: "Gloopy has no schedules " + request.method }, 400);
   let body = {}; try { body = await request.json(); } catch { body = {}; }
-  const it = sd.items.find((x) => x.id === String(body.remove || ""));
-  if (!it) return json({ error: "No schedule has that id." }, 404);
-  sd.items = sd.items.filter((x) => x !== it);
-  await writeSchedules(bucket, uid, user.email, sd);
-  return json({ ok: true, removed: it.id, schedules: schedulesForTurn(sd) });
+  const now = Date.now();
+  // ALL OF GLOOPY'S BACKGROUND WORK, paused or going again (the audit, 2026-11-10).
+  if (typeof body.paused === "boolean") {
+    const skipped = pauseAll(sd, body.paused, now);
+    await writeSchedules(bucket, uid, user.email, sd);
+    return out({ skipped });
+  }
+  const one = (key) => sd.items.find((x) => !x.event && x.id === String(body[key] || ""));
+  if (body.remove !== undefined) {
+    const it = one("remove");
+    if (!it) return json({ error: "No schedule has that id." }, 404);
+    sd.items = sd.items.filter((x) => x !== it);
+    await writeSchedules(bucket, uid, user.email, sd);
+    return out({ removed: it.id });
+  }
+  // ONE SCHEDULE paused, or going again (from now on).
+  if (body.pause !== undefined || body.resume !== undefined) {
+    const it = setPaused(sd, String(body.pause !== undefined ? body.pause : body.resume), body.pause !== undefined, now);
+    if (!it) return json({ error: "No schedule has that id." }, 404);
+    await writeSchedules(bucket, uid, user.email, sd);
+    return out(it.gone ? { gone: it.id } : {});
+  }
+  // A SCHEDULE CHANGED by the owner: its name, its task, or when it runs (the same words as Gloopy's schedule tool:
+  // every, time, days, day, hours, until; or at / in_minutes for one time), in its own time zone unless another is given.
+  if (body.edit && typeof body.edit === "object") {
+    const e = body.edit, it = sd.items.find((x) => !x.event && x.id === String(e.id || ""));
+    if (!it) return json({ error: "No schedule has that id." }, 404);
+    const timing = ["every", "time", "days", "day", "hours", "until", "at", "in_minutes"].some((k) => e[k] !== undefined && e[k] !== null && e[k] !== "");
+    const name = typeof e.name === "string" ? e.name : "", task = typeof e.task === "string" ? e.task : "";
+    try {
+      // The words checked as the schedule tool checks them (a name, a task); the times only when they are changed.
+      const words = checkSchedule({ name: name || it.name, task: task || it.task, time_zone: it.tz, in_minutes: 5 }, now);
+      const spec = timing ? checkSchedule({ name: words.name, task: words.task, time_zone: e.time_zone || it.tz, every: e.every, time: e.time, days: e.days, day: e.day, hours: e.hours, until: e.until, at: e.at, in_minutes: e.in_minutes }, now) : null;
+      editSchedule(sd, it.id, { name: words.name, task: words.task, spec }, now);
+    } catch (err) { return json({ error: String((err && err.message) || err).slice(0, 300) }, 400); }
+    await writeSchedules(bucket, uid, user.email, sd);
+    return out({ edited: it.id });
+  }
+  // RUN NOW, to try it (Grok Bot's "Run once"): a run of it at once, said to be a try, as a run the owner did not start
+  // would be (what would buy or send waits for them); its times are unchanged.
+  if (body.run !== undefined) {
+    const it = one("run");
+    if (!it) return json({ error: "No schedule has that id." }, 404);
+    const res = await gloopyMessage({ ...g, request: new Request(g.url.origin + "/api/coder/projects/" + GLOOPY_ID + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: testText(it, now), scheduled: { id: it.id, name: it.name, when: whenWords(it), test: true } }) }) });
+    if (res.status !== 200) return res;
+    const started = await res.json();
+    const sd2 = await readSchedules(bucket, uid);
+    logRun(sd2, sd2.items.find((x) => x.id === it.id) || it, "test", "", now);
+    await writeSchedules(bucket, uid, user.email, sd2);
+    return json({ ok: true, started: true, project: started.project, schedules: schedulesForTurn(sd2), paused: !!sd2.paused, log: sd2.log || [] });
+  }
+  return json({ error: "Give one of: remove, pause, resume, edit, run (a schedule's id), or paused (true or false)." }, 400);
 }
 
 /**
@@ -1932,14 +2036,19 @@ async function gloopyHookCall(request, env, ctx, deps, bucket, hook) {
   if (String(request.headers.get("x-github-event") || "") === "ping") return json({ ok: true, ping: true });
   const now = Date.now();
   const sd = await readSchedules(bucket, uid);
+  // GLOOPY'S BACKGROUND WORK PAUSED by the owner (the audit, 2026-11-10): the call is not run (kept in the history).
+  if (sd.paused) { logRun(sd, { id: hook, name: w.name, event: { hook } }, "skipped", "Gloopy was paused", now); await writeSchedules(bucket, uid, rec.email, sd); return json({ error: "Gloopy is paused: this call was not run.", paused: true }, 503); }
   if (!runsLeft(sd, now)) { await writeSchedules(bucket, uid, rec.email, sd); return no(429, "Gloopy has already run its most scheduled tasks and events for today."); }
   const data = callData(request.headers, raw);
   w.calls++; w.last = now;
   await writeWebhooks(bucket, uid, list);
   const meta = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
-  if (!(meta && meta.status === "running")) {
+  // A card still waiting for the owner (the audit, 2026-11-10): the call waits its turn, as a scheduled run does.
+  const card = meta && meta.pending && typeof meta.pending === "object" ? meta.pending : null;
+  const waitsForCard = !!card && now - Number(card.at || meta.at || 0) < LATE_MS && !(Number(card.expires) > 0 && now > Number(card.expires));
+  if (!(meta && meta.status === "running") && !waitsForCard) {
     const res = await handleCoder(new Request(new URL("/api/coder/projects/" + GLOOPY_ID + "/message", request.url), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: eventText(w.name, w.task, data, now), scheduled: { id: hook, name: w.name, when: "a call to its web address", event: true } }) }), env, ctx, { ...deps, authUser: async () => ({ id: uid, email: String(rec.email || "") }) }).catch(() => null);
-    if (res && res.status === 200) { sd.runs++; await writeSchedules(bucket, uid, rec.email, sd); return json({ ok: true, started: true }); }
+    if (res && res.status === 200) { sd.runs++; logRun(sd, { id: hook, name: w.name, event: { hook } }, "ran", "", now); await writeSchedules(bucket, uid, rec.email, sd); return json({ ok: true, started: true }); }
   }
   // Gloopy is busy (or its computer did not start): the call waits its turn, tried each minute for 30 minutes.
   if (!queueEvent(sd, { hook, name: w.name, task: w.task, data, at: now })) return no(429, "Too many calls are waiting for Gloopy already. Try again in a few minutes.");
