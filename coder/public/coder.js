@@ -1322,10 +1322,12 @@
     const ho = webHandoff();
     return '<div class="cd-web" id="cdWebPanel">' +
       '<div class="cd-web-bar"><span class="cd-web-st ' + st[0] + '"><i></i>' + st[1] + '</span>' +
+        // ITS HELPERS' OWN TABS (2026-11-10: several browsers at once), while they browse: Gloopy's page, or a helper's.
+        (w.lanes && w.lanes.length && !w.control ? '<span class="cd-web-lanes" role="group" aria-label="Whose tab">' + [{ id: 0, title: '' }, ...w.lanes].map((x) => '<button type="button" class="cd-web-lane" data-web-lane="' + x.id + '" aria-pressed="' + ((w.lane || 0) === x.id ? 'true' : 'false') + '"' + (x.title ? ' title="' + esc(x.title) + '"' : '') + '>' + (x.id ? 'Helper ' + x.id : 'Gloopy') + '</button>').join('') + '</span>' : '') +
         '<span class="cd-web-addr" id="cdWebAddr" title="' + esc(w.url || '') + '">' + esc(w.title || '') + (host ? ' · ' + esc(host) : '') + '</span>' +
         (w.paused ? '<button type="button" class="cd-web-mini" id="cdWebResume">Refresh</button>' : '') +
         // MARK A PART OF THE PAGE (dots' annotations): drag over it, then say what about it.
-        (w.shot && !empty ? (w.marking ? '<button type="button" class="cd-web-mini" id="cdWebMarkOff">Cancel marking</button>' : '<button type="button" class="cd-web-mini" id="cdWebMarkOn">Mark a part</button>') : '') +
+        (w.shot && !empty && !w.lane ? (w.marking ? '<button type="button" class="cd-web-mini" id="cdWebMarkOff">Cancel marking</button>' : '<button type="button" class="cd-web-mini" id="cdWebMarkOn">Mark a part</button>') : '') +
         '<button type="button" class="cd-web-x" id="cdWebClose" aria-label="Close the browser view">×</button></div>' +
       '<div class="cd-web-screen' + (w.control ? ' is-you' : '') + (w.marking ? ' is-marking' : '') + '" id="cdWebScreen"' + (w.control ? ' tabindex="0" aria-label="Gloopy’s browser: click to use it, type to type into it"' : '') + '>' +
         // WHERE GLOOPY JUST ACTED (the second docs check, 2026-11-10: Grok Bot's preview shows "clicks, typing,
@@ -1343,12 +1345,12 @@
         (w.chooser ? '<div class="cd-web-tools cd-web-file"><span>The page asks for a file.</span><label class="cd-web-pick">Choose a file<input type="file" id="cdWebFile" hidden></label></div>' : '') : '') +
       // TEACH A TASK (Grok Bot's): do it once while you have control, then name it; Gloopy writes it down as a how-to.
       (w.control && w.taught ? '<div class="cd-web-tools cd-web-note"><input id="cdWebTaskName" class="cd-web-in" type="text" placeholder="What should Gloopy call this task?" autocomplete="off" maxlength="80" value="' + esc(S.webTask || '') + '"><button type="button" class="cd-web-go" id="cdWebTaskSend">Send to Gloopy</button><button type="button" id="cdWebTaskDrop">Discard</button></div>' : '') +
-      '<div class="cd-web-foot">' + (w.msg ? '<p class="cd-web-err">' + esc(w.msg) + '</p>' : w.control && w.teaching ? '<p>Teaching Gloopy: do the task, then press Done. ' + w.teaching.steps + ' step' + (w.teaching.steps === 1 ? '' : 's') + ' so far' + (w.teaching.full ? ' (that’s the most it keeps)' : '') + '. Passwords and card details aren’t kept.</p>' : w.control && w.taught ? '<p>' + w.taught.steps.filter((x) => !/^On https?:/.test(x)).length + ' steps written down. Name the task to send them to Gloopy.</p>' : w.control ? '<p>Click on the page to use it. ' + (ho ? 'Do only this: ' + esc(ho.task) + (/[.!?…]$/.test(ho.task) ? '' : '.') : 'Gloopy sees the page again when you hand it back.') + '</p>' : w.working || S.running ? '<p id="cdWebDid">' + (w.last ? 'Gloopy: ' + esc(w.last.did) : 'You’re watching Gloopy work.') + '</p>' : '<p>Take over to use Gloopy’s browser yourself, then hand it back.</p>') +
+      '<div class="cd-web-foot">' + (w.lane && !w.control ? '<p>Helper ' + w.lane + '’s own tab: you can watch it. Gloopy’s page is the one you can take over.</p></div></div>' : '') + (w.lane && !w.control ? '' : (w.msg ? '<p class="cd-web-err">' + esc(w.msg) + '</p>' : w.control && w.teaching ? '<p>Teaching Gloopy: do the task, then press Done. ' + w.teaching.steps + ' step' + (w.teaching.steps === 1 ? '' : 's') + ' so far' + (w.teaching.full ? ' (that’s the most it keeps)' : '') + '. Passwords and card details aren’t kept.</p>' : w.control && w.taught ? '<p>' + w.taught.steps.filter((x) => !/^On https?:/.test(x)).length + ' steps written down. Name the task to send them to Gloopy.</p>' : w.control ? '<p>Click on the page to use it. ' + (ho ? 'Do only this: ' + esc(ho.task) + (/[.!?…]$/.test(ho.task) ? '' : '.') : 'Gloopy sees the page again when you hand it back.') + '</p>' : w.working || S.running ? '<p id="cdWebDid">' + (w.last ? 'Gloopy: ' + esc(w.last.did) : 'You’re watching Gloopy work.') + '</p>' : '<p>Take over to use Gloopy’s browser yourself, then hand it back.</p>') +
         (w.control && !ho && !w.taught ? (w.teaching ? '<button type="button" class="cd-card-no" id="cdWebTeachOff">Done teaching</button>' : '<button type="button" class="cd-card-no" id="cdWebTeachOn">Teach Gloopy</button>') : '') +
         (w.control ? '<button type="button" class="cd-card-yes" id="cdWebGive">' + (ho ? 'Done, hand it back' : 'Hand it back') + '</button>'
           // TAKING OVER WHILE GLOOPY WORKS stops it first (one press: Stop, then Take over).
           : '<button type="button" class="cd-card-yes" id="cdWebTake"' + (w.none ? ' disabled' : '') + '>' + (w.working || S.running ? 'Stop and take over' : 'Take over') + '</button>') +
-      '</div></div>';
+      '</div></div>');
   }
   // The box you are marking, over the picture.
   function webSelStyle(w) {
@@ -1392,6 +1394,9 @@
     // Gloopy's last step (its words, and where on the page), and a page asking you for a file.
     w.last = d.last && typeof d.last.did === 'string' ? { did: d.last.did.slice(0, 200), box: d.last.box && Number.isFinite(d.last.box.x) ? d.last.box : null } : null;
     w.chooser = !!d.chooser;
+    // Its helpers' tabs: a helper's that closed returns the view to Gloopy's page.
+    w.lanes = Array.isArray(d.lanes) ? d.lanes.filter((x) => x && Number.isInteger(x.id) && x.id > 0).slice(0, 4).map((x) => ({ id: x.id, title: String(x.title || '').slice(0, 120) })) : [];
+    if (w.lane && !w.lanes.some((x) => x.id === w.lane)) { w.lane = 0; w.hash = ''; }
     w.teaching = d.teaching && typeof d.teaching.steps === 'number' ? { steps: d.teaching.steps, full: d.teaching.full === true } : null;
     if (w.asleep || w.off || w.none) { w.shot = ''; w.hash = ''; }
   }
@@ -1414,7 +1419,7 @@
     }
     draw();
   }
-  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught].join('|') : ''; };
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, (w.lanes || []).map((x) => x.id).join(',')].join('|') : ''; };
   // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, each look asks
   // the machine to answer when the page next changes (wait), and the next look starts at once; one look at a time.
   async function webTick() {
@@ -1428,8 +1433,8 @@
     let next = WEB_EVERY_MS;
     if (!S.root.hidden && document.visibilityState === 'visible') {
       const b = webShape();
-      const live = !!w.hash && !w.asleep && !w.off && !w.none && !w.error;
-      const q = [w.hash ? 'since=' + encodeURIComponent(w.hash) : '', live ? 'wait=' + WEB_WAIT_MS : ''].filter(Boolean).join('&');
+      const live = !w.lane && !!w.hash && !w.asleep && !w.off && !w.none && !w.error;
+      const q = [w.hash ? 'since=' + encodeURIComponent(w.hash) : '', live ? 'wait=' + WEB_WAIT_MS : '', w.lane ? 'lane=' + w.lane : ''].filter(Boolean).join('&');
       S.webLooking = true;
       let r;
       try { r = await call(webPath() + (q ? '?' + q : '')); } finally { S.webLooking = false; }
@@ -1444,6 +1449,8 @@
     const w = S.web;
     if (!w) return;
     w.msg = ''; w.touched = Date.now(); w.paused = false;
+    // Taking over is of Gloopy's own page (a helper's tab is only watched).
+    if (w.lane) { w.lane = 0; w.hash = ''; }
     // STOP AND TAKE OVER (the second docs check, 2026-11-10): while Gloopy works, it is stopped first (as Stop does),
     // and you take over once its turn has ended (it ends at its next step).
     if (S.running || w.working) {
@@ -1946,6 +1953,7 @@
     });
     on('#cdViewClose', 'click', () => { S.view = null; draw(); });
     on('#cdGset', 'click', () => { showGloopySettings(); });
+    on('[data-web-lane]', 'click', (e) => { const w = S.web; if (!w || w.control) return; const k = Number(e.currentTarget.dataset.webLane) || 0; if ((w.lane || 0) === k) return; w.lane = k; w.hash = ''; w.shot = ''; w.marking = false; w.touched = Date.now(); w.paused = false; draw(); webTick(); });
     on('#cdView', 'click', (e) => { if (e.target === e.currentTarget) { S.view = null; draw(); } });
     on('[data-sched-pause]', 'click', (e) => schedCall({ pause: e.currentTarget.dataset.schedPause }, e.currentTarget));
     on('[data-resume]', 'click', (e) => { e.currentTarget.disabled = true; send('Carry on with what you were doing when I stopped you.'); });

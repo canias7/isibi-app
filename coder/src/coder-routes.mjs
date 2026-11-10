@@ -2322,7 +2322,9 @@ async function gloopyScreen(g) {
   // Asked with wait (2026-11-10, at most 8 seconds): the machine answers once the page changes.
   const wait = Math.max(0, Math.min(8000, Math.round(Number(url.searchParams.get("wait")) || 0)));
   let r = null;
-  try { r = await call("/gloopy/screen?project=" + id + (since ? "&since=" + since : "") + (wait ? "&wait=" + wait : ""), { method: "GET" }); } catch { r = null; }
+  // A helper's own tab (2026-11-10), to watch: 1 to 4.
+  const lane = Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0)));
+  try { r = await call("/gloopy/screen?project=" + id + (since ? "&since=" + since : "") + (wait ? "&wait=" + wait : "") + (lane ? "&lane=" + lane : ""), { method: "GET" }); } catch { r = null; }
   const out = r && r.ok ? await r.json().catch(() => null) : null;
   return out ? json({ ok: true, ...out }) : json({ error: "Gloopy's computer could not be reached." }, 502);
 }

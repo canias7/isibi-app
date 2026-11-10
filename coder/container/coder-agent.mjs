@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
-import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
+import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
@@ -570,7 +570,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -603,6 +603,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const perms = cleanPermissions(permsIn);
   // THE OWNER'S CHOICE FOR EACH SITE (2026-11-10; gloopy-check.mjs): applied to the browser's steps below.
   const sites = cleanSites(sitesIn);
+  // WHAT THE CHECK AND THE MONITOR TAKE AS THE OWNER'S OWN WORDS: theirs, never a helper's task (Gloopy wrote it): a
+  // helper's run is given them (2026-11-10).
+  const checkConvo = Array.isArray(ownerSaid) ? ownerSaid.filter((t) => typeof t === "string" && t.trim()).map((t) => ({ role: "user", content: t })) : null;
   // THE MONITOR'S RECORD OF THIS RUN (2026-11-10; gloopy-check.mjs gloopyMonitor): each step and the start of its answer.
   const trail = [];
   let sinceReview = 0, reviews = 0;
@@ -1101,7 +1104,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           about = { ...about, sends: stepSends(act, about) };
           if (denied.has(step.slice(0, 300))) { no(noAgain(step)); continue; }
           const g = granted.indexOf(step);
-          let v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules, background });
+          let v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo: checkConvo || convo, rules, background });
           if (v.usage) usage.push(v.usage);
           // The owner's choice for this site, over the check's answer: never over a Never rule, the check's block, a step
           // only the owner may do, or a step they already allowed. Ask first asks before opening the site and before each
@@ -1116,6 +1119,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           }
           const d = decide(v, perms, { background });
           if (d === "deny") { no(notDone(v, step)); continue; }
+          // A HELPER (2026-11-10) only looks things up: a step that would change something, wait for the owner's OK, or be
+          // theirs to do, is Gloopy's to do; the helper says so in its answer.
+          if (asHelper && (d === "ask" || d === "handoff" || (act.action !== "open" && v.kind !== "none"))) { no("not done: a helper only looks things up, and this step " + (d === "handoff" ? "is the owner's own to do" : d === "ask" ? "needs the owner's OK" : "would change something") + " (" + v.why + "). Don't do it another way: stop, and say in your answer exactly which step on which page is needed, so Gloopy can do it."); continue; }
           if (d === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Use handoff to ask the owner to do it in your browser on " + (about.host || "the site") + " (say exactly what to do), or tell them what to do, and stop."); continue; }
           if (d === "ask") {
             const id = "ap" + Math.random().toString(36).slice(2, 10);
@@ -1292,14 +1298,22 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const first = helpersUsed;
         helpersUsed += list.length;
         const left = Math.max(30_000, maxMs - (now() - started) - 30_000);
+        // SEVERAL BROWSERS AT ONCE (the owner, 2026-11-10: "all of it"): each helper browses in a tab of its own (its lane),
+        // side by side, kept to by the same check, the owner's rules, settings and sites, judged by the owner's own words;
+        // it only looks things up. The tabs are closed when the helpers are done.
+        const lanes = deps.browser && typeof deps.browser.lane === "function" && helper.browserTool ? deps.browser : null;
+        const said = ownerWords(checkConvo || convo);
         const runs = await Promise.all(list.map((t, k) => {
           const tag = "h" + (first + k + 1) + "-";
-          // Only a helper's steps reach the chat, under its name; its own opening, words and answer go to Gloopy.
-          const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}) }); };
-          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt }, { text: t.task, system: helper.system, tools: helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", model, effort, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
+          // Only a helper's steps reach the chat, under its name (a pause of its monitor too); its own opening, words and
+          // answer go to Gloopy.
+          const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}) }); else if (e && e.type === "paused") emit({ ...e, why: "Its helper “" + t.name + "”: " + String(e.why || "") }); };
+          const lane = lanes ? lanes.lane((k % HELPERS_MAX) + 1) : null;
+          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, ...(lane ? { browser: lane } : {}) }, { text: t.task, system: helper.system, tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, rules, permissions: perms, sites, background, monitor, model, effort, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
             .catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) }));
         }));
         for (const r of runs) for (const u of r.usage || []) usage.push(u);
+        if (lanes && typeof lanes.closeLanes === "function") await lanes.closeLanes().catch(() => {});
         const answerOf = (r) => { const last = (r.messages || []).filter((m) => m && m.role === "assistant" && typeof m.content === "string" && m.content.trim()).at(-1); return last ? last.content.trim() : String(r.summary || "").trim(); };
         const report = runs.map((r, k) => "HELPER “" + list[k].name + "” (" + ({ done: "finished", rounds: "stopped at its step limit", time: "ran out of time", stopped: "stopped by the owner", error: "failed" }[r.status] || r.status) + "):\n" + (answerOf(r) || "(no answer)").slice(0, HELPER_ANSWER_MAX)).join("\n\n");
         emit({ type: "result", id: c.id, code: 0, output: report.slice(0, MAX_OUTPUT_CHARS), label: "Helpers finished: " + list.map((t) => t.name).join(", ").slice(0, 200) });
@@ -1639,7 +1653,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       }
       if (reviews < MONITOR_MAX && (sinceReview >= MONITOR_EVERY || refused)) {
         reviews++; sinceReview = 0;
-        const w = await gloopyMonitor({ send: deps.send, model, convo, rules, trail, background });
+        const w = await gloopyMonitor({ send: deps.send, model, convo: checkConvo || convo, rules, trail, background });
         if (w.usage) usage.push(w.usage);
         if (w.verdict === "pause") {
           emit({ type: "paused", why: w.why });

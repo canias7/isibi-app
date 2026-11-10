@@ -92,6 +92,8 @@ export const OWNER_INPUTS = Object.freeze(["click", "type", "key", "scroll", "ba
 export const CHOOSER_MS = 2 * 60 * 1000;
 /** The live view's frames (2026-11-10): at most one every CAST_GAP_MS; stopped CAST_IDLE_MS after the last look; a look waits at most CAST_WAIT_MS for the next. */
 export const CAST_GAP_MS = 150, CAST_IDLE_MS = 15_000, CAST_WAIT_MS = 8000;
+/** Gloopy's helpers' own tabs (2026-11-10): at most LANES_MAX; one is closed LANE_IDLE_MS after its last step. */
+export const LANES_MAX = 4, LANE_IDLE_MS = 5 * 60 * 1000;
 /** TEACH A TASK (Grok Bot's: "records visible computer interaction for up to ten minutes"): at most this long, and steps. */
 export const TEACH_MS = 10 * 60 * 1000, TEACH_STEPS = 100;
 
@@ -304,15 +306,37 @@ export async function serve(dir) {
   // (beforeunload) are answered OK only for a step asked with confirm: true (`armed`, checked first) or the owner's own
   // input while they have control (`ownerHand`: their own click), else Cancel; a question that wants typed text (prompt)
   // is always cancelled. Each is said in the step's answer.
-  let dialogs = [], armed = false, ownerHand = false, uploading = false, fileAsked = false;
-  // DOWNLOADS (fix 2): the ones going, the ones done (waiting to be handed over) and what to say about the others.
-  const dl = { going: new Map(), ready: [], notes: [] };
+  let ownerHand = false;
+  // GLOOPY'S HELPERS' OWN TABS (the owner, 2026-11-10: "all of it"; several browsers at once): a lane is a tab with its own
+  // page and step-by-step state (the page's questions, a step armed to answer OK, a file being given, a page asking for a
+  // file, its downloads, its queue). Lane 0 is Gloopy's own page, the one the owner watches and takes over; a helper's
+  // lane is opened at its first step and closed when the helpers are done (or LANE_IDLE_MS after its last step). All the
+  // lanes are tabs of this one browser, so the owner's sign-ins are theirs too.
+  // DOWNLOADS (fix 2), per lane: the ones going, the ones done (waiting to be handed over) and what to say about the others.
+  const laneState = () => ({ dialogs: [], armed: false, uploading: false, fileAsked: false, dl: { going: new Map(), ready: [], notes: [] }, busy: Promise.resolve(), last: Date.now() });
+  const L0 = Object.assign(laneState(), { id: 0 });
+  Object.defineProperty(L0, "page", { get: () => page, set: (p) => { page = p; } });
+  const lanes = new Map();
+  const laneOf = (p) => (p === page ? L0 : [...lanes.values()].find((L) => L.page === p) || null);
+  const laneOpen = (k) => {
+    const L = Object.assign(laneState(), { id: k, page: null, pages: new Set() });
+    L.ready = ctx.newPage().then((p) => { watch(p); L.page = p; L.pages.add(p); });
+    L.ready.catch(() => {});
+    lanes.set(k, L);
+    return L;
+  };
+  const laneDrop = async (k) => { const L = lanes.get(k); lanes.delete(k); if (!L) return; await L.ready.catch(() => {}); for (const p of L.pages) await p.close().catch(() => {}); };
+  const lanesClose = async () => { const n = lanes.size; for (const k of [...lanes.keys()]) await laneDrop(k); return { ok: true, closed: n }; };
+  // The helpers' tabs, for the owner's live view: which there are, and where each is.
+  const lanesNow = () => Promise.all([...lanes.values()].filter((L) => L.page && !L.page.isClosed()).map(async (L) => ({ id: L.id, url: L.page.url(), title: await L.page.title().catch(() => "") })));
+  const dl = L0.dl;
   const sizeNow = () => {
     let n = 0;
     try { for (const f of readdirSync(dlDir)) { try { n += lstatSync(join(dlDir, f)).size; } catch { /* gone */ } } } catch { /* no folder */ }
-    return n - dl.ready.reduce((sum, r) => sum + r.size, 0);
+    return n - [L0, ...lanes.values()].reduce((sum, L) => sum + L.dl.ready.reduce((k, r) => k + r.size, 0), 0);
   };
   const onDownload = (d) => {
+    const dl = (laneOf(d.page()) || L0).dl;
     const name = fileNameOf(d.suggestedFilename());
     const job = (async () => {
       let over = false;
@@ -329,20 +353,26 @@ export async function serve(dir) {
     })();
     dl.going.set(job, name);
   };
+  const watched = new WeakSet();
   const watch = (p) => {
+    if (watched.has(p)) return;
+    watched.add(p);
     // Its brands, as a page reads them, said as ordinary Chrome's too (the user agent and the header are the context's).
     if (name) ctx.newCDPSession(p).then((s) => s.send("Emulation.setUserAgentOverride", { userAgent: name.userAgent, userAgentMetadata: name.metadata })).catch(() => {});
     p.on("dialog", (d) => {
       const type = d.type(), message = String(d.message()).replace(/\s+/g, " ").trim().slice(0, 300);
-      const yes = type === "alert" || (["confirm", "beforeunload"].includes(type) && (armed || ownerHand));
-      dialogs.push({ type, message, yes });
+      const L = laneOf(p) || L0;
+      const yes = type === "alert" || (["confirm", "beforeunload"].includes(type) && (L.armed || (L === L0 && ownerHand)));
+      L.dialogs.push({ type, message, yes });
       (yes ? d.accept() : d.dismiss()).catch(() => {});
     });
     p.on("download", onDownload);
     // A PAGE ASKING FOR A FILE is always caught here (found 2026-11-10: one left to Chromium opens a box no one can see in
     // a headless browser, and blocks the next): the owner's own click gets a file prompt in their live view; Gloopy's
     // upload step gives its file; any other is said in the step's answer.
-    p.on("filechooser", (fc) => { if (ownerHand) chooser = { fc, at: Date.now(), multiple: fc.isMultiple() }; else if (!uploading) fileAsked = true; });
+    p.on("filechooser", (fc) => { const L = laneOf(p) || L0; if (ownerHand && L === L0) chooser = { fc, at: Date.now(), multiple: fc.isMultiple() }; else if (!L.uploading) L.fileAsked = true; });
+    // A link that opens a new tab: that tab is its lane's page from then on (Gloopy's own, or a helper's).
+    p.on("popup", (np) => { watch(np); const L = laneOf(p); if (L) { L.page = np; if (L.pages) L.pages.add(np); } });
     // WHETHER THE PAGE CAME FROM A PLAIN ADDRESS (a GET), for the owner's Reload: a page a form sent (an order's "thank
     // you") is never reloaded by sending the form again (found in the live test, 2026-11-10: Playwright's reload sends it
     // again without asking, where a browser asks "Confirm Form Resubmission"). Restored from history, it isn't known.
@@ -351,12 +381,12 @@ export async function serve(dir) {
   };
   const navAsked = new WeakMap(), plainPage = new WeakMap();
   ctx.pages().forEach(watch);
-  // A link that opens a new tab: the new tab is the page from then on.
-  ctx.on("page", (p) => { watch(p); page = p; });
-  const settle = async () => {
-    await page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
-    await page.waitForLoadState("networkidle", { timeout: 2500 }).catch(() => {});
-    await page.waitForTimeout(SETTLE_MS);
+  // Every new tab is watched; one a link opened belongs to the lane it was opened from (see watch).
+  ctx.on("page", (p) => watch(p));
+  const settle = async (L = L0) => {
+    await L.page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
+    await L.page.waitForLoadState("networkidle", { timeout: 2500 }).catch(() => {});
+    await L.page.waitForTimeout(SETTLE_MS);
   };
   // What is in the page's password fields and payment card fields now, in every frame (to blank it out of what is
   // reported), and the card numbers this browser typed (blanked wherever they show, for as long as it runs).
@@ -364,9 +394,9 @@ export async function serve(dir) {
   // The codes the owner typed on the sign-in card (the audit, 2026-11-10): blanked as a card's few digits are, wherever a
   // field shows one again (a page that asks again with the code still in its box is a new page, not marked).
   const typedCodes = new Set();
-  const secrets = async () => {
+  const secrets = async (L = L0) => {
     const passwords = [], cards = [...typedCards, ...typedCodes];
-    for (const f of page.frames()) {
+    for (const f of L.page.frames()) {
       try {
         const v = await f.evaluate((sel) => ({ p: [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean), c: [...document.querySelectorAll(sel)].map((i) => i.value).filter(Boolean) }), CARD_FIELDS);
         passwords.push(...v.p); cards.push(...v.c);
@@ -376,11 +406,11 @@ export async function serve(dir) {
   };
   // MASKED IN EACH SCREENSHOT THE AI GETS (the owner's live view shows the page as it is): the card fields of every frame,
   // and any text that shows what is in them (a card picture beside the fields; a number however it is spaced).
-  const cardMasks = (values) => {
+  const cardMasks = (values, L = L0) => {
     const nums = [], shorts = new Set();
     for (const v of new Set(values)) { const d = v.replace(/\D/g, ""); if (d.length >= 12) nums.push(new RegExp(d.split("").join("[\\s-]?"))); else if (v.trim()) shorts.add(v.trim()); }
     const out = [];
-    for (const f of page.frames()) {
+    for (const f of L.page.frames()) {
       if (f.isDetached()) continue;
       out.push(f.locator(CARD_FIELDS));
       for (const re of nums) out.push(f.getByText(re));
@@ -389,29 +419,30 @@ export async function serve(dir) {
     return out;
   };
   // What the page asked during a step, in words (the site's own words quoted: data, never instructions).
-  const asked = () => dialogs.splice(0).map((g) => {
+  const asked = (L = L0) => L.dialogs.splice(0).map((g) => {
     const m = g.message ? " " + quote(g.message, 200) : "";
     if (g.type === "alert") return "The page showed a message" + m + ", closed with OK.";
     if (g.type === "prompt") return "The page asked for text" + m + "; it was cancelled (you can't answer those: tell the owner if it matters).";
     if (g.type === "beforeunload") return g.yes ? "The page asked whether to leave it (changes may not be saved); it was left." : "The page asked whether to leave it (changes may not be saved); it stayed. To leave anyway, do the step again with confirm: true.";
     return g.yes ? "The page asked" + m + " and it was answered OK." : "The page asked" + m + " and it was answered Cancel, so that most likely did nothing. If the owner wants it done, do the same step again with confirm: true (it is checked first).";
   });
-  const report = async (did, { picture = null } = {}) => {
+  const report = async (did, { picture = null } = {}, L = L0) => {
+    const page = L.page;
     const title = await page.title().catch(() => "");
     let outline = await page.locator("body").ariaSnapshot({ mode: "ai", timeout: 10000 }).catch((e) => "(the page's outline could not be read: " + plainError(e, {}) + ")");
-    const hide = await secrets();
+    const hide = await secrets(L);
     outline = redactCards(redactPasswords(outline, hide.passwords), hide.cards);
     let cut = "";
     if (outline.length > OUTLINE_MAX) { outline = outline.slice(0, OUTLINE_MAX); cut = "\n[the outline goes on past " + OUTLINE_MAX.toLocaleString("en-US") + " characters; the screenshot shows what is in view: scroll and look to see more]"; }
-    const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards), maskColor: "#9ca3af" }).catch(() => null);
-    const said = asked().map((x) => "\n" + x).join("") + (fileAsked ? "\nThe page asked for a file: to give it one from your work folder, use upload (path, and ref: its file field or upload button)." : "");
-    fileAsked = false;
+    const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards, L), maskColor: "#9ca3af" }).catch(() => null);
+    const said = asked(L).map((x) => "\n" + x).join("") + (L.fileAsked ? "\nThe page asked for a file: to give it one from your work folder, use upload (path, and ref: its file field or upload button)." : "");
+    L.fileAsked = false;
     // Blanked in all of it, what was done too (a step's words name an element, never what is typed in it, but never trust that alone).
     const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
     // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
     let file = null;
     if (picture) {
-      const take = (o) => page.screenshot({ fullPage: !!picture.full, timeout: 20000, mask: cardMasks(hide.cards), maskColor: "#9ca3af", ...o });
+      const take = (o) => page.screenshot({ fullPage: !!picture.full, timeout: 20000, mask: cardMasks(hide.cards, L), maskColor: "#9ca3af", ...o });
       let buf = await take({ type: "png" }), type = "png";
       if (buf.length > SHOT_FILE_MAX) { buf = await take({ type: "jpeg", quality: 80 }); type = "jpeg"; }
       if (buf.length > SHOT_FILE_MAX) throw new Error("the whole page is too long for one screenshot: take one of what is in view (without full), scrolling between them");
@@ -421,7 +452,8 @@ export async function serve(dir) {
   };
   // DOWNLOADS HANDED OVER (fix 2): each one done, as base64 (then gone from here), and what to say about the others. A
   // step from a card (`keep`) hands over none: they wait for the next step (Coder's service asks at the next turn's start).
-  const handOver = async (keep = false) => {
+  const handOver = async (keep = false, L = L0) => {
+    const dl = L.dl;
     const notes = dl.notes.splice(0);
     for (const name of dl.going.values()) notes.push(quote(name) + " is still downloading: it goes in your work folder when it is done (at your next step)");
     const downloads = [];
@@ -462,7 +494,7 @@ export async function serve(dir) {
     if (names.length !== 1) throw new Error("that file is no longer ready to upload (it waited over a day): upload it again (give its path)");
     return { path: join(upDir, id, names[0]), name: names[0] };
   };
-  const target = (ref) => page.locator("aria-ref=" + ref);
+  const target = (ref, L = L0) => L.page.locator("aria-ref=" + ref);
   // WHAT A FORM HOLDS NOW (the second docs check, 2026-11-10: dots' review "checks who will receive it and what the
   // message contains"; Grok Bot's card shows an action's inputs): the filled-in fields of the form the element is in (or
   // its dialog, or the nearest group of fields around it), for the check and the owner's card. Never a password or a
@@ -498,11 +530,11 @@ export async function serve(dir) {
     }
     return out;
   };
-  const formOf = async (ref) => {
+  const formOf = async (ref, L = L0) => {
     let raw = [];
-    try { raw = await (ref ? target(ref) : page.locator(":focus").first()).evaluate(FORM_JS, CARD_FIELDS, { timeout: ref ? 5000 : 1000 }); } catch { raw = []; }
+    try { raw = await (ref ? target(ref, L) : L.page.locator(":focus").first()).evaluate(FORM_JS, CARD_FIELDS, { timeout: ref ? 5000 : 1000 }); } catch { raw = []; }
     if (!Array.isArray(raw) || !raw.length) return [];
-    const hide = await secrets();
+    const hide = await secrets(L);
     return raw.map((f) => ({ label: redactCards(redactPasswords(String(f.label || ""), hide.passwords), hide.cards), value: redactCards(redactPasswords(String(f.value || ""), hide.passwords), hide.cards) }));
   };
   // GLOOPY'S LAST STEP, FOR THE OWNER'S LIVE VIEW (the second docs check: Grok Bot's preview shows "clicks, typing,
@@ -604,8 +636,8 @@ export async function serve(dir) {
   // into a label types into its field). `card`: which part of a payment card a field is for (number, cvc, exp, month,
   // year, name), or "".
   // A number no longer on the page fails at once (not after the 8 seconds a wait would take).
-  const about = async (ref) => { if (!(await target(ref).count().catch(() => 0))) throw new Error("no element for that number: " + ref); return aboutOf(ref); };
-  const aboutOf = (ref) => target(ref).evaluate((n) => {
+  const about = async (ref, L = L0) => { if (!(await target(ref, L).count().catch(() => 0))) throw new Error("no element for that number: " + ref); return aboutOf(ref, L); };
+  const aboutOf = (ref, L = L0) => target(ref, L).evaluate((n) => {
     const c = n instanceof HTMLLabelElement && n.control ? n.control : n;
     const field = (c instanceof HTMLInputElement && !/^(submit|button|reset|image)$/i.test(c.type)) || c instanceof HTMLTextAreaElement || c instanceof HTMLSelectElement;
     const labels = c.labels ? [...c.labels].map((l) => l.innerText).join(" ") : "";
@@ -638,76 +670,78 @@ export async function serve(dir) {
   const siteOf = (origin) => { try { const u = new URL(origin); return /^https?:$/.test(u.protocol) ? u.host : ""; } catch { return ""; } };
   const quote = (t, max = 60) => "“" + String(t).replace(/\s+/g, " ").trim().slice(0, max) + (String(t).length > max ? "…" : "") + "”";
   // One of the AI's steps, done on the page.
-  const step = async (ask, el, file) => {
+  const step = async (ask, el, file, L = L0) => {
+    const page = L.page, target_ = (ref) => target(ref, L);
     if (ask.action === "open") await page.goto(ask.url, { waitUntil: "domcontentloaded", timeout: 30000 });
-    else if (ask.action === "click") await target(ask.ref).click({ timeout: 8000 });
+    else if (ask.action === "click") await target_(ask.ref).click({ timeout: 8000 });
     else if (ask.action === "type") {
       if (el.password) throw new Error(PASSWORD_REFUSED);
       if (["number", "cvc", "exp"].includes(el.card)) throw new Error(CARD_REFUSED);
-      await target(ask.ref).fill(ask.text, { timeout: 8000 });
-      if (ask.submit) await target(ask.ref).press("Enter", { timeout: 8000 });
+      await target_(ask.ref).fill(ask.text, { timeout: 8000 });
+      if (ask.submit) await target_(ask.ref).press("Enter", { timeout: 8000 });
     } else if (ask.action === "press") await page.keyboard.press(ask.key);
-    else if (ask.action === "select") await target(ask.ref).selectOption({ label: ask.option }, { timeout: 8000 }).catch(() => target(ask.ref).selectOption(ask.option, { timeout: 8000 }));
+    else if (ask.action === "select") await target_(ask.ref).selectOption({ label: ask.option }, { timeout: 8000 }).catch(() => target_(ask.ref).selectOption(ask.option, { timeout: 8000 }));
     else if (ask.action === "scroll") await page.mouse.wheel(0, ask.direction === "up" ? -700 : 700);
     else if (ask.action === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 20000 });
     else if (ask.action === "upload") {
       // A page's file field takes the file at once; a button that opens a file chooser is clicked, and the chooser given it.
-      uploading = true;
+      L.uploading = true;
       try {
-        if (el && el.tag === "input" && el.type === "file") await target(ask.ref).setInputFiles(file.path, { timeout: 8000 });
+        if (el && el.tag === "input" && el.type === "file") await target_(ask.ref).setInputFiles(file.path, { timeout: 8000 });
         else {
           const asked = page.waitForEvent("filechooser", { timeout: 8000 });
           asked.catch(() => {});
-          await target(ask.ref).click({ timeout: 8000 });
+          await target_(ask.ref).click({ timeout: 8000 });
           const fc = await asked.catch(() => null);
           if (!fc) throw new Error("that did not open a file chooser: give the page's file field or its upload button (look again)");
           await fc.setFiles(file.path);
         }
-      } finally { uploading = false; }
-      if (ask.submit_ref) await target(ask.submit_ref).click({ timeout: 8000 });
+      } finally { L.uploading = false; }
+      if (ask.submit_ref) await target_(ask.submit_ref).click({ timeout: 8000 });
       // Kept (STAGED_MS): the page reads the file only when it sends it (found 2026-11-10: gone at once, the form failed).
     }
   };
-  const run = async (ask) => {
+  const run = async (ask, L = L0) => {
     const t0 = Date.now();
-    const el = ask.ref ? await about(ask.ref) : null;
+    const el = ask.ref ? await about(ask.ref, L) : null;
     // An element of no name is said by its kind, never by its number ("Clicked the checkbox", not "Clicked f10e11").
     const kind = (e) => (e.tag === "a" ? "the link" : e.tag === "button" || e.role === "button" || /^(submit|button|reset|image)$/.test(e.type) ? "the button" : e.type === "checkbox" ? "the checkbox" : e.type === "radio" ? "the choice" : e.tag === "select" ? "the list" : /^(input|textarea)$/.test(e.tag) ? "the field" : e.tag === "img" ? "the picture" : "");
     const it = el && el.name ? quote(el.name) : (el && kind(el)) || ask.ref;
     const file = ask.action === "upload" ? await stagedFile(ask.staged) : null;
     let did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back", screenshot: "Took a screenshot of " + (ask.full ? "the whole page" : "what is in view"), upload: "Uploaded " + quote(file ? file.name : "") + " with " + it }[ask.action];
-    if (ask.action === "upload" && ask.submit_ref) { const b = await about(ask.submit_ref); did += " and clicked " + (b && b.name ? quote(b.name) : ask.submit_ref); }
-    dialogs = [];
-    fileAsked = false;
+    if (ask.action === "upload" && ask.submit_ref) { const b = await about(ask.submit_ref, L); did += " and clicked " + (b && b.name ? quote(b.name) : ask.submit_ref); }
+    L.dialogs = [];
+    L.fileAsked = false;
     // Where the step acts, for the owner's live view (before it acts: a click may take the element away).
-    const box = ask.ref ? await target(ask.ref).boundingBox({ timeout: 2000 }).catch(() => null) : null;
+    const box = ask.ref && L === L0 ? await target(ask.ref, L).boundingBox({ timeout: 2000 }).catch(() => null) : null;
     // Armed through the step and the wait after it (a page may ask a moment after the click).
-    armed = ask.confirm === true;
+    L.armed = ask.confirm === true;
     try {
-      try { await step(ask, el, file); } catch (e) {
+      try { await step(ask, el, file, L); } catch (e) {
         // A file's own address (a PDF, an attachment): the browser downloads it instead of showing a page (found
         // 2026-11-10: the step failed with "Download is starting", though the file came).
         if (ask.action === "open" && /Download is starting/.test(String((e && e.message) || e))) did = "Opened " + ask.url + ": it is a file, so the browser downloaded it (the page is as it was)";
         // "Leave this page?" answered Cancel stops the page from going: that is the step's answer, not an error.
-        else if (dialogs.some((g) => g.type === "beforeunload" && !g.yes)) did = "Stayed on the page (it asked whether to leave it)";
+        else if (L.dialogs.some((g) => g.type === "beforeunload" && !g.yes)) did = "Stayed on the page (it asked whether to leave it)";
         else throw e;
       }
-      await settle();
-    } finally { armed = false; }
-    if (ask.action !== "look" && ask.action !== "screenshot") lastAct = { at: Date.now(), did, ...(box ? { box: { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) } } : {}) };
+      await settle(L);
+    } finally { L.armed = false; }
+    if (L === L0 && ask.action !== "look" && ask.action !== "screenshot") lastAct = { at: Date.now(), did, ...(box ? { box: { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) } } : {}) };
     // A download the step started: waited for a while (the step's answer comes within its time all the same).
-    if (dl.going.size) await Promise.race([Promise.allSettled([...dl.going.keys()]), new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(DOWNLOAD_WAIT_MS, 28_000 - (Date.now() - t0)))))]);
-    const out = await report(did, { picture: ask.action === "screenshot" ? { full: ask.full } : null });
-    return { ...out, ...(await handOver(ask.keep === true)) };
+    if (L.dl.going.size) await Promise.race([Promise.allSettled([...L.dl.going.keys()]), new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(DOWNLOAD_WAIT_MS, 28_000 - (Date.now() - t0)))))]);
+    const out = await report(did, { picture: ask.action === "screenshot" ? { full: ask.full } : null }, L);
+    return { ...out, ...(await handOver(ask.keep === true, L)) };
   };
   // THE SERVICE'S OWN: what an element is (none: the one with the focus), and where the page is.
-  const describe = async (x) => {
+  const describe = async (x, L = L0) => {
+    const page = L.page;
     const ref = x.ref ? needRef(x) : "";
-    const el = ref ? await about(ref) : await page.evaluate(() => { const n = document.activeElement; return n && n !== document.body ? { name: String(n.getAttribute("aria-label") || n.innerText || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 120), tag: n.tagName.toLowerCase(), type: String(n.getAttribute("type") || "").toLowerCase(), role: String(n.getAttribute("role") || ""), password: n instanceof HTMLInputElement && n.type === "password", form: !!(n.form || n.closest("form")), formAction: String((n.form && n.form.action) || ""), href: String(n.href || "") } : null; });
+    const el = ref ? await about(ref, L) : await page.evaluate(() => { const n = document.activeElement; return n && n !== document.body ? { name: String(n.getAttribute("aria-label") || n.innerText || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 120), tag: n.tagName.toLowerCase(), type: String(n.getAttribute("type") || "").toLowerCase(), role: String(n.getAttribute("role") || ""), password: n instanceof HTMLInputElement && n.type === "password", form: !!(n.form || n.closest("form")), formAction: String((n.form && n.form.action) || ""), href: String(n.href || "") } : null; });
     let host = "";
     try { host = new URL(page.url()).host; } catch { host = ""; }
     // host: the page's; frameHost: the site of the element itself ("" for none: a frame with no web address of its own).
-    const fields = el && (el.form || ref) ? await formOf(ref) : [];
+    const fields = el && (el.form || ref) ? await formOf(ref, L) : [];
     return { element: el, url: page.url(), host, frameHost: el && ref ? siteOf(el.origin) : host, title: await page.title().catch(() => ""), ...(fields.length ? { fields } : {}) };
   };
   // THE OWNER'S SIGN-IN, from the private form: typed into the page here, then sent; never reported back.
@@ -850,6 +884,18 @@ export async function serve(dir) {
   // next frame (at most CAST_WAIT_MS): near-video while the page moves, one answer every few seconds while it doesn't.
   // A moment when no picture can be taken (a page being loaded) gives none.
   const screen = async (x) => {
+    // A HELPER'S TAB (2026-11-10), for the owner to watch (it is never theirs to use): its page, as it is now.
+    const others = await lanesNow();
+    const lane = x && Number.isInteger(x.lane) && x.lane > 0 ? x.lane : 0;
+    if (lane) {
+      const L = lanes.get(lane);
+      if (!L || !L.page || L.page.isClosed()) return { off: true, lane, lanes: others };
+      const where = { url: L.page.url(), title: await L.page.title().catch(() => ""), lane, lanes: others };
+      const shot = await L.page.screenshot({ type: "jpeg", quality: 60, timeout: 5000 }).catch(() => null);
+      if (!shot) return { ...where, same: true };
+      const hash = createHash("sha1").update(shot).digest("hex").slice(0, 16);
+      return x.since === hash ? { ...where, same: true, hash } : { ...where, hash, shot: shot.toString("base64"), w: VIEW.width, h: VIEW.height };
+    }
     const wait = Math.max(0, Math.min(CAST_WAIT_MS, Number(x && x.wait) || 0));
     if (wait) {
       try { await castOn(); } catch { /* a screenshot, as before */ }
@@ -857,7 +903,7 @@ export async function serve(dir) {
     }
     const last = lastAct && Date.now() - lastAct.at < 20_000 ? { did: lastAct.did, ...(lastAct.box ? { box: lastAct.box } : {}), ago: Date.now() - lastAct.at } : null;
     if (chooser && Date.now() - chooser.at > CHOOSER_MS) chooser = null;
-    const where = { url: page.url(), title: await page.title().catch(() => ""), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}) };
+    const where = { url: page.url(), title: await page.title().catch(() => ""), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}), ...(others.length ? { lanes: others } : {}) };
     if (wait && newest.from === "cast" && newest.page === page && newest.hash) return x.since === newest.hash ? { ...where, same: true, hash: newest.hash } : { ...where, hash: newest.hash, shot: newest.shot, w: VIEW.width, h: VIEW.height };
     const shot = await page.screenshot({ type: "jpeg", quality: 60, timeout: 5000 }).catch(() => null);
     if (!shot) return { ...where, same: true };
@@ -870,7 +916,7 @@ export async function serve(dir) {
   // the box), and said with the page (`said`).
   const input = async (x) => {
     const i = checkInput(x);
-    dialogs = [];
+    L0.dialogs = [];
     ownerHand = true;
     // A file field the owner clicks asks them for a file (the page shows no box of its own here: see watch).
     await teachWrite(i);
@@ -893,7 +939,7 @@ export async function serve(dir) {
       await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
       await page.waitForTimeout(350);
     } finally { ownerHand = false; }
-    const said = dialogs.splice(0).map((g) => (g.type === "prompt" ? "The page asked for text and it was cancelled" : g.type === "beforeunload" ? "The page asked whether to leave it, and it was left" : g.type === "alert" ? "The page showed a message" : "The page asked to confirm, and it was answered OK") + (g.message ? ": " + quote(g.message, 200) : "") + ".").join(" ");
+    const said = L0.dialogs.splice(0).map((g) => (g.type === "prompt" ? "The page asked for text and it was cancelled" : g.type === "beforeunload" ? "The page asked whether to leave it, and it was left" : g.type === "alert" ? "The page showed a message" : "The page asked to confirm, and it was answered OK") + (g.message ? ": " + quote(g.message, 200) : "") + ".").join(" ");
     return { ...(await screen({})), ...(said ? { said } : {}) };
   };
   let last = Date.now(), busy = Promise.resolve();
@@ -928,6 +974,25 @@ export async function serve(dir) {
         screen(x).then((out) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(out)); }, (e) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ error: plainError(e, {}) })); });
         return;
       }
+      // A HELPER'S STEP (2026-11-10): in its own tab (lane), one at a time there, side by side with the other tabs'.
+      let xl = 0;
+      try { const x0 = JSON.parse(body || "{}"); xl = x0 && Number.isInteger(x0.lane) && x0.lane > 0 && x0.lane <= LANES_MAX ? x0.lane : 0; } catch { xl = 0; }
+      if (xl && req.url !== "/ping") {
+        const L = lanes.get(xl) || laneOpen(xl);
+        L.busy = L.busy.then(async () => {
+          let out, ask = null;
+          try {
+            await L.ready;
+            const x = JSON.parse(body || "{}");
+            if (x.action === "describe") out = await describe(x, L);
+            else { ask = checkAsk(x); if (ask.action === "upload") throw new Error("a helper's tab can't upload files: say in your answer what should go where, and Gloopy will do it"); out = await run(ask, L); }
+          } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
+          L.last = last = Date.now();
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(out));
+        });
+        return;
+      }
       // One action at a time, in the order asked.
       busy = busy.then(async () => {
         let out, ask = null;
@@ -945,6 +1010,7 @@ export async function serve(dir) {
           else if (x.action === "area") out = await area(x);
           else if (x.action === "teach") out = await teachOnOff(x);
           else if (x.action === "collect") out = await handOver(false);
+          else if (x.action === "closeLanes") out = await lanesClose();
           else { ask = checkAsk(x); out = await run(ask); }
         } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
         last = Date.now();
@@ -954,7 +1020,11 @@ export async function serve(dir) {
     });
   });
   const shutdown = async () => { clearInterval(idle); server.close(); await ctx.close().catch(() => {}); await rm(sock, { force: true }).catch(() => {}); process.exit(0); };
-  const idle = setInterval(() => { if (Date.now() - last > IDLE_MS) shutdown(); }, 60_000);
+  const idle = setInterval(() => {
+    if (Date.now() - last > IDLE_MS) return shutdown();
+    // A helper's tab with nothing to do for a while is closed (its helper is long done).
+    for (const [k, L] of lanes) if (Date.now() - L.last > LANE_IDLE_MS) laneDrop(k);
+  }, 60_000);
   process.on("SIGTERM", shutdown);
   await new Promise((ok) => server.listen(sock, ok));
 }
@@ -1078,8 +1148,8 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
   return {
     // One of the AI's steps: the page in words and a screenshot; with a screenshot step, the picture as a file
     // (`picture`: { type, data }); downloads it finished (`downloads`: [{ name, size, data }]) and what became of others.
-    act: async (args) => {
-      const r = await call(checkAsk(args));
+    act: async (args, lane = 0) => {
+      const r = await call({ ...checkAsk(args), ...(Number.isInteger(lane) && lane > 0 ? { lane } : {}) });
       const shot = typeof r.shot === "string" ? r.shot : "";
       return { text: String(r.text || ""), shot, thumb: thumbOf(shot), ...handed(r), ...(r.picture && typeof r.picture.data === "string" ? { picture: { type: r.picture.type === "jpeg" ? "jpeg" : "png", data: r.picture.data } } : {}) };
     },
@@ -1087,6 +1157,8 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     stage: ({ name, data }) => call({ action: "stage", name, data }),
     // Downloads finished since the last step (a step from a card, or the owner's own while they had control).
     collect: async () => handed(await call({ action: "collect" })),
+    // GLOOPY'S HELPERS' OWN TABS (2026-11-10): closed when the helpers are done.
+    closeLanes: () => call({ action: "closeLanes" }),
     // THE OWNER'S TIME ZONE (fix 7): kept for the next start; a browser running with another one is stopped (it starts
     // again at the next step, with its sign-ins). Never while the owner has control (Coder's service asks only then).
     setZone: async (z) => {
@@ -1098,7 +1170,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
       for (let i = 0; i < 50 && (await ask(sock, "/ping", {}, 1000)).ok; i++) await new Promise((ok) => setTimeout(ok, 200));
       return { zone: want, restarted: true };
     },
-    describe: (ref) => call({ action: "describe", ...(ref ? { ref } : {}) }),
+    describe: (ref, lane = 0) => call({ action: "describe", ...(ref ? { ref } : {}), ...(Number.isInteger(lane) && lane > 0 ? { lane } : {}) }),
     fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password }),
     // THE OWNER'S CARD (2026-11-09): { site, numberRef, expRef?, monthRef?, yearRef?, cvcRef?, nameRef?, postalRef?, card }.
     fillCard: ({ site = "", card, numberRef, expRef = "", monthRef = "", yearRef = "", cvcRef = "", nameRef = "", postalRef = "" }) => call({ action: "fillCard", site, card, numberRef, expRef, monthRef, yearRef, cvcRef, nameRef, postalRef }),
@@ -1112,7 +1184,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
     // THE OWNER'S LIVE VIEW: { shot, hash, url, title } (or { same: true } when unchanged since `since`); { off: true } when
     // the browser is not running (it is not started for a look).
-    screen: async ({ since = "", wait = 0 } = {}) => { const w = Math.max(0, Math.min(CAST_WAIT_MS, Number(wait) || 0)); const r = await ask(sock, "/screen", { since: String(since || "").slice(0, 40), ...(w ? { wait: w } : {}) }, 10_000 + w); if (r && r.down) return { off: true }; if (r && r.error) throw new Error(r.error); return r; },
+    screen: async ({ since = "", wait = 0, lane = 0 } = {}) => { const w = Math.max(0, Math.min(CAST_WAIT_MS, Number(wait) || 0)); const r = await ask(sock, "/screen", { since: String(since || "").slice(0, 40), ...(w ? { wait: w } : {}), ...(Number.isInteger(lane) && lane > 0 && lane <= LANES_MAX ? { lane } : {}) }, 10_000 + w); if (r && r.down) return { off: true }; if (r && r.error) throw new Error(r.error); return r; },
     // THE OWNER TAKES OVER: the browser started if it is not running, then the page as it is.
     wake: async () => { const p = await ask(sock, "/ping", {}, 2000); if (!p || !p.ok) await start(); const r = await ask(sock, "/screen", {}, 10_000); if (r && (r.down || r.error)) throw new Error(r.error || "the browser stopped answering"); return r; },
     // The owner's own click, typing, key, scroll or Back; then the page as it is.

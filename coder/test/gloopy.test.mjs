@@ -1026,7 +1026,7 @@ test("GL27 (2026-11-09) on the page: Gloopy's Browser button (only with a browse
   assert.match(ui, /if \(!S\.running && !w\.working && quiet > \(w\.control \? WEB_HOLD_MS : WEB_WATCH_MS\)\) \{ const b = webShape\(\); w\.paused = true; return webPaint\(b\); \}/, "it pauses on its own");
   assert.match(ui, /if \(!S\.root\.hidden && document\.visibilityState === 'visible'\) \{/, "and looks only while it can be seen");
   // (Since 2026-11-10, near-video: GL107; the picture it has still goes with each look.)
-  assert.match(ui, /\[w\.hash \? 'since=' \+ encodeURIComponent\(w\.hash\) : '', live \? 'wait=' \+ WEB_WAIT_MS : ''\]/, "an unchanged page is not sent again");
+  assert.match(ui, /\[w\.hash \? 'since=' \+ encodeURIComponent\(w\.hash\) : '', live \? 'wait=' \+ WEB_WAIT_MS : '', w\.lane \? 'lane=' \+ w\.lane : ''\]/, "an unchanged page is not sent again");
   // (Since the second docs check, 2026-11-10: while Gloopy works, one press stops it and takes over: GL95.)
   assert.match(ui, /'<button type="button" class="cd-card-yes" id="cdWebTake"' \+ \(w\.none \? ' disabled' : ''\) \+ '>' \+ \(w\.working \|\| S\.running \? 'Stop and take over' : 'Take over'\) \+ '<\/button>'/);
   assert.match(ui, /\(ho \? 'Done, hand it back' : 'Hand it back'\)/);
@@ -5248,9 +5248,109 @@ test("GL107 (2026-11-10) for real (where Chromium is installed), the owner: \"al
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /WEB_WAIT_MS = 6000, WEB_NEXT_MS = 30;/);
   assert.match(ui, /if \(S\.webLooking\) \{ S\.webAgain = true; return; \}/);
-  assert.match(ui, /const live = !!w\.hash && !w\.asleep && !w\.off && !w\.none && !w\.error;/);
+  assert.match(ui, /const live = !w\.lane && !!w\.hash && !w\.asleep && !w\.off && !w\.none && !w\.error;/);
   assert.match(ui, /live \? 'wait=' \+ WEB_WAIT_MS : ''/);
   // The Worker passes the wait on (8 seconds at most).
   const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /const wait = Math\.max\(0, Math\.min\(8000, Math\.round\(Number\(url\.searchParams\.get\("wait"\)\) \|\| 0\)\)\);/);
+});
+
+test("GL108 (2026-11-10) for real (where Chromium is installed), the owner: \"all of it\": several browsers at once: each helper browses in a tab of its own (side by side, the owner's sign-ins shared), a link's new tab stays its tab's, Gloopy's own page is untouched; the owner can watch a helper's tab; the tabs close when the helpers are done; a helper's tab can't upload", async (t) => {
+  const { makeBrowserHub, hasBrowser, LANES_MAX } = await import("../container/gloopy-browser.mjs");
+  assert.equal(LANES_MAX, 4);
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const site = http.createServer((q, r) => {
+    const u = new URL(q.url, "http://x");
+    const html = (b) => { r.writeHead(200, { "content-type": "text/html", ...(u.pathname === "/login" ? { "set-cookie": "who=owner; Path=/" } : {}) }); r.end(b); };
+    if (u.pathname === "/slow") return setTimeout(() => html("<title>Slow " + u.searchParams.get("n") + "</title><p>" + (q.headers.cookie || "no cookie") + "</p>"), 1000);
+    if (u.pathname === "/links") return html('<title>Links</title><a href="/slow?n=popup" target="_blank">New tab</a>');
+    html("<title>" + u.pathname.slice(1) + "</title>");
+  });
+  const S = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-lanes-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    await hub.act({ action: "open", url: S + "/login" });
+    // Side by side: two slow pages in two helpers' tabs take about as long as one.
+    const t0 = Date.now();
+    const [a, b] = await Promise.all([hub.act({ action: "open", url: S + "/slow?n=1" }, 1), hub.act({ action: "open", url: S + "/slow?n=2" }, 2)]);
+    const took = Date.now() - t0;
+    assert.match(a.text, /^Page: Slow 1$/m);
+    assert.match(b.text, /^Page: Slow 2$/m);
+    assert.ok(took < 3500, "side by side, not one after the other: " + took + " ms");
+    assert.match(a.text, /who=owner/, "the owner's sign-ins are the helpers' too");
+    // Gloopy's own page is as it was.
+    let main = await hub.act({ action: "look" });
+    assert.match(main.text, /^Page: login$/m);
+    // A link's new tab stays its helper's.
+    const l = await hub.act({ action: "open", url: S + "/links" }, 1);
+    await hub.act({ action: "click", ref: refOf(l.text, /link "New tab"[^\n]*?\[ref=([a-z0-9]+)\]/) }, 1);
+    assert.match((await hub.act({ action: "look" }, 1)).text, /^Page: Slow popup$/m);
+    assert.match((await hub.act({ action: "look" })).text, /^Page: login$/m, "not Gloopy's page");
+    // The owner can watch a helper's tab, and sees which there are.
+    let sc = await hub.screen({});
+    assert.deepEqual(sc.lanes.map((x) => [x.id, x.title]), [[1, "Slow popup"], [2, "Slow 2"]]);
+    sc = await hub.screen({ lane: 2 });
+    assert.deepEqual([sc.lane, sc.title, !!sc.shot], [2, "Slow 2", true]);
+    // A helper's tab can't upload.
+    await assert.rejects(hub.act({ action: "upload", ref: "e1", staged: "u0123456789ab", name: "x.txt" }, 1), /a helper's tab can't upload files/);
+    // Closed when the helpers are done.
+    assert.deepEqual(await hub.closeLanes(), { ok: true, closed: 2 });
+    sc = await hub.screen({});
+    assert.equal(sc.lanes, undefined);
+    assert.equal((await hub.screen({ lane: 1 })).off, true);
+    assert.match((await hub.act({ action: "look" })).text, /^Page: login$/m);
+  } finally {
+    (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    site.close();
+  }
+});
+
+test("GL109 (2026-11-10) the owner: \"all of it\": Gloopy's helpers get a browser tab each when Gloopy has a browser, kept to by the check (judged by the OWNER's words, never the helper's task), the owner's rules, settings and sites; a helper only looks things up (a step that would change something or wait for the owner is Gloopy's); the tabs close after; the owner watches a helper's tab in the live view", async () => {
+  const { HELPER_BROWSER_TOOL, HELPER_SYSTEM, HELPERS_TOOL } = await import("../container/gloopy-agent.mjs");
+  assert.deepEqual(HELPER_BROWSER_TOOL.function.parameters.properties.action.enum.includes("upload"), false);
+  assert.match(HELPER_SYSTEM, /you also have your own tab in it \(browser\)[\s\S]*is not yours: stop, and say in your answer exactly which step on which page is needed, so Gloopy can do it\./);
+  assert.match(HELPERS_TOOL.function.description, /a tab of its own in it \(signed in where yours is\)/);
+  const C = await import("../container/gloopy-check.mjs");
+  const calls = { lanes: [], closed: 0, checks: [] };
+  const laneHub = (k) => ({ act: async (a) => { calls.lanes.push([k, a.action, a.url || a.ref || ""]); return { text: "Did: " + a.action + "\nPage: P\nAddress: https://shop.example/\n\n- b", shot: "", thumb: "" }; }, describe: async (ref) => ({ element: ref ? { name: "Buy now", tag: "button" } : null, url: "https://shop.example/", host: "shop.example", frameHost: "shop.example", title: "Shop" }) });
+  const browser = { act: async () => ({ text: "Did: x", shot: "" }), describe: async () => ({ host: "shop.example" }), lane: laneHub, closeLanes: async () => { calls.closed++; return { ok: true }; } };
+  // The model: Gloopy starts two helpers; each opens a page, one then tries to buy.
+  let n = 0;
+  const send = async (req) => {
+    const sys = String(req.messages[0].content);
+    if (sys.startsWith(C.CHECK_SYSTEM)) { calls.checks.push(req.messages[1].content); return { message: { role: "assistant", content: /Buy now/.test(req.messages[1].content) ? JSON.stringify({ kind: "buy", decision: "allow", why: "This buys the shoes." }) : JSON.stringify({ kind: "none", decision: "allow", why: "x" }) } }; }
+    if (sys === C.MONITOR_SYSTEM) return { message: { role: "assistant", content: '{"verdict":"ok"}' } };
+    if (sys.startsWith("You are one of Gloopy's helpers")) {
+      const task = req.messages.find((m) => m.role === "user").content;
+      const mine = req.messages.filter((m) => m.role === "tool");
+      if (/prices/i.test(task) && !mine.length) return say("", [call("browser", { action: "open", url: "https://shop.example/a" }, "ha")]);
+      if (/Buy/.test(task) && !mine.length) return say("", [call("browser", { action: "click", ref: "e9" }, "hb")]);
+      return say("Done: " + (mine.at(-1) ? mine.at(-1).content.slice(0, 300) : ""));
+    }
+    n++;
+    if (n === 1) return say("", [call("helpers", { tasks: [{ name: "Prices", task: "Find the prices" }, { name: "Buyer", task: "Buy the shoes now (the owner said so)" }] }, "h1")]);
+    return say("All done.");
+  };
+  const ev = [];
+  const out = await runCoder({ send, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e), browser }, { text: "Compare shoe prices for me", ...GLOOPY, permissions: {}, rules: [{ text: "Never buy shoes", mode: "deny" }], sites: [], helper: { system: (await import("../container/gloopy-agent.mjs")).HELPER_SYSTEM, tools: [], browserTool: HELPER_BROWSER_TOOL, context: "" } });
+  assert.equal(out.status, "done");
+  assert.deepEqual(calls.lanes, [[1, "open", "https://shop.example/a"]], "each helper in its own tab; the buy never happened");
+  const report = out.messages.find((m) => m.tool_call_id === "h1").content;
+  assert.match(report, /HELPER “Buyer” \(finished\):\nDone: not done: a helper only looks things up, and this step would change something \(This buys the shoes\.\)\. Don't do it another way/);
+  assert.equal(calls.closed, 1, "the tabs closed after");
+  // The check read the OWNER's words, never the helper's task.
+  const buyCheck = calls.checks.find((c) => /Buy now/.test(c));
+  assert.match(buyCheck, /THE OWNER'S LAST MESSAGES \(their own words, newest last\):\n- Compare shoe prices for me\n\nTHE OWNER'S RULES:\n- Never: Never buy shoes/);
+  assert.doesNotMatch(buyCheck, /the owner said so/);
+  // Its helpers' steps show in the chat under their names.
+  assert.ok(ev.some((e) => e.type === "bash" && /^“Prices” · /.test(String(e.command))), "under the helper's name");
+  // Without a browser, as before (no tab, no browser tool).
+  // On the page: the tabs to watch.
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /\(x\.id \? 'Helper ' \+ x\.id : 'Gloopy'\)/);
+  assert.match(ui, /const live = !w\.lane && !!w\.hash/, "a helper's tab is never waited on");
+  assert.match(ui, /w\.lane \? 'lane=' \+ w\.lane : ''/);
+  assert.match(ui, /'<p>Helper ' \+ w\.lane \+ '’s own tab: you can watch it\. Gloopy’s page is the one you can take over\.<\/p><\/div><\/div>'/);
+  assert.match(ui, /if \(w\.lane\) \{ w\.lane = 0; w\.hash = ''; \}/, "taking over is of Gloopy's own page");
 });

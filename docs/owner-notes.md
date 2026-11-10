@@ -31,7 +31,9 @@ log (81,000 lines) is in git history.
 
 - **The live view is near-video.** Before, it fetched a new picture every 0.8 seconds. Now Chromium sends a frame each time the page changes (at most about 6 a second), and the view asks for "the next change" and gets it as soon as it happens. A still page costs one answer every 6 seconds. Chromium only sends frames while someone is watching, and stops 15 seconds after.
 
-Tests GL104 (the browser's name, in a real browser), GL105 (sites, end to end), GL106 (the monitor) and GL107 (near-video, in a real browser); the hold test, GL27 and GL83 updated.
+- **Several browsers at once: Gloopy's helpers browse too.** When Gloopy splits a job between helpers, each helper now gets its own tab in Gloopy's browser, and the tabs work side by side. They share your sign-ins, and a link's new tab stays with the helper that opened it. Helpers only look things up there. A step that would change something, wait for your OK, or be yours to do is refused for a helper, whatever your settings say. The helper says so in its report and Gloopy does it itself, with a card if needed. The safety check judges a helper's steps by your own words, never by the task Gloopy wrote for it. The tabs close when the helpers are done. In the live view, a row of tabs ("Gloopy", "Helper 1"…) lets you watch a helper's tab; only Gloopy's own page can be taken over.
+
+Tests GL104 (the browser's name, in a real browser), GL105 (sites, end to end), GL106 (the monitor), GL107 (near-video, in a real browser), GL108 (helpers' tabs, in a real browser) and GL109 (helpers with a browser, end to end); the hold test, GL27 and GL83 updated.
 
 ## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
 

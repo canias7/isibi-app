@@ -675,3 +675,7 @@
 .cd-paused b{font-size:14px}
 .cd-paused p{margin:4px 0 0;font-size:14px;line-height:1.45}
 .cd-paused .cd-paused-how{font-size:12.5px;color:#7a6224}
+/* ITS HELPERS' OWN TABS (2026-11-10). */
+.cd-web-lanes{display:inline-flex;gap:2px;border:1px solid #e1ded7;border-radius:999px;padding:2px;background:#f7f6f2;flex:none}
+.cd-web-lane{font:600 12px Inter,system-ui,sans-serif;border:0;background:transparent;color:#4b4a46;border-radius:999px;padding:3px 9px;cursor:pointer;white-space:nowrap}
+.cd-web-lane[aria-pressed="true"]{background:#1f1e1d;color:#fff}
