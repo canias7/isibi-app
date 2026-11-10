@@ -347,6 +347,22 @@ code in **each user's own GitHub**.
    with nothing after it (`dangling`), an exec wrapper or `find` action an exact rule
    doesn't name, Docker pointed at another daemon, and a redirection to a wildcard
    name or a `<` read after a `cd`. Tests: `test/bash-pass3.test.mjs`.
+
+   A fourth pass (owner, 2026-11-10: "Ok do that too"): seven more commands Claude
+   Code 2.1.321 runs without asking in Accept edits and Plan, each with its checks
+   (`lsof`, `ss`, `tput`, `fd`, `fdfind`, `docker logs`, `docker inspect`;
+   `otherDaemon` is Claude Code's full list of flags that point Docker at another
+   machine). And Claude Code's optional read block
+   (`permissions.blockReadsOutsideWorkingDirectories`), here the environment's
+   `CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES`: with it on, a command that reads
+   outside the project (links followed), or one whose reads can't be traced (a
+   second `cd`, a subshell, a computed or wildcard path, inline or stdin code, a
+   setting in front, an unsafe `sed` script), asks in every mode (card kind
+   `readblock`, `readBlockWhy` in `container/coder-perms.mjs`, with each command's own
+   rule for which words are paths, `READ_PATHS`); and `read`, `grep`, `glob` and
+   `lsp` outside the project are refused (`READ_BLOCKED`). Coder's own folders (the
+   background logs and saved long outputs, `ownDirs`) stay readable. Tests:
+   `test/bash-pass4.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.

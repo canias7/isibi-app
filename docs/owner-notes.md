@@ -11,6 +11,19 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Bash, the last two missing things built (your words: "Ok do that too")
+
+- **1. Seven more commands run without asking in Accept edits and Plan,** as in Claude Code: `lsof`, `ss`, `tput`, `fd`, `fdfind`, `docker logs` and `docker inspect`. Each keeps Claude Code's own checks, so these still ask: `tput reset` or `tput clear` (they change the terminal), `fd -x` (it runs a command on each file), `lsof +m`, a host name looked up over the network (`lsof -i @example.com`, `ss dst example.com`), and Docker pointed at another machine (Claude Code's whole list of 15 flags, like `-H`, `--context`, `--tlscert`, `--url`).
+- **2. The read block, an optional setting, off unless you turn it on.** Add `CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES=1` to an environment's settings (Claude Code's `blockReadsOutsideWorkingDirectories`). With it on:
+  - a command that reads a file outside the project asks first, **even in Auto**. Coder follows links, so a link in the project that leads to `/etc` counts as outside;
+  - a command whose reads can't be traced asks too, as in Claude Code: one that changes folder twice, runs part of itself in a subshell, names a path worked out when it runs (`$FILE`) or a wildcard (`/etc/*.conf`), runs code given inline (`python3 -c …`) or typed in, has a setting in front (`LD_PRELOAD=…`), or a `sed` script that could read any file;
+  - Coder's own tools `read`, `grep`, `glob` and `lsp` are refused outside the project, and Coder is told to ask you;
+  - Coder's own folders (background command logs, saved long outputs) stay readable;
+  - no rule of yours can approve such a read; the card asks each time, as Claude Code does.
+- **Found and fixed while testing:** my first version of the read block missed a link inside the project that leads out of it. Fixed before pushing; a test covers it.
+- **Tests:** CD350 to CD353 (4 new; 364 in all, all pass).
+- **Next, with your word from your message:** merge, deploy, and test all of today's Bash work live with Grok, recorded.
+
 ## 2026-11-10: What's still missing from the Bash docs (your question: "What else from the batch docs are we missing")
 
 - **One real gap, found by comparing Claude Code's own list of commands that only read (from its code, 2.1.321) with Coder's:** 7 commands Claude Code runs without asking in Accept edits and Plan, which Coder asks about: `lsof`, `ss`, `tput`, `fd` (and `fdfind`), `docker logs`, `docker inspect`. Coder's list was copied from 2.1.319. (Claude Code also has a list of `gh` commands that only read, like `gh pr view`, but it isn't switched on in the public version, so Coder already matches it there.)

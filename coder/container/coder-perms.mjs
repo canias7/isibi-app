@@ -102,6 +102,8 @@ const GIT = {
   "git tag": { flags: { "-l": "none", "--list": "none", "-n": "number", "--contains": "string", "--no-contains": "string", "--merged": "string", "--no-merged": "string", "--sort": "string", "--format": "string", "--points-at": "string", "--column": "none", "--no-column": "none", "-i": "none", "--ignore-case": "none" }, danger: (a) => gitFormatDanger(a) || listOnly(a, new Set(["--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format", "-n"])) },
   "git branch": { flags: { "-l": "none", "--list": "none", "-a": "none", "--all": "none", "-r": "none", "--remotes": "none", "-v": "none", "-vv": "none", "--verbose": "none", "--color": "none", "--no-color": "none", "--column": "none", "--no-column": "none", "--abbrev": "number", "--no-abbrev": "none", "--contains": "string", "--no-contains": "string", "--merged": "none", "--no-merged": "none", "--points-at": "string", "--sort": "string", "--show-current": "none", "-i": "none", "--ignore-case": "none" }, danger: (a) => gitFormatDanger(a) || listOnly(a, new Set(["--contains", "--no-contains", "--points-at", "--sort"]), new Set(["--merged", "--no-merged"])) },
 };
+/** fd's (and fdfind's) listing options, 2.1.321's own: none runs a command. */
+const FD_FLAGS = { "-h": "none", "--help": "none", "-V": "none", "--version": "none", "-H": "none", "--hidden": "none", "-I": "none", "--no-ignore": "none", "--no-ignore-vcs": "none", "--no-ignore-parent": "none", "-s": "none", "--case-sensitive": "none", "-i": "none", "--ignore-case": "none", "-g": "none", "--glob": "none", "--regex": "none", "-F": "none", "--fixed-strings": "none", "-a": "none", "--absolute-path": "none", "-L": "none", "--follow": "none", "-p": "none", "--full-path": "none", "-0": "none", "--print0": "none", "-d": "number", "--max-depth": "number", "--min-depth": "number", "--exact-depth": "number", "-t": "string", "--type": "string", "-e": "string", "--extension": "string", "-S": "string", "--size": "string", "--changed-within": "string", "--changed-before": "string", "-o": "string", "--owner": "string", "-E": "string", "--exclude": "string", "--ignore-file": "string", "-c": "string", "--color": "string", "-j": "number", "--threads": "number", "--max-buffer-time": "string", "--max-results": "number", "-1": "none", "-q": "none", "--quiet": "none", "--show-errors": "none", "--strip-cwd-prefix": "none", "--one-file-system": "none", "--prune": "none", "--search-path": "string", "--base-directory": "string", "--path-separator": "string", "--batch-size": "number", "--no-require-git": "none", "--hyperlink": "string", "--and": "string", "--format": "string" };
 const SAFE = {
   xargs: { flags: { "-I": "{}", "-n": "number", "-P": "number", "-L": "number", "-s": "number", "-E": "EOF", "-0": "none", "-t": "none", "-r": "none", "-x": "none", "-d": "char" } },
   ...GIT,
@@ -125,6 +127,51 @@ const SAFE = {
   hostname: { flags: { "-f": "none", "--fqdn": "none", "--long": "none", "-s": "none", "--short": "none", "-i": "none", "--ip-address": "none", "-I": "none", "--all-ip-addresses": "none", "-a": "none", "--alias": "none", "-d": "none", "--domain": "none", "-A": "none", "--all-fqdns": "none", "-v": "none", "--verbose": "none", "-h": "none", "--help": "none", "-V": "none", "--version": "none" }, danger: (a) => a.some((x) => !x.startsWith("-")) },
   which: { flags: { "-a": "none", "--all": "none", "-s": "none", "-p": "none", "-w": "none", "--skip-dot": "none", "--skip-tilde": "none", "--show-dot": "none", "--show-tilde": "none", "--skip-alias": "none", "--skip-functions": "none", "-v": "none", "-V": "none", "--version": "none", "--help": "none" } },
   pgrep: { flags: { "-d": "string", "--delimiter": "string", "-l": "none", "--list-name": "none", "-a": "none", "--list-full": "none", "-v": "none", "--inverse": "none", "-w": "none", "--lightweight": "none", "-c": "none", "--count": "none", "-f": "none", "--full": "none", "-g": "string", "--pgroup": "string", "-G": "string", "--group": "string", "-i": "none", "--ignore-case": "none", "-n": "none", "--newest": "none", "-o": "none", "--oldest": "none", "-O": "string", "--older": "string", "-P": "string", "--parent": "string", "-s": "string", "--session": "string", "-t": "string", "--terminal": "string", "-u": "string", "--euid": "string", "-U": "string", "--uid": "string", "-x": "none", "--exact": "none", "-F": "string", "--pidfile": "string", "-L": "none", "--logpidfile": "none", "-r": "string", "--runstates": "string", "--ns": "string", "--nslist": "string", "--help": "none", "-V": "none", "--version": "none" } },
+  // ── ADDED IN CLAUDE CODE SINCE 2.1.319 (Bash docs pass 4, the owner, 2026-11-10: "Ok do that too"), from 2.1.321's map,
+  // each with its own check: lsof (not +m, no -i@NAME, a name it would look up), ss (no filter naming a host), tput (no
+  // capability that changes the terminal, no -S), fd/fdfind (its listing options; -x and -X, which run commands, are none),
+  // docker logs and docker inspect (not pointed at another daemon, no ~ to expand).
+  lsof: { flags: { "-?": "none", "-h": "none", "-v": "none", "-a": "none", "-b": "none", "-C": "none", "-l": "none", "-n": "none", "-N": "none", "-O": "none", "-P": "none", "-Q": "none", "-R": "none", "-t": "none", "-U": "none", "-V": "none", "-X": "none", "-H": "none", "-E": "none", "-F": "none", "-g": "none", "-i": "none", "-K": "none", "-L": "none", "-o": "none", "-r": "none", "-s": "none", "-S": "none", "-T": "none", "-x": "none", "-A": "string", "-c": "string", "-d": "string", "-e": "string", "-k": "string", "-p": "string", "-u": "string" },
+    danger: (a) => {
+      const named = (v) => /[a-zA-Z]/.test(String(v).slice(String(v).indexOf("@") + 1).split(":")[0]);
+      for (let i = 0; i < a.length; i++) {
+        const s = a[i];
+        if (s.startsWith("+m")) return true;
+        if (/^-[a-zA-Z]*i\S*@/.test(s) && named(s)) return true;
+        if (/^-[a-zA-Z]*i$/.test(s)) { const v = String(a[i + 1] ?? ""); if (v.includes("~") || (v.includes("@") && named(v))) return true; }
+      }
+      return false;
+    } },
+  ss: { flags: { "-h": "none", "--help": "none", "-V": "none", "--version": "none", "-n": "none", "--numeric": "none", "-a": "none", "--all": "none", "-l": "none", "--listening": "none", "-o": "none", "--options": "none", "-e": "none", "--extended": "none", "-m": "none", "--memory": "none", "-p": "none", "--processes": "none", "-i": "none", "--info": "none", "-s": "none", "--summary": "none", "-4": "none", "--ipv4": "none", "-6": "none", "--ipv6": "none", "-0": "none", "--packet": "none", "-t": "none", "--tcp": "none", "-M": "none", "--mptcp": "none", "-S": "none", "--sctp": "none", "-u": "none", "--udp": "none", "-d": "none", "--dccp": "none", "-w": "none", "--raw": "none", "-x": "none", "--unix": "none", "--tipc": "none", "--vsock": "none", "-f": "string", "--family": "string", "-A": "string", "--query": "string", "--socket": "string", "-Z": "none", "--context": "none", "-z": "none", "--contexts": "none", "-b": "none", "--bpf": "none", "-E": "none", "--events": "none", "-H": "none", "--no-header": "none", "-O": "none", "--oneline": "none", "--tipcinfo": "none", "--tos": "none", "--cgroup": "none", "--inet-sockopt": "none" },
+    danger: (a) => {
+      const word = /^(dst|src|dport|sport|and|or|not|eq|ne|ge|le|gt|lt|autobound|state|exclude|dev|fwmark|cgroup)$/, takes = /^(state|exclude|dport|sport|dev|fwmark|cgroup)$/, valued = /^(-f|--family|-A|--query|--socket)$/;
+      const words = [];
+      let after = false;
+      for (let k = 0; k < a.length; k++) { const y = a[k]; if (!after && y === "--") { after = true; continue; } if (!after && y.startsWith("-")) { if (valued.test(y)) k++; continue; } words.push(y); }
+      if (words.some((w) => w.includes("~"))) return true;
+      let skip = false;
+      for (const t of words.join(" ").split(/[\s()=!<>&|,]+/).filter(Boolean)) {
+        if (skip) { skip = false; continue; }
+        if (word.test(t)) { skip = takes.test(t); continue; }
+        if (/[g-zG-Z]/.test(t) || (/[a-fA-F]/.test(t) && (t.includes(".") || !t.includes(":")))) return true;
+      }
+      return false;
+    } },
+  tput: { flags: { "-T": "string", "-V": "none", "-x": "none" },
+    danger: (a) => {
+      const changes = new Set(["init", "reset", "rs1", "rs2", "rs3", "is1", "is2", "is3", "iprog", "if", "rf", "clear", "flash", "mc0", "mc4", "mc5", "mc5i", "mc5p", "pfkey", "pfloc", "pfx", "pfxl", "smcup", "rmcup"]);
+      let k = 0, after = false;
+      while (k < a.length) {
+        const x = a[k];
+        if (x === "--") { after = true; k++; }
+        else if (!after && x.startsWith("-")) { if (x === "-S" || (!x.startsWith("--") && x.length > 2 && x.includes("S"))) return true; k += x === "-T" ? 2 : 1; }
+        else { if (changes.has(x)) return true; k++; }
+      }
+      return false;
+    } },
+  fd: { flags: FD_FLAGS }, fdfind: { flags: FD_FLAGS },
+  "docker logs": { flags: { "--follow": "none", "-f": "none", "--tail": "string", "-n": "string", "--timestamps": "none", "-t": "none", "--since": "string", "--until": "string", "--details": "none" }, danger: (a) => otherDaemon(a) || tildeArg(a) },
+  "docker inspect": { flags: { "--format": "string", "-f": "string", "--type": "string", "--size": "none", "-s": "none" }, danger: (a) => otherDaemon(a) || tildeArg(a) },
   // (test, and [ with its closing ]: no -v, -R, -a, -o or [ in its words; numbers on both sides of -eq and its kin.)
   test: { ddash: false, flags: { "-b": "string", "-c": "string", "-d": "string", "-e": "string", "-f": "string", "-g": "string", "-G": "string", "-h": "string", "-k": "string", "-L": "string", "-N": "string", "-O": "string", "-p": "string", "-r": "string", "-s": "string", "-S": "string", "-t": "string", "-u": "string", "-w": "string", "-x": "string", "-z": "string", "-n": "string", "-eq": "string", "-ne": "string", "-lt": "string", "-le": "string", "-gt": "string", "-ge": "string", "-nt": "string", "-ot": "string", "-ef": "string" },
     danger: (a) => { if (a.some((x) => x === "-v" || x === "-R" || x === "-a" || x === "-o" || /\[/.test(x))) return true; for (let i = 0; i < a.length; i++) { if (["-eq", "-ne", "-lt", "-le", "-gt", "-ge"].includes(a[i])) { for (const s of [a[i - 1], a[i + 1]]) if (s !== undefined && !/^-?(0[xX][0-9a-fA-F]+|[0-9]+#[0-9a-zA-Z]+|[0-9]+)$/.test(s)) return true; } if (a[i] === "-t" && a[i + 1] !== undefined && !/^-?[0-9]+$/.test(a[i + 1])) return true; } return false; } },
@@ -165,10 +212,21 @@ export function shellVariable(name) {
 const EXACT_RULE_WRAPPERS = new Set(["watch", "ionice", "chrt", "setsid", "taskset", "strace", "ltrace", "script", "flock", "unshare", "nsenter"]);
 /**
  * DOCKER POINTED AT ANOTHER MACHINE (Claude Code's permissions docs, read-only commands: "read-only forms of docker prompt
- * when the command carries a flag that selects a different daemon, such as -H, --context"; 2.1.321's list: -H, --host,
- * --config, --context), wherever the flag is (before the subcommand it already asks).
+ * when the command carries a flag that selects a different daemon, such as -H, --context, or Podman's --url and
+ * --connection"): 2.1.321's own check and list, wherever the flag is (before the subcommand it already asks): the flag, the
+ * flag with `=value` or a short one with its value joined (-Htcp://x), or a group of short flags holding H, c or r (-Hc).
  */
-const OTHER_DAEMON = /^(?:-H|--host|--context|-c|--config)(?:=|$)|^-H./;
+const DAEMON_FLAGS = ["-H", "-c", "-r", "--host", "--context", "--config", "--tlscacert", "--tlscert", "--tlskey", "--url", "--connection", "--identity", "--remote", "--module", "--out"];
+const DAEMON_LETTERS = new Set(DAEMON_FLAGS.filter((f) => f.length === 2).map((f) => f[1]));
+export function otherDaemon(args) {
+  return (args || []).some((n) => {
+    if (DAEMON_FLAGS.some((f) => n === f || n.startsWith(f + "=") || (f.length === 2 && n.length > 2 && n.startsWith(f)))) return true;
+    const group = (/^-([A-Za-z]+)/.exec(n) || [])[1];
+    return group !== undefined && group.length >= 2 && [...group].some((c) => DAEMON_LETTERS.has(c));
+  });
+}
+/** An argument the shell would expand a ~ in (Claude Code 2.1.321's check for docker's: "~" first or after = or :, or with a {). */
+const tildeArg = (args) => (args || []).some((n) => /(?:^|[=:])~/.test(n) || (n.includes("~") && n.includes("{")));
 /** Its `jq` (no file-reading or environment options; a filter and file names). */
 const JQ = /^jq(?!.*(?:\s['"]?-[a-zA-Z]*[fL]|--from-file|--rawfile|--slurpfile|--run-tests|--library-path|\benv\b|\$ENV\b|\binclude\b|\bimport\b))(?:\s+(?:-[a-zA-Z]+|--[a-zA-Z-]+(?:=\S+)?))*(?:\s+'[^'`]*'|\s+"[^"`]*"|\s+[^-\s'"][^\s]*)+\s*$/;
 /** Its `uniq`: options only (a second file name would be written). */
@@ -323,7 +381,7 @@ export function commandReadOnly(cmd) {
   if (prog === "jq") return JQ.test(raw);
   if (prog === "uniq") return UNIQ.test(raw);
   if (prog === "[") return args.at(-1) === "]" && SAFE.test.danger(args.slice(0, -1)) === false && optionsOk(args.slice(0, -1), SAFE.test, "test");
-  if (prog === "docker" && args.some((a) => OTHER_DAEMON.test(a))) return false;
+  if (prog === "docker" && otherDaemon(args)) return false;
   for (let n = Math.min(3, w.length); n >= 1; n--) {
     const key = w.slice(0, n).map((x) => x.text).join(" ");
     if (ANY_ARGS.has(key)) return true;
@@ -783,6 +841,248 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     if (s.every((x) => typeof x === "string" && x.length && x.length <= RULE_MAX)) suggest = [...new Set(s.map((x) => ruleText("Bash", x)))];
   }
   return { verdict: "ask", why: why || "This command requires approval", suggest };
+}
+
+// ── THE READ BLOCK ───────────────────────────────────────────────────────────
+/**
+ * READS OUTSIDE THE PROJECT, BLOCKED (Bash docs pass 4, the owner, 2026-11-10: "Ok do that too"; Claude Code's
+ * permissions.blockReadsOutsideWorkingDirectories, under Coder's name CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES in the
+ * environment's variables, off unless set: "recognized file-reading Bash commands prompt even in auto mode", and "A command
+ * the shell parser can't trace, such as one that changes directory more than once or runs a subshell, prompts the same way
+ * even when it names no outside path"; the file tools refuse such reads, in coder-agent.mjs). Which paths each command
+ * names: 2.1.321's own rules for its "path-restricted" commands (its map of them, with its helpers), on the words as the
+ * shell gives them.
+ */
+const posArgs = (a) => { const out = []; let dd = false, seen = false; for (const h of a) { if (dd || seen) out.push(h); else if (h === "--") dd = true; else if (h === "-" || !h.startsWith("-")) { out.push(h); seen = true; } } return out; };
+const attachedValue = (h, names) => {
+  if (!h.startsWith("-")) return undefined;
+  const k = h.indexOf("=");
+  if (k >= 0) return names.includes(h.slice(0, k)) ? h.slice(k + 1) : undefined;
+  for (const n of names) if (n.length === 2 && n[0] === "-" && h.startsWith(n) && h !== n) return h.slice(2);
+  return undefined;
+};
+function optionAware(spec) {
+  const kind = (r) => {
+    if (r.startsWith("--")) { if (r.includes("=")) return "attached"; if (spec.booleanLong.has(r)) return "boolean"; if (spec.attachedLong && spec.attachedLong.has(r)) return "attached"; return spec.valuedLong.has(r) ? "valued" : "unknown"; }
+    if (/^-\d+$/.test(r)) return "attached";
+    for (let k = 1; k < r.length; k++) { const h = r[k]; if (spec.booleanShort.includes(h)) continue; if (spec.attachedShort && spec.attachedShort.includes(h)) return "attached"; if (!spec.valuedShort.includes(h)) return "unknown"; return k === r.length - 1 ? "valued" : "attached"; }
+    return "boolean";
+  };
+  return (r) => { const out = []; let dd = false, seen = false, known = true; for (let w = 0; w < r.length; w++) { const h = r[w]; if (h === undefined || h === null) continue; if (dd || seen) out.push(h); else if (h === "--") dd = true; else if (h !== "-" && h.startsWith("-")) { if (!known) continue; const k = kind(h); if (k === "valued") w++; else if (k === "unknown") known = false; } else { out.push(h); seen = true; } } return out; };
+}
+function patternPaths(e, valued, dflt = []) {
+  const out = [];
+  let pat = false, dd = false, seen = false;
+  for (let w = 0; w < e.length; w++) {
+    const h = e[w];
+    if (h === undefined || h === null) continue;
+    if (!dd && !seen && h === "--") { dd = true; continue; }
+    if (!dd && !seen && h !== "-" && h.startsWith("-")) {
+      const k = h.indexOf("="), y = k >= 0 ? h.slice(0, k) : h;
+      if (["-e", "--regexp", "-f", "--file"].includes(y)) { pat = true; if (y === "-f" || y === "--file") { const v = k >= 0 ? h.slice(k + 1) : e[w + 1]; if (v) out.push(v); } }
+      if (/^-[a-zA-Z]*f$/.test(y) && y !== "-f" && k < 0 && e[w + 1] !== undefined) { pat = true; out.push(e[w + 1]); w++; continue; }
+      if (["--exclude-from", "--include-from", "--ignore-file"].includes(y)) { const v = k >= 0 ? h.slice(k + 1) : e[w + 1]; if (v) out.push(v); if (k < 0) w++; continue; }
+      if (k < 0) { const v = attachedValue(h, ["-f", "--file"]); if (v !== undefined) { pat = true; out.push(v); continue; } if (h.length > 2 && h.startsWith("-e")) { pat = true; continue; } }
+      if (valued.has(y) && k < 0) w++;
+      continue;
+    }
+    if (seen && !dd) { const v = attachedValue(h, ["-f", "--file"]); if (v !== undefined) out.push(v); }
+    seen = true;
+    if (!pat) { pat = true; continue; }
+    out.push(h);
+  }
+  return out.length ? out : dflt;
+}
+const GREP_VALUED = new Set(["-e", "--regexp", "-f", "--file", "--exclude", "--include", "--exclude-dir", "--include-dir", "-m", "--max-count", "-A", "--after-context", "-B", "--before-context", "-C", "--context"]);
+const grepPaths = (e) => { const r = patternPaths(e, GREP_VALUED); return !r.length && e.some((x) => ["-r", "-R", "--recursive"].includes(x)) ? ["."] : r; };
+const awkPaths = (e) => {
+  const valued = new Set(["-F", "--field-separator", "-v", "--assign", "-e", "--source"]), progs = new Set(["-f", "--file", "-E", "--exec"]);
+  const out = [];
+  let dd = false, prog = false, seen = false;
+  for (let w = 0; w < e.length; w++) {
+    const h = e[w];
+    if (h === undefined || h === null) continue;
+    if (!dd && !seen && h === "--") { dd = true; continue; }
+    if (!dd && !seen && h !== "-" && h.startsWith("-")) {
+      const k = h.indexOf("="), y = k >= 0 ? h.slice(0, k) : h;
+      if (valued.has(y)) { if (y === "-e" || y === "--source") prog = true; if (k < 0) w++; continue; }
+      if (progs.has(y)) { prog = true; if (k >= 0) out.push(h.slice(k + 1)); else { const v = e[w + 1]; if (v !== undefined) { out.push(v); w++; } } continue; }
+      continue;
+    }
+    if (seen && !dd) { const v = attachedValue(h, ["-f", "--file", "-E", "--exec"]); if (v !== undefined) out.push(v); }
+    seen = true;
+    if (!prog) { prog = true; continue; }
+    out.push(h);
+  }
+  return out;
+};
+const NOT_FILES = new Set(["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"]);
+const READ_PATHS = {
+  cd: (e) => { const n = posArgs(e); if (!n.length) return e.at(-1) === "-" ? ["-"] : ["~"]; return [n[0]]; },
+  ls: (e) => { const n = posArgs(e); return n.length ? n : ["."]; },
+  find: (e) => {
+    const out = [], named = new Set(["-newer", "-anewer", "-cnewer", "-mnewer", "-samefile", "-path", "-wholename", "-ilname", "-lname", "-ipath", "-iwholename"]);
+    let opts = false, dd = false;
+    for (let k = 0; k < e.length; k++) {
+      const w = e[k];
+      if (!w) continue;
+      if (dd) { out.push(w); continue; }
+      if (w === "--") { dd = true; continue; }
+      if (w.startsWith("-")) { if (["-H", "-L", "-P"].includes(w)) continue; opts = true; if (named.has(w) || /^-newer[acmBt][acmtB]$/.test(w)) { const v = e[k + 1]; if (v) { out.push(v); k++; } } continue; }
+      if (!opts) out.push(w);
+    }
+    return out.length ? out : ["."];
+  },
+  mkdir: posArgs, touch: posArgs, rm: posArgs, rmdir: posArgs, mv: posArgs, cp: posArgs, cat: posArgs, head: posArgs, tail: posArgs, sort: posArgs, uniq: posArgs, wc: posArgs,
+  cut: optionAware({ booleanShort: "nswz", valuedShort: "bcdf", booleanLong: new Set(["--complement", "--only-delimited", "--zero-terminated"]), valuedLong: new Set(["--bytes", "--characters", "--delimiter", "--fields", "--output-delimiter"]) }),
+  paste: optionAware({ booleanShort: "sz", valuedShort: "d", booleanLong: new Set(["--serial", "--zero-terminated"]), valuedLong: new Set(["--delimiters"]) }),
+  column: optionAware({ booleanShort: "txdemLJhV", valuedShort: "cosNOClEHRTWrip", booleanLong: new Set(["--table", "--fillrows", "--table-noheadings", "--table-header-repeat", "--table-maxout", "--keep-empty-lines", "--json"]), valuedLong: new Set(["--separator", "--output-separator", "--output-width", "--table-name", "--table-order", "--table-column", "--table-columns", "--table-columns-limit", "--table-noextreme", "--table-hide", "--table-right", "--table-truncate", "--table-wrap", "--tree", "--tree-id", "--tree-parent"]) }),
+  file: posArgs, stat: posArgs, diff: posArgs, awk: awkPaths, gawk: awkPaths, mawk: awkPaths, nawk: awkPaths, strings: posArgs, hexdump: posArgs, od: posArgs, base64: posArgs, nl: posArgs, sha256sum: posArgs, sha1sum: posArgs, md5sum: posArgs,
+  tee: (e) => posArgs(e).filter((x) => !NOT_FILES.has(x)),
+  tr: (e) => { const del = e.some((x) => x === "-d" || x === "--delete" || (x.startsWith("-") && x.includes("d"))); return posArgs(e).slice(del ? 1 : 2); },
+  grep: grepPaths, egrep: grepPaths, fgrep: grepPaths,
+  tac: optionAware({ booleanShort: "br", valuedShort: "s", booleanLong: new Set(["--before", "--regex"]), valuedLong: new Set(["--separator"]) }),
+  rev: posArgs,
+  fold: optionAware({ booleanShort: "bs", valuedShort: "w", booleanLong: new Set(["--bytes", "--spaces"]), valuedLong: new Set(["--width"]) }),
+  expand: optionAware({ booleanShort: "i", valuedShort: "t", booleanLong: new Set(["--initial"]), valuedLong: new Set(["--tabs"]) }),
+  unexpand: optionAware({ booleanShort: "af", valuedShort: "t", booleanLong: new Set(["--all", "--first-only"]), valuedLong: new Set(["--tabs"]) }),
+  fmt: optionAware({ booleanShort: "csumn", valuedShort: "wgdl", booleanLong: new Set(["--crown-margin", "--split-only", "--tagged-paragraph", "--uniform-spacing"]), valuedLong: new Set(["--width", "--goal", "--prefix"]) }),
+  comm: optionAware({ booleanShort: "123iz", valuedShort: "", booleanLong: new Set(["--check-order", "--nocheck-order", "--total", "--zero-terminated"]), valuedLong: new Set(["--output-delimiter"]) }),
+  cmp: optionAware({ booleanShort: "blsvxzh", valuedShort: "", booleanLong: new Set(["--print-bytes", "--verbose", "--quiet", "--silent"]), valuedLong: new Set(["--ignore-initial", "--bytes"]) }),
+  pr: optionAware({ booleanShort: "acdFfJmprtTv", attachedShort: "einsS", valuedShort: "hlwWoND", booleanLong: new Set(["--across", "--show-control-chars", "--double-space", "--form-feed", "--join-lines", "--merge", "--no-file-warnings", "--omit-header", "--omit-pagination", "--show-nonprinting"]), attachedLong: new Set(["--expand-tabs", "--output-tabs", "--number-lines", "--separator", "--sep-string"]), valuedLong: new Set(["--header", "--length", "--width", "--page-width", "--indent", "--first-line-number", "--date-format", "--columns"]) }),
+  numfmt: optionAware({ booleanShort: "z", valuedShort: "d", booleanLong: new Set(["--grouping", "--zero-terminated", "--debug"]), attachedLong: new Set(["--header"]), valuedLong: new Set(["--from", "--to", "--from-unit", "--to-unit", "--format", "--padding", "--delimiter", "--field", "--round", "--suffix", "--invalid"]) }),
+  tsort: posArgs,
+  man: (e) => {
+    const local = e.some((r) => r === "--local-file" || (/^-[^-]/.test(r) && r.includes("l")));
+    return e.flatMap((r, k) => {
+      if (k > 0 && (e[k - 1] === "-C" || e[k - 1] === "--config-file")) return [r];
+      const at = r.search(/[\\/~]/);
+      const parts = !r.startsWith("-") ? [r] : [...(r.includes("=") ? [r.slice(r.indexOf("=") + 1)] : []), ...(r.length > 2 && !r.startsWith("--") ? [r.slice(2)] : []), ...(at > 0 ? [r.slice(at)] : [])];
+      return parts.filter((x) => x !== "" && (local || /[\\/]/.test(x) || x.startsWith("~") || x.startsWith(".")));
+    });
+  },
+  rg: (e) => patternPaths(e, new Set(["-e", "--regexp", "-f", "--file", "-t", "--type", "-T", "--type-not", "-g", "--glob", "-m", "--max-count", "--max-depth", "-r", "--replace", "-A", "--after-context", "-B", "--before-context", "-C", "--context"]), ["."]),
+  sed: (e) => {
+    const out = [];
+    let skip = false, script = false, dd = false, started = false;
+    for (let k = 0; k < e.length; k++) {
+      if (skip) { skip = false; continue; }
+      const w = e[k];
+      if (!w) continue;
+      if (!dd && !started && w === "--") { dd = true; continue; }
+      if (!dd && !started && w !== "-" && w.startsWith("-")) {
+        if (["-f", "--file"].includes(w)) { const v = e[k + 1]; if (v) out.push(v); skip = true; script = true; }
+        else if (["-e", "--expression"].includes(w)) { skip = true; script = true; }
+        else if (w.includes("e") || w.includes("f")) script = true;
+        continue;
+      }
+      started = true;
+      if (!script) { script = true; continue; }
+      out.push(w);
+    }
+    return out;
+  },
+  jq: (e) => {
+    const out = [], valued = new Set(["-e", "--expression", "--arg", "--argjson", "--args", "--jsonargs", "-L", "--library-path", "--indent", "--tab"]);
+    let filter = false, dd = false;
+    for (let k = 0; k < e.length; k++) {
+      const w = e[k];
+      if (w === undefined || w === null) continue;
+      if (!dd && w === "--") { dd = true; continue; }
+      if (!dd && w.startsWith("-")) {
+        const q = w.indexOf("="), name = q >= 0 ? w.slice(0, q) : w;
+        if (["-e", "--expression"].includes(name)) filter = true;
+        if (["-f", "--from-file"].includes(name)) { filter = true; if (q >= 0) out.push(w.slice(q + 1)); else { const v = e[k + 1]; if (v !== undefined) { out.push(v); k++; } } continue; }
+        if (["--slurpfile", "--rawfile"].includes(name)) { const v = e[k + 2]; if (v !== undefined) out.push(v); k += 2; continue; }
+        if (valued.has(name) && q < 0) k++;
+        continue;
+      }
+      if (!filter) { filter = true; continue; }
+      out.push(w);
+    }
+    return out;
+  },
+  // (git: its -C and --work-tree folders, git grep's files, and git diff's paths after -- or plainly paths: from 2.1.321's
+  // rule, whose own option reader is not readable in its build; a branch such as origin/main is never taken for a path.)
+  git: (e) => {
+    let base = "", k = 0;
+    while (k < e.length && e[k].startsWith("-")) {
+      const w = e[k];
+      if (w === "-C" || w === "--work-tree" || w === "--git-dir" || w === "-c" || w === "--namespace") { if ((w === "-C" || w === "--work-tree") && e[k + 1] !== undefined) base = base && !e[k + 1].startsWith("/") && !e[k + 1].startsWith("~") ? base.replace(/\/+$/, "") + "/" + e[k + 1] : e[k + 1]; k += 2; continue; }
+      if (w.startsWith("--work-tree=")) base = w.slice(12);
+      k++;
+    }
+    const at = (x) => (base === "" || x.startsWith("/") || x.startsWith("~") ? x : base.replace(/\/+$/, "") + "/" + x);
+    const sub = e[k], rest = e.slice(k + 1);
+    const out = base ? [base] : [];
+    if (sub === "grep") { const g = patternPaths(rest, new Set(["-e", "--regexp", "-f", "--file", "-A", "--after-context", "-B", "--before-context", "-C", "--context", "-m", "--max-count", "--max-depth", "--threads"])); return [...out, ...(g.length ? g.map(at) : [])]; }
+    if (sub !== "diff") return out;
+    let dd = false;
+    for (const x of rest) { if (!dd && x === "--") { dd = true; continue; } if (dd || x.startsWith("/") || x.startsWith("~") || x.startsWith("../")) out.push(at(x)); }
+    return out;
+  },
+};
+/** Programs that run code given inline or from stdin, which the read block can't see into (2.1.321: "runs inline code, which cannot be checked against the read block"; "runs code from stdin"). */
+const CODE_RUNNERS = new Set(["python", "python3", "python2", "node", "ruby", "perl", "php", "lua", "Rscript", "tsx", "ts-node", "deno", "bun"]);
+const READ_BLOCK = " (the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting). Remove that setting to let Coder read outside the project.";
+/**
+ * WHY THE READ BLOCK ASKS ABOUT A COMMAND, or "" (in every mode; the owner's Yes runs it). `ctx`: `{ cwd, workdirs, home,
+ * real, ownDirs }` (`real` follows a full path's links, "" when it can't; `ownDirs`: Coder's own folders a command may read,
+ * such as a long output's file).
+ */
+export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", real = null, ownDirs = [] } = {}) {
+  const read = readCommand(command, { cwd });
+  if (!read.ok || read.dangling) return "This command can't be read through before it runs; under the read block a command the shell parser cannot analyze asks first" + READ_BLOCK;
+  const dirs = [...workdirs, ...ownDirs].filter((x) => typeof x === "string" && x);
+  const realDirs = dirs.map((w) => { if (typeof real !== "function") return w; try { return real(w) || w; } catch { return w; } });
+  // Inside means inside as written AND where its links lead (a link in the project to /etc is outside; with no resolver,
+  // as on the Worker, the path as written).
+  const inside = (p) => {
+    if (!insideWork(p, dirs) && !insideWork(p, realDirs)) return false;
+    if (typeof real !== "function") return true;
+    let to = "";
+    try { to = real(p) || ""; } catch { to = ""; }
+    return !!to && (insideWork(to, dirs) || insideWork(to, realDirs));
+  };
+  // Traced? A cd more than once, or a part run in a subshell ($(…), ( … ), <( … )), can't be (Claude Code's own examples).
+  const cds = read.cmds.filter((c) => { const w = unwrapped(c.words); const p = w[0] ? basename(w[0].text) : ""; return p === "cd" || p === "pushd" || p === "popd" || p === "chdir"; });
+  if (cds.length > 1) return "This command changes folder more than once, so its reads can't be traced before it runs" + READ_BLOCK;
+  if (read.cmds.some((c) => c.depth > 0 && !c.inScript)) return "This command runs part of itself in a subshell, so its reads can't be traced before it runs" + READ_BLOCK;
+  for (const x of read.reads) {
+    if (x.glob) return "This command reads " + x.raw + ", which is expanded by the shell before the path is opened, so it can't be checked against the read block" + READ_BLOCK;
+    if (!x.path) return "This command reads " + x.raw + ", a path computed at run time, which can't be checked against the read block" + READ_BLOCK;
+    if (!inside(x.path)) return "This command reads " + x.raw + ", outside the project, which the read block does not allow without asking" + READ_BLOCK;
+  }
+  for (const c of read.cmds) {
+    const words = unwrapped(c.words);
+    if (!words.length) continue;
+    const prog = basename(words[0].text), args = words.slice(1);
+    // A program given code inline or on stdin.
+    if (CODE_RUNNERS.has(prog)) {
+      let k = 0;
+      while (k < args.length && args[k].text.startsWith("-") && args[k].text !== "-") { if (INLINE_CODE.has(args[k].text) || /^--(eval|print)=/.test(args[k].text)) return prog + " runs inline code, which cannot be checked against the read block" + READ_BLOCK; k++; }
+      const versionOnly = args.length > 0 && args.every((a) => /^(-V|--version|-v|--help|-h)$/.test(a.text));
+      if (!versionOnly && (k >= args.length || args[k].text === "-")) return prog + " runs code from stdin, which cannot be checked against the read block" + READ_BLOCK;
+      continue;
+    }
+    const rule = READ_PATHS[prog];
+    if (!rule) continue;
+    // (A setting in front that is not a safe one: Claude Code, "an environment variable prefix outside the safe list cannot
+    // be checked against the read block".)
+    if (readWords(c.words) === null) return "This command sets an environment variable in front of " + prog + ", which cannot be checked against the read block" + READ_BLOCK;
+    if (prog === "sed" && !sedScriptsSafe(args.map((x) => x.text))) return "This sed script is not on the allowlist and can read or write any file, which cannot be checked against the read block" + READ_BLOCK;
+    const dir = c.dir === undefined ? cwd : c.dir;
+    for (const p of rule(args.map((x) => x.text))) {
+      if (p === "-" || NOT_FILES.has(p)) { if (prog === "cd" && p === "-") return "cd - goes back to a folder that can't be known before it runs" + READ_BLOCK; continue; }
+      const word = args.find((x) => x.text === p) || args.find((x) => x.text.endsWith(p)) || {};
+      if (word.expand || word.subst) return prog + " names a path that is computed at run time, which cannot be checked against the read block" + READ_BLOCK;
+      if (word.glob) return prog + " names " + p + ", which is expanded by the shell before the path is opened, so it can't be checked against the read block" + READ_BLOCK;
+      const full = p.startsWith("/") ? normalPath(p) : p === "~" || p.startsWith("~/") ? (home ? normalPath(home + p.slice(1)) : "") : dir === false ? "" : normalPath(dir + "/" + p);
+      if (!full) return prog + " names " + p + ", a path that can't be known before it runs, which the read block does not allow without asking" + READ_BLOCK;
+      if (!inside(full)) return prog + (prog === "cd" || prog === "pushd" ? " moves later reads to " + p + ", a folder outside the project," : " names " + p + ", a path outside the project,") + " which the read block does not allow without asking" + READ_BLOCK;
+    }
+  }
+  return "";
 }
 
 // ── WEB FETCH ────────────────────────────────────────────────────────────────

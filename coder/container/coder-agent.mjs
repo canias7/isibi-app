@@ -27,7 +27,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, allowRuleCovers, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
+import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -325,6 +325,9 @@ export const RM_REFUSED = "Permission for this command was denied by a built-in 
  * as Coder's do now: tool 4, part 2; the owner, 2026-11-09: "do all of those").
  */
 export const BG_NOTICE = "You will be notified when it completes.";
+/** The file tools the read block covers (Claude Code: "Read, Grep, Glob, and LSP"), and what Coder is told (its words, with Coder's names). */
+export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
+export const READ_BLOCKED = "error: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the project. Ask the owner to remove that setting if you need to read there.";
 /** Said of one moved to the background at its timeout (Claude Code's words in the cloud: 30 minutes from the move). */
 export const BG_MOVED_LIMIT = "If it is still running after 30m in the background, it will be stopped and you will be notified.";
 /** A time as Claude Code says it in that sentence ("30m", "1h 30m", "2h"). */
@@ -911,7 +914,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -1268,6 +1271,13 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
         let ask = commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (part) => !github && allowRuleCovers(part, ownRules) });
+        // THE READ BLOCK (Bash docs pass 4: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES, Claude Code's
+        // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
+        // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
+        if (!ask && readBlock) {
+          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs, home: deps.home || "", real: (p) => realPath(p), ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
+          if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: w, github: w }; }
+        }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
         if (ask && github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
         // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
@@ -1543,6 +1553,20 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // edit in Plan mode (Claude Code: edits "stay blocked until you approve the plan", each one asked); a web page in
         // Accept edits and Plan, unless it is one of Claude Code's pre-approved documentation sites or a rule allows it
         // ("Yes", "Yes, and don't ask again for <domain>", "No, and tell Claude what to do differently"). A deny rule refuses it.
+        // THE READ BLOCK FOR THE FILE TOOLS (Bash docs pass 4; Claude Code's permissions.blockReadsOutsideWorkingDirectories:
+        // "Claude Code denies Read, Grep, Glob, and LSP calls on those paths and tells Claude to ask you to add the
+        // directory"): with the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES on, a read, grep, glob or lsp
+        // outside the project (its links followed) is refused; Coder's own folders stay readable ("Files Claude Code itself
+        // needs stay readable").
+        if (readBlock && READ_TOOLS.has(c.name)) {
+          const pat = c.name === "glob" && typeof args.pattern === "string" && /^[/~]/.test(args.pattern) ? args.pattern.slice(0, Math.max(1, args.pattern.search(/[*?[{]/) < 0 ? args.pattern.length : args.pattern.search(/[*?[{]/))) : "";
+          const p = pat || (typeof args.path === "string" && args.path ? args.path : ".");
+          const full = typeof deps.where === "function" ? deps.where(p.startsWith("~") && deps.home ? deps.home + p.slice(1) : p) : p;
+          const own = [...workdirs, ...(Array.isArray(deps.ownDirs) ? deps.ownDirs : [])].filter((x) => typeof x === "string" && x);
+          const within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
+          const to = within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
+          if (!within(full) || !within(to)) { emit({ type: "result", id: c.id, code: 1, output: READ_BLOCKED }); reply(READ_BLOCKED); continue; }
+        }
         const modeT = modeNow();
         const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
         if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, output: fetchDec.why }); reply(fetchDec.why); continue; }
