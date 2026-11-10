@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: What's still missing from the Bash docs (your question: "What else from the batch docs are we missing")
+
+- **One real gap, found by comparing Claude Code's own list of commands that only read (from its code, 2.1.321) with Coder's:** 7 commands Claude Code runs without asking in Accept edits and Plan, which Coder asks about: `lsof`, `ss`, `tput`, `fd` (and `fdfind`), `docker logs`, `docker inspect`. Coder's list was copied from 2.1.319. (Claude Code also has a list of `gh` commands that only read, like `gh pr view`, but it isn't switched on in the public version, so Coder already matches it there.)
+- **An optional setting Coder lacks:** Claude Code's `permissions.blockReadsOutsideWorkingDirectories`. When on, commands that read files outside the project ask first, even in Auto. It is off unless you turn it on; half of it belongs to the Read tool.
+- **Outside Bash, still asking you:** `Read(…)` and `Edit(…)` rules, and the low-disk warning. One small Bash thing depends on Read rules: when you answer "don't ask again" to a command with a `cd` out of the project, Claude Code also saves a rule for that folder.
+- **Your call:** background commands longer than 2 hours.
+- **Separate tools, later:** Monitor, hooks, and Auto mode's second AI checker (it costs money per check).
+- **Not copied, on purpose:** switches that turn safety checks off, the sandbox for Claude Code on your own computer, zsh, and PowerShell and Windows items.
+- **Checked this time and already the same:** the other lists of commands that only read, refusing network names that lead to the machine itself or a cloud's private addresses (Coder is stricter than Claude Code), and refusing a dangerous delete in Auto when no one can answer.
+
 ## 2026-11-10: Bash, the four missing things built (your words: "Ok yes do that")
 
 - **1. Writes through a link.** Coder now checks where a command's write really lands, following links, as Claude Code does.
