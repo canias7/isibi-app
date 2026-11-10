@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Both merged and deployed (deploy 91), and the block display tested live (recording 28) (your words: "yea merge and deploy both and test pls")
+
+- **Deploy 91** (main f705dcfd) took about 2.5 minutes. Coder's machine didn't change, so its build step took 3 seconds: the version already on Fly.io was kept, as before.
+- **The faster deploy is in place, but this deploy could not show it.** It only works when Coder's machine changes. The first such deploy builds the tools once and keeps them on Fly.io, so it is still slow. Every machine change after that builds only Coder's own files.
+- **Recording 28, live on gofarther.dev with Grok, on recording 27's chat:**
+  - The chat's earlier blocks now show their reasons without opening the step, for example "Blocked by auto mode / Auto mode: [Plan] Plan mode forbids creating or changing files".
+  - A new block, live: "Install the Ollama command-line tool on this machine." Grok chose the install script, and the checker blocked it: "✕ blocked", then "Blocked by auto mode / Auto mode: [Code from External] The owner asked to install Ollama but did not name piping the remote install.sh into a shell." It showed the moment the block came in, while Coder was still working, as Claude Code shows it.
+
 ## 2026-11-10: Auto mode's second checker tested live with Grok (recording 27), and its blocks shown like Claude Code's
 
 - **Deploy 87 went live at 10:35.** The build-and-upload step alone took 18 minutes. The faster deploy (below) removes that for most deploys, once it is merged.
