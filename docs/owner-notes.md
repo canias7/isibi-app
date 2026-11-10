@@ -11,6 +11,25 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: A test copy at test.gofarther.dev (your word: "ok yea lets do that")
+
+You wanted to test this branch live "without touching the other branches or merging", and without it interfering with the main product.
+
+- **Why not just deploy the branch to gofarther.dev:** this branch is 68 commits behind `main` (today's Coder work from the other session isn't in it). Putting it on gofarther.dev would take that work off the live site until `main` is deployed again, and each deploy would undo the other's.
+- **The deploy button now has a "target" choice (on this branch only):**
+  - **live:** gofarther.dev, as before. It now goes only from `main`, so a branch can't replace the live site by mistake.
+  - **test:** the branch picked goes to its own Worker at **test.gofarther.dev**.
+- **The test copy is separate from the main product:**
+  - its own storage (chats, files, saved logins);
+  - its own Fly.io computers;
+  - its own deploy queue, so it never waits on or holds up a live deploy.
+  - Its keys are put on the test copy only.
+  - The live Worker, its keys and its data are never touched. Its settings are made from the live ones by `coder/test-copy.mjs`, which refuses to make settings that share anything of the live Worker's own.
+- **What it shares:** your accounts (same sign-in), the Grok key (test runs cost from the same xAI account), and the same Cloudflare and Fly.io bills. Signing in or out there doesn't sign you out of gofarther.dev.
+- **GitHub isn't connected there** (its address isn't in the GitHub App). Gloopy doesn't use GitHub.
+- When we're done testing, I can delete the test copy with your word.
+- Tests: TC1 to TC3 are new.
+
 ## 2026-11-10: Gloopy checked against Grok Bot's and dots' docs again (your word: "Go against the docs again")
 
 The small fixes that clearly match the docs are done. The bigger differences are listed at the end for you to decide.
