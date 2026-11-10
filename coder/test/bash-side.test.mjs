@@ -151,3 +151,14 @@ test("CD366 the shell reader knows a command fed by a pipe (for the read block's
   assert.deepEqual(at("a |& b; c"), [["a", false], ["b", true], ["c", false]]);
   assert.deepEqual(at("a && b\nc | d"), [["a", false], ["b", false], ["c", false], ["d", true]]);
 });
+
+test("CD367 a short read after a cd inside ( … ) or $( … ) still runs (that cd is checked on its own); one that climbs with .. from there asks; the variable sentence is for variables, not $( … )", async () => {
+  const P = await import("../container/coder-perms.mjs");
+  const d = (c) => P.bashDecision(c, ctx("acceptEdits"));
+  for (const c of ["(cd src && cat a.js)", "(cd src && ls)", "(cd docs; head -3 notes.md)"]) assert.equal(d(c).verdict, "allow", c);
+  assert.equal(d("(cd src && cat ../../../etc/passwd)").why, "cat in '../../../etc/passwd' requires manual approval: the path it names depends on a directory change in the same command.");
+  assert.equal(d("(cd /etc && cat passwd)").why, "cd in '/etc' was blocked. For security, Coder may only change directories to the allowed working directories for this session: " + DIRS + ".");
+  assert.equal(d("(cd src; cat /etc/hostname)").why, "cat in '/etc/hostname' was blocked. For security, Coder may only concatenate files from the allowed working directories for this session: " + DIRS + ".");
+  for (const c of ["echo $(date)", "echo $(cd src && cat a.js)"]) assert.equal(d(c).why, "This command requires approval", c);
+  for (const c of ["echo ${HOME}x", 'wc -l "$F"']) assert.equal(d(c).why, "A variable in this command can't be checked before it runs", c);
+});
