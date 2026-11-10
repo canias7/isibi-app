@@ -13,7 +13,7 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
 
-Tried on test.gofarther.dev with Grok, recorded (two videos, 50 and 15 minutes): every part of the browser, Gloopy's side and yours.
+Tried on test.gofarther.dev with Grok, recorded (three videos: 50, 15 and 3 minutes): every part of the browser, Gloopy's side and yours. The test copy's settings are back as they were (no rules, everything Always allow).
 
 **Gloopy's own steps, all working:**
 - A form (httpbin's practice pizza order): opening it, typing, a choice, ticks, a time, a note. With an "Ask first" rule for forms there, only Submit asked, on a card listing what the form sends; after Allow it went, and Gloopy read back the result.
