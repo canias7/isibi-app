@@ -363,6 +363,24 @@ code in **each user's own GitHub**.
    `lsp` outside the project are refused (`READ_BLOCKED`). Coder's own folders (the
    background logs and saved long outputs, `ownDirs`) stay readable. Tests:
    `test/bash-pass4.test.mjs`.
+
+   A fifth pass (owner, 2026-11-10: "go check again trhe docs", then "so?"), from
+   what Claude Code 2.1.321 does before each command and its docs' error reference.
+   Every command starts with `commandPrefix` (`container/server.mjs`): the shell
+   snapshot, `shopt -u extglob` (`EXTGLOB_OFF`, so `!(…)` stays a syntax error, as
+   Coder's checks read it), and `pkill`, `pgrep` and `pidwait` that add procps'
+   `--ignore-ancestors` (`PROC_WRAPPERS` in `container/coder-checks.mjs`: before,
+   `pgrep -f x` found the command's own `bash -c` shell, and `pkill -f` ended it).
+   The old refusal of `pkill node` is gone (the sandbox can't see Coder's service).
+   Commands get `GIT_EDITOR=true` (before the owner's variables, so theirs wins) and
+   `AI_AGENT=gofarther-coder` (`AGENT_MARK`). Rules: Claude Code's errors for a
+   malformed rule (`ruleProblem`), and its warnings for one it keeps
+   (`ruleWarning`: an allow rule's `*` before the command's own word, `starBeforeCommand`;
+   `*` mixed with a trailing `:*`; a `:*` not at the end), shown in the rules list; a
+   trailing `…:*` is a literal prefix (`bashSpecMatches`). And Claude Code's privacy
+   check: a command holding the account's email with a User-Agent setting is refused
+   (`namesUserAgentWithAddress`, `ACCOUNT_EMAIL_REFUSED`); the Worker sends only the
+   address's length and SHA-256 (`emailMark`). Tests: `test/bash-pass5.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.

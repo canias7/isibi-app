@@ -39,7 +39,9 @@ const REFUSED = [
   [/\bdd\s+[^|;&]*of=\/dev\//, "it writes straight to a device"],
   [/\b(shutdown|reboot|halt|poweroff)\b/, "it stops the machine"],
   [/\/proc\/[0-9a-z]+\/environ\b/, "it reads another process's secrets"],
-  [/\bkill\s+-9\s+1\b|\bkill\s+(-[A-Z0-9]+\s+)?-1\b|\bpkill\s+(-[a-z0-9]+\s+)*node\b/, "it would stop Coder itself"],
+  // (`pkill node` was refused here too, from before the commands' own sandbox: they can't see Coder's service, and Claude
+  // Code refuses only a pkill pattern that matches its own process. Bash docs pass 5.)
+  [/\bkill\s+-9\s+1\b|\bkill\s+(-[A-Z0-9]+\s+)?-1\b/, "it would stop Coder itself"],
   [/\b(chmod|chown)\s+(-R\s+)?[^ ]*\s+\/(\s|$)/, "it changes the whole machine's permissions"],
   // `sudo` reaches only the master key's checked jobs (step 4, tools/sudo); `su` stays refused.
   [/\bsu\s/, "commands already run with the rights they need"],
@@ -117,6 +119,24 @@ export function cleanEnv(home, { root = false } = {}) {
   };
 }
 
+/**
+ * PGREP, PKILL AND PIDWAIT LEAVE THE COMMAND'S OWN SHELLS OUT (Bash docs pass 5; Claude Code 2.1.321: "Fixed `pkill`,
+ * `pgrep` and `pidwait` in cloud sessions matching the session's own parent processes"; its shell snapshot shadows them
+ * with functions that add procps' --ignore-ancestors when the installed one knows it). Each command runs as
+ * `bash -c "<the command>"`, so before this `pgrep -f vite` always found its own shell, and `pkill -f "npm run dev"` ended the
+ * very command that ran it. (Here, not in server.mjs, whose root never runs these: a root-safety test keeps it so.)
+ */
+export const PROC_WRAPPERS = ["pkill", "pgrep", "pidwait"].map((n) => [
+  "unalias " + n + " 2>/dev/null || true",
+  "if command -v " + n + " >/dev/null 2>&1; then",
+  "  function " + n + " {",
+  '    case "$(command ' + n + ' --help 2>&1)" in',
+  '      *--ignore-ancestors*) set -- --ignore-ancestors ${1+"$@"} ;;',
+  "    esac",
+  "    command " + n + ' ${1+"$@"}',
+  "  }",
+  "fi",
+].join("\n")).join("\n") + "\n";
 /** A timeout in seconds the model asked for, bounded. */
 export function readTimeout(v) {
   const n = Number(v);

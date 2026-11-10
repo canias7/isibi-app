@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
 import { normMode, MODES } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
@@ -115,6 +115,22 @@ printf "export PATH=%q\n" "$PATH"
 printf "__CODER_SNAP_B__\n"
 ' </dev/null 2>/dev/null | sed -n '/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p' | sed '1d;$d' | head -c ` + SNAPSHOT_MAX + String.raw` > "$f.new" && mv -f "$f.new" "$f"`;
 export const SNAPSHOT_READ = '{ if [ -r "$HOME/' + SNAPSHOT_FILE + '" ]; then . "$HOME/' + SNAPSHOT_FILE + '"; fi; } >/dev/null 2>&1\n';
+/**
+ * BASH'S EXTENDED PATTERNS OFF, IN EVERY COMMAND (Bash docs pass 5; Claude Code 2.1.321 puts `shopt -u extglob` before each
+ * command, after the shell snapshot): `!(…)`, `@(…)` and the like stay a syntax error, so a command runs the way Coder's
+ * checks read it, even when the snapshot turned them on (Ubuntu's bash-completion does: `shopt -s extglob progcomp`).
+ */
+export const EXTGLOB_OFF = "shopt -u extglob 2>/dev/null || true\n";
+/**
+ * WHAT EVERY COMMAND OF CODER'S (and the owner's own with !) READS FIRST: the shell startup file's snapshot (only where the
+ * AI has a home of its own), Claude Code's extended patterns off and its pgrep/pkill/pidwait, then the owner's CODER_ENV_FILE.
+ */
+export const commandPrefix = (home, envLine = "") => (home ? SNAPSHOT_READ : "") + EXTGLOB_OFF + PROC_WRAPPERS + envLine;
+/**
+ * AN AI AGENT'S NAME FOR THE PROGRAMS IT RUNS (Bash docs pass 5; Claude Code 2.1.120: "Set `AI_AGENT` environment variable
+ * for subprocesses so `gh` can attribute traffic to Claude Code"), Coder's own: after the owner's variables, like its marks.
+ */
+export const AGENT_MARK = { AI_AGENT: "gofarther-coder" };
 /**
  * THE OWNER'S CODER_ENV_FILE (Claude Code's CLAUDE_ENV_FILE: "Path to a shell script whose contents Claude Code runs before
  * each Bash command in the same shell process, so exports in the file are visible to the command. Use to persist virtualenv
@@ -2230,9 +2246,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // for every command, and a setup script run (as `dev`) when this machine first
     // opens the repo, or when the script changed.
     const ownerVars = safeVars(body.setup && body.setup.vars);
-    const extraEnv = { ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
-    // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks): after the owner's, so one of theirs cannot hide them.
-    Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""));
+    // GIT NEVER WAITS FOR AN EDITOR (Bash docs pass 5; Claude Code sets GIT_EDITOR=true for every command, before the
+    // session's own variables): `git commit --amend`, `git rebase --continue` keep the message git prepared, where before they
+    // failed ("Terminal is dumb, but EDITOR unset"). An owner's own GIT_EDITOR wins.
+    const extraEnv = { GIT_EDITOR: "true", ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
+    // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks, AGENT_MARK): after the owner's, so one of theirs cannot hide them.
+    Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""), AGENT_MARK);
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // WHERE THE COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): where the chat's last command left
     // them (body.cwd, kept by the Worker), while that is still the project's folder, one of the other repositories', or a
@@ -2245,9 +2264,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // commands, see safeVars.)
     const rawVars = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
     const keepHome = /^(1|true|yes|on)$/i.test(String(rawVars.CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR ?? "").trim());
-    // What every command of Coder's reads first (tool 4, docs pass 2): the shell startup file's snapshot (only where the AI has
-    // a home of its own), then the owner's CODER_ENV_FILE.
-    t.prefix = (home ? SNAPSHOT_READ : "") + envFileLine(rawVars.CODER_ENV_FILE, home0);
+    // What every command of Coder's reads first (tool 4, docs pass 2 and 5): see commandPrefix.
+    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0));
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
     t.tmo = bashTimeouts(rawVars);
     // HOW MUCH OF A COMMAND'S OUTPUT CODER GETS (see bashOutputLimits); BACKGROUND COMMANDS OFF with CODER_DISABLE_BACKGROUND_TASKS
@@ -2602,7 +2620,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

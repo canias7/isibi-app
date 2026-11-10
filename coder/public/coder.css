@@ -585,6 +585,10 @@
 .cd-rules-k li button { border: 0; background: transparent; color: #6b6a66; font-size: 16px; line-height: 1; cursor: pointer; border-radius: 6px; padding: 2px 6px; }
 .cd-rules-k li button:hover { background: #f3f1ed; color: #b3261e; }
 .cd-rules-none { font-size: 12.5px; color: #a19c94; margin: 4px 0 0; }
+/* A rule Claude Code keeps but warns about: its short row under the rule, and its full warning once it is added (Bash docs pass 5). */
+.cd-rules-r { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cd-rules-note { font-size: 12px; color: #9a5b00; }
+.cd-rules-warn { font-size: 12.5px; line-height: 1.45; color: #7a4800; background: #fff6e5; border: 1px solid #f1d9a8; border-radius: 8px; padding: 8px 10px; margin: 10px 0 0; overflow-wrap: anywhere; }
 .cd-rules-add { display: flex; gap: 6px; margin-top: 16px; }
 .cd-rules-add select, .cd-rules-add input { font: inherit; font-size: 13.5px; border: 1px solid #d9d6cf; border-radius: 8px; padding: 7px 9px; background: #fff; color: #1f1e1d; }
 .cd-rules-add input { flex: 1; min-width: 0; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }

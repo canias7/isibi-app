@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Bash, the five things from the last docs check built (your word: "so?")
+
+- **1. `pkill` and `pgrep` no longer find the command's own shell.** Every command now gets Claude Code's versions of `pkill`, `pgrep` and `pidwait`, which leave the command's own shells out. Tried: `pgrep -f` finds nothing when nothing runs, and `pkill -f "…"` ends the program without ending the command that ran it. Coder's old refusal of `pkill node` is gone: it said "it would stop Coder itself", which hasn't been true since commands got their own sandbox.
+- **2. Git no longer waits for an editor.** Every command has `GIT_EDITOR=true`, as in Claude Code. `git commit --amend` and `git rebase --continue` now keep git's prepared message instead of failing. A `GIT_EDITOR` you set in an environment still wins.
+- **3. Warnings for risky rules,** in Claude Code's words. Adding an allow rule like `Bash(git * main)` saves it and shows the full warning. The rules list shows a short "⚠ … allows any option at its * · use an exact value" under it. A rule that can't be used gets Claude Code's exact reason, like "Malformed Tool(content) rule". A rule ending in `:*` is now read the way Claude Code reads it, so `Bash(npm run *:*)` no longer approves `npm run build --watch`.
+- **4. Bash's extended patterns are off in every command,** even if a setup script turns them on.
+- **5. Two small ones:** every command has `AI_AGENT=gofarther-coder`, so `gh` can tell GitHub its traffic comes from an AI agent. And Claude Code's privacy check: a command that holds your account's email together with a User-Agent setting is refused, in Claude Code's words. Grok is also told to keep your details out of requests to other services. Coder's machine never gets your email: only its length and a one-way fingerprint (SHA-256) to compare against.
+- **Tests:** CD354 to CD360 (7 new; 371 in all, all pass).
+- **Next, with your word:** merge, deploy, and the recorded live test of everything with Grok.
+
 ## 2026-11-10: The docs checked again (your words: "go check again trhe docs")
 
 - **The docs:** every page is word for word the same as this morning. **Claude Code 2.1.322** came out today; its only change is fast mode on Vertex. I compared its code with 2.1.321's too: nothing changed for Bash.

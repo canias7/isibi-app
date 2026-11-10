@@ -619,18 +619,104 @@ export function settingMatches(pattern, value) {
  * startup warning. Use Bash(rm *) … instead").
  */
 export function ruleProblem(text) {
-  const m = /^Bash\(([\s\S]*)\)$/.exec(String(text || "").trim());
+  const t = String(text ?? "").trim();
+  // CLAUDE CODE'S OWN CHECKS OF A RULE'S SHAPE (Bash docs pass 5: its rule check, 2.1.321, and its error reference,
+  // "Malformed Tool(content) rule"), in its words: error, then what to do, then examples.
+  const say = (error, suggestion, examples) => error + (suggestion ? ". " + suggestion : "") + (examples && examples.length ? ". Examples: " + examples.join(", ") : "");
+  if (!t) return say("Permission rule cannot be empty");
+  const open = t.indexOf("(");
+  if ((open < 0 && t.includes(")")) || (open >= 0 && !t.endsWith(")"))) return say("Malformed Tool(content) rule", 'Rules take the form Tool or Tool(content) and must end at the closing ")"; parentheses inside the content are literal');
+  const tool = open < 0 ? t : t.slice(0, open), content = open < 0 ? null : t.slice(open + 1, -1);
+  if (content === "") return tool ? say("Empty parentheses", 'Either specify a pattern or use just "' + tool + '" without parentheses', [tool, tool + "(some-pattern)"]) : say("Empty parentheses with no tool name", "Specify a tool name before the parentheses");
+  if (!tool) return say("Tool name cannot be empty");
+  if (!tool.includes("_") && tool[0] !== tool[0].toUpperCase()) return say("Tool names must start with uppercase", 'Use "' + tool[0].toUpperCase() + tool.slice(1) + '"');
+  if (tool === "Bash" && content === ":*") return say("Prefix cannot be empty before :*", "Specify a command prefix before :*", ["Bash(npm *)", "Bash(git *)"]);
+  const m = /^Bash\(([\s\S]*)\)$/.exec(t);
   const sp = m ? settingSpec(m[1]) : null;
   if (!sp || sp.name !== "command") return "";
   return "Bash(command:…) can't be used: a rule on the command itself could be got round by a command joined to another one. Write the command as the rule instead, such as Bash(" + (sp.value || "rm *") + ").";
 }
+/** Whether a rule's text has a `*` that is not escaped (`\*` is a literal star): Claude Code's Hr. */
+function hasStar(s) {
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== "*") continue;
+    let back = 0;
+    for (let j = i - 1; j >= 0 && s[j] === "\\"; j--) back++;
+    if (back % 2 === 0) return true;
+  }
+  return false;
+}
+/**
+ * THE PROGRAM OF A BASH ALLOW RULE WHOSE * COMES BEFORE A LATER WORD THAT SAYS WHICH COMMAND IT IS, or "" (Claude Code's
+ * l_; its error reference, "Has a wildcard before the rest of the command": `Bash(git * main)` "also approves
+ * `git -c core.fsmonitor=<script> diff main`, where `-c` makes git run a program the command names"). Options (`-x`) between
+ * don't end the search; an operator or a redirection does.
+ */
+export function starBeforeCommand(spec) {
+  const s = String(spec ?? "");
+  if (s.endsWith(":*")) return "";
+  const words = s.trim().split(/\s+/).filter(Boolean), first = words[0];
+  if (words.length < 3 || first === undefined || hasStar(first)) return "";
+  let seen = false;
+  for (const w of words.slice(1)) {
+    if (/^(?:[|&;<>]|\d+[<>])/.test(w)) return "";
+    if (hasStar(w)) { seen = true; continue; }
+    if (w.startsWith("-")) continue;
+    return seen ? first : "";
+  }
+  return "";
+}
+/**
+ * WHAT CLAUDE CODE WARNS ABOUT A BASH RULE THAT IT STILL KEEPS (Bash docs pass 5; its rule check, 2.1.321, and its error
+ * reference): `{ warning, notice }` in its words (the warning in full; the notice is its short row, "⚠ Allow rule … allows
+ * any option at its * · use an exact value", given only where Claude Code shows that row), or null.
+ */
+export function ruleWarning(kind, text) {
+  const t = String(text ?? "").trim();
+  const m = /^Bash\(([\s\S]*)\)$/.exec(t);
+  if (!m || settingSpec(m[1])) return null;
+  const g = m[1];
+  if (kind === "allow") {
+    const prog = starBeforeCommand(g);
+    if (prog) {
+      const git = prog === "git";
+      return {
+        warning: t + " has a wildcard before the rest of the command, so it also matches any options inserted at that position and approves them without a prompt." + (git ? " For git, options such as -c and --exec-path can run arbitrary commands." : "") + " Replace that * with the exact value you mean, or only use * after the subcommand" + (git ? " (for example Bash(git status *))" : "") + ".",
+        notice: t + " allows any option at its * · use an exact value",
+      };
+    }
+  }
+  const pre = /^([\s\S]+):\*$/.exec(g);
+  if (pre) {
+    const p = pre[1].trimEnd();
+    if (!hasStar(p)) return null;
+    // (Claude Code's oMo: the prefix ends in an unescaped *.)
+    let back = 0;
+    for (let j = p.length - 2; j >= 0 && p[j] === "\\"; j--) back++;
+    const endsStar = p.endsWith("*") && back % 2 === 0;
+    const y = endsStar ? p : p + "*";
+    const what = endsStar ? "matches only commands containing a literal * at that position" : "will likely never match";
+    const tail = kind === "allow" ? " Replace that * with the exact value you mean." : y.endsWith(":*") ? "" : " Use Bash(" + y + ") for wildcard matching.";
+    return { warning: t + " mixes * with the trailing :* prefix syntax, so it is matched as a literal prefix (the * is not expanded) and " + what + "." + tail, notice: kind === "allow" ? "" : t + " reads its * literally" + (y.endsWith(":*") ? "" : " · use Bash(" + y + ")") };
+  }
+  if (g.includes(":*")) {
+    return { warning: t + " has a :* that is not at the end, so it is matched as a * wildcard (the : is literal), not as the trailing :* prefix syntax. " + (kind === "allow" ? "Replace that :* with the exact value you mean." : "It already matches as a * wildcard; moving :* to the end would make it a literal prefix and change which commands match."), notice: kind === "allow" ? t + " reads its :* as a wildcard · use an exact value" : "" };
+  }
+  return null;
+}
 export const RULE_MAX = 300;
 /** A rule as saved: its tool, and its specifier when it has one. */
 export function ruleText(tool, spec) { return spec ? tool + "(" + spec + ")" : tool; }
-/** Whether a Bash rule's specifier matches a command's text (Claude Code's: `*` is any text; a trailing ` *` also matches the bare command; `:*` at the end is ` *`). */
+/**
+ * Whether a Bash rule's specifier matches a command's text (Claude Code's: `*` is any text; a trailing ` *` also matches the
+ * bare command; `…:*` at the end is its prefix form: the command, or the command and more words, the part before `:*` read
+ * literally, a `*` in it included: Claude Code's b4e, "matched as a literal prefix (the * is not expanded)", Bash docs pass 5).
+ */
 export function bashSpecMatches(spec, text) {
   if (spec === null) return true;
-  const p = spec.endsWith(":*") ? spec.slice(0, -2) + " *" : spec;
+  const pre = /^([\s\S]+):\*$/.exec(spec);
+  if (pre) return text === pre[1] || text.startsWith(pre[1] + " ");
+  const p = spec;
   const re = new RegExp("^" + p.split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[\\s\\S]*") + "$");
   if (re.test(text)) return true;
   return (p.match(/\*/g) || []).length === 1 && p.endsWith(" *") && text === p.slice(0, -2);

@@ -326,6 +326,43 @@ export const RM_REFUSED = "Permission for this command was denied by a built-in 
  */
 export const BG_NOTICE = "You will be notified when it completes.";
 /** The file tools the read block covers (Claude Code: "Read, Grep, Glob, and LSP"), and what Coder is told (its words, with Coder's names). */
+// ── THE ACCOUNT'S EMAIL WITH A USER-AGENT (Bash docs pass 5; Claude Code's built-in "privacy" check, 2.1.321: "refuses a shell
+// call that holds the signed-in account's email address and names a User-Agent", in its words, without asking). The Worker
+// gives the machine the address's length and SHA-256 only (`emailMark`, "<length>:<sha256>"), never the address.
+export const ACCOUNT_EMAIL_REFUSED = "This call was refused: it holds the account's email address and what looks like a User-Agent setting. If nobody asked to send the address, run it again without it, with a generic client name. Otherwise run it again without that setting, or run the two in separate calls.";
+/** A tool call's input as Claude Code reads it for that check (its textOf): each string as sent, then without its quotes, backslashes, `$` before a quote and joined lines. */
+export function inputText(v) {
+  if (typeof v === "string") return v + "\n" + v.replace(/[\\`]\r?\n/g, "").replace(/\$(?=["'])/g, "").replace(/["'`\\]/g, "");
+  if (typeof v !== "object" || v === null) return "";
+  return Object.values(v).map(inputText).join(Array.isArray(v) ? " " : "\n");
+}
+const UA_WORDS = /user[-_]?agent|[-–-―]-user-(?:a(?:g[a-z]*)?)?(?![a-z-])|[-–-―]usera(?:g[a-z]*)?(?![a-z])|\bua\s*[:=]/i;
+const UA_FLAGS = [[/\bcurl(?:ie)?\b/i, /\s[-–-―][a-zA-WYZ0-9#]*A/], [/\bwget2?\b/i, /\s[-–-―][a-zA-Z0-9]*U/], [/\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b/i, /\s[-–-―]user(?![\w=-])/i]];
+/**
+ * Whether a call's text holds the account's email and names a User-Agent (Claude Code's namesUserAgentWithAddress: the
+ * text, or the text with %XX decoded, holds the address in any case; then, with the address taken out, it names a
+ * User-Agent: the words, or curl's -A, wget's -U, or a -user… option).
+ */
+export function namesUserAgentWithAddress(text, mark) {
+  const m = /^(\d{1,3}):([0-9a-f]{64})$/.exec(String(mark || ""));
+  const t = String(text || "");
+  if (!m || (!t.includes("@") && !t.includes("%40"))) return false;
+  const len = Number(m[1]), want = m[2];
+  const decoded = t.replace(/%([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  let found = "";
+  for (const src of [t.toLowerCase(), decoded.toLowerCase()]) {
+    for (let at = src.indexOf("@"); at >= 0 && !found; at = src.indexOf("@", at + 1)) {
+      for (let j = Math.max(0, at - len + 1); j <= at && !found; j++) {
+        const cand = src.slice(j, j + len);
+        if (cand.length === len && createHash("sha256").update(cand).digest("hex") === want) found = cand;
+      }
+    }
+    if (found) break;
+  }
+  if (!found) return false;
+  const rest = t.replace(new RegExp(found.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ");
+  return UA_WORDS.test(rest) || UA_FLAGS.some(([a, b]) => a.test(rest) && b.test(rest));
+}
 export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
 export const READ_BLOCKED = "error: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the project. Ask the owner to remove that setting if you need to read there.";
 /** Said of one moved to the background at its timeout (Claude Code's words in the cloud: 30 minutes from the move). */
@@ -811,6 +848,7 @@ HOW YOU WORK
 - A message the owner sent while you were working comes in the middle of your turn, after your tool results, starting "The owner sent a new message while you were working:". Read it and take it into account as you go on: change course if it asks you to.
 - A command the owner ran themselves (they typed ! in the chat) comes as <bash-input>the command</bash-input>, then <bash-stdout>what it printed</bash-stdout> (<bash-stderr> has its exit code when it failed). Answer it as their message: say what the output means (what failed and how to fix it, when something did). Do not run it again unless they ask.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
+- Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
 - Code comments: add them only where the code is not obvious (a tricky line, a workaround, a "why"), or when the owner asks. Never comment what the code plainly says.
@@ -914,7 +952,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, emailMark = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -1268,6 +1306,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
         const dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
+        // THE ACCOUNT'S EMAIL WITH A USER-AGENT: refused, without asking, in every mode (see namesUserAgentWithAddress).
+        if (emailMark && namesUserAgentWithAddress(inputText(c.args), emailMark)) { refuse(ACCOUNT_EMAIL_REFUSED); continue; }
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
         let ask = commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (part) => !github && allowRuleCovers(part, ownRules) });

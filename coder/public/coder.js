@@ -1512,9 +1512,11 @@
     S.modeMenu = false; draw();
     if (!S.project) return;
     const repo = S.project.repo;
-    let rules = { allow: [], ask: [], deny: [] }, err = '';
+    // (`notices`: Claude Code's short warning row for a rule it keeps but warns about, "⚠ … allows any option at its * · use
+    // an exact value"; `warn`: its full warning, shown when such a rule is added. Bash docs pass 5.)
+    let rules = { allow: [], ask: [], deny: [] }, err = '', notices = {}, warn = '';
     const r = await call('/permissions?repo=' + encodeURIComponent(repo));
-    if (r.status === 200 && r.data && r.data.rules) rules = r.data.rules; else err = (r.data && r.data.error) || 'The rules could not be loaded.';
+    if (r.status === 200 && r.data && r.data.rules) { rules = r.data.rules; notices = r.data.notices || {}; } else err = (r.data && r.data.error) || 'The rules could not be loaded.';
     const wrap = document.createElement('div'); wrap.className = 'cd-sure';
     const box = document.createElement('div'); box.className = 'cd-sure-box cd-rules'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Permission rules');
     wrap.append(box); document.body.append(wrap);
@@ -1525,16 +1527,18 @@
     const KINDS = [['allow', 'Allow', 'runs without asking'], ['ask', 'Ask', 'always asks first, even in Auto'], ['deny', 'Deny', 'never runs']];
     const change = async (body) => {
       const x = await call('/permissions', { method: 'POST', body: JSON.stringify({ repo, ...body }) });
-      if (x.status === 200 && x.data && x.data.rules) { rules = x.data.rules; err = ''; return true; }
+      if (x.status === 200 && x.data && x.data.rules) { rules = x.data.rules; notices = x.data.notices || {}; warn = typeof x.data.warning === 'string' ? x.data.warning : ''; err = ''; return true; }
+      warn = '';
       err = (x.data && x.data.error) || 'That rule could not be saved.';
       return false;
     };
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Permission rules</div>' +
         '<div class="cd-sure-text">For ' + esc(repo) + ', in all its chats. Deny rules come first, then ask, then allow, as in Claude Code. A rule looks like <code>Bash(npm test *)</code> (a <code>*</code> is any text), <code>Bash(git push *)</code>, or <code>WebFetch(domain:example.com)</code>.</div>' +
-        KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + (rules[k].length ? '<ul>' + rules[k].map((x) => '<li><code>' + esc(x) + '</code><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
+        KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + (rules[k].length ? '<ul>' + rules[k].map((x) => '<li><span class="cd-rules-r"><code>' + esc(x) + '</code>' + (notices[k + '\n' + x] ? '<span class="cd-rules-note">⚠ ' + esc(notices[k + '\n' + x]) + '</span>' : '') + '</span><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
         '<form class="cd-rules-add"><select aria-label="Kind">' + KINDS.map(([k, n]) => '<option value="' + k + '">' + n + '</option>').join('') + '</select><input type="text" placeholder="Bash(npm test *)" aria-label="Rule" maxlength="300" autocomplete="off" spellcheck="false"><button type="submit">Add</button></form>' +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : '') +
+        (warn ? '<p class="cd-rules-warn">⚠ ' + esc(warn) + '</p>' : '') +
         '<div class="cd-sure-row"><button type="button" class="cd-sure-yes" data-close>Done</button></div>';
       box.querySelector('[data-close]').onclick = close;
       box.querySelectorAll('[data-rule-del]').forEach((b) => { b.onclick = async () => { await change({ kind: b.dataset.ruleDel, remove: b.dataset.rule }); paint(); }; });
