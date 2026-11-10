@@ -45,7 +45,7 @@ import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTu
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
-import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS } from "../container/gloopy-check.mjs";
+import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, cleanMarked, cleanTaught } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
@@ -1387,6 +1387,8 @@ async function gloopyMessage(g) {
   const text = String(body.text || "").trim();
   const pics = checkImages(body.images);
   if (pics.error) return json({ error: pics.error }, 400);
+  // A PART OF GLOOPY'S PAGE YOU MARKED, or A TASK YOU SHOWED IT (the second docs check, 2026-11-10), with the message.
+  const marked = cleanMarked(body.marked), taught = cleanTaught(body.taught);
   // FILES ATTACHED (2026-11-09: "4"): ones the owner sent here first (the page does), at most ATTACH_MAX.
   const asked = Array.isArray(body.files) ? body.files.filter((x) => typeof x === "string").slice(0, ATTACH_MAX + 1) : [];
   if (asked.length > ATTACH_MAX) return json({ error: "At most " + ATTACH_MAX + " files with one message." }, 400);
@@ -1510,7 +1512,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2268,17 +2270,35 @@ async function gloopyScreen(g) {
 
 /**
  * THE OWNER TAKES OVER GLOOPY'S BROWSER, uses it, and hands it back (Grok Bot's Take control, dots' Take over and Return
- * control). { take: true | false } or { input: { kind: click | type | key | scroll | back, ... } }. Not while Gloopy is
+ * control). { take: true | false } or { input: { kind: click | type | key | scroll | back | forward | reload | open | file,
+ * ... } } (an address of the owner's own, and a file from their device when the page asks for one: the second docs check,
+ * 2026-11-10). Not while Gloopy is
  * working; nothing the owner types is kept here. Taking over is remembered, so Gloopy hears of it with the next message.
  */
 async function gloopyTakeOver(g) {
   const { request, bucket, uid, id, meta, post } = g;
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const input = body.input && typeof body.input === "object" ? body.input : null;
+  // A PART OF THE PAGE YOU MARKED (dots' annotations): what it shows, for the message you send about it. Also while
+  // Gloopy works (it only reads the page).
+  if (body.area && typeof body.area === "object") {
+    const n = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : 0);
+    let r = null;
+    try { r = await post("/gloopy/area", { project: id, x: n(body.area.x), y: n(body.area.y), w: n(body.area.w), h: n(body.area.h) }); } catch { r = null; }
+    const out = r ? await r.json().catch(() => null) : null;
+    return out ? json({ ok: r.ok && !out.error, ...out }, r.ok ? 200 : r.status) : json({ error: "Gloopy's computer could not be reached." }, 502);
+  }
+  // TEACH A TASK (Grok Bot's), while you have control.
+  if (typeof body.teach === "boolean") {
+    let r = null;
+    try { r = await post("/gloopy/teach", { project: id, on: body.teach }); } catch { r = null; }
+    const out = r ? await r.json().catch(() => null) : null;
+    return out ? json({ ok: r.ok && !out.error, ...out }, r.ok ? 200 : r.status) : json({ error: "Gloopy's computer could not be reached." }, 502);
+  }
   if ((body.take === true || input) && meta.status === "running") return json({ error: "Gloopy is working in its browser. Stop it first, then take over." }, 409);
   // Only what each kind needs (a number left out stays out, so the machine refuses a click with no point).
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const ask = input ? { project: id, kind: String(input.kind || "").slice(0, 10), x: num(input.x), y: num(input.y), dy: num(input.dy), ...(typeof input.text === "string" ? { text: input.text.slice(0, 1000) } : {}), ...(typeof input.key === "string" ? { key: input.key.slice(0, 40) } : {}) } : { project: id, take: body.take === true };
+  const ask = input ? { project: id, kind: String(input.kind || "").slice(0, 10), x: num(input.x), y: num(input.y), dy: num(input.dy), ...(typeof input.text === "string" ? { text: input.text.slice(0, 1000) } : {}), ...(typeof input.key === "string" ? { key: input.key.slice(0, 40) } : {}), ...(typeof input.url === "string" ? { url: input.url.slice(0, 4000) } : {}), ...(input.kind === "file" && typeof input.name === "string" && typeof input.data === "string" ? { name: input.name.slice(0, 120), data: input.data.slice(0, 7_100_000) } : {}) } : { project: id, take: body.take === true };
   let r = null;
   try { r = await post(input ? "/gloopy/input" : "/gloopy/control", ask); } catch { r = null; }
   const out = r ? await r.json().catch(() => null) : null;

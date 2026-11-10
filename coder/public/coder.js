@@ -644,7 +644,7 @@
     const base = S.events.length;
     S.events.push({ type: 'user', text: text || (att.length ? '(see the attached file' + (att.length > 1 ? 's' : '') + ')' : pics.length ? '(see the picture)' : '(comments on the changes)'), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}), ...(att.length ? { files: att.map((f) => ({ id: f.id, name: f.name, size: f.size })) } : {}) });
     draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
     S.sending = false; S.unsent = '';
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
@@ -993,7 +993,8 @@
           (e.why ? '<p class="cd-secret-why">' + esc(e.why) + '</p>' : '') +
           (e.byRule ? '<p class="cd-card-rule">One of your rules says to ask first.</p>' : '') +
           // A NEW SCHEDULE (2026-11-09): its task, and no "Always allow" (each schedule is its own OK).
-          (e.request && e.detail ? '<span class="cd-secret-l">What it sends</span><pre class="cd-envchange-pre cd-approve-body">' + esc(e.detail) + '</pre>' : e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
+          // What a request sends, or what the form holds (the second docs check, 2026-11-10: Grok Bot's card shows the inputs).
+          ((e.request || e.form) && e.detail ? '<span class="cd-secret-l">What it sends</span><pre class="cd-envchange-pre cd-approve-body">' + esc(e.detail) + '</pre>' : e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
           until(i, e) + gone(i, e) +
           // EXPIRED, IT CAN STILL BECOME A RULE (Grok Bot's "Always allow next time").
           (!live && ruleOffered && !e.byRule && expiredOf(i, e) && !S.events.slice(i + 1).some((x) => x.type === 'user') ? (S.ruleSaved === e.id ? '<p class="cd-card-until">Saved: next time Gloopy goes ahead.</p>' : '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-allow-next="' + esc(e.id) + '" data-step="' + esc(step + (e.site ? ' on ' + e.site : '')) + '">Always allow next time</button></div>') : '') +
@@ -1223,16 +1224,45 @@
       '<div class="cd-web-bar"><span class="cd-web-st ' + st[0] + '"><i></i>' + st[1] + '</span>' +
         '<span class="cd-web-addr" id="cdWebAddr" title="' + esc(w.url || '') + '">' + esc(w.title || '') + (host ? ' · ' + esc(host) : '') + '</span>' +
         (w.paused ? '<button type="button" class="cd-web-mini" id="cdWebResume">Refresh</button>' : '') +
+        // MARK A PART OF THE PAGE (dots' annotations): drag over it, then say what about it.
+        (w.shot && !empty ? (w.marking ? '<button type="button" class="cd-web-mini" id="cdWebMarkOff">Cancel marking</button>' : '<button type="button" class="cd-web-mini" id="cdWebMarkOn">Mark a part</button>') : '') +
         '<button type="button" class="cd-web-x" id="cdWebClose" aria-label="Close the browser view">×</button></div>' +
-      '<div class="cd-web-screen' + (w.control ? ' is-you' : '') + '" id="cdWebScreen"' + (w.control ? ' tabindex="0" aria-label="Gloopy’s browser: click to use it, type to type into it"' : '') + '>' +
-        (empty ? '<p class="cd-web-empty">' + esc(empty) + '</p>' : '<img id="cdWebImg" src="' + esc(w.shot) + '" alt="Gloopy’s browser" draggable="false">') + '</div>' +
+      '<div class="cd-web-screen' + (w.control ? ' is-you' : '') + (w.marking ? ' is-marking' : '') + '" id="cdWebScreen"' + (w.control ? ' tabindex="0" aria-label="Gloopy’s browser: click to use it, type to type into it"' : '') + '>' +
+        // WHERE GLOOPY JUST ACTED (the second docs check, 2026-11-10: Grok Bot's preview shows "clicks, typing,
+        // navigation"): a mark over the element of its last step, for a while.
+        (empty ? '<p class="cd-web-empty">' + esc(empty) + '</p>' : '<span class="cd-web-pic"><img id="cdWebImg" src="' + esc(w.shot) + '" alt="Gloopy’s browser" draggable="false"><i class="cd-web-mark" id="cdWebMark"' + webMarkStyle(w) + '></i><i class="cd-web-sel" id="cdWebSel"' + webSelStyle(w) + '></i></span>') + '</div>' +
+      // WHAT ABOUT THE PART YOU MARKED: your note, sent to Gloopy with what that part shows.
+      (w.marking ? '<div class="cd-web-tools cd-web-note">' + (w.sel ? '<input id="cdWebNote" class="cd-web-in" type="text" placeholder="What about this part?" autocomplete="off" value="' + esc(S.webNote || '') + '"><button type="button" class="cd-web-go" id="cdWebNoteSend">Send to Gloopy</button>' : '<span>Drag over the part of the page you mean.</span>') + '</div>' : '') +
       (w.control ? '<div class="cd-web-tools"><input id="cdWebType" class="cd-web-in" type="text" placeholder="Type into the page" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webBox || '') + '">' +
         '<button type="button" id="cdWebSend">Type</button><button type="button" data-web-key="Enter">Enter</button><button type="button" data-web-key="Tab">Tab</button><button type="button" data-web-key="Backspace" aria-label="Backspace">⌫</button>' +
-        '<button type="button" data-web-scroll="-600" aria-label="Scroll up">↑</button><button type="button" data-web-scroll="600" aria-label="Scroll down">↓</button><button type="button" id="cdWebBack">Back</button></div>' : '') +
-      '<div class="cd-web-foot">' + (w.msg ? '<p class="cd-web-err">' + esc(w.msg) + '</p>' : w.control ? '<p>Click on the page to use it. ' + (ho ? 'Do only this: ' + esc(ho.task) + '.' : 'Gloopy sees the page again when you hand it back.') + '</p>' : w.working || S.running ? '<p>You’re watching. To take over, stop Gloopy first.</p>' : '<p>Take over to use Gloopy’s browser yourself, then hand it back.</p>') +
+        '<button type="button" data-web-scroll="-600" aria-label="Scroll up">↑</button><button type="button" data-web-scroll="600" aria-label="Scroll down">↓</button></div>' +
+        // YOUR OWN WAY AROUND (dots: Take over gives "its mouse and keyboard"): Back, Forward, Reload and an address.
+        '<div class="cd-web-tools cd-web-nav"><button type="button" id="cdWebBack">Back</button><button type="button" id="cdWebFwd">Forward</button><button type="button" id="cdWebReload">Reload</button>' +
+        '<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="Go to an address" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webUrl || '') + '"><button type="button" id="cdWebGo">Go</button></div>' +
+        // A FILE FROM YOUR DEVICE, when the page asks for one (its own file box never shows here).
+        (w.chooser ? '<div class="cd-web-tools cd-web-file"><span>The page asks for a file.</span><label class="cd-web-pick">Choose a file<input type="file" id="cdWebFile" hidden></label></div>' : '') : '') +
+      // TEACH A TASK (Grok Bot's): do it once while you have control, then name it; Gloopy writes it down as a how-to.
+      (w.control && w.taught ? '<div class="cd-web-tools cd-web-note"><input id="cdWebTaskName" class="cd-web-in" type="text" placeholder="What should Gloopy call this task?" autocomplete="off" maxlength="80" value="' + esc(S.webTask || '') + '"><button type="button" class="cd-web-go" id="cdWebTaskSend">Send to Gloopy</button><button type="button" id="cdWebTaskDrop">Discard</button></div>' : '') +
+      '<div class="cd-web-foot">' + (w.msg ? '<p class="cd-web-err">' + esc(w.msg) + '</p>' : w.control && w.teaching ? '<p>Teaching Gloopy: do the task, then press Done. ' + w.teaching.steps + ' step' + (w.teaching.steps === 1 ? '' : 's') + ' so far' + (w.teaching.full ? ' (that’s the most it keeps)' : '') + '. Passwords and card details aren’t kept.</p>' : w.control && w.taught ? '<p>' + w.taught.steps.filter((x) => !/^On https?:/.test(x)).length + ' steps written down. Name the task to send them to Gloopy.</p>' : w.control ? '<p>Click on the page to use it. ' + (ho ? 'Do only this: ' + esc(ho.task) + '.' : 'Gloopy sees the page again when you hand it back.') + '</p>' : w.working || S.running ? '<p id="cdWebDid">' + (w.last ? 'Gloopy: ' + esc(w.last.did) : 'You’re watching Gloopy work.') + '</p>' : '<p>Take over to use Gloopy’s browser yourself, then hand it back.</p>') +
+        (w.control && !ho && !w.taught ? (w.teaching ? '<button type="button" class="cd-card-no" id="cdWebTeachOff">Done teaching</button>' : '<button type="button" class="cd-card-no" id="cdWebTeachOn">Teach Gloopy</button>') : '') +
         (w.control ? '<button type="button" class="cd-card-yes" id="cdWebGive">' + (ho ? 'Done, hand it back' : 'Hand it back') + '</button>'
-          : '<button type="button" class="cd-card-yes" id="cdWebTake"' + (w.working || S.running || w.none ? ' disabled' : '') + '>Take over</button>') +
+          // TAKING OVER WHILE GLOOPY WORKS stops it first (one press: Stop, then Take over).
+          : '<button type="button" class="cd-card-yes" id="cdWebTake"' + (w.none ? ' disabled' : '') + '>' + (w.working || S.running ? 'Stop and take over' : 'Take over') + '</button>') +
       '</div></div>';
+  }
+  // The box you are marking, over the picture.
+  function webSelStyle(w) {
+    const b = w.marking && w.sel;
+    if (!b) return ' hidden';
+    const W = w.w || 1280, H = w.h || 800, pc = (v, of) => Math.max(0, Math.min(100, (v / of) * 100)).toFixed(2) + '%';
+    return ' style="left:' + pc(b.x, W) + ';top:' + pc(b.y, H) + ';width:' + pc(b.w, W) + ';height:' + pc(b.h, H) + '"';
+  }
+  // The mark's place over the picture, in shares of the page's width and height.
+  function webMarkStyle(w) {
+    const b = !w.control && w.last && w.last.box;
+    if (!b) return ' hidden';
+    const W = w.w || 1280, H = w.h || 800, pc = (v, of) => Math.max(0, Math.min(100, (v / of) * 100)).toFixed(2) + '%';
+    return ' style="left:' + pc(b.x, W) + ';top:' + pc(b.y, H) + ';width:' + pc(b.w, W) + ';height:' + pc(b.h, H) + '"';
   }
   function webOpen(take) {
     if (!S.project) return;
@@ -1258,23 +1288,33 @@
     if (typeof d.url === 'string') w.url = d.url;
     if (typeof d.title === 'string') w.title = d.title;
     if (d.shot) { w.shot = 'data:image/jpeg;base64,' + d.shot; w.hash = d.hash || ''; }
+    if (Number(d.w) > 0 && Number(d.h) > 0) { w.w = Number(d.w); w.h = Number(d.h); }
+    // Gloopy's last step (its words, and where on the page), and a page asking you for a file.
+    w.last = d.last && typeof d.last.did === 'string' ? { did: d.last.did.slice(0, 200), box: d.last.box && Number.isFinite(d.last.box.x) ? d.last.box : null } : null;
+    w.chooser = !!d.chooser;
+    w.teaching = d.teaching && typeof d.teaching.steps === 'number' ? { steps: d.teaching.steps, full: d.teaching.full === true } : null;
     if (w.asleep || w.off || w.none) { w.shot = ''; w.hash = ''; }
   }
   // Paints the new picture in place when only it changed (no redraw while you type or click); redraws otherwise.
   function webPaint(before) {
     const w = S.web;
     if (!w) return;
-    const shape = [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running].join('|');
+    const shape = webShape();
     const img = S.root && S.root.querySelector('#cdWebImg');
     if (before === shape && img) {
       if (img.getAttribute('src') !== w.shot) img.setAttribute('src', w.shot);
+      // Gloopy's last step, in words and as a mark, in place.
+      const mk = S.root.querySelector('#cdWebMark');
+      if (mk) { const st = webMarkStyle(w); if (st === ' hidden') mk.hidden = true; else { mk.hidden = false; mk.setAttribute('style', st.replace(/^ style="|"$/g, '')); } }
+      const did = S.root.querySelector('#cdWebDid');
+      if (did) did.textContent = w.last ? 'Gloopy: ' + w.last.did : 'You’re watching Gloopy work.';
       const a = S.root.querySelector('#cdWebAddr');
       if (a) { let host = ''; try { host = /^https?:/.test(w.url) ? new URL(w.url).host : ''; } catch (e) { host = ''; } a.textContent = (w.title || '') + (host ? ' · ' + host : ''); a.title = w.url || ''; }
       return;
     }
     draw();
   }
-  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running].join('|') : ''; };
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught].join('|') : ''; };
   async function webTick() {
     if (S.webTimer) clearTimeout(S.webTimer);
     S.webTimer = 0;
@@ -1295,6 +1335,15 @@
     const w = S.web;
     if (!w) return;
     w.msg = ''; w.touched = Date.now(); w.paused = false;
+    // STOP AND TAKE OVER (the second docs check, 2026-11-10): while Gloopy works, it is stopped first (as Stop does),
+    // and you take over once its turn has ended (it ends at its next step).
+    if (S.running || w.working) {
+      w.msg = 'Stopping Gloopy…'; draw();
+      await stop();
+      for (let i = 0; i < 60 && S.running && S.web === w; i++) await new Promise((ok) => setTimeout(ok, 500));
+      if (S.web !== w) return;
+      if (S.running) { w.msg = 'Gloopy is still finishing a step. Try again in a moment.'; return draw(); }
+    }
     const b = webShape();
     w.msg = 'Taking over…'; webPaint(b);
     const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: true }) });
@@ -1861,7 +1910,7 @@
     on('#cdWebGive', 'click', webGive);
     on('#cdWebImg', 'click', (e) => {
       const w = S.web, img = e.currentTarget;
-      if (!w || !w.control || !img.naturalWidth) return;
+      if (!w || !w.control || w.marking || !img.naturalWidth) return;
       const r = img.getBoundingClientRect();
       const x = Math.floor(((e.clientX - r.left) / r.width) * img.naturalWidth), y = Math.floor(((e.clientY - r.top) / r.height) * img.naturalHeight);
       const sc = root.querySelector('#cdWebScreen'); if (sc) sc.focus();
@@ -1882,6 +1931,78 @@
     on('[data-web-key]', 'click', (e) => webInput({ kind: 'key', key: e.currentTarget.dataset.webKey }));
     on('[data-web-scroll]', 'click', (e) => webInput({ kind: 'scroll', dy: Number(e.currentTarget.dataset.webScroll) }));
     on('#cdWebBack', 'click', () => webInput({ kind: 'back' }));
+    // MARKING: drag over the picture (mouse or finger), then your note.
+    on('#cdWebMarkOn', 'click', () => { if (S.web) { S.web.marking = true; S.web.sel = null; S.web.touched = Date.now(); draw(); } });
+    on('#cdWebMarkOff', 'click', () => { if (S.web) { S.web.marking = false; S.web.sel = null; S.webNote = ''; draw(); } });
+    const imgPoint = (e, img) => { const r = img.getBoundingClientRect(), W = (S.web && S.web.w) || 1280, H = (S.web && S.web.h) || 800; return { x: Math.max(0, Math.min(W, ((e.clientX - r.left) / r.width) * W)), y: Math.max(0, Math.min(H, ((e.clientY - r.top) / r.height) * H)) }; };
+    on('#cdWebImg', 'pointerdown', (e) => {
+      const w = S.web;
+      if (!w || !w.marking) return;
+      e.preventDefault();
+      const img = e.currentTarget, a = imgPoint(e, img);
+      try { img.setPointerCapture(e.pointerId); } catch (x) { /* an old browser */ }
+      w.sel = { x: Math.round(a.x), y: Math.round(a.y), w: 0, h: 0 };
+      const sel = root.querySelector('#cdWebSel');
+      const move = (ev) => { const b = imgPoint(ev, img); w.sel = { x: Math.round(Math.min(a.x, b.x)), y: Math.round(Math.min(a.y, b.y)), w: Math.round(Math.abs(b.x - a.x)), h: Math.round(Math.abs(b.y - a.y)) }; if (sel) { const st = webSelStyle(w); sel.hidden = st === ' hidden'; if (st !== ' hidden') sel.setAttribute('style', st.replace(/^ style="|"$/g, '')); } };
+      const up = (ev) => { img.removeEventListener('pointermove', move); img.removeEventListener('pointerup', up); move(ev); if (!w.sel || w.sel.w < 6 || w.sel.h < 6) w.sel = null; draw(); const box = root.querySelector('#cdWebNote'); if (box) box.focus(); };
+      img.addEventListener('pointermove', move); img.addEventListener('pointerup', up);
+    });
+    on('#cdWebNote', 'input', (e) => { S.webNote = e.currentTarget.value; });
+    const webNoteSend = async () => {
+      const w = S.web, box = root.querySelector('#cdWebNote'), note = box ? box.value.trim() : '';
+      if (!w || !w.sel) return;
+      if (!note) { w.msg = 'Say what about this part.'; return draw(); }
+      w.msg = '';
+      const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ area: w.sel }) });
+      if (S.web !== w) return;
+      if (r.status !== 200 || !r.data || r.data.error) { w.msg = (r.data && r.data.error) || 'That part could not be read.'; return draw(); }
+      w.marking = false; w.sel = null; S.webNote = '';
+      draw();
+      send(note, { marked: { title: r.data.title, url: r.data.url, text: r.data.text, items: r.data.items, box: r.data.box } });
+    };
+    on('#cdWebNoteSend', 'click', webNoteSend);
+    on('#cdWebNote', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); webNoteSend(); } });
+    // TEACHING: on, off (the steps come back), then a name and Send.
+    const webTeach = async (on) => {
+      const w = S.web;
+      if (!w || !w.control) return;
+      const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ teach: on }) });
+      if (S.web !== w) return;
+      if (r.status !== 200 || !r.data || r.data.error) { w.msg = (r.data && r.data.error) || 'Teaching could not ' + (on ? 'start.' : 'stop.'); return draw(); }
+      w.msg = '';
+      if (on) w.teaching = { steps: 0, full: false };
+      else { w.teaching = null; w.taught = Array.isArray(r.data.steps) && r.data.steps.some((x) => !/^On https?:/.test(x)) ? { steps: r.data.steps, start: r.data.start || null, full: r.data.full === true } : null; if (!w.taught) w.msg = 'Nothing was written down: do the task while teaching.'; }
+      draw();
+    };
+    on('#cdWebTeachOn', 'click', () => webTeach(true));
+    on('#cdWebTeachOff', 'click', () => webTeach(false));
+    on('#cdWebTaskName', 'input', (e) => { S.webTask = e.currentTarget.value; });
+    const webTaskSend = () => {
+      const w = S.web, box = root.querySelector('#cdWebTaskName'), name = box ? box.value.trim() : '';
+      if (!w || !w.taught) return;
+      if (!name) { w.msg = 'Give the task a name.'; return draw(); }
+      const t = w.taught;
+      w.taught = null; S.webTask = '';
+      send('Learn this task: ' + name, { taught: { name, steps: t.steps, start: t.start, full: t.full } });
+    };
+    on('#cdWebTaskSend', 'click', webTaskSend);
+    on('#cdWebTaskName', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); webTaskSend(); } });
+    on('#cdWebTaskDrop', 'click', () => { if (S.web) { S.web.taught = null; S.webTask = ''; draw(); } });
+    on('#cdWebFwd', 'click', () => webInput({ kind: 'forward' }));
+    on('#cdWebReload', 'click', () => webInput({ kind: 'reload' }));
+    const webGo = () => { const box = root.querySelector('#cdWebUrl'); const u = box ? box.value.trim() : ''; if (!u) return; box.value = ''; S.webUrl = ''; webInput({ kind: 'open', url: u.slice(0, 4000) }); };
+    on('#cdWebUrl', 'input', (e) => { S.webUrl = e.currentTarget.value; });
+    on('#cdWebUrl', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); webGo(); } });
+    on('#cdWebGo', 'click', webGo);
+    // A file from your device, into the page that asked for it (at most 5 MB, as Gloopy's own uploads).
+    on('#cdWebFile', 'change', (e) => {
+      const f = e.currentTarget.files && e.currentTarget.files[0];
+      if (!f || !S.web) return;
+      if (f.size > 5 * 1024 * 1024) { S.web.msg = 'That file is over 5 MB.'; return draw(); }
+      const rd = new FileReader();
+      rd.onload = () => { const data = String(rd.result || '').replace(/^data:[^,]*,/, ''); webInput({ kind: 'file', name: f.name.slice(0, 120), data }); };
+      rd.readAsDataURL(f);
+    });
     on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
     on('.cd-secret-save', 'click', async (e) => {

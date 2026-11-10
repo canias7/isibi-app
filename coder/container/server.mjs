@@ -1210,17 +1210,49 @@ export function gitFrom(body, { via = false, remote = DEFAULT_REMOTE } = {}) {
 // not write. Caches and installed packages stay out (they come back by themselves).
 export const WORK_SKIP = Object.freeze(["node_modules", ".cache", "__pycache__", ".venv", "venv", ".npm", ".git", ".coder-pictures"]);
 export const WORK_PACK_MAX = 25 * 1024 * 1024;
-/** The folder packed (gzip'd tar, the same bytes when nothing changed), or null: empty, over `max`, or it failed. */
-export function packWork(dir, { uid = RUN_UID, gid = RUN_GID, max = WORK_PACK_MAX } = {}) {
+/**
+ * The folder packed (gzip'd tar, the same bytes when nothing changed), or null: empty, over `max`, or it failed.
+ * `leave`: files (paths inside the folder) left out, taken as they are (no wildcards).
+ */
+export function packWork(dir, { uid = RUN_UID, gid = RUN_GID, max = WORK_PACK_MAX, leave = [] } = {}) {
   return new Promise((done) => {
     let p;
-    try { p = spawn("tar", ["-czf", "-", ...WORK_SKIP.map((x) => "--exclude=" + x), "-C", dir, "."], { stdio: ["ignore", "pipe", "ignore"], ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) }); } catch { return done(null); }
+    try { p = spawn("tar", ["-czf", "-", ...WORK_SKIP.map((x) => "--exclude=" + x), ...(leave.length ? ["--no-wildcards", ...leave.map((x) => "--exclude=./" + x)] : []), "-C", dir, "."], { stdio: ["ignore", "pipe", "ignore"], ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) }); } catch { return done(null); }
     const chunks = [];
     let size = 0, over = false;
     p.stdout.on("data", (c) => { size += c.length; if (size > max) { over = true; p.kill("SIGKILL"); } else chunks.push(c); });
     p.on("error", () => done(null));
     p.on("close", (code) => done(over || code !== 0 || !size ? null : Buffer.concat(chunks)));
   });
+}
+/** The folder's files, biggest first (as `dev`; caches and packages left out as packWork leaves them): [{ path, size }]. */
+export function workFiles(dir, { uid = RUN_UID, gid = RUN_GID } = {}) {
+  const prune = WORK_SKIP.flatMap((x, i) => (i ? ["-o", "-name", x] : ["-name", x]));
+  const r = spawnSync("find", [".", "(", ...prune, ")", "-prune", "-o", "-type", "f", "-printf", "%s\t%P\n"], { cwd: dir, encoding: "utf8", timeout: 30000, maxBuffer: 16 * 1024 * 1024, ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) });
+  if (r.status !== 0 || typeof r.stdout !== "string") return [];
+  return r.stdout.split("\n").map((l) => { const t = l.indexOf("\t"); return t > 0 ? { size: Number(l.slice(0, t)) || 0, path: l.slice(t + 1) } : null; }).filter((x) => x && x.path && !x.path.includes("\n")).sort((a, b) => b.size - a.size);
+}
+/**
+ * A WORK FOLDER OVER THE SIZE KEPT (found 2026-11-10, the second docs check: a big download or attachment stopped every
+ * new copy, and nobody was told): packed without its biggest files, as few as it takes. { pack, left: [{ path, size }] }
+ * (pack null: empty, or it failed even so).
+ */
+export async function packWorkFit(dir, opts = {}) {
+  const whole = await packWork(dir, opts);
+  if (whole) return { pack: whole, left: [] };
+  const files = workFiles(dir, opts);
+  if (!files.length) return { pack: null, left: [] };
+  for (let n = 1; n <= files.length; n = n < 4 ? n + 1 : n * 2) {
+    const left = files.slice(0, n);
+    const pack = await packWork(dir, { ...opts, leave: left.map((f) => f.path) });
+    if (pack) return { pack, left };
+    if (n >= 64) break;
+  }
+  return { pack: null, left: [] };
+}
+/** What Gloopy is told of the files left out of its work folder's copy. */
+export function workLeftNote(left) {
+  return "your work folder is bigger than the " + WORK_PACK_MAX / 1048576 + " MB kept for a new computer, so the copy kept leaves out " + left.map((f) => f.path + " (" + (f.size / 1048576).toFixed(1) + " MB)").join(", ") + ". They are still on this computer. Delete what you no longer need, or tell the owner if it matters.";
 }
 /** A packed folder put back into `dir` (as `dev`; never over its owner or modes): { ok, why }. */
 export function unpackWork(dir, buf, { uid = RUN_UID, gid = RUN_GID } = {}) {
@@ -1599,6 +1631,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const pending = new Map();
   // What of Gloopy's computer was last sent to its copy (the audit, 2026-11-10): "<project>:work" / ":browser" → its hash.
   const backups = new Map();
+  // Files left out of the copy of each chat's work folder (too big), for its next turn's note (said once for each set).
+  const workLeft = new Map(), workTold = new Map();
+  const workNoteFor = (project) => {
+    const left = workLeft.get(project);
+    if (!left || !left.length) return "";
+    const sig = left.map((f) => f.path).join("\n");
+    if (workTold.get(project) === sig) return "";
+    workTold.set(project, sig);
+    return workLeftNote(left);
+  };
   // THE OWNER HAS TAKEN OVER GLOOPY'S BROWSER (owner, 2026-11-09: "Ok you can start"; Grok Bot's Take control, dots'
   // Take over): only while no Gloopy turn runs; Gloopy's browser steps are refused meanwhile, and the owner's next message
   // hands it back (Grok Bot: "tell the Bot to continue").
@@ -1956,8 +1998,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const backupGloopy = async () => {
       if (!gloopy || !jobHeaders || !eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return;
       const send = async (part, body, type) => { const sum = createHash("sha256").update(body).digest("hex"); if (backups.get(project + ":" + part) === sum) return; const r = await (filesFetch || fetch)(filesAt("gloopy-backup-put") + "?part=" + part, { method: "POST", headers: { "content-type": type, ...jobHeaders }, body }).catch(() => null); if (r && r.ok) backups.set(project + ":" + part, sum); };
-      const pack = await packWork(dir);
+      const { pack, left } = await packWorkFit(dir);
       if (pack) await send("work", pack, "application/gzip");
+      // Gloopy hears of what was left out, at its next turn on this computer.
+      if (left.length) workLeft.set(project, left.slice(0, 20)); else workLeft.delete(project);
       if (hasBrowser && (await browserHub().running().catch(() => false))) {
         const st = await browserHub().state().catch(() => null);
         if (st && Array.isArray(st.cookies)) await send("browser", Buffer.from(JSON.stringify(st)), "application/json");
@@ -2057,7 +2101,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A file to upload made ready (fix 3, 2026-11-10), and downloads finished since the last step (fix 2): only from a
         // browser already running (none is started to be asked).
         ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); }, signInSaved: (x) => { notWhileOwner(); return signInSaved(x); }, stage: (x) => { notWhileOwner(); return browserHub().stage(x); }, collect: async () => ((await browserHub().running().catch(() => false)) ? browserHub().collect() : null) } } : {}),
-      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], webhooks, hookBase, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
+      }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
         .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
@@ -2199,7 +2243,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE OWNER'S LIVE VIEW OF GLOOPY'S BROWSER, and the owner taking over (2026-11-09): only on a machine with a browser
       // (the full image); a look never starts the browser; the owner's clicks and typing only while they have control and
       // Gloopy is not working.
-      if (["/gloopy/screen", "/gloopy/control", "/gloopy/input"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
+      if (["/gloopy/screen", "/gloopy/control", "/gloopy/input", "/gloopy/area", "/gloopy/teach"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
       const working = !!(t && t.running);
       if (url.pathname === "/gloopy/screen" && req.method === "GET") {
         try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "" })), control: !!ownerControl, working }); }
@@ -2216,6 +2260,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (working) return send(409, { error: "Gloopy is working in its browser. Stop it first, then take over." });
         try { const r = await browserHub().wake(); ownerControl = { since: Date.now() }; return send(200, { ...r, control: true, working: false }); }
         catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: false }); }
+      }
+      // A PART OF THE PAGE THE OWNER MARKED (dots' annotations), while they watch or have control: what is in it. A closed
+      // browser is not started for it.
+      if (url.pathname === "/gloopy/area" && req.method === "POST") {
+        try {
+          if (!(await browserHub().running())) return send(409, { error: "Gloopy’s browser is closed." });
+          return send(200, await browserHub().area({ x: body.x, y: body.y, w: body.w, h: body.h }));
+        } catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // TEACH A TASK (Grok Bot's), while the owner has control: on, then off with the steps written down.
+      if (url.pathname === "/gloopy/teach" && req.method === "POST") {
+        if (!ownerControl) return send(409, { error: "Take over first." });
+        try { return send(200, await browserHub().teach(body.on === true)); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300) }); }
       }
       if (url.pathname === "/gloopy/input" && req.method === "POST") {
         if (!ownerControl) return send(409, { error: "Take over first." });

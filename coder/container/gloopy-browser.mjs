@@ -82,8 +82,16 @@ export const CARD_FIELDS = ['input[autocomplete~="cc-number" i]', 'input[autocom
 export const NO_BROWSER = "there is no browser on this computer (it is a small backup machine): use your web search and web_fetch instead, and tell the owner the browser was not available.";
 /** What a password field holds, as every outline shows it. */
 export const BLANKED = "••••••";
-/** What the owner can do in the browser once they have taken over. */
-export const OWNER_INPUTS = Object.freeze(["click", "type", "key", "scroll", "back"]);
+/**
+ * What the owner can do in the browser once they have taken over: their own clicks, typing, keys, scrolling and Back;
+ * since the second docs check (2026-11-10: dots' Take over gives "its mouse and keyboard", Grok Bot's "take control"),
+ * also an address of their own, Forward, Reload, and a file from their own device when the page asks for one.
+ */
+export const OWNER_INPUTS = Object.freeze(["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file"]);
+/** How long a page's request for a file waits for the owner to pick one. */
+export const CHOOSER_MS = 2 * 60 * 1000;
+/** TEACH A TASK (Grok Bot's: "records visible computer interaction for up to ten minutes"): at most this long, and steps. */
+export const TEACH_MS = 10 * 60 * 1000, TEACH_STEPS = 100;
 
 /**
  * THE ADDRESS TO OPEN: http or https only (a bare name gets https://, a local one http://), never the machine's own
@@ -159,6 +167,13 @@ export function checkInput(a) {
   if (kind === "type") { if (typeof x.text !== "string" || !x.text || x.text.length > 1000) throw new Error("type 1 to 1000 characters"); return { kind, text: x.text }; }
   if (kind === "key") { const key = String(x.key || ""); if (!KEY_RE.test(key)) throw new Error("that key cannot be pressed"); return { kind, key }; }
   if (kind === "scroll") { const dy = Math.round(Number(x.dy)); if (!Number.isFinite(dy) || !dy) throw new Error("scroll up or down"); return { kind, dy: Math.max(-3000, Math.min(3000, dy)) }; }
+  if (kind === "open") return { kind, url: pageAddress(x.url) };
+  if (kind === "file") {
+    const name = fileNameOf(x.name, "");
+    if (!name || typeof x.data !== "string" || !/^[A-Za-z0-9+/]*=*$/.test(x.data) || !x.data) throw new Error("choose a file");
+    if (Math.floor((x.data.length * 3) / 4) > UPLOAD_MAX + 3) throw new Error("the file is over " + UPLOAD_MAX / 1048576 + " MB");
+    return { kind, name, data: x.data };
+  }
   return { kind };
 }
 
@@ -213,11 +228,18 @@ export function hasBrowser() {
   try { const pw = loadPlaywright(); return existsSync(pw.chromium.executablePath()); } catch { return false; }
 }
 
-/** An error from Playwright, in a line the AI can act on. */
-function plainError(e, ask) {
+/**
+ * An error from Playwright, in a line the AI can act on. Its call log names the element ("aria-ref=e12") whatever went
+ * wrong (found 2026-11-10: a click on a covered button said "the page changed since your last look", so Gloopy would look
+ * and try the same again): a number no longer on the page is one the log never found; one in front is said so.
+ */
+export function plainError(e, ask) {
   const m = String((e && e.message) || e);
-  if (/aria-ref|No node found|not found|resolved to 0 elements|strict mode violation/i.test(m) && ask.ref) return "the page changed since your last look: there is no " + ask.ref + " on it now. Look again (action look) and use a number from the new outline.";
-  if (/Timeout \d+ms exceeded/.test(m)) return (ask.action === "open" || ask.action === "back" ? "the page took too long to load" : "the element did not respond in time (it may be hidden or covered: look again, scroll, or close what covers it)") + ".";
+  const first = m.split("\n")[0];
+  const gone = /No node found|resolved to 0 elements|strict mode violation|no element for that number/i.test(m) || (/Timeout \d+ms exceeded/.test(first) && /waiting for locator\('aria-ref=/.test(m) && !/locator resolved to/.test(m));
+  if (gone && ask.ref) return "the page changed since your last look: there is no " + ask.ref + " on it now. Look again (action look) and use a number from the new outline.";
+  if (/intercepts pointer events/.test(m)) return "something on the page is in front of that element, so it could not be clicked: close what covers it (a pop-up, a cookie banner, a menu), scroll, or look again.";
+  if (/Timeout \d+ms exceeded/.test(first)) return (ask.action === "open" || ask.action === "back" ? "the page took too long to load" : "the element did not respond in time (it may be hidden or covered: look again, scroll, or close what covers it)") + ".";
   if (/net::ERR_NAME_NOT_RESOLVED/.test(m)) return "no site has that address (the name could not be found).";
   if (/net::ERR_/.test(m)) return "the page could not be loaded (" + (/(net::ERR_[A-Z_]+)/.exec(m) || [])[1] + ").";
   return m.split("\n")[0].slice(0, 400);
@@ -243,7 +265,7 @@ export async function serve(dir) {
   // (beforeunload) are answered OK only for a step asked with confirm: true (`armed`, checked first) or the owner's own
   // input while they have control (`ownerHand`: their own click), else Cancel; a question that wants typed text (prompt)
   // is always cancelled. Each is said in the step's answer.
-  let dialogs = [], armed = false, ownerHand = false;
+  let dialogs = [], armed = false, ownerHand = false, uploading = false, fileAsked = false;
   // DOWNLOADS (fix 2): the ones going, the ones done (waiting to be handed over) and what to say about the others.
   const dl = { going: new Map(), ready: [], notes: [] };
   const sizeNow = () => {
@@ -276,6 +298,10 @@ export async function serve(dir) {
       (yes ? d.accept() : d.dismiss()).catch(() => {});
     });
     p.on("download", onDownload);
+    // A PAGE ASKING FOR A FILE is always caught here (found 2026-11-10: one left to Chromium opens a box no one can see in
+    // a headless browser, and blocks the next): the owner's own click gets a file prompt in their live view; Gloopy's
+    // upload step gives its file; any other is said in the step's answer.
+    p.on("filechooser", (fc) => { if (ownerHand) chooser = { fc, at: Date.now(), multiple: fc.isMultiple() }; else if (!uploading) fileAsked = true; });
   };
   ctx.pages().forEach(watch);
   // A link that opens a new tab: the new tab is the page from then on.
@@ -331,7 +357,8 @@ export async function serve(dir) {
     let cut = "";
     if (outline.length > OUTLINE_MAX) { outline = outline.slice(0, OUTLINE_MAX); cut = "\n[the outline goes on past " + OUTLINE_MAX.toLocaleString("en-US") + " characters; the screenshot shows what is in view: scroll and look to see more]"; }
     const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards), maskColor: "#9ca3af" }).catch(() => null);
-    const said = asked().map((x) => "\n" + x).join("");
+    const said = asked().map((x) => "\n" + x).join("") + (fileAsked ? "\nThe page asked for a file: to give it one from your work folder, use upload (path, and ref: its file field or upload button)." : "");
+    fileAsked = false;
     // Blanked in all of it, what was done too (a step's words name an element, never what is typed in it, but never trust that alone).
     const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
     // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
@@ -389,12 +416,134 @@ export async function serve(dir) {
     return { path: join(upDir, id, names[0]), name: names[0] };
   };
   const target = (ref) => page.locator("aria-ref=" + ref);
+  // WHAT A FORM HOLDS NOW (the second docs check, 2026-11-10: dots' review "checks who will receive it and what the
+  // message contains"; Grok Bot's card shows an action's inputs): the filled-in fields of the form the element is in (or
+  // its dialog, or the nearest group of fields around it), for the check and the owner's card. Never a password or a
+  // payment card field, nor one the service filled (a code); each value at most 300 characters, 15 fields in all.
+  const FORM_JS = (start, cardSel) => {
+    const isField = (n) => (n instanceof HTMLInputElement && !/^(hidden|submit|button|reset|image|password)$/i.test(n.type)) || n instanceof HTMLTextAreaElement || n instanceof HTMLSelectElement || (n instanceof HTMLElement && n.isContentEditable && !(n.parentElement && n.parentElement.isContentEditable));
+    const all = (box) => [...box.querySelectorAll("input, textarea, select, [contenteditable]")];
+    const c = start instanceof HTMLLabelElement && start.control ? start.control : start;
+    if (!c || !(c instanceof Element)) return [];
+    let box = c.form || c.closest("form") || c.closest("[role=dialog], [aria-modal=true], dialog");
+    for (let n = c.parentElement, i = 0; !box && n && n !== document.body && i < 8; n = n.parentElement, i++) { const f = all(n); if (f.some(isField) && f.length <= 40) box = n; }
+    if (!box) return [];
+    const out = [];
+    let total = 0;
+    for (const f of all(box).filter(isField)) {
+      if (out.length >= 15 || total > 1500) break;
+      if (f.matches(cardSel) || f.closest("[data-gloopy-card]")) continue;
+      const r = f.getBoundingClientRect();
+      if (!r.width && !r.height && !(f instanceof HTMLInputElement && f.type === "file") && !(f instanceof HTMLSelectElement)) continue;
+      let value = "";
+      if (f instanceof HTMLInputElement && (f.type === "checkbox" || f.type === "radio")) { if (!f.checked) continue; value = "chosen"; }
+      else if (f instanceof HTMLInputElement && f.type === "file") value = [...(f.files || [])].map((x) => x.name).join(", ");
+      else if (f instanceof HTMLSelectElement) value = [...f.selectedOptions].map((o) => o.text).join(", ");
+      else if (!(f instanceof HTMLInputElement) && !(f instanceof HTMLTextAreaElement)) value = f.innerText;
+      else value = f.value;
+      value = String(value || "").replace(/\s+/g, " ").trim();
+      if (!value) continue;
+      const labels = f.labels ? [...f.labels].map((l) => l.innerText).join(" ") : "";
+      const label = String(f.getAttribute("aria-label") || labels || f.getAttribute("placeholder") || f.getAttribute("name") || f.id || f.getAttribute("type") || "field").replace(/\s+/g, " ").trim().slice(0, 60);
+      const v = value.slice(0, 300) + (value.length > 300 ? "…" : "");
+      out.push({ label, value: v });
+      total += label.length + v.length;
+    }
+    return out;
+  };
+  const formOf = async (ref) => {
+    let raw = [];
+    try { raw = await (ref ? target(ref) : page.locator(":focus").first()).evaluate(FORM_JS, CARD_FIELDS, { timeout: ref ? 5000 : 1000 }); } catch { raw = []; }
+    if (!Array.isArray(raw) || !raw.length) return [];
+    const hide = await secrets();
+    return raw.map((f) => ({ label: redactCards(redactPasswords(String(f.label || ""), hide.passwords), hide.cards), value: redactCards(redactPasswords(String(f.value || ""), hide.passwords), hide.cards) }));
+  };
+  // GLOOPY'S LAST STEP, FOR THE OWNER'S LIVE VIEW (the second docs check: Grok Bot's preview shows "clicks, typing,
+  // navigation"): what it did, and where on the page (the element's box, in the screenshot's pixels), for a while.
+  let lastAct = null;
+  // A PAGE ASKING THE OWNER FOR A FILE (their own click on a file field while they have control): kept for CHOOSER_MS.
+  let chooser = null;
+  // WHAT THE OWNER MARKED ON THE PAGE (dots' annotations: "Select the part of the page you want to discuss, add a comment,
+  // and send it to your dot"): the words and controls inside a box of the page (the screenshot's pixels), never what is
+  // in a password or card field. { url, title, text, items: [{ what, name }] }
+  const area = async (x) => {
+    const r = { x: Math.max(0, Math.round(Number(x.x) || 0)), y: Math.max(0, Math.round(Number(x.y) || 0)), w: Math.round(Number(x.w) || 0), h: Math.round(Number(x.h) || 0) };
+    if (r.w < 4 || r.h < 4 || r.x >= VIEW.width || r.y >= VIEW.height) throw new Error("mark a part of the page");
+    r.w = Math.min(r.w, VIEW.width - r.x); r.h = Math.min(r.h, VIEW.height - r.y);
+    const got = await page.evaluate(([r, cardSel]) => {
+      const seen = new Set(), items = [], texts = [];
+      const inside = (b) => b.right > r.x && b.left < r.x + r.w && b.bottom > r.y && b.top < r.y + r.h;
+      for (let gy = 0; gy < 6; gy++) for (let gx = 0; gx < 6; gx++) {
+        const px = r.x + ((gx + 0.5) * r.w) / 6, py = r.y + ((gy + 0.5) * r.h) / 6;
+        for (const n of document.elementsFromPoint(px, py).slice(0, 3)) {
+          if (seen.has(n) || n === document.body || n === document.documentElement) continue;
+          seen.add(n);
+          const tag = n.tagName.toLowerCase();
+          const what = tag === "a" ? "link" : tag === "button" || n.getAttribute("role") === "button" ? "button" : /^(input|textarea|select)$/.test(tag) ? "field" : tag === "img" ? "picture" : /^h[1-6]$/.test(tag) ? "heading" : "";
+          if (what) {
+            const secret = (n instanceof HTMLInputElement && n.type === "password") || (n.matches && n.matches(cardSel));
+            const name = String(n.getAttribute("aria-label") || (n.labels && n.labels[0] && n.labels[0].innerText) || n.getAttribute("alt") || n.innerText || n.getAttribute("placeholder") || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 100);
+            if (items.length < 20) items.push({ what, name: secret ? name + " (its value is not shown)" : name });
+          }
+          if (inside(n.getBoundingClientRect()) && n.innerText && n.children.length < 30) { const t = n.innerText.replace(/\s+/g, " ").trim(); if (t && !texts.some((x) => x.includes(t))) texts.push(t.slice(0, 300)); }
+        }
+      }
+      return { text: texts.join(" · ").slice(0, 1500), items };
+    }, [r, CARD_FIELDS]);
+    const hide = await secrets();
+    const clean = (t) => redactCards(redactPasswords(String(t || ""), hide.passwords), hide.cards);
+    return { url: page.url(), title: await page.title().catch(() => ""), box: r, text: clean(got.text), items: got.items.map((it) => ({ what: it.what, name: clean(it.name) })) };
+  };
+  // TEACH A TASK (Grok Bot's "Teach a task": "demonstrate a browser workflow once and let the Bot turn it into a draft
+  // skill"): while it is on, the owner's own steps are written down as they go (the element clicked, the field typed
+  // into, the page), never a password or card details typed; at most TEACH_STEPS steps and TEACH_MS.
+  let teach = null;
+  const focusInfo = () => page.evaluate((cardSel) => { const n = document.activeElement; if (!n || n === document.body) return null; const labels = n.labels ? [...n.labels].map((l) => l.innerText).join(" ") : ""; return { name: String(n.getAttribute("aria-label") || labels || n.getAttribute("placeholder") || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 80), secret: (n instanceof HTMLInputElement && n.type === "password") || !!(n.matches && n.matches(cardSel)) || !!n.closest("[data-gloopy-card]") }; }, CARD_FIELDS).catch(() => null);
+  const pointInfo = (x, y) => page.evaluate(([x, y]) => { let n = document.elementFromPoint(x, y); for (let i = 0; n && i < 4 && !/^(a|button|input|textarea|select|label|summary)$/i.test(n.tagName) && n.getAttribute("role") !== "button" && n.getAttribute("role") !== "link"; i++) n = n.parentElement; if (!n) return null; const tag = n.tagName.toLowerCase(); const labels = n.labels ? [...n.labels].map((l) => l.innerText).join(" ") : ""; return { name: String(n.getAttribute("aria-label") || labels || n.innerText || n.getAttribute("alt") || n.getAttribute("placeholder") || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 80), what: tag === "a" || n.getAttribute("role") === "link" ? "link" : tag === "button" || n.getAttribute("role") === "button" ? "button" : /^(input|textarea|select)$/.test(tag) ? "field" : "" }; }, [x, y]).catch(() => null);
+  const teachWrite = async (i) => {
+    if (!teach) return;
+    if (teach.steps.length >= TEACH_STEPS || Date.now() - teach.at > TEACH_MS) { teach.full = true; return; }
+    const prev = teach.steps[teach.steps.length - 1];
+    let line = "";
+    if (i.kind === "click") { const el = await pointInfo(i.x, i.y); line = "Clicked " + (el && el.name ? (el.what ? "the " + el.what + " " : "") + quote(el.name) : "at " + i.x + "," + i.y + " on the page"); }
+    else if (i.kind === "type") {
+      const f = await focusInfo();
+      if (f && f.secret) { if (!(prev && prev.secret && prev.field === f.name)) teach.steps.push({ line: "Typed a password or card details" + (f.name ? " into " + quote(f.name) : "") + " (not kept)", secret: true, field: f.name, url: page.url() }); return; }
+      const field = f ? f.name : "";
+      if (prev && prev.typed !== undefined && prev.field === field && prev.url === page.url()) { prev.typed += i.text; prev.line = "Typed " + quote(prev.typed, 200) + (field ? " into " + quote(field) : ""); return; }
+      teach.steps.push({ line: "Typed " + quote(i.text, 200) + (field ? " into " + quote(field) : ""), typed: i.text, field, url: page.url() });
+      return;
+    }
+    else if (i.kind === "key") line = "Pressed " + i.key;
+    else if (i.kind === "scroll") { const dir = i.dy > 0 ? "down" : "up"; if (prev && prev.scroll === dir) return; teach.steps.push({ line: "Scrolled " + dir, scroll: dir, url: page.url() }); return; }
+    else if (i.kind === "back") line = "Went back";
+    else if (i.kind === "forward") line = "Went forward";
+    else if (i.kind === "reload") line = "Reloaded the page";
+    else if (i.kind === "open") line = "Went to " + i.url;
+    else if (i.kind === "file") line = "Gave the page a file (" + quote(i.name) + ")";
+    if (line) teach.steps.push({ line, url: page.url() });
+  };
+  const teachOnOff = async (x) => {
+    if (x.on === true) { teach = { at: Date.now(), steps: [], start: { url: page.url(), title: await page.title().catch(() => "") } }; return { teaching: true }; }
+    const t = teach;
+    teach = null;
+    if (!t) return { teaching: false, steps: [] };
+    const hide = await secrets();
+    const clean = (s) => redactCards(redactPasswords(s, hide.passwords), hide.cards);
+    // The steps, with the page each one was on when it changed.
+    const lines = [];
+    let at = "";
+    for (const st of t.steps) { if (st.url && st.url !== at) { at = st.url; lines.push("On " + at + ":"); } lines.push(clean(st.line)); }
+    return { teaching: false, start: t.start, steps: lines.slice(0, TEACH_STEPS + 40), full: !!t.full };
+  };
   // An element as a person would say it ("Go", "Search"), and what it is: for the words of what was done, and the check.
   // NEVER WHAT WAS TYPED IN A FIELD (found 2026-11-09: a password field's name was its value, so "Clicked" on it after a
   // sign-in said the password): a field is named by its label, placeholder or name. A label stands for its field (typing
   // into a label types into its field). `card`: which part of a payment card a field is for (number, cvc, exp, month,
   // year, name), or "".
-  const about = (ref) => target(ref).evaluate((n) => {
+  // A number no longer on the page fails at once (not after the 8 seconds a wait would take).
+  const about = async (ref) => { if (!(await target(ref).count().catch(() => 0))) throw new Error("no element for that number: " + ref); return aboutOf(ref); };
+  const aboutOf = (ref) => target(ref).evaluate((n) => {
     const c = n instanceof HTMLLabelElement && n.control ? n.control : n;
     const field = (c instanceof HTMLInputElement && !/^(submit|button|reset|image)$/i.test(c.type)) || c instanceof HTMLTextAreaElement || c instanceof HTMLSelectElement;
     const labels = c.labels ? [...c.labels].map((l) => l.innerText).join(" ") : "";
@@ -438,15 +587,18 @@ export async function serve(dir) {
     else if (ask.action === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 20000 });
     else if (ask.action === "upload") {
       // A page's file field takes the file at once; a button that opens a file chooser is clicked, and the chooser given it.
-      if (el && el.tag === "input" && el.type === "file") await target(ask.ref).setInputFiles(file.path, { timeout: 8000 });
-      else {
-        const chooser = page.waitForEvent("filechooser", { timeout: 8000 });
-        chooser.catch(() => {});
-        await target(ask.ref).click({ timeout: 8000 });
-        const fc = await chooser.catch(() => null);
-        if (!fc) throw new Error("that did not open a file chooser: give the page's file field or its upload button (look again)");
-        await fc.setFiles(file.path);
-      }
+      uploading = true;
+      try {
+        if (el && el.tag === "input" && el.type === "file") await target(ask.ref).setInputFiles(file.path, { timeout: 8000 });
+        else {
+          const asked = page.waitForEvent("filechooser", { timeout: 8000 });
+          asked.catch(() => {});
+          await target(ask.ref).click({ timeout: 8000 });
+          const fc = await asked.catch(() => null);
+          if (!fc) throw new Error("that did not open a file chooser: give the page's file field or its upload button (look again)");
+          await fc.setFiles(file.path);
+        }
+      } finally { uploading = false; }
       if (ask.submit_ref) await target(ask.submit_ref).click({ timeout: 8000 });
       // Kept (STAGED_MS): the page reads the file only when it sends it (found 2026-11-10: gone at once, the form failed).
     }
@@ -459,6 +611,9 @@ export async function serve(dir) {
     let did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back", screenshot: "Took a screenshot of " + (ask.full ? "the whole page" : "what is in view"), upload: "Uploaded " + quote(file ? file.name : "") + " with " + it }[ask.action];
     if (ask.action === "upload" && ask.submit_ref) { const b = await about(ask.submit_ref); did += " and clicked " + (b && b.name ? quote(b.name) : ask.submit_ref); }
     dialogs = [];
+    fileAsked = false;
+    // Where the step acts, for the owner's live view (before it acts: a click may take the element away).
+    const box = ask.ref ? await target(ask.ref).boundingBox({ timeout: 2000 }).catch(() => null) : null;
     // Armed through the step and the wait after it (a page may ask a moment after the click).
     armed = ask.confirm === true;
     try {
@@ -472,6 +627,7 @@ export async function serve(dir) {
       }
       await settle();
     } finally { armed = false; }
+    if (ask.action !== "look" && ask.action !== "screenshot") lastAct = { at: Date.now(), did, ...(box ? { box: { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) } } : {}) };
     // A download the step started: waited for a while (the step's answer comes within its time all the same).
     if (dl.going.size) await Promise.race([Promise.allSettled([...dl.going.keys()]), new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(DOWNLOAD_WAIT_MS, 28_000 - (Date.now() - t0)))))]);
     const out = await report(did, { picture: ask.action === "screenshot" ? { full: ask.full } : null });
@@ -484,7 +640,8 @@ export async function serve(dir) {
     let host = "";
     try { host = new URL(page.url()).host; } catch { host = ""; }
     // host: the page's; frameHost: the site of the element itself ("" for none: a frame with no web address of its own).
-    return { element: el, url: page.url(), host, frameHost: el && ref ? siteOf(el.origin) : host, title: await page.title().catch(() => "") };
+    const fields = el && (el.form || ref) ? await formOf(ref) : [];
+    return { element: el, url: page.url(), host, frameHost: el && ref ? siteOf(el.origin) : host, title: await page.title().catch(() => ""), ...(fields.length ? { fields } : {}) };
   };
   // THE OWNER'S SIGN-IN, from the private form: typed into the page here, then sent; never reported back.
   const fill = async (x) => {
@@ -584,7 +741,9 @@ export async function serve(dir) {
   // THE OWNER'S LIVE VIEW: the page as it is now (a JPEG), with its address and title; nothing new when it has not changed
   // since the one they have (`since`). A moment when no picture can be taken (a page being loaded) gives none.
   const screen = async (x) => {
-    const where = { url: page.url(), title: await page.title().catch(() => "") };
+    const last = lastAct && Date.now() - lastAct.at < 20_000 ? { did: lastAct.did, ...(lastAct.box ? { box: lastAct.box } : {}), ago: Date.now() - lastAct.at } : null;
+    if (chooser && Date.now() - chooser.at > CHOOSER_MS) chooser = null;
+    const where = { url: page.url(), title: await page.title().catch(() => ""), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}) };
     const shot = await page.screenshot({ type: "jpeg", quality: 60, timeout: 5000 }).catch(() => null);
     if (!shot) return { ...where, same: true };
     const hash = createHash("sha1").update(shot).digest("hex").slice(0, 16);
@@ -597,12 +756,23 @@ export async function serve(dir) {
     const i = checkInput(x);
     dialogs = [];
     ownerHand = true;
+    // A file field the owner clicks asks them for a file (the page shows no box of its own here: see watch).
+    await teachWrite(i);
     try {
       if (i.kind === "click") await page.mouse.click(i.x, i.y);
       else if (i.kind === "type") await page.keyboard.type(i.text);
       else if (i.kind === "key") await page.keyboard.press(i.key);
       else if (i.kind === "scroll") await page.mouse.wheel(0, i.dy);
       else if (i.kind === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      else if (i.kind === "forward") await page.goForward({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      else if (i.kind === "reload") await page.reload({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+      else if (i.kind === "open") await page.goto(i.url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch((e) => { if (!/Download is starting/.test(String((e && e.message) || e))) throw e; });
+      else if (i.kind === "file") {
+        if (!chooser || Date.now() - chooser.at > CHOOSER_MS) { chooser = null; throw new Error("the page is not asking for a file now: click its file field or upload button first"); }
+        const fc = chooser.fc;
+        chooser = null;
+        await fc.setFiles({ name: i.name, mimeType: "application/octet-stream", buffer: Buffer.from(i.data, "base64") });
+      }
       await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
       await page.waitForTimeout(350);
     } finally { ownerHand = false; }
@@ -655,6 +825,8 @@ export async function serve(dir) {
           else if (x.action === "signOut") out = await signOutOf(ctx, page, x);
           else if (x.action === "input") out = await input(x);
           else if (x.action === "stage") out = await stage(x);
+          else if (x.action === "area") out = await area(x);
+          else if (x.action === "teach") out = await teachOnOff(x);
           else if (x.action === "collect") out = await handOver(false);
           else { ask = checkAsk(x); out = await run(ask); }
         } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
@@ -828,6 +1000,10 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     wake: async () => { const p = await ask(sock, "/ping", {}, 2000); if (!p || !p.ok) await start(); const r = await ask(sock, "/screen", {}, 10_000); if (r && (r.down || r.error)) throw new Error(r.error || "the browser stopped answering"); return r; },
     // The owner's own click, typing, key, scroll or Back; then the page as it is.
     input: (x) => call({ action: "input", ...checkInput(x) }),
+    // What is inside a box the owner marked on the page (dots' annotations): { x, y, w, h } in the screenshot's pixels.
+    area: ({ x, y, w, h }) => call({ action: "area", x, y, w, h }),
+    // Teach a task (Grok Bot's): on, then off (the owner's steps written down).
+    teach: (on) => call({ action: "teach", on: on === true }),
   };
 }
 

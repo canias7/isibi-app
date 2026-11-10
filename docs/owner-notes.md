@@ -11,6 +11,31 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: The browser's missing pieces, added (your word: "if we missing stuff in the browser tool add it and then test the entire browser tool")
+
+From the second check against Grok Bot's and dots' docs:
+
+1. **The check and the card see what a form will send.** Before a click that sends a form (an email, a message, an order), the check reads what's filled in: who it goes to and what it says. A recipient or text you didn't ask for is a reason to ask. Your card shows it too, under "What it sends". Never passwords or card numbers. This works for ordinary forms and for pop-up boxes like a web mail's compose window. (dots checks "who will receive it and what the message contains"; Grok Bot's card shows the action's inputs.)
+2. **Your rules apply to opening a site.** Before, a rule like "never open shady.example" couldn't stop Gloopy just opening it, since opening wasn't checked. Now an open is checked when you have any rules. With no rules there's no extra cost.
+3. **QR codes go to you**, like CAPTCHAs and passkeys.
+4. **The live view shows where Gloopy acts.** An orange box marks what it just clicked or typed into, and the line under the picture says its last step ("Gloopy: Clicked “Send”"). (Grok Bot: "watch clicks, typing, navigation".)
+5. **Taking over:**
+   - **Stop and take over:** one press while Gloopy works stops it and gives you the browser.
+   - **Back, Forward, Reload and "Go to an address"**, as in a browser of your own. Keys typed on your keyboard already worked (Escape, arrows, shortcuts); my last report wrongly said they didn't.
+   - **A file from your device:** when you click a page's file field, the live view asks you for a file and puts it into the page (at most 5 MB).
+6. **Mark a part of the page (dots' annotations).** In the live view, press **Mark a part**, drag over what you mean, write your note and **Send to Gloopy**. Gloopy gets your note plus what that part of the page shows. It's told those words are the site's, not yours.
+7. **Teach Gloopy a task (Grok Bot's "Teach a task").** While you have control, press **Teach Gloopy**, do the task once, press **Done teaching** and name it. Gloopy gets your steps (what you clicked, what you typed and where, page by page) and writes them down in its notes as a how-to. Passwords and card details you type are never written down. At most 10 minutes or 100 steps, as Grok Bot's.
+8. **Big downloads no longer silently stop your work folder's copy.** This is outside the browser, but downloads made it likely. Over 25 MB, the copy is still made, without the biggest files, and Gloopy is told once which ones were left out.
+
+**Found and fixed while testing:**
+- **A click on something covered said "the page changed since your last look"**, so Gloopy would look again and try the same thing. Now it says something is in front of it (a pop-up, a cookie banner, a menu) and to close or scroll past it. An element number that's really gone now fails at once instead of after 8 seconds.
+- **A page asking Gloopy for a file could block later uploads.** If Gloopy clicked a file field by mistake, an invisible file box stayed open in the browser. Now every such request is caught: Gloopy is told to use upload, and your own click gets the file prompt.
+- **Notes the app adds to your message counted as your words for the check.** A download's file name, chosen by the site, could end up there. Now the check reads only what you typed.
+
+**Not done (bigger, or your call):** routing through your own computer, a full desktop with "computer use", several browsers at once, fixed outgoing addresses (they cost money), a monitor over a whole run, codes by email, 1Password and hardware keys. Still waiting for your choice: "Always allow next time" in runs you didn't start (item 2 of the check).
+
+Tests GL90 to GL95 are new. Six older tests were updated for the new buttons, the live view's last step and the new inputs.
+
 ## 2026-11-10: The browser checked against the docs again (your word: "do another check on the browser tool against the docs")
 
 Nothing changed in the code. This is the check and what it found.

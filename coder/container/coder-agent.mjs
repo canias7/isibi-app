@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
-import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
+import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
@@ -568,7 +568,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -655,6 +655,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     const lines = got ? await keepFromBrowser(deps, got, now()) : [];
     if (lines.length) convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Gloopy's app, about your browser: " + lines.join(" ") + ")" };
   }
+  // A PART OF YOUR PAGE THE OWNER MARKED, or A TASK THEY SHOWED YOU in your browser (the second docs check, 2026-11-10).
+  for (const extra of [markedNote(marked), taughtNote(taught)]) if (extra && convo[jobStart] && convo[jobStart].role === "user") convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Gloopy's app: " + extra + ")" };
+  // FILES LEFT OUT OF THE COPY KEPT FOR A NEW COMPUTER (the work folder over its size; Coder's service says which, once).
+  if (typeof workNote === "string" && workNote.trim() && convo[jobStart] && convo[jobStart].role === "user") convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Gloopy's app: " + workNote.trim().slice(0, 2000) + ")" };
   // THE FILES THIS JOB WORKS ON (read, changed, viewed with a command, @-mentioned), the newest last: after a summary
   // the most recently changed of them are read again (rereadFiles).
   const touched = new Map(); let touchN = 0;
@@ -1061,7 +1065,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             try { const b = await hub.describe(act.submit_ref); act.submitName = plain(String((b && b.element && b.element.name) || "")).slice(0, 120); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
           }
         }
-        if (needsCheck(act)) {
+        // YOUR RULES APPLY TO OPENING A SITE TOO (the second docs check, 2026-11-10: Grok Bot's review "checks each action";
+        // a rule such as "never open shady.example" could not stop an open): an open is checked when the owner has rules.
+        if (needsCheck(act) || (act.action === "open" && rules.length > 0)) {
           let about;
           try { about = await hub.describe(act.action === "press" ? "" : String(act.ref || "")); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
           const step = stepWords(act, about);
@@ -1077,7 +1083,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             emit({ type: "result", id: c.id, code: 0, output: "Waiting for your OK: " + step, label: "Asked you first: " + step });
             reply("waiting for the owner's OK to: " + step + " (" + v.why + "). Your turn ends here; their answer comes as the next message.");
             for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
-            emit({ type: "approval", id, step, site: about.host || "", url: about.url || "", why: v.why, ...cardBits(v) });
+            // What the form holds, on the card (Grok Bot's card shows the action's inputs): never a password or card field.
+            const holds = formWords(about.fields);
+            emit({ type: "approval", id, step, site: about.host || "", url: about.url || "", why: v.why, ...cardBits(v), ...(holds ? { detail: holds, form: true } : {}) });
             approvalRequest = { id, args: { ...act }, step, site: about.host || "", url: about.url || "" };
             return end("done", { summary: lastSaid || "asked the owner's OK to: " + step });
           }
