@@ -2246,7 +2246,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (["/gloopy/screen", "/gloopy/control", "/gloopy/input", "/gloopy/area", "/gloopy/teach"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
       const working = !!(t && t.running);
       if (url.pathname === "/gloopy/screen" && req.method === "GET") {
-        try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "" })), control: !!ownerControl, working }); }
+        // Asked with wait (2026-11-10), it answers once the page changes (near-video), or after a few seconds.
+        try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "", wait: Number(url.searchParams.get("wait")) || 0 })), control: !!ownerControl, working: !!(t && t.running) }); }
         catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: !!ownerControl, working }); }
       }
       if (url.pathname === "/gloopy/control" && req.method === "POST") {

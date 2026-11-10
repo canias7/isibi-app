@@ -90,6 +90,8 @@ export const BLANKED = "••••••";
 export const OWNER_INPUTS = Object.freeze(["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file"]);
 /** How long a page's request for a file waits for the owner to pick one. */
 export const CHOOSER_MS = 2 * 60 * 1000;
+/** The live view's frames (2026-11-10): at most one every CAST_GAP_MS; stopped CAST_IDLE_MS after the last look; a look waits at most CAST_WAIT_MS for the next. */
+export const CAST_GAP_MS = 150, CAST_IDLE_MS = 15_000, CAST_WAIT_MS = 8000;
 /** TEACH A TASK (Grok Bot's: "records visible computer interaction for up to ten minutes"): at most this long, and steps. */
 export const TEACH_MS = 10 * 60 * 1000, TEACH_STEPS = 100;
 
@@ -803,15 +805,64 @@ export async function serve(dir) {
     await settle();
     return { ok: true, url: page.url(), title: await page.title().catch(() => ""), filled: Object.keys(refs) };
   };
+  // THE LIVE VIEW'S FRAMES (the owner, 2026-11-10: "all of it"; both apps stream the screen): while someone watches,
+  // Chromium sends a frame each time the page changes (its screencast), at most one every CAST_GAP_MS (the next comes
+  // only once the last is acknowledged); it stops CAST_IDLE_MS after the last look. `newest` is the newest picture the
+  // view could be given: a frame, or a screenshot taken when the page sent none.
+  const cast = { s: null, page: null, last: 0, timer: null, starting: null, waiters: [] };
+  let newest = { hash: "", shot: "", from: "", page: null };
+  const wake = () => { for (const w of cast.waiters.splice(0)) w(); };
+  // Waiting looks are woken at most once every CAST_GAP_MS (Chromium may send frames faster than they are acknowledged).
+  let wokeAt = 0, wakeTimer = null;
+  const wakeSoon = () => {
+    const due = wokeAt + CAST_GAP_MS - Date.now();
+    if (due <= 0) { wokeAt = Date.now(); wake(); }
+    else if (!wakeTimer) wakeTimer = setTimeout(() => { wakeTimer = null; wokeAt = Date.now(); wake(); }, due);
+  };
+  const castStop = async () => {
+    const s = cast.s;
+    cast.s = null; cast.page = null;
+    if (cast.timer) { clearInterval(cast.timer); cast.timer = null; }
+    if (newest.from === "cast") newest = { hash: "", shot: "", from: "", page: null };
+    wake();
+    if (s) { await s.send("Page.stopScreencast").catch(() => {}); await s.detach().catch(() => {}); }
+  };
+  const castOn = async () => {
+    cast.last = Date.now();
+    if (cast.s && cast.page === page) return;
+    if (!cast.starting) cast.starting = (async () => {
+      await castStop();
+      const p = page, s = await ctx.newCDPSession(p);
+      cast.s = s; cast.page = p;
+      s.on("Page.screencastFrame", ({ data, sessionId }) => {
+        if (cast.s !== s) return;
+        newest = { hash: createHash("sha1").update(data).digest("hex").slice(0, 16), shot: data, from: "cast", page: p };
+        wakeSoon();
+        setTimeout(() => { if (cast.s === s) s.send("Page.screencastFrameAck", { sessionId }).catch(() => {}); }, CAST_GAP_MS);
+      });
+      await s.send("Page.startScreencast", { format: "jpeg", quality: 60, maxWidth: VIEW.width, maxHeight: VIEW.height });
+      cast.timer = setInterval(() => { if (Date.now() - cast.last > CAST_IDLE_MS || cast.page !== page) castStop(); }, 2000);
+    })().finally(() => { cast.starting = null; });
+    await cast.starting;
+  };
   // THE OWNER'S LIVE VIEW: the page as it is now (a JPEG), with its address and title; nothing new when it has not changed
-  // since the one they have (`since`). A moment when no picture can be taken (a page being loaded) gives none.
+  // since the one they have (`since`). Asked with `wait` (ms), a look that already has the newest picture waits for the
+  // next frame (at most CAST_WAIT_MS): near-video while the page moves, one answer every few seconds while it doesn't.
+  // A moment when no picture can be taken (a page being loaded) gives none.
   const screen = async (x) => {
+    const wait = Math.max(0, Math.min(CAST_WAIT_MS, Number(x && x.wait) || 0));
+    if (wait) {
+      try { await castOn(); } catch { /* a screenshot, as before */ }
+      if (x.since && x.since === newest.hash && newest.page === page) await new Promise((ok) => { const t = setTimeout(ok, wait); cast.waiters.push(() => { clearTimeout(t); ok(); }); });
+    }
     const last = lastAct && Date.now() - lastAct.at < 20_000 ? { did: lastAct.did, ...(lastAct.box ? { box: lastAct.box } : {}), ago: Date.now() - lastAct.at } : null;
     if (chooser && Date.now() - chooser.at > CHOOSER_MS) chooser = null;
     const where = { url: page.url(), title: await page.title().catch(() => ""), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}) };
+    if (wait && newest.from === "cast" && newest.page === page && newest.hash) return x.since === newest.hash ? { ...where, same: true, hash: newest.hash } : { ...where, hash: newest.hash, shot: newest.shot, w: VIEW.width, h: VIEW.height };
     const shot = await page.screenshot({ type: "jpeg", quality: 60, timeout: 5000 }).catch(() => null);
     if (!shot) return { ...where, same: true };
     const hash = createHash("sha1").update(shot).digest("hex").slice(0, 16);
+    if (wait) newest = { hash, shot: shot.toString("base64"), from: "shot", page };
     return x && x.since === hash ? { ...where, same: true, hash } : { ...where, hash, shot: shot.toString("base64"), w: VIEW.width, h: VIEW.height };
   };
   // THE OWNER'S OWN CLICKS, TYPING, KEYS, SCROLLING AND BACK, while they have control; then the page as it is. A page's
@@ -1061,7 +1112,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     running: async () => !!(await ask(sock, "/ping", {}, 2000)).ok,
     // THE OWNER'S LIVE VIEW: { shot, hash, url, title } (or { same: true } when unchanged since `since`); { off: true } when
     // the browser is not running (it is not started for a look).
-    screen: async ({ since = "" } = {}) => { const r = await ask(sock, "/screen", { since: String(since || "").slice(0, 40) }, 10_000); if (r && r.down) return { off: true }; if (r && r.error) throw new Error(r.error); return r; },
+    screen: async ({ since = "", wait = 0 } = {}) => { const w = Math.max(0, Math.min(CAST_WAIT_MS, Number(wait) || 0)); const r = await ask(sock, "/screen", { since: String(since || "").slice(0, 40), ...(w ? { wait: w } : {}) }, 10_000 + w); if (r && r.down) return { off: true }; if (r && r.error) throw new Error(r.error); return r; },
     // THE OWNER TAKES OVER: the browser started if it is not running, then the page as it is.
     wake: async () => { const p = await ask(sock, "/ping", {}, 2000); if (!p || !p.ok) await start(); const r = await ask(sock, "/screen", {}, 10_000); if (r && (r.down || r.error)) throw new Error(r.error || "the browser stopped answering"); return r; },
     // The owner's own click, typing, key, scroll or Back; then the page as it is.

@@ -1307,7 +1307,7 @@
   // It looks only while it is worth it: while Gloopy works, while you use it (up to 15 minutes without a touch) and for 2
   // minutes after you open it; then it pauses, so it never keeps Gloopy's computer awake for nothing. A look never wakes
   // a computer that is asleep (its browser is closed then).
-  const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 * 60 * 1000, WEB_HOLD_MS = 15 * 60 * 1000;
+  const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 * 60 * 1000, WEB_HOLD_MS = 15 * 60 * 1000, WEB_WAIT_MS = 6000, WEB_NEXT_MS = 30;
   const webPath = () => '/projects/' + encodeURIComponent(S.project.id) + '/screen';
   // What you were asked to do in Gloopy's browser: a handoff, or a sign-in you chose to do there yourself (Take over on its card).
   const webHandoff = () => { const p = S.project && S.project.pending; return !p ? null : p.kind === 'handoff' ? p : p.kind === 'signin' && S.signTake === p.id ? { ...p, task: (p.code ? 'Type the code for ' : 'Sign in to ') + (p.site || 'the site'), signin: true } : null; };
@@ -1415,21 +1415,30 @@
     draw();
   }
   const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught].join('|') : ''; };
+  // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, each look asks
+  // the machine to answer when the page next changes (wait), and the next look starts at once; one look at a time.
   async function webTick() {
     if (S.webTimer) clearTimeout(S.webTimer);
     S.webTimer = 0;
     const w = S.web;
     if (!w || !S.project || !S.root || !S.root.isConnected) return;
+    if (S.webLooking) { S.webAgain = true; return; }
     const quiet = Date.now() - w.touched;
     if (!S.running && !w.working && quiet > (w.control ? WEB_HOLD_MS : WEB_WATCH_MS)) { const b = webShape(); w.paused = true; return webPaint(b); }
+    let next = WEB_EVERY_MS;
     if (!S.root.hidden && document.visibilityState === 'visible') {
       const b = webShape();
-      const r = await call(webPath() + (w.hash ? '?since=' + encodeURIComponent(w.hash) : ''));
+      const live = !!w.hash && !w.asleep && !w.off && !w.none && !w.error;
+      const q = [w.hash ? 'since=' + encodeURIComponent(w.hash) : '', live ? 'wait=' + WEB_WAIT_MS : ''].filter(Boolean).join('&');
+      S.webLooking = true;
+      let r;
+      try { r = await call(webPath() + (q ? '?' + q : '')); } finally { S.webLooking = false; }
       if (S.web !== w) return;
-      if (r.status === 200) webTake_(r.data); else w.error = (r.data && r.data.error) || 'Gloopy’s computer could not be reached.';
+      if (r.status === 200) { webTake_(r.data); if (live) next = WEB_NEXT_MS; } else w.error = (r.data && r.data.error) || 'Gloopy’s computer could not be reached.';
       webPaint(b);
     }
-    S.webTimer = setTimeout(webTick, WEB_EVERY_MS);
+    if (S.webAgain) { S.webAgain = false; next = 0; }
+    S.webTimer = setTimeout(webTick, next);
   }
   async function webTake() {
     const w = S.web;

@@ -1022,10 +1022,11 @@ test("GL27 (2026-11-09) on the page: Gloopy's Browser button (only with a browse
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8"), routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(ui, /S\.webOK = g\.data\.browser === true;/);
   assert.match(ui, /\(S\.webOK && S\.project \? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"'/);
-  assert.match(ui, /const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 \* 60 \* 1000, WEB_HOLD_MS = 15 \* 60 \* 1000;/);
+  assert.match(ui, /const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 \* 60 \* 1000, WEB_HOLD_MS = 15 \* 60 \* 1000, WEB_WAIT_MS = 6000, WEB_NEXT_MS = 30;/);
   assert.match(ui, /if \(!S\.running && !w\.working && quiet > \(w\.control \? WEB_HOLD_MS : WEB_WATCH_MS\)\) \{ const b = webShape\(\); w\.paused = true; return webPaint\(b\); \}/, "it pauses on its own");
   assert.match(ui, /if \(!S\.root\.hidden && document\.visibilityState === 'visible'\) \{/, "and looks only while it can be seen");
-  assert.match(ui, /\(w\.hash \? '\?since=' \+ encodeURIComponent\(w\.hash\) : ''\)/, "an unchanged page is not sent again");
+  // (Since 2026-11-10, near-video: GL107; the picture it has still goes with each look.)
+  assert.match(ui, /\[w\.hash \? 'since=' \+ encodeURIComponent\(w\.hash\) : '', live \? 'wait=' \+ WEB_WAIT_MS : ''\]/, "an unchanged page is not sent again");
   // (Since the second docs check, 2026-11-10: while Gloopy works, one press stops it and takes over: GL95.)
   assert.match(ui, /'<button type="button" class="cd-card-yes" id="cdWebTake"' \+ \(w\.none \? ' disabled' : ''\) \+ '>' \+ \(w\.working \|\| S\.running \? 'Stop and take over' : 'Take over'\) \+ '<\/button>'/);
   assert.match(ui, /\(ho \? 'Done, hand it back' : 'Hand it back'\)/);
@@ -5201,4 +5202,55 @@ test("GL106 (2026-11-10) the owner: \"all of it\": the monitor (dots' safety mon
   assert.match(ui, /'<section><h3>Watch over each run<\/h3><label class="cd-gset-switch"><input type="checkbox" id="gsMonitor"'/);
   assert.match(ui, /else if \(t\.id === 'gsMonitor'\) save\('\/options', \{ set: \{ monitor: t\.checked \} \}/);
   assert.match(css, /\.cd-paused\{max-width:720px;/);
+});
+
+test("GL107 (2026-11-10) for real (where Chromium is installed), the owner: \"all of it\": the live view is near-video: asked to wait, a look answers as soon as the page changes (Chromium's own frames, a few a second at most), and a still page answers only after the wait; a look without wait is as before", async (t) => {
+  const { makeBrowserHub, hasBrowser, CAST_GAP_MS, CAST_WAIT_MS } = await import("../container/gloopy-browser.mjs");
+  assert.deepEqual([CAST_GAP_MS, CAST_WAIT_MS], [150, 8000]);
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const site = http.createServer((q, r) => {
+    r.writeHead(200, { "content-type": "text/html" });
+    if (q.url === "/moving") return r.end('<title>Moving</title><h1 id=n>0</h1><script>let i = 0; setInterval(() => { document.getElementById("n").textContent = ++i; }, 100)</script>');
+    r.end("<title>Still</title><h1>Nothing moves here</h1>");
+  });
+  const S = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-cast-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    await hub.act({ action: "open", url: S + "/moving" });
+    let sc = await hub.screen({ wait: 3000 });
+    assert.ok(sc.shot && sc.hash, "a picture at once");
+    // While the page moves: each look answers when it next changes, a few frames a second.
+    const t0 = Date.now(), hashes = new Set([sc.hash]);
+    let looks = 0;
+    while (Date.now() - t0 < 2000) { sc = await hub.screen({ since: sc.hash, wait: 3000 }); looks++; if (sc.shot) hashes.add(sc.hash); }
+    assert.ok(hashes.size >= 5, "frames in 2 s: " + hashes.size);
+    assert.ok(looks <= Math.ceil(2000 / CAST_GAP_MS) + 3, "never faster than one every " + CAST_GAP_MS + " ms: " + looks + " looks");
+    // A still page: the look waits, then says nothing changed.
+    await hub.act({ action: "open", url: S + "/still" });
+    sc = await hub.screen({ wait: 3000 });
+    let t1 = Date.now();
+    for (let i = 0; i < 3 && !sc.same; i++) sc = await hub.screen({ since: sc.hash, wait: 1200 });
+    t1 = Date.now();
+    sc = await hub.screen({ since: sc.hash, wait: 1200 });
+    assert.ok(Date.now() - t1 >= 1000, "it waited");
+    assert.equal(sc.same, true);
+    assert.equal(sc.title, "Still");
+    // Without wait: at once, as before.
+    t1 = Date.now();
+    sc = await hub.screen({});
+    assert.ok(sc.shot && Date.now() - t1 < 3000);
+  } finally {
+    (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    site.close();
+  }
+  // On the page: one look at a time; once there is a picture, each look waits for the next change.
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /WEB_WAIT_MS = 6000, WEB_NEXT_MS = 30;/);
+  assert.match(ui, /if \(S\.webLooking\) \{ S\.webAgain = true; return; \}/);
+  assert.match(ui, /const live = !!w\.hash && !w\.asleep && !w\.off && !w\.none && !w\.error;/);
+  assert.match(ui, /live \? 'wait=' \+ WEB_WAIT_MS : ''/);
+  // The Worker passes the wait on (8 seconds at most).
+  const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /const wait = Math\.max\(0, Math\.min\(8000, Math\.round\(Number\(url\.searchParams\.get\("wait"\)\) \|\| 0\)\)\);/);
 });
