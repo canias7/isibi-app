@@ -102,6 +102,8 @@
     } catch (e) { return { status: 0, data: { error: (GLOOPY ? 'Gloopy' : 'Coder') + ' could not be reached. Check your connection.' } }; }
     // A FILE TO SAVE (a read-only chat's patch, owner item 5): handed back whole when it came.
     if (r.ok && typeof (init || {}).file === 'string') return { status: r.status, data: {}, blob: await r.blob(), name: (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || init.file };
+    // A STREAM (Gloopy's live view, 2026-11-10): handed back as it is, to be read as it comes.
+    if (r.ok && (init || {}).stream === true && /^text\/event-stream/.test(r.headers.get('content-type') || '')) return { status: r.status, data: {}, stream: r };
     const data = await r.json().catch(() => ({}));
     if (r.status === 401 && (data.signin === true || data.error === 'sign in first')) {
       if (data.signin !== true && !again) {
@@ -1375,6 +1377,7 @@
   function webClose() {
     if (S.webTimer) clearTimeout(S.webTimer);
     S.webTimer = 0;
+    if (S.webAbort) S.webAbort.abort();
     // Closing the view while you have control hands the browser back.
     if (S.web && S.web.control && S.project) call(webPath(), { method: 'POST', body: JSON.stringify({ take: false }) });
     S.web = null; S.webBox = ''; draw();
@@ -1420,37 +1423,95 @@
     draw();
   }
   const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, (w.lanes || []).map((x) => x.id).join(',')].join('|') : ''; };
-  // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, each look asks
-  // the machine to answer when the page next changes (wait), and the next look starts at once; one look at a time.
+  // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, the view is a
+  // stream (live test, 2026-11-10: each look paid the sign-in check, about half a second, so it showed about two pictures
+  // a second): one request carries the page's pictures as they come, for up to 25 seconds, and the next starts at once.
+  // Where a stream can't be had, each look asks the machine to answer when the page next changes (wait). One at a time.
   async function webTick() {
     if (S.webTimer) clearTimeout(S.webTimer);
     S.webTimer = 0;
     const w = S.web;
-    if (!w || !S.project || !S.root || !S.root.isConnected) return;
+    if (!w || !S.project || !S.root || !S.root.isConnected || S.webQuiet) return;
     if (S.webLooking) { S.webAgain = true; return; }
     const quiet = Date.now() - w.touched;
     if (!S.running && !w.working && quiet > (w.control ? WEB_HOLD_MS : WEB_WATCH_MS)) { const b = webShape(); w.paused = true; return webPaint(b); }
     let next = WEB_EVERY_MS;
     if (!S.root.hidden && document.visibilityState === 'visible') {
       const b = webShape();
-      const live = !w.lane && !!w.hash && !w.asleep && !w.off && !w.none && !w.error;
-      const q = [w.hash ? 'since=' + encodeURIComponent(w.hash) : '', live ? 'wait=' + WEB_WAIT_MS : '', w.lane ? 'lane=' + w.lane : ''].filter(Boolean).join('&');
-      S.webLooking = true;
-      let r;
-      try { r = await call(webPath() + (q ? '?' + q : '')); } finally { S.webLooking = false; }
+      const live = !!w.hash && !w.asleep && !w.off && !w.none && !w.error;
+      const q = [w.hash ? 'since=' + encodeURIComponent(w.hash) : '', live && !w.lane ? 'wait=' + WEB_WAIT_MS : '', w.lane ? 'lane=' + w.lane : ''].filter(Boolean).join('&');
+      // The look is for one tab; moving to another cancels it (live test, 2026-11-10: a helper's tab waited for Gloopy's
+      // page's look, up to 6 seconds, and that look's picture could have shown under the helper's name).
+      const asked = w.lane || 0, ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+      S.webLooking = true; S.webAbort = ctrl;
+      let r = null, streamed = false;
+      try {
+        if (live && ctrl && !S.webNoStream) streamed = await webStream(w, ctrl);
+        if (!streamed && S.web === w && !(ctrl && ctrl.signal.aborted)) r = await call(webPath() + (q ? '?' + q : ''), ctrl ? { signal: ctrl.signal } : undefined);
+      } finally { S.webLooking = false; S.webAbort = null; }
       if (S.web !== w) return;
-      if (r.status === 200) { webTake_(r.data); if (live) next = WEB_NEXT_MS; } else w.error = (r.data && r.data.error) || 'Gloopy’s computer could not be reached.';
-      webPaint(b);
+      if ((ctrl && ctrl.signal.aborted) || (w.lane || 0) !== asked) next = 0;
+      else if (streamed) next = WEB_NEXT_MS;
+      else if (r) {
+        if (r.status === 200) { webTake_(r.data); if (live && !w.lane) next = WEB_NEXT_MS; } else w.error = (r.data && r.data.error) || 'Gloopy’s computer could not be reached.';
+        webPaint(b);
+      }
     }
     if (S.webAgain) { S.webAgain = false; next = 0; }
     S.webTimer = setTimeout(webTick, next);
   }
+  // Whether the view still wants pictures: shown, not paused, and worth it (as webTick decides).
+  const webKeep = (w) => S.web === w && !!S.root && S.root.isConnected && !S.root.hidden && document.visibilityState === 'visible' && !S.webQuiet && !w.asleep && !w.off && !w.none && !w.error && (S.running || w.working || Date.now() - w.touched <= (w.control ? WEB_HOLD_MS : WEB_WATCH_MS));
+  // THE STREAM: the machine's events (each a look's answer), taken as they come. True once it was read (it ends after up
+  // to 25 seconds, or when the view no longer wants it); false when it can't be had, so a look is asked instead. A stream
+  // that brought nothing is not asked for again on this page.
+  async function webStream(w, ctrl) {
+    if (typeof TextDecoder !== 'function') return false;
+    const r = await call(webPath() + '?stream=1&since=' + encodeURIComponent(w.hash) + (w.lane ? '&lane=' + w.lane : ''), { signal: ctrl.signal, stream: true });
+    if (ctrl.signal.aborted) return true;
+    if (!r.stream) {
+      // A refusal (call() has dealt with it): a look is asked instead. One look's answer (Gloopy's computer asleep, or one
+      // from before streams, which answers at once): taken as a look's, and looks (which wait) from now on, on this page.
+      if (r.status !== 200) return false;
+      if (!r.data.asleep) S.webNoStream = true;
+      if (S.web === w) { const b = webShape(); webTake_(r.data); webPaint(b); }
+      return true;
+    }
+    if (!r.stream.body || typeof r.stream.body.getReader !== 'function') { S.webNoStream = true; return false; }
+    const rd = r.stream.body.getReader(), dec = new TextDecoder();
+    let buf = '', got = 0;
+    try {
+      for (;;) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        for (let i = buf.indexOf('\n\n'); i >= 0; i = buf.indexOf('\n\n')) {
+          const ev = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          const data = ev.split('\n').filter((l) => l.startsWith('data: ')).map((l) => l.slice(6)).join('');
+          let d = null;
+          try { d = data ? JSON.parse(data) : null; } catch (e) { d = null; }
+          if (!d) continue;
+          if (S.web !== w || ctrl.signal.aborted) return true;
+          got++;
+          const b = webShape(); webTake_(d); webPaint(b);
+          if (!webKeep(w)) { ctrl.abort(); return true; }
+        }
+        if (buf.length > 4e6) buf = '';
+      }
+    } catch (e) { /* cut off, or stopped */ }
+    if (!got && !ctrl.signal.aborted) S.webNoStream = true;
+    return true;
+  }
+  // WHILE YOU TAKE OVER OR HAND BACK, the stream stops (its pictures may still say who had control before) and starts
+  // again with the answer.
+  function webQuiet(on) { S.webQuiet = on; if (on && S.webAbort) S.webAbort.abort(); }
   async function webTake() {
     const w = S.web;
     if (!w) return;
     w.msg = ''; w.touched = Date.now(); w.paused = false;
     // Taking over is of Gloopy's own page (a helper's tab is only watched).
-    if (w.lane) { w.lane = 0; w.hash = ''; }
+    if (w.lane) { w.lane = 0; w.hash = ''; if (S.webAbort) S.webAbort.abort(); }
     // STOP AND TAKE OVER (the second docs check, 2026-11-10): while Gloopy works, it is stopped first (as Stop does),
     // and you take over once its turn has ended (it ends at its next step).
     if (S.running || w.working) {
@@ -1462,7 +1523,9 @@
     }
     const b = webShape();
     w.msg = 'Taking over…'; webPaint(b);
+    webQuiet(true);
     const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: true }) });
+    webQuiet(false);
     if (S.web !== w) return;
     w.msg = r.status === 200 && !(r.data && r.data.error) ? '' : (r.data && r.data.error) || 'Gloopy’s browser could not be taken over.';
     if (r.status === 200) webTake_(r.data);
@@ -1477,15 +1540,18 @@
     const w = S.web;
     if (!w) return;
     const ho = webHandoff();
+    webQuiet(true);
     if (ho) {
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/' + (ho.signin ? 'signin' : 'handoff'), { method: 'POST', body: JSON.stringify(ho.signin ? { id: ho.id, tookOver: true } : { id: ho.id, done: true }) });
-      if (r.status !== 200) { w.msg = (r.data && r.data.error) || 'Your answer could not be sent.'; return draw(); }
+      webQuiet(false);
+      if (r.status !== 200) { w.msg = (r.data && r.data.error) || 'Your answer could not be sent.'; draw(); return webTick(); }
       if (r.data && r.data.project) S.project = r.data.project;
       w.control = false; w.touched = Date.now();
-      draw();
+      draw(); webTick();
       return send((r.data && r.data.said) || 'Done.', { card: true });
     }
     const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: false }) });
+    webQuiet(false);
     if (S.web !== w) return;
     w.control = false; w.touched = Date.now(); w.msg = r.status === 200 ? '' : (r.data && r.data.error) || '';
     draw(); webTick();
@@ -1953,7 +2019,7 @@
     });
     on('#cdViewClose', 'click', () => { S.view = null; draw(); });
     on('#cdGset', 'click', () => { showGloopySettings(); });
-    on('[data-web-lane]', 'click', (e) => { const w = S.web; if (!w || w.control) return; const k = Number(e.currentTarget.dataset.webLane) || 0; if ((w.lane || 0) === k) return; w.lane = k; w.hash = ''; w.shot = ''; w.marking = false; w.touched = Date.now(); w.paused = false; draw(); webTick(); });
+    on('[data-web-lane]', 'click', (e) => { const w = S.web; if (!w || w.control) return; const k = Number(e.currentTarget.dataset.webLane) || 0; if ((w.lane || 0) === k) return; w.lane = k; w.hash = ''; w.shot = ''; w.marking = false; w.touched = Date.now(); w.paused = false; if (S.webAbort) S.webAbort.abort(); draw(); webTick(); });
     on('#cdView', 'click', (e) => { if (e.target === e.currentTarget) { S.view = null; draw(); } });
     on('[data-sched-pause]', 'click', (e) => schedCall({ pause: e.currentTarget.dataset.schedPause }, e.currentTarget));
     on('[data-resume]', 'click', (e) => { e.currentTarget.disabled = true; send('Carry on with what you were doing when I stopped you.'); });

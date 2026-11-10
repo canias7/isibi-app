@@ -180,6 +180,8 @@ export const FROM_COPY = "x-coder-from-copy";
 export const FROM_COPY_GB = "x-coder-from-copy-gb";
 /** What became of that copy, told to the new machine with its first job (flyBox only sets it): "used", or "missed: why". */
 export const COPY_INFO = "x-coder-copy";
+/** A request whose answer is a stream (Gloopy's live view): for viaFly only, never sent on. */
+export const STREAM_HEADER = "x-coder-stream";
 async function locked(env, machine, rec, req) {
   const r = new Request(req.url, { method: req.method, headers: req.headers });
   r.headers.delete(FROM_COPY); r.headers.delete(FROM_COPY_GB); r.headers.delete(COPY_INFO);
@@ -207,7 +209,10 @@ export async function viaFly(env, machineId, req, body, fetchFn = fetch) {
   const u = new URL(req.url);
   const headers = new Headers(req.headers);
   headers.set("fly-force-instance-id", machineId);
-  headers.set("x-coder-keepalive", "1");
+  // A STREAM (Gloopy's live view, 2026-11-10) is passed on as it comes, so it is asked without the "still working"
+  // signal (it sends something every few seconds itself).
+  if (headers.get(STREAM_HEADER) === "1") headers.delete("x-coder-keepalive"); else headers.set("x-coder-keepalive", "1");
+  headers.delete(STREAM_HEADER);
   let r;
   try { r = await fetchFn("https://" + flySettings(env).app + ".fly.dev" + u.pathname + u.search, { method: req.method, headers, ...(body !== undefined ? { body } : {}) }); }
   catch { return null; }

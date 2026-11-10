@@ -727,7 +727,11 @@ export async function serve(dir) {
       }
       await settle(L);
     } finally { L.armed = false; }
-    if (L === L0 && ask.action !== "look" && ask.action !== "screenshot") lastAct = { at: Date.now(), did, ...(box ? { box: { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) } } : {}) };
+    if (L === L0 && ask.action !== "look" && ask.action !== "screenshot") {
+      lastAct = { at: Date.now(), did, ...(box ? { box: { x: Math.round(box.x), y: Math.round(box.y), w: Math.round(box.width), h: Math.round(box.height) } } : {}) };
+      // The live view hears of the step at once, though the page may not have changed (a stream, live test 2026-11-10).
+      wakeSoon();
+    }
     // A download the step started: waited for a while (the step's answer comes within its time all the same).
     if (L.dl.going.size) await Promise.race([Promise.allSettled([...L.dl.going.keys()]), new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(DOWNLOAD_WAIT_MS, 28_000 - (Date.now() - t0)))))]);
     const out = await report(did, { picture: ask.action === "screenshot" ? { full: ask.full } : null }, L);

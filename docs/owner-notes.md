@@ -11,6 +11,28 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: The new browser pieces tried live, and three fixes
+
+Tried on test.gofarther.dev with Grok, recorded. What worked:
+
+- **The Chrome name:** sites now see "Chrome 158" everywhere they can read the name. WhatsApp Web shows its sign-in QR code now (before, it turned the browser away), and Gloopy hands it to you to scan.
+- **Settings:** adding, editing and removing rules and sites works ("www." is dropped from a site's name). With a site on Never, Gloopy refused to open it by itself. With a site on Ask first, the card said "Your setting for … says to ask first".
+- **A page with hidden orders for AI:** Gloopy ignored them and told you about them.
+- **Helpers browsing:** two helpers browsed side by side in their own tabs, and the live view showed "Gloopy", "Helper 1" and "Helper 2" tabs to watch.
+- **The monitor:** on and quiet. It never had to pause a run live, because Gloopy stopped by itself each time something was off.
+
+Fixed after the test:
+
+1. **Helpers' finished steps now carry their names** in the chat ("“Prices” · Read the page"). Before, only their started steps did.
+2. **Switching to a helper's tab is instant.** Before, it could wait up to 6 seconds for the old tab's picture, which could have shown under the wrong name.
+3. **The live view is now a real stream.** Measured live, the near-video view showed about 2 pictures a second. The machine had them faster, but every picture was a new request, and gofarther.dev spends about 0.4 seconds on each request before answering (asking Supabase whether you're signed in, and reading storage). Now one request carries the pictures as they come, for up to 25 seconds, so that cost is paid once every 25 seconds instead of for each picture. A still page sends nothing but a tiny "still here" every 5 seconds. While you take over or hand back, the stream pauses, so an old picture can't flip the view back to "Gloopy is using it". Gloopy's latest step shows under the picture at once, even when it didn't change the page. Where a stream can't be had, the view works as before.
+
+Outside the browser (yours to decide; not changed):
+
+- That 0.4 seconds is spent on every request to gofarther.dev, for every button in Coder and Gloopy, not only the live view. Remembering a checked sign-in for a short while (say 30 seconds) would cut most of it, but it means a session you end elsewhere keeps working here for up to those 30 seconds. That belongs to the sign-in tool.
+
+Tests: GL110 (the stream: on the machine in a real browser, in the Worker, and on the page); GL27, GL107 and GL109 updated.
+
 ## 2026-11-10: The browser, continued (your words: "lets keep working on the browser tool"; you chose: call it Chrome, your rules count, and "all of it")
 
 - **Gloopy's browser calls itself Chrome.** Sites see ordinary Chrome's name for its version, where before they saw "HeadlessChrome" (WhatsApp Web turned it away for that). The name is the same everywhere a site can read it, including a new tab's first visit. Its "controlled by automation" flag stays on: the name changes, but it doesn't hide that it's automated. I first tried Chromium's newer headless mode, which names itself plainly, but here it crashed when restarted on the same profile, and it contacts Google by itself. So I kept the browser Gloopy already uses.

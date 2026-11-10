@@ -1307,7 +1307,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           const tag = "h" + (first + k + 1) + "-";
           // Only a helper's steps reach the chat, under its name (a pause of its monitor too); its own opening, words and
           // answer go to Gloopy.
-          const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}) }); else if (e && e.type === "paused") emit({ ...e, why: "Its helper “" + t.name + "”: " + String(e.why || "") }); };
+          // A done step's own words keep its helper's name too (live test, 2026-11-10: "Opened …" said not whose step it was).
+          const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}), ...(e.type === "result" && typeof e.label === "string" && e.label ? { label: "“" + t.name + "” · " + e.label } : {}) }); else if (e && e.type === "paused") emit({ ...e, why: "Its helper “" + t.name + "”: " + String(e.why || "") }); };
           const lane = lanes ? lanes.lane((k % HELPERS_MAX) + 1) : null;
           return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, ...(lane ? { browser: lane } : {}) }, { text: t.task, system: helper.system, tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, rules, permissions: perms, sites, background, monitor, model, effort, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
             .catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) }));

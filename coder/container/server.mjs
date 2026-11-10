@@ -1275,6 +1275,12 @@ export function unpackWork(dir, buf, { uid = RUN_UID, gid = RUN_GID } = {}) {
 // of the setup script stay on the machine's own disk (SETUP_ROOT), which is
 // fresh after a restart, so the setup (and its installed packages) runs again.
 export const KEEPALIVE_MS = 15000;
+/**
+ * THE LIVE VIEW AS A STREAM (live test, 2026-11-10): one request carries the page's pictures for up to SCREEN_STREAM_MS;
+ * something is sent at least every SCREEN_BEAT_MS (its state, when no picture came); a helper's tab, which has no frames
+ * of its own, is looked at every SCREEN_LANE_MS.
+ */
+export const SCREEN_STREAM_MS = 25_000, SCREEN_BEAT_MS = 5000, SCREEN_LANE_MS = 700;
 export const SETUP_ROOT = "/srv/coder-setup";
 export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0, dev = DEV } = {}) {
   if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return {};
@@ -1587,7 +1593,7 @@ export function killUser(uid = RUN_UID, gid = RUN_GID) {
 }
 const NOT_STOPPED = "refused: the AI's commands could not be stopped first, so nothing was done";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -1646,6 +1652,38 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // hands it back (Grok Bot: "tell the Bot to continue").
   let ownerControl = null;
   const notWhileOwner = () => { if (ownerControl) throw new Error("the owner has taken over your browser: wait for their next message before you use it"); };
+  // THE LIVE VIEW AS A STREAM (live test, 2026-11-10: each look paid the Worker's sign-in check, about half a second, so
+  // the owner saw about two pictures a second): one request, answered with the page's pictures as Chromium sends them
+  // (an event each, carrying a look's answer), and with its state when that changes or every SCREEN_BEAT_MS, for up to
+  // `streamMs`; then the page asks again. A helper's tab is looked at every SCREEN_LANE_MS. It ends early when the
+  // browser closes or the owner's page goes; a slow connection gets fewer pictures, never a growing queue.
+  const screenStream = async (res, url, project) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no", "x-coder-machine": "1" });
+    let gone = false;
+    res.on("close", () => { gone = true; });
+    const lane = Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0)));
+    let since = String(url.searchParams.get("since") || "").replace(/[^a-f0-9]/g, "").slice(0, 40);
+    const until = Date.now() + Math.max(1000, Number(streamMs) || SCREEN_STREAM_MS);
+    let sentAt = 0, sentKey = "";
+    while (!gone && Date.now() < until) {
+      let r;
+      try { r = await browserHub().screen({ since, wait: lane ? 0 : Math.max(0, Math.min(SCREEN_BEAT_MS, until - Date.now())), lane }); }
+      catch (e) { r = { error: String((e && e.message) || e).slice(0, 300) }; }
+      if (gone) break;
+      const t = turns.get(project);
+      const out = { ...r, control: !!ownerControl, working: !!(t && t.running) };
+      if (typeof out.hash === "string" && out.hash) since = out.hash;
+      // Its state without the picture (and without how long ago Gloopy's last step was).
+      const key = JSON.stringify({ ...out, shot: undefined, hash: undefined, same: undefined, last: out.last ? { did: out.last.did, box: out.last.box } : undefined });
+      if (out.shot || key !== sentKey || Date.now() - sentAt >= SCREEN_BEAT_MS) {
+        sentKey = key; sentAt = Date.now();
+        if (!res.write("data: " + JSON.stringify(out) + "\n\n")) await new Promise((ok) => { const done = () => { clearTimeout(tm); res.off("drain", done); res.off("close", done); ok(); }; const tm = setTimeout(done, 10_000); res.once("drain", done); res.once("close", done); });
+      }
+      if (out.error || out.off) break;
+      if (lane) await new Promise((ok) => setTimeout(ok, SCREEN_LANE_MS));
+    }
+    if (!res.writableEnded) res.end();
+  };
   // THE OWNER'S TIME ZONE FOR THE BROWSER (owner, 2026-11-10: "yes go ahead", fix 7), as their device says it (the Worker
   // sends it each turn): a browser running with another one stops, to start again with it at Gloopy's next step. Never
   // while the owner has control.
@@ -2248,6 +2286,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // Gloopy is not working.
       if (["/gloopy/screen", "/gloopy/control", "/gloopy/input", "/gloopy/area", "/gloopy/teach"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
       const working = !!(t && t.running);
+      // Asked for a stream (the Worker then asks without the "still working" signal): the pictures as they come.
+      if (url.pathname === "/gloopy/screen" && req.method === "GET" && url.searchParams.get("stream") === "1" && !keep) return screenStream(res, url, project);
       if (url.pathname === "/gloopy/screen" && req.method === "GET") {
         // Asked with wait (2026-11-10), it answers once the page changes (near-video), or after a few seconds.
         try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "", wait: Number(url.searchParams.get("wait")) || 0, lane: Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0))) })), control: !!ownerControl, working: !!(t && t.running) }); }

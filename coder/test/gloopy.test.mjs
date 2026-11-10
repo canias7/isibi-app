@@ -1025,8 +1025,9 @@ test("GL27 (2026-11-09) on the page: Gloopy's Browser button (only with a browse
   assert.match(ui, /const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 \* 60 \* 1000, WEB_HOLD_MS = 15 \* 60 \* 1000, WEB_WAIT_MS = 6000, WEB_NEXT_MS = 30;/);
   assert.match(ui, /if \(!S\.running && !w\.working && quiet > \(w\.control \? WEB_HOLD_MS : WEB_WATCH_MS\)\) \{ const b = webShape\(\); w\.paused = true; return webPaint\(b\); \}/, "it pauses on its own");
   assert.match(ui, /if \(!S\.root\.hidden && document\.visibilityState === 'visible'\) \{/, "and looks only while it can be seen");
-  // (Since 2026-11-10, near-video: GL107; the picture it has still goes with each look.)
-  assert.match(ui, /\[w\.hash \? 'since=' \+ encodeURIComponent\(w\.hash\) : '', live \? 'wait=' \+ WEB_WAIT_MS : '', w\.lane \? 'lane=' \+ w\.lane : ''\]/, "an unchanged page is not sent again");
+  // (Since 2026-11-10, near-video: GL107, and a stream: GL110; the picture it has still goes with each look and stream.)
+  assert.match(ui, /\[w\.hash \? 'since=' \+ encodeURIComponent\(w\.hash\) : '', live && !w\.lane \? 'wait=' \+ WEB_WAIT_MS : '', w\.lane \? 'lane=' \+ w\.lane : ''\]/, "an unchanged page is not sent again");
+  assert.match(ui, /'\?stream=1&since=' \+ encodeURIComponent\(w\.hash\)/, "nor in a stream");
   // (Since the second docs check, 2026-11-10: while Gloopy works, one press stops it and takes over: GL95.)
   assert.match(ui, /'<button type="button" class="cd-card-yes" id="cdWebTake"' \+ \(w\.none \? ' disabled' : ''\) \+ '>' \+ \(w\.working \|\| S\.running \? 'Stop and take over' : 'Take over'\) \+ '<\/button>'/);
   assert.match(ui, /\(ho \? 'Done, hand it back' : 'Hand it back'\)/);
@@ -5248,8 +5249,8 @@ test("GL107 (2026-11-10) for real (where Chromium is installed), the owner: \"al
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /WEB_WAIT_MS = 6000, WEB_NEXT_MS = 30;/);
   assert.match(ui, /if \(S\.webLooking\) \{ S\.webAgain = true; return; \}/);
-  assert.match(ui, /const live = !w\.lane && !!w\.hash && !w\.asleep && !w\.off && !w\.none && !w\.error;/);
-  assert.match(ui, /live \? 'wait=' \+ WEB_WAIT_MS : ''/);
+  assert.match(ui, /const live = !!w\.hash && !w\.asleep && !w\.off && !w\.none && !w\.error;/);
+  assert.match(ui, /live && !w\.lane \? 'wait=' \+ WEB_WAIT_MS : ''/, "where a stream can't be had");
   // The Worker passes the wait on (8 seconds at most).
   const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /const wait = Math\.max\(0, Math\.min\(8000, Math\.round\(Number\(url\.searchParams\.get\("wait"\)\) \|\| 0\)\)\);/);
@@ -5345,12 +5346,131 @@ test("GL109 (2026-11-10) the owner: \"all of it\": Gloopy's helpers get a browse
   assert.doesNotMatch(buyCheck, /the owner said so/);
   // Its helpers' steps show in the chat under their names.
   assert.ok(ev.some((e) => e.type === "bash" && /^“Prices” · /.test(String(e.command))), "under the helper's name");
+  assert.ok(ev.some((e) => e.type === "result" && /^“Prices” · /.test(String(e.label || ""))), "its done step's words too");
   // Without a browser, as before (no tab, no browser tool).
   // On the page: the tabs to watch.
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /\(x\.id \? 'Helper ' \+ x\.id : 'Gloopy'\)/);
-  assert.match(ui, /const live = !w\.lane && !!w\.hash/, "a helper's tab is never waited on");
+  assert.match(ui, /live && !w\.lane \? 'wait=' \+ WEB_WAIT_MS : ''/, "a helper's tab is never waited on");
   assert.match(ui, /w\.lane \? 'lane=' \+ w\.lane : ''/);
   assert.match(ui, /'<p>Helper ' \+ w\.lane \+ '’s own tab: you can watch it\. Gloopy’s page is the one you can take over\.<\/p><\/div><\/div>'/);
-  assert.match(ui, /if \(w\.lane\) \{ w\.lane = 0; w\.hash = ''; \}/, "taking over is of Gloopy's own page");
+  assert.match(ui, /if \(w\.lane\) \{ w\.lane = 0; w\.hash = ''; if \(S\.webAbort\) S\.webAbort\.abort\(\); \}/, "taking over is of Gloopy's own page");
+  // Moving to another tab cancels the look for the last one, and a look's answer for another tab is never shown.
+  assert.match(ui, /if \(live && ctrl && !S\.webNoStream\) streamed = await webStream\(w, ctrl\);\n\s+if \(!streamed && S\.web === w && !\(ctrl && ctrl\.signal\.aborted\)\) r = await call\(webPath\(\) \+ \(q \? '\?' \+ q : ''\), ctrl \? \{ signal: ctrl\.signal \} : undefined\);\n\s+\} finally \{ S\.webLooking = false; S\.webAbort = null; \}/);
+  assert.match(ui, /if \(\(ctrl && ctrl\.signal\.aborted\) \|\| \(w\.lane \|\| 0\) !== asked\) next = 0;/);
+  assert.match(ui, /w\.paused = false; if \(S\.webAbort\) S\.webAbort\.abort\(\); draw\(\); webTick\(\); \}\);/);
+});
+
+test("GL110 (2026-11-10) live test: the live view is a stream: one request carries the page's pictures as they come (one sign-in check for up to 25 seconds, not one for each picture), its state when that changes, and nothing more while the page is still; the Worker passes it on as it comes (asked of Fly without the \"still working\" wrap); a machine or Worker from before is answered as before; Gloopy's step reaches the view at once; the page reads it, falls back to looks, and stops it while you take over or hand back", async (t) => {
+  const { SCREEN_STREAM_MS, SCREEN_BEAT_MS, SCREEN_LANE_MS, createApp } = await import("../container/server.mjs");
+  assert.deepEqual([SCREEN_STREAM_MS, SCREEN_BEAT_MS, SCREEN_LANE_MS], [25000, 5000, 700]);
+  // THE WORKER: asked for a stream, it asks the machine for one (no wait) and passes it on as it comes.
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { STREAM_HEADER, viaFly } = await import("../src/coder-fly.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_MACHINES: "fly", FLY_API_TOKEN: "t".repeat(20), CODER_FLY_APP: "gofarther-coder", CODER_FLY_IMAGE: "registry.fly.io/gofarther-coder:v1" };
+  const machine = [];
+  let older = false;
+  const enc = new TextEncoder();
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), awake: async () => true,
+    container: () => ({ fetch: async (req) => {
+      const u = new URL(req.url);
+      machine.push({ path: u.pathname + u.search, stream: req.headers.get(STREAM_HEADER) });
+      if (older || !u.searchParams.get("stream")) return Response.json({ url: "https://a.example/", hash: "a1", shot: "AAAA", control: false, working: false });
+      return new Response(new ReadableStream({ start(c) { c.enqueue(enc.encode('data: {"hash":"a1","shot":"AAAA"}\n\n')); c.enqueue(enc.encode('data: {"hash":"a2","shot":"BBBB"}\n\n')); c.close(); } }), { headers: { "content-type": "text/event-stream", "x-coder-machine": "1" } });
+    } }) };
+  const go = (path) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { headers: { Authorization: "Bearer ok" } }), env, {}, deps);
+  await go("gloopy");
+  let r = await go("projects/" + GLOOPY_ID + "/screen?stream=1&since=ab12&wait=6000");
+  assert.deepEqual([r.status, r.headers.get("content-type"), r.headers.get("cache-control")], [200, "text/event-stream", "no-cache, no-transform"]);
+  assert.equal(await r.text(), 'data: {"hash":"a1","shot":"AAAA"}\n\ndata: {"hash":"a2","shot":"BBBB"}\n\n');
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/screen?project=" + GLOOPY_ID + "&since=ab12&stream=1", stream: "1" });
+  // A look (no stream) is as before, with its wait.
+  r = await go("projects/" + GLOOPY_ID + "/screen?since=ab12&wait=6000");
+  assert.deepEqual(await r.json(), { ok: true, url: "https://a.example/", hash: "a1", shot: "AAAA", control: false, working: false });
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/screen?project=" + GLOOPY_ID + "&since=ab12&wait=6000", stream: null });
+  // A machine from before streams: its one look, as before.
+  older = true;
+  r = await go("projects/" + GLOOPY_ID + "/screen?stream=1");
+  assert.equal(r.headers.get("content-type"), "application/json");
+  assert.deepEqual(await r.json(), { ok: true, url: "https://a.example/", hash: "a1", shot: "AAAA", control: false, working: false });
+  // Asked of Fly: a stream without the "still working" wrap, so it is passed on as it comes; anything else with it.
+  const asked = [];
+  const fly = async (u, init) => { const h = new Headers(init.headers); asked.push({ u, keep: h.get("x-coder-keepalive"), stream: h.get(STREAM_HEADER) }); return new Response("data: {}\n\n", { headers: { "content-type": "text/event-stream", "x-coder-machine": "1" } }); };
+  const fr = await viaFly(env, "m1", new Request("http://coder/gloopy/screen?project=x&stream=1", { headers: { [STREAM_HEADER]: "1" } }), undefined, fly);
+  assert.equal(await fr.text(), "data: {}\n\n");
+  assert.deepEqual(asked.at(-1), { u: "https://gofarther-coder.fly.dev/gloopy/screen?project=x&stream=1", keep: null, stream: null });
+  await viaFly(env, "m1", new Request("http://coder/gloopy/screen?project=x"), undefined, fly);
+  assert.equal(asked.at(-1).keep, "1");
+  // THE PAGE: the stream first, with the sign-in proof as every call; read as it comes; a look where it can't be had.
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /const r = await call\(webPath\(\) \+ '\?stream=1&since=' \+ encodeURIComponent\(w\.hash\) \+ \(w\.lane \? '&lane=' \+ w\.lane : ''\), \{ signal: ctrl\.signal, stream: true \}\);/, "through call(), the page's only fetch");
+  assert.match(ui, /if \(r\.ok && \(init \|\| \{\}\)\.stream === true && \/\^text\\\/event-stream\/\.test\(r\.headers\.get\('content-type'\) \|\| ''\)\) return \{ status: r\.status, data: \{\}, stream: r \};/);
+  assert.match(ui, /const rd = r\.stream\.body\.getReader\(\), dec = new TextDecoder\(\);/);
+  assert.match(ui, /const b = webShape\(\); webTake_\(d\); webPaint\(b\);\n\s+if \(!webKeep\(w\)\) \{ ctrl\.abort\(\); return true; \}/, "each picture as it comes; stopped when the view no longer wants it");
+  assert.match(ui, /if \(!got && !ctrl\.signal\.aborted\) S\.webNoStream = true;/, "a stream that brought nothing: looks");
+  assert.match(ui, /if \(!r\.data\.asleep\) S\.webNoStream = true;/, "a computer from before streams: looks");
+  assert.match(ui, /else if \(streamed\) next = WEB_NEXT_MS;/, "the next stream at once");
+  // Quiet while you take over or hand back (an old picture could say who had control before); it ends with the view.
+  assert.match(ui, /webQuiet\(true\);\n\s+const r = await call\(webPath\(\), \{ method: 'POST', body: JSON\.stringify\(\{ take: true \}\) \}\);\n\s+webQuiet\(false\);/);
+  assert.match(ui, /const ho = webHandoff\(\);\n\s+webQuiet\(true\);/);
+  assert.match(ui, /const r = await call\(webPath\(\), \{ method: 'POST', body: JSON\.stringify\(\{ take: false \}\) \}\);\n\s+webQuiet\(false\);/);
+  assert.match(ui, /function webQuiet\(on\) \{ S\.webQuiet = on; if \(on && S\.webAbort\) S\.webAbort\.abort\(\); \}/);
+  assert.match(ui, /if \(!w \|\| !S\.project \|\| !S\.root \|\| !S\.root\.isConnected \|\| S\.webQuiet\) return;/);
+  assert.match(ui, /function webClose\(\) \{\n\s+if \(S\.webTimer\) clearTimeout\(S\.webTimer\);\n\s+S\.webTimer = 0;\n\s+if \(S\.webAbort\) S\.webAbort\.abort\(\);/);
+  // THE MACHINE, for real (where Chromium is installed).
+  const { hasBrowser, makeBrowserHub } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { spawnSync } = await import("node:child_process");
+  const site = http.createServer((q, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    if (q.url === "/moving") return res.end('<title>Moving</title><h1 id=n>0</h1><script>let i = 0; setInterval(() => { document.getElementById("n").textContent = ++i; }, 100)</script>');
+    res.end("<title>Still</title><h1>Nothing moves here</h1>");
+  });
+  const S = await listen(site);
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl-st-")), "browser"), hubDir = join(await mkdtemp(join(tmpdir(), "gl-sh-")), "browser");
+  const dirs = { root: await mkdtemp(join(tmpdir(), "gl-stw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-stg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-stm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-stb-")) };
+  const srv = http.createServer(createApp({ ...dirs, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, streamMs: 2500, send: async () => say("Hi.") }));
+  await new Promise((ok) => srv.listen(0, ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const post = (path, body) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", ...body }) }).then((x) => x.json());
+  const read = async (q = "") => { const t0 = Date.now(); const x = await fetch(base + "/gloopy/screen?project=gloopy-main&stream=1" + q); const text = await x.text(); return { type: x.headers.get("content-type"), events: text.split("\n\n").filter(Boolean).map((e) => JSON.parse(e.replace(/^data: /, ""))), ms: Date.now() - t0 }; };
+  const hub = makeBrowserHub({ dir: hubDir });
+  try {
+    // A closed browser: one event saying so, and the stream ends (a look never starts the browser).
+    let s = await read();
+    assert.equal(s.type, "text/event-stream");
+    assert.deepEqual(s.events, [{ off: true, control: false, working: false }]);
+    // A page that moves: its pictures as they come, each a new one, each with the state; the stream ends by itself.
+    await post("/gloopy/control", { take: true });
+    await post("/gloopy/input", { kind: "open", url: S + "/moving" });
+    s = await read();
+    assert.ok(s.ms >= 2000 && s.ms < 6000, "it ends by itself: " + s.ms + " ms");
+    const pics = s.events.filter((e) => e.shot);
+    assert.ok(pics.length >= 6, "pictures in 2.5 s: " + pics.length);
+    assert.equal(new Set(pics.map((e) => e.hash)).size, pics.length, "each a new one");
+    assert.ok(s.events.every((e) => e.control === true && e.working === false && e.title === "Moving"));
+    // A still page: given the picture it has, nothing more than its state, once.
+    await post("/gloopy/input", { kind: "open", url: S + "/still" });
+    await new Promise((ok) => setTimeout(ok, 800));
+    let h = "";
+    for (let i = 0; i < 4; i++) { const one = await read(h ? "&since=" + h : ""); const p = one.events.filter((e) => e.shot).at(-1); if (!p) break; h = p.hash; }
+    s = await read("&since=" + h);
+    assert.deepEqual(s.events.map((e) => [!!e.shot, e.same, e.title, e.control]), [[false, true, "Still", true]]);
+    // Asked with the "still working" wrap (a Worker from before streams): one look, as before.
+    const wrapped = JSON.parse((await (await fetch(base + "/gloopy/screen?project=gloopy-main&stream=1", { headers: { "x-coder-keepalive": "1" } })).text()).trim());
+    assert.deepEqual([wrapped.coderStatus, wrapped.body.title, !!wrapped.body.shot], [200, "Still", true]);
+    // Gloopy's step reaches the view at once, though the page did not change.
+    await hub.act({ action: "open", url: S + "/still" });
+    let sc = await hub.screen({ wait: 3000 });
+    for (let i = 0; i < 4 && !sc.same; i++) sc = await hub.screen({ since: sc.hash, wait: 800 });
+    const t1 = Date.now();
+    const [look] = await Promise.all([hub.screen({ since: sc.hash, wait: 6000 }), new Promise((ok) => setTimeout(ok, 300)).then(() => hub.act({ action: "press", key: "Escape" }))]);
+    assert.ok(Date.now() - t1 < 3000, "woken by the step: " + (Date.now() - t1) + " ms");
+    assert.match(look.last.did, /Escape/);
+  } finally {
+    srv.close(); site.close();
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]);
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + hubDir]);
+  }
 });

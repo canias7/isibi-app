@@ -40,7 +40,7 @@ import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
-import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, flyOn, flyAwake } from "./coder-fly.mjs";
+import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
@@ -2324,7 +2324,12 @@ async function gloopyScreen(g) {
   let r = null;
   // A helper's own tab (2026-11-10), to watch: 1 to 4.
   const lane = Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0)));
-  try { r = await call("/gloopy/screen?project=" + id + (since ? "&since=" + since : "") + (wait ? "&wait=" + wait : "") + (lane ? "&lane=" + lane : ""), { method: "GET" }); } catch { r = null; }
+  // AS A STREAM (live test, 2026-11-10: each look paid this Worker's sign-in check, about half a second, so the owner saw
+  // about two pictures a second): the machine's pictures as they come, passed on as they are, for up to 25 seconds; a
+  // machine from before answers with one look, given as before.
+  const stream = url.searchParams.get("stream") === "1";
+  try { r = await call("/gloopy/screen?project=" + id + (since ? "&since=" + since : "") + (wait && !stream ? "&wait=" + wait : "") + (lane ? "&lane=" + lane : "") + (stream ? "&stream=1" : ""), { method: "GET", ...(stream ? { headers: { [STREAM_HEADER]: "1" } } : {}) }); } catch { r = null; }
+  if (stream && r && r.ok && r.body && /^text\/event-stream/.test(r.headers.get("content-type") || "")) return new Response(r.body, { status: 200, headers: { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no" } });
   const out = r && r.ok ? await r.json().catch(() => null) : null;
   return out ? json({ ok: true, ...out }) : json({ error: "Gloopy's computer could not be reached." }, 502);
 }
