@@ -38,7 +38,7 @@ test("CD351 the read block: what makes a command ask (Claude Code: \"recognized 
   // cat ~/.bashrc, cat < /etc/hostname and cat /etc/*.conf all said this), with Coder's setting.
   const OUT = "Reads outside the working directories are blocked (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES). Remove that setting to allow them.";
   assert.equal(P.RB_OUTSIDE, OUT);
-  for (const c of ["cat /etc/passwd", "ls /", "grep foo /etc/hosts", "cat ~/.bashrc", "find / -name x", "awk -f /etc/prog.awk a", "jq . /etc/x.json", "sed -n 1p /etc/passwd", "git diff -- /etc/passwd", "git -C /tmp status", "bash -c 'cat /etc/passwd'", "rg foo /etc", "cd /tmp", "cat < /etc/passwd", "cat /etc/*.conf", "cat $HOME/.bashrc"]) assert.equal(why(c), OUT, c);
+  for (const c of ["cat /etc/passwd", "ls /", "grep foo /etc/hosts", "cat ~/.bashrc", "find / -name x", "awk -f /etc/prog.awk a", "jq . /etc/x.json", "sed -n 1p /etc/passwd", "git diff -- /etc/passwd", "git -C /tmp status", "rg foo /etc", "cd /tmp", "cat < /etc/passwd", "cat /etc/*.conf", "cat $HOME/.bashrc"]) assert.equal(why(c), OUT, c);
   // A wildcard inside the project is checked by its folder (Claude Code read `cat /etc/*.conf` as a read in /etc).
   assert.equal(why("cat docs/*.md"), "");
   assert.equal(why("cat docs/*/../../../etc/x"), "A glob before the '..' in 'docs/*/../../../etc/x' is expanded by the shell before the path is opened, so the target cannot be checked against the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES). Spell the path without the glob.");
@@ -51,6 +51,8 @@ test("CD351 the read block: what makes a command ask (Claude Code: \"recognized 
   assert.equal(why("cat < *.txt"), "Input redirection from '*.txt' requires manual approval: the file it names depends on glob expansion or a directory change in the same command.");
   assert.equal(why("python3 -c 'print(1)'"), "python3 runs inline code, which cannot be checked against the read block" + UNSURE);
   assert.equal(why("node -e 'x'"), "node runs inline code, which cannot be checked against the read block" + UNSURE);
+  // (A shell given a script is inline code too, in Claude Code's map: bash, sh, zsh, dash and ksh with -c.)
+  assert.equal(why("bash -c 'cat /etc/passwd'"), "bash runs inline code, which cannot be checked against the read block" + UNSURE);
   assert.equal(why("python3 -"), "python3 runs code from stdin, which cannot be checked against the read block" + UNSURE);
   for (const c of ["echo 1 | node", "node <<'EOF'\nconsole.log(1)\nEOF", "python3 <<< 'print(1)'"]) assert.equal(why(c), "code on stdin cannot be checked against the read block" + UNSURE, c);
   assert.equal(why("node"), "", "nothing fed to it: Claude Code checks code on stdin only when something is");

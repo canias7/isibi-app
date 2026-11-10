@@ -22,7 +22,7 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from 
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK } from "./coder-checks.mjs";
-import { exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo } from "./coder-bashcheck.mjs";
+import { exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists } from "./coder-bashcheck.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
@@ -1321,7 +1321,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
         if (!ask && readBlock) {
-          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs, home: deps.home || "", real: (p) => realPath(p), ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
+          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs, home: deps.home || "", real: (p) => realPath(p), ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], exists: (p) => pathExists(p) });
           if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: rb, note: w, github: w }; }
         }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;

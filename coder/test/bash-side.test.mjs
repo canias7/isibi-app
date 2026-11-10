@@ -162,3 +162,51 @@ test("CD367 a short read after a cd inside ( … ) or $( … ) still runs (that 
   for (const c of ["echo $(date)", "echo $(cd src && cat a.js)"]) assert.equal(d(c).why, "This command requires approval", c);
   for (const c of ["echo ${HOME}x", 'wc -l "$F"']) assert.equal(d(c).why, "A variable in this command can't be checked before it runs", c);
 });
+
+test("CD368 the read block checks every program's words that name a file that is there (Claude Code's per and ger, 2.1.322), xargs, settings in front, and git's own folder options", async () => {
+  const P = await import("../container/coder-perms.mjs");
+  const files = new Set(["/etc/passwd", "/etc", "/etc/hosts", "/tmp", "/home/dev/.ssh", "/home/dev/.ssh/id_rsa", W, W + "/README.md", W + "/src", W + "/src/a.js", "/data/out", "/data/out/log.txt"]);
+  const why = (c, o = {}) => P.readBlockWhy(c, { cwd: W, workdirs: [W], home: "/home/dev", ownDirs: ["/data/out"], exists: (p) => files.has(p), ...o });
+  const OUT = (prog, p) => prog + " names '" + p + "', outside the working directories, which the read block does not allow without asking (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES). Remove that setting to allow them.";
+  const COMPUTED = (prog) => prog + " names a path that is computed at run time, which cannot be checked against the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES)";
+  // A program not on the path list, naming a file outside that is there: asks, in Claude Code's words.
+  assert.equal(why("less /etc/passwd"), OUT("less", "/etc/passwd"));
+  assert.equal(why("xxd /etc/hosts"), OUT("xxd", "/etc/hosts"));
+  assert.equal(why("python3 /etc/passwd"), OUT("python3", "/etc/passwd"), "a code runner's words too");
+  assert.equal(why("scp ~/.ssh/id_rsa host:x"), OUT("scp", "/home/dev/.ssh/id_rsa"));
+  assert.equal(why("tool --config=/etc/passwd"), OUT("tool", "/etc/passwd"), "--opt=value gives its value");
+  assert.equal(why("tool -o/etc/passwd"), OUT("tool", "/etc/passwd"), "-xVALUE gives its value");
+  assert.equal(why("tool CONF=/etc/passwd"), OUT("tool", "/etc/passwd"), "NAME=VALUE gives both");
+  assert.equal(why("bat /etc/*.conf"), OUT("bat", "/etc"), "a wildcard by its folder");
+  assert.equal(why("tool src/../../../etc/x"), OUT("tool", "/etc/x"), "a path that climbs with .. is checked even when nothing is there");
+  // Words that name nothing there, words inside the project, Coder's own folders, and the twelve Claude Code skips: run.
+  for (const c of ["less README.md", "less src/a.js", "npm test", "make build", "python3 script.py", "node --version", "less /data/out/log.txt", "tool --flag", "tool -n5", "less /nothing/here", "echo /etc/passwd", "printf '%s' /etc/passwd", "test -f /etc/passwd", "which ls", "dirname /etc/passwd", "basename /etc/passwd", "df /tmp"]) assert.equal(why(c), "", c);
+  // Worked out when it runs: asks (Claude Code's dw).
+  assert.equal(why("less $F"), COMPUTED("less"));
+  assert.equal(why("less ~root/.bashrc"), COMPUTED("less"));
+  assert.equal(why("tool {a,b}/x"), COMPUTED("tool"));
+  assert.equal(why("tool .*/x"), COMPUTED("tool"), "a wildcard that can match ..");
+  assert.equal(why("echo /etc/passwd | xargs cat"), COMPUTED("xargs"));
+  assert.equal(why("ls | xargs -n1 wc -l"), COMPUTED("xargs"));
+  // With the folder unknown (after a cd inside $( … )), a short path asks; without the machine's view (the Worker), only .. paths are checked.
+  assert.equal(P.readBlockWhy("less /etc/passwd", { cwd: W, workdirs: [W] }), "", "no exists(): nothing is known to be there");
+  // Settings in front: Claude Code's own list for the read block (a listed name, a value that is no path).
+  const PREFIX = "an environment variable prefix outside the safe list cannot be checked against the read block; under the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) a command the shell parser cannot analyze asks the person";
+  for (const c of ["NODE_ENV=test npm test", "CI=1 make", "LANG=C.UTF-8 ls", "GOOS=linux go build"]) assert.equal(why(c), "", c);
+  for (const c of ["FOO=1 npm test", "NODE_ENV=/etc/x npm test", "LANG=../x ls", "PATH=/tmp npm test"]) assert.equal(why(c), PREFIX, c);
+  assert.equal(why("env FOO=1 npm test"), "an environment variable assignment outside the safe list cannot be checked against the read block; under the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) a command the shell parser cannot analyze asks the person");
+  // git's own folder and file options.
+  assert.equal(why("git --git-dir=/etc log"), OUT("git", "/etc"));
+  assert.equal(why("git config --file /etc/passwd -l"), OUT("git", "/etc/passwd"));
+  assert.equal(why("git push -f origin main"), "", "-f's next word names nothing there");
+  // Inline code, by Claude Code's map, anywhere in the words.
+  const INLINE = (p) => p + " runs inline code, which cannot be checked against the read block; under the read block (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) a command the shell parser cannot analyze asks the person";
+  for (const [c, p] of [["sh -c 'ls'", "sh"], ["deno eval 'x'", "deno"], ["perl -E 'say 1'", "perl"], ["python3.12 -c 'print(1)'", "python3.12"], ["ruby -we 'p 1'", "ruby"]]) assert.equal(why(c), INLINE(p), c);
+  // The machine's view of the disk is wired in.
+  const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.match(agent, /exists: \(p\) => pathExists\(p\) \}\);/);
+  const B = await import("../container/coder-bashcheck.mjs");
+  assert.equal(B.pathExists("/"), true);
+  assert.equal(B.pathExists("/no/such/path/here"), false);
+  assert.equal(B.pathExists("relative"), false);
+});
