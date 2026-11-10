@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: The browser checked against the docs again (your word: "do another check on the browser tool against the docs")
+
+Nothing changed in the code. This is the check and what it found.
+
+- **What I read:** both apps' docs again, fetched today. No new pages since this morning. The changed sections are about shopping cards, phone calls, the phone app and usage, not the browser. I also read pages missing from the first check: Cursor's copy of the Grok Bot docs (14 pages), its help center (25 pages) and dots' security page. All quotes were checked against the pages.
+- **The 7 fixes close the gaps they were for.** Their docs say nothing about pop-ups, tabs, download or upload sizes, or the browser's time zone; ours now covers those.
+- **Where ours is stricter than both:** the browser is walled off from Gloopy's own commands (both apps' docs say code on their computer can reach browser sessions); a fake-site check runs before the sign-in card; every step that could change something is checked (dots: browser coverage "remains under review"); the copy of the sign-ins is sealed.
+- **Found on our side:**
+  1. The check and the card don't see what a form will send. dots checks "who will receive it and what the message contains" before sending, and Grok Bot's card shows the action's inputs. Ours sees only the button and where the form goes.
+  2. "Always allow next time" on an expired card from a run you didn't start can't work for buying, booking, sending, posting, sign-ups, deleting, account changes or sharing. Those always wait in such runs, yet the card says "next time Gloopy goes ahead". Also, my note from the safety work said "Grok Bot does the same". Its docs hold back only email in such runs (as a draft), and leave the rest to its review and your rules. dots lets you approve an action in advance for later runs. Your call which way.
+  3. Gloopy's work folder is copied for a new computer only up to 25 MB packed. Over that, no new copy is made and nobody is told. Downloads (up to 25 MB each), screenshots and your attachments all go in it.
+  4. Small: Grok Bot also hands you QR codes; Gloopy's list doesn't name them.
+- **Differences in watching and taking over (you direct the design):** theirs streams the whole screen and shows clicks and typing; ours shows a picture of the page every 0.8 s. Their take-over is the whole mouse and keyboard; ours has no address box, no other keys, no file picking from your device, and can't start while Gloopy works. Both apps have a screen to see, edit and delete your rules; ours has none.
+- **Bigger, both apps:** routing through your own computer, a full desktop with "computer use", several browsers at once. Grok Bot only: fixed outgoing addresses a site can allowlist. dots only: a monitor that can pause a whole run. Still waiting from the first check: Teach a task, codes by email, 1Password, hardware keys, per-site permissions, notes on a page.
+- **Outside the browser, for later tools:** saved logins (dots always asks; Grok Bot uses them first; ours is a setting), passwords made for sign-ups, importing logins, wallets and the new order card (pay), messaging Gloopy while it works (chat), and buttons to recover or reset the computer.
+
 ## 2026-11-10: Gloopy's browser: the 7 fixes from Grok Bot's and dots' docs (your word: "yes go ahead")
 
 Tool by tool, the first tool is the browser. I compared it against everything Grok Bot's and dots' docs say about their browsers, and you said yes to the 7 small fixes:
