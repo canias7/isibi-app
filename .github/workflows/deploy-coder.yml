@@ -19,10 +19,22 @@ name: deploy coder
 # app once, gives it Coder's keys, builds Coder's machine and sends it there.
 # Without the secret (or with "cloudflare" picked), chats keep Cloudflare's
 # containers, as before.
+#
+# THE TEST COPY (owner, 2026-11-10: "test what we have live without touching the
+# other branches or merging"): "test" deploys the branch picked to its own
+# Worker at jessica.gofarther.dev, with its own storage, its own machines on Fly.io
+# and its own queue (coder/test-copy.mjs makes its settings from wrangler.jsonc).
+# It never touches gofarther.dev, its Worker, its keys or its data, and it never
+# waits on or holds up a live deploy. "live" (gofarther.dev) goes only from main.
 
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: "live: gofarther.dev (from main only) · test: a separate copy at jessica.gofarther.dev"
+        type: choice
+        options: [live, test]
+        default: live
       machines:
         description: "Where chats' machines run: fly (needs the FLY_API_TOKEN secret) or cloudflare"
         type: choice
@@ -30,19 +42,29 @@ on:
         default: fly
 
 concurrency:
-  group: deploy-coder
+  group: ${{ github.event.inputs.target == 'test' && 'deploy-coder-jessica' || 'deploy-coder' }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      FLY_APP: gofarther-coder-machines
+      TARGET: ${{ github.event.inputs.target == 'test' && 'test' || 'live' }}
+      FLY_APP: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-jessica-machines' || 'gofarther-coder-machines' }}
+      BUCKET: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-jessica' || 'gofarther-coder' }}
+      SITE: ${{ github.event.inputs.target == 'test' && 'https://jessica.gofarther.dev' || 'https://coder.gofarther.dev' }}
       FLY_ORG: personal
     defaults:
       run:
         working-directory: coder
     steps:
+      - name: "gofarther.dev only from main"
+        if: env.TARGET == 'live' && github.ref_name != 'main'
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          echo "::error::gofarther.dev is deployed only from main. To try the branch $BRANCH, pick test (jessica.gofarther.dev)."
+          exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -98,7 +120,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          out=$(npx --yes wrangler@4.107.0 r2 bucket create gofarther-coder 2>&1) || true
+          out=$(npx --yes wrangler@4.107.0 r2 bucket create "$BUCKET" 2>&1) || true
           echo "$out" | tail -n 3
       - name: "Fly.io: switched on?"
         id: fly
@@ -182,13 +204,14 @@ jobs:
           fi
           echo "image=$img" >> "$GITHUB_OUTPUT"
       - name: "Fly.io: give the Worker the token"
-        if: steps.fly.outputs.on == 'true'
+        if: steps.fly.outputs.on == 'true' && env.TARGET == 'live'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: printf '%s' "$FLY_API_TOKEN" | npx --yes wrangler@4.107.0 secret put FLY_API_TOKEN
       - name: Deploy Coder
+        if: env.TARGET == 'live'
         uses: cloudflare/wrangler-action@v3
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
@@ -208,10 +231,37 @@ jobs:
             CODER_TOKEN_KEY
             CODER_GITHUB_WEBHOOK_SECRET
             CODER_GITHUB_APP_PRIVATE_KEY
+      # THE TEST COPY: every wrangler command here names wrangler.test.json, so none reaches the live Worker.
+      - name: "Test copy: its own settings (from wrangler.jsonc)"
+        if: env.TARGET == 'test'
+        run: node test-copy.mjs
+      - name: "Test copy: deploy it to jessica.gofarther.dev"
+        if: env.TARGET == 'test'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MACHINES: ${{ steps.fly.outputs.on == 'true' && 'fly' || 'cloudflare' }}
+          IMAGE: ${{ steps.flyimage.outputs.image || 'none' }}
+        run: npx --yes wrangler@4.107.0 deploy --config wrangler.test.json --var "CODER_MACHINES:$MACHINES" --var "CODER_FLY_APP:$FLY_APP" --var "CODER_FLY_IMAGE:$IMAGE"
+      - name: "Test copy: its keys (on the test copy only)"
+        if: env.TARGET == 'test'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GITHUB_APP_CLIENT_SECRET: ${{ secrets.CODER_GITHUB_CLIENT_SECRET }}
+          CODER_GITHUB_WEBHOOK_SECRET: ${{ secrets.CODER_GITHUB_WEBHOOK_SECRET }}
+          CODER_GITHUB_APP_PRIVATE_KEY: ${{ secrets.CODER_GITHUB_APP_PRIVATE_KEY }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          f="$RUNNER_TEMP/test-copy-keys.json"
+          node -e 'const n = ["XAI_API_KEY", "GITHUB_APP_CLIENT_SECRET", "CODER_TOKEN_KEY", "CODER_GITHUB_WEBHOOK_SECRET", "CODER_GITHUB_APP_PRIVATE_KEY", "FLY_API_TOKEN"]; const o = {}; for (const k of n) if (process.env[k]) o[k] = process.env[k]; require("fs").writeFileSync(process.argv[1], JSON.stringify(o), { mode: 0o600 });' "$f"
+          npx --yes wrangler@4.107.0 secret bulk "$f" --config wrangler.test.json
+          rm -f "$f"
       - name: Check it answers
         run: |
           for i in 1 2 3 4 5 6; do
-            if out=$(curl -fsS https://coder.gofarther.dev/health); then echo "$out"; exit 0; fi
+            if out=$(curl -fsS "$SITE/health"); then echo "$out"; exit 0; fi
             sleep 20
           done
-          echo "::warning::coder.gofarther.dev did not answer yet (a new address can take a few minutes)."
+          echo "::warning::$SITE did not answer yet (a new address can take a few minutes)."

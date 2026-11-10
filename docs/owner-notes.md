@@ -4,6 +4,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-10: A test copy at jessica.gofarther.dev, for the connectors (MCP) work (your word: "yes, you can do jessica")
+
+This chat's branch (`claude/dazzling-babbage-gh1aiv`) is for trying connectors (MCP). It is not merged to `main` until you say so.
+
+- **The deploy button now has a "target" choice (on this branch only)**, the same as the Gloopy branch's:
+  - **live:** gofarther.dev. It now deploys only from `main`.
+  - **test:** sends this branch to its own Worker at **jessica.gofarther.dev**.
+- **What the test copy has to itself:** its own storage (`gofarther-coder-jessica`), its own Fly.io machines (`gofarther-coder-jessica-machines`) and its own deploy queue.
+- **It never touches the live site or Gloopy's test copy:** neither gofarther.dev nor test.gofarther.dev.
+- **What it shares:** your sign-in, the Grok key and the same bills.
+- **GitHub isn't connected there.**
+- **Not deployed yet.**
+- **Tests:** TC1 to TC3, from the Gloopy branch, changed for this address. The full suite: 388 pass, 4 skipped. The one failure was in the new TC3 (a test pattern still had the old address); it was fixed and TC1 to TC3 now pass, but the full suite wasn't run again.
+
 ## Waiting on you (noted 2026-11-06, your word: "Note it, i will do it later")
 
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
