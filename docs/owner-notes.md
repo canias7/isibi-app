@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Faster deploys (your words: "yea do that lol , do it from now on")
+
+- **The machine's tools are now built once and kept on Fly.io.** Before, every deploy that changed Coder's machine rebuilt everything from scratch on GitHub (about 12 minutes: three Ruby versions, Go, Rust, Java, Chrome…) and uploaded several GB to Fly.io. Now the tools are their own image on Fly.io. A deploy that changes only Coder's own code builds just that code on top and uploads only that small part. That should take a few minutes, not a quarter of an hour, and the big upload that kept getting cut off no longer happens on those deploys.
+- **When the tools are built again:** only when the tool part of the machine's setup file or the `container/tools` folder changes, and once a month so system updates still come in. The first deploy after one of those takes the old, long time. The deploys after it are quick again.
+- **Every upload to Fly.io is still tried up to five times.**
+- **Tried here first:** I ran the deploy's real build step against a small copy shaped like Coder's machine, on a local image store:
+  - First run: the tools were built and kept.
+  - Then only Coder's file changed: no tools were built, only the new small part was uploaded, and the result ran with the tools inside.
+  - A change to the tools part, or to `tools/`: the tools were built again.
+  - No change at all: nothing was built.
+- New test CD376 runs the deploy's own naming line and checks what goes into the name. The first real quick deploy will be the next one that changes Coder's machine.
+
 ## 2026-11-10: The last differences fixed, and auto mode's second checker (your words: "fix the still different stuff", then "yea do the paid second model too")
 
 - **Auto mode now has Claude Code's second checker.** In Auto, before Coder runs a command that changes something, one more call to Grok (fast setting, no tools) checks it first. A web page fetch outside the known documentation sites is checked too. It blocks what Claude Code's checker blocks, for example:
