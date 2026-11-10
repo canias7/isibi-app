@@ -220,7 +220,7 @@ test("CD377 a step auto mode's checker blocked shows why under it, as Claude Cod
   const src = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  const { autoBlockOf, stepAutoBlock } = new Function("esc", grab("autoBlockOf") + grab("stepAutoBlock") + "return { autoBlockOf, stepAutoBlock };")(esc);
+  const { autoBlockOf, stepAutoBlock } = new Function("esc", grab("autoBlockOf") + grab("hookBlockOf") + grab("stepAutoBlock") + "return { autoBlockOf, stepAutoBlock };")(esc);
   const { blockedShown } = await import("../container/coder-checker.mjs");
   // What the server sends for a block (the live test's D1), shown as text only.
   const r = { code: -1, output: blockedShown("Code from External", "Runs ollama.com's install script <b>, which the owner\ndid not name.") };
@@ -230,7 +230,7 @@ test("CD377 a step auto mode's checker blocked shows why under it, as Claude Cod
   // Only the checker's blocks: a command's own failure, a refusal, an output that merely says it, or no result at all are not.
   for (const other of [{ code: 1, output: blockedShown("X", "y") }, { code: -1, output: "Not run: you said no." }, { code: -1, output: "error: Blocked by auto mode · [X] y" }, { code: 0, output: "Blocked by auto mode · [X] y" }, null]) assert.equal(stepAutoBlock(other), "", JSON.stringify(other));
   // The step: "✕ blocked" on its right (for web_fetch too), and the reason under it, shown without opening the step.
-  assert.match(src, /r\.timedOut \? 'timed out' : autoBlockOf\(r\) \? 'blocked' : e\.tool \? 'error' : 'exit ' \+ esc\(r\.code\)/);
+  assert.match(src, /r\.timedOut \? 'timed out' : autoBlockOf\(r\) \? 'blocked' : hookBlockOf\(r\) \? 'blocked by hook' : e\.tool \? 'error' : 'exit ' \+ esc\(r\.code\)/);
   assert.match(src, /stepAutoBlock\(r\) \+\n\s+\/\/ THE PICTURE A READ OPENED[^\n]*\n\s+stepPics\(r\) \+/);
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-autoblock-head \{ color: #b3261e; font-weight: 600; \}/, "in the red the page uses for a failed step");
