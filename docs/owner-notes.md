@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Bash says exactly what Claude Code says (your words: "ok do that")
+
+- **Every "needs approval" card now uses Claude Code's own sentence,** the one it gave for the same command in the side-by-side, with "Coder" for "Claude Code". Examples:
+  - `cat /etc/hostname`: "cat in '/etc/hostname' was blocked. For security, Coder may only concatenate files from the allowed working directories for this session: '…'."
+  - `echo x > /tmp/x.txt`: "Output redirection to '/tmp/x.txt' needs approval. The path is outside the working directories for this session ('…'). Allowing runs the command as written."
+  - `echo x > .husky/pre-commit`: "Coder requested permissions to edit …/.husky/pre-commit which is a sensitive file."
+  - Others: "Parse error", "PATH as loop variable bypasses assignment validation", "A variable in this command can't be checked before it runs", and the list "This Bash command contains multiple operations. The following parts require approval: …".
+  - The card no longer puts "This command requires approval:" in front.
+- **Reads outside the project now ask in Accept edits and Plan,** as Claude Code does (`cat /etc/hostname`, `ls ../`, `cat ~/.bashrc`). Coder had run them. Auto runs them as before. Coder's own saved outputs stay readable.
+- **The folder-changed-twice fix is live** (`cd docs && cd ..` asks, as in Claude Code).
+- **Rules Claude Code keeps, Coder now keeps too:** `Bash(command:rm *)` and a rule for a tool it doesn't know (like `Bsh`). A Deny or Ask one shows Claude Code's warning ("will not match", "matches no known tool — check for typos"). Neither ever matches anything. `Bash(git:* status)` gets no warning now, as in Claude Code. Each warning row starts with its kind ("Allow rule …").
+- **The read-block setting's messages** are Claude Code's too ("Reads outside the working directories are blocked (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES). Remove that setting to allow them.").
+- Where Claude Code names its own setting or `/add-dir`, Coder names its own setting and leaves `/add-dir` out (Coder has none).
+- Tests: 377 pass (6 new, CD361–CD366). Merge, deploy and the live test with Grok follow below.
+
 ## 2026-11-10: Bash tested side by side with Claude Code (your words: "merge deploy and test everything in the bash thing , test it with claude code and coder , and see the differences pls")
 
 - **Merged and deployed** (deploy 80), then the same tests on both:

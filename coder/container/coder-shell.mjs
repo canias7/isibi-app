@@ -236,14 +236,15 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   function readList(depth, closer) {
     // (`&&`, `||`, `|` and `|&` join two commands: one with no command after it, before the end, a `)` or another
     // separator, leaves the shell a command it can't run; bash says "syntax error". A newline between is fine.)
-    let joining = false;
+    // (`lastSep`: the separator just before a command, so a command fed by a pipe is known: `afterPipe`.)
+    let joining = false, lastSep = "";
     for (;;) {
       skipBlanks();
       if (i >= s.length) break;
       if (closer && s[i] === closer) break;
-      if (s[i] === "\n") { i++; if (pendingHeredocs.length) { i--; takeHeredocs(depth); } continue; }
+      if (s[i] === "\n") { lastSep = "\n"; i++; if (pendingHeredocs.length) { i--; takeHeredocs(depth); } continue; }
       const sep = SEPARATORS.find((x) => startsWith(x));
-      if (sep && !startsWith("&>")) { if (joining) dangling = true; joining = ["&&", "||", "|", "|&"].includes(sep); i += sep.length; continue; }
+      if (sep && !startsWith("&>")) { if (joining) dangling = true; joining = ["&&", "||", "|", "|&"].includes(sep); lastSep = sep; i += sep.length; continue; }
       const before = i;
       const c = readCommand(depth, closer);
       if (pendingHeredocs.length && s[i] === "\n") takeHeredocs(depth);
@@ -258,7 +259,8 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
         words = [];
       }
       if (words.length || c.redirects.length || c.compoundSkip || c.some) joining = false;
-      if (words.length || c.redirects.length) out.push({ words, redirects: c.redirects, depth, inScript: scriptDepth > 0, top: depth === 0 ? topIndex++ : -1 });
+      if (words.length || c.redirects.length) out.push({ words, redirects: c.redirects, depth, inScript: scriptDepth > 0, top: depth === 0 ? topIndex++ : -1, afterPipe: lastSep === "|" || lastSep === "|&" });
+      if (i !== before) lastSep = "";
       if (i === before) i++;
     }
     if (joining) dangling = true;

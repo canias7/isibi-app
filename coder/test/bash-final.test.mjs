@@ -32,7 +32,7 @@ test("CD337 a file command's short paths count from the folder that part runs in
   const P = await import("../container/coder-perms.mjs");
   const d = (cmd) => P.bashDecision(cmd, { mode: "acceptEdits", cwd: W, workdirs: [W], isProtected: prot });
   // Found 2026-11-09: these ran without asking in Accept edits, and each removes .husky/pre-commit.
-  for (const c of ["cd .husky && rm pre-commit", "cd src; cd ../.husky; rm pre-commit", "cd .husky; mv pre-commit x"]) assert.deepEqual([c, d(c).verdict, d(c).why], [c, "ask", "This command changes a protected file."]);
+  for (const c of ["cd .husky && rm pre-commit", "cd src; cd ../.husky; rm pre-commit", "cd .husky; mv pre-commit x"]) assert.deepEqual([c, d(c).verdict, d(c).why], [c, "ask", "Coder requested permissions to edit " + W + "/.husky/pre-commit which is a sensitive file."]);
   for (const c of ["(cd .husky; rm pre-commit)", "(cd src && npm test); rm a.txt", "echo $(cd .husky && pwd); rm pre-commit"]) assert.equal(d(c).verdict, "ask", c);
   // Inside the project, as before.
   for (const c of ["cd src && rm a.txt", "cd src && mv a.js b.js", "rm a.txt"]) assert.equal(d(c).verdict, "allow", c);

@@ -342,7 +342,7 @@ code in **each user's own GitHub**.
    and the end-of-job sweep keeps a running command's marked processes even outside
    its process group (`keepMarks`). Deny and ask rules can name one of the call's
    settings, `Bash(run_in_background:true)`, `Bash(timeout:*)` (`settingSpec`);
-   `Bash(command:…)` is refused (`ruleProblem`). In Accept edits and Plan these ask
+   `Bash(command:…)` never matches (kept with Claude Code's warning since the side-by-side, below). In Accept edits and Plan these ask
    too: a loop over one of the shell's own variables (`shellVariable`), an operator
    with nothing after it (`dangling`), an exec wrapper or `find` action an exact rule
    doesn't name, Docker pointed at another daemon, and a redirection to a wildcard
@@ -381,6 +381,25 @@ code in **each user's own GitHub**.
    check: a command holding the account's email with a User-Agent setting is refused
    (`namesUserAgentWithAddress`, `ACCOUNT_EMAIL_REFUSED`); the Worker sends only the
    address's length and SHA-256 (`emailMark`). Tests: `test/bash-pass5.test.mjs`.
+
+   The side-by-side with Claude Code 2.1.322 itself (owner, 2026-11-10: "test it with
+   claude code and coder", then "ok do that": copy Claude Code exactly). Every reason a
+   command asks is Claude Code's own sentence, seen from it running the same commands
+   (`PARSE_ERROR`, `VAR_UNCHECKED`, `blockedWhy`, `needsWhy`, `sensitiveWhy`,
+   `linkOutWhy`, `MULTI_PARTS` … in `container/coder-perms.mjs`, with "Coder" for
+   "Claude Code" and Coder's setting names), in its order: a sensitive file first, then
+   more than one `cd` (`MULTI_CD`, which now asks too), then one part's reason or the
+   list of parts that need approval. The card shows that sentence alone. A read outside
+   the project (`cat /etc/hostname`, `ls ../`, `cat ~/.bashrc`, `ls $HOME/..`) now asks
+   in Accept edits and Plan, as in Claude Code (`pathArgs`, each command's own rule for
+   its paths; `$HOME` read as the home folder); Coder's own folders stay readable. The
+   read block says Claude Code's words (`RB_OUTSIDE`, `rbUnsure`, `RB_SED`; the file
+   tools: `READ_BLOCKED(path, dirs)`); code on stdin counts only when something is fed
+   to it (`afterPipe` in `container/coder-shell.mjs`). Rules Claude Code keeps are kept
+   (`ruleKept`, `ruleSaved`): `Bash(command:…)` and a rule naming no known tool, a deny
+   or ask one with Claude Code's warning and row ("never matches", "matches no tool");
+   content that starts with a name and a colon (`git:* status`) is not checked; each
+   row starts with its kind ("Allow rule …"). Tests: `test/bash-side.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
