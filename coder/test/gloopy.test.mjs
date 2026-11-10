@@ -3974,7 +3974,7 @@ test("GL83 (2026-11-10) on the page, after the docs again: a card's warning; a c
   const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8"), appCss = readFileSync(new URL("../public/app.css", import.meta.url), "utf8");
   // The approval card.
   assert.match(ui, /\(e\.warn \? '<p class="cd-card-warn">' \+ esc\(e\.warn\) \+ '<\/p>' : ''\)/);
-  assert.match(ui, /\(e\.byRule \? '<p class="cd-card-rule">One of your rules says to ask first\.<\/p>' : ''\)/);
+  assert.match(ui, /e\.byRule \? '<p class="cd-card-rule">One of your rules says to ask first\.<\/p>' : ''\)/);
   assert.match(ui, /data-allow-next="' \+ esc\(e\.id\) \+ '" data-step="' \+ esc\(step \+ \(e\.site \? ' on ' \+ e\.site : ''\)\) \+ '">Always allow next time<\/button>/);
   assert.match(ui, /S\.ruleSaved === e\.id \? '<p class="cd-card-until">Saved: next time Gloopy goes ahead\.<\/p>'/);
   assert.match(ui, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/rules', \{ method: 'POST', body: JSON\.stringify\(\{ add: \{ text: b\.dataset\.step, mode: 'allow' \} \}\) \}\)/);
@@ -5014,4 +5014,120 @@ test("GL104 (2026-11-10) the owner: \"Call it Chrome\": Gloopy's browser gives s
     (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
     site.close();
   }
+});
+
+test("GL105 (2026-11-10) the owner: \"all of it\": your choice for each site (Always allow, Ask first, Hand off to me, Never), kept by the Worker, sent with each message, told to Gloopy, and kept to by its browser (and its page reader) before and after the check", async () => {
+  const C = await import("../container/gloopy-check.mjs");
+  // A site as the owner may type it.
+  assert.deepEqual(["https://www.Shop.example/deals?x=1", "shop.example", "sub.shop.example", "javascript:alert(1)", "localhost", "a b.example", "bücher.example"].map(C.siteHost), ["shop.example", "shop.example", "sub.shop.example", "", "", "", "xn--bcher-kva.example"]);
+  const sites = [{ host: "shop.example", mode: "ask" }, { host: "pay.shop.example", mode: "deny" }, { host: "www.shop.example", mode: "allow" }, { host: "x", mode: "allow" }, { host: "ok.example", mode: "maybe" }];
+  assert.deepEqual(C.cleanSites(sites), [{ host: "shop.example", mode: "ask" }, { host: "pay.shop.example", mode: "deny" }], "each site once (the first), only real choices");
+  assert.deepEqual(["www.shop.example", "a.pay.shop.example", "shop.example.evil.example", "notshop.example"].map((h) => (C.siteFor(sites, h) || {}).mode || null), ["ask", "deny", null, null], "a site covers its subdomains; the most specific counts");
+  // The Worker keeps them, for the settings screen.
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const machine = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { machine.push({ path: new URL(req.url).pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const site = (body) => go("projects/" + GLOOPY_ID + "/sites", body ? { method: "POST", body: JSON.stringify(body) } : {});
+  await go("gloopy");
+  let r = await (await site()).json();
+  assert.deepEqual([r.sites, r.modes, r.words, r.max], [[], ["allow", "ask", "handoff", "deny"], { allow: "Always allow", ask: "Ask first", handoff: "Hand off to me", deny: "Never" }, 50]);
+  for (const bad of [{}, { set: { host: "", mode: "ask" } }, { set: { host: "javascript:x", mode: "ask" } }, { set: { host: "shop.example", mode: "maybe" } }]) assert.equal((await site(bad)).status, 400, JSON.stringify(bad));
+  r = await (await site({ set: { host: "https://www.Shop.example/deals", mode: "ask" } })).json();
+  assert.deepEqual(r.sites, [{ host: "shop.example", mode: "ask" }]);
+  r = await (await site({ set: { host: "shop.example", mode: "deny" } })).json();
+  assert.deepEqual(r.sites, [{ host: "shop.example", mode: "deny" }], "changed, not added twice");
+  r = await (await site({ set: { host: "bank.example", mode: "handoff" } })).json();
+  assert.equal(r.sites.length, 2);
+  assert.equal((await site({ remove: "nope.example" })).status, 404);
+  r = await (await site({ remove: "https://bank.example/" })).json();
+  assert.deepEqual(r.sites, [{ host: "shop.example", mode: "deny" }]);
+  for (let i = 0; i < 49; i++) assert.equal((await site({ set: { host: "s" + i + ".example", mode: "allow" } })).status, 200);
+  assert.equal((await site({ set: { host: "one-too-many.example", mode: "allow" } })).status, 400);
+  assert.equal((await site({ set: { host: "s0.example", mode: "ask" } })).status, 200, "changing one is fine when full");
+  // A change closes a card waiting now (as the rules do).
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const meta = () => JSON.parse(bucket.m.get(metaKey));
+  bucket.m.set(metaKey, JSON.stringify({ ...meta(), status: "idle", pending: { kind: "approval", id: "ap9", step: "Click the button “Buy”", site: "shop.example", at: Date.now() } }));
+  r = await (await site({ set: { host: "s1.example", mode: "deny" } })).json();
+  assert.deepEqual([r.closed, r.project.pending], [true, null]);
+  // Sent with each message, and with Gloopy for the page.
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "hi" }) });
+  assert.deepEqual(machine.find((x) => x.path === "/turn").body.sites.slice(0, 1), [{ host: "shop.example", mode: "deny" }]);
+  assert.equal((await (await go("gloopy")).json()).sites.length, 50);
+  // Gloopy is told them, in words.
+  const { gloopyContext } = await import("../container/gloopy-agent.mjs");
+  const ctx = gloopyContext({ memFile: "/m.md", sites: [{ host: "shop.example", mode: "ask" }, { host: "bank.example", mode: "deny" }] });
+  assert.match(ctx, /THE OWNER'S SITES \(their choice for each; a site covers its subdomains\): \n- shop\.example: Ask first \(opening it, and each step there that would change something, waits for their OK on a card\)\n- bank\.example: Never \(never use it: don't open it or do anything on it, nor get its content another way\)/);
+  assert.match(gloopyContext({ memFile: "/m.md" }), /THE OWNER'S SITES [^\n]*: none\./);
+  // ON GLOOPY'S COMPUTER: the browser keeps to them.
+  const page = (host, element = null) => ({ element, url: "https://" + host + "/p", host, frameHost: host, title: "P" });
+  const hub = { acted: [], at: page("shop.example"), describe: async (ref) => (ref ? { ...hub.at, element: hub.el || { name: "Buy", tag: "button" } } : hub.at), act: async (a) => { hub.acted.push(a); return { text: "Did: " + a.action + "\nPage: P\nAddress: " + hub.at.url + "\n\n- b", shot: "", thumb: "" }; } };
+  const job = async (steps, verdicts, extra = {}) => {
+    const ev = [], g = withChecks(steps, verdicts);
+    hub.acted.length = 0;
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "page text" }), emit: (e) => ev.push(e), browser: hub }, { text: "Do it on the shop", ...GLOOPY, ...extra });
+    return { out, ev, g, said: (id) => (out.messages.find((m) => m.tool_call_id === id) || {}).content };
+  };
+  const NEVER = /^not done: the owner's settings say never to use bank\.example \(Sites: Never\)\. Don't do it another way/;
+  const S = (list) => ({ sites: list });
+  // Never: not opened, nothing done there, no link to it followed, not read with web_fetch; Back still leaves.
+  let o = await job([say("", [call("browser", { action: "open", url: "https://www.bank.example/login" }, "o1")]), say("I won't.")], [{ kind: "none", decision: "allow", why: "x" }], S([{ host: "bank.example", mode: "deny" }]));
+  assert.match(o.said("o1"), NEVER);
+  assert.deepEqual([hub.acted, o.g.checks.length], [[], 0], "not opened, not even checked");
+  hub.at = page("online.bank.example");
+  o = await job([say("", [call("browser", { action: "look" }, "l1"), call("browser", { action: "back" }, "b1")]), say("Left it.")], [{ kind: "none", decision: "allow", why: "x" }], S([{ host: "bank.example", mode: "deny" }]));
+  assert.match(o.said("l1"), NEVER, "not even looked at");
+  assert.deepEqual(hub.acted.map((a) => a.action), ["back"]);
+  hub.at = page("news.example"); hub.el = { name: "My bank", tag: "a", href: "https://bank.example/" };
+  o = await job([say("", [call("browser", { action: "click", ref: "e3" }, "k1")]), say("No.")], [{ kind: "none", decision: "allow", why: "x" }], S([{ host: "bank.example", mode: "deny" }]));
+  assert.match(o.said("k1"), NEVER, "a link to it isn't followed");
+  o = await job([say("", [call("web_fetch", { url: "https://bank.example/rates" }, "w1")]), say("No.")], [], S([{ host: "bank.example", mode: "deny" }]));
+  assert.match(o.said("w1"), /^not done: the owner's settings say never to use bank\.example \(Sites: Never\)\. Don't get its content another way/);
+  hub.el = null;
+  // Ask first: before opening it (its card says why), and before a step there that would change something; moving around
+  // there doesn't ask; a step the owner already allowed isn't asked again.
+  o = await job([say("", [call("browser", { action: "open", url: "https://shop.example/" }, "o2")]), say("Waiting.")], [{ kind: "none", decision: "allow", why: "This only opens the shop." }], S([{ host: "shop.example", mode: "ask" }]));
+  let card = o.ev.find((e) => e.type === "approval");
+  assert.deepEqual([card.step, card.site, card.bySite, card.byRule, hub.acted.length], ["Open https://shop.example/", "shop.example", "shop.example", true, 0]);
+  hub.at = page("www.shop.example");
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c2")]), say("Waiting.")], [{ kind: "buy", decision: "allow", why: "This places the order." }], S([{ host: "shop.example", mode: "ask" }]));
+  card = o.ev.find((e) => e.type === "approval");
+  assert.deepEqual([card.step, card.bySite, card.warn], ["Click the button “Buy”", "shop.example", "This spends money."]);
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c3")]), say("Next page.")], [{ kind: "none", decision: "allow", why: "This only shows the next page." }], S([{ host: "shop.example", mode: "ask" }]));
+  assert.deepEqual([o.ev.some((e) => e.type === "approval"), hub.acted.length], [false, 1], "moving around there doesn't ask");
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c4")]), say("Done.")], [{ kind: "buy", decision: "allow", why: "x" }], { ...S([{ host: "shop.example", mode: "ask" }]), granted: ["Click the button “Buy”"] });
+  assert.deepEqual([o.ev.some((e) => e.type === "approval"), hub.acted.length], [false, 1], "the step the owner just allowed");
+  // Hand off to me: a step there that would change something is theirs; opening it isn't.
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c5")]), say("Over to you.")], [{ kind: "buy", decision: "allow", why: "x" }], S([{ host: "shop.example", mode: "handoff" }]));
+  assert.match(o.said("c5"), /^not done: this step is the owner's own to do \(Your setting for shop\.example is to hand steps that change something there to you\.\)\. Use handoff/);
+  assert.equal(hub.acted.length, 0);
+  o = await job([say("", [call("browser", { action: "open", url: "https://shop.example/" }, "o3")]), say("Open.")], [{ kind: "none", decision: "allow", why: "x" }], S([{ host: "shop.example", mode: "handoff" }]));
+  assert.equal(hub.acted.length, 1);
+  // Always allow: as one of the owner's Always allow rules, so in a run they didn't start too; never over the check's
+  // other reason to stop, a Never rule, or the kind's Never.
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c6")]), say("Bought.")], [{ kind: "buy", decision: "allow", why: "x" }], { ...S([{ host: "shop.example", mode: "allow" }]), background: true });
+  assert.deepEqual([o.ev.some((e) => e.type === "approval"), hub.acted.length], [false, 1], "goes ahead in a run the owner didn't start");
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c7")]), say("Waiting.")], [{ kind: "buy", decision: "allow", why: "x" }], { background: true });
+  assert.deepEqual([o.ev.some((e) => e.type === "approval"), hub.acted.length], [true, 0], "without it, it waits as before");
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c8")]), say("Waiting.")], [{ kind: "buy", decision: "ask", why: "The total looks wrong." }], { ...S([{ host: "shop.example", mode: "allow" }]), permissions: { buy: "ask" } });
+  assert.equal(o.ev.some((e) => e.type === "approval"), true, "the check's other reason to stop");
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c10")]), say("Bought.")], [{ kind: "buy", decision: "allow", why: "x" }], { ...S([{ host: "shop.example", mode: "allow" }]), permissions: { buy: "ask" } });
+  assert.deepEqual([o.ev.some((e) => e.type === "approval"), hub.acted.length], [false, 1], "over the kind's Ask, as an Always allow rule is");
+  o = await job([say("", [call("browser", { action: "click", ref: "e5" }, "c9")]), say("No.")], [{ kind: "buy", decision: "allow", why: "x" }], { ...S([{ host: "shop.example", mode: "allow" }]), permissions: { buy: "deny" } });
+  assert.match(o.said("c9"), /^not done: the owner's settings never allow this/);
+  // On the page: the Settings button and its screen; a card a site's setting asked for says so.
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8"), css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(ui, /\(S\.project \? '<button type="button" class="cd-hbtn cd-web-btn" id="cdGset">' \+ ICON\.sliders \+ 'Settings<\/button>' : ''\)/);
+  assert.match(ui, /on\('#cdGset', 'click', \(\) => \{ showGloopySettings\(\); \}\);/);
+  assert.match(ui, /const \[pr, rr, sr\] = await Promise\.all\(\[call\(base \+ '\/permissions'\), call\(base \+ '\/rules'\), call\(base \+ '\/sites'\)\]\);/);
+  for (const words of ["What Gloopy may do on its own", "Your rules", "When Gloopy wants to", "It should", "Add rule", "Save rule", "Sites", "Add site", "No rules yet.", "No sites yet."]) assert.ok(ui.includes(words), words);
+  assert.match(ui, /else if \(t\.dataset\.site\) save\('\/sites', \{ set: \{ host: t\.dataset\.site, mode: t\.value \} \}/);
+  assert.match(ui, /if \(r\.data\.closed && S\.project\) \{ reloadChat\(S\.project\.id\);/);
+  assert.match(ui, /\(e\.bySite \? '<p class="cd-card-rule">Your setting for ' \+ esc\(e\.bySite\) \+ ' says to ask first\.<\/p>' : e\.byRule/);
+  assert.match(css, /\.cd-gset\{max-width:680px;/);
+  assert.match(css, /\.cd-gset-seg button\[aria-pressed="true"\]\{background:#1f1e1d;color:#fff\}/);
 });

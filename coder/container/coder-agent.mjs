@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
-import { needsCheck, stepWords, stepSends, gloopyCheck, cleanRules, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
+import { needsCheck, stepWords, stepSends, gloopyCheck, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
@@ -570,7 +570,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -601,6 +601,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // of action. The check before a browser step runs whatever they are (the audit, 2026-11-10: both apps run theirs
   // always): a step only the owner may do stays theirs.
   const perms = cleanPermissions(permsIn);
+  // THE OWNER'S CHOICE FOR EACH SITE (2026-11-10; gloopy-check.mjs): applied to the browser's steps below.
+  const sites = cleanSites(sitesIn);
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // A RUN THE OWNER DID NOT START (`background`: a schedule, a wake-up, a webhook's call; the audit, 2026-11-10, Grok Bot's):
   // a card it ends on waits 30 minutes for the owner (CARD_TTL_MS), then it has expired.
@@ -1067,11 +1069,25 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             try { const b = await hub.describe(act.submit_ref); act.submitName = plain(String((b && b.element && b.element.name) || "")).slice(0, 120); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
           }
         }
+        // THE OWNER'S CHOICE FOR A SITE (the owner, 2026-11-10: "all of it"; gloopy-check.mjs siteFor). Never: the site
+        // isn't opened and nothing is done on it, nor is a link to it followed; on such a page, only Back or opening another
+        // site. Ask first, Hand off to me and Always allow shape the check's answer below.
+        const hostOf = (u) => { try { return new URL(String(u)).hostname; } catch { return ""; } };
+        let siteOn = null, pageNow = null;
+        if (sites.length) {
+          if (act.action !== "open" && act.action !== "back") { try { pageNow = await hub.describe(act.action === "press" ? "" : String(act.ref || "")); } catch { pageNow = null; } }
+          const el = pageNow && pageNow.element;
+          const hosts = act.action === "open" ? [hostOf(act.url)] : act.action === "back" ? [] : [pageNow && pageNow.host, pageNow && pageNow.frameHost, el && el.href ? hostOf(el.href) : ""];
+          const never = hosts.filter(Boolean).map((h) => siteFor(sites, h)).find((x) => x && x.mode === "deny");
+          if (never) { no("not done: the owner's settings say never to use " + never.host + " (Sites: Never). Don't do it another way (another address, a copy of the page, a search result for it); tell the owner it is turned off for that site in Gloopy's settings."); continue; }
+          siteOn = act.action === "back" ? null : siteFor(sites, act.action === "open" ? hostOf(act.url) : (pageNow && (pageNow.frameHost || pageNow.host)) || "");
+        }
         // YOUR RULES APPLY TO OPENING A SITE TOO (the second docs check, 2026-11-10: Grok Bot's review "checks each action";
-        // a rule such as "never open shady.example" could not stop an open): an open is checked when the owner has rules.
-        if (needsCheck(act) || (act.action === "open" && rules.length > 0)) {
-          let about;
-          try { about = await hub.describe(act.action === "press" ? "" : String(act.ref || "")); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+        // a rule such as "never open shady.example" could not stop an open): an open is checked when the owner has rules,
+        // or a choice for that site.
+        if (needsCheck(act) || (act.action === "open" && (rules.length > 0 || siteOn))) {
+          let about = pageNow;
+          if (!about) try { about = await hub.describe(act.action === "press" ? "" : String(act.ref || "")); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
           // Opening a page or going back is about the page, never the element that has the focus (live test, 2026-11-10: an
           // open was asked about as sending the form one of whose fields had the focus, its card listing that form), and
           // an open's site is where it goes.
@@ -1082,8 +1098,19 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           about = { ...about, sends: stepSends(act, about) };
           if (denied.has(step.slice(0, 300))) { no(noAgain(step)); continue; }
           const g = granted.indexOf(step);
-          const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules, background });
+          let v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules, background });
           if (v.usage) usage.push(v.usage);
+          // The owner's choice for this site, over the check's answer: never over a Never rule, the check's block, a step
+          // only the owner may do, or a step they already allowed. Ask first asks before opening the site and before each
+          // step there that would change something; Hand off to me leaves those steps to them; Always allow is as one of
+          // their Always allow rules (it counts in runs they didn't start too).
+          let bySite = "";
+          if (siteOn && g < 0 && v.rule !== "deny" && v.decision !== "block" && v.decision !== "handoff" && v.rule !== "handoff") {
+            const changes = act.action !== "open" && v.kind !== "none";
+            if (siteOn.mode === "ask" && (act.action === "open" || changes) && v.rule !== "ask") { v = { ...v, rule: "ask" }; bySite = siteOn.host; }
+            else if (siteOn.mode === "handoff" && changes) v = { ...v, rule: "handoff", why: "Your setting for " + siteOn.host + " is to hand steps that change something there to you." };
+            else if (siteOn.mode === "allow" && !v.rule) v = { ...v, rule: "allow" };
+          }
           const d = decide(v, perms, { background });
           if (d === "deny") { no(notDone(v, step)); continue; }
           if (d === "handoff") { no("not done: this step is the owner's own to do (" + v.why + "). Use handoff to ask the owner to do it in your browser on " + (about.host || "the site") + " (say exactly what to do), or tell them what to do, and stop."); continue; }
@@ -1094,7 +1121,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
             // What the form holds, on the card (Grok Bot's card shows the action's inputs): never a password or card field.
             const holds = about.sends ? formWords(about.fields) : "";
-            emit({ type: "approval", id, step, site: where.site, url: where.url, why: v.why, ...cardBits(v), ...(holds ? { detail: holds, form: true } : {}) });
+            emit({ type: "approval", id, step, site: where.site, url: where.url, why: v.why, ...cardBits(v), ...(bySite ? { bySite } : {}), ...(holds ? { detail: holds, form: true } : {}) });
             approvalRequest = { id, args: { ...act }, step, site: where.site, url: where.url };
             return end("done", { summary: lastSaid || "asked the owner's OK to: " + step });
           }
@@ -1500,6 +1527,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
+        // A SITE THE OWNER SET TO NEVER (2026-11-10) isn't read another way either.
+        if (c.name === "web_fetch" && sites.length) {
+          const never = siteFor(sites, (() => { try { return new URL(String(args.url || "")).hostname; } catch { return ""; } })());
+          if (never && never.mode === "deny") { const m = "not done: the owner's settings say never to use " + never.host + " (Sites: Never). Don't get its content another way; tell the owner it is turned off for that site in Gloopy's settings."; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
+        }
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).

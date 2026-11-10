@@ -132,6 +132,48 @@ export function cleanRules(list) {
 /** How a rule is said to the check and to Gloopy: "Never: email my boss". */
 export const RULE_WORDS = Object.freeze({ allow: "Always allow", ask: "Ask first", deny: "Never", handoff: "Hand off to me", when_asked: "Only when I ask" });
 
+/**
+ * THE OWNER'S CHOICE FOR A SITE (the owner, 2026-11-10: "all of it"; OpenAI's website permissions, "Always ask" and
+ * "Always allow"): what Gloopy's browser may do there. "deny": never used (not opened, nothing done there, a link to it
+ * not followed); "ask": opening it, and each step there that would change something, waits for their OK; "handoff": what
+ * would change something there is theirs to do; "allow": steps there go ahead when the check finds no other reason to
+ * stop (in runs they didn't start too). A site covers its subdomains, and the most specific one counts. Kept by the
+ * Worker; applied on Gloopy's computer before and after the check.
+ */
+export const SITE_MODES = Object.freeze(["allow", "ask", "handoff", "deny"]);
+export const SITE_WORDS = Object.freeze({ allow: "Always allow", ask: "Ask first", handoff: "Hand off to me", deny: "Never" });
+export const SITES_MAX = 50;
+/** A site as the owner may type it ("https://www.Amazon.com/deals", "amazon.com"): its host, without "www.", or "". */
+export function siteHost(raw) {
+  let s = String(raw == null ? "" : raw).trim().toLowerCase();
+  if (!s || s.length > 300) return "";
+  if (!/^[a-z][a-z0-9+.-]*:\/\//.test(s)) s = "https://" + s;
+  let h = "";
+  try { h = new URL(s).hostname; } catch { return ""; }
+  h = h.replace(/\.$/, "").replace(/^www\./, "");
+  return /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(h) ? h : "";
+}
+/** The owner's sites, as kept: [{ host, mode }], each host once (the first), at most SITES_MAX. */
+export function cleanSites(list) {
+  const out = [], seen = new Set();
+  for (const x of Array.isArray(list) ? list : []) {
+    const host = x && typeof x === "object" ? siteHost(x.host) : "";
+    if (!host || !SITE_MODES.includes(x.mode) || seen.has(host)) continue;
+    seen.add(host);
+    out.push({ host, mode: x.mode });
+    if (out.length >= SITES_MAX) break;
+  }
+  return out;
+}
+/** The owner's choice that covers a host (the most specific site), or null. */
+export function siteFor(sites, host) {
+  const h = siteHost(host);
+  if (!h) return null;
+  let best = null;
+  for (const x of cleanSites(sites)) if ((h === x.host || h.endsWith("." + x.host)) && (!best || x.host.length > best.host.length)) best = x;
+  return best;
+}
+
 /** What the check is asked: a browser step (`about`: the page and the element), or a keyed web request (`request`: { method, url, preview }). */
 export function checkMessages({ step, about, convo, rules, request = null, background = false }) {
   const said = ownerWords(convo);

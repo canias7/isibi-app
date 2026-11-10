@@ -7,7 +7,7 @@ import { CODER_TOOLS } from "./coder-agent.mjs";
 import { BROWSER_ACTIONS } from "./gloopy-browser.mjs";
 import { scheduleLine, webhookLine, okZone as okZoneName } from "./gloopy-schedule.mjs";
 import { permissionLines } from "./gloopy-permissions.mjs";
-import { cleanRules, RULE_WORDS } from "./gloopy-check.mjs";
+import { cleanRules, RULE_WORDS, cleanSites, SITE_WORDS } from "./gloopy-check.mjs";
 
 /**
  * GLOOPY'S BROWSER (owner, 2026-11-09: "start doing the stuff, lets start with tools first"; Grok Bot's and dots' agents
@@ -241,7 +241,7 @@ export const GLOOPY_NOTES_MAX = 25000;
  * `machine`: the machine's tools text (Coder's MACHINE_TOOLS on the full image), or "". `browser`: false on a machine with no
  * browser (Coder's small image), where Gloopy is not offered it.
  */
-export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], schedulesPaused = false, ownerZone = "", permissions = null, rules = [], pages = [], savedLogins = [], savedCards = [], webhooks = [], files = [], background = false } = {}) {
+export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], schedulesPaused = false, ownerZone = "", permissions = null, rules = [], sites = [], pages = [], savedLogins = [], savedCards = [], webhooks = [], files = [], background = false } = {}) {
   const notes = String(memory || "").slice(0, GLOOPY_NOTES_MAX);
   const day = new Date(now).toISOString().slice(0, 10);
   return [
@@ -258,6 +258,8 @@ export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir 
     // A RUN THE OWNER DID NOT START (the audit, 2026-11-10; Grok Bot never sends from background work without you).
     background ? "THIS RUN WAS NOT STARTED BY THE OWNER just now (a schedule, a wake-up or a webhook's call): they may not be watching. Whatever YOUR PERMISSIONS say, anything that would buy, book, send, post, sign up, delete or cancel, change an account or share their details waits for their OK on a card (unless one of their own \"Always allow\" rules covers that very step: that is their OK given in advance), and the card waits 30 minutes for them. So get it fully ready first (the message drafted, the form filled in), then take the step: it waits on the card. To tell the owner something, use notify." : "",
     "THE OWNER'S CUSTOM RULES (their own words; a rule that fits comes before the settings above; a Never rule always wins; Hand off to me: leave it to the owner; Only when I ask: only when the owner's own message asks for it): " + (cleanRules(rules).length ? "\n" + cleanRules(rules).map((r) => "- " + RULE_WORDS[r.mode] + ": " + r.text).join("\n") : "none."),
+    // THE OWNER'S CHOICE FOR EACH SITE (2026-11-10): what Gloopy's browser may do there; the browser keeps to it too.
+    "THE OWNER'S SITES (their choice for each; a site covers its subdomains): " + (cleanSites(sites).length ? "\n" + cleanSites(sites).map((x) => "- " + x.host + ": " + SITE_WORDS[x.mode] + ({ deny: " (never use it: don't open it or do anything on it, nor get its content another way)", ask: " (opening it, and each step there that would change something, waits for their OK on a card)", handoff: " (steps there that would change something are theirs: use handoff)", allow: " (steps there go ahead unless the check finds another reason to stop)" })[x.mode]).join("\n") : "none."),
     "SAVED LOGINS (the owner saved these; sign_in uses one for you, and you never see it): " + (Array.isArray(savedLogins) && savedLogins.length ? savedLogins.slice(0, 50).join(", ") : "none."),
     "SAVED CARDS (the owner saved these; pay offers them on its form, and you never see their numbers): " + (Array.isArray(savedCards) && savedCards.length ? savedCards.slice(0, 10).join(", ") : "none."),
     "YOUR PAGES (page list says more): " + (Array.isArray(pages) && pages.length ? "\n" + pages.slice(0, 30).map((p) => "- " + String(p.id || "") + " · " + String(p.title || "") + " · version " + (Number(p.version) || 1)).join("\n") : "none yet."),

@@ -45,7 +45,7 @@ import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTu
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload, fileViewAddress, serveFileView, PREVIEW_TYPES, extOf, canPreview } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
-import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, cleanMarked, cleanTaught } from "../container/gloopy-check.mjs";
+import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, cleanMarked, cleanTaught, cleanSites, siteHost, SITE_MODES, SITE_WORDS, SITES_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
@@ -164,6 +164,9 @@ async function readRules(bucket, uid) {
   if (Array.isArray(raw) && raw.some((r) => !r || typeof r.id !== "string")) await putJson(bucket, gloopyRulesKey(uid), list);
   return list;
 }
+/** THE OWNER'S CHOICE FOR EACH SITE (2026-11-10; gloopy-check.mjs): Always allow, Ask first, Hand off to me or Never, kept here. */
+const gloopySitesKey = (uid) => ["coder", uid, "gloopy", "sites.json"].join("/");
+const readSites = async (bucket, uid) => cleanSites(await getJson(bucket, gloopySitesKey(uid), []));
 export function newGloopy(now = Date.now()) {
   return { id: GLOOPY_ID, kind: "gloopy", name: "Gloopy", repo: "", title: "Gloopy", base: "", branch: "", turn: 0, saved: 0, status: "idle", pr: null, at: now };
 }
@@ -591,7 +594,7 @@ export async function handleCoder(request, env, ctx, deps) {
     g = await expireCard(bucket, uid, GLOOPY_ID, g);
     // Only whether it waits for the owner (the page's mark on Gloopy's tab, the docs 2026-11-10).
     if (url.searchParams.get("brief") === "1") return json({ ok: true, gloopy: { id: g.id, status: g.status, waiting: g.waiting || null, pending: g.pending ? { kind: g.pending.kind } : null } });
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), sites: await readSites(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -659,6 +662,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "schedules") return gloopySchedules(g);
     if (action === "permissions") return gloopyPermissions(g);
     if (action === "rules") return gloopyRules(g);
+    if (action === "sites") return gloopySites(g);
     if (action === "pages") return gloopyPages(g);
     if (action === "logins") return gloopyLogins(g);
     if (action === "cards") return gloopyCards(g);
@@ -1512,7 +1516,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2030,6 +2034,37 @@ async function gloopyRules(g) {
     list = list.filter((r) => r.id !== body.remove);
   } else return json({ error: "Give add, change or remove." }, 400);
   await putJson(bucket, gloopyRulesKey(uid), list);
+  const before = await getJson(bucket, keyOf(uid, g.id, "meta.json"), g.meta);
+  const meta = await closeForSettings(bucket, uid, g.id, before);
+  return json({ ...(await out(list).json()), ...(meta !== before ? { closed: true, project: meta } : {}) });
+}
+
+/**
+ * THE OWNER'S CHOICE FOR EACH SITE, FOR THE SETTINGS SCREEN (the owner, 2026-11-10: "all of it"; OpenAI's website
+ * permissions): GET lists them; POST { set: { host, mode } } adds a site or changes its choice (Always allow, Ask first,
+ * Hand off to me or Never; "https://www.shop.example/deals" is kept as shop.example), POST { remove: host } takes it away.
+ * Gloopy keeps to them from its next step (a card open now closes, as for the rules).
+ */
+async function gloopySites(g) {
+  const { request, bucket, uid } = g;
+  let list = await readSites(bucket, uid);
+  const out = (l) => json({ ok: true, sites: l, modes: [...SITE_MODES], words: SITE_WORDS, max: SITES_MAX });
+  if (request.method === "GET") return out(list);
+  if (request.method !== "POST") return json({ error: "Gloopy has no sites " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  if (body.set && typeof body.set === "object") {
+    const host = siteHost(body.set.host), mode = body.set.mode;
+    if (!host) return json({ error: "Give the site's address, like shop.example." }, 400);
+    if (!SITE_MODES.includes(mode)) return json({ error: "Choose " + SITE_MODES.map((m) => SITE_WORDS[m]).join(", ") + "." }, 400);
+    const had = list.some((x) => x.host === host);
+    if (!had && list.length >= SITES_MAX) return json({ error: "There are " + SITES_MAX + " sites already: remove one first." }, 400);
+    list = had ? list.map((x) => (x.host === host ? { host, mode } : x)) : [...list, { host, mode }];
+  } else if (typeof body.remove === "string") {
+    const host = siteHost(body.remove);
+    if (!list.some((x) => x.host === host)) return json({ error: "No site has that address." }, 404);
+    list = list.filter((x) => x.host !== host);
+  } else return json({ error: "Give set or remove." }, 400);
+  await putJson(bucket, gloopySitesKey(uid), list);
   const before = await getJson(bucket, keyOf(uid, g.id, "meta.json"), g.meta);
   const meta = await closeForSettings(bucket, uid, g.id, before);
   return json({ ...(await out(list).json()), ...(meta !== before ? { closed: true, project: meta } : {}) });

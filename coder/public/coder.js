@@ -310,6 +310,94 @@
     paint();
   }
 
+  // GLOOPY'S SETTINGS (the owner, 2026-11-10: "all of it"; Grok Bot's Custom Rules under Auto Review, dots' Custom rules
+  // under Permissions, OpenAI's website permissions): what Gloopy may do on its own (Ask, Always allow or Never for each
+  // kind of step), the owner's rules in their own words (add, edit, delete) and their choice for each site. It lives
+  // outside the redrawn chat (as Notifications does), so typing in it isn't lost while Gloopy works. A change that
+  // closes a card waiting now shows in the chat behind it.
+  const GSET_PERM_WORDS = { ask: 'Ask', allow: 'Always allow', deny: 'Never' };
+  async function showGloopySettings() {
+    if (!S.project) return;
+    const base = '/projects/' + encodeURIComponent(S.project.id);
+    const [pr, rr, sr] = await Promise.all([call(base + '/permissions'), call(base + '/rules'), call(base + '/sites')]);
+    if (pr.status !== 200 || rr.status !== 200 || sr.status !== 200) { note(((pr.data || rr.data || sr.data || {}).error) || 'Gloopy’s settings could not be opened.'); return; }
+    const st = {
+      perms: pr.data.permissions || {}, permList: pr.data.list || [], permModes: pr.data.modes || ['ask', 'allow', 'deny'],
+      rules: rr.data.rules || [], ruleModes: rr.data.modes || [], ruleWords: rr.data.words || {}, ruleMax: rr.data.max || 20,
+      sites: sr.data.sites || [], siteModes: sr.data.modes || [], siteWords: sr.data.words || {}, siteMax: sr.data.max || 50,
+      edit: '', editText: '', editMode: '', ruleText: '', ruleMode: 'ask', siteHost: '', siteMode: 'ask', note: '', busy: false,
+    };
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure cd-gset-wrap';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-gset'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Gloopy’s settings');
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape' && !st.edit) close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    const opts = (modes, words, cur) => modes.map((m) => '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(words[m] || m) + '</option>').join('');
+    const paint = () => {
+      const top = box.querySelector('.cd-gset-body') ? box.querySelector('.cd-gset-body').scrollTop : 0;
+      box.innerHTML = '<div class="cd-gset-head"><b>Gloopy’s settings</b><button type="button" class="cd-view-x" data-gs="close" aria-label="Close">×</button></div>' +
+        '<div class="cd-gset-body">' +
+        // What it may do on its own.
+        '<section><h3>What Gloopy may do on its own</h3><p class="cd-gset-hint">For each kind of step: ask you first, always allow it, or never do it. Your rules and sites below come first. Gloopy’s safety check runs either way.</p>' +
+        st.permList.map((x) => '<div class="cd-gset-row"><div class="cd-gset-what"><b>' + esc(x.label) + '</b><small>' + esc(x.hint) + '</small></div><div class="cd-gset-seg" role="group" aria-label="' + esc(x.label) + '">' +
+          st.permModes.map((m) => '<button type="button" data-perm="' + esc(x.key) + '" data-mode="' + esc(m) + '" aria-pressed="' + (st.perms[x.key] === m ? 'true' : 'false') + '"' + (st.busy ? ' disabled' : '') + '>' + esc(GSET_PERM_WORDS[m] || m) + '</button>').join('') + '</div></div>').join('') + '</section>' +
+        // Your rules.
+        '<section><h3>Your rules</h3><p class="cd-gset-hint">In your own words. A rule that fits a step comes before the settings above, and Never always wins. Up to ' + st.ruleMax + ' of each kind.</p>' +
+        '<form class="cd-gset-add" data-gs="add-rule"><label class="cd-gset-l" for="gsRuleText">When Gloopy wants to</label><textarea id="gsRuleText" class="cd-gset-in" rows="2" maxlength="1000" placeholder="buy anything over $50">' + esc(st.ruleText) + '</textarea>' +
+          '<div class="cd-gset-addrow"><label class="cd-gset-l" for="gsRuleMode">It should</label><select id="gsRuleMode" class="cd-gset-sel">' + opts(st.ruleModes, st.ruleWords, st.ruleMode) + '</select><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Add rule</button></div></form>' +
+        (st.rules.length ? '<ul class="cd-gset-list">' + st.rules.map((r) => st.edit === r.id
+          ? '<li class="cd-gset-item is-edit"><form data-gs="save-rule" data-id="' + esc(r.id) + '"><textarea class="cd-gset-in" id="gsEditText" rows="2" maxlength="1000">' + esc(st.editText) + '</textarea><div class="cd-gset-addrow"><select id="gsEditMode" class="cd-gset-sel">' + opts(st.ruleModes, st.ruleWords, st.editMode) + '</select><button type="button" data-gs="cancel-edit">Cancel</button><button type="submit" class="cd-gset-go">Save rule</button></div></form></li>'
+          : '<li class="cd-gset-item"><span class="cd-gset-mode m-' + esc(r.mode) + '">' + esc(st.ruleWords[r.mode] || r.mode) + '</span><span class="cd-gset-text">' + esc(r.text) + '</span><span class="cd-gset-btns"><button type="button" data-gs-edit="' + esc(r.id) + '">Edit</button><button type="button" data-gs-del="' + esc(r.id) + '" aria-label="Delete this rule">Delete</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">No rules yet.</p>') + '</section>' +
+        // Sites.
+        '<section><h3>Sites</h3><p class="cd-gset-hint">What Gloopy’s browser may do on a site and its subdomains. Never: it doesn’t open the site or do anything there. Ask first: it asks before opening it, and before each step there that would change something. Hand off to me: those steps are yours. Always allow: they go ahead unless the check finds another reason to stop.</p>' +
+        '<form class="cd-gset-add cd-gset-siteadd" data-gs="add-site"><input id="gsSiteHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="shop.example" value="' + esc(st.siteHost) + '" aria-label="Site"><select id="gsSiteMode" class="cd-gset-sel" aria-label="Choice for this site">' + opts(st.siteModes, st.siteWords, st.siteMode) + '</select><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Add site</button></form>' +
+        (st.sites.length ? '<ul class="cd-gset-list">' + st.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text cd-gset-host">' + esc(x.host) + '</span><select class="cd-gset-sel" data-site="' + esc(x.host) + '" aria-label="Choice for ' + esc(x.host) + '">' + opts(st.siteModes, st.siteWords, x.mode) + '</select><span class="cd-gset-btns"><button type="button" data-gs-unsite="' + esc(x.host) + '" aria-label="Remove ' + esc(x.host) + '">Remove</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">No sites yet.</p>') + '</section>' +
+        '</div>' + (st.note ? '<div class="cd-gset-note" role="status">' + esc(st.note) + '</div>' : '');
+      const b = box.querySelector('.cd-gset-body'); if (b) b.scrollTop = top;
+    };
+    // Each change: the answer is kept, and a card it closed shows in the chat behind.
+    const save = async (path, body, ok) => {
+      st.busy = true; st.note = ''; paint();
+      const r = await call(base + path, { method: 'POST', body: JSON.stringify(body) });
+      st.busy = false;
+      if (r.status !== 200 || !r.data || r.data.error) st.note = (r.data && r.data.error) || 'That could not be saved.';
+      else { ok(r.data); if (r.data.closed && S.project) { reloadChat(S.project.id); st.note = 'Saved. The card that was waiting closed, since your settings changed.'; } }
+      paint();
+      return r.status === 200 && !(r.data && r.data.error);
+    };
+    box.addEventListener('input', (e) => {
+      const t = e.target;
+      if (t.id === 'gsRuleText') st.ruleText = t.value; else if (t.id === 'gsEditText') st.editText = t.value; else if (t.id === 'gsSiteHost') st.siteHost = t.value;
+    });
+    box.addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.id === 'gsRuleMode') st.ruleMode = t.value; else if (t.id === 'gsEditMode') st.editMode = t.value; else if (t.id === 'gsSiteMode') st.siteMode = t.value;
+      else if (t.dataset.site) save('/sites', { set: { host: t.dataset.site, mode: t.value } }, (d) => { st.sites = d.sites; });
+    });
+    box.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.target, what = f.dataset.gs;
+      if (what === 'add-rule') { const text = st.ruleText.trim(); if (!text) { st.note = 'Write the rule first.'; return paint(); } if (await save('/rules', { add: { text, mode: st.ruleMode } }, (d) => { st.rules = d.rules; })) { st.ruleText = ''; paint(); } }
+      else if (what === 'save-rule') { if (await save('/rules', { change: { id: f.dataset.id, text: st.editText, mode: st.editMode } }, (d) => { st.rules = d.rules; })) { st.edit = ''; paint(); } }
+      else if (what === 'add-site') { const host = st.siteHost.trim(); if (!host) { st.note = 'Write the site’s address first.'; return paint(); } if (await save('/sites', { set: { host, mode: st.siteMode } }, (d) => { st.sites = d.sites; })) { st.siteHost = ''; paint(); } }
+    });
+    box.addEventListener('click', (e) => {
+      const t = e.target.closest('button');
+      if (!t || t.disabled) return;
+      const d = t.dataset;
+      if (d.gs === 'close') close();
+      else if (d.gs === 'cancel-edit') { st.edit = ''; paint(); }
+      else if (d.perm) save('/permissions', { set: { [d.perm]: d.mode } }, (x) => { st.perms = x.permissions; });
+      else if (d.gsEdit) { const r = st.rules.find((x) => x.id === d.gsEdit); if (r) { st.edit = r.id; st.editText = r.text; st.editMode = r.mode; paint(); const i = box.querySelector('#gsEditText'); if (i) i.focus(); } }
+      else if (d.gsDel) save('/rules', { remove: d.gsDel }, (x) => { st.rules = x.rules; });
+      else if (d.gsUnsite) save('/sites', { remove: d.gsUnsite }, (x) => { st.sites = x.sites; });
+    });
+    paint();
+    const first = box.querySelector('.cd-gset-seg button'); if (first) first.focus();
+  }
+
   // THE DESKTOP APP'S NOTIFICATIONS (owner item 8): its window has no web push, so while the app is open (a
   // minimized window too) it watches the chats itself and shows the same notifications, with the same two
   // switches: a long job finished, a job waiting for the owner, Coder's own notify in the open chat.
@@ -756,6 +844,7 @@
   // ── DRAWING ───────────────────────────────────────────────────────────────
   const ICON = {
     page: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5"/></svg>',
+    sliders: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>',
     web: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01"/></svg>',
     cloud: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z"/></svg>',
     globe: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
@@ -994,7 +1083,7 @@
           (e.site ? '<p class="cd-secret-how">On <code>' + esc(e.site) + '</code></p>' : '') +
           (e.warn ? '<p class="cd-card-warn">' + esc(e.warn) + '</p>' : '') +
           (e.why ? '<p class="cd-secret-why">' + esc(e.why) + '</p>' : '') +
-          (e.byRule ? '<p class="cd-card-rule">One of your rules says to ask first.</p>' : '') +
+          (e.bySite ? '<p class="cd-card-rule">Your setting for ' + esc(e.bySite) + ' says to ask first.</p>' : e.byRule ? '<p class="cd-card-rule">One of your rules says to ask first.</p>' : '') +
           // A NEW SCHEDULE (2026-11-09): its task, and no "Always allow" (each schedule is its own OK).
           // What a request sends, or what the form holds (the second docs check, 2026-11-10: Grok Bot's card shows the inputs).
           ((e.request || e.form) && e.detail ? '<span class="cd-secret-l">What it sends</span><pre class="cd-envchange-pre cd-approve-body">' + esc(e.detail) + '</pre>' : e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
@@ -1169,6 +1258,8 @@
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       '<span class="cd-gl-av" aria-hidden="true">' + gloopyFig(26) + '</span><b class="cd-title-bar">' + esc((S.project && S.project.title) || 'Gloopy') + '</b>' +
       (S.webOK && S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"' + (S.web ? ' aria-pressed="true"' : '') + '>' + ICON.web + 'Browser' + (S.web && S.web.control ? ' · You' : S.running ? ' · Live' : '') + '</button>' : '') +
+      // WHAT GLOOPY MAY DO (the owner, 2026-11-10: "all of it"): its settings, your rules and your sites, in one place.
+      (S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdGset">' + ICON.sliders + 'Settings</button>' : '') +
     '</div>' + (S.web ? webHTML() : '') + (S.view ? viewHTML() : '');
   }
   // A PREVIEW OF A FILE (the audit, 2026-11-10): a PDF or a picture Gloopy made, shown over the chat at its signed address
@@ -1839,6 +1930,7 @@
       draw();
     });
     on('#cdViewClose', 'click', () => { S.view = null; draw(); });
+    on('#cdGset', 'click', () => { showGloopySettings(); });
     on('#cdView', 'click', (e) => { if (e.target === e.currentTarget) { S.view = null; draw(); } });
     on('[data-sched-pause]', 'click', (e) => schedCall({ pause: e.currentTarget.dataset.schedPause }, e.currentTarget));
     on('[data-resume]', 'click', (e) => { e.currentTarget.disabled = true; send('Carry on with what you were doing when I stopped you.'); });

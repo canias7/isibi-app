@@ -16,7 +16,18 @@ log (81,000 lines) is in git history.
 - **Gloopy's browser calls itself Chrome.** Sites see ordinary Chrome's name for its version, where before they saw "HeadlessChrome" (WhatsApp Web turned it away for that). The name is the same everywhere a site can read it, including a new tab's first visit. Its "controlled by automation" flag stays on: the name changes, but it doesn't hide that it's automated. I first tried Chromium's newer headless mode, which names itself plainly, but here it crashed when restarted on the same profile, and it contacts Google by itself. So I kept the browser Gloopy already uses.
 - **Your own "Always allow" rules now count in runs you didn't start** (schedules, wake-ups, webhooks): a step one of your rules covers goes ahead there too, unless the check finds another reason to stop. A setting on "Always allow" alone still waits for you in those runs. So "Always allow next time" on an expired card now does what it says.
 
-Tests GL104 (the browser's name, in a real browser) and an updated hold test.
+- **A Settings screen for Gloopy** (the new "Settings" button next to "Browser" in Gloopy's chat). In one place:
+  - **What Gloopy may do on its own:** Ask, Always allow or Never for each of the 12 kinds of step (buying, sending, deleting and so on).
+  - **Your rules:** add one in your own words ("When Gloopy wants to…" / "It should…"), edit it, or delete it, as in Grok Bot's and dots' screens.
+  - **Sites (new):** your choice for a site and its subdomains, as OpenAI's website permissions do:
+    - **Never:** Gloopy doesn't open it, do anything on it, follow a link to it, or read it another way.
+    - **Ask first:** it asks before opening it, and before each step there that would change something.
+    - **Hand off to me:** those steps are yours to do.
+    - **Always allow:** they go ahead unless the check finds another reason to stop (in runs you didn't start too).
+  - A card a site setting caused says so ("Your setting for shop.example says to ask first").
+  - Changing anything here closes a card that's waiting, as changing a rule already did.
+
+Tests GL104 (the browser's name, in a real browser) and GL105 (sites, end to end); the hold test and GL83 updated.
 
 ## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
 
