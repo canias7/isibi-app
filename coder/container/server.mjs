@@ -31,7 +31,7 @@ import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
-import { normMode, MODES } from "./coder-perms.mjs";
+import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
@@ -265,6 +265,8 @@ export function prefsIn(p) {
     diskWarnGib: Number.isInteger(disk) && disk > 0 && disk <= 1000 ? disk : 0,
     // (Settings: refuse a step that would ask, Claude Code's permissions.denyInsteadOfPrompting.)
     denyInstead: x.denyInstead === true,
+    // (Settings: Auto mode turned off, Claude Code's disableAutoMode.)
+    autoOff: x.autoOff === true,
   };
 }
 /**
@@ -509,6 +511,87 @@ export function hooksForTurn(root, account, { github = false } = {}) {
   const urls = merge(mine.httpUrls, repo.httpUrls), vars = merge(mine.httpEnvVars, repo.httpEnvVars);
   return [...mine.list, ...repo.list].map((h) => (h.type === "http" ? { ...h, ...(urls ? { urlsAllowed: urls } : {}), ...(vars ? { envAllowed: vars } : {}) } : h));
 }
+/**
+ * A REPOSITORY'S OWN SETTINGS FILES, as Claude Code's project settings (.claude/settings.json, then .claude/settings.local.json):
+ * read as plain files inside the project, never through a link, at most 1 MB each, as the hooks are (hooksForTurn): [{ file, json }].
+ */
+export function repoSettingsFiles(root) {
+  const out = [];
+  if (!root) return out;
+  let inside = false;
+  try { const rr = realpathSync(root), cd = realpathSync(join(root, ".claude")); inside = cd.startsWith(rr + "/"); } catch { inside = false; }
+  for (const f of inside ? ["settings.json", "settings.local.json"] : []) {
+    let fd = null;
+    try {
+      fd = openSync(join(root, ".claude", f), constants.O_RDONLY | constants.O_NOFOLLOW);
+      const st = fstatSync(fd);
+      if (!st.isFile() || st.size > 1_000_000) continue;
+      const buf = Buffer.alloc(st.size);
+      readSync(fd, buf, 0, st.size, 0);
+      const j = JSON.parse(buf.toString("utf8"));
+      if (j && typeof j === "object" && !Array.isArray(j)) out.push({ file: f, json: j });
+    } catch { /* none here, or not JSON */ } finally { if (fd !== null) { try { closeSync(fd); } catch { /* closed */ } } }
+  }
+  return out;
+}
+/**
+ * THE NAMES A REPOSITORY'S `env` CAN'T SET (Claude Code: "Project and local settings can't set variables that a checked-out
+ * repository shouldn't control": "where Claude Code stores or writes its own files" (HOME, TMPDIR, TMP, TEMP, XDG_*,
+ * CLAUDE_CONFIG_DIR, CLAUDE_CODE_TMPDIR), telemetry that exports session content, how it starts, its sign-in, and the
+ * hosting environment's identity), with Coder's own: the names the owner's variables can't set either (safeVars), Coder's
+ * settings (CODER_…, which the owner sets in Environment), and the network gate's proxy and certificates.
+ */
+export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|XDG_\w*|LD_\w*|NODE_OPTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|CODER_\w*|GOFARTHER_\w*|AI_AGENT|CLAUDE_CONFIG_DIR|CLAUDE_CODE_TMPDIR|CLAUDE_CODE_REMOTE|CLAUDE_CODE_ACCOUNT_UUID|CLAUDE_CODE_OAUTH_\w*|CLAUDE_CODE_PROCESS_WRAPPER|CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_LOG_RAW_API_BODIES|ENABLE_BETA_TRACING_DETAILED|BETA_TRACING_ENDPOINT|OTEL_(LOGS|METRICS|TRACES)_EXPORTER|OTEL_EXPORTER_\w*|(HTTPS?|ALL|NO)_PROXY|NODE_USE_ENV_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)$/i;
+/**
+ * WHAT A REPOSITORY'S OWN SETTINGS GIVE A MESSAGE (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's
+ * permissions docs, "Project allow rules and workspace trust": "permissions.allow rules and permissions.additionalDirectories
+ * entries in a project's .claude/settings.json grant capability, so Claude Code applies them only after you accept the
+ * workspace trust dialog … deny and ask rules aren't affected, since they only restrict"; its `env`, applied "at startup in
+ * -p mode, which never shows the trust dialog"): its deny and ask rules always; its allow rules and working folders once the
+ * owner trusts the repository (the switch in its permission rules), from both files, as Coder can't tell a file of the
+ * owner's own from one the repository brings without running git as the machine's admin; its `env` for the commands
+ * (REPO_ENV_OFF left out; the owner's own variables win, as a cloud session's launch environment does); the read and write
+ * blocks when a file turns one on ("a repository can turn the block on for itself but can't lift yours"), and auto mode off
+ * when one says "disable". `held`: what waits for trust, for Claude Code's warning. Nothing in a job from GitHub.
+ */
+export function repoSettings(root, { trust = false, github = false } = {}) {
+  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, held: [], blockReads: false, blockWrites: false, autoOff: false };
+  if (github) return out;
+  for (const { file, json: j } of repoSettingsFiles(root)) {
+    const p = j.permissions && typeof j.permissions === "object" && !Array.isArray(j.permissions) ? j.permissions : {};
+    const list = (k) => (Array.isArray(p[k]) ? p[k] : []).filter((x) => typeof x === "string" && x.trim() && x.length <= 400 && ruleSaved(x.trim())).map((x) => x.trim());
+    out.deny.push(...list("deny"));
+    out.ask.push(...list("ask"));
+    const allow = list("allow"), dirs = (Array.isArray(p.additionalDirectories) ? p.additionalDirectories : []).filter((x) => typeof x === "string" && x.trim() && x.length <= 400).map((x) => x.trim());
+    if (trust) { out.allow.push(...allow); out.dirs.push(...dirs); }
+    else {
+      if (allow.length) out.held.push({ file: ".claude/" + file, key: "permissions.allow", n: allow.length });
+      if (dirs.length) out.held.push({ file: ".claude/" + file, key: "additionalDirectories", n: dirs.length });
+    }
+    if (j.env && typeof j.env === "object" && !Array.isArray(j.env)) {
+      for (const [k, v] of Object.entries(j.env).slice(0, 50)) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || REPO_ENV_OFF.test(k) || !["string", "number", "boolean"].includes(typeof v)) continue;
+        out.env[k] = String(v).slice(0, 4000);
+      }
+    }
+    if (p.blockReadsOutsideWorkingDirectories === true) out.blockReads = true;
+    if (p.blockWritesOutsideWorkingDirectories === true) out.blockWrites = true;
+    if (p.disableAutoMode === "disable" || j.disableAutoMode === "disable") out.autoOff = true;
+  }
+  const cap = (a, n) => [...new Set(a)].slice(0, n);
+  out.deny = cap(out.deny, 200); out.ask = cap(out.ask, 200); out.allow = cap(out.allow, 200); out.dirs = cap(out.dirs, 20);
+  return out;
+}
+/** Claude Code's warning for what waits for trust ("Ignoring 2 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. …"), with Coder's way to trust. */
+/** The owner's rules with the repository's (repoSettings) after them: deny, ask, and allow once trusted. */
+export function withRepoRules(rules, repoSet) {
+  const r = rules && typeof rules === "object" ? rules : {};
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const s = repoSet || { allow: [], ask: [], deny: [] };
+  if (!s.allow.length && !s.ask.length && !s.deny.length) return rules && typeof rules === "object" ? rules : null;
+  return { ...r, allow: [...arr(r.allow), ...s.allow], ask: [...arr(r.ask), ...s.ask], deny: [...arr(r.deny), ...s.deny] };
+}
+export const heldNote = (h) => "Ignoring " + h.n + " " + h.key + " " + (h.n === 1 ? "entry" : "entries") + " from " + h.file + ": this repository has not been trusted. Turn on \"Trust this repository's settings\" in its permission rules to use them.";
 /** What the chat's monitors have for Coder: their new lines, and how each ended, once; given to Coder at each step. */
 export function monitorNews(project) {
   const out = [];
@@ -1763,6 +1846,31 @@ export async function repoInstructions(dir) {
 export async function repoNotes(dir) {
   return (await repoInstructions(dir)).notes;
 }
+/**
+ * THE WORKING FOLDERS' OWN INSTRUCTIONS (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's
+ * CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "Set to 1 to load memory files from directories specified with --add-dir.
+ * Loads CLAUDE.md, .claude/CLAUDE.md, .claude/rules/*.md, and CLAUDE.local.md. By default, additional directories do not
+ * load memory files"), here the environment's CODER_ADDITIONAL_DIRECTORIES_CODER_MD: each folder's files as the project's
+ * are read (CODER.md, else AGENTS.md; .coder/CODER.md; .coder/rules; a subfolder's own file once Coder reads or changes a
+ * file under it), named by their full path, in what is left of the project's budget (`have`: the notes already loaded).
+ */
+export async function extraInstructions(dirs, have = []) {
+  const notes = [], later = [];
+  let left = NOTES_MAX - (Array.isArray(have) ? have : []).reduce((n, x) => n + String((x && x.text) || "").length, 0);
+  for (const d of Array.isArray(dirs) ? dirs : []) {
+    if (typeof d !== "string" || !isAbsolute(d)) continue;
+    const ins = await repoInstructions(d);
+    for (const n of ins.notes) {
+      const name = d.replace(/\/+$/, "") + "/" + n.name;
+      if (left <= 0) { notes.push({ name, text: "[Not loaded here: the instructions already come to " + NOTES_MAX.toLocaleString("en-US") + " characters. Read " + name + " with the read tool.]" }); continue; }
+      const text = n.text.length > left ? n.text.slice(0, left) + "\n[" + name + " goes on: read the rest of it with the read tool]" : n.text;
+      left -= text.length;
+      notes.push({ name, text });
+    }
+    for (const x of ins.later) later.push({ ...x, name: d.replace(/\/+$/, "") + "/" + x.name, root: d });
+  }
+  return { notes, later };
+}
 
 /**
  * WHAT LOADS ONCE CODER READS OR CHANGES A FILE (repoInstructions' `later`): the path rules that
@@ -1793,11 +1901,12 @@ export function projectRel(dir, path) {
 }
 export function laterNotes(later, dir, path, shown) {
   if (!Array.isArray(later) || !later.length) return "";
-  const rel = projectRel(dir, path);
-  if (!rel) return "";
   const out = [];
   for (const x of later) {
     if (shown.has(x.name)) continue;
+    // (One from a working folder, extraInstructions: a full path inside that folder.)
+    const rel = x.root ? (String(path || "").startsWith(String(x.root).replace(/\/+$/, "") + "/") ? projectRel(x.root, path) : "") : projectRel(dir, path);
+    if (!rel) continue;
     const hit = x.globs ? x.globs.some((g) => globMatch(g, rel)) : rel.startsWith(x.dir + "/");
     if (!hit) continue;
     shown.add(x.name);
@@ -2505,10 +2614,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // for every command, and a setup script run (as `dev`) when this machine first
     // opens the repo, or when the script changed.
     const ownerVars = safeVars(body.setup && body.setup.vars);
+    // THE REPOSITORY'S OWN SETTINGS (repoSettings): its env under the owner's variables; its rules, working folders and
+    // blocks below. What waits for the owner's trust is said in the chat, in Claude Code's words.
+    const repoSet = repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true });
+    for (const h of repoSet.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
     // GIT NEVER WAITS FOR AN EDITOR (Bash docs pass 5; Claude Code sets GIT_EDITOR=true for every command, before the
     // session's own variables): `git commit --amend`, `git rebase --continue` keep the message git prepared, where before they
     // failed ("Terminal is dumb, but EDITOR unset"). An owner's own GIT_EDITOR wins.
-    const extraEnv = { GIT_EDITOR: "true", ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
+    const extraEnv = { GIT_EDITOR: "true", ...repoSet.env, ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
     // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks, AGENT_MARK): after the owner's, so one of theirs cannot hide them.
     Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""), AGENT_MARK);
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
@@ -2520,12 +2633,23 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const workRoots = await Promise.all([dir, ...extras.map((x) => x.dir)].map((d) => realpath(d).catch(() => d)));
     // THE OWNER'S ADDITIONAL WORKING FOLDERS for this repository (extraDirsOf): working directories of the chat too (Accept
     // edits changes files there without asking, a cd there carries over, the read block reads there).
-    const addDirs = (await extraDirsOf(body.rules && body.rules.dirs, home || DEV_HOME)).filter((d) => !workRoots.includes(d));
+    // (And the repository's own, once trusted: a path in its settings counts from the project's folder. Those only it adds stay
+    // out of reach of the write block, as Claude Code's: "A directory that only repository settings add".)
+    const ownAdded = await extraDirsOf(body.rules && body.rules.dirs, home || DEV_HOME);
+    const repoAdded = await extraDirsOf(repoSet.dirs.map((x) => (x.startsWith("/") || x.startsWith("~") ? x : resolve(dir, x))), home || DEV_HOME);
+    const addDirs = [...new Set([...ownAdded, ...repoAdded])].filter((d) => !workRoots.includes(d));
+    const repoOnlyDirs = repoAdded.filter((d) => !ownAdded.includes(d));
     workRoots.push(...addDirs);
     const home0 = workRoots[0];
     // (A setting for Coder itself, read from the owner's variables as given: names starting with CODER_ never reach the
     // commands, see safeVars.)
     const rawVars = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
+    // THE WORKING FOLDERS' OWN INSTRUCTIONS, with CODER_ADDITIONAL_DIRECTORIES_CODER_MD on (see extraInstructions).
+    if (addDirs.length && varOn(rawVars.CODER_ADDITIONAL_DIRECTORIES_CODER_MD)) {
+      const more = await extraInstructions(addDirs, notes);
+      notes.push(...more.notes);
+      later.push(...more.later);
+    }
     const keepHome = /^(1|true|yes|on)$/i.test(String(rawVars.CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR ?? "").trim());
     // What every command of Coder's reads first (tool 4, docs pass 2 and 5): see commandPrefix.
     // (And the chat's hook env file, which SessionStart, CwdChanged and FileChanged hooks write: Claude Code's "Persist
@@ -2724,7 +2848,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
       return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + (Object.keys(ownerVars).length ? "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands; never print their values): " + Object.keys(ownerVars).join(", ") : "") + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     };
-    const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", ins.later);
+    const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", later);
     const lastSend = async () => { if (sender) await sender.flush(); };
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
@@ -2861,6 +2985,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         otherRoots: workRoots.slice(1),
         // CODER'S OWN FOLDERS A READ MAY REACH under the read block (a background command's log, a long output's file).
         ownDirs: [bgDir, outDir],
+        // CODER'S MEMORY FILE, which stays writable under the write block (Claude Code's auto memory does).
+        memFile,
+        // THE WORKING FOLDERS ONLY THE REPOSITORY'S SETTINGS ADD (the write block refuses them).
+        repoDirs: repoOnlyDirs,
         bg: {
           alive: async (pid) => { const j = JOBS.get(pid); return !!j && j.project === project && !j.end && groupAlive(pid); },
           // Whether it still runs; once it ended, its exit code and why (its time limit, the owner's Stop, …).
@@ -2932,7 +3060,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

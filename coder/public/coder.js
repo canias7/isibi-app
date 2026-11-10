@@ -20,6 +20,8 @@
     if (r.status === 200 && r.data) {
       if (Array.isArray(r.data.models) && r.data.models.length) MODELS = r.data.models;
       if (r.data.pick) S.pick = r.data.pick;
+      // (Auto mode turned off in Settings, Claude Code's disableAutoMode: Auto is not offered.)
+      S.autoOff = !!(r.data.prefs && r.data.prefs.autoOff === true);
     }
   }
   // (pickV 2: a pick made on this page counts as chosen; one saved before Low became the default does not. The owner,
@@ -233,7 +235,7 @@
     let autoDraft = typeof prefs.autoMode === 'string' ? prefs.autoMode : '', warns = [];
     const save = async (field, value) => {
       const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
-      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; }
+      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
       else { err = (x.data && x.data.error) || 'Not saved. Try again.'; note = ''; }
       paint();
     };
@@ -256,6 +258,7 @@
         // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
         '<div class="cd-set-head">Permissions</div>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>A step that would wait for your answer is refused at once, and Coder goes on with the rest; after 20 in a row, it stops. Claude Code’s permissions.denyInsteadOfPrompting.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits instead, and Auto is not offered. Claude Code’s disableAutoMode.</span></label>' +
         // AUTO MODE'S CHECKER (Claude Code's autoMode block, from your own settings only).
         '<div class="cd-set-head">Auto mode rules</div>' +
         '<div class="cd-set-hint">What the checker in Auto mode goes by, as in Claude Code’s <code>autoMode</code>: <code>environment</code> (your trusted repos, domains and services), <code>allow</code> (exceptions to blocks), <code>soft_deny</code> (blocked unless you ask for it) and <code>hard_deny</code> (always blocked), each a list of plain sentences. Put <code>"$defaults"</code> in a list to keep the built-in entries; a list without it replaces them. <code>"classifyAllShell": true</code> sends every command to the checker, whatever your allow rules.</div>' +
@@ -272,6 +275,7 @@
       $('cdSetHooks').oninput = (e) => { hooksDraft = e.currentTarget.value; };
       $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
       $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
+      $('cdSetAutoOff').onchange = (e) => save('autoOff', e.currentTarget.checked);
       $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
       $('cdSetAutoSave').onclick = () => save('autoMode', autoDraft);
     };
@@ -1519,19 +1523,21 @@
     { id: 'acceptEdits', name: 'Accept edits', info: 'Automatically accept all file edits', icon: 'edits' },
     { id: 'plan', name: 'Plan', info: 'Create a plan before making changes', icon: 'plan' },
   ];
+  /** The modes offered: all three, or without Auto when Settings turn it off (Claude Code's disableAutoMode). */
+  const modeList = () => MODE_LIST.filter((x) => !(S.autoOff && x.id === 'auto'));
   /** The chat's mode as it is now: a card's switch in the running job (Auto, an approved plan) counts until the job saves it. */
   function chatMode() {
     const p = S.project || {};
     let m = MODE_LIST.some((x) => x.id === p.mode) ? p.mode : 'auto';
-    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan')).at(-1) : null;
+    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan' || e.by === 'autoOff')).at(-1) : null;
     if (sw && MODE_LIST.some((x) => x.id === sw.mode) && Number(sw.at || 0) > Number(p.modeAt || 0)) m = sw.mode;
-    return m;
+    return S.autoOff && m === 'auto' ? 'acceptEdits' : m;
   }
   function modeHTML() {
     const cur = MODE_LIST.find((x) => x.id === chatMode()) || MODE_LIST[0];
     return '<div class="cd-mode-wrap">' +
       '<button type="button" class="cd-mode-btn is-' + cur.id + '" id="cdMode" aria-haspopup="menu" aria-expanded="' + (S.modeMenu ? 'true' : 'false') + '" title="Mode (' + (IS_MAC ? '⌘' : 'Ctrl') + '+Shift+M)">' + ICON[cur.icon] + '<span>' + esc(cur.name) + '</span>' + ICON.chev + '</button>' +
-      (S.modeMenu ? '<div class="cd-modes" role="menu" aria-label="Mode">' + MODE_LIST.map((x, k) =>
+      (S.modeMenu ? '<div class="cd-modes" role="menu" aria-label="Mode">' + modeList().map((x, k) =>
         '<button type="button" role="menuitemradio" aria-checked="' + (x.id === cur.id) + '" class="cd-mode-row' + (x.id === cur.id ? ' is-on' : '') + '" data-mode="' + x.id + '">' +
           '<span class="cd-mode-ic">' + ICON[x.icon] + '</span><span class="cd-mode-t"><b>' + esc(x.name) + '</b><small>' + esc(x.info) + '</small></span>' +
           '<span class="cd-mode-ck">' + (x.id === cur.id ? '✓' : '') + '</span><kbd>' + (k + 1) + '</kbd></button>').join('') +
@@ -1540,7 +1546,7 @@
   }
   async function setChatMode(m) {
     S.modeMenu = false;
-    if (!S.project || !MODE_LIST.some((x) => x.id === m) || m === chatMode()) return draw();
+    if (!S.project || !modeList().some((x) => x.id === m) || m === chatMode()) return draw();
     const was = { mode: S.project.mode, modeAt: S.project.modeAt };
     S.project = { ...S.project, mode: m, modeAt: Date.now() }; // shown at once
     draw();
@@ -1557,10 +1563,10 @@
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
   const PERM_TITLE = { bash: 'Bash command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo' };
   function permOptions(e) {
-    if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']];
+    if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
     const o = [['yes', 'Yes']];
     if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
-    if (e.toAuto) o.push(['auto', 'Yes, and switch to auto mode']);
+    if (e.toAuto && !S.autoOff) o.push(['auto', 'Yes, and switch to auto mode']);
     o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']);
     return o;
   }
@@ -1654,8 +1660,12 @@
         '<form class="cd-rules-add"><select aria-label="Kind">' + KINDS.map(([k, n]) => '<option value="' + k + '">' + n + '</option>').join('') + '</select><input type="text" placeholder="Bash(npm test *)" aria-label="Rule" maxlength="300" autocomplete="off" spellcheck="false"><button type="submit">Add</button></form>' +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : '') +
         (warn ? '<p class="cd-rules-warn">⚠ ' + esc(warn) + '</p>' : '') +
+        // TRUSTING THE REPOSITORY'S OWN SETTINGS (Claude Code's workspace trust): its allow rules and working folders.
+        '<label class="cd-rules-trust"><input type="checkbox" data-rules-trust' + (rules.trust ? ' checked' : '') + '><span><b>Trust this repository’s settings</b>Use the allow rules and working folders in its own <code>.claude/settings.json</code>, as Claude Code does once you trust a folder. Its deny and ask rules always apply.</span></label>' +
         '<div class="cd-sure-row"><button type="button" class="cd-sure-yes" data-close>Done</button></div>';
       box.querySelector('[data-close]').onclick = close;
+      const trustBox = box.querySelector('[data-rules-trust]');
+      if (trustBox) trustBox.onchange = async () => { await change({ kind: 'trust', on: trustBox.checked }); paint(); };
       box.querySelectorAll('[data-rule-del]').forEach((b) => { b.onclick = async () => { await change({ kind: b.dataset.ruleDel, remove: b.dataset.rule }); paint(); }; });
       const form = box.querySelector('.cd-rules-add');
       form.querySelector('select').onchange = (e) => { form.querySelector('input').placeholder = e.currentTarget.value === 'dirs' ? '~/shared or /data/notes' : 'Bash(npm test *)'; };
@@ -2012,7 +2022,7 @@
           if (!S.modeMenu) return;
           if (e.key === 'Escape') { S.modeMenu = false; return draw(); }
           const k = Number(e.key);
-          if (k >= 1 && k <= MODE_LIST.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setChatMode(MODE_LIST[k - 1].id); }
+          if (k >= 1 && k <= modeList().length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setChatMode(modeList()[k - 1].id); }
         });
       }
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }

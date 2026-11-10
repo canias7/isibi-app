@@ -28,7 +28,7 @@ const KEY = "coder/" + UID + "/settings.json";
 test("CD380 Settings, part 1: the longest a background command may run (2 hours unless raised, 24 at most), Stop's choice for what a command started in the background (on unless turned off), and the low-disk warning (2 GB unless changed, 0 is off); saved on the account, checked, and sent with each message to the chat's machine, which keeps its work awake that long", async () => {
   // THE DEFAULTS, AND WHAT IS ACCEPTED.
   const b = fakeBucket({ [KEY]: JSON.stringify({ model: "grok-4.7", effort: "medium", pickV: 2, mode: "acceptEdits" }) });
-  assert.deepEqual((await go(b)).data.prefs, { bgHours: 2, endDetached: true, diskWarnGib: 2, hooks: "", autoMode: "", denyInstead: false });
+  assert.deepEqual((await go(b)).data.prefs, { bgHours: 2, endDetached: true, diskWarnGib: 2, hooks: "", autoMode: "", denyInstead: false, autoOff: false });
   for (const [bad, why] of [[{ bgHours: 3 }, /one of 2, 4, 8, 12, 24 hours/], [{ bgHours: 48 }, /one of/], [{ endDetached: "no" }, /on or off/], [{ diskWarnGib: 3 }, /one of 0, 1, 2, 5, 10, 20 GB/]]) {
     const x = await go(b, { method: "POST", body: JSON.stringify({ prefs: bad }) });
     assert.equal(x.status, 400, JSON.stringify(bad)); assert.match(x.data.error, why);
@@ -36,15 +36,15 @@ test("CD380 Settings, part 1: the longest a background command may run (2 hours 
   // A change keeps the rest, and the model, effort and mode as they were.
   let x = await go(b, { method: "POST", body: JSON.stringify({ prefs: { bgHours: 8 } }) });
   assert.equal(x.status, 200);
-  assert.deepEqual(x.data.prefs, { bgHours: 8, endDetached: true, diskWarnGib: 2, hooks: "", autoMode: "", denyInstead: false });
+  assert.deepEqual(x.data.prefs, { bgHours: 8, endDetached: true, diskWarnGib: 2, hooks: "", autoMode: "", denyInstead: false, autoOff: false });
   x = await go(b, { method: "POST", body: JSON.stringify({ prefs: { endDetached: false, diskWarnGib: 0 } }) });
-  assert.deepEqual(x.data.prefs, { bgHours: 8, endDetached: false, diskWarnGib: 0, hooks: "", autoMode: "", denyInstead: false });
+  assert.deepEqual(x.data.prefs, { bgHours: 8, endDetached: false, diskWarnGib: 0, hooks: "", autoMode: "", denyInstead: false, autoOff: false });
   const saved = JSON.parse(b.m.get(KEY));
   assert.deepEqual([saved.model, saved.effort, saved.pickV, saved.mode, saved.bgHours, saved.endDetached, saved.diskWarnGib], ["grok-4.7", "medium", 2, "acceptEdits", 8, false, 0]);
   assert.deepEqual((await go(b)).data.pick, { model: "grok-4.7", effort: "medium", mode: "acceptEdits" });
   // The effort picker's own save keeps the settings.
   await go(b, { method: "POST", body: JSON.stringify({ model: "grok-4.7", effort: "high", pickV: 2 }) });
-  assert.deepEqual((await go(b)).data.prefs, { bgHours: 8, endDetached: false, diskWarnGib: 0, hooks: "", autoMode: "", denyInstead: false });
+  assert.deepEqual((await go(b)).data.prefs, { bgHours: 8, endDetached: false, diskWarnGib: 0, hooks: "", autoMode: "", denyInstead: false, autoOff: false });
   // WHAT THE MACHINE IS GIVEN with each message.
   assert.deepEqual(R.machinePrefs(JSON.parse(b.m.get(KEY))), { bgMaxMs: 8 * 3_600_000, endDetached: false, diskWarnGib: 0 });
   assert.deepEqual(R.machinePrefs({}), { bgMaxMs: 7_200_000, endDetached: true, diskWarnGib: 2 });

@@ -38,7 +38,8 @@ test("CD354 pgrep, pkill and pidwait leave the command's own shells out (Claude 
 
 test("CD355 git never waits for an editor (Claude Code sets GIT_EDITOR=true for every command, before the session's own variables): the owner's own GIT_EDITOR wins", async () => {
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.ownerVars,/);
+  // (Pass 6: the repository's own env between them, under the owner's variables.)
+  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.repoSet\.env, \.\.\.ownerVars,/);
   // Why: as Coder's commands run (no terminal, TERM=dumb), git commit --amend failed; with it, the message is kept.
   const base = await mkdtemp(join(tmpdir(), "coder-gited-"));
   try {

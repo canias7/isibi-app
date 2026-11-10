@@ -439,6 +439,17 @@ export function withoutDenied(text, denied, empty = "no matches") {
 }
 /** The file tools' refusal under the read block (Claude Code 2.1.322's words: "/etc/hostname is outside /home/user/cc-live-bash; the permissions.blockReadsOutsideWorkingDirectories setting blocks reads outside the working directories. Ask the user to add the directory with /add-dir, or to remove that setting."), with Coder's setting; Coder has no /add-dir. */
 export const READ_BLOCKED = (path, dirs) => "error: " + path + " is outside " + (Array.isArray(dirs) ? dirs : []).filter((x) => typeof x === "string" && x).join(", ") + "; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories. Ask the owner to remove that setting.";
+/**
+ * The file tools' refusals under the write block (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code
+ * 2.1.322's words: "<path> is outside <dirs>; the permissions.blockWritesOutsideWorkingDirectories setting blocks writes
+ * outside the working directories. Ask the user to add the directory with /add-dir, or to remove that setting.", and for its
+ * settings files "<path>: Writes to Claude Code settings files are blocked while permissions.blockWritesOutsideWorkingDirectories
+ * is on, because a settings file can lift that block."), with Coder's setting; Coder's /add-dir is the owner's working folders.
+ */
+export const WRITE_BLOCKED = (path, dirs) => "error: " + path + " is outside " + (Array.isArray(dirs) ? dirs : []).filter((x) => typeof x === "string" && x).join(", ") + "; the CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES setting blocks writes outside the working directories. Ask the owner to add the directory as a working folder (the rules' Working folders), or to remove that setting.";
+export const SETTINGS_WRITE_BLOCKED = (path) => "error: " + path + ": Writes to Claude Code settings files are blocked while CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES is on, because a settings file can lift that block.";
+/** A Claude Code settings file a repository has (.claude/settings.json, .claude/settings.local.json), by its full path. */
+export const settingsFile = (p) => /(^|\/)\.claude\/settings(\.local)?\.json$/.test(String(p || ""));
 /** Said of one moved to the background at its timeout (Claude Code's words in the cloud: 30 minutes from the move). */
 export const BG_MOVED_LIMIT = "If it is still running after 30m in the background, it will be stopped and you will be notified.";
 /** A time as Claude Code says it in that sentence ("30m", "1h 30m", "2h"). */
@@ -1053,7 +1064,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, planExit = "auto", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
@@ -1064,10 +1075,17 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
   // Plan): the owner's pick for this chat, which they may change while Coder works (deps.mode, from Coder's machine), and
   // which a card may change (switch to Auto; an approved plan). A job from GitHub, where no one can answer, is always Auto.
-  let modeHere = github ? "auto" : normMode(mode);
-  const modeNow = () => { if (github) return "auto"; try { if (typeof deps.mode === "function") { const m = deps.mode(); if (MODES.includes(m)) modeHere = m; } } catch { /* the last one known */ } return modeHere; };
-  const setMode = (m, by) => { modeHere = normMode(m); try { if (typeof deps.setMode === "function") deps.setMode(modeHere); } catch { /* told in the record */ } emit({ type: "mode", mode: modeHere, by }); };
+  // AUTO MODE TURNED OFF (Bash docs pass 6; Claude Code's disableAutoMode "disable": "Any session that would otherwise start
+  // in auto mode … starts in default instead"), by Settings or the repository's own settings: Accept edits, Coder's nearest to
+  // Claude Code's default mode, for any way into Auto (the start, the owner's pick, a card, an approved plan). A job from
+  // GitHub keeps its own way.
+  const offAuto = (m) => (autoOff === true && !github && normMode(m) === "auto" ? "acceptEdits" : normMode(m));
+  let modeHere = github ? "auto" : offAuto(mode);
+  const modeNow = () => { if (github) return "auto"; try { if (typeof deps.mode === "function") { const m = deps.mode(); if (MODES.includes(m)) modeHere = offAuto(m); } } catch { /* the last one known */ } return modeHere; };
+  const setMode = (m, by) => { modeHere = offAuto(m); try { if (typeof deps.setMode === "function") deps.setMode(modeHere); } catch { /* told in the record */ } emit({ type: "mode", mode: modeHere, by }); };
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's allow, ask and deny), and those "don't ask again" added in this job.
+  // (A chat in Auto when Auto mode is off: the switch to Accept edits is said, and saved with the chat as a card's is.)
+  if (autoOff === true && !github && normMode(mode) === "auto") { setMode("acceptEdits", "autoOff"); emit({ type: "note", text: "Auto mode is turned off, so this chat works in Accept edits." }); }
   const ownRules = { allow: [], ask: [], deny: [] };
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
   const rulesAdded = [];
@@ -1977,7 +1995,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let approval = null;
         if (rmWhy || ask || dec.verdict === "ask" || pausedCard) {
           const once = !!(rmWhy || ask || dec.byRule || pausedCard);
-          const card = { tool: "bash", id: c.id, ...cardLines(command), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" ? { toAuto: true } : {}) };
+          const card = { tool: "bash", id: c.id, ...cardLines(command), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
           approval = await askOwner(card);
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -1985,7 +2003,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
-          if (approval.choice === "auto" && card.toAuto) setMode("auto", "card");
+          if (approval.choice === "auto" && card.toAuto && autoOff !== true) setMode("auto", "card");
           // (The owner's Yes while auto mode was paused resumes it: Claude Code, "Approving the prompted action resumes auto mode".)
           if (pausedCard) resume(checkSt);
         }
@@ -2255,6 +2273,28 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           const within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
           const to = within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
           if (!within(full) || !within(to)) { const msg = READ_BLOCKED(within(full) && to ? to : full, workdirs); emit({ type: "result", id: c.id, code: 1, output: msg }); reply(msg); continue; }
+        }
+        // THE WRITE BLOCK FOR THE FILE TOOLS (Bash docs pass 6, outside Bash; Claude Code's
+        // permissions.blockWritesOutsideWorkingDirectories: "Make the Write, Edit, and NotebookEdit tools refuse paths outside
+        // your working directories in every permission mode … apart from some of Claude Code's own files"; its settings files
+        // "inside the working directories too, because a settings file can lift the block"; and "A directory that only
+        // repository settings add"): with the environment's CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES on, a write or edit
+        // outside the working folders (its links followed) is refused, and one to a repository's .claude/settings.json or
+        // .claude/settings.local.json anywhere; Coder's own files stay writable (its scratch folder, its memory file), as
+        // Claude Code's scratchpad and auto memory do. Commands are not limited (Claude Code: "The key doesn't limit shell
+        // commands").
+        if (writeBlock && (c.name === "write" || c.name === "edit")) {
+          const full = targetOf();
+          const repoOnly = Array.isArray(deps.repoDirs) ? deps.repoDirs : [];
+          const dirs = workdirs.filter((d) => !repoOnly.includes(d));
+          const own = [...dirs, SCRATCH];
+          const within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
+          const mem = typeof deps.memFile === "string" && deps.memFile ? deps.memFile : "";
+          const to = full === mem ? mem : within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
+          let msg = "";
+          if (settingsFile(full) || settingsFile(to)) msg = SETTINGS_WRITE_BLOCKED(full);
+          else if (full !== mem && (!within(full) || !within(to))) msg = WRITE_BLOCKED(within(full) && to ? to : full, dirs);
+          if (msg) { emit({ type: "result", id: c.id, code: 1, output: msg }); reply(msg); continue; }
         }
         // THE OWNER'S READ AND EDIT RULES (Bash docs, the owner, 2026-11-10: "yea do all 4"; fileToolDecision): a deny rule refuses
         // the call in Claude Code's words ("Permission to read … has been denied.", "File is covered by a Read deny rule in your

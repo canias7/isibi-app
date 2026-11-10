@@ -465,9 +465,9 @@ test("CD327 the page: the mode's chip beside the model and effort, its menu like
   // Claude Code's choices, and the plan's.
   assert.match(page, /const o = \[\['yes', 'Yes'\]\];/);
   assert.match(page, /o\.push\(\['always', 'Yes, and don\\'t ask again for ' \+/);
-  assert.match(page, /if \(e\.toAuto\) o\.push\(\['auto', 'Yes, and switch to auto mode'\]\);/);
+  assert.match(page, /if \(e\.toAuto && !S\.autoOff\) o\.push\(\['auto', 'Yes, and switch to auto mode'\]\);/);
   assert.match(page, /o\.push\(\['no', e\.tool === 'web_fetch' \? 'No, and tell Coder what to do differently' : 'No'\]\);/);
-  assert.match(page, /return \[\['auto', 'Yes, and use auto mode'\], \['acceptEdits', 'Yes, and accept edits'\], \['no', 'No, keep planning'\]\];/);
+  assert.match(page, /return \[\['auto', 'Yes, and use auto mode'\], \['acceptEdits', 'Yes, and accept edits'\], \['no', 'No, keep planning'\]\]\.filter\(\(\[c\]\) => !\(S\.autoOff && c === 'auto'\)\);/);
   assert.match(page, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid, choice, comment \}\) \}\)/);
   assert.match(page, /else if \(e\.type === 'permission'\) out\.push\(permHTML\(e\)\);/);
   assert.match(page, /state === 'wait' \? '<span class="cd-st cd-st-wait">waiting for you<\/span>'/);

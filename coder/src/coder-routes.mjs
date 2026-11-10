@@ -65,6 +65,9 @@ export function savedEffort(saved) {
  * - `autoMode`: the owner's rules for auto mode's checker (the owner, 2026-11-10: "yea do all of them"; Claude Code's
  *   `autoMode` block, which it reads only from the user's own settings), as JSON text, checked when saved (autoModeSetting);
  * - `denyInstead`: refuse a step that would ask, instead of asking (Claude Code's permissions.denyInsteadOfPrompting).
+ * - `autoOff`: Auto mode turned off (Bash docs pass 6; Claude Code's disableAutoMode "disable": "Remove auto mode from the
+ *   Shift+Tab cycle. Any session that would otherwise start in auto mode … starts in default instead"): chats start in Accept
+ *   edits, Coder's nearest to Claude Code's default mode, and Auto is not offered (noAuto).
  */
 export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
 export function prefsOf(saved) {
@@ -76,8 +79,11 @@ export function prefsOf(saved) {
     hooks: typeof s.hooks === "string" && hooksSetting(s.hooks).ok ? s.hooks : "",
     autoMode: typeof s.autoMode === "string" && autoModeSetting(s.autoMode).ok ? s.autoMode : "",
     denyInstead: s.denyInstead === true,
+    autoOff: s.autoOff === true,
   };
 }
+/** A mode under the owner's Settings: Auto, with Auto mode turned off, is Accept edits. */
+export const noAuto = (m, saved) => (m === "auto" && prefsOf(saved).autoOff ? "acceptEdits" : m);
 /** A change to the settings, checked: `{ prefs }` (only what was sent, with the rest kept) or `{ error }`. */
 export function prefsChange(saved, body) {
   const now = prefsOf(saved), b = body && typeof body === "object" ? body : {};
@@ -88,10 +94,11 @@ export function prefsChange(saved, body) {
   let warnings = [];
   if ("autoMode" in b) { if (typeof b.autoMode !== "string") return { error: "The auto mode rules are JSON text." }; const a = autoModeSetting(b.autoMode); if (!a.ok) return { error: a.error }; warnings = a.warnings; }
   if ("denyInstead" in b && typeof b.denyInstead !== "boolean") return { error: "Refusing instead of asking is on or off." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead }, ...(warnings.length ? { warnings } : {}) };
+  if ("autoOff" in b && typeof b.autoOff !== "boolean") return { error: "Turning Auto mode off is on or off." };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
-export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}) }; };
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}) }; };
 /** The owner's auto mode rules as Coder's machine takes them (Claude Code's autoMode block), or null. */
 export const machineAutoMode = (saved) => { const a = autoModeSetting(prefsOf(saved).autoMode); return a.ok && a.value ? a.value : null; };
 /** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */
@@ -285,6 +292,8 @@ export async function rulesOf(bucket, uid, repo) {
   for (const k of Object.keys(out)) out[k] = [...new Set((Array.isArray(r && r[k]) ? r[k] : []).filter((x) => typeof x === "string" && x.length <= 400 && ruleSaved(x)))].slice(0, RULES_MAX);
   // (Its working folders: Claude Code's additionalDirectories.)
   out.dirs = [...new Set((Array.isArray(r && r.dirs) ? r.dirs : []).filter((x) => typeof x === "string" && !dirProblem(x)).map((x) => x.trim()))].slice(0, DIRS_MAX);
+  // (Whether the owner trusts the repository's own settings, Claude Code's workspace trust: see setTrust.)
+  if (r && r.trust === true) out.trust = true;
   return out;
 }
 /**
@@ -304,6 +313,18 @@ export function dirProblem(d) {
   return "";
 }
 /** Adds (or, with `remove`, takes out) rules of one kind; a rule moves out of the other kinds when added to one. */
+/**
+ * TRUSTING A REPOSITORY'S OWN SETTINGS (Bash docs pass 6; Claude Code's workspace trust: "permissions.allow rules and
+ * permissions.additionalDirectories entries in a project's .claude/settings.json grant capability, so Claude Code applies them
+ * only after you accept the workspace trust dialog"): on or off, kept with the repository's rules; Coder's machine then uses
+ * them (repoSettings).
+ */
+export async function setTrust(bucket, uid, repo, on) {
+  const now = await rulesOf(bucket, uid, repo);
+  if (on === true) now.trust = true; else delete now.trust;
+  await putJson(bucket, rulesKey(uid, repo), now);
+  return now;
+}
 export async function changeRules(bucket, uid, repo, kind, list, { remove = false } = {}) {
   const now = await rulesOf(bucket, uid, repo);
   if (kind === "dirs") {
@@ -702,7 +723,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const saved = await getJson(bucket, settingsKey(uid), {});
     // (`mode`: the permission mode new chats start in: the last one picked other than Plan, as in Claude Code's desktop app
     // and VS Code, where "Picking Plan … applies to that conversation only".)
-    const startMode = (m) => (m === "acceptEdits" ? "acceptEdits" : "auto");
+    const startMode = (m) => noAuto(m === "acceptEdits" ? "acceptEdits" : "auto", saved);
     if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: { ...pickModel(saved.model, savedEffort(saved)), mode: startMode(saved.mode) }, prefs: prefsOf(saved) });
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -710,7 +731,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const change = body.prefs && typeof body.prefs === "object" ? prefsChange(saved, body.prefs) : { prefs: prefsOf(saved) };
     if (change.error) return json({ error: change.error }, 400);
     const chosen = pickModel(body.model ?? saved.model, body.effort ?? savedEffort(saved));
-    const mode = MODES.includes(body.mode) && body.mode !== "plan" ? body.mode : startMode(saved.mode);
+    const mode = noAuto(MODES.includes(body.mode) && body.mode !== "plan" ? body.mode : startMode(saved.mode), { ...saved, ...change.prefs });
     // (A page from before Low became the default sends no pickV: what it saves still counts as the old default.)
     const keepPick = body.prefs && typeof body.prefs === "object" && !("model" in body) && !("effort" in body) ? { model: saved.model, effort: saved.effort } : chosen;
     await putJson(bucket, settingsKey(uid), { ...saved, ...keepPick, mode, ...(body.pickV === PICK_V || saved.pickV === PICK_V ? { pickV: PICK_V } : {}), ...change.prefs });
@@ -728,6 +749,12 @@ export async function handleCoder(request, env, ctx, deps) {
     const r = String(body.repo || "");
     if (!REPO.test(r)) return json({ error: "which repository?" }, 400);
     const kind = String(body.kind || "");
+    // TRUSTING THE REPOSITORY'S OWN SETTINGS (setTrust): { kind: "trust", on }.
+    if (kind === "trust") {
+      if (typeof body.on !== "boolean") return json({ error: "Trust is on or off." }, 400);
+      const rules = await setTrust(bucket, uid, r, body.on);
+      return json({ ok: true, repo: r, rules, notices: notices(rules) });
+    }
     if (!["allow", "ask", "deny", "dirs"].includes(kind)) return json({ error: "kind is allow, ask, deny or dirs" }, 400);
     // A WORKING FOLDER (Claude Code's additionalDirectories): its path checked, then kept with the repository's rules.
     if (kind === "dirs") {
@@ -821,7 +848,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // ITS PERMISSION MODE (Claude Code's cloud sessions: picked "both when you create the task and while the session
     // runs"): the one picked on the new chat's page, else the account's last pick (never Plan, which is for one chat).
     const picks = await getJson(bucket, settingsKey(uid), {});
-    const mode = MODES.includes(body.mode) ? body.mode : picks.mode === "acceptEdits" ? "acceptEdits" : "auto";
+    const mode = noAuto(MODES.includes(body.mode) ? body.mode : picks.mode === "acceptEdits" ? "acceptEdits" : "auto", picks);
     const meta = { id, name: repo, repo, title: "", base, branch: "coder/" + id, turn: 0, saved: 0, status: "idle", pr: null, at: Date.now(), envId, mode, ...(r.readOnly ? { readOnly: true } : {}) };
     await saveMeta(bucket, uid, meta);
     // Whose this branch is, so GitHub's news about its pull request (failed
@@ -852,7 +879,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // message; /plan alone only changes the mode. Never from GitHub, where strangers write.
     if (body.fromGithub !== true) {
       const planned = typeof body.text === "string" ? /^\s*\/plan(?:\s+([\s\S]*))?$/i.exec(body.text) : null;
-      const want = planned ? "plan" : MODES.includes(body.mode) ? body.mode : "";
+      const want = planned ? "plan" : MODES.includes(body.mode) ? noAuto(body.mode, await getJson(bucket, settingsKey(uid), {})) : "";
       if (planned) body.text = String(planned[1] || "").trim();
       if (want && want !== normMode(meta.mode)) {
         const saved = await saveMode(bucket, uid, id, want);
@@ -1006,7 +1033,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), prePlanMode: saved.mode === "acceptEdits" ? "acceptEdits" : "auto", rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1045,6 +1072,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (action === "mode" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     if (!MODES.includes(body.mode)) return json({ error: "the modes are Auto, Accept edits and Plan" }, 400);
+    if (body.mode === "auto" && prefsOf(await getJson(bucket, settingsKey(uid), {})).autoOff) return json({ error: "Auto mode is turned off in Settings." }, 400);
     const next = await saveMode(bucket, uid, id, body.mode);
     if (body.mode !== "plan") { const picks = await getJson(bucket, settingsKey(uid), {}); if (picks.mode !== body.mode) await putJson(bucket, settingsKey(uid), { ...picks, mode: body.mode }); }
     let told = false;
@@ -1224,7 +1252,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const background = bgListOf(s.result.background);
       // THE MODE A CARD SWITCHED TO (Auto from a command's card; Auto or Accept edits from an approved plan), unless the owner
       // picked one since; and the rules "Yes, and don't ask again" added for this repository.
-      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan")).at(-1);
+      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
       if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
       // A HOOK'S TITLE FOR THE CHAT (Claude Code's sessionTitle, from a SessionStart or UserPromptSubmit hook): the chat's name.
