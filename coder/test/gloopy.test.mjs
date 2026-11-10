@@ -4939,4 +4939,31 @@ test("GL102 (2026-11-10) found in the live test: on a short window the live view
   assert.match(css, /\.cd-web-screen\.is-you img \{ max-height: max\(160px, min\(52vh, calc\(100vh - 390px\)\)\); \}/, "with control, two more rows of tools");
   assert.match(css, /\.cd-cmd-verb:has\(> \.cd-cmd-said\) \{ flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
   assert.match(ui, /'<span class="cd-cmd-said" title="' \+ esc\(said\) \+ '">' \+ esc\(said\) \+ '<\/span>'/);
+  // On a phone the foot's words take the whole line, its buttons under them (squeezed, they stood one word to a line).
+  assert.match(css, /@media \(max-width: 640px\) \{ \.cd-web \{ width: calc\(100% - 20px\); margin-top: 8px; \} \.cd-web-screen img \{ max-height: 40vh; \} \.cd-web-foot \{ flex-wrap: wrap; \} \.cd-web-foot p \{ flex-basis: 100%; \} \.cd-web-foot button \{ flex: 1; \} \}/);
+});
+
+test("GL103 (2026-11-10) for real (where Chromium is installed), found in the live test: a checkbox with no label is named by the words beside it, and an element of no name is said by its kind, never by its number (\"Clicked f10e11\")", async (t) => {
+  const { makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const site = http.createServer((q, r) => { r.writeHead(200, { "content-type": "text/html" }); r.end('<title>Boxes</title><form><input type=checkbox> checkbox 1<br><input type=checkbox checked> checkbox 2<br><input type=radio name=s> Small<br><button type=button style="width:30px;height:30px"></button></form>'); });
+  const S = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-boxes-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    const a = await hub.act({ action: "open", url: S + "/" });
+    const boxes = [...a.text.matchAll(/checkbox[^\n]*?\[ref=([a-z0-9]+)\]/g)].map((m) => m[1]);
+    assert.equal(boxes.length, 2, a.text);
+    assert.equal((await hub.describe(boxes[0])).element.name, "checkbox 1");
+    let r = await hub.act({ action: "click", ref: boxes[0] });
+    assert.match(r.text, /^Did: Clicked “checkbox 1”$/m);
+    r = await hub.act({ action: "click", ref: refOf(a.text, /radio[^\n]*?\[ref=([a-z0-9]+)\]/) });
+    assert.match(r.text, /^Did: Clicked “Small”$/m);
+    r = await hub.act({ action: "click", ref: refOf(a.text, /button[^\n]*?\[ref=([a-z0-9]+)\]/) });
+    assert.match(r.text, /^Did: Clicked the button$/m, "no number");
+    assert.equal((await hub.screen({})).last.did, "Clicked the button");
+  } finally {
+    (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    site.close();
+  }
 });

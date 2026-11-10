@@ -308,7 +308,9 @@
 .cd-web-foot p { flex: 1; margin: 0; font-size: 13px; color: #6b7280; }
 .cd-web-foot .cd-web-err { color: #b42318; }
 .cd-web-foot button { border-radius: 999px; padding: 9px 18px; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
-@media (max-width: 640px) { .cd-web { width: calc(100% - 20px); margin-top: 8px; } .cd-web-screen img { max-height: 40vh; } .cd-web-foot { flex-wrap: wrap; } }
+/* On a phone the foot's words take the whole line and its buttons go under them (live test, 2026-11-10: squeezed beside
+   Teach Gloopy and Hand it back, the words stood one to a line). */
+@media (max-width: 640px) { .cd-web { width: calc(100% - 20px); margin-top: 8px; } .cd-web-screen img { max-height: 40vh; } .cd-web-foot { flex-wrap: wrap; } .cd-web-foot p { flex-basis: 100%; } .cd-web-foot button { flex: 1; } }
 /* While you have control (and on a phone, while the view is open), the view takes the chat's place, so no cut-off strip of
    the chat shows under it; the message box stays at the bottom. Closing the view (×) brings the chat back. */
 .cd:has(.cd-web-screen.is-you) > .cd-log { display: none; }

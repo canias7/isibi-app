@@ -568,7 +568,10 @@ export async function serve(dir) {
     const c = n instanceof HTMLLabelElement && n.control ? n.control : n;
     const field = (c instanceof HTMLInputElement && !/^(submit|button|reset|image)$/i.test(c.type)) || c instanceof HTMLTextAreaElement || c instanceof HTMLSelectElement;
     const labels = c.labels ? [...c.labels].map((l) => l.innerText).join(" ") : "";
-    const name = n !== c ? n.innerText : field ? c.getAttribute("aria-label") || c.getAttribute("title") || labels || c.getAttribute("placeholder") || c.getAttribute("name") || ""
+    // A checkbox or a choice with no label of its own: the words beside it ("<input type=checkbox> checkbox 1": the live
+    // test, 2026-11-10, said "Clicked f10e11").
+    const beside = () => { const w = (s) => (!s ? "" : s.nodeType === 3 ? s.textContent : s.nodeType === 1 && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(s.tagName) ? s.textContent : ""); return String(w(c.nextSibling) || w(c.previousSibling) || "").replace(/\s+/g, " ").trim().slice(0, 80); };
+    const name = n !== c ? n.innerText : field ? c.getAttribute("aria-label") || c.getAttribute("title") || labels || c.getAttribute("placeholder") || (/^(checkbox|radio)$/i.test(c.type) ? beside() : "") || c.getAttribute("name") || ""
       : n.getAttribute("aria-label") || n.getAttribute("title") || n.innerText || n.value || n.getAttribute("placeholder") || n.getAttribute("name") || n.getAttribute("alt") || "";
     const ac = String(c.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
     const attrs = [c.getAttribute("name"), c.id, c.getAttribute("data-fieldtype"), c.getAttribute("data-elements-stable-field-name")].join(" ").toLowerCase();
@@ -627,7 +630,9 @@ export async function serve(dir) {
   const run = async (ask) => {
     const t0 = Date.now();
     const el = ask.ref ? await about(ask.ref) : null;
-    const it = el && el.name ? quote(el.name) : ask.ref;
+    // An element of no name is said by its kind, never by its number ("Clicked the checkbox", not "Clicked f10e11").
+    const kind = (e) => (e.tag === "a" ? "the link" : e.tag === "button" || e.role === "button" || /^(submit|button|reset|image)$/.test(e.type) ? "the button" : e.type === "checkbox" ? "the checkbox" : e.type === "radio" ? "the choice" : e.tag === "select" ? "the list" : /^(input|textarea)$/.test(e.tag) ? "the field" : e.tag === "img" ? "the picture" : "");
+    const it = el && el.name ? quote(el.name) : (el && kind(el)) || ask.ref;
     const file = ask.action === "upload" ? await stagedFile(ask.staged) : null;
     let did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back", screenshot: "Took a screenshot of " + (ask.full ? "the whole page" : "what is in view"), upload: "Uploaded " + quote(file ? file.name : "") + " with " + it }[ask.action];
     if (ask.action === "upload" && ask.submit_ref) { const b = await about(ask.submit_ref); did += " and clicked " + (b && b.name ? quote(b.name) : ask.submit_ref); }

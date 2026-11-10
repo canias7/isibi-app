@@ -13,9 +13,28 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
 
-Being tested now on test.gofarther.dev with Grok, recorded; the full results go here when it's done.
+Tried on test.gofarther.dev with Grok, recorded (two videos, 50 and 15 minutes): every part of the browser, Gloopy's side and yours.
 
-**Found and fixed so far:**
+**Gloopy's own steps, all working:**
+- A form (httpbin's practice pizza order): opening it, typing, a choice, ticks, a time, a note. With an "Ask first" rule for forms there, only Submit asked, on a card listing what the form sends; after Allow it went, and Gloopy read back the result.
+- Typing with Enter, scrolling, the End key, Back, and a screenshot sent to you as a file.
+- An upload with its own button, in one step. A download by clicking a link, kept as "dummy (2).pdf" with the first copy untouched.
+- The page's pop-ups: a message closed with OK; "Are you sure?" answered OK because you asked; a box wanting typed text cancelled. The browser shows your time zone (America/New_York on the test computer).
+- A "Never" rule for example.org: Gloopy refused by itself, before the check had to.
+- A CAPTCHA and a QR code (Telegram) handed to you with clear steps. "Not now" and "Done, hand it back" both worked, and Gloopy never tried to get around either.
+- Cards: Allow, Not now, and Always allow (it saved "Click the button “Submit order” on httpbin.org").
+
+**Your side, all working:**
+- The live view marks where Gloopy acts and says its last step.
+- Stop and take over in the middle of a task.
+- The address box, Back, Forward and Reload.
+- A file from your device when the page asks for one.
+- Typing and keys.
+- Teach Gloopy: it wrote down your steps (a password you typed was not kept) and saved a how-to. Asked later, it did the task that way.
+- Mark a part: drag over it, write your note, and Gloopy answers about that part.
+- On a phone-sized screen too.
+
+**Found and fixed (each tried again live after the fix):**
 - **The live view stayed paused when Gloopy started working.** It pauses after 2 minutes of only watching, which is meant to happen. But when you then sent a message, it said "Gloopy is using it" over an old picture (or "asleep"), without Gloopy's steps, until you pressed Refresh. Now a turn that starts wakes it, and while Gloopy's computer wakes it says so.
 - **The card's form list doubled colons** ("Customer name:: Test Owner"), because the page's own label ends with one. Now it reads "Customer name: Test Owner".
 - **While a step ran, the chat showed the element's number** ("Typing into f2e23"). Now it says "Typing" or "Clicking", and once done, the step's own words as before ("Typed “Margherita pizza” into “Search Wikipedia”").
@@ -27,8 +46,17 @@ Being tested now on test.gofarther.dev with Grok, recorded; the full results go 
 - **A marked part brought text from outside it.** Marking Wikipedia's info box gave Gloopy the article's first paragraph too, because that paragraph flows around the box and its frame runs underneath. Gloopy's answer mixed in facts that weren't in the box. Now a mark gives only the words that show inside it (not hidden under a pop-up), and every link or button in it, where before small ones could be missed.
 - **On a short window the live view cut off its own "Hand it back" button** (and "Teach Gloopy") once you took control. Now the picture leaves room for them, and the panel scrolls rather than cut anything off.
 - **A long step line pushed the chat sideways** (a handoff's whole task on one line). Now it ends in "…", and shows whole when you hover over it.
+- **On a phone, with control, the line above "Teach Gloopy" and "Hand it back" stood one word to a line.** Now it takes the whole width and the buttons go under it.
+- **"Clicked f10e11":** checkboxes with no label of their own (their words just beside them) were named by an internal number. Now they take the words beside them, and anything still nameless is said by its kind ("Clicked the checkbox").
 
-Tests GL96 to GL102 are new; GL13 was updated for the hover text.
+**Outside the browser (not fixed; your call):**
+- After a long chat is summarised, Gloopy re-read two old text files "again, after the summary" before answering about a pizza order. That costs time, and the files had nothing to do with the order.
+
+**Your call:**
+1. **Sites that refuse our browser.** WhatsApp Web said it only works with Google Chrome 100+, because our browser tells sites it is "HeadlessChrome". It could present itself as ordinary Chrome, as a person's browser does. Gloopy itself never gets around a refusal; this is only about what its browser says it is.
+2. **Still open from the docs check:** "Always allow next time" in runs you didn't start.
+
+Tests GL96 to GL103 are new; GL13 was updated for the hover text.
 
 ## 2026-11-10: The browser's missing pieces, added (your word: "if we missing stuff in the browser tool add it and then test the entire browser tool")
 
