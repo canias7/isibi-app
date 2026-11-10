@@ -26,8 +26,8 @@ import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs } from "./coder-agent.mjs";
-import { hooksFrom } from "./coder-hooks.mjs";
+import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT } from "./coder-agent.mjs";
+import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed } from "./coder-hooks.mjs";
 import { normMode, MODES } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
@@ -145,6 +145,27 @@ export function envFileLine(value, project) {
   return "if [ -r " + path + " ]; then . " + path + "; fi\n";
 }
 /**
+ * THE CHAT'S HOOK ENV FILE (Claude Code's CLAUDE_ENV_FILE as its hooks get it: "SessionStart hooks have access to the
+ * CLAUDE_ENV_FILE environment variable, which provides a file path where you can persist environment variables for the shell
+ * commands Claude runs later in the session"): in the AI's home, one per chat; the line every command starts with.
+ */
+export const hookEnvLine = (project) => { const f = '"$HOME"/.coder-hook-env/' + shellWord(String(project) + ".sh"); return "if [ -r " + f + " ]; then . " + f + "; fi\n"; };
+/**
+ * WHICH OF CODER'S OTHER PROCESSES THE MEMORY CAP COVERS (Claude Code's CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE, under Coder's
+ * name CODER_TOOL_MEMORY_CGROUP_EXCLUDE: "a comma-separated list of the kinds to exempt from the cap; Claude Code applies the
+ * cap to every kind not on your list. Set it to none to cap every kind, or to all-new to cap only Bash, PowerShell, and Monitor
+ * tool commands"; "Claude Code ignores names it doesn't recognize"). Coder's kinds: `hooks`, `lsp` (code lookups) and `helper`
+ * (its file tools and own helper commands). Unset: only the AI's commands and monitors, as all-new.
+ */
+export const MEM_KINDS = ["hooks", "lsp", "helper"];
+export function memCappedKinds(value) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (!v || v === "all-new") return new Set();
+  if (v === "none") return new Set(MEM_KINDS);
+  const out = v.split(",").map((x) => x.trim()).filter(Boolean);
+  return new Set(MEM_KINDS.filter((k) => !out.includes(k)));
+}
+/**
  * THE OWNER'S COMMAND PREFIX (Claude Code's CLAUDE_CODE_SHELL_PREFIX, under Coder's name CODER_SHELL_PREFIX: "Command prefix
  * that wraps shell commands … Useful for logging or auditing. Setting a bare executable path such as `/path/to/logger.sh`
  * runs each command as `/path/to/logger.sh '<command>'`. The wrapper receives the command line as a single shell-quoted
@@ -167,6 +188,8 @@ export const BG_EXITS = new Map();
  * max 2 h"; "A moved command gets 30 minutes from the move"): then it is stopped and Coder is told.
  */
 export const JOBS = new Map();
+/** Per chat: the files its FileChanged hooks watch (watchPaths) and how they were when last looked at. */
+export const HOOK_WATCH = new Map();
 export const BG_LIMIT_MS = 30 * 60 * 1000, BG_LIMIT_MAX_MS = 2 * 60 * 60 * 1000;
 /** How long an ended background command is remembered after Coder was told (its log goes with it). */
 const JOB_KEEP_MS = 3 * 60 * 60 * 1000;
@@ -310,9 +333,33 @@ export function jobEnded(pid, code, why = "") {
   const j = JOBS.get(pid);
   if (!j || j.end) return;
   j.end = { code: Number.isInteger(code) ? code : null, why: j.stopping || why || "exit", at: Date.now() };
+  // A BACKGROUND HOOK: what it said waits for Coder's next step or message (hookNews); only an asyncRewake one that exited 2
+  // wakes the chat, as a background command that ended does.
+  if (j.hook) { j.hookPending = true; j.told = !(j.hook.rewake && j.end.code === 2); }
 }
+/**
+ * THE CHAT'S BACKGROUND HOOKS THAT ENDED (Claude Code's async and asyncRewake hooks): what each said, once, for Coder
+ * (`{ event, texts, rewake }`): their additionalContext and systemMessage, or an asyncRewake one's stderr when it exited 2.
+ */
+export function hookNews(project) {
+  const out = [];
+  for (const j of JOBS.values()) {
+    if (j.project !== project || !j.hook || !j.end || !j.hookPending) continue;
+    j.hookPending = false;
+    j.told = true;
+    let text = "";
+    let fd = null;
+    try { fd = openSync(j.log, constants.O_RDONLY | constants.O_NOFOLLOW); const n = Math.min(fstatSync(fd).size, 1_000_000); const buf = Buffer.alloc(n); readSync(fd, buf, 0, n, 0); text = buf.toString("utf8"); } catch { text = ""; } finally { if (fd !== null) { try { closeSync(fd); } catch { /* closed */ } } }
+    const run = { code: Number.isInteger(j.end.code) ? j.end.code : -1, ...splitHookOut(text, j.hook.mark) };
+    const texts = asyncHookTexts({ asyncRewake: j.hook.rewake }, run);
+    if (texts.length) out.push({ event: j.hook.event, texts, rewake: j.hook.rewake && run.code === 2 });
+  }
+  return out;
+}
+/** The chat's asyncRewake hooks still running (the Worker keeps an idle chat on its list for them). */
+export const rewakeHooksOf = (project) => [...JOBS.values()].filter((j) => j.project === project && j.hook && j.hook.rewake && !j.end).length;
 /** What the page, the Worker and Coder see of the running ones: newest last. */
-export const jobsOf = (project) => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.stopping).map((j) => ({ id: j.id, desc: j.desc, command: String(j.command || "").split("\n")[0].slice(0, 200), at: j.at, deadline: j.deadline }));
+export const jobsOf = (project) => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.stopping && !j.hook).map((j) => ({ id: j.id, desc: j.desc, command: String(j.command || "").split("\n")[0].slice(0, 200), at: j.at, deadline: j.deadline }));
 /** The ones that ended and Coder was not told of yet. */
 export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && ((j.end && !j.told) || (j.monitor && j.pending && j.pending.length)));
 /**
@@ -358,7 +405,7 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
  */
 export function hooksForTurn(root, account, { github = false } = {}) {
   const mine = hooksFrom(account && typeof account === "object" ? account : null, "settings");
-  const repo = { list: [], disabled: false };
+  const repo = { list: [], disabled: false, httpUrls: null, httpEnvVars: null };
   if (!github && root) {
     let inside = false;
     try { const rr = realpathSync(root), cd = realpathSync(join(root, ".claude")); inside = cd.startsWith(rr + "/"); } catch { inside = false; }
@@ -373,10 +420,17 @@ export function hooksForTurn(root, account, { github = false } = {}) {
         const r = hooksFrom(JSON.parse(buf.toString("utf8")), "project");
         repo.list.push(...r.list);
         if (r.disabled) repo.disabled = true;
+        if (r.httpUrls) repo.httpUrls = [...(repo.httpUrls || []), ...r.httpUrls];
+        if (r.httpEnvVars) repo.httpEnvVars = [...(repo.httpEnvVars || []), ...r.httpEnvVars];
       } catch { /* none here, or not JSON */ } finally { if (fd !== null) { try { closeSync(fd); } catch { /* closed */ } } }
     }
   }
-  return mine.disabled || repo.disabled ? [] : [...mine.list, ...repo.list];
+  if (mine.disabled || repo.disabled) return [];
+  // THE HTTP HOOK ALLOWLISTS (Claude Code: "Arrays merge across settings files"; unset: any address, each hook's own
+  // allowedEnvVars), on each HTTP hook.
+  const merge = (a, b) => (a || b ? [...new Set([...(a || []), ...(b || [])])] : null);
+  const urls = merge(mine.httpUrls, repo.httpUrls), vars = merge(mine.httpEnvVars, repo.httpEnvVars);
+  return [...mine.list, ...repo.list].map((h) => (h.type === "http" ? { ...h, ...(urls ? { urlsAllowed: urls } : {}), ...(vars ? { envAllowed: vars } : {}) } : h));
 }
 /** What the chat's monitors have for Coder: their new lines, and how each ended, once; given to Coder at each step. */
 export function monitorNews(project) {
@@ -521,7 +575,7 @@ function checkPressure(now, { stall = memoryStallUs, scarce = memoryScarce } = {
 export function checkJobs(now = Date.now(), memory = {}) {
   for (const j of JOBS.values()) {
     if (j.monitor) readMonitor(j);
-    if (j.end) { if (j.told && now - j.end.at > JOB_KEEP_MS) JOBS.delete(j.pid); continue; }
+    if (j.end) { if ((j.told && !j.hookPending && now - j.end.at > JOB_KEEP_MS) || now - j.end.at > 8 * JOB_KEEP_MS) JOBS.delete(j.pid); continue; }
     if (now >= j.deadline && !j.stopping) { stopJob(j, "limit"); continue; }
     if (!groupAlive(j.pid) && !j.stopping) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null);
   }
@@ -578,7 +632,7 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "" } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "", quietMs = 0 } = {}) {
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
@@ -608,6 +662,21 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     // Its leader's end, as a shell says it (a background command's notice needs it even when its output stays open).
     let exited = null;
     p.once("exit", (code, signal) => { exited = exitOf(code, signal); });
+    // A HOOK THAT LEFT A PROGRAM RUNNING WITH ITS OUTPUT (`quietMs`; Claude Code's hooks reference: "If you don't redirect them,
+    // a hook that isn't async takes up to 10 seconds to finish after its own process exits"): what it printed so far is its
+    // answer once its own process has been gone that long; the program is left running, no longer read (`quiet`).
+    let quietTimer = null;
+    if (Number.isFinite(quietMs) && quietMs > 0) {
+      p.once("exit", () => {
+        quietTimer = setTimeout(() => {
+          if (answered) return;
+          clearTimeout(t);
+          try { p.stdout.destroy(); p.stderr.destroy(); } catch { /* closed */ }
+          answer({ code: exited === null ? -1 : exited, output: out + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : ""), timedOut: false, quiet: true, size: bytes });
+        }, quietMs);
+        if (typeof quietTimer.unref === "function") quietTimer.unref();
+      });
+    }
     if (typeof onStart === "function" && p.pid) { try { onStart(p.pid); } catch { /* never costs the command */ } }
     const toSpill = (b) => {
       if (!spill || spillBytes >= SPILL_KEEP) return;
@@ -706,6 +775,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
     p.on("close", async (code, signal) => {
       clearTimeout(t);
+      if (quietTimer) clearTimeout(quietTimer);
       if (answered) return;
       // The folder line is taken out of what the command printed (its last one, with this command's own random part).
       let ended = null, text = out, markBytes = 0;
@@ -2218,7 +2288,7 @@ export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "
   for (const j of jobs || []) if (j && Number.isInteger(j.pid) && j.pid > 0) cont(j.pid);
 }
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, checker = false } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, checker = false, hookQuietMs = 10_000 } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -2373,7 +2443,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const rawVars = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
     const keepHome = /^(1|true|yes|on)$/i.test(String(rawVars.CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR ?? "").trim());
     // What every command of Coder's reads first (tool 4, docs pass 2 and 5): see commandPrefix.
-    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0));
+    // (And the chat's hook env file, which SessionStart, CwdChanged and FileChanged hooks write: Claude Code's "Persist
+    // environment variables", "Each Bash command runs the file's contents as shell code before the command itself".)
+    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""));
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
     t.tmo = bashTimeouts(rawVars, usePrefs(body.prefs));
     // HOW MUCH OF A COMMAND'S OUTPUT CODER GETS (see bashOutputLimits); BACKGROUND COMMANDS OFF with CODER_DISABLE_BACKGROUND_TASKS
@@ -2391,6 +2463,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // its result names the cap"). A folder that went away is made again before the next command (Claude Code: "vanished;
     // re-created").
     const memVar = rawVars.CODER_TOOL_MEMORY_LIMIT;
+    t.memKinds = memCappedKinds(rawVars.CODER_TOOL_MEMORY_CGROUP_EXCLUDE);
+    // (SessionEnd's budget, as Claude Code's CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS sets it: sessionEnd.)
+    t.sessionEndMs = rawVars.CODER_SESSIONEND_HOOKS_TIMEOUT_MS;
     const cgSet = toolMemoryCgroup(project, memVar);
     t.memCg = cgSet.dir;
     if (cgSet.dir) console.log("tool cgroup: " + cgSet.dir + " limit=" + cgSet.bytes);
@@ -2553,7 +2628,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const backgroundNews = () => {
       checkJobs();
       // (A monitor's lines and end come to Coder at each step instead: monitorNews.)
-      const notices = untoldOf(project).filter((j) => !j.monitor).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
+      const notices = untoldOf(project).filter((j) => !j.monitor && !j.hook).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
       const lost = (Array.isArray(body.background) ? body.background : []).filter((b) => b && /^job\d{1,6}$/.test(String(b.id || "")) && ![...JOBS.values()].some((j) => j.project === project && j.id === b.id)).slice(0, 20).map((b) => ({ id: String(b.id), desc: String(b.desc || b.command || "").slice(0, 200) }));
       return { notices, lost };
     };
@@ -2573,8 +2648,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
       const { notices, lost } = backgroundNews();
-      runCoder({
+      const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true });
+      const turnDeps = {
         send: via ? coderSend(env, { via }) : sendFn,
+        // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
+        hookNews: () => hookNews(project),
+        hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
         // (The chat's id: a hook's session_id.)
         chatId: project,
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
@@ -2588,7 +2667,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -2619,7 +2698,30 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const asked = command;
           if (errLog) command = "mkdir -p \"$HOME/.coder-monitors\" 2>/dev/null; exec 2>>\"$HOME/.coder-monitors/" + mark + ".err\"\n" + command;
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : { ...(extraEnv || {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          // A HOOK (coder-hooks.mjs) runs as a tool does, with Claude Code's own for hooks: its answer once its own process has
+          // been gone 10 seconds (`quietMs`), the owner's command prefix around it (CODER_SHELL_PREFIX, Claude Code's
+          // CLAUDE_CODE_SHELL_PREFIX: "wraps shell commands Claude Code spawns: Bash tool calls, hook commands …"), the folder
+          // Coder's commands are in, and for SessionStart, CwdChanged and FileChanged the chat's hook env file (CLAUDE_ENV_FILE).
+          // THE MEMORY CAP FOR CODER'S OTHER PROCESSES (Claude Code's CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE, under Coder's name):
+          // hooks, code lookups and Coder's helpers when the owner's variable puts them under it, never a hook that can block.
+          const capped = tool && typeof t.memCgNow === "function" && t.memKinds instanceof Set && t.memKinds.has(hook ? "hooks" : kind === "lsp" ? "lsp" : "helper") && !(hook && hookGate);
+          const hookEnvFile = hook && hookEnv && home ? join(home, ".coder-hook-env", project + ".sh") : "";
+          // A HOOK IN THE BACKGROUND (Claude Code's async and asyncRewake): started as a background command is, so it goes on after
+          // Coder's answer, its output in a file; marked a hook, so it is none of the chat's background commands (Coder is not
+          // told of it as one, the page does not list it). Its time limit: an asyncRewake hook's timeout; otherwise the
+          // background limit (Claude Code "doesn't enforce timeout on it"). One done in its first second answers at once.
+          if (hook && hookAsync && typeof hookAsync === "object") {
+            const hmark = newMark();
+            const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
+            if (leader) t.fg.delete(leader);
+            if (r && r.background && r.pid) {
+              const n = 1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project && j.hook).map((j) => Number(String(j.id).slice(4)) || 0));
+              JOBS.set(r.pid, { project, id: "hook" + n, pid: r.pid, log: r.log, command: String(hookAsync.label || "hook").slice(0, 300), desc: "", cwd: startedIn, at: startedAt, mark: hmark, moved: false, deadline: Date.now() + (hookAsync.rewake ? Math.max(1, Number(timeoutS) || 600) * 1000 : t.tmo.bgMaxMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, hook: { event: String(hookAsync.event || ""), mark: String(hookAsync.mark || ""), rewake: hookAsync.rewake === true } });
+              return { code: -1, background: true };
+            }
+            return r;
+          }
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2700,7 +2802,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // Coder was told it ended (in this turn): no turn of its own is started for it.
           told: (pid) => { const j = JOBS.get(pid); if (j && j.project === project) j.told = true; },
           // ITS BACKGROUND COMMANDS FROM EARLIER MESSAGES, still running: Coder can look at them, stop them, and is told when they end.
-          kept: () => [...JOBS.values()].filter((j) => j.project === project && !j.end).map((j) => ({ id: j.id, pid: j.pid, log: j.log, command: j.command, desc: j.desc, at: j.at, moved: j.moved, cwd: j.cwd, ...(j.monitor ? { monitor: true } : {}) })),
+          kept: () => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.hook).map((j) => ({ id: j.id, pid: j.pid, log: j.log, command: j.command, desc: j.desc, at: j.at, moved: j.moved, cwd: j.cwd, ...(j.monitor ? { monitor: true } : {}) })),
         },
         // AFTER Coder READS OR CHANGES A FILE: the repo's instructions for it (item 10), and for what it
         // wrote, the security check (item 12).
@@ -2740,7 +2842,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: hooksForTurn(dir, body.hooks, { github: body.github === true }), respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      };
+      // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
+      t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
@@ -2752,7 +2857,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             try { const go = await quietly(); if (go) go(); } catch (e) { console.log("coder: the turn's end: " + String((e && e.message) || e).slice(0, 200)); killUser(); }
             await tidyBg(bgDir, project).catch(() => {});
           } finally {
-            t.result = { ...result, background: jobsOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid) };
+            t.result = { ...result, background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid) };
             t.ended = Date.now();
             t.running = false;
           }
@@ -2784,7 +2889,35 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // BACKGROUND COMMANDS PAST THEIR TIME LIMIT are stopped, and those that ended are noted, every few seconds (tool 4).
   const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } }, JOB_CHECK_MS);
   if (typeof jobTimer.unref === "function") jobTimer.unref();
-  return async function handle(req, res) {
+  /**
+   * SESSIONEND HOOKS (Claude Code: "Runs when a session terminates", matched on why: clear, resume, logout,
+   * prompt_input_exit, other): when this machine is stopped (Fly.io puts a quiet chat's machine to sleep), as `other`, for
+   * each chat whose last message had them, all at once within Claude Code's budget ("a default timeout of 1.5 seconds", up
+   * to the highest hook timeout given, at most 60; CODER_SESSIONEND_HOOKS_TIMEOUT_MS sets it). Their output is not used.
+   * Answers how many ran.
+   */
+  const sessionEnd = async (reason = "other") => {
+    const runs = [];
+    for (const [project, t] of turns) {
+      if (!t || !t.turnDeps || typeof t.turnDeps.exec !== "function" || !Array.isArray(t.hooksLast)) continue;
+      const list = hooksFor(t.hooksLast, "SessionEnd", reason).filter((h) => h.type === "command" || h.type === "http");
+      if (!list.length) continue;
+      const budget = sessionEndBudget(t.hooksLast, t.sessionEndMs);
+      const input = hookInput("SessionEnd", { session: project, cwd: String(t.cwd || t.home0 || ""), mode: t.mode || "auto" }, { reason });
+      for (const h of list) {
+        if (h.type === "http" && !httpUrlAllowed(h.url, h.urlsAllowed)) continue;
+        const mark = "<<coder-hook-stderr-" + randomUUID().replace(/-/g, "").slice(0, 10) + ">>";
+        const allowed = (Array.isArray(h.allowedEnvVars) ? h.allowedEnvVars : []).filter((v) => !Array.isArray(h.envAllowed) || h.envAllowed.includes(v));
+        const one = h.type === "http"
+          ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(budget * 1000) } }) }
+          : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
+        runs.push(Promise.race([Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true })).catch(() => null), new Promise((ok) => { const w = setTimeout(ok, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
+      }
+    }
+    await Promise.all(runs);
+    return runs.length;
+  };
+  const handle = async function handle(req, res) {
     const url = new URL(req.url, "http://coder");
     // A "STILL WORKING" SIGNAL (Fly.io, 2026-11-07): Fly's front door cuts a
     // request that sends nothing for 60 seconds, and a job's start (the clone,
@@ -2864,7 +2997,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
-      if (url.pathname === "/bgstate") { checkJobs(); return send(200, { ok: true, background: jobsOf(project), untold: untoldOf(project).length, running: !!(t && t.running) }); }
+      if (url.pathname === "/bgstate") { checkJobs(); return send(200, { ok: true, background: jobsOf(project), untold: untoldOf(project).length, hooks: rewakeHooksOf(project), running: !!(t && t.running) }); }
       // ONE'S OUTPUT, FOR THE OWNER (the page's background list, like Claude Code's tasks list, where a task shows its
       // output): its last lines and its output file's path; once it ended, its exit too.
       if (url.pathname === "/bgout") {
@@ -2993,6 +3126,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       return send(404, { error: "not found" });
     } catch (e) { return send(500, { error: String((e && e.message) || e).slice(0, 200) }); }
   };
+  handle.sessionEnd = sessionEnd;
+  return handle;
 }
 
 if (import.meta.url === "file://" + process.argv[1]) {
@@ -3005,5 +3140,17 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // The machine's own disk grows to the size Fly.io gave it (growOwnDisk), never holding up the start.
   console.log("coder: the machine's own disk: " + growOwnDisk());
   // Its commands run as admin in a sandbox of their own (coder-sandbox.mjs), where the machine allows one.
-  http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, sandbox: true, data: process.env.CODER_DATA || null, image: process.env.CODER_IMAGE_REF || imageId(), liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA), checker: true })).listen(8080, () => console.log("coder: listening on 8080"));
+  const app = createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, sandbox: true, data: process.env.CODER_DATA || null, image: process.env.CODER_IMAGE_REF || imageId(), liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA), checker: true });
+  http.createServer(app).listen(8080, () => console.log("coder: listening on 8080"));
+  // WHEN THIS MACHINE IS STOPPED (Fly.io's stop signal): the chats' SessionEnd hooks first, within their budget, then the end.
+  let ending = false;
+  const stopNow = (sig) => {
+    if (ending) return;
+    ending = true;
+    const hard = setTimeout(() => process.exit(0), 61_000);
+    if (typeof hard.unref === "function") hard.unref();
+    Promise.resolve().then(() => app.sessionEnd("other")).then((n) => { if (n) console.log("coder: " + sig + ": ran " + n + " SessionEnd hook(s)"); }, () => {}).finally(() => process.exit(0));
+  };
+  process.on("SIGTERM", () => stopNow("SIGTERM"));
+  process.on("SIGINT", () => stopNow("SIGINT"));
 }

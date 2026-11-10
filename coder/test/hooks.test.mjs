@@ -13,11 +13,11 @@ const call = (name, args, id) => ({ id, type: "function", function: { name, argu
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
 
 test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, `if`, deduplication, its exit-code table and each event's decisions, in its words", () => {
-  // The settings: { hooks: { Event: [ { matcher, hooks: [ { type: "command", command, timeout } ] } ] } }; only command hooks
-  // run on Coder's machine; an unknown event is named.
+  // The settings: { hooks: { Event: [ { matcher, hooks: [ { type, command, timeout } ] } ] } }: command, http, prompt and
+  // agent hooks (CD384); an unknown event is named.
   const s = H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./no-rm.sh", timeout: 5 }, { type: "prompt", prompt: "x" }] }], Bogus: [] } }, "project");
-  assert.deepEqual(s.list, [{ event: "PreToolUse", matcher: "Bash", command: "./no-rm.sh", timeout: 5, source: "project" }]);
-  assert.deepEqual(s.problems, ["PreToolUse: only command hooks run on Coder's machine (not prompt)", "Bogus is not an event Coder has (it has SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, Notification, Stop, PreCompact, PostCompact)"]);
+  assert.deepEqual(s.list, [{ event: "PreToolUse", matcher: "Bash", type: "command", timeout: 5, ownTimeout: true, source: "project", command: "./no-rm.sh" }, { event: "PreToolUse", matcher: "Bash", type: "prompt", timeout: 30, source: "project", prompt: "x" }]);
+  assert.deepEqual(s.problems, ["Bogus is not an event Coder has (it has SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, PostToolBatch, PermissionDenied, Notification, Stop, StopFailure, PreCompact, PostCompact, CwdChanged, FileChanged, SessionEnd)"]);
   // Timeouts: 600 seconds, 30 on UserPromptSubmit.
   assert.deepEqual([H.timeoutFor("PreToolUse"), H.timeoutFor("UserPromptSubmit"), H.timeoutFor("Stop", 9999)], [600, 30, 600]);
   assert.equal(H.hooksFrom({ disableAllHooks: true }).disabled, true);

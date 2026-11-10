@@ -179,7 +179,8 @@ export async function runBackgroundJobs(env, deps, now = Date.now()) {
       if (r && r.status === 200) woken++;
       return;
     }
-    if (!(Array.isArray(st.background) && st.background.length) && !(Number(st.untold) > 0)) { await bucket.delete(key); left++; }
+    // (A chat stays while an asyncRewake hook of its runs: it may wake it.)
+    if (!(Array.isArray(st.background) && st.background.length) && !(Number(st.untold) > 0) && !(Number(st.hooks) > 0)) { await bucket.delete(key); left++; }
   };
   for (let i = 0; i < keys.length; i += AT_ONCE) await Promise.all(keys.slice(i, i + AT_ONCE).map((k) => one(k).catch(() => {})));
   return { checked, woken, left };

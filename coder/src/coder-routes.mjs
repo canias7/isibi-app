@@ -1184,10 +1184,13 @@ export async function handleCoder(request, env, ctx, deps) {
       const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
       if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
-      const ended = { ...meta, ...modeNow, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // A HOOK'S TITLE FOR THE CHAT (Claude Code's sessionTitle, from a SessionStart or UserPromptSubmit hook): the chat's name.
+      const hookTitle = typeof s.result.sessionTitle === "string" && s.result.sessionTitle.trim() ? { title: s.result.sessionTitle.trim().replace(/\s+/g, " ").slice(0, 200) } : {};
+      const ended = { ...meta, ...modeNow, ...hookTitle, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
-      if (background.length) await watchBackground(bucket, { uid, email: user.email, id, maxMs: machinePrefs(await getJson(bucket, settingsKey(uid), {})).bgMaxMs }).catch(() => {});
+      // (And while one of its asyncRewake hooks runs, which may wake it.)
+      if (background.length || Number(s.result.hooksRunning) > 0) await watchBackground(bucket, { uid, email: user.email, id, maxMs: machinePrefs(await getJson(bucket, settingsKey(uid), {})).bgMaxMs }).catch(() => {});
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
       await dropLive(bucket, uid, id).catch(() => {});
       // WHAT THE OWNER SENT WHILE IT WORKED AND CODER DID NOT READ (Claude Code: "When the turn ends with messages still
@@ -1272,7 +1275,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const now = await getJson(bucket, metaKey, meta);
     let saved = now;
     if (JSON.stringify(bgListOf(now.background)) !== JSON.stringify(background)) { saved = { ...now, background }; await saveMeta(bucket, uid, saved); }
-    return json({ ok: true, background, untold: Number(st.untold) || 0, running: st.running === true, project: saved, ...(stopped ? { stopped: true } : {}) });
+    return json({ ok: true, background, untold: Number(st.untold) || 0, hooks: Number(st.hooks) || 0, running: st.running === true, project: saved, ...(stopped ? { stopped: true } : {}) });
   }
 
   // WHAT CODER CHANGED (the "See changes" button): its branch against the main

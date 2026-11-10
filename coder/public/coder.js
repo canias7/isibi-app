@@ -248,7 +248,7 @@
           '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' + (g === 2 ? ' (default)' : '') : 'Off', prefs.diskWarnGib === g)).join('') + '</select></label>' +
         // HOOKS (the owner, 2026-11-10: "yea do all 4"): their own, as in Claude Code's settings.
         '<div class="cd-set-head">Hooks</div>' +
-        '<div class="cd-set-hint">Your own commands that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code> and more. They run on Coder’s machine like its commands, with the details on stdin. The repository’s own hooks in <code>.claude/settings.json</code> run too; <code>"disableAllHooks": true</code> turns them all off.</div>' +
+        '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too; <code>"disableAllHooks": true</code> turns them all off.</div>' +
         '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
@@ -1183,7 +1183,8 @@
       }
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
-      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote">' + esc(e.text) + '</div>');
+      // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
+      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(e.text) + '</div>');
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();

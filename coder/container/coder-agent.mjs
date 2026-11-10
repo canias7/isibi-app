@@ -27,9 +27,8 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { HOOK_EVENTS, STOP_BLOCK_CAP, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook } from "./coder-hooks.mjs";
+import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
-const shellQuote = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
 import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
 
@@ -1043,6 +1042,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
+  // (What each model call used: Coder's answers, the checker's, and prompt and agent hooks'.)
+  const usage = [];
   const emit = (e) => { if (e && e.type === "result" && typeof e.id === "string") resultsSeen.set(e.id, e); try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
@@ -1100,30 +1101,181 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // Coder's machine. Each runs as Coder's commands do (its user, its room, the folder its commands are in), the event's JSON on
   // stdin (a file the machine writes, as for a big tool request), its stderr kept apart from its stdout; at once, the matching
   // ones of an event together. The owner sees each one's message and each one that failed; Coder, what it adds or blocks.
-  const hookList = Array.isArray(hooks) ? hooks.filter((h) => h && typeof h.command === "string" && HOOK_EVENTS.includes(h.event)) : [];
+  const hookList = Array.isArray(hooks) ? hooks.filter((h) => h && HOOK_EVENTS.includes(h.event) && (h.type === "http" ? typeof h.url === "string" : h.type === "prompt" || h.type === "agent" ? typeof h.prompt === "string" : typeof h.command === "string")) : [];
   const hookCtx = () => ({ session: String(deps.chatId || ""), cwd: String((typeof deps.here === "function" && deps.here()) || deps.root || ""), mode: modeNow(), effort: String(effort || "") });
+  const hookMark = () => "<<coder-hook-stderr-" + Math.random().toString(36).slice(2, 12) + ">>";
+  /** A command hook's own command (hookShell): the event's JSON on its stdin, its stderr kept apart, Claude Code's variables set. */
+  const hookCommand = (h, mark) => hookShell(h, mark, String(deps.root || ""));
+  /** One hook, run: a command hook's `{ code, stdout, stderr, timedOut, quiet }`, an HTTP hook's `{ http }`, a prompt or agent hook's `{ verdict }`. */
   const runHook = async (h, input) => {
-    const mark = "<<coder-hook-stderr-" + Math.random().toString(36).slice(2, 12) + ">>";
-    const cmd = Array.isArray(h.args) ? [h.command, ...h.args].map(shellQuote).join(" ") : h.command;
-    const root = String(deps.root || "");
-    const wrapped = "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; export CLAUDE_PROJECT_DIR=" + shellQuote(root) + " CODER_PROJECT_DIR=" + shellQuote(root) + " CLAUDE_CODE_REMOTE=true; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
+    const event = String(input.hook_event_name || h.event);
+    if (h.type === "http") return runHttpHook(h, input, event);
+    if (h.type === "prompt" || h.type === "agent") return runModelHook(h, input);
+    const mark = hookMark();
     let r;
-    try { r = await deps.exec({ command: wrapped, payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true }); }
+    try { r = await deps.exec({ command: hookCommand(h, mark), payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true, hookEnv: ENV_FILE_EVENTS.has(event), hookGate: GATING_EVENTS.has(event) }); }
     catch (e) { return { code: -1, stdout: "", stderr: String((e && e.message) || e).slice(0, 500) }; }
-    const out = String((r && r.output) || "");
-    const k = out.lastIndexOf("\n" + mark + "\n");
-    return { code: r && Number.isInteger(r.code) ? r.code : -1, stdout: k >= 0 ? out.slice(0, k) : out, stderr: k >= 0 ? out.slice(k + mark.length + 2) : "", timedOut: !!(r && r.timedOut) };
+    return { code: r && Number.isInteger(r.code) ? r.code : -1, ...splitHookOut(String((r && r.output) || ""), mark), timedOut: !!(r && r.timedOut), ...(r && r.quiet ? { quiet: true } : {}) };
   };
+  /**
+   * AN HTTP HOOK (Claude Code: "Send the event's JSON input as an HTTP POST request to a URL"): sent from Coder's machine, as
+   * its commands are, so the environment's network list holds (coder-tools.mjs's http_hook). Only to an address the owner's
+   * allowedHttpHookUrls lets through ("blocks the rest without running them"), with only the variables both its
+   * allowedEnvVars and httpHookAllowedEnvVars name.
+   */
+  const runHttpHook = async (h, input, event) => {
+    if (!httpUrlAllowed(h.url, h.urlsAllowed)) return { notRun: "Not run: its URL is not in allowedHttpHookUrls" };
+    const allowed = (Array.isArray(h.allowedEnvVars) ? h.allowedEnvVars : []).filter((v) => !Array.isArray(h.envAllowed) || h.envAllowed.includes(v));
+    const limit = h.timeout || 600;
+    let r;
+    try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(limit * 1000) } }), timeoutS: limit + 5, tool: true, here: true, hook: true, hookGate: GATING_EVENTS.has(event) }); }
+    catch (e) { return { http: { error: String((e && e.message) || e).slice(0, 300) } }; }
+    const j = jsonOf(String((r && r.output) || "").trim());
+    if ((r && r.timedOut) || (j && j.timedOut)) return { http: {}, timedOut: true };
+    if (!j) return { http: { error: String((r && r.output) || "no answer").trim().slice(0, 300) || "no answer" } };
+    return { http: { status: Number(j.status) || 0, body: typeof j.body === "string" ? j.body : "", ...(j.error ? { error: String(j.error).slice(0, 300) } : {}) } };
+  };
+  /**
+   * A PROMPT OR AN AGENT HOOK (Claude Code: "Send a prompt to a Claude model for single-turn evaluation"; "Spawn a subagent
+   * that can use tools like Read, Grep, and Glob to verify conditions before returning a decision"): Coder's own model at
+   * low effort (Coder has one model; a hook's `model` names Claude Code's), its answer `{ "ok": … }`, within its timeout
+   * (30 seconds for a prompt hook, 60 for an agent hook).
+   */
+  const runModelHook = async (h, input) => {
+    const ask = hookPrompt(h.prompt, input);
+    let timer = null;
+    const late = new Promise((ok) => { timer = setTimeout(() => ok({ timedOut: true }), Math.round((h.timeout || (h.type === "agent" ? 60 : 30)) * 1000)); });
+    try { return await Promise.race([h.type === "agent" ? agentHook(ask) : promptHook(ask), late]); }
+    finally { clearTimeout(timer); }
+  };
+  const NOT_A_VERDICT = "The model's answer was not {\"ok\": true} or {\"ok\": false, \"reason\": …}";
+  const promptHook = async (ask) => {
+    try {
+      const r = await deps.send({ model, effort: "low", webSearch: false, tools: [], messages: [{ role: "system", content: HOOK_JUDGE }, { role: "user", content: ask }] });
+      if (r && r.usage) usage.push(r.usage);
+      const v = parseHookVerdict(r && r.message && r.message.content);
+      return v ? { verdict: v } : { error: NOT_A_VERDICT };
+    } catch (e) { return { error: "The model could not be reached: " + String((e && e.message) || e).slice(0, 200) }; }
+  };
+  /** An agent hook's turns (at most AGENT_HOOK_TURNS): read, grep and glob only, under the owner's Read rules. */
+  const HOOK_TOOLS = ["read", "grep", "glob"];
+  const agentHook = async (ask) => {
+    const tools = chatTools.filter((t) => t && t.function && HOOK_TOOLS.includes(t.function.name));
+    const msgs = [{ role: "system", content: HOOK_JUDGE + " You may first look at the project with read, grep and glob (they only read)." }, { role: "user", content: ask }];
+    for (let turn = 0; turn < AGENT_HOOK_TURNS; turn++) {
+      let r;
+      try { r = await deps.send({ model, effort: "low", webSearch: false, tools, tool_choice: "auto", messages: msgs }); }
+      catch (e) { return { error: "The model could not be reached: " + String((e && e.message) || e).slice(0, 200) }; }
+      if (r && r.usage) usage.push(r.usage);
+      const m = r && r.message;
+      if (!m) return { error: "The model gave no answer" };
+      const cs = readCalls(m);
+      msgs.push({ role: "assistant", content: m.content == null ? "" : m.content, ...(Array.isArray(m.tool_calls) && m.tool_calls.length ? { tool_calls: m.tool_calls } : {}) });
+      if (!cs.length) { const v = parseHookVerdict(m.content); return v ? { verdict: v } : { error: NOT_A_VERDICT }; }
+      for (const c of cs) msgs.push({ role: "tool", tool_call_id: c.id, content: await agentHookTool(c) });
+    }
+    return { error: "No answer after " + AGENT_HOOK_TURNS + " turns" };
+  };
+  const agentHookTool = async (c) => {
+    if (!HOOK_TOOLS.includes(c.name) || !c.args || typeof c.args !== "object") return "error: only read, grep and glob work here";
+    const a = { ...c.args };
+    if (typeof a.path !== "string" && typeof a.file_path === "string") a.path = a.file_path;
+    delete a.file_path;
+    const given = typeof a.path === "string" && a.path ? a.path : ".";
+    const full = typeof deps.where === "function" ? deps.where(given) : given;
+    if (c.name === "read" && !(typeof a.path === "string" && a.path)) return "error: read needs a path";
+    a.path = full;
+    const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x) });
+    if (d && (d.verdict === "deny" || d.verdict === "ask")) return "error: " + (d.why || "the owner's rules do not let this hook read there");
+    if (c.name === "read") { delete a.allow_large; delete a.max_chars; }
+    return readAnswer((await appTool(deps, c.name, a)).output).text.slice(0, 30_000);
+  };
+  /**
+   * A HOOK IN THE BACKGROUND (Claude Code's async: "runs in the background without blocking"; asyncRewake: "runs in the
+   * background and wakes Claude on exit code 2"): started, never waited for. Coder's machine runs it as a background command
+   * (it goes on after Coder's answer), its timeout only for asyncRewake ("Claude Code doesn't enforce timeout on it");
+   * what it says comes to Coder at its next step or message (deps.hookNews), never to the owner, and an asyncRewake one
+   * that exits 2 wakes the chat as a background command that ended does.
+   */
+  const asyncNews = [];
+  const startAsync = (h, input) => {
+    const mark = hookMark();
+    const event = String(input.hook_event_name || h.event);
+    Promise.resolve()
+      .then(() => deps.exec({ command: hookCommand(h, mark), payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true, hookEnv: ENV_FILE_EVENTS.has(event), hookAsync: { event, mark, rewake: h.asyncRewake === true, label: hookName(h) } }))
+      .then((r) => {
+        if (!r || r.background) return;
+        const run = { code: Number.isInteger(r.code) ? r.code : -1, ...splitHookOut(String(r.output || ""), mark) };
+        const texts = asyncHookTexts(h, run);
+        if (texts.length) asyncNews.push({ event, texts, rewake: h.asyncRewake === true && run.code === 2 });
+      })
+      .catch(() => {});
+  };
+  /** The background hooks' news (Claude Code: a system reminder for Coder; never shown to the owner), as Coder's notes. */
+  const hookNewsNow = async () => {
+    let more = [];
+    if (typeof deps.hookNews === "function") { try { more = await deps.hookNews(); } catch { more = []; } }
+    const all = [...asyncNews.splice(0), ...(Array.isArray(more) ? more : [])].filter((n) => n && Array.isArray(n.texts) && n.texts.length).slice(0, 20);
+    for (const n of all) {
+      const ev = HOOK_EVENTS.includes(n.event) ? n.event : "hook";
+      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + (n.rewake ? "an asyncRewake " + ev + " hook exited with code 2:\n" : "an async " + ev + " hook finished:\n") + n.texts.map((t) => scrub(String(t))).join("\n\n") + ")" });
+      if (n.rewake) emit({ type: "note", text: "A background " + ev + " hook exited with code 2 and woke Coder.", hook: ev });
+    }
+    return all.length;
+  };
+  // WHAT HOOKS SET FOR THE CHAT: its title (sessionTitle, from SessionStart and UserPromptSubmit), and the files FileChanged
+  // hooks watch (watchPaths, from SessionStart, CwdChanged and FileChanged; kept by Coder's machine between messages).
+  let sessionTitle = "";
+  const kept0 = deps.hookWatch && typeof deps.hookWatch.get === "function" ? deps.hookWatch.get() : null;
+  let watchDyn = kept0 && Array.isArray(kept0.dyn) ? kept0.dyn.filter((p) => typeof p === "string") : [];
+  let stamps = kept0 && kept0.stamps && typeof kept0.stamps === "object" ? kept0.stamps : null;
+  const keepWatch = () => { try { if (deps.hookWatch && typeof deps.hookWatch.set === "function") deps.hookWatch.set({ dyn: watchDyn, stamps }); } catch { /* kept for this job only */ } };
   /** One event's hooks, run: what they said together (hooksOutcome), or null when none matched. */
   const runHooks = async (event, value, extra, call = null) => {
     const list = hookList.length ? hooksFor(hookList, event, value, call) : [];
     if (!list.length) return null;
     const input = hookInput(event, hookCtx(), extra);
-    const runs = await Promise.all(list.map(async (h) => ({ hook: h, result: hookResult(event, await runHook(h, input)) })));
+    const bg = (h) => h.type === "command" && (h.async === true || h.asyncRewake === true);
+    for (const h of list) if (bg(h)) startAsync(h, input);
+    const now0 = list.filter((h) => !bg(h));
+    // (Claude Code's statusMessage, "Custom spinner message displayed while the hook runs": a line in the chat.)
+    for (const h of now0) if (h.statusMessage) emit({ type: "note", text: scrub(h.statusMessage).slice(0, 200), hook: event, hookStatus: true });
+    const runs = await Promise.all(now0.map(async (h) => ({ hook: h, result: hookResult(event, await runHook(h, input), h) })));
     const o = hooksOutcome(event, runs, { tool: value });
     for (const n of o.notices) emit({ type: "note", text: scrub(n).slice(0, 600), hook: event });
     for (const m of o.messages) emit({ type: "note", text: scrub(m).slice(0, 2000), hook: event });
+    if (o.watchPaths) { watchDyn = o.watchPaths.slice(0, 200); keepWatch(); }
+    if (o.sessionTitle) sessionTitle = scrub(o.sessionTitle).slice(0, 200);
+    // (A prompt hook's "ok": false that ends the turn: "the reason appears in the chat as a warning line".)
+    if (o.endTurn) emit({ type: "note", text: scrub(event + " hook: " + o.endTurn).slice(0, 2000), hook: event, warn: true });
     return o;
+  };
+  /** The chat's hook env file (CLAUDE_ENV_FILE) made empty: at a chat's start, and before its CwdChanged hooks run. */
+  const resetHookEnv = async () => { try { await deps.exec({ command: "rm -f -- \"${CLAUDE_ENV_FILE:-/nonexistent/x}\" 2>/dev/null; true", timeoutS: 10, tool: true, hook: true, hookEnv: true, envReset: true }); } catch { /* none to empty */ } };
+  /**
+   * FILECHANGED HOOKS (Claude Code: "Runs when a watched file changes on disk"; its matcher "is split on | and each segment is
+   * registered as a literal filename in the working directory", with the watchPaths hooks give): before each answer, Coder
+   * looks at the watched files, and each one that changed, appeared or went runs the event's hooks (`change`, `add`,
+   * `unlink`).
+   */
+  const fileWatch = async () => {
+    const base = String(deps.root || "");
+    const paths = [...new Set([...watchedNames(hookList).map((n) => (n.startsWith("/") ? n : base + "/" + n)), ...watchDyn])].slice(0, 200);
+    if (!paths.length) return;
+    const got = jsonOf((await appTool(deps, "stamps", { paths })).output);
+    if (!Array.isArray(got)) return;
+    const next = {};
+    for (const x of got) if (x && typeof x.path === "string") next[x.path] = x.gone ? null : String(x.mtime) + ":" + String(x.size);
+    const before = stamps;
+    stamps = next;
+    keepWatch();
+    if (!before) return;
+    for (const [p, st] of Object.entries(next)) {
+      if (!(p in before)) continue;
+      const was = before[p];
+      const ev = was === null && st !== null ? "add" : was !== null && st === null ? "unlink" : was !== st ? "change" : "";
+      if (ev) await runHooks("FileChanged", p.split("/").pop(), { file_path: p, event: ev });
+    }
   };
   /** What hooks add for Coder, as a note from Coder's app (Claude Code: "wrapped in a system reminder … starts with the hook's name"). */
   const hookNote = (event, texts) => "(Note from Coder's app, not the owner: " + texts.map((t) => event + " hook additional context: " + scrub(String(t))).join("\n\n") + ")";
@@ -1144,18 +1296,47 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const tool = ccTool(c.monitor ? "monitor" : c.name, !!c.monitor);
     const input = hookToolInput(c.name, c.args);
     const ev = failed ? "PostToolUseFailure" : "PostToolUse";
-    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false } : { tool_name: tool, tool_input: input, tool_use_id: c.id, tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    // (Claude Code's bashEditDiff: the files a command changed, when Coder took them: CODER_BASH_EDIT_DIFF.)
+    const diff = c.name === "bash" && !c.monitor ? editDiffFor(res.files) : null;
+    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false } : { tool_name: tool, tool_input: input, tool_use_id: c.id, tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false } : {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
     let text = content;
     if (o && o.updatedOutput !== undefined) text = String(o.updatedOutput);
     const more = [...(o ? o.blocks : []), ...(c.hook && c.hook.context && c.hook.context.length ? [hookNote("PreToolUse", c.hook.context)] : []), ...(o && o.context.length ? [hookNote(ev, o.context)] : [])];
     if (more.length) text += "\n\n" + more.map((x) => scrub(String(x))).join("\n\n");
     if (text !== content) convo[at] = { ...convo[at], content: text };
     if (o && o.stop) hookStop = o;
+    if (o && o.endTurn) hookEnd = hookEnd || o.endTurn;
+  };
+  /** A command's changed files as Claude Code's bashEditDiff gives them: `{ changedFiles, files, moreFiles }` (absolute paths). */
+  const editDiffFor = (f) => {
+    if (!f || !Array.isArray(f.files)) return null;
+    const root = String(deps.root || "");
+    const abs = (p) => (String(p).startsWith("/") ? String(p) : root + "/" + String(p));
+    const changedFiles = [...f.files.map((x) => abs(x.path)), ...(Array.isArray(f.others) ? f.others.map(abs) : [])].slice(0, 200);
+    if (!changedFiles.length) return null;
+    return { changedFiles, files: f.files.map((x) => ({ filePath: abs(x.path), hunks: [{ lines: Array.isArray(x.lines) ? x.lines : [] }], ...(x.kind === "create" ? { created: true } : x.kind === "delete" ? { deleted: true } : {}) })), moreFiles: Number(f.moreFiles) || 0, ...(f.unavailable ? { unavailable: true } : {}) };
+  };
+  /**
+   * PERMISSIONDENIED HOOKS (Claude Code: "Runs when the auto mode classifier denies a tool call"): after the refusal, with its
+   * reason; one that says "retry": true lets Coder try again ("The PermissionDenied hook indicated you may retry this tool
+   * call."). Their other output is not used.
+   */
+  const deniedHooks = async (c, reason) => {
+    if (!hookList.length) return "";
+    const tool = ccTool(c.monitor ? "monitor" : c.name, !!c.monitor);
+    const input = hookToolInput(c.name, c.args);
+    const o = await runHooks("PermissionDenied", tool, { tool_name: tool, tool_input: input, tool_use_id: c.id, reason: String(reason || "") }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    return o && o.retry ? "\n\nThe PermissionDenied hook indicated you may retry this tool call." : "";
   };
   // STOP HOOKS (Claude Code: "Runs when Claude finishes responding"): how many times in a row they kept Coder going.
   let stopRun = 0, stopHookActive = false;
   // A hook that said "continue": false: Coder stops after it, its reason shown to the owner and kept for Coder.
   let hookStop = null;
+  // A HOOK THAT ENDS THE TURN (Claude Code: a prompt hook's "ok": false on PreToolUse and PostToolUse, "the turn ends and the
+  // reason appears in the chat as a warning line"; a PostToolBatch block "stops the loop before the next model call, with a
+  // warning that stays in the conversation").
+  let hookEnd = "";
+  const endByHook = (why) => { const w = scrub(String(why || "A hook ended this turn.")); convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: a hook ended this turn: " + w + ")" }); return end("done", { summary: lastSaid || w.slice(0, 4000) }); };
   const stopByHook = (o) => { const why = (o.stop && o.stop.reason) || "A hook stopped Coder."; emit({ type: "note", text: scrub(why).slice(0, 2000), hook: "stop" }); convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: a hook stopped this job: " + scrub(why) + ")" }); return end("done", { summary: lastSaid || scrub(why).slice(0, 4000) }); };
   const convo = Array.isArray(messages) ? messages.slice() : [];
   // WHERE THIS JOB BEGINS: what is before it is the chat's saved history (the Worker summarizes that
@@ -1242,6 +1423,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // SESSIONSTART HOOKS (Claude Code: their context goes "at the start of the conversation, before the first prompt"): on a
   // chat's first message, as `startup` (and after a summary, as `compact`, below).
   if (hookList.length && !(Array.isArray(messages) && messages.length)) {
+    if (hookList.some((h) => ENV_FILE_EVENTS.has(h.event))) await resetHookEnv();
     const o = await runHooks("SessionStart", "startup", { source: "startup", ...(model ? { model } : {}) });
     if (o && o.context.length) convo.push({ role: "user", appNote: true, content: hookNote("SessionStart", o.context) });
   }
@@ -1291,6 +1473,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   }  // Those from earlier messages still running (seeded above from the machine's list): said once at the start (2.1.271).
   { const still = runningNote([...jobs.entries()].filter(([, j]) => !j.done), now()); if (still) convo.push({ role: "user", appNote: true, content: still }); }
 
+  // A BACKGROUND HOOK THAT WOKE THE CHAT (an asyncRewake hook that exited 2) or finished since the last message: its news
+  // first; with no message of the owner's, Coder is told this turn is only for it.
+  if ((hookList.length || typeof deps.hookNews === "function") && (await hookNewsNow()) > 0 && !told.length && !(typeof text === "string" && text.trim()) && !(typeof shell === "string" && shell.trim())) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the owner sent no message: this turn is only to tell you what the hook above said. Handle it: say what it means for the work, and go on with what was asked earlier if it needs you; otherwise answer in a line or two.)" });
   if (told.length) {
     for (const n of told) emit({ type: "note", text: n.said, ...(n.id ? { job: n.id, end: n.end } : {}) });
     convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + (told.length === 1 ? "a background command" : told.length + " background commands") + " ended since your last answer.\n" + told.map((n) => n.note).join("\n\n") + ((typeof text === "string" && text.trim()) || (typeof shell === "string" && shell.trim()) ? "" : "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two.") + ")" });
@@ -1326,7 +1511,6 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const again = await rereadFiles(deps, convo.slice(lastSum + 1), new Map(named.map((p, i) => [normPath(p), i + 1])), emit, { touch, most: Math.floor((deps.compactAt === 0 ? COMPACT_AT : Number(deps.compactAt) || COMPACT_AT) * REREAD_SHARE), lead: "(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)" });
     if (again) convo.push({ role: "user", appNote: true, content: again });
   }
-  const usage = [];
   const started = now();
   let rounds = 0;
   // The mode Grok was last told of (the system's note says it each round; a change while Coder works is said in the chat).
@@ -1350,7 +1534,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
   // (The mode the job ended in, and the rules "don't ask again" added: Coder's Worker keeps them with the chat and the repo.)
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
 
   // (A message a hook blocked never reaches Coder: the job ends here.)
   if (promptBlocked !== null) return end("done", { summary: "The owner's message was blocked by a UserPromptSubmit hook.", blocked: true });
@@ -1425,6 +1609,10 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         emit({ type: "note", text: scrub(said.split("\n")[0]).slice(0, 300), monitor: { job: String(n.id || ""), desc: scrub(String(n.desc || "")).slice(0, 200), lines: (Array.isArray(n.lines) ? n.lines.slice(-40) : []).map((l) => scrub(String(l)).slice(0, 400)), ...(n.dropped > 0 ? { dropped: n.dropped } : {}), ...(n.end ? { end: n.end } : {}) }, ...(n.end ? { job: String(n.id || ""), end: monitorEndLabel(n.end) } : {}) });
       }
     }
+    // BACKGROUND HOOKS' NEWS (Claude Code's async hooks: delivered "on the next conversation turn"), and the files
+    // FileChanged hooks watch, looked at (fileWatch).
+    if (hookList.length || typeof deps.hookNews === "function") await hookNewsNow();
+    if (hookList.some((h) => h.event === "FileChanged")) { try { await fileWatch(); } catch { /* looked at again next step */ } }
     // THE LOW-DISK WARNING (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB): looked at before each answer. When the work
     // disk has less free than the owner's line, Coder is told once (and the chat says it too); again only after it was above.
     if (diskWarnGib > 0 && typeof deps.diskFree === "function") {
@@ -1441,7 +1629,13 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound)) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, tool_choice: "auto" }); }
-    catch (e) { emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) }); return end("send", { why: String((e && e.message) || e).slice(0, 200) }); }
+    catch (e) {
+      emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
+      // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
+      // matched on the error's kind (rate_limit, server_error, …).
+      if (hookList.length) { const why = scrub(String((e && e.message) || e)).slice(0, 2000); try { await runHooks("StopFailure", stopFailureKind(e), { error: stopFailureKind(e), error_details: why, last_assistant_message: why }); } catch { /* ignored */ } }
+      return end("send", { why: String((e && e.message) || e).slice(0, 200) });
+    }
     if (answer && answer.usage) usage.push(answer.usage);
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
@@ -1506,6 +1700,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     for (let i = 0; i < calls.length; i++) {
       await runPost();
       if (hookStop) return stopByHook(hookStop);
+      if (hookEnd) { for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(hookEnd); }
       const c = calls[i];
       // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
       const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}) });
@@ -1522,6 +1717,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
           emit({ type: "result", id: c.id, code: -1, output: scrub(pre.reason).slice(0, 2000), hookBlocked: true });
           reply(scrub(pre.reason));
+          if (pre.endTurn) { for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(pre.endTurn); }
           continue;
         }
         if (pre && pre.updatedInput) { const ni = toolInputFromHook(c.name, pre.updatedInput); if (ni) c.args = ni; }
@@ -1612,12 +1808,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (checker && !rmWhy && !ask && !dec.byRule && !(c.hook && c.hook.decision === "allow") && ((autoLike && dec.verdict === "allow" && !wholeReadOnly(command) && !autoRulesCover(command)) || (modeB === "plan" && checkerInPlan && dec.verdict === "ask"))) {
           if (checkSt.paused) {
             if (canAsk()) pausedCard = true;
-            else { refuse(autoDenied("auto mode is paused after repeated blocks, and no one can approve actions in this job")); continue; }
+            else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
           } else {
             const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("bash", c.args), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
             if (v.usage) usage.push(v.usage);
-            if (v.error) { refuse(checkUnavailable(model || "The classifier", "this bash command")); continue; }
-            if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); reply(autoDenied("[" + v.rule + "]" + (v.reason ? " " + v.reason : ""))); continue; }
+            if (v.error) { refuse(checkUnavailable(model || "The classifier", "this bash command") + await deniedHooks(c, "Classifier unavailable")); continue; }
+            if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
             countAllowed(checkSt);
             if (dec.verdict === "ask") dec = { verdict: "allow", why: "", suggest: null };
           }
@@ -1715,6 +1911,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) { roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); if (typeof x.lines === "string") roundShown.push(x.path); } } } }
         reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : "") + yesNote(approval), bg || (r && r.notStarted) ? null : { exitCode: code });
+        // CWDCHANGED HOOKS (Claude Code: "Runs when the working directory changes, for example when Claude executes a cd
+        // command"), with the chat's hook env file made empty first (Claude Code clears CLAUDE_ENV_FILE for them).
+        if (!bg && hookList.some((h) => h.event === "CwdChanged")) { const cwdNow = hookCtx().cwd; if (where0 && cwdNow && cwdNow !== where0) { await resetHookEnv(); await runHooks("CwdChanged", "", { old_cwd: where0, new_cwd: cwdNow }); } }
       } else if (c.name === "stop_job") {
         // A BACKGROUND JOB OR A MONITOR, STOPPED (as `dev`, like any command).
         const j = jobs.get(String(c.args.job || ""));
@@ -1922,12 +2121,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (checker && c.name === "web_fetch" && (modeT === "auto" || github) && !(c.hook && c.hook.decision === "allow") && !(fetchDec && fetchDec.verdict === "ask") && fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") {
           if (checkStF.paused) {
             if (canAsk()) fetchPaused = true;
-            else { const m = autoDenied("auto mode is paused after repeated blocks, and no one can approve actions in this job"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+            else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
           } else {
             const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
             if (v.usage) usage.push(v.usage);
-            if (v.error) { const m = checkUnavailable(model || "The classifier", "this page fetch"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
-            if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); reply(autoDenied("[" + v.rule + "]" + (v.reason ? " " + v.reason : ""))); continue; }
+            if (v.error) { const m = checkUnavailable(model || "The classifier", "this page fetch"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, "Classifier unavailable")); continue; }
+            if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
             countAllowed(checkStF);
           }
         }
@@ -1962,7 +2161,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -2058,6 +2257,20 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     }
     await runPost();
     if (hookStop) return stopByHook(hookStop);
+    if (hookEnd) return endByHook(hookEnd);
+    // POSTTOOLBATCH HOOKS (Claude Code: "Runs after a full batch of parallel tool calls resolves, before the next model
+    // call"): the round's calls and their results; what they add goes to Coder; one that blocks (decision "block", exit 2)
+    // or says "continue": false ends the turn, its reason a warning that stays in the chat.
+    if (hookList.some((h) => h.event === "PostToolBatch")) {
+      const answerOf = (id) => { for (let k = convo.length - 1; k >= 0; k--) if (convo[k].role === "tool" && convo[k].tool_call_id === id) return String(convo[k].content || ""); return ""; };
+      const b = await runHooks("PostToolBatch", "", { tool_calls: calls.map((c) => ({ tool_name: ccTool(c.monitor ? "monitor" : c.name, !!c.monitor), tool_input: hookToolInput(c.name, c.args), tool_use_id: c.id, tool_response: answerOf(c.id) })) });
+      if (b && b.context.length) roundNotes.push(hookNote("PostToolBatch", b.context));
+      if (b && (b.stop || b.decision === "block")) {
+        const why = (b.stop && b.stop.reason) || b.blocks.join("\n") || b.reason || "A PostToolBatch hook stopped Coder.";
+        if (!b.endTurn) emit({ type: "note", text: scrub(why).slice(0, 2000), hook: "PostToolBatch", warn: true });
+        return endByHook(why);
+      }
+    }
     // A BACKGROUND COMMAND THAT ENDED while Coder works (Claude Code: 'Background command "Run the tests" completed (exit
     // code 0)', '… failed with exit code 3'): told once, after the round, with its output file.
     for (const [id, j] of jobs) {

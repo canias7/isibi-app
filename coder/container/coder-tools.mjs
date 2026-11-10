@@ -1430,7 +1430,55 @@ export async function toolSnapDiff({ id } = {}) {
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
-export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff };
+/**
+ * AN HTTP HOOK'S REQUEST (coder-hooks.mjs; Claude Code's HTTP hooks: "Claude Code sends the hook's JSON input as the POST
+ * request body with Content-Type: application/json"): sent from here, Coder's machine, through the chat's network list as
+ * web_fetch is (a local address, such as http://localhost:8080, goes straight there). Its headers' $VAR and ${VAR} are the
+ * owner's variables it may use, any other empty ("References to unlisted variables are replaced with empty strings").
+ * Answers `{ status, body }`, `{ error }` or `{ timedOut: true }`, as JSON (the answer's first 1 MB).
+ */
+export async function toolHttpHook({ url, headers = {}, allowed = [], body = "", timeoutMs = 600_000 }) {
+  let u;
+  try { u = new URL(String(url)); } catch { return JSON.stringify({ error: "not a web address" }); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return JSON.stringify({ error: "not an http or https address" });
+  const ok = new Set((Array.isArray(allowed) ? allowed : []).map(String));
+  const fill = (v) => String(v).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, a, b) => { const k = a || b; return ok.has(k) && typeof process.env[k] === "string" ? process.env[k] : ""; });
+  const h = { "content-type": "application/json" };
+  for (const [k, v] of Object.entries(headers && typeof headers === "object" ? headers : {})) if (/^[A-Za-z0-9-]{1,100}$/.test(k) && typeof v === "string" && !/^(content-length|host|transfer-encoding|connection)$/i.test(k)) h[k.toLowerCase()] = fill(v).replace(/[\r\n]/g, "");
+  const data = Buffer.from(String(body));
+  h["content-length"] = String(data.length);
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+  const px = local ? null : viaProxy(u);
+  const mod = u.protocol === "https:" ? https : http;
+  const limit = Math.max(1000, Math.min(600_000, Number(timeoutMs) || 600_000));
+  return await new Promise((done) => {
+    let over = false;
+    const timer = setTimeout(() => { over = true; try { req.destroy(new Error("timed out")); } catch { /* gone */ } done(JSON.stringify({ timedOut: true })); }, limit);
+    const onRes = (res) => {
+      const chunks = []; let size = 0;
+      res.on("data", (c) => { size += c.length; if (size <= 1_000_000) chunks.push(c); });
+      res.on("end", () => { clearTimeout(timer); if (!over) done(JSON.stringify({ status: res.statusCode, body: Buffer.concat(chunks).toString("utf8") })); });
+      res.on("error", (e) => { clearTimeout(timer); if (!over) done(JSON.stringify({ error: String((e && e.message) || e).slice(0, 300) })); });
+    };
+    const req = px && px.path ? http.request({ ...px, method: "POST", headers: { ...h, ...px.headers } }, onRes) : mod.request(u, { method: "POST", headers: h, ...(px || {}) }, onRes);
+    req.on("error", (e) => { clearTimeout(timer); if (!over) done(JSON.stringify({ error: String((e && e.message) || e).slice(0, 300) })); });
+    req.end(data);
+  });
+}
+/**
+ * THE FILES FILECHANGED HOOKS WATCH, AS THEY ARE NOW (coder-agent.mjs's fileWatch): each full path's time and size, or
+ * `gone`. Only looked at, never read, and with the AI's own rights.
+ */
+export async function toolStamps({ paths }) {
+  const out = [];
+  for (const p of (Array.isArray(paths) ? paths : []).slice(0, 200)) {
+    if (typeof p !== "string" || !p.startsWith("/") || p.length > 4096) continue;
+    try { const st = await stat(p); out.push({ path: p, mtime: st.mtimeMs, size: st.size }); } catch { out.push({ path: p, gone: true }); }
+  }
+  return JSON.stringify(out);
+}
+
+export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

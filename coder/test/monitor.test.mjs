@@ -75,7 +75,7 @@ test("CD381b a monitor's lines come to Coder as events at each step (and wake an
     SV.readMonitor(j2);
     assert.equal(j2.stopping, "flood");
     // The wake turn's notices leave monitors out (their news comes at each step).
-    assert.match(read("container/server.mjs"), /const notices = untoldOf\(project\)\.filter\(\(j\) => !j\.monitor\)\.map/);
+    assert.match(read("container/server.mjs"), /const notices = untoldOf\(project\)\.filter\(\(j\) => !j\.monitor && !j\.hook\)\.map/);
     // Its stderr goes to a file of its own, in Coder's home, so its output file holds only its events.
     assert.match(read("container/server.mjs"), /if \(errLog\) command = "mkdir -p \\"\$HOME\/\.coder-monitors\\" 2>\/dev\/null; exec 2>>\\"\$HOME\/\.coder-monitors\/" \+ mark \+ "\.err\\"\\n" \+ command;/);
   } finally { SV.JOBS.delete(999971); SV.JOBS.delete(999972); }
