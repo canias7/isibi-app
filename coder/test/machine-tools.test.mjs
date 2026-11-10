@@ -54,7 +54,7 @@ test("CD133 the AI's commands find every tool and keep what they install in thei
   assert.equal(inTest.output, dir, "a machine made in a test, given no home, keeps the project folder; extraEnv never replaces PATH or HOME");
   // The service gives the AI its home: /home/dev, or on Fly.io one on the chat's kept disk.
   const server = read("container/server.mjs");
-  assert.match(server, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, sandbox: true, data: process\.env\.CODER_DATA \|\| null, image: process\.env\.CODER_IMAGE_REF \|\| imageId\(\), liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\) \}\)/);
+  assert.match(server, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, sandbox: true, data: process\.env\.CODER_DATA \|\| null, image: process\.env\.CODER_IMAGE_REF \|\| imageId\(\), liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\), checker: true \}\)/);
   assert.match(server, /const u = await execIn\(dir, userPart, left, \{ bgDir, kill: true, home, /, "the setup script's own part");
   assert.match(server, /const r = await execIn\(dir, command, timeoutS, \{ bgDir, kill: !!tool, home, /, "every command and tool");
   assert.match(server, /const aptRun = apt \|\| \(\(dir, command, timeoutS, o\) => execIn\(dir, command, timeoutS, \{ \.\.\.o, uid: null, gid: null,/);

@@ -11,6 +11,30 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: The last differences fixed, and auto mode's second checker (your words: "fix the still different stuff", then "yea do the paid second model too")
+
+- **Auto mode now has Claude Code's second checker.** In Auto, before Coder runs a command that changes something, one more call to Grok (fast setting, no tools) checks it first. A web page fetch outside the known documentation sites is checked too. It blocks what Claude Code's checker blocks, for example:
+  - running a script downloaded from the internet (`curl … | bash`)
+  - sending secrets or private files out
+  - force-pushing over other people's work
+  - deleting files that were there before the chat
+  - production deploys
+  - hunting for passwords that don't belong to the task
+  - tunnels that open the machine to the internet
+  - opening pull requests on other people's repositories
+  - turning off safety checks
+- **What it allows without fuss:** ordinary work in your repository (editing, building, testing, installing the project's own packages, committing and pushing to Coder's branch), and anything that only reads.
+- **What it sees:** your messages, what Coder did earlier in the chat and the project's own instructions. It never sees what a command printed or what a file or web page said, so text planted in a file can't talk it round (Claude Code does the same).
+- **When it blocks:** the command doesn't run, the step says "Blocked by auto mode · [the rule] why", and Grok gets Claude Code's own instructions: try a safer way, or stop and explain to you. If you tell Coder in the chat that the specific thing is fine (for example "force-push to my-branch is fine"), the checker reads that.
+- **After 3 blocks in a row, or 20 in a chat,** auto mode pauses: the next such action asks you on a card, and your Yes resumes it. In a job started from GitHub (no one to ask), it just doesn't run.
+- **Plan mode:** a command Plan would have asked you about is now decided by the checker instead (allowed if it only looks; blocked if it would change something), as in Claude Code. Setting `CODER_USE_AUTO_MODE_DURING_PLAN=false` in the environment's variables brings the old asking back.
+- **Not checked (as in Claude Code):** read-only commands, commands a narrow allow rule of yours covers, and anything Coder already asks you about (protected files, the read-block setting, dangerous deletes, your Ask rules). Broad allow rules such as `Bash` or `Bash(npm run *)` are ignored in Auto, as Claude Code ignores them.
+- **Cost:** one small Grok call per checked action, counted with the job's cost. Reads and file edits cost nothing extra.
+- **Rules:** Claude Code's rule names and the lists in its documentation, shortened to keep each check cheap. Its own full rule set is about ten times longer. The checker is Grok, not Claude Code's model, so a borderline action may get a different answer.
+- **The read-block setting, now exactly like Claude Code:** with it on, Coder checks every program's words that name a file that is really there, not just its list of about 60 file commands. So `less /etc/passwd` asks too. `xargs` asks, and so does a path worked out when the command runs. `bash -c '…'` asks as "runs inline code", as in Claude Code.
+- **Stop and `setsid`:** not changed. Claude Code's changelog says it fixed this in version 2.1.257, but its current version still leaves the program running after Stop. Coder stopping it is what Claude Code says it should do.
+- Tests: 386 pass (CD368–CD375 new). The new file is in the machine's image (the tests check that a file left out of the image is caught).
+
 ## 2026-11-10: Bash says exactly what Claude Code says (your words: "ok do that")
 
 - **Every "needs approval" card now uses Claude Code's own sentence,** the one it gave for the same command in the side-by-side, with "Coder" for "Claude Code". Examples:
@@ -26,7 +50,16 @@ log (81,000 lines) is in git history.
 - Where Claude Code names its own setting or `/add-dir`, Coder names its own setting and leaves `/add-dir` out (Coder has none).
 - Found in my own check before the live test, and fixed: `(cd src && cat a.js)` would have asked in Accept edits (Coder loses track of the folder after a `cd` inside brackets). It runs again; only a path that climbs out with `..` from there asks. And "A variable in this command…" is now said only for a real variable, not for `$(…)`.
 - The first deploy (81) stopped at the tests: an older test of Stop (CD345) counted its processes before one had really started, on GitHub's busy machine. Not a Coder problem; the test now waits for them to start (passes 3 times out of 3 with every CPU busy). Nothing was deployed by that run.
-- Tests: 378 pass (7 new, CD361–CD367). Merge, deploy and the live test with Grok follow below.
+- Deploy 82: I cancelled it after 2 minutes, wrongly thinking it was stuck; it had deployed nothing. Deploy 83 ran instead.
+- Tests: 378 pass (7 new, CD361–CD367).
+- **Deployed (deploy 83) and tested live with Grok** (recording 26, three videos and pictures in the chat), in a new chat on canias7/testingforclaude:
+  - Accept edits: `cat /etc/hostname`, `ls ../` and `cat ~/.bashrc` each asked with Claude Code's sentence ("cat in '/etc/hostname' was blocked. For security, Coder may only concatenate files from …"); `head -3 README.md` ran without asking.
+  - Each other card said Claude Code's sentence: `cd docs && cd ..` (folder changed twice, now asks), `echo hi > /tmp/…` (output redirection), `cd /tmp && ls` (the cd only), the PATH loop, `echo dangling &&` ("Parse error"), `npm --version && tput reset` (the list of parts, with "don't ask again"), `cat $HOME/.profile`.
+  - A write through a link out of the project and one through a link to the git hook: Claude Code's two sentences, naming where each leads.
+  - The rules list: `Bash(command:rm *)` and `Bsh` saved as Deny rules with Claude Code's warnings and rows; `Bash(git:* status)` saved with no warning; with those deny rules there, `rm` still ran (they never match). All removed again.
+  - The read block on: `cat /etc/hostname` and `echo 'print(1+1)' | python3` asked in Auto, in Claude Code's words; the read tool on /etc/hostname was refused with Claude Code's sentence; `head -3 README.md` ran. The setting was removed again.
+- Seen meanwhile: another Claude session ran a deploy (84) from its own branch, for a test copy at test.gofarther.dev. I left it alone.
+- Still different from Claude Code (not changed): Stop ends a `setsid` child (Claude Code leaves it running, against its own changelog); under the read block, Claude Code also checks the words of any program that name an existing file (`less /etc/passwd`), while Coder checks its list of about 60 file commands.
 
 ## 2026-11-10: Bash tested side by side with Claude Code (your words: "merge deploy and test everything in the bash thing , test it with claude code and coder , and see the differences pls")
 

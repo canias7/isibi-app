@@ -1273,8 +1273,24 @@ const READ_PATHS = {
     return out;
   },
 };
-/** Programs that run code given inline or from stdin, which the read block can't see into (2.1.321: "runs inline code, which cannot be checked against the read block"; "runs code from stdin"). */
-const CODE_RUNNERS = new Set(["python", "python3", "python2", "node", "ruby", "perl", "php", "lua", "Rscript", "tsx", "ts-node", "deno", "bun"]);
+/**
+ * PROGRAMS THAT RUN CODE GIVEN INLINE, and the option (or word) that gives it: Claude Code 2.1.322's own map (its nfn), the
+ * name read without a version (python3.12 is python). Under the read block such code can't be checked, nor code on stdin.
+ */
+const RB_RUNNERS = new Map([["python", new Set(["-c"])], ["node", new Set(["-e", "--eval", "-p", "--print"])], ["nodejs", new Set(["-e", "--eval", "-p", "--print"])], ["bun", new Set(["-e", "--eval", "-p", "--print"])], ["perl", new Set(["-e", "-E"])], ["ruby", new Set(["-e"])], ["php", new Set(["-r"])], ["bash", new Set(["-c"])], ["sh", new Set(["-c"])], ["zsh", new Set(["-c"])], ["dash", new Set(["-c"])], ["ksh", new Set(["-c"])], ["lua", new Set(["-e"])], ["luajit", new Set(["-e"])], ["tsx", new Set(["-e", "--eval", "-p", "--print"])], ["deno", new Set(["eval"])], ["Rscript", new Set(["-e"])], ["julia", new Set(["-e", "-E"])], ["osascript", new Set(["-e"])]]);
+/** The programs whose words the read block never checks (Claude Code's own twelve, its mer). */
+const RB_EXEMPT = new Set(["echo", "printf", "test", "[", "[[", "true", "false", "which", "type", "basename", "dirname", "df"]);
+/** Settings in front that the read block lets through (Claude Code's own list, its FD), when their value is not a path. */
+const RB_SAFE_ENV = new Set(["GOEXPERIMENT", "GOOS", "GOARCH", "CGO_ENABLED", "GO111MODULE", "RUST_BACKTRACE", "RUST_LOG", "NODE_ENV", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE", "PYTEST_DISABLE_PLUGIN_AUTOLOAD", "PYTEST_DEBUG", "ANTHROPIC_API_KEY", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_TIME", "CHARSET", "TERM", "COLORTERM", "NO_COLOR", "FORCE_COLOR", "TZ", "LS_COLORS", "LSCOLORS", "GREP_COLOR", "GREP_COLORS", "GCC_COLORS", "TIME_STYLE", "BLOCK_SIZE", "BLOCKSIZE", "COLUMNS", "LINES", "CLICOLOR", "CLICOLOR_FORCE", "CI", "DEBIAN_FRONTEND", "GIT_TERMINAL_PROMPT"]);
+const RB_PATHISH = /^[.~]*[/\\]|[/\\][/\\]|:[/\\.]|(?:^|[/\\])\.\.(?:[/\\]|$)/;
+/** Whether a `NAME=value` in front passes the read block (Claude Code's FD: a listed name, a value that is no path, a locale for LANG). */
+export function rbEnvSafe(name, value, computed = false) {
+  const v = String(value ?? "");
+  if (computed) return false;
+  if (["LANG", "LC_ALL", "LC_CTYPE"].includes(name) && !/^(['"]?)(C|POSIX|UTF-?8|[\w-]+\.UTF-?8(@\w+)?)\1$/i.test(v) && !(name === "LANG" && v === "")) return false;
+  if (RB_SAFE_ENV.has(name)) return !RB_PATHISH.test(v.replaceAll('"', "").replaceAll("'", ""));
+  return false;
+}
 // THE READ BLOCK'S OWN WORDS (the owner, 2026-11-10: "ok do that": Claude Code's exactly), from Claude Code 2.1.322 run with
 // permissions.blockReadsOutsideWorkingDirectories on (its nF, Q3 and dw), with Coder's name for the setting; Coder has no
 // /add-dir, so only the setting is named.
@@ -1283,12 +1299,36 @@ export const RB_OUTSIDE = "Reads outside the working directories are blocked (" 
 /** A command the parser can't trace (Claude Code's Q3: its reason, then "; under the read block (…) a command the shell parser cannot analyze asks the person"). */
 export const rbUnsure = (why) => why + "; under the read block (" + RB_SETTING + ") a command the shell parser cannot analyze asks the person";
 export const RB_SED = "This sed script is not on the allowlist and can read or write any file, which cannot be checked against the read block (" + RB_SETTING + ")";
+/** A word whose path is known only when the command runs (Claude Code's dw). */
+export const rbComputed = (prog) => prog + " names a path that is computed at run time, which cannot be checked against the read block (" + RB_SETTING + ")";
+/** A word naming a file or folder outside (Claude Code's per and ger). */
+export const rbNamesOutside = (prog, path) => prog + " names '" + path + "', outside the working directories, which the read block does not allow without asking (" + RB_SETTING + "). Remove that setting to allow them.";
+/** Whether a path climbs with `..` after a name (Claude Code's S0e: such a word is checked even when nothing is there). */
+const climbs = (p) => { let seen = false; for (const t of String(p).split("/")) { if (!t || t === ".") continue; if (t === "..") { if (seen) return true; } else seen = true; } return false; };
+/** Whether a wildcard path could lead up with `..` (Claude Code's qEe and mNn): a part that matches "..", or ".." after a wildcard. */
+function globClimbs(p) {
+  const segs = String(p).split("/");
+  const isGlob = (x) => /[*?[]/.test(x);
+  const matchesUp = (x) => {
+    if (!isGlob(x) || x.startsWith("*") || x.startsWith("?")) return false;
+    let re = "^";
+    for (let i = 0; i < x.length; i++) {
+      const ch = x[i];
+      if (ch === "*") re += ".*";
+      else if (ch === "?") re += ".";
+      else if (ch === "[") { const j = x.indexOf("]", i + 2); if (j < 0) re += "\\["; else { re += "[" + x.slice(i + 1, j).replace(/^[!^]/, "^").replace(/\\/g, "\\\\") + "]"; i = j; } }
+      else re += ch.replace(/[.+^${}()|\\/]/g, "\\$&");
+    }
+    try { return new RegExp(re + "$").test(".."); } catch { return true; }
+  };
+  return segs.some(matchesUp) || segs.some((x, i) => x === ".." && segs.slice(0, i).some(isGlob));
+}
 /**
  * WHY THE READ BLOCK ASKS ABOUT A COMMAND, or "" (in every mode; the owner's Yes runs it). `ctx`: `{ cwd, workdirs, home,
- * real, ownDirs }` (`real` follows a full path's links, "" when it can't; `ownDirs`: Coder's own folders a command may read,
- * such as a long output's file).
+ * real, ownDirs, exists }` (`real` follows a full path's links, "" when it can't; `ownDirs`: Coder's own folders a command
+ * may read, such as a long output's file; `exists(fullPath)`: whether something is there, on Coder's machine).
  */
-export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", real = null, ownDirs = [] } = {}) {
+export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", real = null, ownDirs = [], exists = null } = {}) {
   const read = readCommand(command, { cwd, home });
   if (!read.ok || read.dangling) return rbUnsure(PARSE_ERROR);
   const dirs = [...workdirs, ...ownDirs].filter((x) => typeof x === "string" && x);
@@ -1302,10 +1342,12 @@ export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", rea
     try { to = real(p) || ""; } catch { to = ""; }
     return !!to && (insideWork(to, dirs) || insideWork(to, realDirs));
   };
+  const there = (p) => { if (typeof exists !== "function") return false; try { return !!exists(p); } catch { return false; } };
+  const leadsTo = (p) => { if (typeof real !== "function") return p; try { return real(p) || p; } catch { return p; } };
   // Traced? A cd more than once, or a part run in a subshell ($(…), ( … ), <( … )), can't be (Claude Code's own examples).
   const cds = read.cmds.filter((c) => { const w = unwrapped(c.words); const p = w[0] ? basename(w[0].text) : ""; return p === "cd" || p === "pushd" || p === "popd" || p === "chdir"; });
   if (cds.length > 1) return rbUnsure("multiple directory changes cannot be checked against the read block");
-  if (read.cmds.some((c) => c.depth > 0 && !c.inScript)) return rbUnsure("a subshell cannot be checked against the read block");
+  if (read.cmds.some((c) => c.depth > 0 && !c.inScript && c.ranBy !== "xargs" && c.ranBy !== "find")) return rbUnsure("a subshell cannot be checked against the read block");
   // An input redirection: a wildcard or a short path after a cd asks as in every mode (Claude Code checks those first);
   // one from outside is blocked.
   for (const x of read.reads) {
@@ -1313,24 +1355,69 @@ export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", rea
     if (x.expand || !x.path) return rbUnsure(VAR_UNCHECKED);
     if (!inside(x.path)) return RB_OUTSIDE;
   }
+  // EACH WORD OF A PROGRAM THAT NAMES A FILE OR FOLDER THAT IS THERE (Claude Code's per and ger, 2.1.322; the owner,
+  // 2026-11-10: "fix the still different stuff"): one outside the working folders asks; one worked out when it runs asks.
+  // `-xVALUE` and `--opt=VALUE` give their value, `NAME=VALUE` both; a wildcard is checked by its folder.
+  const namedWhy = (prog, args, c, fromFlags = null) => {
+    const dir = c.dir === undefined ? cwd : c.dir;
+    const list = fromFlags || args;
+    for (const a of list) {
+      const t = a.text;
+      if (t === "") continue;
+      if (a.expand || a.subst) return rbComputed(prog);
+      const eq = t.indexOf("=");
+      const cands = fromFlags ? [t] : t.startsWith("-") ? (eq > 0 ? [t.slice(eq + 1)] : !t.startsWith("--") && t.length > 2 ? [t.slice(2)] : []) : eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(t.slice(0, eq)) ? [t, t.slice(eq + 1)] : [t];
+      for (const c0 of cands) {
+        if (!c0) continue;
+        if (c0.startsWith("~") && c0 !== "~" && !c0.startsWith("~/")) return rbComputed(prog);
+        const p = c0 === "~" || c0.startsWith("~/") ? (home ? home + c0.slice(1) : "") : c0;
+        if (!p) return rbComputed(prog);
+        if (!a.quoted && /\{[^{}]*(,|\.\.)[^{}]*\}/.test(p)) return rbComputed(prog);
+        if (dir === false && !p.startsWith("/")) return rbComputed(prog);
+        let base = p;
+        const g = a.glob ? p.search(/[*?[]/) : -1;
+        if (g >= 0) {
+          if (fromFlags || globClimbs(p)) return rbComputed(prog);
+          const st = p.slice(0, g);
+          base = st.endsWith("/") ? st : st.replace(/\/[^/]*$/, "") || (st.startsWith("/") ? "/" : ".");
+        }
+        const full = base.startsWith("/") ? normalPath(base) : normalPath(dir + "/" + base);
+        if (!climbs(base) && !there(full)) continue;
+        if (inside(full)) continue;
+        return rbNamesOutside(prog, leadsTo(full));
+      }
+    }
+    return "";
+  };
   for (const c of read.cmds) {
+    // What xargs runs gets its words only when it runs (Claude Code: "xargs names a path that is computed at run time").
+    if (c.ranBy === "xargs") return rbComputed("xargs");
+    // A setting in front of the command, or given to env, outside Claude Code's safe list for the read block.
+    const lead = [];
+    for (const w of c.words) { if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(w.raw) && !w.raw.startsWith("=")) lead.push(w); else break; }
+    const assign = (w) => { const k = w.raw.indexOf("="); return { name: w.raw.slice(0, k).replace(/\+$/, ""), value: w.raw.slice(k + 1), computed: !!(w.expand || w.subst) }; };
+    if (lead.map(assign).some((x) => !rbEnvSafe(x.name, x.value, x.computed))) return rbUnsure("an environment variable prefix outside the safe list cannot be checked against the read block");
+    const first = c.words[lead.length];
+    if (first && basename(first.text) === "env" && c.words.slice(lead.length + 1).filter((w) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.raw)).map(assign).some((x) => !rbEnvSafe(x.name, x.value, x.computed))) return rbUnsure("an environment variable assignment outside the safe list cannot be checked against the read block");
     const words = unwrapped(c.words);
+    // (xargs among the wrappers in front: `xargs cat` is read as cat, its words to come from xargs.)
+    const before = leadWords(c.words);
+    if (before.slice(0, Math.max(0, before.length - words.length)).some((w) => basename(w.text) === "xargs")) return rbComputed("xargs");
     if (!words.length) continue;
     const prog = basename(words[0].text), args = words.slice(1);
-    // A program given code inline, or code on stdin (piped in, a here-document or here-string, or `-`).
-    if (CODE_RUNNERS.has(prog)) {
-      let k = 0;
-      while (k < args.length && args[k].text.startsWith("-") && args[k].text !== "-") { if (INLINE_CODE.has(args[k].text) || /^--(eval|print)=/.test(args[k].text)) return rbUnsure(prog + " runs inline code, which cannot be checked against the read block"); k++; }
+    if (prog === "xargs") return rbComputed("xargs");
+    if (RB_EXEMPT.has(prog)) continue;
+    // A program given code inline, or code on stdin (`-`, piped in, a here-document or a here-string); then its words.
+    const runner = RB_RUNNERS.get(prog.replace(/[\d.]+$/, ""));
+    if (runner) {
       if (args.some((a) => a.text === "-")) return rbUnsure(prog + " runs code from stdin, which cannot be checked against the read block");
+      const inline = (t) => runner.has(t) || [...runner].some((f) => (f.startsWith("--") ? t.startsWith(f + "=") : f.startsWith("-") && t.startsWith("-") && !t.startsWith("--") && t.length > 2 && t.includes(f.slice(1))));
+      if (args.some((a) => inline(a.text))) return rbUnsure(prog + " runs inline code, which cannot be checked against the read block");
       const fed = c.afterPipe || (c.redirects || []).some((x) => x.heredoc || x.op === "<<<");
-      if (k >= args.length && fed) return rbUnsure("code on stdin cannot be checked against the read block");
-      continue;
+      if (fed && !args.some((a) => !a.text.startsWith("-"))) return rbUnsure("code on stdin cannot be checked against the read block");
     }
     const rule = READ_PATHS[prog];
-    if (!rule) continue;
-    // (A setting in front that is not a safe one: Claude Code, "an environment variable prefix outside the safe list cannot
-    // be checked against the read block".)
-    if (readWords(c.words) === null) return rbUnsure("an environment variable prefix outside the safe list cannot be checked against the read block");
+    if (!rule) { const w = namedWhy(prog, args, c); if (w) return w; continue; }
     if (prog === "sed" && !sedScriptsSafe(args.map((x) => x.text))) return RB_SED;
     const dir = c.dir === undefined ? cwd : c.dir;
     for (const p of rule(args.map((x) => x.text))) {
@@ -1344,6 +1431,18 @@ export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", rea
       const full = base.startsWith("/") ? normalPath(base) : base === "~" || base.startsWith("~/") ? (home ? normalPath(home + base.slice(1)) : "") : dir === false ? "" : normalPath(dir + "/" + base);
       if (!full) return rbUnsure(VAR_UNCHECKED);
       if (!inside(full)) return RB_OUTSIDE;
+    }
+    // (git's own folder and file options too: Claude Code checks -C, --git-dir, --work-tree, --file and -f with per.)
+    if (prog === "git") {
+      const flags = [];
+      for (let k = 0; k < args.length; k++) {
+        const t = args[k].text;
+        if (["-C", "--git-dir", "--work-tree", "--file", "-f"].includes(t) && args[k + 1]) flags.push(args[k + 1]);
+        else if (/^--(git-dir|work-tree|file)=/.test(t)) flags.push({ ...args[k], text: t.slice(t.indexOf("=") + 1) });
+        else if (t.startsWith("-C") && t.length > 2) flags.push({ ...args[k], text: t.slice(2) });
+      }
+      const w = namedWhy("git", [], c, flags);
+      if (w) return w;
     }
   }
   return "";

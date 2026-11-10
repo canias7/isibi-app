@@ -2,7 +2,7 @@
 // double check again against the claude code docs pls"). Each is read from Claude Code's docs and from Claude Code 2.1.319
 // itself (its words, tried for real on 2026-11-09), on the command as coder-shell.mjs reads it.
 import { posix } from "node:path";
-import { lstatSync, readlinkSync } from "node:fs";
+import { lstatSync, readlinkSync, statSync } from "node:fs";
 import { parseShell, unwrapped, leadWords, topTexts, basename } from "./coder-shell.mjs";
 
 // ── WHAT AN EXIT CODE MEANS ──────────────────────────────────────────────────
@@ -98,6 +98,11 @@ export function writeTargets(command) {
  * can't be worked out: a loop, more than 40 links, a link that can't be read. Read on Coder's machine, where the AI's
  * commands see the same folders at the same places (the admin sandbox shows them where they are).
  */
+/** Whether something is at a full path on this machine, its links followed (the read block checks only words that name one). */
+export function pathExists(p) {
+  if (typeof p !== "string" || !p.startsWith("/")) return false;
+  try { statSync(p); return true; } catch { return false; }
+}
 export function realPath(p, { lstat = lstatSync, readlink = readlinkSync, max = 40 } = {}) {
   if (typeof p !== "string" || !p.startsWith("/")) return "";
   const todo = p.split("/").filter((x) => x && x !== ".");
