@@ -245,6 +245,28 @@ export function plainError(e, ask) {
   return m.split("\n")[0].slice(0, 400);
 }
 
+/**
+ * THE NAME THE BROWSER GIVES SITES (the owner, 2026-11-10: "Call it Chrome"): ordinary Chrome's for the version it is,
+ * never "HeadlessChrome" (WhatsApp Web turned Gloopy's browser away for that word), in its user agent and in its client
+ * hints (the brands a page reads, and the sec-ch-ua header), the brands as Chromium itself lists them for that version
+ * (user_agent_utils.cc). Its automation flag (navigator.webdriver) is left as it is: the name changes; it doesn't hide
+ * that it is automated. Null when the version can't be read (then the browser keeps its own name).
+ */
+export function chromeName(version, arch = process.arch) {
+  const m = /(\d+)\.(\d+)\.(\d+)\.(\d+)/.exec(String(version || ""));
+  if (!m) return null;
+  const major = Number(m[1]), full = m.slice(1, 5).join(".");
+  const chars = [" ", "(", ":", "-", ".", "/", ")", ";", "=", "?", "_"], versions = ["8", "99", "24"];
+  const grease = { brand: "Not" + chars[major % 11] + "A" + chars[(major + 1) % 11] + "Brand", version: versions[major % 3] };
+  const chromium = { brand: "Chromium", version: String(major) };
+  const brands = major % 2 ? [chromium, grease] : [grease, chromium];
+  return {
+    userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + major + ".0.0.0 Safari/537.36",
+    secChUa: brands.map((b) => '"' + b.brand + '";v="' + b.version + '"').join(", "),
+    metadata: { brands, fullVersionList: brands.map((b) => ({ brand: b.brand, version: b === chromium ? full : b.version + ".0.0.0" })), fullVersion: full, platform: "Linux", platformVersion: "", architecture: arch === "arm64" ? "arm" : "x86", model: "", mobile: false, bitness: "64", wow64: false },
+  };
+}
+
 /** THE BROWSER ITSELF, kept running (node gloopy-browser.mjs serve <dir>): answers POST /act on <dir>/ctl.sock. */
 export async function serve(dir) {
   await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -256,7 +278,22 @@ export async function serve(dir) {
   const dlDir = join(dir, "downloads"), upDir = join(dir, "uploads");
   await rm(dlDir, { recursive: true, force: true }).catch(() => {});
   await mkdir(dlDir, { recursive: true, mode: 0o700 });
-  const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: true, downloadsPath: dlDir, ...(zone ? { timezoneId: zone } : {}) });
+  // Its name: ordinary Chrome's (see chromeName), for every page from its first request (new tabs too).
+  const name = (() => { try { return chromeName(spawnSync(chromium.executablePath(), ["--version"], { timeout: 10_000 }).stdout); } catch { return null; } })();
+  const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: true, downloadsPath: dlDir, ...(zone ? { timezoneId: zone } : {}), ...(name ? { userAgent: name.userAgent, extraHTTPHeaders: { "sec-ch-ua": name.secChUa } } : {}) });
+  // A new tab's first page runs before its brands can be set (see watch): there, and only while they still say
+  // "HeadlessChrome", the page reads Chrome's own list too.
+  if (name) await ctx.addInitScript(([brands, full]) => {
+    try {
+      const d = navigator.userAgentData;
+      if (!d || !d.brands.some((b) => /Headless/.test(b.brand))) return;
+      const p = Object.getPrototypeOf(d), copy = (l) => l.map((b) => ({ brand: b.brand, version: b.version }));
+      const high = p.getHighEntropyValues, json = p.toJSON;
+      Object.defineProperty(p, "brands", { get: () => copy(brands), configurable: true });
+      p.getHighEntropyValues = function (hints) { return high.call(this, hints).then((v) => ({ ...v, brands: copy(brands), ...(v.fullVersionList ? { fullVersionList: copy(full) } : {}) })); };
+      p.toJSON = function () { return { ...json.call(this), brands: copy(brands) }; };
+    } catch { /* not a page that has them */ }
+  }, [name.metadata.brands, name.metadata.fullVersionList]).catch(() => {});
   // ITS SIGN-INS, BACK ON A NEW COMPUTER (the audit, 2026-11-10): the copy Coder's Worker kept (cookies, and each site's
   // local storage), left here by Coder's service before the browser first started on this disk, then gone.
   await restoreState(ctx, join(dir, RESTORE_FILE)).catch(() => {});
@@ -291,6 +328,8 @@ export async function serve(dir) {
     dl.going.set(job, name);
   };
   const watch = (p) => {
+    // Its brands, as a page reads them, said as ordinary Chrome's too (the user agent and the header are the context's).
+    if (name) ctx.newCDPSession(p).then((s) => s.send("Emulation.setUserAgentOverride", { userAgent: name.userAgent, userAgentMetadata: name.metadata })).catch(() => {});
     p.on("dialog", (d) => {
       const type = d.type(), message = String(d.message()).replace(/\s+/g, " ").trim().slice(0, 300);
       const yes = type === "alert" || (["confirm", "beforeunload"].includes(type) && (armed || ownerHand));

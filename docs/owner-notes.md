@@ -11,6 +11,13 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: The browser, continued (your words: "lets keep working on the browser tool"; you chose: call it Chrome, your rules count, and "all of it")
+
+- **Gloopy's browser calls itself Chrome.** Sites see ordinary Chrome's name for its version, where before they saw "HeadlessChrome" (WhatsApp Web turned it away for that). The name is the same everywhere a site can read it, including a new tab's first visit. Its "controlled by automation" flag stays on: the name changes, but it doesn't hide that it's automated. I first tried Chromium's newer headless mode, which names itself plainly, but here it crashed when restarted on the same profile, and it contacts Google by itself. So I kept the browser Gloopy already uses.
+- **Your own "Always allow" rules now count in runs you didn't start** (schedules, wake-ups, webhooks): a step one of your rules covers goes ahead there too, unless the check finds another reason to stop. A setting on "Always allow" alone still waits for you in those runs. So "Always allow next time" on an expired card now does what it says.
+
+Tests GL104 (the browser's name, in a real browser) and an updated hold test.
+
 ## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
 
 Tried on test.gofarther.dev with Grok, recorded (three videos: 50, 15 and 3 minutes): every part of the browser, Gloopy's side and yours. The test copy's settings are back as they were (no rules, everything Always allow).

@@ -2821,7 +2821,11 @@ test("GL64 (2026-11-10) the check runs always: a step only the owner may do is t
   assert.equal(decide(v({ kind: "none", decision: "allow" }), {}), "allow");
   // In a run the owner did not start:
   for (const k of HOLD_KINDS) assert.equal(decide(v({ kind: k, decision: "allow" }), {}, { background: true }), "ask", k);
-  assert.equal(decide(v({ kind: "send", decision: "allow", rule: "allow" }), {}, { background: true }), "ask", "even with an Always allow rule");
+  // The owner, 2026-11-10: "Yes, my rules count": their own Always allow rule is their OK given in advance; the kind's
+  // setting alone (all Always allow here) is not.
+  assert.equal(decide(v({ kind: "send", decision: "allow", rule: "allow" }), {}, { background: true }), "allow", "an Always allow rule of the owner's own");
+  assert.equal(decide(v({ kind: "send", decision: "ask", rule: "allow" }), {}, { background: true }), "ask", "not when the check finds another reason to stop");
+  assert.equal(decide(v({ kind: "send", decision: "allow", rule: "allow" }), { send: "deny" }, { background: true }), "deny", "never over the kind's Never");
   assert.equal(decide(v({ kind: "none", decision: "allow" }), {}, { background: true }), "allow", "looking around goes ahead");
   assert.equal(decide(v({ kind: "send", decision: "allow" }), { send: "deny" }, { background: true }), "deny");
   assert.match(cm({ step: STEP_ORDER, about: { element: ELS.e5 }, convo: [], rules: [], background: true })[1].content, /\n\nTHIS RUN: started by a schedule, a wake-up or a webhook's call, not by the owner just now\./);
@@ -4962,6 +4966,50 @@ test("GL103 (2026-11-10) for real (where Chromium is installed), found in the li
     r = await hub.act({ action: "click", ref: refOf(a.text, /button[^\n]*?\[ref=([a-z0-9]+)\]/) });
     assert.match(r.text, /^Did: Clicked the button$/m, "no number");
     assert.equal((await hub.screen({})).last.did, "Clicked the button");
+  } finally {
+    (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    site.close();
+  }
+});
+
+test("GL104 (2026-11-10) the owner: \"Call it Chrome\": Gloopy's browser gives sites ordinary Chrome's name for its version, never \"HeadlessChrome\" (WhatsApp Web refused it), in the user agent, the sec-ch-ua header and the brands a page reads, new tabs too from their first request; its automation flag is left as it is", async (t) => {
+  const { chromeName, makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  // Chromium's own brand list for a version (user_agent_utils.cc).
+  const n = chromeName("Google Chrome for Testing 153.0.8010.12\n", "x64");
+  assert.equal(n.userAgent, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36");
+  assert.equal(n.secChUa, '"Chromium";v="153", "Not_A Brand";v="8"');
+  assert.deepEqual(n.metadata.fullVersionList, [{ brand: "Chromium", version: "153.0.8010.12" }, { brand: "Not_A Brand", version: "8.0.0.0" }]);
+  assert.deepEqual(chromeName("152.0.1.2").metadata.brands, [{ brand: "Not?A_Brand", version: "24" }, { brand: "Chromium", version: "152" }]);
+  assert.equal(chromeName("152.0.1.2", "arm64").metadata.architecture, "arm");
+  assert.equal(chromeName("no version"), null, "then the browser keeps its own name");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const seen = [];
+  const site = http.createServer((q, r) => {
+    const u = new URL(q.url, "http://x");
+    seen.push({ path: u.pathname, ua: q.headers["user-agent"], ch: q.headers["sec-ch-ua"], js: u.searchParams.get("js") });
+    r.writeHead(200, { "content-type": "text/html" });
+    r.end('<title>Name</title><a href="/tab" target="_blank">New tab</a><script>fetch("/js?js=" + encodeURIComponent(JSON.stringify([navigator.userAgent, navigator.userAgentData && navigator.userAgentData.brands, navigator.webdriver])))</script>');
+  });
+  const S = (await listen(site)).replace("127.0.0.1", "localhost");
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-name-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    const a = await hub.act({ action: "open", url: S + "/" });
+    await hub.act({ action: "click", ref: refOf(a.text, /link "New tab"[^\n]*?\[ref=([a-z0-9]+)\]/) });
+    for (let i = 0; i < 40 && seen.filter((x) => x.path === "/js").length < 2; i++) await new Promise((ok) => setTimeout(ok, 100));
+    const pages = seen.filter((x) => x.path !== "/js"), js = seen.filter((x) => x.path === "/js").map((x) => JSON.parse(x.js));
+    assert.deepEqual(pages.map((x) => x.path), ["/", "/tab"]);
+    for (const x of pages) {
+      assert.match(x.ua, /^Mozilla\/5\.0 \(X11; Linux x86_64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/\d+\.0\.0\.0 Safari\/537\.36$/, x.path);
+      assert.doesNotMatch(x.ch, /Headless/, x.path + " (a new tab's first request too)");
+      assert.match(x.ch, /"Chromium";v="\d+"/);
+    }
+    assert.equal(js.length, 2);
+    for (const [ua, brands, webdriver] of js) {
+      assert.doesNotMatch(ua, /Headless/);
+      assert.deepEqual(brands.map((b) => b.brand).sort(), ["Chromium", brands.find((b) => /^Not/.test(b.brand)).brand].sort(), JSON.stringify(brands));
+      assert.equal(webdriver, true, "the automation flag is left as it is");
+    }
   } finally {
     (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
     site.close();
