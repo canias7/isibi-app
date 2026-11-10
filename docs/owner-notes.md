@@ -11,6 +11,37 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Merged, deployed and tested live with Grok (your words: "o kdo that")
+
+- **Live on gofarther.dev** since deploy 78: the permission modes, the background commands that outlive the answer, and all the Bash items from the last two days.
+- **Tested live in the browser with Grok, recorded (recording 24, five videos).** A new chat on canias7/testingforclaude, with a test environment "Live test 10 Nov" (`CODER_BASH_EDIT_DIFF=1`, `CODER_TOOL_MEMORY_LIMIT=2G`). Everything worked:
+  - **Permission modes:**
+    - In Accept edits, `npm --version` asked first, with Claude Code's four choices. "Yes, and don't ask again" saved the rule `Bash(npm --version)`, and the next run didn't ask.
+    - Ctrl+Shift+M, then 3, switched to Plan. In Plan, `ls -la "$PWD/"` ran without asking (the new `$PWD` reading).
+    - The plan card: "Yes, and accept edits" ended Plan, and Coder wrote NOTES.md and saved it to the branch.
+    - Writing `.husky/pre-commit` (a protected file) asked, with only Yes and No, as in Claude Code.
+    - `cd .husky && rm pre-commit` asked (today's fix). No stopped it.
+    - The rules list showed the saved rule, and removing it worked.
+  - **Background commands:**
+    - A web server started in the background kept running after Coder's answer. It still answered over a minute later.
+    - "Run in background" moved a running loop to the background. The Stop button stopped the server, and Coder was told. The loop later finished on its own (exit code 0), and Coder read its output.
+  - **The new Bash items:**
+    - The effort level reached the command (`GOFARTHER_CODER_EFFORT=high`).
+    - The memory cap works on Fly.io. The command ran inside its own memory limit, and a program asking for 3 GB under the 2 GB cap was stopped (exit code 137).
+    - The files a command changed showed under its step: Deleted `.husky/pre-commit`, Created `CHANGES.txt`, Updated `NOTES.md`, each with its lines. In Auto, the protected delete still asked first.
+    - The 5 GB stop: `yes` running in the background was stopped once its output passed 5 GB. Coder was told, the step said "over 5 GB", and the output file ends with Claude Code's line "Command killed: output file exceeded 5GB" and exit code 137.
+    - The safety fix: a fake `nsenter` and `setpriv` placed in the AI's own folder never ran, and the next command worked normally.
+  - **`CODER_SHELL_PREFIX`:** a small logging program wrapped every command. Its log held each whole command Coder ran, as Claude Code's docs describe. The variable was removed again afterwards.
+- **Not tested live:** the stop when memory runs critically low. It needs the machine starved of memory for 30 minutes, which could take down Coder's own service. Tested on my side only (CD338).
+- **Seen during the test, not changed (asking you first):**
+  - While a new chat's first message waits for its machine to start (a few minutes at most), the page shows only a greyed send button, with no sign that anything is happening.
+  - In the files view, a created file hides the `@@` line, but a deleted file still shows it (`@@ -1 +0,0 @@`).
+- **Merged to main** twice: first everything on the branch (the permission modes, the sandbox fix, the Bash items), then the two fixes below.
+- **Deploy 77 hung and was cancelled.** It stuck in the safety tests that run as root, which took 9 seconds in deploy 76. They passed on my test machine, but every check since yesterday's sandbox fix had hung the same way on GitHub's machines, with no log.
+  - **The cause, in a test (not in Coder):** the test CD301 pauses all processes of user 1001, as Coder does at the end of a job, and since yesterday it also ends the ones it doesn't keep. On Coder's machines user 1001 is the AI's user. On GitHub's machines it is GitHub's own runner, so the test stopped the very job running it.
+  - **Fixed:** the test now ends only the sandbox's own processes, and the deploy's safety-test step has a 10-minute limit. A hang now fails fast with a log. On GitHub, the check passes again in 9 seconds.
+- **Also fixed before deploying** (found while preparing the live test): in Auto, `cd .husky && rm pre-commit` ran without asking, because Coder's every-mode check for protected files counted `pre-commit` from the folder the command started in. Claude Code never runs a change to a protected file without asking. Now each part of a command is checked from the folder it really runs in, and a file command after a `cd` into a protected folder asks too. Test CD341.
+
 ## 2026-11-09: The rest of the Bash docs, and today's Claude Code release (your question: "anything else from the batch docs ?")
 
 - I went through Claude Code's Bash docs again (fresh copies from today), its settings and variables, and Claude Code 2.1.321, released today. Four things were left. All four are done now:
