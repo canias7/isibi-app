@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Bash, a third pass through Claude Code's docs: what's still missing (your words: "dont test yet , go look at the claude code bash docs again and see what we missing")
+
+- **Nothing new from Claude Code since yesterday:** no release after 2.1.321, and the pages I compared yesterday are unchanged. This time I went line by line through the pages I hadn't compared that way: the sandboxed Bash page, permission modes, cloud environments, settings, commands. I also ran Claude Code's own examples from its docs through Coder's real permission code, on real folders.
+- **Missing (Bash), not built yet, waiting for your word:**
+  1. **Writes through a link (symlink).** Claude Code checks where a command's write really lands. If it lands outside the project, it asks, even in Auto. If it lands on a protected file, it asks as for that file. Coder checks only the path as written. Tried: in a repo with a link `docs/notes.txt` → `.husky/pre-commit`, `echo … > docs/notes.txt` changes the git hook without asking, in every mode.
+  2. **Stop ends a command's runaway processes at once.** When a background command is stopped, Claude Code also ends what it started with `setsid` or `timeout`. Coder ends those only when the job is over, so a server one of them started can keep its port busy until then.
+  3. **Rules on a setting of the command,** such as `Bash(run_in_background:true)` (ask or deny for background commands). Coder reads it as a command pattern that never matches, so the rule does nothing. Claude Code also ignores `Bash(command:…)` with a warning.
+  4. **Six cases where Coder runs without asking in Accept edits or Plan, and Claude Code asks:** a loop over `PATH` or `IFS` (`for PATH in …`); a command ending in a bare `&&` or `||`; `watch`, `setsid`, `flock` and the like approved by a rule such as `Bash(watch *)` (only an exact rule may); `find … -delete` or `-exec` approved by `Bash(find *)` (the same); Docker pointed at another machine with `--context` or `--host` after `ps`; a redirect to a wildcard name (`ls > *.txt`) or a `< file` read right after a `cd`.
+- **Outside Bash (asking first):** `Read(…)` and `Edit(…)` permission rules (Coder has only `Bash(…)` and `WebFetch(…)`; Claude Code's also apply to commands), and a warning to Coder when the disk runs low (`CLAUDE_CODE_WARN_DISK_FREE_GIB`).
+- **Not copied, on purpose:** the off switches for two dangerous-removal checks (they turn safety checks off, like the one skipped yesterday), and the sandbox for Claude Code on your own computer (cloud sessions, which Coder copies, use their own machine instead, as Coder does).
+- **Checked and already the same:** time limits, output limits, moving to the background and its notices, the 5 GB stop, the memory cap and low-memory stop, `cd` carrying over, `CODER_ENV_FILE`, the `!` box (Tab completion, paths, no-reply setting), dangerous removals, the protected files list, the read-only commands (with their `ps`, `file` and `which` cases), wrappers, chained commands, `<` and `tee` targets, and the notice after a machine restart.
+
 ## 2026-11-10: Merged, deployed and tested live with Grok (your words: "o kdo that")
 
 - **Live on gofarther.dev** since deploy 78: the permission modes, the background commands that outlive the answer, and all the Bash items from the last two days.
