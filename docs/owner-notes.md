@@ -27,7 +27,15 @@ log (81,000 lines) is in git history.
 - Found in my own check before the live test, and fixed: `(cd src && cat a.js)` would have asked in Accept edits (Coder loses track of the folder after a `cd` inside brackets). It runs again; only a path that climbs out with `..` from there asks. And "A variable in this command…" is now said only for a real variable, not for `$(…)`.
 - The first deploy (81) stopped at the tests: an older test of Stop (CD345) counted its processes before one had really started, on GitHub's busy machine. Not a Coder problem; the test now waits for them to start (passes 3 times out of 3 with every CPU busy). Nothing was deployed by that run.
 - Deploy 82: I cancelled it after 2 minutes, wrongly thinking it was stuck; it had deployed nothing. Deploy 83 ran instead.
-- Tests: 378 pass (7 new, CD361–CD367). Merge, deploy and the live test with Grok follow below.
+- Tests: 378 pass (7 new, CD361–CD367).
+- **Deployed (deploy 83) and tested live with Grok** (recording 26, three videos and pictures in the chat), in a new chat on canias7/testingforclaude:
+  - Accept edits: `cat /etc/hostname`, `ls ../` and `cat ~/.bashrc` each asked with Claude Code's sentence ("cat in '/etc/hostname' was blocked. For security, Coder may only concatenate files from …"); `head -3 README.md` ran without asking.
+  - Each other card said Claude Code's sentence: `cd docs && cd ..` (folder changed twice, now asks), `echo hi > /tmp/…` (output redirection), `cd /tmp && ls` (the cd only), the PATH loop, `echo dangling &&` ("Parse error"), `npm --version && tput reset` (the list of parts, with "don't ask again"), `cat $HOME/.profile`.
+  - A write through a link out of the project and one through a link to the git hook: Claude Code's two sentences, naming where each leads.
+  - The rules list: `Bash(command:rm *)` and `Bsh` saved as Deny rules with Claude Code's warnings and rows; `Bash(git:* status)` saved with no warning; with those deny rules there, `rm` still ran (they never match). All removed again.
+  - The read block on: `cat /etc/hostname` and `echo 'print(1+1)' | python3` asked in Auto, in Claude Code's words; the read tool on /etc/hostname was refused with Claude Code's sentence; `head -3 README.md` ran. The setting was removed again.
+- Seen meanwhile: another Claude session ran a deploy (84) from its own branch, for a test copy at test.gofarther.dev. I left it alone.
+- Still different from Claude Code (not changed): Stop ends a `setsid` child (Claude Code leaves it running, against its own changelog); under the read block, Claude Code also checks the words of any program that name an existing file (`less /etc/passwd`), while Coder checks its list of about 60 file commands.
 
 ## 2026-11-10: Bash tested side by side with Claude Code (your words: "merge deploy and test everything in the bash thing , test it with claude code and coder , and see the differences pls")
 
