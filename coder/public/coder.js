@@ -227,6 +227,8 @@
     document.addEventListener('keydown', key);
     wrap.onclick = (e) => { if (e.target === wrap) close(); };
     let note = '', err = '';
+    // (The hooks box keeps what is typed in it until it is saved, while the rest of the dialog is drawn again.)
+    let hooksDraft = typeof prefs.hooks === 'string' ? prefs.hooks : '';
     const save = async (field, value) => {
       const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
       if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; }
@@ -244,6 +246,11 @@
         '<div class="cd-set-head">Disk</div>' +
         '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder is told once, and asks you before deleting anything it didn’t make. Claude Code’s CLAUDE_CODE_WARN_DISK_FREE_GIB.</span>' +
           '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' + (g === 2 ? ' (default)' : '') : 'Off', prefs.diskWarnGib === g)).join('') + '</select></label>' +
+        // HOOKS (the owner, 2026-11-10: "yea do all 4"): their own, as in Claude Code's settings.
+        '<div class="cd-set-head">Hooks</div>' +
+        '<div class="cd-set-hint">Your own commands that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code> and more. They run on Coder’s machine like its commands, with the details on stdin. The repository’s own hooks in <code>.claude/settings.json</code> run too; <code>"disableAllHooks": true</code> turns them all off.</div>' +
+        '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
+        '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
         '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdSetDone">Done</button></div>';
       const $ = (id) => box.querySelector('#' + id);
@@ -251,6 +258,8 @@
       $('cdSetBg').onchange = (e) => save('bgHours', Number(e.currentTarget.value));
       $('cdSetStop').onchange = (e) => save('endDetached', e.currentTarget.checked);
       $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
+      $('cdSetHooks').oninput = (e) => { hooksDraft = e.currentTarget.value; };
+      $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
     };
     paint();
     box.querySelector('#cdSetBg').focus();

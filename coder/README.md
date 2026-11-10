@@ -702,6 +702,26 @@ outside saves that folder's Read rule. Whole-tool `Write`, `Grep`, `Glob` and `L
 rules apply to Coder's tools; a path in one of them is kept and never matches, with
 Claude Code's warning. Tests: `test/file-rules.test.mjs`.
 
+**Hooks** (Claude Code's hooks; owner, 2026-11-10: "yea do all 4"). The owner's own
+hooks (Settings, a box of Claude Code's settings JSON, checked by the Worker:
+`hooksSetting`, `machineHooks`) and the repository's (`.claude/settings.json` and
+`.claude/settings.local.json`, read inside the project and never through a link,
+not in a job from GitHub: `hooksForTurn` in `container/server.mjs`) run on Coder's
+machine as Coder's commands do, the event's JSON on stdin (a file the machine
+writes, `@REQUEST`), their stderr kept apart from their stdout, with
+`CLAUDE_PROJECT_DIR` and `CLAUDE_CODE_REMOTE=true`. Events: SessionStart (a chat's
+first message, and after a summary), UserPromptSubmit, PreToolUse,
+PermissionRequest, PostToolUse, PostToolUseFailure, Notification (a card that
+waits), Stop (8 times in a row at most), PreCompact and PostCompact. Matchers,
+`if`, deduplication, the exit-code table (0, 2, other), JSON decisions
+(`permissionDecision`, `updatedInput`, `additionalContext`, `decision: "block"`,
+`continue: false`, `systemMessage`, `updatedToolOutput`) and the words Coder is
+given ("PreToolUse:Bash hook error: [cmd]: …") are Claude Code's
+(`container/coder-hooks.mjs`). A hook's allow skips a mode's question and the auto
+mode checker, never a deny or ask rule or Coder's own safety checks;
+`disableAllHooks` turns them all off. Only command hooks run. Tests:
+`test/hooks.test.mjs`.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

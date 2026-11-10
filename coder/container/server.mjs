@@ -23,10 +23,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
+import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs } from "./coder-agent.mjs";
+import { hooksFrom } from "./coder-hooks.mjs";
 import { normMode, MODES } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
@@ -348,6 +349,34 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
   for (const l of fresh) { if (j.pending.length < MONITOR_PENDING) j.pending.push(l.slice(0, 2000)); else j.dropped = (j.dropped || 0) + 1; }
   if (!j.end && !j.stopping && fresh.length > flood) stopJob(j, "flood");
   return fresh.length;
+}
+/**
+ * THE HOOKS FOR ONE MESSAGE (Bash docs, the owner, 2026-11-10: "yea do all 4"; coder-hooks.mjs): the owner's own, from the
+ * Worker (`account`, Claude Code's user settings), then the repository's (.claude/settings.json and .claude/settings.local.json,
+ * Claude Code's project settings), read as plain files inside the project, never through a link, at most 1 MB each, and never
+ * in a job started from GitHub (strangers may write there). None at all when either says disableAllHooks.
+ */
+export function hooksForTurn(root, account, { github = false } = {}) {
+  const mine = hooksFrom(account && typeof account === "object" ? account : null, "settings");
+  const repo = { list: [], disabled: false };
+  if (!github && root) {
+    let inside = false;
+    try { const rr = realpathSync(root), cd = realpathSync(join(root, ".claude")); inside = cd.startsWith(rr + "/"); } catch { inside = false; }
+    for (const f of inside ? ["settings.json", "settings.local.json"] : []) {
+      let fd = null;
+      try {
+        fd = openSync(join(root, ".claude", f), constants.O_RDONLY | constants.O_NOFOLLOW);
+        const st = fstatSync(fd);
+        if (!st.isFile() || st.size > 1_000_000) continue;
+        const buf = Buffer.alloc(st.size);
+        readSync(fd, buf, 0, st.size, 0);
+        const r = hooksFrom(JSON.parse(buf.toString("utf8")), "project");
+        repo.list.push(...r.list);
+        if (r.disabled) repo.disabled = true;
+      } catch { /* none here, or not JSON */ } finally { if (fd !== null) { try { closeSync(fd); } catch { /* closed */ } } }
+    }
+  }
+  return mine.disabled || repo.disabled ? [] : [...mine.list, ...repo.list];
 }
 /** What the chat's monitors have for Coder: their new lines, and how each ended, once; given to Coder at each step. */
 export function monitorNews(project) {
@@ -2546,6 +2575,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const { notices, lost } = backgroundNews();
       runCoder({
         send: via ? coderSend(env, { via }) : sendFn,
+        // (The chat's id: a hook's session_id.)
+        chatId: project,
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
         // space on the working directory's filesystem").
         diskFree: () => { try { const f = statfsSync(dir); return Number(f.bavail) * Number(f.bsize); } catch { return null; } },
@@ -2709,7 +2740,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: hooksForTurn(dir, body.hooks, { github: body.github === true }), respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

@@ -59,7 +59,9 @@ export function savedEffort(saved) {
  * - `endDetached`: whether stopping a background command also ends what it started in the background, under setsid or
  *   timeout (Claude Code's docs say it does; its 2.1.322 leaves them running: off is that);
  * - `diskWarnGib`: tell Coder when the work disk has less than this many GiB free (Claude Code's
- *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off).
+ *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off);
+ * - `hooks`: the owner's own hooks (the owner, 2026-11-10: "yea do all 4"; Claude Code's hooks in its user settings), as the
+ *   JSON they typed, in Claude Code's shape, checked when saved (hooksSetting); given to Coder's machine with each message.
  */
 export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
 export function prefsOf(saved) {
@@ -68,6 +70,7 @@ export function prefsOf(saved) {
     bgHours: BG_HOURS.includes(Number(s.bgHours)) ? Number(s.bgHours) : 2,
     endDetached: s.endDetached !== false,
     diskWarnGib: DISK_GIB.includes(Number(s.diskWarnGib)) ? Number(s.diskWarnGib) : 2,
+    hooks: typeof s.hooks === "string" && hooksSetting(s.hooks).ok ? s.hooks : "",
   };
 }
 /** A change to the settings, checked: `{ prefs }` (only what was sent, with the rest kept) or `{ error }`. */
@@ -76,10 +79,13 @@ export function prefsChange(saved, body) {
   if ("bgHours" in b && !BG_HOURS.includes(Number(b.bgHours))) return { error: "The longest time for a background command is one of " + BG_HOURS.join(", ") + " hours." };
   if ("endDetached" in b && typeof b.endDetached !== "boolean") return { error: "Stop's choice is on or off." };
   if ("diskWarnGib" in b && !DISK_GIB.includes(Number(b.diskWarnGib))) return { error: "The low-disk warning is one of " + DISK_GIB.join(", ") + " GB (0 is off)." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib } };
+  if ("hooks" in b) { if (typeof b.hooks !== "string") return { error: "The hooks are JSON text." }; const h = hooksSetting(b.hooks); if (!h.ok) return { error: h.error }; }
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks } };
 }
 /** What Coder's machine is given of them with each message. */
 export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib }; };
+/** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */
+export const machineHooks = (saved) => { const h = hooksSetting(prefsOf(saved).hooks); return h.ok && h.value ? h.value : null; };
 export function usageSummary(list, turn) {
   const all = (Array.isArray(list) ? list : []).filter((u) => u && typeof u === "object").slice(0, 5000);
   const add = (arr, k) => arr.reduce((n, u) => n + (Number.isFinite(Number(u[k])) && Number(u[k]) > 0 ? Math.round(Number(u[k])) : 0), 0);
@@ -89,6 +95,7 @@ export function usageSummary(list, turn) {
   return { turn: Number(turn) || 0, ...part(all.filter((u) => u.kind !== "check")), ...(check.length ? { checker: part(check) } : {}) };
 }
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
+import { hooksSetting } from "../container/coder-hooks.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
@@ -956,7 +963,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);

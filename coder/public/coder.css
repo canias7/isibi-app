@@ -610,3 +610,9 @@
 .cd-rules-add button { font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid #1f1e1d; background: #1f1e1d; color: #fff; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
 .cd-rules .cd-sure-row .cd-sure-yes { background: #1f1e1d; border-color: #1f1e1d; }
 .cd-sure-text code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
+
+/* Settings: the owner's hooks (JSON, as in Claude Code's settings). */
+.cd-set-hint { font-size: 12.5px; line-height: 1.45; color: #6b6a68; margin: 4px 0 8px; }
+.cd-set-hint code { font-size: 12px; }
+.cd-set-hooks { width: 100%; box-sizing: border-box; min-height: 130px; resize: vertical; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 10px; border: 1px solid #e0dbd2; border-radius: 8px; background: #fff; color: #1f1e1d; }
+.cd-set-hooks-row { margin-top: 6px; justify-content: flex-start; }

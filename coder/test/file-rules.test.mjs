@@ -210,5 +210,5 @@ test("CD382e the page: a card for a read or a search a rule asks about shows its
   assert.equal(shown("Bash(npm test *)"), "npm test *");
   assert.match(src, /For files, <code>Read\(\.\/\.env\)<\/code> or <code>Edit\(src\/\*\*\)<\/code>, written as in a \.gitignore: <code>\/\/<\/code> starts at the machine\\'s root, <code>~\/<\/code> at Coder\\'s home, any other path at the project\./);
   // The machine's image has the new module.
-  assert.match(read("container/Dockerfile"), / coder-perms\.mjs coder-filerules\.mjs /);
+  assert.match(read("container/Dockerfile"), / coder-perms\.mjs coder-filerules\.mjs coder-hooks\.mjs /);
 });

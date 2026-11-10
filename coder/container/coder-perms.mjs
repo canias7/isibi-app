@@ -806,6 +806,39 @@ export function bashSpecMatches(spec, text) {
   if (re.test(text)) return true;
   return (p.match(/\*/g) || []).length === 1 && p.endsWith(" *") && text === p.slice(0, -2);
 }
+/**
+ * A HOOK'S `if` FILTER (Claude Code's hooks: "if uses permission rule syntax to match against the tool name and arguments
+ * together, so "Bash(git *)" runs when any subcommand of the Bash input matches git * and "Edit(*.ts)" runs only for
+ * TypeScript files"): whether one rule matches one tool call (`tool` by Claude Code's name, `input` its arguments, `ctx`
+ * `{ cwd, root, home }`). A Bash pattern checks every part of the command, those in $() and backticks too; one that says
+ * more than the program runs the hook anyway on $() , backticks or $VAR; a command it can't read runs the hook ("When
+ * Claude Code can't determine which commands the Bash input runs, it runs your hook regardless of the pattern"). A file
+ * tool's pattern is read as an allow rule's ("a single-segment directory pattern like Edit(src/**) matches only the src
+ * directory in the working directory").
+ */
+export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", home = "" } = {}) {
+  const m = /^([A-Za-z_][A-Za-z0-9_-]*)(?:\(([\s\S]*)\))?$/.exec(String(rule || "").trim());
+  if (!m || m[1] !== tool) return false;
+  const spec = m[2] === undefined ? null : m[2].trim();
+  if (spec === null || spec === "*") return true;
+  const args = input && typeof input === "object" ? input : {};
+  if (tool === "Bash" || tool === "Monitor") {
+    const sp = settingSpec(spec);
+    if (sp && sp.name !== "command") return settingMatches(sp.value, args[sp.name]);
+    const command = String(args.command || "");
+    const read = readCommand(command, { cwd, home });
+    if (!read.ok || read.dangling) return true;
+    if (read.cmds.some((c) => denyTexts(c).some((t) => bashSpecMatches(spec, t)))) return true;
+    // (More than the program, and a part worked out when it runs: the hook runs anyway.)
+    const words = spec.replace(/:\*$/, "").replace(/\s+\*$/, "").trim().split(/\s+/);
+    return words.length > 1 && /\$\(|`|\$[A-Za-z_{]/.test(command);
+  }
+  if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainMatches(spec, host); }
+  const path = typeof args.file_path === "string" ? args.file_path : typeof args.path === "string" ? args.path : "";
+  if (!path) return false;
+  const full = path.startsWith("/") ? path : (cwd.replace(/\/+$/, "") || "") + "/" + path;
+  return !!fileRuleHit([tool + "(" + spec + ")"], tool, full, "allow", { root, home });
+}
 /** The texts a command is matched as: as written and with its quotes taken away, each with spaces made single. */
 function textsOf(words) {
   if (!words || !words.length) return [];
@@ -1077,7 +1110,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     const s = left.map((c) => { const cd = cdTo(c); return cd === null ? (suggestFor(c) === null ? null : ruleText("Bash", suggestFor(c))) : cd || null; });
     if (s.every((x) => typeof x === "string" && x.length && x.length <= RULE_MAX + 10)) suggest = [...new Set(s)];
   }
-  return { verdict: "ask", why, suggest };
+  return { verdict: "ask", why, suggest, ...(safety ? { safety: true } : {}) };
 }
 /**
  * WHAT THE OWNER'S RULES SAY OF ONE OF CODER'S FILE TOOLS on one full path (Bash docs, the owner, 2026-11-10: "yea do all 4";
