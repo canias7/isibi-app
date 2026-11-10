@@ -1042,14 +1042,15 @@
       }
       else if (e.type === 'runask') {
         // A COMMAND CODER ASKS TO RUN (tool 4, like Claude Code's prompt for it): one whose > or tee writes a protected file,
-        // or one over 10,000 characters. The command, then Allow or Don't allow, which become the owner's next message.
+        // one that writes through a link out of the project (Bash docs pass 3), or one over 10,000 characters. The command,
+        // then Allow or Don't allow, which become the owner's next message.
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
         const more = Number.isInteger(e.more) && e.more > 0 ? e.more : 0;
         const paths = Array.isArray(e.paths) ? e.paths.filter((p) => typeof p === 'string').slice(0, 10) : [];
-        const prot = e.kind === 'protected' && paths.length;
-        out.push('<div class="cd-secret cd-envchange cd-writeask cd-runask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (prot ? 'Allow Coder to change ' + esc(paths.join(', ')) + '?' : 'Allow Coder to run this command?') + '</b>' +
-          '<p class="cd-secret-p">' + (prot ? 'This command writes ' + (paths.length === 1 ? 'a file' : 'files') + ' that can make code run on your computer when you pull the branch, or change how the project is built' : 'This command is over 10,000 characters, more than Coder\'s checks read through') + ', so Coder asks you first (Claude Code does too).' + (e.desc ? ' What it does: ' + esc(e.desc) + '.' : '') + ' The command:</p>' +
+        const prot = e.kind === 'protected' && paths.length, link = e.kind === 'link' && paths.length, rblock = e.kind === 'readblock';
+        out.push('<div class="cd-secret cd-envchange cd-writeask cd-runask"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (prot || link ? 'Allow Coder to change ' + esc(paths.join(', ')) + '?' : 'Allow Coder to run this command?') + '</b>' +
+          '<p class="cd-secret-p">' + (prot ? 'This command writes ' + (paths.length === 1 ? 'a file' : 'files') + ' that can make code run on your computer when you pull the branch, or change how the project is built' : link ? 'This command writes through a link that leads out of the project' : rblock ? 'This command reads outside the project (or can\'t be traced), which your read-block setting asks about first' : 'This command is over 10,000 characters, more than Coder\'s checks read through') + ', so Coder asks you first (Claude Code does too).' + (e.desc ? ' What it does: ' + esc(e.desc) + '.' : '') + ' The command:</p>' +
           '<pre class="cd-envchange-pre">' + esc(lines.join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>' +
           (live ? '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-runask-no="' + i + '">Don\'t allow</button><button type="button" class="cd-secret-save" data-runask-ok="' + i + '">Allow</button></div>' : '') +
         '</div>');

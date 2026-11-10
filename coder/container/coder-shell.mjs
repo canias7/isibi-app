@@ -28,6 +28,10 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   let i = 0;
   let topIndex = 0;
   const pendingHeredocs = [];
+  // A LOOP'S OWN VARIABLE (`for NAME in …`, `select NAME in …`), and an OPERATOR WITH NOTHING AFTER IT (`npm test &&`): both
+  // for Claude Code's permission checks (see readCommand in coder-perms.mjs).
+  const loopVars = [];
+  let dangling = false;
 
   const fail = () => { ok = false; };
   const peek = (n = 0) => s[i + n];
@@ -37,6 +41,8 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   function nested(text, depth, inScript = false) {
     const r = parseShell(text, { scriptDepth });
     if (!r.ok) fail();
+    loopVars.push(...r.loopVars);
+    if (r.dangling) dangling = true;
     for (const c of r.commands) out.push({ ...c, depth: c.depth + depth, inScript: c.inScript || inScript, top: -1 });
   }
 
@@ -162,7 +168,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // ONE SIMPLE COMMAND (or a compound's opening word), from i, until a separator or a closing bracket.
   function readCommand(depth, closer) {
     const words = [], redirects = [];
-    let compoundSkip = false;
+    let compoundSkip = false, some = false;
     for (;;) {
       skipBlanks();
       if (i >= s.length) break;
@@ -176,18 +182,19 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       }
       // A SUBSHELL or a GROUP where a command starts: read on its own.
       if (ch === "(" && !words.length) {
+        some = true;
         if (s[i + 1] === "(") { i += 2; readUntilClose("(", ")"); if (s[i] === ")") i++; continue; } // (( arithmetic ))
         i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); continue;
       }
       if (ch === "(" && words.length) {
         // A FUNCTION'S DEFINITION, name() { …; }: the name is no command; the body that follows is read like any commands.
-        if (/^\(\s*\)/.test(s.slice(i))) { i = s.indexOf(")", i) + 1; return { words: [], redirects, compoundSkip: false }; }
+        if (/^\(\s*\)/.test(s.slice(i))) { i = s.indexOf(")", i) + 1; return { words: [], redirects, compoundSkip: false, some: true }; }
         // process substitution would have been <( or >(: anything else is a word bash would refuse
         i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); continue;
       }
       if (ch === ")") { fail(); i++; continue; }
       // [[ … ]]: a test, not a command; its words are not run.
-      if (startsWith("[[") && !words.length) { const e = s.indexOf("]]", i + 2); if (e < 0) { fail(); i = s.length; break; } const inner = s.slice(i + 2, e); if (/\$\(|`/.test(inner)) { const r = parseShell(inner.replace(/^[^$`]*/, ""), { scriptDepth }); for (const c of r.commands) out.push({ ...c, depth: depth + 1, top: -1 }); } i = e + 2; continue; }
+      if (startsWith("[[") && !words.length) { some = true; const e = s.indexOf("]]", i + 2); if (e < 0) { fail(); i = s.length; break; } const inner = s.slice(i + 2, e); if (/\$\(|`/.test(inner)) { const r = parseShell(inner.replace(/^[^$`]*/, ""), { scriptDepth }); for (const c of r.commands) out.push({ ...c, depth: depth + 1, top: -1 }); } i = e + 2; continue; }
       // A REDIRECTION, with or without an fd number before it.
       let fd = "";
       const m = /^(\d+|\{[A-Za-z_][A-Za-z0-9_]*\})(?=[<>])/.exec(s.slice(i));
@@ -222,18 +229,21 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       // `case WORD in`: its patterns follow, read by readCase.
       if (compoundSkip && words[0].text === "case" && words.length === 3 && w.text === "in") break;
     }
-    return { words, redirects, compoundSkip };
+    return { words, redirects, compoundSkip, some };
   }
 
   // THE LIST: commands and their separators, to the end or to the closer.
   function readList(depth, closer) {
+    // (`&&`, `||`, `|` and `|&` join two commands: one with no command after it, before the end, a `)` or another
+    // separator, leaves the shell a command it can't run; bash says "syntax error". A newline between is fine.)
+    let joining = false;
     for (;;) {
       skipBlanks();
       if (i >= s.length) break;
       if (closer && s[i] === closer) break;
       if (s[i] === "\n") { i++; if (pendingHeredocs.length) { i--; takeHeredocs(depth); } continue; }
       const sep = SEPARATORS.find((x) => startsWith(x));
-      if (sep && !startsWith("&>")) { i += sep.length; continue; }
+      if (sep && !startsWith("&>")) { if (joining) dangling = true; joining = ["&&", "||", "|", "|&"].includes(sep); i += sep.length; continue; }
       const before = i;
       const c = readCommand(depth, closer);
       if (pendingHeredocs.length && s[i] === "\n") takeHeredocs(depth);
@@ -244,11 +254,14 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       if (c.compoundSkip) {
         // `for NAME in WORDS` / `case WORD in`: only words, no command; the body follows after `do` / the patterns.
         if (words[0] && words[0].text === "case") readCase(depth);
+        if (words[0] && (words[0].text === "for" || words[0].text === "select") && words[1] && !words[1].quoted && NAME.test(words[1].text)) loopVars.push(words[1].text);
         words = [];
       }
+      if (words.length || c.redirects.length || c.compoundSkip || c.some) joining = false;
       if (words.length || c.redirects.length) out.push({ words, redirects: c.redirects, depth, inScript: scriptDepth > 0, top: depth === 0 ? topIndex++ : -1 });
       if (i === before) i++;
     }
+    if (joining) dangling = true;
   }
 
   // case WORD in PATTERN) LIST ;; … esac: the patterns are not commands; each LIST is.
@@ -314,6 +327,8 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
           if (!script) break;
           const r = parseShell(script.text, { scriptDepth: scriptDepth + 1 });
           if (!r.ok) ok = false;
+          loopVars.push(...r.loopVars);
+          if (r.dangling) dangling = true;
           for (const sc of r.commands) out.push({ ...sc, depth: c.depth + 1, inScript: true, scriptQuote: script.raw.startsWith("\"") ? "double" : script.raw.startsWith("'") ? "single" : "none", scriptArgs: w.slice(k + 2).map((x) => x.text), top: -1 });
           break;
         }
@@ -321,7 +336,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       }
     }
   }
-  return { ok, commands: out };
+  return { ok, commands: out, loopVars, dangling };
 }
 
 /** The words a command really runs, past leading `NAME=value` assignments. */

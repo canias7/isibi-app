@@ -2,6 +2,7 @@
 // double check again against the claude code docs pls"). Each is read from Claude Code's docs and from Claude Code 2.1.319
 // itself (its words, tried for real on 2026-11-09), on the command as coder-shell.mjs reads it.
 import { posix } from "node:path";
+import { lstatSync, readlinkSync } from "node:fs";
 import { parseShell, unwrapped, leadWords, topTexts, basename } from "./coder-shell.mjs";
 
 // ── WHAT AN EXIT CODE MEANS ──────────────────────────────────────────────────
@@ -85,6 +86,59 @@ export function writeTargets(command) {
     if (prog === "cd" || prog === "pushd" || prog === "popd" || prog === "chdir") cdSeen = true;
   }
   return { ok: r.ok, targets: out };
+}
+
+// ── WHERE A PATH REALLY LEADS ────────────────────────────────────────────────
+/**
+ * A PATH WITH ITS LINKS FOLLOWED (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code's permissions
+ * docs, Symlinks: "When a file path Claude requests goes through a symlink, the permission check covers two paths: the one
+ * Claude requested and the file it resolves to"; a write through a link that "resolves outside the working directories", or
+ * "to a protected path that the requested path doesn't name", is asked about). Every link on the way is followed, the last
+ * one too (a link to nothing yet still says where a write would land); what isn't there yet is kept as written. "" when it
+ * can't be worked out: a loop, more than 40 links, a link that can't be read. Read on Coder's machine, where the AI's
+ * commands see the same folders at the same places (the admin sandbox shows them where they are).
+ */
+export function realPath(p, { lstat = lstatSync, readlink = readlinkSync, max = 40 } = {}) {
+  if (typeof p !== "string" || !p.startsWith("/")) return "";
+  const todo = p.split("/").filter((x) => x && x !== ".");
+  let cur = "", hops = 0;
+  while (todo.length) {
+    const seg = todo.shift();
+    if (seg === "..") { cur = cur.slice(0, cur.lastIndexOf("/")); continue; }
+    const next = cur + "/" + seg;
+    let st = null;
+    try { st = lstat(next); } catch { st = null; }
+    if (!st) {
+      const out = cur.split("/").filter(Boolean);
+      for (const r of [seg, ...todo]) { if (r === "..") out.pop(); else if (r !== ".") out.push(r); }
+      return "/" + out.join("/");
+    }
+    if (st.isSymbolicLink()) {
+      if (++hops > max) return "";
+      let to = "";
+      try { to = String(readlink(next)); } catch { return ""; }
+      if (!to) return "";
+      if (to.startsWith("/")) cur = "";
+      todo.unshift(...to.split("/").filter((x) => x && x !== "."));
+      continue;
+    }
+    cur = next;
+  }
+  return cur || "/";
+}
+/**
+ * WHERE A PATH LEADS, as the chat's folders name it: `realPath`, given back under a working folder's own name when that
+ * folder is itself reached through a link (so its files don't look as if they led out of it). "" as realPath.
+ */
+export function leadsTo(full, workdirs = [], real = realPath) {
+  const to = real(full);
+  if (!to) return "";
+  for (const w of workdirs) {
+    if (typeof w !== "string" || !w) continue;
+    const rw = real(w);
+    if (rw && rw !== w && (to === rw || to.startsWith(rw + "/"))) return w + to.slice(rw.length);
+  }
+  return to;
 }
 
 // ── DANGEROUS REMOVALS ───────────────────────────────────────────────────────

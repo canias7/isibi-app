@@ -11,6 +11,94 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Bash, the last two missing things built (your words: "Ok do that too")
+
+- **1. Seven more commands run without asking in Accept edits and Plan,** as in Claude Code: `lsof`, `ss`, `tput`, `fd`, `fdfind`, `docker logs` and `docker inspect`. Each keeps Claude Code's own checks, so these still ask: `tput reset` or `tput clear` (they change the terminal), `fd -x` (it runs a command on each file), `lsof +m`, a host name looked up over the network (`lsof -i @example.com`, `ss dst example.com`), and Docker pointed at another machine (Claude Code's whole list of 15 flags, like `-H`, `--context`, `--tlscert`, `--url`).
+- **2. The read block, an optional setting, off unless you turn it on.** Add `CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES=1` to an environment's settings (Claude Code's `blockReadsOutsideWorkingDirectories`). With it on:
+  - a command that reads a file outside the project asks first, **even in Auto**. Coder follows links, so a link in the project that leads to `/etc` counts as outside;
+  - a command whose reads can't be traced asks too, as in Claude Code: one that changes folder twice, runs part of itself in a subshell, names a path worked out when it runs (`$FILE`) or a wildcard (`/etc/*.conf`), runs code given inline (`python3 -c …`) or typed in, has a setting in front (`LD_PRELOAD=…`), or a `sed` script that could read any file;
+  - Coder's own tools `read`, `grep`, `glob` and `lsp` are refused outside the project, and Coder is told to ask you;
+  - Coder's own folders (background command logs, saved long outputs) stay readable;
+  - no rule of yours can approve such a read; the card asks each time, as Claude Code does.
+- **Found and fixed while testing:** my first version of the read block missed a link inside the project that leads out of it. Fixed before pushing; a test covers it.
+- **Tests:** CD350 to CD353 (4 new; 364 in all, all pass).
+- **Next, with your word from your message:** merge, deploy, and test all of today's Bash work live with Grok, recorded.
+
+## 2026-11-10: What's still missing from the Bash docs (your question: "What else from the batch docs are we missing")
+
+- **One real gap, found by comparing Claude Code's own list of commands that only read (from its code, 2.1.321) with Coder's:** 7 commands Claude Code runs without asking in Accept edits and Plan, which Coder asks about: `lsof`, `ss`, `tput`, `fd` (and `fdfind`), `docker logs`, `docker inspect`. Coder's list was copied from 2.1.319. (Claude Code also has a list of `gh` commands that only read, like `gh pr view`, but it isn't switched on in the public version, so Coder already matches it there.)
+- **An optional setting Coder lacks:** Claude Code's `permissions.blockReadsOutsideWorkingDirectories`. When on, commands that read files outside the project ask first, even in Auto. It is off unless you turn it on; half of it belongs to the Read tool.
+- **Outside Bash, still asking you:** `Read(…)` and `Edit(…)` rules, and the low-disk warning. One small Bash thing depends on Read rules: when you answer "don't ask again" to a command with a `cd` out of the project, Claude Code also saves a rule for that folder.
+- **Your call:** background commands longer than 2 hours.
+- **Separate tools, later:** Monitor, hooks, and Auto mode's second AI checker (it costs money per check).
+- **Not copied, on purpose:** switches that turn safety checks off, the sandbox for Claude Code on your own computer, zsh, and PowerShell and Windows items.
+- **Checked this time and already the same:** the other lists of commands that only read, refusing network names that lead to the machine itself or a cloud's private addresses (Coder is stricter than Claude Code), and refusing a dangerous delete in Auto when no one can answer.
+
+## 2026-11-10: Bash, the four missing things built (your words: "Ok yes do that")
+
+- **1. Writes through a link.** Coder now checks where a command's write really lands, following links, as Claude Code does.
+  - A write that lands on a protected file asks first, in every mode. The card names both: "docs/notes.txt (which leads to .husky/pre-commit), a protected file".
+  - A write inside the project that leads out of it through a link asks too, even in Auto, and names where it leads. As in Claude Code, one of your allow rules can approve a file command such as `cp`, but never the file a `>` writes.
+  - Tried on a real folder: the hole I found this morning (`echo … > docs/notes.txt` changing the git hook) now asks, also after a `cd` and through `tee`.
+- **2. Stop ends everything a command started.** Each command now carries a hidden mark that everything it starts inherits. Stopping a background command (your Stop, Coder's own stop, its time limit, 5 GB, low memory) ends every process with that mark, even ones that broke away with `setsid` or `timeout`. Tried for real: the old stop left 3 of 5 processes running; the new one ends all of them.
+  - **Found while doing this, fixed with it:** the clean-up at the end of each job ended a still-running background command's processes when they had broken away like that. So `timeout 600 npm run dev` in the background, or a browser a test opened, was cut off when the job ended. Now they are kept while their command runs.
+- **3. Rules on a command's settings.** In Permission rules, an Ask or Deny rule like `Bash(run_in_background:true)` now works: every background command then asks first (or is refused). `Bash(timeout:*)` and `Bash(description:…)` work too. `Bash(command:…)` is refused when you add it, with the reason, as Claude Code ignores it.
+- **4. Six more cases ask in Accept edits and Plan** (Auto is unchanged):
+  - a loop over one of the shell's own variables, like `for PATH in …` (Claude Code's own list of these names);
+  - a command ending in a bare `&&`, `||` or `|`;
+  - `watch`, `setsid`, `flock` and the like, approved only by an exact rule;
+  - `find … -delete` or `-exec`, the same;
+  - Docker pointed at another machine (`--context`, `--host`, `--config`);
+  - a `>` to a wildcard name (`ls > *.txt`), or a `<` read right after a `cd`.
+  - Also: `cat <<< text` is no longer mistaken for reading a file (Claude Code doesn't check those).
+- **Tests:** CD342 to CD349 (8 new; 360 in all, all pass).
+- **Screenshots** of the new cards are in the chat, from Coder's real page on my side with a stand-in Grok.
+- **Not live yet:** it needs your word to merge and deploy, then I test it live with Grok, recorded.
+- **Still asking you:** the two items outside Bash (`Read(…)` and `Edit(…)` rules; the low-disk warning).
+
+## 2026-11-10: Bash, a third pass through Claude Code's docs: what's still missing (your words: "dont test yet , go look at the claude code bash docs again and see what we missing")
+
+- **Nothing new from Claude Code since yesterday:** no release after 2.1.321, and the pages I compared yesterday are unchanged. This time I went line by line through the pages I hadn't compared that way: the sandboxed Bash page, permission modes, cloud environments, settings, commands. I also ran Claude Code's own examples from its docs through Coder's real permission code, on real folders.
+- **Missing (Bash), not built yet, waiting for your word:**
+  1. **Writes through a link (symlink).** Claude Code checks where a command's write really lands. If it lands outside the project, it asks, even in Auto. If it lands on a protected file, it asks as for that file. Coder checks only the path as written. Tried: in a repo with a link `docs/notes.txt` → `.husky/pre-commit`, `echo … > docs/notes.txt` changes the git hook without asking, in every mode.
+  2. **Stop ends a command's runaway processes at once.** When a background command is stopped, Claude Code also ends what it started with `setsid` or `timeout`. Coder ends those only when the job is over, so a server one of them started can keep its port busy until then.
+  3. **Rules on a setting of the command,** such as `Bash(run_in_background:true)` (ask or deny for background commands). Coder reads it as a command pattern that never matches, so the rule does nothing. Claude Code also ignores `Bash(command:…)` with a warning.
+  4. **Six cases where Coder runs without asking in Accept edits or Plan, and Claude Code asks:** a loop over `PATH` or `IFS` (`for PATH in …`); a command ending in a bare `&&` or `||`; `watch`, `setsid`, `flock` and the like approved by a rule such as `Bash(watch *)` (only an exact rule may); `find … -delete` or `-exec` approved by `Bash(find *)` (the same); Docker pointed at another machine with `--context` or `--host` after `ps`; a redirect to a wildcard name (`ls > *.txt`) or a `< file` read right after a `cd`.
+- **Outside Bash (asking first):** `Read(…)` and `Edit(…)` permission rules (Coder has only `Bash(…)` and `WebFetch(…)`; Claude Code's also apply to commands), and a warning to Coder when the disk runs low (`CLAUDE_CODE_WARN_DISK_FREE_GIB`).
+- **Not copied, on purpose:** the off switches for two dangerous-removal checks (they turn safety checks off, like the one skipped yesterday), and the sandbox for Claude Code on your own computer (cloud sessions, which Coder copies, use their own machine instead, as Coder does).
+- **Checked and already the same:** time limits, output limits, moving to the background and its notices, the 5 GB stop, the memory cap and low-memory stop, `cd` carrying over, `CODER_ENV_FILE`, the `!` box (Tab completion, paths, no-reply setting), dangerous removals, the protected files list, the read-only commands (with their `ps`, `file` and `which` cases), wrappers, chained commands, `<` and `tee` targets, and the notice after a machine restart.
+
+## 2026-11-10: Merged, deployed and tested live with Grok (your words: "o kdo that")
+
+- **Live on gofarther.dev** since deploy 78: the permission modes, the background commands that outlive the answer, and all the Bash items from the last two days.
+- **Tested live in the browser with Grok, recorded (recording 24, five videos).** A new chat on canias7/testingforclaude, with a test environment "Live test 10 Nov" (`CODER_BASH_EDIT_DIFF=1`, `CODER_TOOL_MEMORY_LIMIT=2G`). Everything worked:
+  - **Permission modes:**
+    - In Accept edits, `npm --version` asked first, with Claude Code's four choices. "Yes, and don't ask again" saved the rule `Bash(npm --version)`, and the next run didn't ask.
+    - Ctrl+Shift+M, then 3, switched to Plan. In Plan, `ls -la "$PWD/"` ran without asking (the new `$PWD` reading).
+    - The plan card: "Yes, and accept edits" ended Plan, and Coder wrote NOTES.md and saved it to the branch.
+    - Writing `.husky/pre-commit` (a protected file) asked, with only Yes and No, as in Claude Code.
+    - `cd .husky && rm pre-commit` asked (today's fix). No stopped it.
+    - The rules list showed the saved rule, and removing it worked.
+  - **Background commands:**
+    - A web server started in the background kept running after Coder's answer. It still answered over a minute later.
+    - "Run in background" moved a running loop to the background. The Stop button stopped the server, and Coder was told. The loop later finished on its own (exit code 0), and Coder read its output.
+  - **The new Bash items:**
+    - The effort level reached the command (`GOFARTHER_CODER_EFFORT=high`).
+    - The memory cap works on Fly.io. The command ran inside its own memory limit, and a program asking for 3 GB under the 2 GB cap was stopped (exit code 137).
+    - The files a command changed showed under its step: Deleted `.husky/pre-commit`, Created `CHANGES.txt`, Updated `NOTES.md`, each with its lines. In Auto, the protected delete still asked first.
+    - The 5 GB stop: `yes` running in the background was stopped once its output passed 5 GB. Coder was told, the step said "over 5 GB", and the output file ends with Claude Code's line "Command killed: output file exceeded 5GB" and exit code 137.
+    - The safety fix: a fake `nsenter` and `setpriv` placed in the AI's own folder never ran, and the next command worked normally.
+  - **`CODER_SHELL_PREFIX`:** a small logging program wrapped every command. Its log held each whole command Coder ran, as Claude Code's docs describe. The variable was removed again afterwards.
+- **Not tested live:** the stop when memory runs critically low. It needs the machine starved of memory for 30 minutes, which could take down Coder's own service. Tested on my side only (CD338).
+- **Seen during the test, not changed (asking you first):**
+  - While a new chat's first message waits for its machine to start (a few minutes at most), the page shows only a greyed send button, with no sign that anything is happening.
+  - In the files view, a created file hides the `@@` line, but a deleted file still shows it (`@@ -1 +0,0 @@`).
+- **Merged to main** twice: first everything on the branch (the permission modes, the sandbox fix, the Bash items), then the two fixes below.
+- **Deploy 77 hung and was cancelled.** It stuck in the safety tests that run as root, which took 9 seconds in deploy 76. They passed on my test machine, but every check since yesterday's sandbox fix had hung the same way on GitHub's machines, with no log.
+  - **The cause, in a test (not in Coder):** the test CD301 pauses all processes of user 1001, as Coder does at the end of a job, and since yesterday it also ends the ones it doesn't keep. On Coder's machines user 1001 is the AI's user. On GitHub's machines it is GitHub's own runner, so the test stopped the very job running it.
+  - **Fixed:** the test now ends only the sandbox's own processes, and the deploy's safety-test step has a 10-minute limit. A hang now fails fast with a log. On GitHub, the check passes again in 9 seconds.
+- **Also fixed before deploying** (found while preparing the live test): in Auto, `cd .husky && rm pre-commit` ran without asking, because Coder's every-mode check for protected files counted `pre-commit` from the folder the command started in. Claude Code never runs a change to a protected file without asking. Now each part of a command is checked from the folder it really runs in, and a file command after a `cd` into a protected folder asks too. Test CD341.
+
 ## 2026-11-09: The rest of the Bash docs, and today's Claude Code release (your question: "anything else from the batch docs ?")
 
 - I went through Claude Code's Bash docs again (fresh copies from today), its settings and variables, and Claude Code 2.1.321, released today. Four things were left. All four are done now:

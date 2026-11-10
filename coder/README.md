@@ -331,6 +331,38 @@ code in **each user's own GitHub**.
    checks read a `"$PWD/…"` word as that path and judge each part of a command from the
    folder it runs in (`c.dir`, unknown after a `cd` in a subshell, function or `$(…)`).
    Tests: `test/bash-final.test.mjs`.
+
+   A third pass through the docs (owner, 2026-11-10: "Ok yes do that"): a command's
+   writes are checked where they really land, links followed (`realPath` and `leadsTo`
+   in `container/coder-bashcheck.mjs`): one through a link to a protected file is asked
+   about in every mode, one through a link out of the project too (card kind `link`;
+   an allow rule approves a file command, never a redirection's file). Each of the
+   chat's commands carries a mark (`GOFARTHER_CODER_TASK`, `TASK_MARK` in
+   `container/coder-freeze.mjs`): a stop ends every process carrying it (`endMarked`),
+   and the end-of-job sweep keeps a running command's marked processes even outside
+   its process group (`keepMarks`). Deny and ask rules can name one of the call's
+   settings, `Bash(run_in_background:true)`, `Bash(timeout:*)` (`settingSpec`);
+   `Bash(command:…)` is refused (`ruleProblem`). In Accept edits and Plan these ask
+   too: a loop over one of the shell's own variables (`shellVariable`), an operator
+   with nothing after it (`dangling`), an exec wrapper or `find` action an exact rule
+   doesn't name, Docker pointed at another daemon, and a redirection to a wildcard
+   name or a `<` read after a `cd`. Tests: `test/bash-pass3.test.mjs`.
+
+   A fourth pass (owner, 2026-11-10: "Ok do that too"): seven more commands Claude
+   Code 2.1.321 runs without asking in Accept edits and Plan, each with its checks
+   (`lsof`, `ss`, `tput`, `fd`, `fdfind`, `docker logs`, `docker inspect`;
+   `otherDaemon` is Claude Code's full list of flags that point Docker at another
+   machine). And Claude Code's optional read block
+   (`permissions.blockReadsOutsideWorkingDirectories`), here the environment's
+   `CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES`: with it on, a command that reads
+   outside the project (links followed), or one whose reads can't be traced (a
+   second `cd`, a subshell, a computed or wildcard path, inline or stdin code, a
+   setting in front, an unsafe `sed` script), asks in every mode (card kind
+   `readblock`, `readBlockWhy` in `container/coder-perms.mjs`, with each command's own
+   rule for which words are paths, `READ_PATHS`); and `read`, `grep`, `glob` and
+   `lsp` outside the project are refused (`READ_BLOCKED`). Coder's own folders (the
+   background logs and saved long outputs, `ownDirs`) stay readable. Tests:
+   `test/bash-pass4.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
