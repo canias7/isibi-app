@@ -154,7 +154,16 @@ jobs:
           else
             sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
             docker build --build-arg CODER_IMAGE=full -t "$img" container
-            docker push "$img"
+            # FLY.IO'S IMAGE STORE SOMETIMES CUTS A BIG UPLOAD OFF (deploy 86, 2026-11-10: "connection
+            # reset by peer" at the last layer, twice in a row). What it already has is not sent again,
+            # so the upload is tried up to five times before the deploy gives up.
+            for try in 1 2 3 4 5; do
+              if docker push "$img"; then break; fi
+              if [ "$try" = 5 ]; then echo "The upload to Fly.io failed five times."; exit 1; fi
+              echo "The upload to Fly.io was cut off; trying again ($try of 5)."
+              sleep $((try * 20))
+              flyctl auth docker
+            done
           fi
           echo "image=$img" >> "$GITHUB_OUTPUT"
       - name: "Fly.io: give the Worker the token"

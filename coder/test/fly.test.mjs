@@ -379,7 +379,9 @@ test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute F
   assert.match(y, /for k in XAI_API_KEY CODER_CONTROL_KEY; do\n[\s\S]{0,240}flyctl secrets unset "\$k" -a "\$FLY_APP" --stage/);
   assert.match(y, /img="registry\.fly\.io\/\$FLY_APP:coder-\$\(git rev-parse HEAD:coder\/container \| cut -c1-12\)"\n/, "named after the machine's own folder: a deploy that does not change it leaves the machines as they are");
   // ALL OF CLAUDE CODE'S TOOLS (2026-11-07): Fly.io's machines get the full image, built only when that version is not there yet.
-  assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n\s+docker build --build-arg CODER_IMAGE=full -t "\$img" container\n\s+docker push "\$img"\n\s+fi\n/);
+  assert.match(y, /if docker manifest inspect "\$img" >\/dev\/null 2>&1; then\n[^\n]*not built again[^\n]*\n\s+else\n[^\n]*\n\s+docker build --build-arg CODER_IMAGE=full -t "\$img" container\n(\s+#[^\n]*\n)*\s+for try in 1 2 3 4 5; do\n\s+if docker push "\$img"; then break; fi\n[\s\S]*?\s+done\n\s+fi\n/);
+  // (Fly.io's image store cut the upload off twice in a row on 2026-11-10: it is tried up to five times.)
+  assert.match(y, /if \[ "\$try" = 5 \]; then echo "The upload to Fly\.io failed five times\."; exit 1; fi/);
   // The name is the same as long as coder/container is (a change elsewhere, like the notes, keeps it).
   const { execFileSync } = await import("node:child_process");
   const tree = (rev) => execFileSync("git", ["rev-parse", rev + ":coder/container"], { cwd: new URL("../..", import.meta.url).pathname }).toString().trim();
