@@ -155,8 +155,14 @@ export function redactCards(text, values) {
   }).join("\n");
 }
 
-/** Playwright, from where the machine installed it (NODE_PATH; the image's global folder). */
+/**
+ * Playwright, from where the machine installed it (NODE_PATH; the image's global folder), told where the image keeps
+ * its Chromium (/opt/pw-browsers) before it is first loaded: Playwright reads that once, and Coder's service is not
+ * started with it set (live test on the test copy, 2026-11-10: Gloopy's browser was "not on this computer" on Fly.io,
+ * though Chromium was there).
+ */
 function loadPlaywright() {
+  if (!process.env.PLAYWRIGHT_BROWSERS_PATH && existsSync("/opt/pw-browsers")) process.env.PLAYWRIGHT_BROWSERS_PATH = "/opt/pw-browsers";
   const dirs = [...String(process.env.NODE_PATH || "").split(":"), "/opt/node22/lib/node_modules"].filter(Boolean);
   for (const d of dirs) { try { return createRequire(join(d, "noop.js"))("playwright"); } catch { /* not there */ } }
   return createRequire(import.meta.url)("playwright");

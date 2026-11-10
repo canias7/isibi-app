@@ -11,6 +11,25 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Testing Gloopy live on the test copy: three things found and fixed
+
+On test.gofarther.dev, signed in as the test account, with Grok. Recorded (the video comes with the results).
+
+**Worked:**
+- Gloopy used the time zone of the device ("It's 2:13 AM … America/New_York").
+- A weekday schedule was checked and kept, in that time zone.
+- `/schedules` showed the task, with Run now, Pause, Edit and Delete.
+- Run now showed "Running", then "Succeeded".
+- Edit started "Edit your schedule …" in the box, and the change was kept.
+- Your "Ask first" rule held: Gloopy didn't follow the link and asked you first.
+
+**Found and fixed:**
+- **Gloopy's browser didn't start on its Fly.io computer.** Gloopy said "the browser isn't available". Chromium was there, but Playwright (which runs the browser) wasn't told where the image keeps it. It's only told in my own sandbox, so every test passed here. Gloopy's browser had never run on a real Fly.io computer before (it isn't on `main`). Its code now points Playwright there itself.
+- **The schedules card said "ran" after a run ended** until you typed `/schedules` again. It now asks again when a job ends and shows "Succeeded" by itself.
+- **A change of time alone failed once** ("make it 8:00 AM instead"). Gloopy's first try gave only the new time, and the tool wanted the whole "when"; it fixed itself on the second try. Now a new time or new days alone keep the rest ("every weekday").
+
+Test GL84 is new.
+
 ## 2026-11-10: A test copy at test.gofarther.dev (your word: "ok yea lets do that")
 
 You wanted to test this branch live "without touching the other branches or merging", and without it interfering with the main product.

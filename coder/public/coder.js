@@ -700,6 +700,9 @@
       }
       S.next = r.data.next || S.next;
       if (r.data.project) S.project = r.data.project;
+      // A JOB THAT JUST ENDED (live test, 2026-11-10): the schedules card asks again, so a run that was Running says how
+      // it went (Succeeded, Failed, Waiting for you) without typing /schedules.
+      if (GLOOPY && S.running && !r.data.running) S.sched = null;
       S.running = !!r.data.running;
       syncEntry();
       draw(fresh.length > 0);
@@ -713,6 +716,7 @@
     const r = await call('/projects/' + encodeURIComponent(id));
     if (r.status !== 200 || !r.data || !r.data.project || !S.project || S.project.id !== id) return;
     S.project = r.data.project; S.events = r.data.events || [];
+    if (GLOOPY) S.sched = null;
     S.running = S.project.status === 'running';
     syncEntry(); draw(true);
     if (S.running) { S.next = 0; startPoll(); }

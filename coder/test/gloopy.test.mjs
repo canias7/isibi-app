@@ -3997,3 +3997,36 @@ test("GL83 (2026-11-10) on the page, after the docs again: a card's warning; a c
   assert.match(ui, /const deviceZone = \(\) => \{ try \{ return Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone \|\| ''; \} catch \(e\) \{ return ''; \} \};/);
   assert.match(ui, /return send\(\(r\.data && r\.data\.said\) \|\| 'Done\.', \{ card: true \}\);/);
 });
+
+// ── FOUND LIVE ON THE TEST COPY (test.gofarther.dev, 2026-11-10) ───────────────────────────────────────────────────────
+test("GL84 (2026-11-10) found by the live test on the test copy: Gloopy's browser is found where the image keeps Chromium even when Coder's service is not told where (it was \"not on this computer\" on Fly.io); a schedules card asks again when a job ends (it said \"ran\" until /schedules); a change that names only a new time keeps the rest of when it repeats (Gloopy's first try failed)", async () => {
+  const { existsSync } = await import("node:fs");
+  const { execFileSync } = await import("node:child_process");
+  // 1. Without PLAYWRIGHT_BROWSERS_PATH (as Coder's service is started on Fly.io), where the image keeps Chromium.
+  if (existsSync("/opt/pw-browsers")) {
+    const env = { ...process.env }; delete env.PLAYWRIGHT_BROWSERS_PATH;
+    const out = execFileSync(process.execPath, ["-e", 'import("./container/gloopy-browser.mjs").then((m) => process.stdout.write(String(m.hasBrowser())))'], { cwd: new URL("..", import.meta.url).pathname, env }).toString();
+    assert.equal(out, "true");
+  }
+  // 2. The page: a job that just ended makes the schedules card ask again (and so does a reloaded chat).
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /if \(GLOOPY && S\.running && !r\.data\.running\) S\.sched = null;\n\s+S\.running = !!r\.data\.running;/);
+  assert.match(ui, /S\.project = r\.data\.project; S\.events = r\.data\.events \|\| \[\];\n\s+if \(GLOOPY\) S\.sched = null;/);
+  // 3. The schedules Gloopy is told of carry the parts of when they repeat; a change of time alone keeps "every weekday".
+  const S2 = await import("../src/gloopy-schedules.mjs");
+  const sd = { items: [], day: "", runs: 0, log: [] };
+  const it = S2.addSchedule(sd, SCHED.checkSchedule({ name: "Weekday news briefing", task: "Three top stories.", time_zone: "America/New_York", every: "weekday", time: "07:30" }, MON_2130), MON_2130);
+  const listed = S2.schedulesForTurn(sd)[0];
+  assert.deepEqual([listed.every, listed.time, listed.tz], ["weekday", "07:30", "America/New_York"]);
+  const job = async (args) => { const g = withChecks([say("", [call("schedule", { action: "edit", id: it.id, ...args }, "e1")]), say("Done.")], [{ kind: "none", decision: "allow", why: "You asked for this change." }]); return runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), now: () => MON_2130 }, { text: "make it 8:00 AM instead", ...GLOOPY, schedules: S2.schedulesForTurn(sd) }); };
+  let out = await job({ time: "08:00" });
+  assert.deepEqual([out.scheduleEdits[0].spec.every, out.scheduleEdits[0].spec.time, out.scheduleEdits[0].spec.tz], ["weekday", "08:00", "America/New_York"]);
+  assert.equal(out.messages.find((m) => m.tool_call_id === "e1").content, "changed (the owner's settings allow it): Change “Weekday news briefing” to run every weekday at 08:00 (America/New_York). Tell the owner in a line.");
+  // A whole new when is taken as given; a one-time change too.
+  out = await job({ every: "week", days: ["mon", "thu"], time: "09:00" });
+  assert.deepEqual([out.scheduleEdits[0].spec.every, out.scheduleEdits[0].spec.days, out.scheduleEdits[0].spec.time], ["week", ["mon", "thu"], "09:00"]);
+  out = await job({ in_minutes: 30 });
+  assert.equal(Number.isFinite(out.scheduleEdits && out.scheduleEdits[0] ? out.scheduleEdits[0].spec.once : NaN) || !!out.approvalRequest, true, "a one-time change is not mixed with the old repeat");
+  assert.match(GLOOPY_TOOLS.find((t) => t.function.name === "schedule").function.description, /a new time or new days alone keep the rest of when it repeats/);
+});

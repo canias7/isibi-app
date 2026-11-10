@@ -1305,11 +1305,15 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (act === "edit") {
           const it = mine.find((x) => x.id === String(args.id || ""));
           if (!it) { no("error: no schedule has that id (schedule list shows them)"); continue; }
-          const timing = ["every", "time", "days", "day", "hours", "until", "at", "in_minutes"].some((k) => args[k] !== undefined && args[k] !== null && args[k] !== "");
+          const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined && v !== null && v !== ""));
+          const timing = ["every", "time", "days", "day", "hours", "until", "at", "in_minutes"].some((k) => k in given);
+          // ONLY A NEW TIME, OR NEW DAYS (live test, 2026-11-10: "make it 8:00 AM instead" came as a time alone): the rest
+          // of when it repeats is kept from the schedule as it is.
+          const kept = timing && !("every" in given) && !("at" in given) && !("in_minutes" in given) && it.every ? { every: it.every, ...(it.time ? { time: it.time } : {}), ...(Array.isArray(it.days) ? { days: it.days } : {}), ...(Number.isInteger(it.day) ? { day: it.day } : {}), ...(Number.isInteger(it.hours) ? { hours: it.hours } : {}) } : {};
           let words, spec = null;
           try {
             words = checkSchedule({ name: args.name || it.name, task: args.task || it.task, time_zone: it.tz || args.time_zone, in_minutes: 5 }, now());
-            if (timing) spec = checkSchedule({ ...args, name: words.name, task: words.task, time_zone: args.time_zone || it.tz }, now());
+            if (timing) spec = checkSchedule({ ...kept, ...given, name: words.name, task: words.task, time_zone: args.time_zone || it.tz }, now());
           } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 300)); continue; }
           if (!timing && words.name === it.name && words.task === it.task) { no("error: give what changes: name, task, or the whole when (as for add)"); continue; }
           const once = spec ? Number.isFinite(spec.once) : it.once === true;

@@ -70,7 +70,8 @@ export async function writeSchedules(bucket, uid, email, data) {
 const own = (data) => data.items.filter((x) => !x.event);
 
 export function schedulesForTurn(data) {
-  return own(data).map((s) => ({ id: s.id, name: s.name, when: whenWords(s), nextLocal: s.next ? whenLocal(s.next, s.tz) : "", task: s.task.slice(0, 600), tz: s.tz, ...(Number.isFinite(s.once) ? { once: true } : {}), ...(s.self ? { self: true } : {}), ...(s.paused ? { paused: true } : {}) }));
+  // With the parts of when it runs (live test, 2026-11-10): a change that names only a new time keeps the rest.
+  return own(data).map((s) => ({ id: s.id, name: s.name, when: whenWords(s), nextLocal: s.next ? whenLocal(s.next, s.tz) : "", task: s.task.slice(0, 600), tz: s.tz, ...(Number.isFinite(s.once) ? { once: true } : {}), ...(s.self ? { self: true } : {}), ...(s.paused ? { paused: true } : {}), ...(s.every ? { every: s.every } : {}), ...(s.time ? { time: s.time } : {}), ...(Array.isArray(s.days) ? { days: s.days } : {}), ...(Number.isInteger(s.day) ? { day: s.day } : {}), ...(Number.isInteger(s.hours) ? { hours: s.hours } : {}) }));
 }
 
 /** What a run is, for the history: a schedule, a wake-up Gloopy set itself, or a webhook's call. */
