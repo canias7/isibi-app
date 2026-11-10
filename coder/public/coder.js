@@ -817,12 +817,26 @@
   /** How long a running command has run, and its timeout ("12s · timeout 2m"). */
   const secsWords = (n) => { n = Math.max(0, Math.round(n)); return n < 60 ? n + 's' : n % 60 ? Math.floor(n / 60) + 'm ' + (n % 60) + 's' : n / 60 + 'm'; };
   const runWords = (e) => 'Running for ' + secsWords((Date.now() - Number(e.at || Date.now())) / 1000) + (Number(e.timeoutS) > 0 ? ' · timeout ' + secsWords(Number(e.timeoutS)) : '');
+  /**
+   * A STEP AUTO MODE'S CHECKER BLOCKED, SHOWN AS CLAUDE CODE SHOWS IT (live test, 2026-11-10: a block showed only
+   * "✕ exit -1", its reason hidden in the closed step). Claude Code puts "Blocked by auto mode" and, under it, "Auto mode: "
+   * with the reason right under the tool call; Coder does the same under the step, and its right side says "✕ blocked".
+   * The server sends the block as "Blocked by auto mode · [rule] reason" (blockedShown in coder-checker.mjs).
+   */
+  function autoBlockOf(r) {
+    const m = r && r.code === -1 ? /^Blocked by auto mode · (\[[^\]\n]{1,80}\][\s\S]*)$/.exec(String(r.output || '')) : null;
+    return m ? m[1].replace(/\s+/g, ' ').trim().slice(0, 600) : '';
+  }
+  function stepAutoBlock(r) {
+    const why = autoBlockOf(r);
+    return why ? '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by auto mode</div><div class="cd-autoblock-why">Auto mode: ' + esc(why) + '</div></div>' : '';
+  }
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
     const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
-      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
+      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'
@@ -838,6 +852,8 @@
       // A COMMAND STILL RUNNING: how long it has run and its timeout (Claude Code 2.1.23), its last lines (1.0.48), and a way to
       // move it to the background (Claude Code's Ctrl+B): Coder goes on, and is told when it ends.
       (state === 'run' && !e.tool && S.running ? '<div class="cd-run-info">' + esc(runWords(e)) + '</div>' + (S.progress && Array.isArray(S.progress.lines) && S.progress.lines.length ? '<pre class="cd-progress">' + esc(S.progress.lines.join('\n')) + '</pre>' : '') + (e.noBg ? '' : '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>') : '') +
+      // A STEP AUTO MODE'S CHECKER BLOCKED: why, under the step, without opening it (like Claude Code's).
+      stepAutoBlock(r) +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).

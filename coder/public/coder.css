@@ -516,6 +516,10 @@
 .cd-bgmove:hover { border-color: #0d1b2a; }
 .cd-bgmove:disabled { opacity: .6; cursor: default; }
 .cd-run-info { margin: -4px 0 6px 30px; font: 12px Inter, system-ui, sans-serif; color: #6b7280; font-variant-numeric: tabular-nums; }
+/* A step auto mode's checker blocked (like Claude Code's "Blocked by auto mode" and "Auto mode: <reason>" under the call). */
+.cd-autoblock { margin: -2px 0 8px 30px; font: 13px/1.45 Inter, system-ui, sans-serif; }
+.cd-autoblock-head { color: #b3261e; font-weight: 600; }
+.cd-autoblock-why { color: #6b7280; overflow-wrap: anywhere; }
 .cd-progress { margin: 0 0 8px 30px; padding: 6px 10px; background: #f7f5f1; border: 1px solid #eee9e1; border-radius: 8px; font: 12px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8.5em; overflow: hidden; }
 
 /* MESSAGES WAITING FOR CODER (Claude Code's queue): grey, at the end of the chat, each with ✕ to take it back. */
