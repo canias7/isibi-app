@@ -135,6 +135,15 @@ export async function notifyOwner(env, uid, { kind, title, body, chat = "" }, { 
   return { sent, gone: gone.length };
 }
 
+/** One line for a card that waits: what Coder wants to do. */
+export function permissionLine(e) {
+  const cut = (s) => String(s || "").replace(/\s+/g, " ").trim().slice(0, 160);
+  if (e.tool === "plan") return "Approve it, or say what to change.";
+  if (e.tool === "bash") return "Run: " + cut(e.desc || (Array.isArray(e.lines) ? e.lines[0] : ""));
+  if (e.tool === "write" || e.tool === "edit") return (e.tool === "edit" ? "Edit " : "Write ") + cut(e.path);
+  if (e.tool === "web_fetch") { let host = ""; try { host = new URL(String(e.url)).hostname; } catch { host = cut(e.url); } return "Fetch a page from " + host; }
+  return cut(e.what) || "Allow it?";
+}
 /**
  * WHAT A JOB'S NEW STEPS ASK TO BE PUSHED (they reach Coder's Worker every few seconds as the job goes):
  * Coder's own `notify` (asked for, or news worth it), its question, a key it needs or an environment change it
@@ -152,6 +161,9 @@ export function pushesFor(events, meta, now = Date.now()) {
     else if (e.type === "writeask") out.push({ kind: "actions", title: "Coder asks to change a protected file · " + name, body: "Allow it to change " + String(e.path || "a file") + "?" });
     // A COMMAND'S CARD (tool 4): one that writes a protected file, or one over 10,000 characters.
     else if (e.type === "runask") out.push({ kind: "actions", title: "Coder asks to run a command · " + name, body: Array.isArray(e.paths) && e.paths.length ? "It would change " + e.paths.slice(0, 3).map(String).join(", ") + "." : "It is over 10,000 characters." });
+    // A STEP WAITING ON THE OWNER'S YES (the permission modes, 2026-11-09; Claude Code's push "when Claude needs your input"):
+    // a command, a file, a web page, or the plan to approve.
+    else if (e.type === "permission") out.push({ kind: "actions", title: (e.tool === "plan" ? "Coder's plan is ready · " : "Coder needs your approval · ") + name, body: permissionLine(e) });
     else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: "Coder finished · " + name, body: e.text || "" });
   }
   return out.slice(0, NOTIFY_MAX + 1);

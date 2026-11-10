@@ -1279,7 +1279,158 @@ export async function toolSavePicture({ name, type, data }) {
   return rel;
 }
 
-export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen };
+// ── WHAT A COMMAND CHANGED ───────────────────────────────────────────────────
+/**
+ * THE FILES A COMMAND CHANGED, AS CLAUDE CODE RECORDS THEM (tool 4, the owner, 2026-11-09: "Yes do that i thought we did
+ * that"; Claude Code 2.1.269 on, its hooks reference: "When a Bash command changes files in a Git repository, Claude Code
+ * can record what changed … The list covers what changed under the repository while the command ran. Files that Git
+ * ignores and files in submodules aren't listed"; its settings: "you see their diff in the terminal after the command").
+ * `snap`, before the command, takes the repository's files as they are; `snapdiff`, after it, takes them again and
+ * compares. Both run as the AI's user, like every tool here: git's index is copied into a private folder and what git
+ * writes goes there too (the repository's own git folder is root's, and only read), so nothing of the repository changes.
+ * Claude Code's limits: at most 200 changed files named, diffs of up to 5, 400 lines and 64,000 characters of them. A file
+ * over 5 MB is not read, only named (then the diff is incomplete, `unavailable`, as Claude Code marks it); a command that
+ * left more than 20,000 files or 256 MB to look at gets no diff (`unavailable`).
+ */
+export const SNAP_DIFF_FILES = 5, SNAP_CHANGED_MAX = 200, SNAP_LINES = 400, SNAP_CHARS = 64_000;
+export const SNAP_FILE_MAX = 5_000_000, SNAP_TOTAL_MAX = 256_000_000, SNAP_LIST_MAX = 20_000, SNAP_GIT_MS = 10_000;
+const SNAP_RE = /^coder-snap-[A-Za-z0-9]{6}$/;
+const SNAP_KEEP_MS = 60 * 60 * 1000;
+/** One git command for the snapshot: its output as bytes (null past 32 MB), within SNAP_GIT_MS. */
+function snapGit(args, { cwd, env }) {
+  return new Promise((done) => {
+    const chunks = []; let size = 0, err = "";
+    const p = spawn("git", ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks", ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, SNAP_GIT_MS);
+    p.stdout.on("data", (b) => { size += b.length; if (size <= 32 * 1024 * 1024) chunks.push(b); else { try { p.kill("SIGKILL"); } catch { /* gone */ } } });
+    p.stderr.on("data", (b) => { if (err.length < 2000) err += b; });
+    p.on("error", (e) => { clearTimeout(t); done({ code: -1, out: Buffer.alloc(0), err: e.message }); });
+    p.on("close", (code) => { clearTimeout(t); done({ code: size > 32 * 1024 * 1024 ? -1 : code, out: Buffer.concat(chunks), err }); });
+  });
+}
+/** A repository folder the commands may work in: the project's, or one of the chat's other repositories (CODER_EXTRA_ROOTS). */
+function snapRoot(root) {
+  const roots = [ROOT, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))].map((x) => resolve(x));
+  const r = typeof root === "string" && isAbsolute(root) && !root.includes("\0") ? resolve(root) : "";
+  if (!r || !roots.includes(r)) fail("not one of the chat's repositories");
+  return r;
+}
+/** The repository's files as they are now, written as a git tree in the snapshot's folder. `{ tree, big }` or `{ why }`. */
+async function snapTake(root, dir, gitDir, { since = null } = {}) {
+  const env = { ...process.env, GIT_INDEX_FILE: join(dir, "index"), GIT_OBJECT_DIRECTORY: join(dir, "objects"), GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDir, "objects"), GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" };
+  // What git has to read: what changed since the index (and new files git does not ignore). Files that are too big are
+  // named, by size and time, and left out of git's tree.
+  const ls = await snapGit(["ls-files", "-z", "-o", "-m", "--exclude-standard"], { cwd: root, env });
+  if (ls.code !== 0) return { why: "git could not list the files" };
+  const names = [...new Set(ls.out.toString("utf8").split("\0").filter((x) => x && !x.endsWith("/")))];
+  if (names.length > SNAP_LIST_MAX) return { why: "too many files" };
+  const big = [];
+  let total = 0;
+  for (const n of names) {
+    const st = await lstat(join(root, n)).catch(() => null);
+    if (!st || !st.isFile()) continue;
+    if (st.size > SNAP_FILE_MAX) big.push({ path: n, size: st.size, at: Math.round(st.mtimeMs) });
+    else if ((total += st.size) > SNAP_TOTAL_MAX) return { why: "too much to read" };
+  }
+  if (big.length > SNAP_CHANGED_MAX) return { why: "too many big files" };
+  const add = await snapGit(["add", "-A", "--ignore-errors", "--", ".", ...big.map((b) => ":(exclude,literal)" + b.path)], { cwd: root, env });
+  if (add.code !== 0 && /^fatal:/m.test(add.err)) return { why: "git could not read the files" };
+  const wt = await snapGit(["write-tree"], { cwd: root, env });
+  const tree = wt.out.toString("utf8").trim();
+  if (wt.code !== 0 || !/^[0-9a-f]{40,64}$/.test(tree)) return { why: "git could not write the snapshot" };
+  // A big file that was there before, unchanged, is no change.
+  const before = new Map(((since && since.big) || []).map((b) => [b.path, b]));
+  const bigChanged = big.filter((b) => { const was = before.get(b.path); return !was || was.size !== b.size || was.at !== b.at; }).map((b) => b.path);
+  for (const [p0] of before) if (!big.some((b) => b.path === p0) && !(await lstat(join(root, p0)).then(() => true, () => false))) bigChanged.push(p0);
+  return { tree, big, bigChanged, env };
+}
+/** Old snapshot folders (a job that ended before its command did) go. */
+async function snapSweep() {
+  const now = Date.now();
+  for (const n of await readdir(tmpdir()).catch(() => [])) {
+    if (!SNAP_RE.test(n)) continue;
+    const st = await lstat(join(tmpdir(), n)).catch(() => null);
+    if (st && st.isDirectory() && now - st.mtimeMs > SNAP_KEEP_MS) await rm(join(tmpdir(), n), { recursive: true, force: true }).catch(() => {});
+  }
+}
+/** Before the command: `{ id }` (the snapshot's folder), or `{ unavailable: true, why }`. With `drop`, that snapshot goes. */
+export async function toolSnap({ root, drop } = {}) {
+  if (drop !== undefined) {
+    if (typeof drop !== "string" || !SNAP_RE.test(drop)) fail("not a snapshot");
+    await rm(join(tmpdir(), drop), { recursive: true, force: true });
+    return JSON.stringify({ dropped: true });
+  }
+  const top = snapRoot(root);
+  await snapSweep();
+  const g = await snapGit(["rev-parse", "--absolute-git-dir", "--show-toplevel"], { cwd: top, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  const [gitDir, shown] = g.out.toString("utf8").split("\n");
+  if (g.code !== 0 || !gitDir || resolve(shown || "") !== top) return JSON.stringify({ unavailable: true, why: "not a git repository" });
+  const dir = await mkdtemp(join(tmpdir(), "coder-snap-"));
+  try {
+    await mkdir(join(dir, "objects"));
+    // git's own index, so only what changed since it is read again.
+    await writeFile(join(dir, "index"), await readFile(join(gitDir, "index")).catch(() => Buffer.alloc(0)));
+    if (!(await stat(join(dir, "index"))).size) await unlink(join(dir, "index"));
+    const s = await snapTake(top, dir, gitDir);
+    if (s.why) { await rm(dir, { recursive: true, force: true }); return JSON.stringify({ unavailable: true, why: s.why }); }
+    await writeFile(join(dir, "state.json"), JSON.stringify({ root: top, gitDir, tree: s.tree, big: s.big }));
+    return JSON.stringify({ id: dir.slice(tmpdir().length + 1) });
+  } catch (e) { await rm(dir, { recursive: true, force: true }).catch(() => {}); return JSON.stringify({ unavailable: true, why: String((e && e.message) || e).slice(0, 200) }); }
+}
+/** A file's diff, as lines (its hunks: "@@ …", then "+", "-" and " " lines); `binary` when git shows no lines for it. */
+async function snapFileDiff(env, root, a, b, path) {
+  const d = await snapGit(["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "-U3", a, b, "--", ":(literal)" + path], { cwd: root, env });
+  const text = d.out.toString("utf8");
+  if (d.code !== 0) return { lines: [], binary: true };
+  const all = text.split("\n");
+  const at = all.findIndex((l) => l.startsWith("@@"));
+  if (at < 0) return { lines: [], binary: /^Binary files /m.test(text) };
+  const lines = all.slice(at);
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  return { lines, binary: false };
+}
+/**
+ * After the command: what changed, in Claude Code's terms: `changedFiles` (full paths, at most 200), `files` (the diffs of
+ * up to 5: path, kind "create" | "update" | "delete", add, del, lines, more), `moreFiles` (changed files with no diff
+ * here) and `unavailable` (incomplete, or none could be taken). The snapshot's folder goes.
+ */
+export async function toolSnapDiff({ id } = {}) {
+  if (typeof id !== "string" || !SNAP_RE.test(id)) fail("not a snapshot");
+  const dir = join(tmpdir(), id);
+  try {
+    const st = JSON.parse(await readFile(join(dir, "state.json"), "utf8"));
+    const root = snapRoot(st.root);
+    const after = await snapTake(root, dir, st.gitDir, { since: st });
+    if (after.why) return JSON.stringify({ changedFiles: [], files: [], moreFiles: 0, unavailable: true, why: after.why });
+    const dt = await snapGit(["diff-tree", "-r", "-z", "--no-renames", "--raw", st.tree, after.tree], { cwd: root, env: after.env });
+    if (dt.code !== 0) return JSON.stringify({ changedFiles: [], files: [], moreFiles: 0, unavailable: true, why: "git could not compare" });
+    const parts = dt.out.toString("utf8").split("\0");
+    const changes = [];
+    for (let k = 0; k + 1 < parts.length; k += 2) {
+      const m = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([ACDMTUX])/.exec(parts[k]);
+      if (!m) continue;
+      // A submodule (a folder of its own repository) is never listed.
+      if (m[1] === "160000" || m[2] === "160000") continue;
+      changes.push({ path: parts[k + 1], kind: m[3] === "A" ? "create" : m[3] === "D" ? "delete" : "update" });
+    }
+    const big = [...new Set(after.bigChanged)].filter((p0) => !changes.some((c) => c.path === p0));
+    const all = [...changes.map((c) => c.path), ...big].sort();
+    const files = [];
+    let lines = 0, chars = 0;
+    for (const c of changes.sort((x, y) => (x.path < y.path ? -1 : 1)).slice(0, SNAP_DIFF_FILES)) {
+      const d = await snapFileDiff(after.env, root, st.tree, after.tree, c.path);
+      const add = d.lines.filter((l) => l[0] === "+").length, del = d.lines.filter((l) => l[0] === "-").length;
+      const kept = [];
+      for (const l of d.lines) { if (lines + 1 > SNAP_LINES || chars + l.length > SNAP_CHARS) break; kept.push(l.slice(0, 2000)); lines++; chars += l.length; }
+      files.push({ path: join(root, c.path), kind: c.kind, add, del, lines: kept, ...(d.lines.length > kept.length ? { more: d.lines.length - kept.length } : {}), ...(d.binary ? { binary: true } : {}) });
+    }
+    return JSON.stringify({ changedFiles: all.slice(0, SNAP_CHANGED_MAX).map((p0) => join(root, p0)), files, moreFiles: Math.max(0, all.length - files.length), ...(big.length ? { unavailable: true } : {}) });
+  } catch (e) {
+    return JSON.stringify({ changedFiles: [], files: [], moreFiles: 0, unavailable: true, why: String((e && e.message) || e).slice(0, 200) });
+  } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
+}
+
+export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

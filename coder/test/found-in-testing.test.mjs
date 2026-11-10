@@ -1879,7 +1879,7 @@ test("CD259 after each write of a file a language server takes, the new errors a
   assert.equal(hideIn([shown], ["sk-secret-123"])[0].problems[0].message, "bad thing: BAD [hidden]");
   // The chat: the line, and the list a tap away.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /stepChange\(r, key\) \+\n[^\n]*\n\s+stepProblems\(r, key\) \+/);
+  assert.match(ui, /stepChange\(r, key\) \+\n[^\n]*\n\s+stepFiles\(r, key\) \+\n[^\n]*\n\s+stepProblems\(r, key\) \+/);
   assert.match(ui, /">Found ' \+ all \+ ' new diagnostic issue' \+ \(all === 1 \? '' : 's'\) \+ ' in 1 file/);
   assert.match(ui, /on\('\.cd-probs-row', 'click'/);
 });

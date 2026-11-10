@@ -11,15 +11,74 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-09: Coder's commits and pull requests link back to the chat (your words: "yes i want that")
+## 2026-11-09: The rest of the Bash docs, and today's Claude Code release (your question: "anything else from the batch docs ?")
 
-Not live yet: it waits for your word to merge, with the fixes below.
+- I went through Claude Code's Bash docs again (fresh copies from today), its settings and variables, and Claude Code 2.1.321, released today. Four things were left. All four are done now:
+  - **Paths written from `$PWD`** (new in today's Claude Code). In Accept edits and Plan, `grep -r foo "$PWD/src"` used to ask, while the same command with the folder typed out didn't. Now it's read as that folder.
+  - **Background commands stop when memory runs critically low while the chat is idle**, as in Claude Code. This happens only after 30 minutes with no job running, and only while the machine is really short of memory (under 10% free and under 4 GB). Coder is told why, and not to restart the command on its own. `CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1` in the environment's variables turns it off.
+  - **`CODER_SHELL_PREFIX`** (Claude Code's `CLAUDE_CODE_SHELL_PREFIX`): a program of yours that wraps every command, for logging or auditing. It gets the whole command and runs it.
+  - **The effort level in each command's environment** as `GOFARTHER_CODER_EFFORT` (Claude Code's `CLAUDE_EFFORT`).
+- **A gap in the permission modes, found and fixed while doing this.** In Accept edits, `cd .husky && rm pre-commit` ran without asking, though it deletes a protected file. (`rm .husky/pre-commit` did ask.) Now each part of a command is checked from the folder it really runs in, so it asks. Claude Code fixed the same kind of bug today. The permission modes aren't live yet, so this never reached gofarther.dev.
+- **Not copied, on purpose:**
+  - Choosing zsh instead of bash (`CLAUDE_CODE_SHELL`). Coder's machine runs bash.
+  - Removing keys from commands' environments (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`). Coder's commands already get a bare environment; only your own variables reach them.
+  - Switching off the check of `bash -c '…'` scripts for dangerous removals (`CLAUDE_CODE_DISABLE_INLINE_SHELL_RM_PROMPT`). It turns off a safety check.
+  - Items only for Windows, PowerShell, macOS or Claude Code's desktop sessions.
+- **Different on purpose (your call):** background commands still stop after 2 hours at most. Claude Code lets a variable raise that. Coder keeps the cap because the machine stays awake on your bill while one runs.
+- **Still to come, separate from Bash:** hooks (Claude Code's own scripts that run around each tool), the Monitor tool, and Auto mode's second AI checker (needs your OK on cost).
+- **Tests:** CD336 to CD340 (5 new).
+- **Not live yet:** it goes in with the next merge.
+
+## 2026-11-09: The last three Bash items from Claude Code's docs (your word: "Yes do that i thought we did that")
+
+- **1. Background commands stop at 5 GB of output, like Claude Code's.** Before, only a command still on screen was stopped at 5 GB; one in the background could fill the disk. Now it is stopped too. Its output file ends with Claude Code's own line, "Command killed: output file exceeded 5GB", then its exit code (137). Coder is told why, and the step shows "over 5 GB". The setup script is covered now as well (it had slipped past the check).
+- **2. The files a command changed, under its step, like Claude Code's.** For each command, you see "Updated src/cart.js +1 −1", "Created CHANGELOG.md +5" or "Deleted cart/index.js −1", with the changed lines (the same view as under a write or edit). Up to 5 files with their lines; any others are listed by name.
+  - It is off unless you turn it on, as in Claude Code: add `CODER_BASH_EDIT_DIFF=1` to the environment's variables (Claude Code's name is `CLAUDE_CODE_BASH_EDIT_DIFF`). `0` turns it off. Claude Code turns it on by itself only when it makes Claude edit files with commands, which Coder never does (Coder has its own edit and write tools).
+  - Like Claude Code: no list for a command that only reads, for one in the background, or for a git command that moves the files (checkout, switch, stash, pull, merge, rebase, reset, restore, clean, cherry-pick, revert). Files git ignores are not listed. A file over 5 MB is named but not shown.
+  - It is only for you to see. Coder is not told, and your repository is not touched: the before-and-after copy is taken as the AI's own user in a private folder, then deleted.
+- **3. A memory cap for Coder's commands, like Claude Code's.** Add `CODER_TOOL_MEMORY_LIMIT=4G` (or `512M`, `8G`...) to the environment's variables (Claude Code's name is `CLAUDE_CODE_TOOL_MEMORY_LIMIT`). All of the chat's commands, yours with `!` included, then share that much memory. If they go over, the system stops a command, so one runaway build can't take down Coder's machine. `0` or `off` turns it off. It is off unless you set it, as in Claude Code. If the machine can't set the cap up, commands run without one, and the machine's log says why. Tried for real on my side: a 200 MB program under a 64 MB cap was stopped, and a 16 MB one ran.
+- **A safety hole found and closed while doing this (in the live machine today):** when Coder's machine started a command in its sealed room or admin sandbox, it found two of its own programs (`nsenter`, `setpriv`) by name, through the AI's own list of folders. That list starts with a folder the AI can write to (`~/.local/bin`). So a command of Coder's could have put a fake `nsenter` there, and the machine would have run it with full rights on the next command. Now the machine names its own programs in full (`/usr/bin/nsenter`, `/usr/bin/setpriv`). A test tries the fake one and checks it never runs.
+- **Tests:** CD328 to CD335 (8 new; 346 in all). The memory cap, the 5 GB stop, the file list and the safety fix were each tried for real on my side. Screenshots of the new file list are in the chat.
+- **Not live yet:** it goes in with the permission modes when you say "merge". Then I test all of it live with Grok, recorded.
+
+## 2026-11-09: Permission modes, like Claude Code's (your words: "lets build the permission things", with the Claude app's Mode menu: "something like this")
+
+- **A Mode menu under the message box**, next to Grok's model and effort, like the Claude app's. Click the chip, or press Ctrl+Shift+M (Cmd+Shift+M on a Mac); 1, 2, 3 pick. Claude Code's cloud sessions have the same three modes:
+  - **Auto** ("Coder handles permission decisions"): Coder works as before, without asking. New: in Auto, Coder is also told Claude Code's auto-mode guidance (go ahead on routine work; still ask before deleting data or touching shared or live systems).
+  - **Accept edits** ("Automatically accept all file edits"): file edits run, and so do `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp` and `sed -i` inside the project. Any other command asks you first, unless it only reads (Claude Code's own list: `ls`, `git status`, `git log`, `grep`, `cat` and the rest). A web page asks too, unless it is one of Claude Code's known documentation sites.
+  - **Plan** ("Create a plan before making changes"): Coder reads and explores, changes nothing (any change asks you), and ends with its plan on a card.
+- **Asking happens inside Coder's job, like Claude Code.** The step waits ("waiting for you") and a card shows the command with Claude Code's choices: Yes, "Yes, and don't ask again for `npm test *`", "Yes, and switch to auto mode", No. You can add a note. No stops the job; No with a note tells Coder what to do instead. You also get a phone or computer notification.
+- **The plan card:** "Yes, and use auto mode", "Yes, and accept edits", "No, keep planning" (with what to change). Yes ends Plan mode and Coder starts on it at once, in the same job.
+- **Rules per repository** ("Permission rules…" in the menu, like Claude Code's /permissions): Allow, Ask (asks even in Auto) and Deny (never runs), for example `Bash(git push *)`. "Don't ask again" adds an Allow rule there.
+- **Typing `/plan` before a message** switches the chat to Plan mode, like Claude Code.
+- **Kept per chat:** you can change the mode while Coder works, and it takes effect from Coder's next step. New chats start in your last pick (Plan is for one chat only).
+- **Changed for every mode:**
+  - The cards for protected files and for very long commands now also wait inside the job, instead of ending it.
+  - A file command that changes a protected file (for example `cp hook.sh .husky/pre-commit`) is now asked about too.
+  - A dangerous removal (`rm -rf /` and the like) is still refused in Auto (as Claude Code's Auto does away from a terminal), and is asked about in Accept edits and Plan.
+- **Not in this step (later, and it costs Grok calls, so your OK first):** Claude Code's Auto has a second AI that checks each command before it runs. Coder's Auto uses its built-in safety checks instead.
+- **Tests:** CD305 to CD327 (23 new; 338 in all, all passing). Tried on my side: the real page and Coder's real machine code, with a scripted stand-in for Grok (6 screenshots in the chat).
+- **Not live yet:** it needs your word to merge. After deploy it gets tested live with Grok, recorded.
+
+## 2026-11-09: Merged and deployed (deploy 76, your word: "merge"); the retest found one more problem, fixed
+
+- **Live after deploy 76, checked in a new chat:**
+  - The page noticed by itself that Coder was being told the command ended.
+  - Coder read the background command's output file with its read tool.
+  - The step showed how the command ended.
+  - The chat link is on GitHub: Coder's commit ends with `Coder-Chat: https://gofarther.dev/?chat=testingforclaude-i8s6bnxs`.
+- **The problem (my mistake in deploy 76):** the background command was killed at the end of Coder's turn, after 5 seconds.
+  - Cause: the sandbox's new first process (the loop that clears finished processes) runs under "stop at the first error". The pause ends that loop's own `sleep`, so its `wait` failed and the loop exited. When a sandbox's first process ends, everything in the sandbox ends with it, the background command included.
+  - Fix: the loop now never stops (test CD301 now does exactly what the machine does, and checks the command ends by itself and the sandbox lives on).
+  - Not live yet: it needs your word to merge. All 315 tests pass.
+
+## 2026-11-09: Coder's commits and pull requests link back to the chat (your words: "yes i want that")
 
 - **Every commit Coder makes for a chat now ends with a line linking to that chat**, like Claude Code's `Claude-Session:` line: `Coder-Chat: https://gofarther.dev/?chat=…`. Its undo's commit has it too. On GitHub you can click from any change straight to the chat that made it.
 - **Pull requests Coder opens end with "Made with Coder:" and the chat's link.**
 - **Only you can open the link** (signed in); anyone else gets the sign-in page.
 - **To turn it off** for an environment: add `CODER_CHAT_LINK=false` in Environment, then Environment variables (Claude Code's setting for this is `attribution.sessionUrl`).
-- **Tests:** CD304 (a real commit and its trailer, the switch, every save, undo and pull request). All 315 tests pass.
+- **Tests:** CD304 (a real commit and its trailer, the switch, every save, undo and pull request). Live since deploy 76.
 
 ## 2026-11-09: Merged and deployed the bash work (your words: "merge and deploy"); the live test so far, and fixes waiting
 

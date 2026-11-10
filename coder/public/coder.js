@@ -670,6 +670,7 @@
         const name = S.project.title || S.project.repo;
         for (const e of fresh) {
           if (e.type === 'notify' && info.decides !== false) showLocal({ id, title: 'Coder · ' + name, body: e.text });
+          else if (e.type === 'permission' && info.actions !== false) showLocal({ id, title: (e.tool === 'plan' ? 'Coder\'s plan is ready · ' : 'Coder needs your approval · ') + name, body: e.tool === 'plan' ? 'Approve it, or say what to change.' : e.tool === 'bash' ? 'Run: ' + String(e.desc || (e.lines || [])[0] || '').slice(0, 160) : e.path ? 'Change ' + e.path : e.url ? 'Fetch ' + e.url : String(e.what || 'Allow it?') });
           else if (['question', 'secret', 'envchange', 'writeask', 'runask'].includes(e.type) && info.actions !== false) showLocal({ id, title: 'Coder needs your answer · ' + name, body: (e.text ? e.text + (Array.isArray(e.questions) && e.questions.length > 1 ? ' (and ' + (e.questions.length - 1) + ' more)' : '') : '') || e.reason || (e.type === 'writeask' ? 'Allow it to change ' + e.path + '?' : '') });
         }
       }
@@ -737,6 +738,10 @@
     send: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
     stop: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
     chev: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
+    // THE PERMISSION MODES (the owner, 2026-11-09, the Claude app's menu): Auto, Accept edits, Plan; and a plan's card.
+    auto: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.4-3 8.2-7 9.5C8 19.2 5 15.4 5 11V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>',
+    edits: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
+    plan: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17.5" rx="2"/><path d="M9 3.5h6v3H9z"/><path d="M9 11h6M9 15h4"/></svg>',
     branch: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-12 7"/></svg>',
   };
 
@@ -820,7 +825,8 @@
       : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
-      : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>' : '';
+      : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'
+      : state === 'wait' ? '<span class="cd-st cd-st-wait">waiting for you</span>' : '';
     // A COMMAND'S DESCRIPTION (tool 4, like Claude Code's app: "Run the test suite" in place of the command); the command
     // itself when the step is opened. A step with none (from before, or Grok gave none) shows its command as before.
     const desc = !e.tool && typeof e.desc === 'string' && e.desc.trim() ? e.desc.trim() : '';
@@ -836,6 +842,8 @@
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
       stepChange(r, key) +
+      // THE FILES A COMMAND CHANGED, under its step (Claude Code's bashEditDiff, with CODER_BASH_EDIT_DIFF on).
+      stepFiles(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
       (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
@@ -878,6 +886,33 @@
         : open && all.length > CHANGE_FIRST ? '<button type="button" class="cd-wchg-more" data-change="' + esc(k) + '">Show less</button>' : '') +
       (open && more ? '<p class="cd-wchg-note">' + more + ' more line' + (more === 1 ? '' : 's') + ' not shown here: See changes has the whole file.</p>' : '') +
     '</div>';
+  }
+  /**
+   * THE FILES A COMMAND CHANGED, AS CLAUDE CODE SHOWS THEM AFTER THE COMMAND (tool 4, the owner, 2026-11-09: "Yes do that i
+   * thought we did that"; its settings: "you see their diff in the terminal after the command"): "Updated src/app.js +3 −1",
+   * "Created …", "Deleted …", each with its lines folded as a write's are (stepChange), then the other files it changed, by
+   * name, and a note when the list is incomplete. Only text, never markup.
+   */
+  function stepFiles(r, key) {
+    const d = r && r.files && typeof r.files === 'object' ? r.files : null;
+    if (!d) return '';
+    const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+    const list = (Array.isArray(d.files) ? d.files : []).filter((f) => f && typeof f.path === 'string').slice(0, 5);
+    const others = (Array.isArray(d.others) ? d.others : []).filter((x) => typeof x === 'string').slice(0, 50);
+    const moreFiles = Math.max(n(d.moreFiles), others.length);
+    if (!list.length && !moreFiles) return '';
+    const rows = list.map((f, i) => {
+      const verb = f.kind === 'create' ? 'Created' : f.kind === 'delete' ? 'Deleted' : 'Updated';
+      const counts = f.binary ? '<span class="cd-fchg-bin">binary</span>' : '<span class="cd-wcount">' + (f.kind !== 'delete' ? '<span class="cd-add">+' + n(f.add) + '</span>' : '') + (f.kind !== 'create' ? '<span class="cd-del">−' + n(f.del) + '</span>' : '') + '</span>';
+      // (A new file's lines as a write shows them: without git's "@@ -0,0 +1,N @@" line.)
+      const lines = (Array.isArray(f.lines) ? f.lines : []).filter((l) => typeof l === 'string' && !(f.kind === 'create' && /^@@ /.test(l)));
+      const body = f.binary || !lines.length ? '' : stepChange({ change: { kind: f.kind === 'create' ? 'create' : 'update', lines, ...(n(f.more) ? { more: n(f.more) } : {}) } }, key + ':f' + i);
+      return '<div class="cd-fchg"><p class="cd-fchg-head"><b>' + verb + '</b> <code>' + esc(f.path) + '</code>' + counts + '</p>' + body + '</div>';
+    }).join('');
+    const named = others.slice(0, 10);
+    const rest = moreFiles ? '<p class="cd-fchg-note">' + (named.length ? 'Also changed: ' + named.map((x) => '<code>' + esc(x) + '</code>').join(', ') + (moreFiles > named.length ? ' and ' + (moreFiles - named.length) + ' more' : '') : moreFiles + ' more file' + (moreFiles === 1 ? '' : 's') + ' changed') + '</p>' : '';
+    const note = d.unavailable ? '<p class="cd-fchg-note">Some of what it changed could not be shown here: See changes has it all.</p>' : '';
+    return '<div class="cd-files">' + rows + rest + note + '</div>';
   }
   /** "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them). */
   function stepProblems(r, key) {
@@ -938,7 +973,10 @@
     // A BACKGROUND COMMAND THAT ENDED (Coder was told: its line names its id) shows how: ✓, a failure, or stopped.
     S.bgEnded = {};
     for (const e of S.events) if (e.type === 'note') { if (e.job && e.end) S.bgEnded[e.job] = e.end; if (Array.isArray(e.jobs)) for (const j of e.jobs) S.bgEnded[j] = { ok: false, label: 'stopped' }; }
-    const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
+    // A STEP WAITING ON THE OWNER'S YES (a permission card): "waiting for you", not running.
+    const answered = new Set(S.events.filter((x) => x.type === 'permanswer').map((x) => x.pid));
+    const waitingIds = new Set(S.events.filter((x) => x.type === 'permission' && x.id && !answered.has(x.pid)).map((x) => x.id));
+    const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? (waitingIds.has(e.id) ? 'wait' : 'run') : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
     const flush = () => {
@@ -963,6 +1001,7 @@
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
       if (e.type === 'user') out.push('<div class="cd-user">' + (mark ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div></div>');
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
+      else if (e.type === 'permission') out.push(permHTML(e));
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
       else if (e.type === 'question') {
@@ -1361,6 +1400,150 @@
     draw(); startBgWatch();
   }
 
+  // ── THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things", with the Claude app's mode menu) ──
+  // Claude Code's cloud sessions offer Auto, Accept edits and Plan, picked in a menu under the message box, "both when you
+  // create the task and while the session runs"; its desktop app opens that menu with Cmd+Shift+M and picks with 1–9.
+  const IS_MAC = /Mac|iPhone|iPad/.test(String(navigator.platform || navigator.userAgent || ''));
+  const MODE_LIST = [
+    { id: 'auto', name: 'Auto', info: 'Coder handles permission decisions', icon: 'auto' },
+    { id: 'acceptEdits', name: 'Accept edits', info: 'Automatically accept all file edits', icon: 'edits' },
+    { id: 'plan', name: 'Plan', info: 'Create a plan before making changes', icon: 'plan' },
+  ];
+  /** The chat's mode as it is now: a card's switch in the running job (Auto, an approved plan) counts until the job saves it. */
+  function chatMode() {
+    const p = S.project || {};
+    let m = MODE_LIST.some((x) => x.id === p.mode) ? p.mode : 'auto';
+    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan')).at(-1) : null;
+    if (sw && MODE_LIST.some((x) => x.id === sw.mode) && Number(sw.at || 0) > Number(p.modeAt || 0)) m = sw.mode;
+    return m;
+  }
+  function modeHTML() {
+    const cur = MODE_LIST.find((x) => x.id === chatMode()) || MODE_LIST[0];
+    return '<div class="cd-mode-wrap">' +
+      '<button type="button" class="cd-mode-btn is-' + cur.id + '" id="cdMode" aria-haspopup="menu" aria-expanded="' + (S.modeMenu ? 'true' : 'false') + '" title="Mode (' + (IS_MAC ? '⌘' : 'Ctrl') + '+Shift+M)">' + ICON[cur.icon] + '<span>' + esc(cur.name) + '</span>' + ICON.chev + '</button>' +
+      (S.modeMenu ? '<div class="cd-modes" role="menu" aria-label="Mode">' + MODE_LIST.map((x, k) =>
+        '<button type="button" role="menuitemradio" aria-checked="' + (x.id === cur.id) + '" class="cd-mode-row' + (x.id === cur.id ? ' is-on' : '') + '" data-mode="' + x.id + '">' +
+          '<span class="cd-mode-ic">' + ICON[x.icon] + '</span><span class="cd-mode-t"><b>' + esc(x.name) + '</b><small>' + esc(x.info) + '</small></span>' +
+          '<span class="cd-mode-ck">' + (x.id === cur.id ? '✓' : '') + '</span><kbd>' + (k + 1) + '</kbd></button>').join('') +
+        '<div class="cd-modes-sep"></div><button type="button" class="cd-mode-rules" data-rules-open>Permission rules…</button></div>' : '') +
+    '</div>';
+  }
+  async function setChatMode(m) {
+    S.modeMenu = false;
+    if (!S.project || !MODE_LIST.some((x) => x.id === m) || m === chatMode()) return draw();
+    const was = { mode: S.project.mode, modeAt: S.project.modeAt };
+    S.project = { ...S.project, mode: m, modeAt: Date.now() }; // shown at once
+    draw();
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/mode', { method: 'POST', body: JSON.stringify({ mode: m }) });
+    if (r.status === 200 && r.data && r.data.project) { S.project = { ...S.project, mode: r.data.project.mode, modeAt: r.data.project.modeAt }; if (m !== 'plan' && S.pick) S.pick.mode = m; }
+    else { S.project = { ...S.project, ...was }; S.error = (r.data && r.data.error) || 'The mode could not be changed.'; }
+    draw();
+  }
+
+  // ── A STEP WAITING ON THE OWNER (Claude Code's permission prompt: "Yes", "Yes, and don't ask again for …", "Yes, and
+  // switch to auto mode", "No"; and its plan approval: "Yes, and use auto mode", the other mode, "No, keep planning").
+  // The step waits in Coder's job until the answer comes (this page sends it: /answer); a note can go with it.
+  const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1');
+  const PERM_TITLE = { bash: 'Bash command', write: 'Write file', edit: 'Edit file', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo' };
+  function permOptions(e) {
+    if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']];
+    const o = [['yes', 'Yes']];
+    if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
+    if (e.toAuto) o.push(['auto', 'Yes, and switch to auto mode']);
+    o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']);
+    return o;
+  }
+  function permDone(e, ans) {
+    const c = ans.choice;
+    const note = ans.comment ? ': “' + esc(ans.comment) + '”' : '';
+    if (e.tool === 'plan') return c === 'auto' || c === 'acceptEdits' ? '<span class="cd-perm-ok">✓ Approved · ' + (c === 'auto' ? 'Auto' : 'Accept edits') + '</span>' + note : c === 'no' ? '<span class="cd-perm-no">Kept planning</span>' + note : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
+    if (c === 'yes') return '<span class="cd-perm-ok">✓ Allowed</span>' + note;
+    if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');
+    if (c === 'auto') return '<span class="cd-perm-ok">✓ Allowed</span> · switched to Auto';
+    if (c === 'no') return '<span class="cd-perm-no">✕ Not allowed</span>' + note;
+    return '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
+  }
+  function permHTML(e) {
+    const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
+    const live = S.running && !ans;
+    const sent = S.permSent && S.permSent[e.pid];
+    const plan = e.tool === 'plan';
+    let body = '';
+    // (A heading line with text right under it is a heading too: a plan is often written "## Context" then its lines.)
+    if (plan) body = '<div class="cd-plan-body">' + prose(String(e.plan || '').replace(/^(#{1,4}[ \t]+.*)$/gm, '\n$1\n')) + '</div>';
+    else if (e.tool === 'bash') {
+      const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+      body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>';
+    } else if (e.tool === 'write' || e.tool === 'edit') {
+      // What the write or edit would do, as under each write's and edit's step.
+      const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
+      const more = e.change && Number(e.change.more) > 0 ? Number(e.change.more) : 0;
+      const upd = !!(e.change && e.change.kind === 'update');
+      body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><pre class="cd-perm-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>';
+    } else if (e.tool === 'web_fetch') body = '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
+    else body = '<p class="cd-perm-desc">' + esc(e.what || '') + '</p>';
+    const opts = permOptions(e);
+    const note = (S.permNotes && S.permNotes[e.pid]) || '';
+    return '<div class="cd-perm' + (plan ? ' cd-plan' : '') + (live ? ' is-live' : '') + '" data-perm="' + esc(e.pid) + '" tabindex="-1">' +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b></div>' +
+      body +
+      (!plan && e.why ? '<p class="cd-perm-why">' + esc(e.why) + '</p>' : '') +
+      (live
+        ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : 'Do you want to proceed?') + '</p>' +
+          '<div class="cd-perm-opts">' + opts.map(([c, label], k) => '<button type="button" class="cd-perm-opt' + (c === 'no' ? ' is-no' : '') + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '"' + (sent ? ' disabled' : '') + '><kbd>' + (k + 1) + '</kbd><span>' + label + '</span></button>').join('') + '</div>' +
+          '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change (with No, keep planning)' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>' +
+          (S.permErr && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '')
+        : ans ? '<div class="cd-perm-done">' + permDone(e, ans) + '</div>' : '') +
+    '</div>' + (live ? '<div class="cd-ask-wait">' + (plan ? 'Waiting for your approval of the plan' : 'Waiting for your approval') + '</div>' : '');
+  }
+  async function answerPerm(pid, choice) {
+    if (!S.project || (S.permSent && S.permSent[pid])) return;
+    const comment = String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
+    S.permSent = { ...(S.permSent || {}), [pid]: choice };
+    S.permErr = null;
+    draw();
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, comment }) });
+    if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
+    draw();
+  }
+  // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
+  async function showRules() {
+    S.modeMenu = false; draw();
+    if (!S.project) return;
+    const repo = S.project.repo;
+    let rules = { allow: [], ask: [], deny: [] }, err = '';
+    const r = await call('/permissions?repo=' + encodeURIComponent(repo));
+    if (r.status === 200 && r.data && r.data.rules) rules = r.data.rules; else err = (r.data && r.data.error) || 'The rules could not be loaded.';
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-rules'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Permission rules');
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    const KINDS = [['allow', 'Allow', 'runs without asking'], ['ask', 'Ask', 'always asks first, even in Auto'], ['deny', 'Deny', 'never runs']];
+    const change = async (body) => {
+      const x = await call('/permissions', { method: 'POST', body: JSON.stringify({ repo, ...body }) });
+      if (x.status === 200 && x.data && x.data.rules) { rules = x.data.rules; err = ''; return true; }
+      err = (x.data && x.data.error) || 'That rule could not be saved.';
+      return false;
+    };
+    const paint = () => {
+      box.innerHTML = '<div class="cd-sure-title">Permission rules</div>' +
+        '<div class="cd-sure-text">For ' + esc(repo) + ', in all its chats. Deny rules come first, then ask, then allow, as in Claude Code. A rule looks like <code>Bash(npm test *)</code> (a <code>*</code> is any text), <code>Bash(git push *)</code>, or <code>WebFetch(domain:example.com)</code>.</div>' +
+        KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + (rules[k].length ? '<ul>' + rules[k].map((x) => '<li><code>' + esc(x) + '</code><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
+        '<form class="cd-rules-add"><select aria-label="Kind">' + KINDS.map(([k, n]) => '<option value="' + k + '">' + n + '</option>').join('') + '</select><input type="text" placeholder="Bash(npm test *)" aria-label="Rule" maxlength="300" autocomplete="off" spellcheck="false"><button type="submit">Add</button></form>' +
+        (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : '') +
+        '<div class="cd-sure-row"><button type="button" class="cd-sure-yes" data-close>Done</button></div>';
+      box.querySelector('[data-close]').onclick = close;
+      box.querySelectorAll('[data-rule-del]').forEach((b) => { b.onclick = async () => { await change({ kind: b.dataset.ruleDel, remove: b.dataset.rule }); paint(); }; });
+      const form = box.querySelector('.cd-rules-add');
+      form.onsubmit = async (e) => { e.preventDefault(); const v = form.querySelector('input').value.trim(); if (!v) return; const ok = await change({ kind: form.querySelector('select').value, add: v }); paint(); if (!ok) { const i = box.querySelector('.cd-rules-add input'); i.value = v; i.focus(); } };
+    };
+    paint();
+    const first = box.querySelector('.cd-rules-add input'); if (first) first.focus();
+  }
+
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
@@ -1389,6 +1572,8 @@
           : '') +
         '<label class="cd-pick" title="Model"><select id="cdModel" aria-label="Model">' + MODELS.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
         '<label class="cd-pick" title="Effort"><select id="cdEffort" aria-label="Effort">' + m.efforts.map((e) => '<option value="' + e + '"' + (e === S.pick.effort ? ' selected' : '') + '>' + (EFFORT_NAME[e] || e) + '</option>').join('') + '</select></label>' +
+        // THE PERMISSION MODE (the Claude app's: the mode's chip beside the model and effort, its menu above it).
+        (S.project ? modeHTML() : '') +
       '</div>' +
     '</div>';
   }
@@ -1639,6 +1824,27 @@
     on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
+    // THE MODE MENU, AND THE CARDS A STEP WAITS ON (the permission modes): a click, or the card's number keys.
+    on('#cdMode', 'click', (e) => { e.stopPropagation(); S.modeMenu = !S.modeMenu; draw(); });
+    on('.cd-modes', 'click', (e) => e.stopPropagation());
+    on('[data-mode]', 'click', (e) => setChatMode(e.currentTarget.dataset.mode));
+    on('[data-rules-open]', 'click', () => showRules());
+    on('[data-perm-choice]', 'click', (e) => answerPerm(e.currentTarget.dataset.permPid, e.currentTarget.dataset.permChoice));
+    on('[data-perm-note]', 'input', (e) => { S.permNotes = { ...(S.permNotes || {}), [e.currentTarget.dataset.permNote]: e.currentTarget.value }; });
+    on('[data-perm-note]', 'keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+    on('.cd-perm.is-live', 'keydown', (e) => {
+      if (e.target.matches && e.target.matches('input')) return;
+      const opts = e.currentTarget.querySelectorAll('[data-perm-choice]');
+      const k = Number(e.key);
+      if (k >= 1 && k <= opts.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); opts[k - 1].click(); }
+    });
+    // A card that just came: in front, unless the owner is typing a message.
+    const liveCard = root.querySelector('.cd-perm.is-live');
+    if (liveCard && S.permFocus !== liveCard.dataset.perm) {
+      S.permFocus = liveCard.dataset.perm;
+      const box = root.querySelector('#cdIn');
+      if (!box || !box.value) { try { liveCard.focus({ preventScroll: true }); } catch (e) { /* older browsers */ } }
+    }
     const form = root.querySelector('#cdForm');
     const input = root.querySelector('#cdIn');
     if (input) {
@@ -1675,7 +1881,19 @@
       S.root = el;
       if (side) S.side = side;
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
-      if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu) { S.reviewMenu = false; draw(); } }); }
+      if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu || S.modeMenu) { S.reviewMenu = false; S.modeMenu = false; draw(); } }); }
+      // THE MODE MENU FROM THE KEYBOARD (Claude Code's desktop app: Cmd+Shift+M "Open permission mode menu", 1–9 "Select item in an open menu").
+      if (!S.modeKeys) {
+        S.modeKeys = true;
+        document.addEventListener('keydown', (e) => {
+          if (S.phase !== 'chat' || !S.project || !S.root || !S.root.isConnected) return;
+          if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key === 'M' || e.key === 'm')) { e.preventDefault(); S.modeMenu = !S.modeMenu; return draw(); }
+          if (!S.modeMenu) return;
+          if (e.key === 'Escape') { S.modeMenu = false; return draw(); }
+          const k = Number(e.key);
+          if (k >= 1 && k <= MODE_LIST.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setChatMode(MODE_LIST[k - 1].id); }
+        });
+      }
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {

@@ -281,6 +281,56 @@ code in **each user's own GitHub**.
    older readers look (`text`, `options`) and all of them in `questions`; older
    one-question cards still show. The notification says how many more; on GitHub
    (@coder) they are numbered and answered in one comment.
+
+   **Permission modes** (owner, 2026-11-09: "lets build the permission things", with
+   the Claude app's Mode menu), like Claude Code's cloud sessions: Auto, Accept edits
+   and Plan, in a menu beside the model and effort (Ctrl/Cmd+Shift+M, then 1–3), kept
+   per chat (`meta.mode`; new chats start in the last pick other than Plan) and
+   changeable while Coder works (the machine's `/mode`, from Coder's next step on).
+   `container/coder-perms.mjs` decides each step, with Claude Code 2.1.319's own
+   read-only lists (each command's safe options) and its rules (`Bash(npm test *)`,
+   `WebFetch(domain:…)`; deny, then ask, then allow; kept per repository on the
+   owner's account, `rulesOf`). Auto runs everything with Coder's own checks; Accept
+   edits runs reads, file edits and `mkdir`/`touch`/`rm`/`rmdir`/`mv`/`cp`/`sed -i`
+   inside the project and asks for any other command, and for a web page that is not
+   one of Claude Code's pre-approved documentation sites; Plan asks for anything that
+   changes something and ends with `exit_plan_mode`. A question is a card the step
+   waits on, inside the job (`deps.ask` on the machine, the owner's answer through
+   `/answer`): Yes, "Yes, and don't ask again for …", "Yes, and switch to auto mode",
+   No (a note can go with it; No alone ends the job, with Claude Code's words). A
+   plan is approved with "Yes, and use auto mode" or "Yes, and accept edits", and
+   Coder goes on in the same job. Protected files, very long commands and, outside
+   Auto, dangerous removals use the same card. Tests: `test/permissions.test.mjs`.
+
+   **Three more of Claude Code's Bash behaviors** (owner, 2026-11-09: "Yes do that"),
+   each turned on by the environment's variables under Coder's names:
+   - The **5 GB stop** holds in the background too: the machine counts each command's
+     output as it passes and kills one past 5 GB (exit 137), with Claude Code's line
+     "Command killed: output file exceeded 5GB" at the end of its output (`SIZE_KILLED`).
+   - **`CODER_TOOL_MEMORY_LIMIT`** (Claude Code's `CLAUDE_CODE_TOOL_MEMORY_LIMIT`, e.g.
+     `4G`; `0`/`off` turns it off): one memory cgroup per chat (`coder-bash-<project>`,
+     made as Claude Code makes its own, `toolMemoryCgroup`), and every command of the
+     AI's and the owner's `!` starts in it through Claude Code's `sh` wrapper
+     (`CG_WRAP`). No cap when it cannot be set up; the machine's log says why.
+   - **`CODER_BASH_EDIT_DIFF=1`** (Claude Code's `CLAUDE_CODE_BASH_EDIT_DIFF`): the files
+     a foreground command changed, under its step ("Updated src/cart.js +1 −1" with its
+     lines; up to 5 files, the others by name). Taken before and after the command by
+     the tools script (`snap`, `snapdiff`), as the AI's user, with a private index and
+     object folder, so root's git folder is only read. None for a read-only command,
+     one in the background, or a git command that moves the work tree.
+   Whatever root starts for the AI's commands is named in full (`NSENTER`, `SETPRIV`
+   in `container/coder-room.mjs`): the AI's PATH starts with folders the AI can write.
+   Tests: `test/bash-last3.test.mjs`.
+
+   And the last of them (owner, 2026-11-09: "anything else from the batch docs ?"):
+   background commands of a chat idle for 30 minutes are stopped under critical memory
+   pressure (`checkPressure`: the kernel's memory stall over 7.5% of the time, and
+   MemAvailable under 10% and under 4 GiB; `CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1`
+   turns it off); `CODER_SHELL_PREFIX` wraps each command (`shellPrefixOf`); the effort
+   level is `GOFARTHER_CODER_EFFORT` in each command's environment; and the permission
+   checks read a `"$PWD/…"` word as that path and judge each part of a command from the
+   folder it runs in (`c.dir`, unknown after a `cd` in a subshell, function or `$(…)`).
+   Tests: `test/bash-final.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.

@@ -149,7 +149,7 @@ test("CD293 (docs check: Claude Code's CLAUDECODE=1 and, in its cloud sessions, 
     assert.equal(res.output, "mark=1 id=shop-mk2 url=https://gofarther.dev/?chat=shop-mk2");
   } finally { await close(); }
   const src = serverSrc();
-  assert.match(src, /Object\.assign\(extraEnv, coderMarks\(project, body\.chatUrl\)\);/);
+  assert.match(src, /Object\.assign\(extraEnv, coderMarks\(project, body\.chatUrl, body\.model \? pickModel\(body\.model, body\.effort\)\.effort : ""\)\);/);
   assert.match(src, /extraEnv: \{ GOFARTHER_CODER: "1", \.\.\.\(net\.limited \? proxyEnv : \{\}\) \}/, "the setup script");
   const A = await import("../container/coder-agent.mjs");
   assert.match(A.CODER_TOOLS.find((t) => t.function.name === "bash").function.description, /every one has GOFARTHER_CODER=1, and this chat's id and link in GOFARTHER_CODER_CHAT_ID and GOFARTHER_CODER_CHAT_URL/);
@@ -353,7 +353,7 @@ test("CD303 (the live test after deploy 75) after a pause, Coder's machine wakes
   assert.deepEqual(woken, [4242, 77]);
   assert.match(serverSrc(), /resumeAI\(p\.procs, \{ boxPid: boxKept \? boxKept\.pid : 0 \}\); wakeStarters\(live\); finish\(\);/);
   const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
-  assert.match(init, /\nwhile :; do sleep 3600 & wait \$!; done\n$/, "the sandbox's first process collects what ends in it");
+  assert.match(init, /\nset \+e\nwhile :; do sleep 3600 & wait \$! \|\| true; done\n$/, "the sandbox's first process collects what ends in it, and never ends");
 });
 
 test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Session trailer and attribution.sessionUrl) each commit Coder makes for a chat ends with a Coder-Chat: <link> trailer, its undo's commit too, and its pull requests end \"Made with Coder: <link>\"; off when the environment sets CODER_CHAT_LINK=false", async () => {

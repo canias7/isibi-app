@@ -125,6 +125,15 @@
 .cd-wchg-more { display: block; width: 100%; border: 0; border-top: 1px solid #efece7; background: #fff; padding: 6px 12px; font: 500 12.5px Inter, system-ui, sans-serif; color: #0f766e; cursor: pointer; text-align: left; }
 .cd-wchg-more:hover { background: #f7f5f1; }
 .cd-wchg-note { margin: 0; padding: 6px 12px; border-top: 1px solid #efece7; font-size: 12.5px; color: #6b7280; }
+/* THE FILES A COMMAND CHANGED (Claude Code's "Updated path (+N -M)" after the command), each with its lines below. */
+.cd-files { margin: 0 0 8px 21px; }
+.cd-fchg-head { margin: 2px 0 4px; font-size: 13px; color: #374151; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.cd-fchg-head b { font-weight: 600; color: #1f2937; }
+.cd-fchg-head code { font: 12.5px "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #1f2937; overflow-wrap: anywhere; }
+.cd-fchg-bin { margin-left: 6px; font-size: 12px; color: #6b7280; }
+.cd-files .cd-wchg { margin-left: 0; }
+.cd-fchg-note { margin: 2px 0 6px; font-size: 12.5px; color: #6b7280; }
+.cd-fchg-note code { font: 12px "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; }
 /* THE NEW PROBLEMS A WRITE MADE (the owner, 2026-11-09): one line under the step, the list a tap away. */
 .cd-probs { margin: -2px 0 8px 21px; }
 .cd-probs-row { display: inline-flex; align-items: center; gap: 10px; border: 1px solid #f3d9a4; background: #fffaf0; color: #92400e; border-radius: 999px; padding: 3px 12px; font: 500 12.5px Inter, system-ui, sans-serif; cursor: pointer; }
@@ -515,3 +524,70 @@
 .cd-queued-x { border: 0; background: transparent; color: #6b7280; font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
 .cd-queued-x:hover { background: #ece8e1; color: #0d1b2a; }
 .cd-queue-send { margin-right: 6px; }
+
+/* THE PERMISSION MODE (the owner, 2026-11-09, the Claude app's menu): the mode's chip beside the model and effort, and its
+   menu above it: each mode with its line, a check on the one in use, its number key. */
+.cd-mode-wrap { position: relative; display: inline-flex; }
+.cd-mode-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; border-radius: 8px; padding: 4px 8px; font: 500 12.5px Inter, system-ui, sans-serif; color: #6b7280; cursor: pointer; white-space: nowrap; }
+.cd-mode-btn:hover, .cd-mode-btn[aria-expanded="true"] { background: #f3f1ed; color: #0d1b2a; }
+.cd-mode-btn svg { flex: none; }
+.cd-mode-btn svg:last-child { opacity: .7; transform: rotate(90deg); }
+.cd-mode-btn.is-plan { color: #2f5d8a; }
+.cd-mode-btn.is-acceptEdits { color: #6b4fa0; }
+.cd-modes { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30; width: 320px; max-width: calc(100vw - 32px); background: #fff; border: 1px solid #e5e3dd; border-radius: 14px; box-shadow: 0 10px 32px rgba(0,0,0,.14); padding: 6px; }
+.cd-mode-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; background: transparent; border-radius: 10px; padding: 9px 10px; text-align: left; cursor: pointer; font: inherit; color: #1f1e1d; }
+.cd-mode-row:hover, .cd-mode-row:focus-visible { background: #f5f3ee; outline: none; }
+.cd-mode-ic { flex: none; width: 18px; display: inline-flex; justify-content: center; padding-top: 2px; color: #57534e; }
+.cd-mode-t { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.cd-mode-t b { font-size: 14px; font-weight: 600; }
+.cd-mode-t small { font-size: 12.5px; color: #6b6a66; line-height: 1.35; }
+.cd-mode-ck { flex: none; width: 14px; font-size: 13px; color: #1f1e1d; padding-top: 1px; }
+.cd-mode-row kbd, .cd-perm-opt kbd { flex: none; font: 500 11px Inter, system-ui, sans-serif; color: #8a8884; border: 1px solid #e5e3dd; border-radius: 5px; min-width: 18px; text-align: center; padding: 1px 4px; background: #faf9f6; }
+.cd-modes-sep { height: 1px; background: #ece9e2; margin: 4px 6px; }
+.cd-mode-rules { display: block; width: 100%; border: 0; background: transparent; border-radius: 10px; padding: 8px 10px 8px 38px; text-align: left; font: 500 13px Inter, system-ui, sans-serif; color: #57534e; cursor: pointer; }
+.cd-mode-rules:hover { background: #f5f3ee; color: #1f1e1d; }
+
+/* A STEP WAITING ON THE OWNER (Claude Code's permission prompt): what Coder wants to do, why it asks, the numbered choices, a
+   note; once answered, the answer in one line. A plan's card shows the plan itself. */
+.cd-perm { border: 1px solid #e5e3dd; border-radius: 14px; background: #fff; margin: 8px 0; padding: 14px 16px; max-width: 560px; outline: none; }
+.cd-perm.is-live { border-color: #d6c9a8; box-shadow: 0 1px 0 rgba(0,0,0,.02), 0 0 0 3px #fbf3e2; }
+.cd-perm-head { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #1f1e1d; margin-bottom: 8px; }
+.cd-perm-ic { display: inline-flex; width: 26px; height: 26px; border-radius: 7px; background: #1f1e1d; color: #fff; align-items: center; justify-content: center; flex: none; }
+.cd-perm-desc { font-size: 13.5px; color: #1f1e1d; margin: 0 0 6px; overflow-wrap: anywhere; }
+.cd-perm-pre { background: #faf9f6; border: 1px solid #ece9e2; border-radius: 10px; padding: 9px 12px; font: 12.5px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; margin: 0 0 8px; color: #1f1e1d; }
+.cd-perm-pre .cd-wl { display: block; margin: 0 -12px; padding: 0 12px; white-space: pre-wrap; }
+.cd-perm-why { font-size: 12.5px; color: #6b6a66; margin: 0 0 8px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cd-perm-q { font-size: 13.5px; font-weight: 600; color: #1f1e1d; margin: 10px 0 6px; }
+.cd-perm-opts { display: flex; flex-direction: column; gap: 4px; }
+.cd-perm-opt { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 1px solid #ece9e2; background: #fff; border-radius: 10px; padding: 8px 10px; font: 500 13.5px Inter, system-ui, sans-serif; color: #1f1e1d; cursor: pointer; }
+.cd-perm-opt:hover:not(:disabled), .cd-perm-opt:focus-visible { background: #f5f3ee; border-color: #d9d6cf; outline: none; }
+.cd-perm-opt code, .cd-perm-done code { background: #f0ede7; border-radius: 5px; padding: 1px 6px; font-size: 12.5px; }
+.cd-perm-opt.is-sent { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cd-perm-opt.is-sent kbd { background: transparent; color: #d6d3cc; border-color: #57534e; }
+.cd-perm-opt:disabled { cursor: default; }
+.cd-perm-opt:disabled:not(.is-sent) { opacity: .55; }
+.cd-perm-note { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; font: inherit; font-size: 13.5px; color: #1f1e1d; border: 1px solid #d9d6cf; border-radius: 10px; padding: 8px 10px; background: #fff; }
+.cd-perm-note:focus { outline: none; border-color: #1f1e1d; }
+.cd-perm-done { font-size: 13px; color: #57534e; margin-top: 4px; overflow-wrap: anywhere; }
+.cd-perm-ok { color: #1d6b3a; font-weight: 600; }
+.cd-perm-no { color: #b3261e; font-weight: 600; }
+.cd-plan .cd-perm-ic { background: #2f5d8a; }
+.cd-plan-body { border: 1px solid #ece9e2; border-radius: 10px; padding: 4px 14px; background: #fdfcfa; max-height: 420px; overflow: auto; font-size: 14px; }
+.cd-st-wait { color: #9a5b00; font-weight: 600; }
+
+/* THE OWNER'S RULES FOR A REPOSITORY (Claude Code's /permissions). */
+.cd-rules { max-width: 520px; }
+.cd-rules-k { margin-top: 14px; }
+.cd-rules-h { font-size: 13.5px; color: #1f1e1d; }
+.cd-rules-h span { color: #6b6a66; font-size: 12.5px; }
+.cd-rules-k ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.cd-rules-k li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border: 1px solid #ece9e2; border-radius: 8px; margin-bottom: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.cd-rules-k li button { border: 0; background: transparent; color: #6b6a66; font-size: 16px; line-height: 1; cursor: pointer; border-radius: 6px; padding: 2px 6px; }
+.cd-rules-k li button:hover { background: #f3f1ed; color: #b3261e; }
+.cd-rules-none { font-size: 12.5px; color: #a19c94; margin: 4px 0 0; }
+.cd-rules-add { display: flex; gap: 6px; margin-top: 16px; }
+.cd-rules-add select, .cd-rules-add input { font: inherit; font-size: 13.5px; border: 1px solid #d9d6cf; border-radius: 8px; padding: 7px 9px; background: #fff; color: #1f1e1d; }
+.cd-rules-add input { flex: 1; min-width: 0; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.cd-rules-add button { font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid #1f1e1d; background: #1f1e1d; color: #fff; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+.cd-rules .cd-sure-row .cd-sure-yes { background: #1f1e1d; border-color: #1f1e1d; }
+.cd-sure-text code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }

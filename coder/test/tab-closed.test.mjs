@@ -191,7 +191,7 @@ test("CD116 the machine's /busy is behind its control key like the rest of its p
     assert.deepEqual(Object.keys(b).sort(), ["background", "backgroundMs", "busy", "idleMs", "unsaved", "unsavedMs", "untold", "untoldMs", "working", "workingMs"]);
   } finally { await new Promise((r) => srv.close(r)); }
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, fg: new Set\(\), started: Date\.now\(\), resume: null, queue: \[\] \};/);
+  assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, fg: new Set\(\), started: Date\.now\(\), resume: null, queue: \[\], mode: normMode\(body\.mode\), answers: new Map\(\), asking: "" \};/);
   assert.match(server, /t\.ended = Date\.now\(\);\n\s+t\.running = false;/);
   assert.match(server, /if \(want && req\.headers\["x-coder-key"\] !== want\) return send\(403, \{ error: "not allowed" \}\);[\s\S]{0,300}if \(url\.pathname === "\/busy" && req\.method === "GET"\) return send\(200, \{ \.\.\.busyState\(turns\), idleMs: Math\.max\(0, Date\.now\(\) - lastAsked\) \}\);/, "after the key check");
 });

@@ -605,9 +605,10 @@ test("CD22 on the server: sign-in goes through the Worker; settings, slash comma
   const deps = { authUser: async () => ({ id: "user-1234567890abcdef", email: "me@x.y" }), container: () => null };
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), renv, {}, deps);
   const s0 = await (await go("settings")).json();
-  assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "high" });
+  // (`mode`: the permission mode new chats start in, 2026-11-09.)
+  assert.deepEqual(s0.pick, { model: "grok-4.7", effort: "high", mode: "auto" });
   assert.equal((await go("settings", { method: "POST", body: JSON.stringify({ model: "grok-4.7", effort: "high" }) })).status, 200);
-  assert.deepEqual((await (await go("settings")).json()).pick, { model: "grok-4.7", effort: "high" }, "kept on the account");
+  assert.deepEqual((await (await go("settings")).json()).pick, { model: "grok-4.7", effort: "high", mode: "auto" }, "kept on the account");
   assert.equal((await go("command", { method: "POST", body: JSON.stringify({ text: "/new" }) })).status, 404, "no slash commands");
 });
 

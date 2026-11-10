@@ -86,8 +86,8 @@ test("CD140 the sealed room: commands reach Coder's gate and nothing else; they 
 test("CD141 the service runs the AI's commands in the room (as the AI's user), falls back to before when a machine cannot have it, and says which in Coder's note", async () => {
   const { readFileSync } = await import("node:fs");
   const s = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.deepEqual(R.roomArgs(1001, 1001, "echo hi"), ["--net=/run/netns/coder-room", "--", "setpriv", "--reuid=1001", "--regid=1001", "--clear-groups", "--", "bash", "-c", "echo hi"]);
-  assert.match(s, /\? spawn\("nsenter", roomArgs\(uid, g, command\), \{ cwd: dir, env, detached: true, stdio: \["ignore", "pipe", "pipe"\] \}\)/, "in the room: nsenter, then the AI's user");
+  assert.deepEqual(R.roomArgs(1001, 1001, "echo hi"), ["--net=/run/netns/coder-room", "--", "/usr/bin/setpriv", "--reuid=1001", "--regid=1001", "--clear-groups", "--", "bash", "-c", "echo hi"]);
+  assert.match(s, /\? run\(NSENTER, roomArgs\(uid, g, command\), \{ cwd: dir, env, detached: true, stdio: \["ignore", "pipe", "pipe"\] \}\)/, "in the room: nsenter (by its full name), then the AI's user");
   assert.match(s, /t\.room = walled = await enterRoom\(px, true\);/, "a limited network: the room, with the gate and no link");
   assert.match(s, /if \(!net\.limited\) t\.room = await enterRoom\(px, false\);/, "Full access: the room with its link");
   assert.match(s, /\+ \(walled \|\| fwOn \? "" : " \(On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall\.\)"\);/, "Coder is told when it is only a guard");
@@ -96,5 +96,5 @@ test("CD141 the service runs the AI's commands in the room (as the AI's user), f
   assert.match(s, /const gate = list\.length \|\| net\.limited \? await proxyFor\(\) : null;\n\s+t\.room = await enterRoom\(gate, net\.limited\);\n\s+gateForApt\(net\.limited && gate \? "http:\/\/127\.0\.0\.1:" \+ gate\.port : ""\);/, "a change of setting mid-job: the room (and apt) follow at once");
   assert.match(s, /if \(room\) gateForApt\(net\.limited && px \? "http:\/\/127\.0\.0\.1:" \+ px\.port : ""\);/, "the master key's apt goes through the gate when the network is limited");
   assert.match(s, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, /, "the real service uses the room");
-  assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), /coder-room\.mjs coder-room-forward\.mjs coder-sandbox\.mjs coder-sandbox-init\.sh coder-globs\.mjs coder-security\.mjs coder-compact\.mjs coder-shell\.mjs coder-bashcheck\.mjs coder-freeze\.mjs \.\//);
+  assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), /coder-room\.mjs coder-room-forward\.mjs coder-sandbox\.mjs coder-sandbox-init\.sh coder-globs\.mjs coder-security\.mjs coder-compact\.mjs coder-shell\.mjs coder-bashcheck\.mjs coder-perms\.mjs coder-freeze\.mjs \.\//);
 });
