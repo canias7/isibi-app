@@ -24,7 +24,8 @@ log (81,000 lines) is in git history.
 - **Rules Claude Code keeps, Coder now keeps too:** `Bash(command:rm *)` and a rule for a tool it doesn't know (like `Bsh`). A Deny or Ask one shows Claude Code's warning ("will not match", "matches no known tool — check for typos"). Neither ever matches anything. `Bash(git:* status)` gets no warning now, as in Claude Code. Each warning row starts with its kind ("Allow rule …").
 - **The read-block setting's messages** are Claude Code's too ("Reads outside the working directories are blocked (CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES). Remove that setting to allow them.").
 - Where Claude Code names its own setting or `/add-dir`, Coder names its own setting and leaves `/add-dir` out (Coder has none).
-- Tests: 377 pass (6 new, CD361–CD366). Merge, deploy and the live test with Grok follow below.
+- Found in my own check before the live test, and fixed: `(cd src && cat a.js)` would have asked in Accept edits (Coder loses track of the folder after a `cd` inside brackets). It runs again; only a path that climbs out with `..` from there asks. And "A variable in this command…" is now said only for a real variable, not for `$(…)`.
+- Tests: 378 pass (7 new, CD361–CD367). Merge, deploy and the live test with Grok follow below.
 
 ## 2026-11-10: Bash tested side by side with Claude Code (your words: "merge deploy and test everything in the bash thing , test it with claude code and coder , and see the differences pls")
 

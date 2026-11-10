@@ -960,6 +960,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
       for (const a of pathArgs(c, { cwd, home })) {
         if (movedOut && !/^[/~]/.test(a.p) && !/^\$\{?HOME\b/.test(a.p)) continue;
         if (a.dotdot) { needFor(c, globDotDotWhy(a.p, " against the working directories")); break; }
+        if (a.unknownDir) { if (a.updir) { needFor(c, name + " in '" + a.p + "' requires manual approval: the path it names depends on a directory change in the same command."); break; } continue; }
         if (a.computed || !a.full) { needFor(c, VAR_UNCHECKED); break; }
         if (isOwn(a.full)) continue;
         const inside = insideWork(a.full, workdirs), to = inside ? leads(a.full) : a.full;
@@ -993,7 +994,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // (A wrapper or a find action that a prefix rule matched but can't approve: Claude Code's own reason.)
   for (const c of left) if (!partWhy.has(c) && exactOnly(c) && allowTexts(c).some((t) => allow.some((x) => x.spec !== null && x.spec.includes("*") && bashSpecMatches(x.spec, t)))) partWhy.set(c, exactWhy(c));
   // (A part asked about only because a word is a variable: Claude Code's "A variable in this command can't be checked before it runs".)
-  const hasVar = (c) => (c.words || []).some((x) => x.expand) || (c.redirects || []).some((x) => x.target && x.target.expand);
+  // (A `$(…)` alone is a command substitution, not a variable.)
+  const isVar = (x) => !!x && !!x.expand && /\$(\{|[A-Za-z_@*#?$!0-9-])/.test(String(x.raw || ""));
+  const hasVar = (c) => (c.words || []).some(isVar) || (c.redirects || []).some((x) => isVar(x.target));
   const items = [...needs, ...left.filter((c) => !needs.some((n) => n.c === c)).map((c) => ({ c, why: partWhy.get(c) || (hasVar(c) ? VAR_UNCHECKED : "") }))];
   if (!items.length) return multiCd ? { verdict: "ask", why: MULTI_CD, suggest: null } : { verdict: "allow", why: "", suggest: null };
   // WHICH REASON IS SAID, in Claude Code's order: a protected file ("a sensitive file") first, then more than one folder
@@ -1047,6 +1050,9 @@ export function pathArgs(c, { cwd = "/", home = "" } = {}) {
     const g = word.glob ? text.search(/[*?[]/) : -1;
     // (A `..` after a wildcard: where it leads is known only once the shell expands it.)
     if (g >= 0 && /(^|\/)\.\.(\/|$)/.test(text.slice(g))) { out.push({ p, dotdot: true }); continue; }
+    // (A short path where the folder is not known, after a cd in ( … ), a function or $( … ): that cd is checked on its own;
+    // `updir` when the path climbs with `..`, so it could leave the project from there.)
+    if (dir === false && !text.startsWith("/") && !(text === "~" || text.startsWith("~/"))) { out.push({ p, unknownDir: true, updir: /(^|\/)\.\.(\/|$)/.test(text) }); continue; }
     const base = g >= 0 ? (text.slice(0, g).replace(/\/[^/]*$/, "") || (text.startsWith("/") ? "/" : ".")) : text;
     const full = base.startsWith("/") ? normalPath(base) : base === "~" || base.startsWith("~/") ? (home ? normalPath(home + base.slice(1)) : "") : dir === false ? "" : normalPath(dir + "/" + base);
     out.push({ p, full, glob: g >= 0 });
