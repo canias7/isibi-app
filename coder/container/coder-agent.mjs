@@ -331,6 +331,39 @@ export const RM_REFUSED = "Permission for this command was denied by a built-in 
  * as Coder's do now: tool 4, part 2; the owner, 2026-11-09: "do all of those").
  */
 export const BG_NOTICE = "You will be notified when it completes.";
+/** A MONITOR'S DEADLINE (Claude Code: "5 minutes by default, at most 30 minutes"), in milliseconds. */
+export const MONITOR_MS = 5 * 60 * 1000, MONITOR_MAX_MS = 30 * 60 * 1000;
+export const monitorMs = (ms) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Math.max(1000, Math.min(MONITOR_MAX_MS, Math.round(Number(ms)))) : MONITOR_MS);
+/**
+ * WHAT CODER IS TOLD OF A MONITOR (its lines, as events; and how it ended, once): `{ id, desc, lines, dropped, end }` from
+ * the machine (monitorNews). Claude Code's own: a "Monitor event" with its description, and at the deadline "one notice, so
+ * it can start the watch again if it's still needed".
+ */
+export function monitorSaid(n) {
+  const name = "\"" + String((n && n.desc) || "monitor").slice(0, 120) + "\" (" + String((n && n.id) || "?") + ")";
+  const parts = [];
+  const lines = Array.isArray(n && n.lines) ? n.lines : [];
+  if (lines.length) parts.push("Monitor event: " + name + "\n" + lines.join("\n") + (n.dropped > 0 ? "\n(" + n.dropped + " more line" + (n.dropped === 1 ? " was" : "s were") + " left out: too many at once)" : ""));
+  const e = n && n.end;
+  if (e) {
+    const why = e.why === "limit" ? "reached its deadline and ended. Start it again if you still need it."
+      : e.why === "flood" ? "was stopped: it printed too many lines. Start it again with a tighter filter (grep --line-buffered, or awk with fflush()) if you still need it."
+      : e.why === "stopped" || e.why === "coder" ? "was stopped."
+      : e.why === "owner" ? "was stopped by the owner."
+      : e.why === "size" ? "was stopped: its output passed 5 GB."
+      : e.why === "memory" ? "was stopped: Coder's machine was low on memory."
+      : e.why === "lost" ? "was stopped by Coder's machine before it ended. Start it again if you still need it."
+      : "ended: its command exited" + (Number.isInteger(e.code) ? " with code " + e.code : "") + ".";
+    parts.push("Monitor " + name + " " + why + (n.errLog && e.why !== "stopped" && e.why !== "coder" ? " Its stderr is in " + n.errLog + "." : ""));
+  }
+  return parts.join("\n\n");
+}
+/** How the step that started a monitor shows its end (as a background command's: ✓, or what stopped it). */
+export function monitorEndLabel(e) {
+  const why = (e && e.why) || "exit", code = e && Number.isInteger(e.code) ? e.code : null;
+  if (why === "exit") return code === 0 ? { ok: true, label: "" } : { ok: false, label: code === null ? "ended" : "exit " + code };
+  return { ok: false, label: why === "limit" ? "deadline" : why === "flood" ? "too many lines" : why === "size" ? "over 5 GB" : why === "memory" ? "low memory" : "stopped" };
+}
 /** The file tools the read block covers (Claude Code: "Read, Grep, Glob, and LSP"), and what Coder is told (its words, with Coder's names). */
 // ── THE ACCOUNT'S EMAIL WITH A USER-AGENT (Bash docs pass 5; Claude Code's built-in "privacy" check, 2.1.321: "refuses a shell
 // call that holds the signed-in account's email address and names a User-Agent", in its words, without asking). The Worker
@@ -461,11 +494,6 @@ export const queuedNote = (text) => "The owner sent a new message while you were
 export const GH_RATE_HINT = "GitHub API rate limit exceeded (5,000/hr shared across all tools and agents). Run `gh api rate_limit --jq .resources` and wait until reset before further gh calls. If you were polling in a loop, stop and tell the owner instead of retrying.";
 export const ghRateLimited = (command, output) => /(^|[\s;&|(])gh\s/.test(String(command || "")) && /API rate limit exceeded|secondary rate limit|rate limit exceeded for/i.test(String(output || ""));
 /**
- * ITS BACKGROUND COMMANDS STILL RUNNING, said to Coder at a message's start and after a summary (Claude Code 2.1.271: "Fixed
- * Claude starting a second copy of a background command (such as a watch task or dev server) that was still running after
- * the conversation was compacted").
- */
-/**
  * DISK SPACE IS LOW (Bash docs: Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB, "to have Claude Code warn Claude when free space on
  * the working directory's filesystem falls below that amount"; set in Settings): Claude Code's own reminder, word for word, with
  * "owner" for "user". Said once when the free space falls below the line, and again only after it has been back above it.
@@ -474,9 +502,14 @@ export const diskSize = (b) => (b >= 1024 ** 3 ? (Math.floor(b / 1024 ** 3 * 10)
 export const DISK_LOW = (bytes) => "Disk space is low: " + diskSize(bytes) + " free on the filesystem holding the working directory. If you need room, delete temporary files that you made. Ask the owner before you delete any other file. If that does not free enough, tell the owner.";
 /** Whether the warning was given and the disk has not been back above the line since (per chat, on its machine). */
 export const DISK_TOLD = new Map();
+/**
+ * ITS BACKGROUND COMMANDS STILL RUNNING, said to Coder at a message's start and after a summary (Claude Code 2.1.271: "Fixed
+ * Claude starting a second copy of a background command (such as a watch task or dev server) that was still running after
+ * the conversation was compacted").
+ */
 export function runningNote(list, now = Date.now()) {
   if (!list.length) return "";
-  return "(Note from Coder's app, not the owner: " + (list.length === 1 ? "a background command is" : list.length + " background commands are") + " still running from earlier: " + list.map(([id, j]) => id + " \"" + (j.desc || String(j.command || "").split("\n")[0].slice(0, 80)) + "\", for " + agoWords(now - j.at) + ", output in " + j.log).join("; ") + ". Do not start a second copy; look at one with monitor or read, stop it with stop_job when it is no longer needed. You are told when one ends.)";
+  return "(Note from Coder's app, not the owner: " + (list.length === 1 ? "a background command is" : list.length + " background commands are") + " still running from earlier: " + list.map(([id, j]) => id + " \"" + (j.desc || String(j.command || "").split("\n")[0].slice(0, 80)) + "\", for " + agoWords(now - j.at) + ", output in " + j.log).join("; ") + ". Do not start a second copy; read its output file to see what it printed, stop it with stop_job when it is no longer needed. You are told when one ends.)";
 }
 /** How long, the most significant part only (Claude Code: "has been running for 2m"). */
 export const agoWords = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + "s" : s < 3600 ? Math.round(s / 60) + "m" : Math.round(s / 3600) + "h"; };
@@ -713,7 +746,11 @@ export const CODER_TOOLS = Object.freeze([
   // Coder's question from the page, so a page's text, and any tricks hidden in
   // it, never reach Coder itself.
   fn("web_fetch", "Read a public web page (documentation, an API's reference). A separate reader reads the page and answers your prompt from it; the page itself is not shown to you. Ask for exactly what you need, e.g. 'the install command and the supported Node versions'.", { url: { type: "string" }, prompt: { type: "string" } }, ["url", "prompt"]),
-  fn("monitor", "Look at a background command (from bash with run_in_background, or one moved there at its timeout): the newest lines of its output and whether it is still running. wait_s (0-60) waits first, for a line you need before you can go on (a server's ready line). You are told when it ends, so do not poll it.", { job: { type: "string" }, wait_s: { type: "integer" }, lines: { type: "integer" } }, ["job"]),
+  // CLAUDE CODE'S MONITOR (Bash docs, the owner, 2026-11-10: "yea do all 4"; its tools reference: "Runs a command in the
+  // background and feeds each output line back to Claude, so it can react to log entries, file changes, or polled status
+  // mid-conversation"). It took the place of Coder's old monitor, which looked at a background command's output: Claude Code
+  // dropped that tool (TaskOutput, 2.1.277), and Claude reads output files with Read.
+  fn("monitor", "Start a monitor: a shell command that runs in the background and whose every stdout line comes to you as an event while you work, so you can react when something happens (a server's ready line, an error in a log, a build or deploy that finishes, a file that changes, a status you poll in a loop) instead of checking again and again. Lines that come close together arrive together. Stderr goes to a file of its own and is no event. It ends when its command exits, at its deadline (timeout_ms: default 300000, 5 minutes; at most 1800000, 30 minutes; you are told once, so you can start it again if you still need it), or with stop_job. One that prints too many lines is stopped, so filter what it prints (grep --line-buffered, awk with fflush()). It is checked like a bash command (the same rules and questions). To read a background command's output, read its output file.", { command: { type: "string", description: "The shell command; each line it prints on stdout is an event" }, description: { type: "string", description: "What it watches, in a few words (shown with each event)" }, timeout_ms: { type: "integer", description: "Its deadline in milliseconds (default 300000, at most 1800000)" } }, ["command", "description"]),
   fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { job: { type: "string" } }, ["job"]),
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved on this chat's environment (every chat using it gets it) and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
   fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "trusted", "full"], description: "new_environment: network level (default trusted)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
@@ -866,7 +903,7 @@ HOW YOU WORK
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
 - Check your work: run the tests, build it, or start it and curl it. Fix what fails.
-- Long-running servers and watchers: bash with run_in_background: true, then monitor to read their output (and curl to check a server), stop_job when done. Never use & yourself. A command still running at its time limit keeps running in the background. Background commands keep running after your answer, until they end, you stop them, or they reach their time limit (30 minutes; with run_in_background, the timeout you give, up to 2 hours); you are told when one ends, even after your answer, so do not wait or poll for it.
+- Long-running servers and watchers: bash with run_in_background: true, then read its output file (and curl to check a server), stop_job when done. To be told when something happens (a ready line, an error in a log, a build that finishes), start a monitor instead of checking again and again: each line its command prints comes to you as an event. Never use & yourself. A command still running at its time limit keeps running in the background. Background commands keep running after your answer, until they end, you stop them, or they reach their time limit (30 minutes; with run_in_background, the timeout you give, up to 2 hours); you are told when one ends, even after your answer, so do not wait or poll for it.
 - Keep command output small (head, tail, grep): every round costs the owner time.
 - A message the owner sent while you were working comes in the middle of your turn, after your tool results, starting "The owner sent a new message while you were working:". Read it and take it into account as you go on: change course if it asks you to.
 - A command the owner ran themselves (they typed ! in the chat) comes as <bash-input>the command</bash-input>, then <bash-stdout>what it printed</bash-stdout> (<bash-stderr> has its exit code when it failed). Answer it as their message: say what the output means (what failed and how to fix it, when something did). Do not run it again unless they ask.
@@ -1029,7 +1066,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // THOSE FROM EARLIER MESSAGES still running too (tool 4, part 2: they go on after the answer, like Claude Code's): Coder
   // can look at them, stop them, and is told when they end.
   const jobs = new Map();
-  try { if (deps.bg && typeof deps.bg.kept === "function") for (const k of (await deps.bg.kept()) || []) if (k && typeof k.id === "string" && k.pid) jobs.set(k.id, { pid: k.pid, log: String(k.log || ""), command: String(k.command || ""), desc: String(k.desc || ""), at: Number(k.at) || now(), moved: !!k.moved, cwd: String(k.cwd || ""), done: false }); } catch { /* none */ }
+  try { if (deps.bg && typeof deps.bg.kept === "function") for (const k of (await deps.bg.kept()) || []) if (k && typeof k.id === "string" && k.pid) jobs.set(k.id, { pid: k.pid, log: String(k.log || ""), command: String(k.command || ""), desc: String(k.desc || ""), at: Number(k.at) || now(), moved: !!k.moved, cwd: String(k.cwd || ""), done: false, ...(k.monitor === true ? { monitor: true } : {}) }); } catch { /* none */ }
   // THE OWNER'S MESSAGES SENT WHILE CODER WORKS (deps.queued, from Coder's machine): each taken once.
   const takeQueued = async () => {
     let got = [];
@@ -1239,6 +1276,20 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     }
     // THE MODE, AS IT IS NOW: a change since the last round is said once (Claude Code's "## Exited Plan Mode"), and the
     // system's note says the mode each round; in Plan mode Coder also has exit_plan_mode.
+    // THE MONITORS' NEWS (Claude Code's Monitor: "You keep working in the same session and Claude interjects when an event
+    // arrives"): before each answer, the lines they printed since the last step, and how any of them ended, once; the chat
+    // shows each (an idle chat is woken for them by Coder's server, as for a background command that ended).
+    if (typeof deps.monitorNews === "function") {
+      let news = [];
+      try { news = await deps.monitorNews(); } catch { news = []; }
+      for (const n of Array.isArray(news) ? news.slice(0, 20) : []) {
+        if (!n || typeof n !== "object") continue;
+        const said = monitorSaid(n);
+        if (!said) continue;
+        convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + scrub(said) + ")" });
+        emit({ type: "note", text: scrub(said.split("\n")[0]).slice(0, 300), monitor: { job: String(n.id || ""), desc: scrub(String(n.desc || "")).slice(0, 200), lines: (Array.isArray(n.lines) ? n.lines.slice(-40) : []).map((l) => scrub(String(l)).slice(0, 400)), ...(n.dropped > 0 ? { dropped: n.dropped } : {}), ...(n.end ? { end: n.end } : {}) }, ...(n.end ? { job: String(n.id || ""), end: monitorEndLabel(n.end) } : {}) });
+      }
+    }
     // THE LOW-DISK WARNING (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB): looked at before each answer. When the work
     // disk has less free than the owner's line, Coder is told once (and the chat says it too); again only after it was above.
     if (diskWarnGib > 0 && typeof deps.diskFree === "function") {
@@ -1302,6 +1353,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
       const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
+      // A MONITOR goes the bash way, in the background and marked (Claude Code: "When Monitor runs a command, it uses the same
+      // permission rules as Bash"); its lines come back as events at each step (deps.monitorNews, below).
+      if (c.name === "monitor" && c.args && typeof c.args === "object") { c.monitor = true; c.name = "bash"; c.args = { command: c.args.command, description: c.args.description, run_in_background: true, timeout: monitorMs(c.args.timeout_ms) }; }
       // IN PLAN MODE, CODER'S OTHER TOOLS THAT CHANGE SOMETHING (a pull request, review comments on it, auto-fix, undo) wait
       // for the owner's Yes on a card, as any action that only reads would not (Claude Code's plan mode).
       if (PLAN_ASKS[c.name] && modeNow() === "plan" && canAsk()) {
@@ -1320,9 +1374,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const descIn = [c.args.description, c.args.command_description].find((x) => typeof x === "string" && x.trim());
         const desc = descIn ? scrub(visibleChars(descIn.trim().replace(/\s+/g, " "))).slice(0, 200) : "";
         // (With background commands off, run_in_background is no input of bash's: one given anyway runs in the foreground.)
-        const inBg = noBg !== true && (c.args.run_in_background === true || c.args.run_in_background === "true");
+        const inBg = c.monitor === true || (noBg !== true && (c.args.run_in_background === true || c.args.run_in_background === "true"));
         // (Its timeout goes with it: the page shows it beside the time it has run, as Claude Code 2.1.23 does.)
-        emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000), ...(desc ? { desc } : {}), ...(inBg ? {} : { timeoutS: commandTimeoutS(c.args, timeouts) }), ...(noBg === true ? { noBg: true } : {}) });
+        emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000), ...(desc ? { desc } : {}), ...(inBg ? {} : { timeoutS: commandTimeoutS(c.args, timeouts) }), ...(noBg === true ? { noBg: true } : {}), ...(c.monitor ? { monitor: true } : {}) });
         const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); };
         const why = commandProblem(command);
         if (why) { refuse(why); continue; }
@@ -1421,7 +1475,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // else 30 minutes): the machine stops it then, and Coder is told.
         const limitMs = !inBg ? 0 : Number(c.args.timeout) > 0 ? Number(c.args.timeout) : Number(c.args.timeout_s) > 0 ? Number(c.args.timeout_s) * 1000 : 0;
         const snapId = inBg ? "" : await snapBefore(command);
-        try { r = await deps.exec({ command, timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs }); }
+        try { r = await deps.exec({ command, timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs, ...(c.monitor ? { monitor: true } : {}) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const files = await snapAfter(snapId, !(r && (r.background || r.notStarted)));
         // What the result says about the folder, as Claude Code's do ("Shell cwd was reset to …", "Session cwd remains …"),
@@ -1431,7 +1485,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const bg = !!(r && r.background);
         let job = "";
         // Its id comes from the machine, which numbers a chat's background commands across its messages.
-        if (bg && r.pid && r.log) { job = typeof r.jobId === "string" && /^job\d+$/.test(r.jobId) ? r.jobId : "job" + (1 + Math.max(0, ...[...jobs.keys()].map((k) => Number(k.slice(3)) || 0))); jobs.set(job, { pid: r.pid, log: r.log, command, desc, at: now(), moved: !inBg, cwd: where0, done: false }); }
+        if (bg && r.pid && r.log) { job = typeof r.jobId === "string" && /^job\d+$/.test(r.jobId) ? r.jobId : "job" + (1 + Math.max(0, ...[...jobs.keys()].map((k) => Number(k.slice(3)) || 0))); jobs.set(job, { pid: r.pid, log: r.log, command, desc, at: now(), moved: !inBg, cwd: where0, done: false, ...(c.monitor ? { monitor: true } : {}) }); }
         // CLAUDE CODE'S RESULT (its words, tried on 2026-11-09): a background command's id and output file; otherwise the
         // output, as bashResultText gives it, with "Exit code N" only for a failure (grep's exit 1 is none).
         let text = "", isError = false, thumbs = [];
@@ -1441,11 +1495,11 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           // (Claude Code's words: started in the background; moved by the owner, its Ctrl+B; moved at its timeout, with what it
           // says of a second copy and, when it had printed nothing yet, of output a program holds back.)
           const byUser = !!(r && r.byUser);
-          const parts = [inBg ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : byUser ? "Command was manually backgrounded by user with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + ".", BG_NOTICE];
+          const parts = [c.monitor ? "Monitor started with ID: " + (job || "?") + ". Each line its command prints comes to you as an event while it runs. It ends when its command exits, at its deadline in " + Math.round(monitorMs(c.args.timeout) / 60000) + " minutes (you are told), or with stop_job. Its stdout is written to: " + r.log + (r.errLog ? "; its stderr to: " + r.errLog : "") + "." : inBg ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : byUser ? "Command was manually backgrounded by user with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + ".", BG_NOTICE];
           if (!inBg) parts.push(movedLimit);
           if (!inBg && !byUser) parts.push("It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job.");
           if (!inBg && !byUser && !(Number(r.size) > 0) && !String(r.output || "").trim()) parts.push(BG_NO_OUTPUT);
-          if (!byUser) parts.push("To check interim output, use read on that file path.");
+          if (!byUser && !c.monitor) parts.push("To check interim output, use read on that file path.");
           text = sofar + parts.join(" ");
         } else {
           const em = exitMeaning(command, code);
@@ -1461,6 +1515,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
             }
           }
           if (!text) text = bashResultText({ output: noCwdMarks(String((r && r.output) || "")), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "", inlineMax: lim.inlineMax, readBack: lim.readBack });
+          // A MONITOR WHOSE COMMAND ENDED IN ITS FIRST SECOND: what it printed comes back here, at once, and no events follow.
+          if (c.monitor) text = "Monitor \"" + (desc || "monitor") + "\" ended at once: its command exited with code " + code + " in its first second, so no events follow." + (String((r && r.output) || "").trim() ? " What it printed:\n" + text : " It printed nothing.");
         }
         // The folder's note goes after the output; alone when the command printed nothing (Claude Code, tried: a `cd /tmp`
         // answers only "Shell cwd was reset to /home/user").
@@ -1478,31 +1534,26 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) { roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); if (typeof x.lines === "string") roundShown.push(x.path); } } } }
         reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : "") + yesNote(approval), bg || (r && r.notStarted) ? null : { exitCode: code });
-      } else if (c.name === "monitor" || c.name === "stop_job") {
-        // A BACKGROUND JOB: read its log, or stop it (as `dev`, like any command).
+      } else if (c.name === "stop_job") {
+        // A BACKGROUND JOB OR A MONITOR, STOPPED (as `dev`, like any command).
         const j = jobs.get(String(c.args.job || ""));
-        emit({ type: "bash", id: c.id, tool: c.name, verb: c.name === "monitor" ? "Checked" : "Stopped", command: String(c.args.job || "") + (j ? " (" + scrub(j.command.split("\n")[0]).slice(0, 80) + ")" : "") });
+        emit({ type: "bash", id: c.id, tool: c.name, verb: "Stopped", command: String(c.args.job || "") + (j ? " (" + scrub(j.command.split("\n")[0]).slice(0, 80) + ")" : "") });
         if (!j) { const m = "error: no background job " + String(c.args.job || "").slice(0, 20) + " (jobs: " + ([...jobs.keys()].join(", ") || "none") + ")"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
-        const wait = Math.min(60, Math.max(0, Number(c.args.wait_s) || 0));
-        const lines = Math.min(200, Math.max(5, Number(c.args.lines) || 40));
         const name = String(c.args.job);
         // WHETHER IT RUNS, AND ITS STOP, COME FROM CODER'S SERVICE, which started it (live test, 2026-11-08: a check
         // run inside the admin sandbox could not see the job's process: "[not running]" while it ran, and stop_job
         // missed it). Without the service's help (a machine made in a test), the commands of before.
         const svc = deps.bg && typeof deps.bg.alive === "function" && typeof deps.bg.stop === "function" ? deps.bg : null;
         let r;
-        if (c.name === "stop_job" && svc) {
+        if (svc) {
           const was = await svc.alive(j.pid).catch(() => false);
           const gone = was ? await svc.stop(j.pid).catch(() => false) : true;
           r = { code: gone ? 0 : 1, output: !was ? "[" + name + " had already ended]" : gone ? "[stopped " + name + "]" : "[" + name + " could not be stopped]" };
           if (gone) j.done = true;
         } else {
-          const cmd = c.name === "monitor"
-            ? (wait ? "sleep " + wait + "; " : "") + "tail -n " + lines + " " + j.log + (svc ? "" : "; if kill -0 " + j.pid + " 2>/dev/null; then echo '[still running]'; else echo '[not running]'; fi")
-            : "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + name + "]'";
-          try { r = await deps.exec({ command: cmd, timeoutS: wait + 15, tool: true }); }
+          const cmd = "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + name + "]'";
+          try { r = await deps.exec({ command: cmd, timeoutS: 15, tool: true }); }
           catch (e) { r = { code: -1, output: String((e && e.message) || e).slice(0, 200) }; }
-          if (c.name === "monitor" && svc) r = { ...r, output: String((r && r.output) || "").replace(/\n?$/, "\n") + ((await svc.alive(j.pid).catch(() => false)) ? "[still running]" : "[not running]") };
         }
         // A command that went on in the background printed its folder line into its log when it ended: never shown.
         const out = capOutput(noCwdMarks(String((r && r.output) || "")));
@@ -1810,6 +1861,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     // code 0)', '… failed with exit code 3'): told once, after the round, with its output file.
     for (const [id, j] of jobs) {
       if (j.done) continue;
+      // A MONITOR'S END comes with its lines, at the next step (monitorNews), in a monitor's words: not told twice.
+      if (j.monitor && typeof deps.monitorNews === "function") continue;
       const st = await jobState(deps, j);
       if (st.alive) continue;
       j.done = true;

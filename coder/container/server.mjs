@@ -23,10 +23,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, openSync, closeSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
+import { createWriteStream, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
+import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs } from "./coder-agent.mjs";
 import { normMode, MODES } from "./coder-perms.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
@@ -313,7 +313,56 @@ export function jobEnded(pid, code, why = "") {
 /** What the page, the Worker and Coder see of the running ones: newest last. */
 export const jobsOf = (project) => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.stopping).map((j) => ({ id: j.id, desc: j.desc, command: String(j.command || "").split("\n")[0].slice(0, 200), at: j.at, deadline: j.deadline }));
 /** The ones that ended and Coder was not told of yet. */
-export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && j.end && !j.told);
+export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && ((j.end && !j.told) || (j.monitor && j.pending && j.pending.length)));
+/**
+ * CLAUDE CODE'S MONITOR (Bash docs, the owner, 2026-11-10: "yea do all 4"; its tools reference: "Runs a command in the
+ * background and feeds each output line back to Claude, so it can react to log entries, file changes, or polled status
+ * mid-conversation"): a background job marked `monitor`, whose output file holds its stdout (its stderr goes to a file of
+ * its own). Each look reads what it printed since the last one; its whole lines wait in `pending` until Coder is given them
+ * (monitorNews). Its deadline: 5 minutes unless asked, 30 at most ("Every watch Claude starts has a deadline: 5 minutes by
+ * default, at most 30 minutes"). One that prints too many lines is stopped (its tool's words: "Monitors that produce too
+ * many events are automatically stopped").
+ */
+export const MONITOR_FLOOD = 400, MONITOR_PENDING = 1000, MONITOR_READ = 256 * 1024;
+/** Reads what a monitor printed since the last look into its `pending` lines (the end line the log gets is never one). */
+export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
+  if (!j || !j.monitor || typeof j.log !== "string" || !j.log) return 0;
+  let fd = null, got = "";
+  try {
+    fd = openSync(j.log, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const size = fstatSync(fd).size;
+    if (size > (j.readAt || 0)) {
+      const n = Math.min(MONITOR_READ, size - (j.readAt || 0));
+      const buf = Buffer.alloc(n);
+      const r = readSync(fd, buf, 0, n, j.readAt || 0);
+      j.readAt = (j.readAt || 0) + r;
+      got = buf.subarray(0, r).toString("utf8");
+    }
+  } catch { return 0; } finally { if (fd !== null) { try { closeSync(fd); } catch { /* gone */ } } }
+  const all = (j.part || "") + got;
+  const lines = all.split("\n");
+  j.part = j.end ? "" : lines.pop();
+  const fresh = lines.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim() && !l.includes(CWD_MARK) && !/^\[finished, exit code -?\d+\]$/.test(l.trim()) && l.trim() !== SIZE_KILLED.trim());
+  if (!fresh.length) return 0;
+  j.pending = Array.isArray(j.pending) ? j.pending : [];
+  for (const l of fresh) { if (j.pending.length < MONITOR_PENDING) j.pending.push(l.slice(0, 2000)); else j.dropped = (j.dropped || 0) + 1; }
+  if (!j.end && !j.stopping && fresh.length > flood) stopJob(j, "flood");
+  return fresh.length;
+}
+/** What the chat's monitors have for Coder: their new lines, and how each ended, once; given to Coder at each step. */
+export function monitorNews(project) {
+  const out = [];
+  for (const j of JOBS.values()) {
+    if (j.project !== project || !j.monitor) continue;
+    readMonitor(j);
+    const lines = Array.isArray(j.pending) ? j.pending.splice(0) : [];
+    const dropped = j.dropped || 0; j.dropped = 0;
+    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "" } : null;
+    if (end) j.told = true;
+    if (lines.length || end) out.push({ id: j.id, desc: j.desc, lines, dropped, ...(end ? { end } : {}), ...(j.errLog ? { errLog: j.errLog } : {}) });
+  }
+  return out;
+}
 /**
  * Stop one (its whole process group): asked to stop, then ended 1.5 seconds later (Claude Code 2.1.300). `hard`: ended at
  * once (its output passed 5 GB: Claude Code kills it, exit code 137).
@@ -442,6 +491,7 @@ function checkPressure(now, { stall = memoryStallUs, scarce = memoryScarce } = {
 /** THE EVERY-FEW-SECONDS LOOK: one past its time limit is stopped; one whose processes are all gone has ended. (`memory`: the readings, for a test.) */
 export function checkJobs(now = Date.now(), memory = {}) {
   for (const j of JOBS.values()) {
+    if (j.monitor) readMonitor(j);
     if (j.end) { if (j.told && now - j.end.at > JOB_KEEP_MS) JOBS.delete(j.pid); continue; }
     if (now >= j.deadline && !j.stopping) { stopJob(j, "limit"); continue; }
     if (!groupAlive(j.pid) && !j.stopping) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null);
@@ -2473,7 +2523,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // Claude which commands stopped"): the chat's list, as its Worker last saw it, against this machine's.
     const backgroundNews = () => {
       checkJobs();
-      const notices = untoldOf(project).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
+      // (A monitor's lines and end come to Coder at each step instead: monitorNews.)
+      const notices = untoldOf(project).filter((j) => !j.monitor).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
       const lost = (Array.isArray(body.background) ? body.background : []).filter((b) => b && /^job\d{1,6}$/.test(String(b.id || "")) && ![...JOBS.values()].some((j) => j.project === project && j.id === b.id)).slice(0, 20).map((b) => ({ id: String(b.id), desc: String(b.desc || b.command || "").slice(0, 200) }));
       return { notices, lost };
     };
@@ -2503,7 +2554,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
         // tool: CODER_CWD, which its short paths count from). `follow`: a command of Grok's not asked to run in the
         // background, whose folder carries over. `inBg`: one asked to run in the background.
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0 }) => {
+        // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
+        // its output file holds the lines that are its events (stdout); see readMonitor.
+        monitorNews: () => monitorNews(project),
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -2530,8 +2584,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const onMove = (fn) => { t.movable = fn; };
           // ITS MARK (endMarked): what it starts carries it, so a stop ends that too, and the sweep keeps it while it runs.
           const mark = tool ? "" : newMark();
+          const errLog = monitor && !tool && home ? join(home, ".coder-monitors", mark + ".err") : "";
+          const asked = command;
+          if (errLog) command = "mkdir -p \"$HOME/.coder-monitors\" 2>/dev/null; exec 2>>\"$HOME/.coder-monitors/" + mark + ".err\"\n" + command;
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : { ...(extraEnv || {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : { ...(extraEnv || {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2553,7 +2610,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (r && r.background && r.pid && !tool) {
             const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
             // (`at`: when the command started, for "running for"; its time limit counts from the move to the background.)
-            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, deadline: Date.now() + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true });
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, deadline: Date.now() + (monitor ? monitorMs(limitMs) : inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, ...(monitor ? { monitor: true, readAt: 0, part: "", pending: [], dropped: 0, ...(errLog ? { errLog } : {}) } : {}) });
             r.jobId = id;
           }
           let told = "";
@@ -2569,7 +2626,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // WHAT THE NETWORK LIST BLOCKED WHILE IT RAN, by host and why (Claude Code names them too, 2.1.224 and 2.1.251).
           let netNote = "";
           if (!tool && proxyP) { try { const p0 = await proxyP; const b = typeof p0.blockedSince === "function" ? p0.blockedSince(startedAt) : []; if (b.length) netNote = "Blocked by this chat's network list while this command ran: " + b.slice(0, 10).map((x) => x.host + " (" + x.why + ")").join(", ") + ". If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None."; } catch { /* no proxy */ } }
-          return { ...r, ...(notes.length ? { cwdNote: notes.join("\n") } : {}), ...(told ? { cwdTold: told } : {}), ...(netNote ? { netNote } : {}) };
+          return { ...r, ...(errLog && r && r.background ? { errLog } : {}), ...(notes.length ? { cwdNote: notes.join("\n") } : {}), ...(told ? { cwdTold: told } : {}), ...(netNote ? { netNote } : {}) };
         },
         // A path Grok gave a tool, as a full path (a short one counts from where the commands are); the project's folder.
         where: (p) => (typeof p === "string" && p ? (isAbsolute(p) ? resolve(p) : resolve(t.cwd, p)) : ""),
@@ -2612,7 +2669,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // Coder was told it ended (in this turn): no turn of its own is started for it.
           told: (pid) => { const j = JOBS.get(pid); if (j && j.project === project) j.told = true; },
           // ITS BACKGROUND COMMANDS FROM EARLIER MESSAGES, still running: Coder can look at them, stop them, and is told when they end.
-          kept: () => [...JOBS.values()].filter((j) => j.project === project && !j.end).map((j) => ({ id: j.id, pid: j.pid, log: j.log, command: j.command, desc: j.desc, at: j.at, moved: j.moved, cwd: j.cwd })),
+          kept: () => [...JOBS.values()].filter((j) => j.project === project && !j.end).map((j) => ({ id: j.id, pid: j.pid, log: j.log, command: j.command, desc: j.desc, at: j.at, moved: j.moved, cwd: j.cwd, ...(j.monitor ? { monitor: true } : {}) })),
         },
         // AFTER Coder READS OR CHANGES A FILE: the repo's instructions for it (item 10), and for what it
         // wrote, the security check (item 12).

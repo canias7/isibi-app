@@ -858,8 +858,19 @@
     web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
+  /**
+   * A MONITOR'S EVENT IN THE CHAT (Claude Code's Monitor, 2026-11-10): what it watches, the lines its command printed (the
+   * newest 40), and how it ended, when it did. Only text, never markup.
+   */
+  const MONITOR_END = { exit: (e) => 'ended (exit ' + esc(String(e.code)) + ')', limit: () => 'reached its deadline', flood: () => 'stopped: too many lines', stopped: () => 'stopped', coder: () => 'stopped' };
+  function monitorHTML(m) {
+    const lines = Array.isArray(m.lines) ? m.lines.filter((l) => typeof l === 'string').slice(-40) : [];
+    const end = m.end && typeof m.end === 'object' ? (MONITOR_END[m.end.why] || MONITOR_END.exit)(m.end) : '';
+    return '<div class="cd-monev"><div class="cd-monev-head">' + stepIcon({ monitor: true }) + '<span><b>' + (lines.length ? 'Monitor event' : 'Monitor') + '</b> · ' + esc(String(m.desc || '')) + (end ? ' · ' + end : '') + '</span></div>' +
+      (lines.length ? '<pre class="cd-monev-lines">' + esc(lines.join('\n')) + (Number(m.dropped) > 0 ? '\n(' + esc(String(m.dropped)) + ' more left out)' : '') + '</pre>' : '') + '</div>';
+  }
   function stepIcon(e) {
-    const k = e.tool === 'monitor' ? 'monitor_job' : e.tool && STEP_ICON[e.tool] ? e.tool : 'bash';
+    const k = e.tool === 'monitor' || e.monitor === true ? 'monitor_job' : e.tool && STEP_ICON[e.tool] ? e.tool : 'bash';
     return '<span class="cd-sic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + STEP_ICON[k] + '"/></svg></span>';
   }
   /** How long a running command has run, and its timeout ("12s · timeout 2m"). */
@@ -1010,7 +1021,7 @@
    * (its `readFilePaths`, a set), not the steps; a step with no `file` counts as one.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -1050,7 +1061,7 @@
         const gk = 'g' + String(group[0][0].id || group[0][1]);
         const shut = !!S.open[gk];
         // The line names each kind of step and what failed, as Claude Code's does (groupWords).
-        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool || '', failed: stateOf(e, i) === 'bad', file: stepFile(e) })));
+        const words = groupWords(group.map(([e, i]) => ({ tool: !e.tool && e.monitor === true ? 'monitor_start' : e.tool || '', failed: stateOf(e, i) === 'bad', file: stepFile(e) })));
         out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
           '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + esc(words.line) + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (words.failed ? '<span class="cd-bad">' + esc(words.failed) + '</span>' : '') + '</button>' +
           (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +
@@ -1155,7 +1166,7 @@
       }
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
-      else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
+      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote">' + esc(e.text) + '</div>');
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();

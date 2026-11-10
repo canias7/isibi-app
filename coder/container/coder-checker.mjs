@@ -83,7 +83,8 @@ export function checkerSystem({ repo = "", branch = "", workdir = "", mode = "au
 /** A message of Coder's app (a note, the owner's own `!` command), not the owner's words. */
 const appNote = (t) => /^\s*(\(Note from Coder's app|<local-command-caveat>|\(The owner ran|\(Coder's app)/.test(t);
 /** Tools whose calls are read-only lookups: left out, as Claude Code leaves out "read-only lookups such as file reads and searches". */
-const LOOKUPS = new Set(["read", "grep", "glob", "lsp", "todo", "monitor", "review", "ask_user"]);
+// (Not the monitor since 2026-11-10: Claude Code's Monitor runs a command, so the checker sees it as it sees bash.)
+const LOOKUPS = new Set(["read", "grep", "glob", "lsp", "todo", "review", "ask_user"]);
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? t.slice(0, n) + "…[" + (t.length - n) + " more characters]" : t; };
 
 /**

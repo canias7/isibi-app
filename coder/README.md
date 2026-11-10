@@ -255,7 +255,7 @@ code in **each user's own GitHub**.
    chat's other repositories (`cwdInside`), else goes back to the project's folder
    with Claude Code's "Shell cwd was reset to <dir>". A command in the background
    never moves it ("Session cwd remains <dir>; …" when it had a cd, `CWD_WORDS`), and
-   monitor never shows its folder line (`noCwdMarks`). Grok's file tools get the
+   a background command's output never shows its folder line (`noCwdMarks`). Grok's file tools get the
    folder (`CODER_CWD`): a short path counts from it, grep and glob search there and
    list from there (`searchIn`), and files are named by full path there; the chat's
    steps still name them from the project (`projectPath`), and the app's notes use
@@ -655,6 +655,33 @@ a "high" an account saved before then counts as not chosen (`savedEffort`, and
 used (`coderSend`: cached and reasoning tokens, the effort sent and the one xAI
 says it used), and the chat's record keeps the last message's sum as `usage`
 (`usageSummary`, the auto mode checker's calls apart). Tests CD378 and CD379.
+
+**Settings** (owner, 2026-11-10: "the setting put it in setings"). Settings, in
+the account menu, keeps three choices on the account (`prefsOf`, `prefsChange` in
+`src/coder-routes.mjs`): the longest a background command may run (2 hours, as in
+Claude Code, or 4, 8, 12 or 24 hours, as Claude Code's `BASH_MAX_TIMEOUT_MS` raises
+it); whether Stop also ends what a command left running on its own, with `setsid`
+or `timeout` (on unless turned off); and the low-disk warning (Claude Code's
+`CLAUDE_CODE_WARN_DISK_FREE_GIB`: off, or 1, 2, 5, 10 or 20 GB; 2 GB unless
+changed): Coder is told once, in Claude Code's words, when the work disk has less
+free than that, and the chat shows it. Each message takes them to the machine
+(`machinePrefs`, then `prefsIn` and `usePrefs` in `container/server.mjs`), and the
+Worker keeps a chat's machine awake as long as its background limit allows
+(`watchBackground`'s `maxMs`). Tests: `test/settings.test.mjs`.
+
+**The monitor** (Claude Code's Monitor tool; owner, 2026-11-10: "yea do all 4").
+`monitor` runs a command in the background the bash way (the same checks, rules
+and questions), and each line it prints on stdout comes to Coder as an event:
+before each of Coder's answers it is given the lines printed since the last one,
+and how the monitor ended, once (`readMonitor` and `monitorNews` on the machine,
+`monitorSaid` in the agent). Its stderr goes to a file of its own
+(`~/.coder-monitors/<mark>.err`), so its output file holds only its events. Its
+deadline is 5 minutes unless asked, 30 at most (`monitorMs`); one that prints more
+than 400 lines at once is stopped; one whose command ends in its first second gives
+its lines back at once. An idle chat is woken for its lines as for a background
+command that ended (`untoldOf`), and the chat shows each event under an eye. Coder's
+old `monitor` (a look at a background command's output) is gone, as Claude Code's
+TaskOutput is: Coder reads the output file. Tests: `test/monitor.test.mjs`, CD39.
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

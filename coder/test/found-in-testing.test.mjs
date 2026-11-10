@@ -175,7 +175,7 @@ test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a f
   const tool = await execIn(dir, cmd, 60, { kill: true, outMax: TOOL_OUTPUT_MAX });
   assert.equal(tool.output.length, 3_000_000, "a file tool's answer: all 3 MB");
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: t\.outLimits\.inlineMax, keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| t\.noBg \}\)/, "the job's file tools get it; its commands save long output to a file");
+  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: t\.outLimits\.inlineMax, keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\) \}\)/, "the job's file tools get it; its commands save long output to a file");
   // The agent: 20 pictures from one read reach Grok, all of them.
   const { runCoder, PICS_PER_READ, PICS_KEEP } = await import("../container/coder-agent.mjs");
   const { PICS_MARK } = await import("../container/coder-tools.mjs");
@@ -501,7 +501,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   await writeFile(join(dir, "b.js"), "const b = 1;\n");
   await writeFile(join(dir, "c.js"), "c = 1\n");
   // The background command still runs as far as the agent asks (its round-end check, which would tell an ended one).
-  const job = (command) => command === "sleep 30" ? { code: -1, background: true, pid: 999999, log: join(dir, "bg.log"), output: "" } : command.includes("kill -0 999999") ? { code: 0, output: "alive\n" } : command.includes("tail -n") ? (execSync("printf 'c = 5\\n' > c.js", { cwd: dir }), { code: 0, output: "[not running]" }) : sh(command);
+  const job = (command) => command === "sleep 30" ? { code: -1, background: true, pid: 999999, log: join(dir, "bg.log"), output: "" } : command.includes("kill -0 999999") ? { code: 0, output: "alive\n" } : command.includes("kill -TERM -- -999999") ? (execSync("printf 'c = 5\\n' > c.js", { cwd: dir }), { code: 0, output: "[stopped job1]" }) : sh(command);
   const tools = [];
   const run2 = machine(dir, job, env);
   const exec = async (x) => { const b = x.command.split(" ").pop(); try { tools.push(JSON.parse(Buffer.from(b, "base64").toString("utf8")).tool); } catch { tools.push("bash"); } return run2(x); };
@@ -511,7 +511,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
     [call("bash", { command: "echo nothing" }, "b5")],
     [call("bash", { command: "sleep 30", run_in_background: true }, "b6")],
     [call("bash", { command: "echo hi" }, "b7")],
-    [call("monitor", { job: "job1" }, "m8")],
+    [call("stop_job", { job: "job1" }, "m8")],
     [call("bash", { command: "echo bye" }, "b9")],
   ];
   let k = 0;
@@ -522,7 +522,8 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.equal(reply(out.messages, "b4"), "(Bash completed with no output)\n[This command changed 1 file you read before: a.js. Read it again before editing.]");
   assert.equal(reply(out.messages, "b5"), "nothing");
   assert.equal(reply(out.messages, "b7"), "hi", "b.js changed while Coder was thinking: no note, and not put down to echo");
-  assert.equal(reply(out.messages, "b9"), "bye", "c.js changed while Coder checked on the background command: the same");
+  assert.equal(reply(out.messages, "m8"), "[stopped job1]");
+  assert.equal(reply(out.messages, "b9"), "bye", "c.js changed while Coder stopped the background command: the same");
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
   assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
@@ -1098,7 +1099,7 @@ test("CD236 the line over a group of steps names each kind, as Claude Code's doe
   assert.equal(groupWords([step("undo", true)]).failed, "an undo failed");
   assert.equal(groupWords([step("something-new"), step("toString")]).line, "Did 2 steps", "a kind it does not know (even one named like an object's own)");
   // The page uses it for every group, and the old words are gone.
-  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad', file: stepFile\(e\) \}\)\)\);/);
+  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: !e\.tool && e\.monitor === true \? 'monitor_start' : e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad', file: stepFile\(e\) \}\)\)\);/);
   assert.ok(!ui.includes("'a command failed'") && !ui.includes("<span class=\"cd-bad\">a command failed</span>"), "the fixed words are gone");
 });
 

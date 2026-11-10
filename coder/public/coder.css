@@ -230,6 +230,11 @@
 /* Slash commands: the menu above the box. */
 .cd-composewrap { position: relative; }
 .cd-localnote { color: #6b7280; font-size: 13px; background: #f3f1ed; border-radius: 10px; padding: 8px 12px; white-space: pre-wrap; }
+/* A monitor's event (Claude Code's Monitor, 2026-11-10): its watch's name, then the lines it printed. */
+.cd-monev { border: 1px solid #ebe7e0; border-radius: 10px; background: #fbfaf8; padding: 8px 12px; font-size: 13px; color: #4b5563; }
+.cd-monev-head { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.cd-monev-head b { color: #1f1e1d; font-weight: 600; }
+.cd-monev-lines { margin: 6px 0 0; max-height: 220px; overflow: auto; font: 12px/1.5 "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #1f1e1d; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Coder's own "are you sure?" */
 .cd-sure{position:fixed;inset:0;z-index:100;background:rgba(20,20,19,.35);display:flex;align-items:center;justify-content:center;padding:16px}

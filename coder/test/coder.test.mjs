@@ -959,15 +959,18 @@ test("CD38 ask_user: Coder asks one multiple-choice question and the turn ends t
   assert.match(ui, /on\('\[data-ask-go\]', 'click', \(\) => askSend\(\)\);/);
 });
 
-test("CD39 background jobs: bash with run_in_background gives a job; monitor reads it; stop_job ends it; nothing outlives the turn", async () => {
+test("CD39 background jobs: bash with run_in_background gives a job; a monitor's lines come to Coder as events while it works, and how it ended; stop_job ends a job; the page sees each", async () => {
   const { remote } = await fakeRemote();
   const r0 = await roots();
   const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  // (Coder's old monitor, a look at a job's output, is gone, as Claude Code's TaskOutput is: Coder reads the output file.)
   const s = scripted([
-    say("", [call("bash", { command: "for i in 1 2 3 4 5 6 7 8 9; do echo tick $i; sleep 0.3; done; sleep 30", run_in_background: true }, "b1")]),
-    say("", [call("monitor", { job: "job1", wait_s: 2 }, "m1")]),
+    say("", [call("bash", { command: "for i in 1 2 3; do echo tick $i; sleep 0.2; done; sleep 30", run_in_background: true }, "b1")]),
+    say("", [call("monitor", { command: "echo ready; sleep 1.5; echo done", description: "Two lines" }, "m1")]),
+    say("", [call("monitor", { command: "echo quick", description: "Quick" }, "m2")]),
+    say("", [call("bash", { command: "sleep 2", description: "Wait" }, "w1")]),
     say("", [call("stop_job", { job: "job1" }, "s1")]),
-    say("", [call("monitor", { job: "job1" }, "m2"), call("monitor", { job: "job9" }, "m3")]),
+    say("", [call("stop_job", { job: "job1" }, "s2"), call("stop_job", { job: "job9" }, "s3")]),
     say("Done.", []),
   ]);
   const { base, close } = await serve(createApp({ root, send: s.send, remote, ...r0 }));
@@ -978,12 +981,29 @@ test("CD39 background jobs: bash with run_in_background gives a job; monitor rea
     for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-jobs&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     const res = (id) => st.events.find((e) => e.type === "result" && e.id === id);
     assert.equal(res("b1").job, "job1");
-    assert.match(res("m1").output, /tick 1[\s\S]*\[still running\]/);
+    assert.equal(res("m1").job, "job2", JSON.stringify(res("m1")));
+    assert.match(res("m1").output, /^Monitor started with ID: job2\. Each line its command prints comes to you as an event while it runs\./);
+    // One whose command ends in its first second: what it printed comes back at once, and it is no job.
+    assert.equal(res("m2").output, "Monitor \"Quick\" ended at once: its command exited with code 0 in its first second, so no events follow. What it printed:\nquick");
+    assert.equal(res("m2").job, undefined);
+    // Its lines, and how it ended, reached Coder as notes from Coder's app before its next answers (never the end line).
+    const notes = s.seen.at(-1).messages.filter((m) => m.role === "user" && m.appNote && /Monitor/.test(m.content)).map((m) => m.content).join("\n");
+    assert.match(notes, /Monitor event: "Two lines" \(job2\)\nready/);
+    assert.match(notes, /done/);
+    assert.match(notes, /Monitor "Two lines" \(job2\) ended: its command exited with code 0\./);
+    assert.doesNotMatch(notes, /\[finished, exit code/);
     assert.match(res("s1").output, /\[stopped job1\]/);
-    assert.match(res("m2").output, /\[not running\]/);
-    assert.match(res("m3").output, /no background job job9 \(jobs: job1\)/);
+    assert.match(res("s2").output, /\[job1 had already ended\]/);
+    assert.match(res("s3").output, /no background job job9 \(jobs: job1, job2\)/);
+    // The page: the monitor's step, its events, and its end on that step (exit 0, a ✓); its end is not told again as a
+    // background command's, and stop_job's own stop is no news.
+    const notesSeen = st.events.filter((e) => e.type === "note");
+    assert.ok(notesSeen.some((e) => e.monitor && e.monitor.job === "job2" && e.monitor.lines.includes("ready")));
+    assert.ok(notesSeen.some((e) => e.job === "job2" && e.end && e.end.ok === true));
+    assert.equal(notesSeen.filter((e) => /^Background command/.test(e.text)).length, 0, notesSeen.map((e) => e.text).join(" | "));
+    assert.ok(st.events.some((e) => e.type === "bash" && e.id === "m1" && e.monitor === true && e.desc === "Two lines"));
     const verbs = st.events.filter((e) => e.type === "bash").map((e) => e.verb || "Ran");
-    assert.deepEqual(verbs, ["Ran", "Checked", "Stopped", "Checked", "Checked"]);
+    assert.deepEqual(verbs, ["Ran", "Ran", "Ran", "Ran", "Stopped", "Stopped", "Stopped"]);
   } finally { await close(); }
 });
 

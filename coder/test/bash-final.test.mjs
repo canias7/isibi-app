@@ -84,7 +84,7 @@ test("CD338 background commands are stopped when memory runs critically low whil
   // Turned off: kept with the command when it started.
   const s = serverSrc();
   assert.match(s, /t\.noReap = varOn\(rawVars\.CODER_DISABLE_BG_SHELL_PRESSURE_REAP\);/);
-  assert.match(s, /stopping: "", noReap: t\.noReap === true \}\);/);
+  assert.match(s, /stopping: "", noReap: t\.noReap === true, \.\.\.\(monitor \? \{ monitor: true, /);
   // What Coder and the chat are told.
   const n = A.bgEndNotice({ id: "job1", desc: "Start the dev server", command: "npm run dev", log: "/srv/coder-bg/bg-1.log", code: 137, why: "memory" });
   assert.equal(n.said, "Background command \"Start the dev server\" was stopped because the system is running low on memory");
