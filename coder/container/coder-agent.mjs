@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
-import { needsCheck, stepWords, gloopyCheck, cleanRules, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
+import { needsCheck, stepWords, stepSends, gloopyCheck, cleanRules, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
@@ -1073,6 +1073,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           let about;
           try { about = await hub.describe(act.action === "press" ? "" : String(act.ref || "")); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
           const step = stepWords(act, about);
+          // What the form holds goes to the check and the card only for a step that may send it (a ticked box sends nothing).
+          about = { ...about, sends: stepSends(act, about) };
           if (denied.has(step.slice(0, 300))) { no(noAgain(step)); continue; }
           const g = granted.indexOf(step);
           const v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo, rules, background });
@@ -1086,7 +1088,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             reply("waiting for the owner's OK to: " + step + " (" + v.why + "). Your turn ends here; their answer comes as the next message.");
             for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
             // What the form holds, on the card (Grok Bot's card shows the action's inputs): never a password or card field.
-            const holds = formWords(about.fields);
+            const holds = about.sends ? formWords(about.fields) : "";
             emit({ type: "approval", id, step, site: about.host || "", url: about.url || "", why: v.why, ...cardBits(v), ...(holds ? { detail: holds, form: true } : {}) });
             approvalRequest = { id, args: { ...act }, step, site: about.host || "", url: about.url || "" };
             return end("done", { summary: lastSaid || "asked the owner's OK to: " + step });

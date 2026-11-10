@@ -20,8 +20,9 @@ Being tested now on test.gofarther.dev with Grok, recorded; the full results go 
 - **The card's form list doubled colons** ("Customer name:: Test Owner"), because the page's own label ends with one. Now it reads "Customer name: Test Owner".
 - **While a step ran, the chat showed the element's number** ("Typing into f2e23"). Now it says "Typing" or "Clicking", and once done, the step's own words as before ("Typed “Margherita pizza” into “Search Wikipedia”").
 - **"Do only this: … when you're in.."**: a handoff's task that ends in a full stop got a second one in the live view.
+- **Ticking a box in a form was asked about as sending the form.** With an "Ask first before submitting any form on httpbin.org" rule, Gloopy ticking "Bacon" brought up a card saying it "would submit the pizza form", listing the form under "What it sends". The check was told "Click “Bacon” (in a form that sends to …)" with everything the form held, and didn't know Bacon was a checkbox. Now the step says what the element is ("Click the checkbox “Bacon”"), and what a form holds goes to the check and the card only for a step that can send it: a button, Enter, or an upload's own button.
 
-Tests GL96 and GL97 are new.
+Tests GL96 to GL98 are new.
 
 ## 2026-11-10: The browser's missing pieces, added (your word: "if we missing stuff in the browser tool add it and then test the entire browser tool")
 
