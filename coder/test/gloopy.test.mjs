@@ -334,7 +334,7 @@ test("GL13 the chat shows a browser step with its own icon, its words while it w
   assert.match(ui, / browser: 'M3 5a2 2 0 0 1 2-2h14/, "a browser window icon");
   assert.match(ui, /\.replace\(\/\^Opened\$\/, 'Opening'\)\.replace\(\/\^Looked at\$\/, 'Looking at'\)\.replace\(\/\^Clicked\$\/, 'Clicking'\)/);
   assert.match(ui, /const said = r && typeof r\.label === 'string' && r\.label \? r\.label : '';/);
-  assert.match(ui, /stepIcon\(e\) \+ '<span class="cd-cmd-verb">' \+ \(said \? '<span class="cd-cmd-said" title="' \+ esc\(said\) \+ '">' \+ esc\(said\) \+ '<\/span>' : verb\)/);
+  assert.match(ui, /stepIcon\(e\) \+ '<span class="cd-cmd-verb">' \+ \(said \? '<span class="cd-cmd-said" title="' \+ esc\(said\) \+ '">' \+ esc\(said\) \+ '<\/span>' : \(who \? esc\(who\[0\]\) : ''\) \+ verb\)/);
   assert.match(ui, /browser: \['took', 'browser step', 'browser steps', 'browser step'\]/);
 });
 
@@ -4789,7 +4789,7 @@ test("GL97 (2026-11-10) found in the live test: a browser step that runs never s
   assert.match(ui, /\.replace\(\/\^Typed\$\/, 'Typing'\)/);
   assert.match(ui, /\.replace\(\/\^Chose\$\/, 'Choosing'\)/);
   assert.match(ui, /\.replace\(\/\^Typed into\$\/, 'Typing into'\)/, "old chats keep their words");
-  assert.match(ui, /\(said \|\| !e\.command \? '' : ' <code class="cd-cmd-text">'/, "no empty box after the verb");
+  assert.match(ui, /\(said \|\| !what \? '' : ' <code class="cd-cmd-text">'/, "no empty box after the verb");
   assert.match(ui, /'Do only this: ' \+ esc\(ho\.task\) \+ \(\/\[\.!\?…\]\$\/\.test\(ho\.task\) \? '' : '\.'\)/);
 });
 
@@ -5347,6 +5347,12 @@ test("GL109 (2026-11-10) the owner: \"all of it\": Gloopy's helpers get a browse
   // Its helpers' steps show in the chat under their names.
   assert.ok(ev.some((e) => e.type === "bash" && /^“Prices” · /.test(String(e.command))), "under the helper's name");
   assert.ok(ev.some((e) => e.type === "result" && /^“Prices” · /.test(String(e.label || ""))), "its done step's words too");
+  // On the page, a helper's step shows its name first, then what it does (live test, 2026-11-10: "Searched the web for
+  // “Rome population” · …" read as if its name was what it searched for).
+  const page = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.ok(page.includes("const who = !said && /^h\\d+-/.test(String(e.id || '')) && typeof e.command === 'string' ? /^“[^”\\n]{1,100}” · /.exec(e.command) : null;"));
+  assert.ok(page.includes("const what = who ? e.command.slice(who[0].length) : e.command;"));
+  assert.ok(page.includes("(who ? esc(who[0]) : '') + verb) + '</span>' + (said || !what ? '' : ' <code class=\"cd-cmd-text\">' + esc(what.split('\\n')[0]) + '</code>')"));
   // Without a browser, as before (no tab, no browser tool).
   // On the page: the tabs to watch.
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
@@ -5462,12 +5468,16 @@ test("GL110 (2026-11-10) live test: the live view is a stream: one request carri
     assert.deepEqual([wrapped.coderStatus, wrapped.body.title, !!wrapped.body.shot], [200, "Still", true]);
     // Gloopy's step reaches the view at once, though the page did not change.
     await hub.act({ action: "open", url: S + "/still" });
+    // (Still: two looks in a row with nothing new; a busy machine may still be painting it for a while.)
     let sc = await hub.screen({ wait: 3000 });
-    for (let i = 0; i < 4 && !sc.same; i++) sc = await hub.screen({ since: sc.hash, wait: 800 });
+    for (let i = 0, still = 0; i < 12 && still < 2; i++) { sc = await hub.screen({ since: sc.hash, wait: 800 }); still = sc.same ? still + 1 : 0; }
     const t1 = Date.now();
-    const [look] = await Promise.all([hub.screen({ since: sc.hash, wait: 6000 }), new Promise((ok) => setTimeout(ok, 300)).then(() => hub.act({ action: "press", key: "Escape" }))]);
-    assert.ok(Date.now() - t1 < 3000, "woken by the step: " + (Date.now() - t1) + " ms");
+    const pressed = new Promise((ok) => setTimeout(ok, 300)).then(() => hub.act({ action: "press", key: "Escape" }));
+    let look = await hub.screen({ since: sc.hash, wait: 6000 });
+    while (!(look.last && /Escape/.test(look.last.did)) && Date.now() - t1 < 6000) look = await hub.screen({ since: look.hash || sc.hash, wait: 6000 });
+    await pressed;
     assert.match(look.last.did, /Escape/);
+    assert.ok(Date.now() - t1 < 3000, "woken by the step: " + (Date.now() - t1) + " ms");
   } finally {
     srv.close(); site.close();
     spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]);
