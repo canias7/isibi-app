@@ -302,7 +302,13 @@ export async function serve(dir) {
     // a headless browser, and blocks the next): the owner's own click gets a file prompt in their live view; Gloopy's
     // upload step gives its file; any other is said in the step's answer.
     p.on("filechooser", (fc) => { if (ownerHand) chooser = { fc, at: Date.now(), multiple: fc.isMultiple() }; else if (!uploading) fileAsked = true; });
+    // WHETHER THE PAGE CAME FROM A PLAIN ADDRESS (a GET), for the owner's Reload: a page a form sent (an order's "thank
+    // you") is never reloaded by sending the form again (found in the live test, 2026-11-10: Playwright's reload sends it
+    // again without asking, where a browser asks "Confirm Form Resubmission"). Restored from history, it isn't known.
+    p.on("request", (r) => { try { if (r.isNavigationRequest() && r.frame() === p.mainFrame()) navAsked.set(p, { url: r.url(), get: r.method() === "GET" }); } catch { /* a request of no frame */ } });
+    p.on("framenavigated", (f) => { if (f !== p.mainFrame()) return; const n = navAsked.get(p); plainPage.set(p, !!(n && n.get && n.url.split("#")[0] === f.url().split("#")[0])); navAsked.delete(p); });
   };
+  const navAsked = new WeakMap(), plainPage = new WeakMap();
   ctx.pages().forEach(watch);
   // A link that opens a new tab: the new tab is the page from then on.
   ctx.on("page", (p) => { watch(p); page = p; });
@@ -471,24 +477,39 @@ export async function serve(dir) {
     if (r.w < 4 || r.h < 4 || r.x >= VIEW.width || r.y >= VIEW.height) throw new Error("mark a part of the page");
     r.w = Math.min(r.w, VIEW.width - r.x); r.h = Math.min(r.h, VIEW.height - r.y);
     const got = await page.evaluate(([r, cardSel]) => {
-      const seen = new Set(), items = [], texts = [];
-      const inside = (b) => b.right > r.x && b.left < r.x + r.w && b.bottom > r.y && b.top < r.y + r.h;
-      for (let gy = 0; gy < 6; gy++) for (let gx = 0; gx < 6; gx++) {
-        const px = r.x + ((gx + 0.5) * r.w) / 6, py = r.y + ((gy + 0.5) * r.h) / 6;
-        for (const n of document.elementsFromPoint(px, py).slice(0, 3)) {
-          if (seen.has(n) || n === document.body || n === document.documentElement) continue;
-          seen.add(n);
-          const tag = n.tagName.toLowerCase();
-          const what = tag === "a" ? "link" : tag === "button" || n.getAttribute("role") === "button" ? "button" : /^(input|textarea|select)$/.test(tag) ? "field" : tag === "img" ? "picture" : /^h[1-6]$/.test(tag) ? "heading" : "";
-          if (what) {
-            const secret = (n instanceof HTMLInputElement && n.type === "password") || (n.matches && n.matches(cardSel));
-            const name = String(n.getAttribute("aria-label") || (n.labels && n.labels[0] && n.labels[0].innerText) || n.getAttribute("alt") || n.innerText || n.getAttribute("placeholder") || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 100);
-            if (items.length < 20) items.push({ what, name: secret ? name + " (its value is not shown)" : name });
-          }
-          if (inside(n.getBoundingClientRect()) && n.innerText && n.children.length < 30) { const t = n.innerText.replace(/\s+/g, " ").trim(); if (t && !texts.some((x) => x.includes(t))) texts.push(t.slice(0, 300)); }
-        }
+      const items = [], texts = [];
+      const hit = (b) => b.right > r.x && b.left < r.x + r.w && b.bottom > r.y && b.top < r.y + r.h;
+      const centred = (b) => { const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2; return b.width > 0 && b.height > 0 && cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h; };
+      // Its links, buttons, fields, pictures and headings: those whose middle is in the box and shows there (found all, not
+      // sampled: a small link between the points tried was missed).
+      const seen = (n, b) => { const top = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2); return !!top && (top === n || n.contains(top) || top.contains(n)); };
+      for (const n of document.querySelectorAll("a[href], button, [role=button], input:not([type=hidden]), textarea, select, img, h1, h2, h3, h4, h5, h6")) {
+        if (items.length >= 20) break;
+        const b = n.getBoundingClientRect();
+        if (!centred(b) || !seen(n, b)) continue;
+        const tag = n.tagName.toLowerCase();
+        const what = tag === "a" ? "link" : tag === "button" || n.getAttribute("role") === "button" ? "button" : /^(input|textarea|select)$/.test(tag) ? "field" : tag === "img" ? "picture" : "heading";
+        const secret = (n instanceof HTMLInputElement && n.type === "password") || (n.matches && n.matches(cardSel));
+        const name = String(n.getAttribute("aria-label") || (n.labels && n.labels[0] && n.labels[0].innerText) || n.getAttribute("alt") || n.innerText || n.getAttribute("placeholder") || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 100);
+        if (name) items.push({ what, name: secret ? name + " (its value is not shown)" : name });
       }
-      return { text: texts.join(" · ").slice(0, 1500), items };
+      // ITS WORDS: each piece of text whose line shows in the box, and is seen there (not under a pop-up). Never the whole
+      // of an element that only reaches into it (live test, 2026-11-10: a paragraph flowing around a marked info box, its
+      // box running under it, came whole).
+      const range = document.createRange(), tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let len = 0;
+      for (let t = tw.nextNode(), i = 0; t && i < 40000 && len < 1600; t = tw.nextNode(), i++) {
+        const pe = t.parentElement, words = String(t.nodeValue || "").replace(/\s+/g, " ").trim();
+        if (!words || !pe || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|TEXTAREA)$/.test(pe.tagName) || !hit(pe.getBoundingClientRect())) continue;
+        range.selectNodeContents(t);
+        const line = [...range.getClientRects()].find(centred);
+        if (!line) continue;
+        const top = document.elementFromPoint((line.left + line.right) / 2, (line.top + line.bottom) / 2);
+        if (!top || !(top === pe || pe.contains(top) || top.contains(pe))) continue;
+        texts.push(words); len += words.length + 1;
+      }
+      // Pieces joined as they read ("Tomatoes, mozzarella", not "Tomatoes , mozzarella").
+      return { text: texts.join(" ").replace(/ ([,.;:!?%)\]])/g, "$1").replace(/([(\[]) /g, "$1").slice(0, 1500), items };
     }, [r, CARD_FIELDS]);
     const hide = await secrets();
     const clean = (t) => redactCards(redactPasswords(String(t || ""), hide.passwords), hide.cards);
@@ -765,7 +786,8 @@ export async function serve(dir) {
       else if (i.kind === "scroll") await page.mouse.wheel(0, i.dy);
       else if (i.kind === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
       else if (i.kind === "forward") await page.goForward({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-      else if (i.kind === "reload") await page.reload({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+      // A page not known to come from a plain address is opened again at its address: a form is never sent twice.
+      else if (i.kind === "reload") await (plainPage.get(page) ? page.reload({ waitUntil: "domcontentloaded", timeout: 20000 }) : page.goto(page.url(), { waitUntil: "domcontentloaded", timeout: 20000 })).catch(() => {});
       else if (i.kind === "open") await page.goto(i.url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch((e) => { if (!/Download is starting/.test(String((e && e.message) || e))) throw e; });
       else if (i.kind === "file") {
         if (!chooser || Date.now() - chooser.at > CHOOSER_MS) { chooser = null; throw new Error("the page is not asking for a file now: click its file field or upload button first"); }

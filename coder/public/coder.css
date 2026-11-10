@@ -265,7 +265,8 @@
 .cd-card-no:disabled{opacity:.5;cursor:default}
 /* GLOOPY'S BROWSER, LIVE (2026-11-09): the view under Gloopy's bar; an orange edge while you have control. */
 .cd-web-btn { display: inline-flex; align-items: center; gap: 6px; }
-.cd-web { max-width: 900px; margin: 12px auto 0; width: calc(100% - 40px); border: 1px solid #e6e2db; border-radius: 14px; background: #fff; overflow: hidden; }
+/* The panel scrolls in itself rather than cut off its own foot (Hand it back) on a short window (live test, 2026-11-10). */
+.cd-web { max-width: 900px; margin: 12px auto 0; width: calc(100% - 40px); border: 1px solid #e6e2db; border-radius: 14px; background: #fff; overflow-x: hidden; overflow-y: auto; }
 .cd-web-bar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-bottom: 1px solid #efece7; font-size: 13px; }
 .cd-web-st { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: #1f1e1d; white-space: nowrap; }
 .cd-web-st i { width: 8px; height: 8px; border-radius: 50%; background: #a9a7a1; }
@@ -275,9 +276,12 @@
 .cd-web-mini { border: 1px solid #d9d6cf; background: #fff; border-radius: 999px; padding: 3px 10px; font: 600 12px Inter, system-ui, sans-serif; cursor: pointer; }
 .cd-web-x { border: 0; background: none; font-size: 22px; line-height: 1; padding: 0 4px; color: #6b7280; cursor: pointer; }
 .cd-web-screen { display: flex; justify-content: center; background: #f4f2ee; outline: none; }
-.cd-web-screen img { display: block; max-width: 100%; max-height: 52vh; width: auto; height: auto; user-select: none; -webkit-user-select: none; }
+/* The picture leaves room in the window for the panel's bar and foot, the chat's first line and your message box. */
+.cd-web-screen img { display: block; max-width: 100%; max-height: max(160px, min(52vh, calc(100vh - 330px))); width: auto; height: auto; user-select: none; -webkit-user-select: none; }
 .cd-web-screen.is-you { box-shadow: inset 0 0 0 3px #e8590c; }
 .cd-web-screen.is-you img { cursor: pointer; }
+/* With control, two rows of tools join it: the picture leaves them, the foot and your message box room in the window. */
+.cd-web-screen.is-you img { max-height: max(160px, min(52vh, calc(100vh - 390px))); }
 .cd-web-screen.is-you:focus-visible { box-shadow: inset 0 0 0 4px #e8590c; }
 .cd-web-empty { margin: 0; padding: 44px 20px; text-align: center; color: #6b7280; font-size: 14px; }
 .cd-web-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-top: 1px solid #efece7; }
@@ -550,6 +554,8 @@
 .cd-gl-empty p { max-width: 460px; margin-left: auto; margin-right: auto; }
 /* A browser step's sentence ("Clicked “Go”", Gloopy, 2026-11-09): plain words, not code. */
 .cd-cmd-said { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* A step's long words (a handoff's whole task) end in "…" on its one line, not past the chat's edge (live test, 2026-11-10). */
+.cd-cmd-verb:has(> .cd-cmd-said) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Gloopy's cards from a run the owner did not start wait 30 minutes; one not answered in time says so (the audit, 2026-11-10). */
 .cd-card-until{font-size:12.5px;color:#8a6a00;margin:0 0 10px;text-align:left}
 .cd-card-expired{font-size:13px;color:#6b6a66;background:#f1efe9;border-radius:8px;padding:6px 10px;margin:4px 0 0;text-align:left}

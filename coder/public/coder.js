@@ -858,7 +858,7 @@
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>' : '';
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
-        stepIcon(e) + '<span class="cd-cmd-verb">' + (said ? '<span class="cd-cmd-said">' + esc(said) + '</span>' : verb) + '</span>' + (said || !e.command ? '' : ' <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>') +
+        stepIcon(e) + '<span class="cd-cmd-verb">' + (said ? '<span class="cd-cmd-said" title="' + esc(said) + '">' + esc(said) + '</span>' : verb) + '</span>' + (said || !e.command ? '' : ' <code class="cd-cmd-text">' + esc(e.command.split('\n')[0]) + '</code>') +
         tail +
       '</button>' +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).

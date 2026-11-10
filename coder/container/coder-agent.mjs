@@ -1072,6 +1072,11 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (needsCheck(act) || (act.action === "open" && rules.length > 0)) {
           let about;
           try { about = await hub.describe(act.action === "press" ? "" : String(act.ref || "")); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+          // Opening a page or going back is about the page, never the element that has the focus (live test, 2026-11-10: an
+          // open was asked about as sending the form one of whose fields had the focus, its card listing that form), and
+          // an open's site is where it goes.
+          if (act.action === "open" || act.action === "back") about = { ...about, element: null, fields: undefined };
+          const where = act.action === "open" ? { site: (() => { try { return new URL(String(act.url)).host; } catch { return ""; } })() || about.host || "", url: String(act.url || "") } : { site: about.host || "", url: about.url || "" };
           const step = stepWords(act, about);
           // What the form holds goes to the check and the card only for a step that may send it (a ticked box sends nothing).
           about = { ...about, sends: stepSends(act, about) };
@@ -1089,8 +1094,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
             // What the form holds, on the card (Grok Bot's card shows the action's inputs): never a password or card field.
             const holds = about.sends ? formWords(about.fields) : "";
-            emit({ type: "approval", id, step, site: about.host || "", url: about.url || "", why: v.why, ...cardBits(v), ...(holds ? { detail: holds, form: true } : {}) });
-            approvalRequest = { id, args: { ...act }, step, site: about.host || "", url: about.url || "" };
+            emit({ type: "approval", id, step, site: where.site, url: where.url, why: v.why, ...cardBits(v), ...(holds ? { detail: holds, form: true } : {}) });
+            approvalRequest = { id, args: { ...act }, step, site: where.site, url: where.url };
             return end("done", { summary: lastSaid || "asked the owner's OK to: " + step });
           }
         }

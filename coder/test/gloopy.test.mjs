@@ -334,7 +334,7 @@ test("GL13 the chat shows a browser step with its own icon, its words while it w
   assert.match(ui, / browser: 'M3 5a2 2 0 0 1 2-2h14/, "a browser window icon");
   assert.match(ui, /\.replace\(\/\^Opened\$\/, 'Opening'\)\.replace\(\/\^Looked at\$\/, 'Looking at'\)\.replace\(\/\^Clicked\$\/, 'Clicking'\)/);
   assert.match(ui, /const said = r && typeof r\.label === 'string' && r\.label \? r\.label : '';/);
-  assert.match(ui, /stepIcon\(e\) \+ '<span class="cd-cmd-verb">' \+ \(said \? '<span class="cd-cmd-said">' \+ esc\(said\) \+ '<\/span>' : verb\)/);
+  assert.match(ui, /stepIcon\(e\) \+ '<span class="cd-cmd-verb">' \+ \(said \? '<span class="cd-cmd-said" title="' \+ esc\(said\) \+ '">' \+ esc\(said\) \+ '<\/span>' : verb\)/);
   assert.match(ui, /browser: \['took', 'browser step', 'browser steps', 'browser step'\]/);
 });
 
@@ -4833,4 +4833,110 @@ test("GL98 (2026-11-10) found in the live test: ticking a box in a form is said 
   assert.doesNotMatch(r.check, /WHAT THE FORM HOLDS/);
   r = await card(btn);
   assert.deepEqual([r.card.step, r.card.detail, r.card.form], ["Click the button “Submit order”", "Customer name: Test Owner\nBacon: chosen", true]);
+});
+
+test("GL99 (2026-11-10) found in the live test: opening a page (or going back) is checked as what it is, never as the element that has the focus on the page it leaves (an open was asked about as sending the form whose field had the focus); an open's card names where it goes", async () => {
+  const focusedInForm = { element: { name: "Telephone:", tag: "input", type: "tel", form: true, formAction: "https://httpbin.org/post" }, url: "https://httpbin.org/forms/post", host: "httpbin.org", frameHost: "httpbin.org", title: "Order", fields: [{ label: "Customer name:", value: "Test Owner" }] };
+  const hub = { acted: [], describe: async () => focusedInForm, act: async (a) => { hub.acted.push(a); return { text: "Did: " + a.action + "\nPage: P\nAddress: https://the-internet.herokuapp.com/\n\n- b", shot: "", thumb: "" }; } };
+  const ev = [], g = withChecks([say("", [call("browser", { action: "open", url: "https://the-internet.herokuapp.com/" }, "o1")]), say("Waiting.")], [{ kind: "none", decision: "ask", why: "One of your rules is about forms." }]);
+  await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e), browser: hub }, { text: "Visit the-internet.herokuapp.com", ...GLOOPY, rules: [{ text: "Submitting any form on httpbin.org", mode: "ask" }] });
+  const seen = g.checks[0].messages[1].content;
+  assert.match(seen, /THE PAGE: Order — https:\/\/httpbin\.org\/forms\/post\n\nTHE STEP: Open https:\/\/the-internet\.herokuapp\.com\/$/, "the page it leaves, and the step: nothing of the focused field");
+  assert.doesNotMatch(seen, /in a form|WHAT THE FORM HOLDS|Test Owner/);
+  const card = ev.find((e) => e.type === "approval");
+  assert.deepEqual([card.step, card.site, card.url, card.detail], ["Open https://the-internet.herokuapp.com/", "the-internet.herokuapp.com", "https://the-internet.herokuapp.com/", undefined]);
+  assert.deepEqual(hub.acted, [], "waits for the owner");
+});
+
+test("GL100 (2026-11-10) for real (where Chromium is installed), found in the live test: the owner's Reload never sends a form again (an order's thank-you page reloaded placed the order twice); a page from a plain address, or a form's redirect to one, is reloaded as before", async (t) => {
+  const { makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const n = { posts: 0, thanks: 0, plain: 0 };
+  const site = http.createServer((q, r) => {
+    const u = new URL(q.url, "http://x");
+    const html = (b) => { r.writeHead(200, { "content-type": "text/html" }); r.end(b); };
+    if (u.pathname === "/") return html('<title>Shop</title><form method=post action=/order><button>Order</button></form><form method=post action=/order2><button>Order and redirect</button></form>');
+    if (u.pathname === "/order" && q.method === "POST") { n.posts++; q.resume(); q.on("end", () => html("<title>Placed " + n.posts + "</title><h1>Order placed #" + n.posts + "</h1>")); return; }
+    if (u.pathname === "/order") return html("<title>Order page</title>");
+    if (u.pathname === "/order2" && q.method === "POST") { n.posts++; q.resume(); q.on("end", () => { r.writeHead(303, { location: "/thanks" }); r.end(); }); return; }
+    if (u.pathname === "/thanks") { n.thanks++; return html("<title>Thanks " + n.thanks + "</title>"); }
+    if (u.pathname === "/plain") { n.plain++; return html("<title>Plain " + n.plain + "</title>"); }
+    if (u.pathname === "/other") return html("<title>Other</title>");
+    r.writeHead(404); r.end();
+  });
+  const S = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-reload-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    let a = await hub.act({ action: "open", url: S + "/" });
+    await hub.act({ action: "click", ref: refOf(a.text, /button "Order"[^\n]*?\[ref=([a-z0-9]+)\]/) });
+    assert.equal(n.posts, 1);
+    let sc = await hub.input({ kind: "reload" });
+    assert.equal(n.posts, 1, "the order is not sent again");
+    assert.equal(sc.title, "Order page", "its address, opened again");
+    // Restored from history (no request): not known to be plain, so not resent either.
+    a = await hub.act({ action: "open", url: S + "/" });
+    await hub.act({ action: "click", ref: refOf(a.text, /button "Order"[^\n]*?\[ref=([a-z0-9]+)\]/) });
+    assert.equal(n.posts, 2);
+    await hub.input({ kind: "open", url: S + "/other" });
+    sc = await hub.input({ kind: "back" });
+    assert.equal(sc.title, "Placed 2");
+    await hub.input({ kind: "reload" });
+    assert.equal(n.posts, 2, "not sent again after Back either");
+    // A form that redirects to a plain page (post, then get): that page is reloaded as usual.
+    a = await hub.act({ action: "open", url: S + "/" });
+    await hub.act({ action: "click", ref: refOf(a.text, /button "Order and redirect"[^\n]*?\[ref=([a-z0-9]+)\]/) });
+    assert.deepEqual([n.posts, n.thanks], [3, 1]);
+    sc = await hub.input({ kind: "reload" });
+    assert.deepEqual([n.posts, n.thanks, sc.title], [3, 2, "Thanks 2"]);
+    // A plain page: a real reload (Back still goes to the page before it, not to itself).
+    await hub.input({ kind: "open", url: S + "/other" });
+    await hub.input({ kind: "open", url: S + "/plain" });
+    sc = await hub.input({ kind: "reload" });
+    assert.deepEqual([n.plain, sc.title], [2, "Plain 2"]);
+    sc = await hub.input({ kind: "back" });
+    assert.equal(sc.title, "Other", "reloaded in place, not opened again as a new page");
+  } finally {
+    (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    site.close();
+  }
+});
+
+test("GL101 (2026-11-10) for real (where Chromium is installed), found in the live test: a part the owner marks gives the words shown in it, never the whole of a paragraph that flows around it (its box running under the marked part) nor words hidden under a pop-up; its links and buttons are those in it", async (t) => {
+  const { makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const site = http.createServer((q, r) => {
+    r.writeHead(200, { "content-type": "text/html" });
+    r.end('<title>Pizza</title><style>body{margin:0;font:16px sans-serif} .box{float:right;width:300px;margin:20px;border:1px solid #999}</style>' +
+      '<div style="width:900px"><table class=box><tr><th>Type</th><td>Pizza</td></tr><tr><th>Origin</th><td>Naples</td></tr><tr><th>With</th><td><a href="/t">Tomatoes</a>, <a href="/b">basil</a></td></tr><tr><td colspan=2><a href="/n">More about Naples</a> <a href="/x"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width=8 height=8></a></td></tr></table>' +
+      '<p>' + "The dough is stretched by hand and baked in a wood oven. ".repeat(12) + '<a href="/far">A link far away</a></p></div>' +
+      '<div style="position:absolute;left:0;top:500px;width:400px"><p>Words under the pop-up</p></div><div style="position:absolute;left:0;top:480px;width:600px;height:120px;background:#fff">Sign up for our newsletter <button>No thanks</button></div>');
+  });
+  const S = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-mark-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    await hub.act({ action: "open", url: S + "/" });
+    // The floating box (right: 900 - 300 - 20 - borders ≈ x 578, from y 20).
+    let mk = await hub.area({ x: 570, y: 10, w: 330, h: 130 });
+    assert.match(mk.text, /^Type Pizza Origin Naples With Tomatoes, basil More about Naples$/, mk.text);
+    assert.deepEqual(mk.items, [{ what: "link", name: "Tomatoes" }, { what: "link", name: "basil" }, { what: "link", name: "More about Naples" }], "a link or picture of no name isn't listed");
+    // The pop-up covers the words under it: only what shows is given.
+    mk = await hub.area({ x: 0, y: 470, w: 620, h: 140 });
+    assert.match(mk.text, /Sign up for our newsletter/);
+    assert.doesNotMatch(mk.text, /Words under the pop-up/);
+    assert.deepEqual(mk.items, [{ what: "button", name: "No thanks" }]);
+  } finally {
+    (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    site.close();
+  }
+});
+
+test("GL102 (2026-11-10) found in the live test: on a short window the live view never cuts off its own foot (Hand it back): the picture leaves room for the rest, and the panel scrolls rather than clip; a step's long words end in \"…\" on their line (no sideways scroll in the chat), whole on hover", async () => {
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8"), css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(css, /\.cd-web \{ max-width: 900px; margin: 12px auto 0; width: calc\(100% - 40px\); border: 1px solid #e6e2db; border-radius: 14px; background: #fff; overflow-x: hidden; overflow-y: auto; \}/);
+  assert.match(css, /\.cd-web-screen img \{ display: block; max-width: 100%; max-height: max\(160px, min\(52vh, calc\(100vh - 330px\)\)\);/);
+  assert.match(css, /\.cd-web-screen\.is-you img \{ max-height: max\(160px, min\(52vh, calc\(100vh - 390px\)\)\); \}/, "with control, two more rows of tools");
+  assert.match(css, /\.cd-cmd-verb:has\(> \.cd-cmd-said\) \{ flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  assert.match(ui, /'<span class="cd-cmd-said" title="' \+ esc\(said\) \+ '">' \+ esc\(said\) \+ '<\/span>'/);
 });

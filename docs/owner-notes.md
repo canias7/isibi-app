@@ -22,7 +22,13 @@ Being tested now on test.gofarther.dev with Grok, recorded; the full results go 
 - **"Do only this: … when you're in.."**: a handoff's task that ends in a full stop got a second one in the live view.
 - **Ticking a box in a form was asked about as sending the form.** With an "Ask first before submitting any form on httpbin.org" rule, Gloopy ticking "Bacon" brought up a card saying it "would submit the pizza form", listing the form under "What it sends". The check was told "Click “Bacon” (in a form that sends to …)" with everything the form held, and didn't know Bacon was a checkbox. Now the step says what the element is ("Click the checkbox “Bacon”"), and what a form holds goes to the check and the card only for a step that can send it: a button, Enter, or an upload's own button.
 
-Tests GL96 to GL98 are new.
+- **Opening a page was asked about as sending a form.** With your rules on, an open is checked (new this round). But the check was handed the field that had the focus on the page Gloopy was leaving (the pizza form), so "open the-internet.herokuapp.com" came up as "would submit the httpbin form", listing that form and naming the wrong site. Now opening a page or going back is checked as itself, and the card names where it goes.
+- **Your Reload could send a form again.** On a page a form sent (an order's thank-you page), Reload in the live view sent the form again without asking: tried here, it placed a second order. A normal browser asks "Confirm Form Resubmission" first. Now such a page is opened again at its address instead, which never re-sends anything; ordinary pages reload as before.
+- **A marked part brought text from outside it.** Marking Wikipedia's info box gave Gloopy the article's first paragraph too, because that paragraph flows around the box and its frame runs underneath. Gloopy's answer mixed in facts that weren't in the box. Now a mark gives only the words that show inside it (not hidden under a pop-up), and every link or button in it, where before small ones could be missed.
+- **On a short window the live view cut off its own "Hand it back" button** (and "Teach Gloopy") once you took control. Now the picture leaves room for them, and the panel scrolls rather than cut anything off.
+- **A long step line pushed the chat sideways** (a handoff's whole task on one line). Now it ends in "…", and shows whole when you hover over it.
+
+Tests GL96 to GL102 are new; GL13 was updated for the hover text.
 
 ## 2026-11-10: The browser's missing pieces, added (your word: "if we missing stuff in the browser tool add it and then test the entire browser tool")
 
