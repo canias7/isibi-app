@@ -49,6 +49,21 @@ export function statOf(text) {
   const f = s.slice(at + 2).split(" ");
   return f.length > 3 ? { state: f[0], ppid: Number(f[1]), pgrp: Number(f[2]) } : null;
 }
+/**
+ * THE MARK EACH OF THE CHAT'S COMMANDS CARRIES (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code
+ * 2.1.257: "Fixed background commands that detach from their shell (for example under `timeout` or `setsid`) surviving a
+ * task stop"): a random value in the command's environment, which everything it starts inherits, whatever process group or
+ * session it moves to. A process's mark, from the environment it started with; "" when it has none (or is gone).
+ */
+export const TASK_MARK = "GOFARTHER_CODER_TASK";
+export function markOf(pid, { read = readFileSync, proc = "/proc" } = {}) {
+  let env = "";
+  try { env = Buffer.from(read(proc + "/" + pid + "/environ")).toString("latin1"); } catch { return ""; }
+  const at = ("\0" + env).indexOf("\0" + TASK_MARK + "=");
+  if (at < 0) return "";
+  const v = env.slice(at + TASK_MARK.length + 1), end = v.indexOf("\0");
+  return end < 0 ? v : v.slice(0, end);
+}
 /** Is this a process of the AI's: any of its ids the AI's user, or one of the admin sandbox's? */
 export const isAI = (ids, uid, box) => Array.isArray(ids) && ids.some((x) => x === uid || (box && x >= box[0] && x < box[1]));
 
@@ -132,14 +147,18 @@ export async function pauseAI({ uid, gid = uid, boxPid = 0, box = null, waitMs =
 /**
  * WHILE PAUSED: every process of the AI's that is not in one of the `keep` process groups is ended
  * (SIGKILL wakes a stopped process to end it). `spare`: processes kept whatever their group (the
- * admin sandbox's first process). Answers how many were ended.
+ * admin sandbox's first process). `keepMarks`: the marks of the kept commands (TASK_MARK): what one
+ * of them started in a process group of its own (under timeout or setsid, a browser a test opened)
+ * is kept with it. Answers how many were ended.
  */
-export async function endOthers(procs, keep, { spare = new Set(), waitMs = 2000, deps = {} } = {}) {
+export async function endOthers(procs, keep, { spare = new Set(), keepMarks = new Set(), waitMs = 2000, deps = {} } = {}) {
   const gone = deps.gone || ((pid) => { try { const st = statOf(readFileSync("/proc/" + pid + "/stat", "utf8")); return !st || "ZX".includes(st.state); } catch { return true; } });
   const kill = deps.kill || ((pid) => send(pid, "SIGKILL"));
+  const mark = deps.markOf || ((pid) => markOf(pid));
   const ended = [];
   for (const [pid, p] of procs) {
     if (spare.has(pid) || keep.has(p.pgrp)) continue;
+    if (keepMarks.size && keepMarks.has(mark(pid))) continue;
     if (kill(pid, SIGKILL)) ended.push(pid);
   }
   const until = Date.now() + waitMs;

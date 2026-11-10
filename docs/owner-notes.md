@@ -11,6 +11,28 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Bash, the four missing things built (your words: "Ok yes do that")
+
+- **1. Writes through a link.** Coder now checks where a command's write really lands, following links, as Claude Code does.
+  - A write that lands on a protected file asks first, in every mode. The card names both: "docs/notes.txt (which leads to .husky/pre-commit), a protected file".
+  - A write inside the project that leads out of it through a link asks too, even in Auto, and names where it leads. As in Claude Code, one of your allow rules can approve a file command such as `cp`, but never the file a `>` writes.
+  - Tried on a real folder: the hole I found this morning (`echo … > docs/notes.txt` changing the git hook) now asks, also after a `cd` and through `tee`.
+- **2. Stop ends everything a command started.** Each command now carries a hidden mark that everything it starts inherits. Stopping a background command (your Stop, Coder's own stop, its time limit, 5 GB, low memory) ends every process with that mark, even ones that broke away with `setsid` or `timeout`. Tried for real: the old stop left 3 of 5 processes running; the new one ends all of them.
+  - **Found while doing this, fixed with it:** the clean-up at the end of each job ended a still-running background command's processes when they had broken away like that. So `timeout 600 npm run dev` in the background, or a browser a test opened, was cut off when the job ended. Now they are kept while their command runs.
+- **3. Rules on a command's settings.** In Permission rules, an Ask or Deny rule like `Bash(run_in_background:true)` now works: every background command then asks first (or is refused). `Bash(timeout:*)` and `Bash(description:…)` work too. `Bash(command:…)` is refused when you add it, with the reason, as Claude Code ignores it.
+- **4. Six more cases ask in Accept edits and Plan** (Auto is unchanged):
+  - a loop over one of the shell's own variables, like `for PATH in …` (Claude Code's own list of these names);
+  - a command ending in a bare `&&`, `||` or `|`;
+  - `watch`, `setsid`, `flock` and the like, approved only by an exact rule;
+  - `find … -delete` or `-exec`, the same;
+  - Docker pointed at another machine (`--context`, `--host`, `--config`);
+  - a `>` to a wildcard name (`ls > *.txt`), or a `<` read right after a `cd`.
+  - Also: `cat <<< text` is no longer mistaken for reading a file (Claude Code doesn't check those).
+- **Tests:** CD342 to CD349 (8 new; 360 in all, all pass).
+- **Screenshots** of the new cards are in the chat, from Coder's real page on my side with a stand-in Grok.
+- **Not live yet:** it needs your word to merge and deploy, then I test it live with Grok, recorded.
+- **Still asking you:** the two items outside Bash (`Read(…)` and `Edit(…)` rules; the low-disk warning).
+
 ## 2026-11-10: Bash, a third pass through Claude Code's docs: what's still missing (your words: "dont test yet , go look at the claude code bash docs again and see what we missing")
 
 - **Nothing new from Claude Code since yesterday:** no release after 2.1.321, and the pages I compared yesterday are unchanged. This time I went line by line through the pages I hadn't compared that way: the sandboxed Bash page, permission modes, cloud environments, settings, commands. I also ran Claude Code's own examples from its docs through Coder's real permission code, on real folders.

@@ -33,7 +33,7 @@
 //                                                the branch is pushed and the pull request opened
 //   POST /api/coder/projects/:id/stop
 import { pickModel, CODER_MODELS } from "../container/coder-model.mjs";
-import { normMode, parseRule, MODES } from "../container/coder-perms.mjs";
+import { normMode, parseRule, ruleProblem, MODES } from "../container/coder-perms.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
@@ -614,7 +614,9 @@ export async function handleCoder(request, env, ctx, deps) {
     const kind = String(body.kind || "");
     if (!["allow", "ask", "deny"].includes(kind)) return json({ error: "kind is allow, ask or deny" }, 400);
     const rule = String(body.add ?? body.remove ?? "").trim();
-    if (!parseRule(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash, WebFetch(domain:example.com) or WebFetch" }, 400);
+    // (Claude Code ignores a rule on the command itself, Bash(command:…), and warns: so does Coder, when it is added.)
+    if (ruleProblem(rule)) return json({ error: ruleProblem(rule) }, 400);
+    if (!parseRule(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com) or WebFetch" }, 400);
     return json({ ok: true, repo: r, rules: await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined }) });
   }
 

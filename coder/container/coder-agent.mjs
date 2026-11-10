@@ -22,12 +22,12 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from 
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK } from "./coder-checks.mjs";
-import { exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm } from "./coder-bashcheck.mjs";
+import { exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo } from "./coder-bashcheck.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
-import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
+import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, allowRuleCovers, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -238,7 +238,7 @@ export const allowRunText = (command) => "I allowed Coder to run command " + cre
  * protected paths, and the working directories"; tee "including in a pipeline"). A file is named as write names it, so the
  * owner's Allow on either card covers the other. Null when it needs no one.
  */
-export function commandAsk(command, deps, where0 = "") {
+export function commandAsk(command, deps, where0 = "", { real = null, allowed = null } = {}) {
   if (String(command).length > MAX_COMMAND_CHARS) return { kind: "long", paths: [], allow: [allowRunText(command)], why: "this command is over 10,000 characters, more than Coder's checks read through", github: "this command is over 10,000 characters" };
   const names = [];
   for (const x of writeTargets(command).targets) {
@@ -252,7 +252,8 @@ export function commandAsk(command, deps, where0 = "") {
   // folder the command started in, so in Auto it ran without asking); where that folder can't be known (after a cd in a
   // subshell, a function or a $(…)), its names as written are checked, as for a redirection after a cd.
   const from = where0 || (deps && typeof deps.root === "string" ? deps.root : "") || "/";
-  const parts = readCommand(command, { cwd: from }).cmds;
+  const read = readCommand(command, { cwd: from });
+  const parts = read.cmds;
   // A cd into a protected folder, at any level (in a subshell too), and a file command in the same command: asked about.
   let into = "";
   for (const c of parts) {
@@ -265,6 +266,25 @@ export function commandAsk(command, deps, where0 = "") {
       if (name && protectedFile(name + "/x")) into = into || name;
     } else if (into && fileCommandTargets(c, "/") && !names.includes(into)) names.push(into);
   }
+  // WHERE EACH WRITE REALLY LANDS (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code's permissions
+  // docs, "Writes through a symlink": a write by a Bash command whose file "resolves to a protected path that the requested
+  // path doesn't name" gets that path's outcome; one inside the working directories that "resolves outside the working
+  // directories" is prompted for in auto mode "unless an allow rule approves the write", and "the prompt names the path the
+  // write resolves to"). `real` follows a path's links (realPath, on Coder's machine); `allowed(part)`: one of the owner's
+  // allow rules approves that part (a redirection's or tee's file is the command's, never a rule's: Claude Code, "A rule
+  // such as Bash(git commit *) allows the command, not the target"). Each part from the folder it runs in.
+  const workdirs = [deps && deps.root, ...(deps && Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
+  const relIn = (p) => { const w = workdirs.find((d) => p === d || p.startsWith(d + "/")); return w === undefined ? "" : p === w ? "." : p.slice(w.length + 1); };
+  const outs = [];
+  const through = (full, name, part) => {
+    if (typeof real !== "function" || !full || !full.startsWith("/")) return;
+    const to = leadsTo(full, workdirs, real);
+    if (to === full) return;
+    const rel = to ? relIn(to) : "";
+    if (rel && (protectedFile(rel) || protectedFile(rel + "/x"))) { const n = name + " (which leads to " + rel + ")"; if (!names.includes(n)) names.push(n); return; }
+    if (relIn(full) && !rel && !(part && typeof allowed === "function" && allowed(part)) && !outs.some((o) => o.name === name)) outs.push({ name, to });
+  };
+  for (const x of read.writes) if (x.path) through(x.path, projectPath(deps, x.path), null);
   for (const c of parts) {
     const known = c.dir !== false;
     const fc = fileCommandTargets(c, known ? (typeof c.dir === "string" ? c.dir : from) : "/");
@@ -273,8 +293,15 @@ export function commandAsk(command, deps, where0 = "") {
       if (!p) continue;
       const bare = p.replace(/\/\*$/, "");
       const name = known ? projectPath(deps, bare) : bare.replace(/^\/+/, "");
-      if (name && (protectedFile(name) || protectedFile(name + "/x")) && !names.includes(name)) names.push(name);
+      if (name && (protectedFile(name) || protectedFile(name + "/x"))) { if (!names.includes(name)) names.push(name); continue; }
+      if (known) through(bare, name, c);
     }
+  }
+  if (!names.length && outs.length) {
+    // A WRITE THAT LEADS OUT OF THE PROJECT THROUGH A LINK: asked about in every mode, the card naming where it leads.
+    const list = outs.map((o) => scrub(visibleChars(o.name)).slice(0, 300) + (o.to ? " (which leads to " + scrub(visibleChars(o.to)).slice(0, 300) + ")" : " (a link that can't be followed)"));
+    const where = outs.some((o) => o.to) ? ", outside the project" : "";
+    return { kind: "link", paths: list, allow: [allowRunText(command)], why: "this command writes " + list.join(", ") + where, github: "this command writes " + list.join(", ") + where };
   }
   if (!names.length) return null;
   // Each name as the chat shows it (a line break written out, never sent as one): the card's Allow becomes the owner's own
@@ -1235,10 +1262,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const rmWhy = dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs });
         if (rmWhy && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
         // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
-        const dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt });
+        // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
+        const dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
-        // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, or one that writes a protected file.
-        let ask = commandAsk(command, deps, where0);
+        // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
+        // a link), or one that writes through a link out of the project.
+        let ask = commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (part) => !github && allowRuleCovers(part, ownRules) });
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
         if (ask && github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
         // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)

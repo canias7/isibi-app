@@ -33,7 +33,7 @@ import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, 
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
-import { pauseAI, endOthers, resumeAI } from "./coder-freeze.mjs";
+import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
@@ -279,12 +279,31 @@ export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project 
  * Stop one (its whole process group): asked to stop, then ended 1.5 seconds later (Claude Code 2.1.300). `hard`: ended at
  * once (its output passed 5 GB: Claude Code kills it, exit code 137).
  */
+/** A fresh mark for one of the chat's commands (coder-freeze.mjs's TASK_MARK). */
+export const newMark = () => randomUUID().replace(/-/g, "").slice(0, 16);
+/**
+ * A STOPPED COMMAND'S RUNAWAYS, ENDED WITH IT (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code's
+ * docs: "when you stop a background task from /tasks … processes that detached from the task's shell, such as ones started
+ * under setsid or timeout, stop too"): every process of the AI's (the admin sandbox's too) carrying the command's mark, in
+ * its process group or not. Answers how many were signalled. `deps` (look, markOf, kill) for the tests.
+ */
+export function endMarked(mark, signal = "SIGKILL", deps = {}) {
+  if (typeof mark !== "string" || !/^[0-9a-f]{16}$/.test(mark)) return 0;
+  const look = deps.look || (() => aiProcesses({ uid: RUN_UID, box: [SBX_BASE, SBX_BASE + SBX_RANGE] }));
+  const read = deps.markOf || ((pid) => markOf(pid));
+  const kill = deps.kill || ((pid, sig) => { try { process.kill(pid, sig); return true; } catch { return false; } });
+  let n = 0;
+  for (const pid of look().keys()) if (pid !== process.pid && read(pid) === mark && kill(pid, signal)) n++;
+  return n;
+}
 export function stopJob(j, why, { hard = false } = {}) {
   if (!j || j.end) return;
   if (!j.stopping) j.stopping = why;
   try { process.kill(-j.pid, hard ? "SIGKILL" : "SIGTERM"); } catch { /* gone */ }
+  endMarked(j.mark, hard ? "SIGKILL" : "SIGTERM");
   setTimeout(() => {
     try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ }
+    endMarked(j.mark, "SIGKILL");
     setTimeout(() => { if (!j.end && !groupAlive(j.pid)) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); sweepIfIdle(); }, 500).unref?.();
   }, hard ? 0 : 1500).unref?.();
 }
@@ -2060,7 +2079,7 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
     if (!endAll("lost")) { finish(); return null; }
     return finish;
   }
-  await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set() });
+  await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set(), keepMarks: new Set(live.map((j) => j.mark).filter(Boolean)) });
   let went = false;
   return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); wakeStarters(live); finish(); };
 }
@@ -2459,8 +2478,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const onStart = (pid) => { leader = pid; t.fg.add(pid); };
           // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
           const onMove = (fn) => { t.movable = fn; };
+          // ITS MARK (endMarked): what it starts carries it, so a stop ends that too, and the sweep keeps it while it runs.
+          const mark = tool ? "" : newMark();
           // A file or web tool is ended at its time limit, never sent to the background.
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : extraEnv, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? {} : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}) } : { ...(extraEnv || {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || t.noBg }), ...(moved && !tool ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -2482,7 +2503,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (r && r.background && r.pid && !tool) {
             const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
             // (`at`: when the command started, for "running for"; its time limit counts from the move to the background.)
-            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, moved: !inBg, deadline: Date.now() + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true });
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(command), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, deadline: Date.now() + (inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true });
             r.jobId = id;
           }
           let told = "";
@@ -2527,8 +2548,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (!j || j.project !== project) return false;
             if (!j.stopping) j.stopping = "coder";
             try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ }
+            endMarked(j.mark, "SIGTERM");
             for (let i = 0; i < 15 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
             try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
+            endMarked(j.mark, "SIGKILL");
             for (let i = 0; i < 10 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
             const gone = !groupAlive(pid);
             if (gone) { jobEnded(pid, BG_EXITS.has(pid) ? BG_EXITS.get(pid) : null); j.told = true; }
