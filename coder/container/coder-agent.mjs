@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
+import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
 import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -958,7 +959,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, emailMark = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -973,6 +974,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
   const rulesAdded = [];
   const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); rulesAdded.push(r); } };
+  // (In Auto, a command every part of which a narrow allow rule of the owner's approves runs without the checker; broad ones,
+  // such as Bash or Bash(python *), are dropped in Auto: droppedInAuto.)
+  const autoRulesCover = (command) => { const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; const r = readCommand(command); return r.ok && r.cmds.length > 0 && r.cmds.every((part) => allowRuleCovers(part, keep)); };
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
   const isProt = (full) => { const d = workdirs.find((w) => full === w || full.startsWith(w + "/")); if (!d) return ""; const rel = full === d ? "." : full.slice(d.length + 1); return protectedFile(rel) || protectedFile(rel + "/x"); };
@@ -1310,7 +1314,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (rmWhy && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
         // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
         // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
-        const dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
+        let dec = github ? { verdict: "allow" } : bashDecision(command, { mode: modeB, rules: ownRules, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // THE ACCOUNT'S EMAIL WITH A USER-AGENT: refused, without asking, in every mode (see namesUserAgentWithAddress).
         if (emailMark && namesUserAgentWithAddress(inputText(c.args), emailMark)) { refuse(ACCOUNT_EMAIL_REFUSED); continue; }
@@ -1333,14 +1337,36 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           emit({ type: "runask", id: c.id, kind: ask.kind, paths: ask.paths, allow: ask.allow.join("\n"), ...cardLines(command), ...(desc ? { desc } : {}) });
           return end("done", { summary: lastSaid || "asked to run a command" });
         }
+        // THE AUTO MODE CHECKER (coder-checker.mjs, Claude Code's auto mode classifier; the owner, 2026-11-10: "yea do the paid
+        // second model too"): in Auto (and a job from GitHub), a command that is not read-only, and that no narrow allow rule of
+        // the owner's approves, is judged by a second model before it runs; in Plan, one Plan would ask about is judged instead
+        // (CODER_USE_AUTO_MODE_DURING_PLAN off: asked, as before). Never what asks in every mode (a protected file, the read
+        // block, a dangerous removal, an ask rule). After 3 blocks in a row or 20 in all, auto mode pauses: the owner is asked,
+        // and their Yes resumes it.
+        let pausedCard = false;
+        const checkSt = checkerState((checkWhere && checkWhere.key) || deps.root || "");
+        const autoLike = modeB === "auto" || github;
+        if (checker && !rmWhy && !ask && !dec.byRule && ((autoLike && dec.verdict === "allow" && !wholeReadOnly(command) && !autoRulesCover(command)) || (modeB === "plan" && checkerInPlan && dec.verdict === "ask"))) {
+          if (checkSt.paused) {
+            if (canAsk()) pausedCard = true;
+            else { refuse(autoDenied("auto mode is paused after repeated blocks, and no one can approve actions in this job")); continue; }
+          } else {
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("bash", c.args), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
+            if (v.usage) usage.push(v.usage);
+            if (v.error) { refuse(checkUnavailable(model || "The classifier", "this bash command")); continue; }
+            if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); reply(autoDenied("[" + v.rule + "]" + (v.reason ? " " + v.reason : ""))); continue; }
+            countAllowed(checkSt);
+            if (dec.verdict === "ask") dec = { verdict: "allow", why: "", suggest: null };
+          }
+        }
         // ASKED ON A CARD, AND THIS STEP WAITS (Claude Code's Bash prompt: "Yes", "Yes, and don't ask again for …", "Yes, and
         // switch to auto mode", "No"). Only a one-time Yes for a dangerous removal, a protected file, a very long command
         // or one an ask rule asks about (Claude Code: no "don't ask again" when it can't cover it all, and no switch to auto
         // mode on a prompt one of your ask rules forced).
         let approval = null;
-        if (rmWhy || ask || dec.verdict === "ask") {
-          const once = !!(rmWhy || ask || dec.byRule);
-          const card = { tool: "bash", id: c.id, ...cardLines(command), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" ? { toAuto: true } : {}) };
+        if (rmWhy || ask || dec.verdict === "ask" || pausedCard) {
+          const once = !!(rmWhy || ask || dec.byRule || pausedCard);
+          const card = { tool: "bash", id: c.id, ...cardLines(command), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" ? { toAuto: true } : {}) };
           approval = await askOwner(card);
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -1349,6 +1375,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (approval.choice === "auto" && card.toAuto) setMode("auto", "card");
+          // (The owner's Yes while auto mode was paused resumes it: Claude Code, "Approving the prompted action resumes auto mode".)
+          if (pausedCard) resume(checkSt);
         }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
@@ -1616,13 +1644,29 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const modeT = modeNow();
         const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
         if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, output: fetchDec.why }); reply(fetchDec.why); continue; }
+        // THE AUTO MODE CHECKER FOR A PAGE FETCH (coder-checker.mjs): in Auto, or a job from GitHub, a fetch that no allow rule
+        // and none of the pre-approved documentation sites cover is judged before it runs (an address can carry data out).
+        let fetchPaused = false;
+        const checkStF = checkerState((checkWhere && checkWhere.key) || deps.root || "");
+        if (checker && c.name === "web_fetch" && (modeT === "auto" || github) && !(fetchDec && fetchDec.verdict === "ask") && fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") {
+          if (checkStF.paused) {
+            if (canAsk()) fetchPaused = true;
+            else { const m = autoDenied("auto mode is paused after repeated blocks, and no one can approve actions in this job"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+          } else {
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "" });
+            if (v.usage) usage.push(v.usage);
+            if (v.error) { const m = checkUnavailable(model || "The classifier", "this page fetch"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+            if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); reply(autoDenied("[" + v.rule + "]" + (v.reason ? " " + v.reason : ""))); continue; }
+            countAllowed(checkStF);
+          }
+        }
         const fileAsk = (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || modeT === "plan");
         let approval = null;
-        if (fileAsk || (fetchDec && fetchDec.verdict === "ask")) {
+        if (fileAsk || (fetchDec && fetchDec.verdict === "ask") || fetchPaused) {
           const shownPath = guarded ? scrub(visibleChars(guarded)).slice(0, 300) : "";
           const card = fileAsk
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? shownPath + " is a protected file: it can make code run on your computer when the branch is pulled, or change how the project is built." : "Plan mode is on: files change only after you approve the plan." }
-            : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchDec.why, ...(!fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
+            : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchDec.why, ...(!fetchPaused && !fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
           if (!canAsk()) { const m = "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : "the owner must approve fetching " + (fetchDec.host || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
           approval = await askOwner(card);
           const o = answerOutcome(approval);
@@ -1631,6 +1675,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED_SAID + approval.comment); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
+          if (fetchPaused) resume(checkStF);
         }
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }

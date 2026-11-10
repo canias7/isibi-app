@@ -399,7 +399,30 @@ code in **each user's own GitHub**.
    (`ruleKept`, `ruleSaved`): `Bash(command:…)` and a rule naming no known tool, a deny
    or ask one with Claude Code's warning and row ("never matches", "matches no tool");
    content that starts with a name and a colon (`git:* status`) is not checked; each
-   row starts with its kind ("Allow rule …"). Tests: `test/bash-side.test.mjs`.
+   row starts with its kind ("Allow rule …"). Tests: `test/bash-side.test.mjs`. And
+   with the read block on, every program's words that name a file that is there are
+   checked too, as Claude Code does (`namedWhy` in `readBlockWhy`; `pathExists` gives
+   the machine's view): `less /etc/passwd` asks; `xargs` and words worked out when the
+   command runs ask; Claude Code's twelve exempt programs and its safe list for
+   settings in front (`RB_SAFE_ENV`) and its inline-code map (`RB_RUNNERS`).
+
+   **The auto mode checker** (owner, 2026-11-10: "yea do the paid second model too"):
+   Claude Code's auto mode classifier, `container/coder-checker.mjs`. In Auto (and a
+   job from GitHub), a bash command that is not read-only and that no narrow allow
+   rule approves, and a web fetch of a page no rule or documentation site covers, is
+   judged first by one more call to the chat's model (low effort, no tools), which
+   answers allow or block with a rule's name (Claude Code's rule names and the lists
+   its docs give: `CHECKER_RULES`). In Plan it judges the commands Plan would ask
+   about (`CODER_USE_AUTO_MODE_DURING_PLAN=false` asks as before). It sees the
+   owner's messages, Coder's earlier actions and the project's instructions, never a
+   command's output or Coder's own words (`checkerTranscript`). A block: the command
+   never runs, the step says "Blocked by auto mode · [rule] reason", and Grok is told
+   Claude Code's own sentence (`autoDenied`). No verdict blocks too
+   (`checkUnavailable`). After 3 blocks in a row or 20 in all, auto mode pauses: the
+   owner is asked on a card and their Yes resumes it (`checkerState`, per chat, kept by
+   the machine's service). Broad allow rules are dropped in Auto (`droppedInAuto`).
+   The machine's service turns it on (`checker: true`); each check's cost is counted
+   with the job's. Tests: `test/auto-checker.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
