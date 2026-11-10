@@ -465,6 +465,15 @@ export const ghRateLimited = (command, output) => /(^|[\s;&|(])gh\s/.test(String
  * Claude starting a second copy of a background command (such as a watch task or dev server) that was still running after
  * the conversation was compacted").
  */
+/**
+ * DISK SPACE IS LOW (Bash docs: Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB, "to have Claude Code warn Claude when free space on
+ * the working directory's filesystem falls below that amount"; set in Settings): Claude Code's own reminder, word for word, with
+ * "owner" for "user". Said once when the free space falls below the line, and again only after it has been back above it.
+ */
+export const diskSize = (b) => (b >= 1024 ** 3 ? (Math.floor(b / 1024 ** 3 * 10) / 10).toFixed(1) + " GB" : Math.max(0, Math.floor(b / 1024 ** 2)) + " MB");
+export const DISK_LOW = (bytes) => "Disk space is low: " + diskSize(bytes) + " free on the filesystem holding the working directory. If you need room, delete temporary files that you made. Ask the owner before you delete any other file. If that does not free enough, tell the owner.";
+/** Whether the warning was given and the disk has not been back above the line since (per chat, on its machine). */
+export const DISK_TOLD = new Map();
 export function runningNote(list, now = Date.now()) {
   if (!list.length) return "";
   return "(Note from Coder's app, not the owner: " + (list.length === 1 ? "a background command is" : list.length + " background commands are") + " still running from earlier: " + list.map(([id, j]) => id + " \"" + (j.desc || String(j.command || "").split("\n")[0].slice(0, 80)) + "\", for " + agoWords(now - j.at) + ", output in " + j.log).join("; ") + ". Do not start a second copy; look at one with monitor or read, stop it with stop_job when it is no longer needed. You are told when one ends.)";
@@ -801,8 +810,10 @@ export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GI
  * size it gives is the chat's. The list is the same one otherwise.
  */
 export const NO_BG_TIMEOUT = "`timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is stopped (\"Command timed out after Ns\"). Background commands are off in this chat's environment: start a server or a watcher only for a bounded check (for example `timeout 20 npm run dev`), never with &.";
-export function toolsFor(list, { noBg = false, inlineMax = BASH_INLINE_MAX } = {}) {
-  if (!noBg && inlineMax === BASH_INLINE_MAX) return list;
+export function toolsFor(list, { noBg = false, inlineMax = BASH_INLINE_MAX, bgMaxMs = 7_200_000 } = {}) {
+  // (The longest a background command may run is the owner's, from Settings: 2 hours unless raised.)
+  const bgMax = Number.isFinite(Number(bgMaxMs)) && Number(bgMaxMs) > 7_200_000 ? Math.round(Number(bgMaxMs)) : 7_200_000;
+  if (!noBg && inlineMax === BASH_INLINE_MAX && bgMax === 7_200_000) return list;
   return list.map((t) => {
     if (!t || !t.function || t.function.name !== "bash") return t;
     let d = t.function.description;
@@ -814,6 +825,11 @@ export function toolsFor(list, { noBg = false, inlineMax = BASH_INLINE_MAX } = {
       props.timeout = { type: "integer", description: "Optional timeout in milliseconds (default 120000, at most 600000)" };
     }
     if (inlineMax !== BASH_INLINE_MAX) d = d.replace("Output past 30,000 characters", "Output past " + inlineMax.toLocaleString("en-US") + " characters");
+    if (bgMax !== 7_200_000 && !noBg) {
+      const hours = Math.round(bgMax / 3_600_000 * 10) / 10;
+      d = d.replace("up to 7200000 (2 hours)", "up to " + bgMax + " (" + hours + " hours)");
+      if (props.timeout && typeof props.timeout.description === "string") props.timeout = { ...props.timeout, description: props.timeout.description.replace("at most 7200000)", "at most " + bgMax + ")") };
+    }
     return { type: "function", function: { ...t.function, description: d, parameters: { ...t.function.parameters, properties: props } } };
   });
 }
@@ -959,7 +975,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const emit = (e) => { try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
@@ -1027,7 +1043,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // THIS CHAT'S OUTPUT SIZES AND TOOL LIST (the environment's CODER_BASH_OUTPUT_MAX_CHARS, BASH_MAX_OUTPUT_LENGTH and
   // CODER_DISABLE_BACKGROUND_TASKS; the machine works them out): see toolsFor.
   const lim = outLimits && Number.isInteger(outLimits.inlineMax) && Number.isInteger(outLimits.readBack) ? outLimits : { inlineMax: BASH_INLINE_MAX, readBack: BASH_READ_BACK };
-  const chatTools = toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax });
+  const chatTools = toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs });
   // THIS CHAT'S TIMEOUTS (the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS; the machine works them out).
   const fgMaxS = timeouts && timeouts.maxMs > 0 ? Math.round(timeouts.maxMs / 1000) : MAX_TIMEOUT_S;
   const bgMaxMs = timeouts && timeouts.bgMaxMs > 0 ? timeouts.bgMaxMs : 7_200_000;
@@ -1223,6 +1239,18 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     }
     // THE MODE, AS IT IS NOW: a change since the last round is said once (Claude Code's "## Exited Plan Mode"), and the
     // system's note says the mode each round; in Plan mode Coder also has exit_plan_mode.
+    // THE LOW-DISK WARNING (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB): looked at before each answer. When the work
+    // disk has less free than the owner's line, Coder is told once (and the chat says it too); again only after it was above.
+    if (diskWarnGib > 0 && typeof deps.diskFree === "function") {
+      let free = null;
+      try { free = await deps.diskFree(); } catch { free = null; }
+      if (typeof free === "number" && Number.isFinite(free) && free >= 0) {
+        const key = (checkWhere && checkWhere.key) || deps.root || "";
+        if (free < diskWarnGib * 1024 ** 3) {
+          if (!DISK_TOLD.get(key)) { DISK_TOLD.set(key, true); const low = DISK_LOW(free); convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + low + ")" }); emit({ type: "note", text: low }); }
+        } else DISK_TOLD.delete(key);
+      }
+    }
     const modeRound = modeNow();
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;

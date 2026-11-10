@@ -209,6 +209,52 @@
     if (!canPush()) return null;
     try { const reg = await navigator.serviceWorker.getRegistration('/'); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
   }
+  /**
+   * SETTINGS (owner, 2026-11-10: "do the 2 u left out optional, the setting put it in settings"), from the gear's menu: Coder's
+   * own, for all the owner's chats, each saved as soon as it changes (as Notifications' switches are). What each does, and
+   * Claude Code's own way of it, is said under it.
+   */
+  const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
+  async function showSettings() {
+    const r = await call('/settings');
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Settings could not be opened.'; return draw(); }
+    const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 2, ...((r.data && r.data.prefs) || {}) };
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-settings'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Settings');
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    let note = '', err = '';
+    const save = async (field, value) => {
+      const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
+      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; }
+      else { err = (x.data && x.data.error) || 'Not saved. Try again.'; note = ''; }
+      paint();
+    };
+    const opt = (v, label, on) => '<option value="' + v + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
+    const paint = () => {
+      box.innerHTML = '<div class="cd-sure-title">Settings</div>' +
+        '<div class="cd-sure-text">For all your chats. Each one is saved as soon as you change it.</div>' +
+        '<div class="cd-set-head">Background commands</div>' +
+        '<label class="cd-set-row"><span><b>Longest one may run</b><br>Coder’s machine stays on while one runs. Claude Code’s is 2 hours unless raised.</span>' +
+          '<select id="cdSetBg" aria-label="Longest a background command may run">' + BG_HOURS.map((h) => opt(h, h + ' hours' + (h === 2 ? ' (default)' : ''), prefs.bgHours === h)).join('') + '</select></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>Off: like Claude Code, what it started with setsid or timeout keeps running after you stop it.</span></label>' +
+        '<div class="cd-set-head">Disk</div>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder is told once, and asks you before deleting anything it didn’t make. Claude Code’s CLAUDE_CODE_WARN_DISK_FREE_GIB.</span>' +
+          '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' + (g === 2 ? ' (default)' : '') : 'Off', prefs.diskWarnGib === g)).join('') + '</select></label>' +
+        (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
+        '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdSetDone">Done</button></div>';
+      const $ = (id) => box.querySelector('#' + id);
+      $('cdSetDone').onclick = close;
+      $('cdSetBg').onchange = (e) => save('bgHours', Number(e.currentTarget.value));
+      $('cdSetStop').onchange = (e) => save('endDetached', e.currentTarget.checked);
+      $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
+    };
+    paint();
+    box.querySelector('#cdSetBg').focus();
+  }
   async function showNotifications() {
     const r = await call('/push');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Notifications could not be opened.'; return draw(); }
@@ -1918,6 +1964,7 @@
         });
       }
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
+      if (!S.settingsHook) { S.settingsHook = true; window.addEventListener('gf:settings', () => { showSettings(); }); }
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');

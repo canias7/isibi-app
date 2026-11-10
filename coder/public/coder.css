@@ -474,6 +474,12 @@
 .cd-review-note code { font-size: 12px; background: #f1eee9; border-radius: 4px; padding: 1px 4px; }
 /* NOTIFICATIONS (owner item 8): the panel from the account menu. */
 .cd-notify { max-width: 440px; }
+/* Settings (the gear's menu, 2026-11-10): a heading per part, and a row with its words and its picker. */
+.cd-settings { max-width: 480px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.cd-set-head { margin: 16px 0 2px; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: #8a8782; }
+.cd-set-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 13px; color: #6b6a68; line-height: 1.4; }
+.cd-set-row b { color: #1f1e1d; font-weight: 600; }
+.cd-set-row select { flex: none; font: inherit; font-size: 13px; border: 1px solid #e0dbd2; border-radius: 8px; padding: 6px 8px; background: #fff; color: #1f1e1d; }
 .cd-notify-device { margin: 14px 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: #4b5563; }
 .cd-notify-device button { font: inherit; font-size: 14px; border-radius: 10px; padding: 8px 14px; cursor: pointer; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; }
 .cd-notify-device .cd-notify-go { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }

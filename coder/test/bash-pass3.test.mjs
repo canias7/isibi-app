@@ -154,8 +154,9 @@ test("CD345 a stop ends what the command started outside its process group too (
   }
   // Every stop uses it: the owner's Stop, a time limit, 5 GB, low memory (stopJob), and Coder's own stop_job.
   const server = src("server.mjs");
-  assert.match(server, /try \{ process\.kill\(-j\.pid, hard \? "SIGKILL" : "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n  endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM"\);/);
-  assert.match(server, /try \{ process\.kill\(-j\.pid, "SIGKILL"\); \} catch \{ \/\* gone \*\/ \}\n    endMarked\(j\.mark, "SIGKILL"\);/);
+  // (Unless the owner turned Stop's choice off in Settings, 2026-11-10: then they go on, as in Claude Code 2.1.322; CD380.)
+  assert.match(server, /try \{ process\.kill\(-j\.pid, hard \? "SIGKILL" : "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n  if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM"\);/);
+  assert.match(server, /try \{ process\.kill\(-j\.pid, "SIGKILL"\); \} catch \{ \/\* gone \*\/ \}\n    if \(!keep\) endMarked\(j\.mark, "SIGKILL"\);/);
   assert.match(server, /process\.kill\(-pid, "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n            endMarked\(j\.mark, "SIGTERM"\);/);
   // Each of the chat's commands carries one (after the owner's own variables), and its background job keeps it.
   assert.match(server, /const mark = tool \? "" : newMark\(\);/);
@@ -182,7 +183,8 @@ test("CD346 the sweep keeps a running command's processes that left its process 
   assert.deepEqual(ended.sort(), [12, 13, 14]);
   assert.deepEqual([...procs.keys()].sort(), [10, 11]);
   // The machine gives the sweep its kept commands' marks.
-  assert.match(src("server.mjs"), /keepMarks: new Set\(live\.map\(\(j\) => j\.mark\)\.filter\(Boolean\)\)/);
+  // (And, with Stop's choice off in Settings, the marks of stopped commands whose processes the owner lets go on: CD380.)
+  assert.match(src("server.mjs"), /keepMarks: new Set\(\[\.\.\.live\.map\(\(j\) => j\.mark\)\.filter\(Boolean\), \.\.\.kept\]\)/);
 });
 
 test("CD347 rules on one of the command's settings, such as Bash(run_in_background:true) (Claude Code's permissions docs, \"Match by input parameter\")", async () => {

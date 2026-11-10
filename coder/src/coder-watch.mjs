@@ -113,7 +113,8 @@ export function holdDecision(state) {
   }
   if (count(state.background)) {
     if (!ms(state.backgroundMs)) return { hold: false, why: "unreadable" };
-    if (state.backgroundMs <= BG_HOLD_MS) return { hold: true, why: "background" };
+    // (Up to the limit the machine says it has, as the owner set it in Settings; 2 hours unless raised.)
+    if (state.backgroundMs <= (ms(state.bgMaxMs) ? bgHoldFor(state.bgMaxMs) : BG_HOLD_MS)) return { hold: true, why: "background" };
   }
   if (count(state.untold)) {
     if (!ms(state.untoldMs)) return { hold: false, why: "unreadable" };
@@ -135,9 +136,17 @@ export const BG_WATCH_MAX_MS = 2 * 60 * 60 * 1000 + 15 * 60 * 1000;
 export const bgKey = (uid, id) => BG_PREFIX + uid + "__" + id + ".json";
 
 /** Put a chat on it (again: the time counts from its last job's end). */
-export async function watchBackground(bucket, { uid, email, id }, now = Date.now()) {
-  await bucket.put(bgKey(uid, id), JSON.stringify({ uid, email: String(email || ""), id, at: now }), { httpMetadata: { contentType: "application/json" } });
+export async function watchBackground(bucket, { uid, email, id, maxMs = 0 }, now = Date.now()) {
+  await bucket.put(bgKey(uid, id), JSON.stringify({ uid, email: String(email || ""), id, at: now, ...(bgWatchFor(maxMs) !== BG_WATCH_MAX_MS ? { max: bgWatchFor(maxMs) } : {}) }), { httpMetadata: { contentType: "application/json" } });
 }
+/**
+ * THE LONGEST A BACKGROUND COMMAND MAY RUN, AS THE OWNER SET IT (Settings, 2026-11-10): 2 hours unless raised, 24 at most.
+ * A chat stays on the list that long and 15 minutes more; its machine is kept awake that long and 5 minutes more.
+ */
+export const BG_MAX_CAP_MS = 24 * 60 * 60 * 1000;
+const bgMaxOf = (ms) => (typeof ms === "number" && Number.isFinite(ms) && ms > 2 * 60 * 60 * 1000 ? Math.min(BG_MAX_CAP_MS, ms) : 2 * 60 * 60 * 1000);
+export const bgWatchFor = (ms) => bgMaxOf(ms) + 15 * 60 * 1000;
+export const bgHoldFor = (ms) => bgMaxOf(ms) + 5 * 60 * 1000;
 
 /**
  * EVERY MINUTE: for each chat on the list, its background commands (GET …/background). One that ended and Coder was not told
@@ -156,7 +165,7 @@ export async function runBackgroundJobs(env, deps, now = Date.now()) {
   let checked = 0, woken = 0, left = 0;
   const one = async (key) => {
     const rec = await readJson(bucket, key);
-    if (!rec || typeof rec.uid !== "string" || typeof rec.id !== "string" || !(now - Number(rec.at) < BG_WATCH_MAX_MS)) { await bucket.delete(key); left++; return; }
+    if (!rec || typeof rec.uid !== "string" || typeof rec.id !== "string" || !(now - Number(rec.at) < (typeof rec.max === "number" ? Math.min(rec.max, bgWatchFor(BG_MAX_CAP_MS)) : BG_WATCH_MAX_MS))) { await bucket.delete(key); left++; return; }
     const user = { id: rec.uid, email: rec.email };
     const base = "https://gofarther.dev/api/coder/projects/" + encodeURIComponent(rec.id);
     const res = await deps.coder(new Request(base + "/background"), user).catch(() => null);

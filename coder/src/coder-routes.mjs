@@ -51,6 +51,35 @@ export function savedEffort(saved) {
  * mode checker's calls are counted apart (`checker`). To check, with the owner's word of 2026-11-10, that the effort is
  * really Low and that the cache works.
  */
+/**
+ * THE OWNER'S SETTINGS (owner, 2026-11-10: "do the 2 u left out optional, the setting put it in settings"), kept on the
+ * account for all its chats and changed in Settings (the gear's menu):
+ * - `bgHours`: the longest a background command may run (Claude Code: 2 hours, which BASH_MAX_TIMEOUT_MS raises; Coder's
+ *   machine stays on while one runs, so the owner picks it here);
+ * - `endDetached`: whether stopping a background command also ends what it started in the background, under setsid or
+ *   timeout (Claude Code's docs say it does; its 2.1.322 leaves them running: off is that);
+ * - `diskWarnGib`: tell Coder when the work disk has less than this many GiB free (Claude Code's
+ *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off).
+ */
+export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
+export function prefsOf(saved) {
+  const s = saved && typeof saved === "object" ? saved : {};
+  return {
+    bgHours: BG_HOURS.includes(Number(s.bgHours)) ? Number(s.bgHours) : 2,
+    endDetached: s.endDetached !== false,
+    diskWarnGib: DISK_GIB.includes(Number(s.diskWarnGib)) ? Number(s.diskWarnGib) : 2,
+  };
+}
+/** A change to the settings, checked: `{ prefs }` (only what was sent, with the rest kept) or `{ error }`. */
+export function prefsChange(saved, body) {
+  const now = prefsOf(saved), b = body && typeof body === "object" ? body : {};
+  if ("bgHours" in b && !BG_HOURS.includes(Number(b.bgHours))) return { error: "The longest time for a background command is one of " + BG_HOURS.join(", ") + " hours." };
+  if ("endDetached" in b && typeof b.endDetached !== "boolean") return { error: "Stop's choice is on or off." };
+  if ("diskWarnGib" in b && !DISK_GIB.includes(Number(b.diskWarnGib))) return { error: "The low-disk warning is one of " + DISK_GIB.join(", ") + " GB (0 is off)." };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib } };
+}
+/** What Coder's machine is given of them with each message. */
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib }; };
 export function usageSummary(list, turn) {
   const all = (Array.isArray(list) ? list : []).filter((u) => u && typeof u === "object").slice(0, 5000);
   const add = (arr, k) => arr.reduce((n, u) => n + (Number.isFinite(Number(u[k])) && Number(u[k]) > 0 ? Math.round(Number(u[k])) : 0), 0);
@@ -631,14 +660,18 @@ export async function handleCoder(request, env, ctx, deps) {
     // (`mode`: the permission mode new chats start in: the last one picked other than Plan, as in Claude Code's desktop app
     // and VS Code, where "Picking Plan … applies to that conversation only".)
     const startMode = (m) => (m === "acceptEdits" ? "acceptEdits" : "auto");
-    if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: { ...pickModel(saved.model, savedEffort(saved)), mode: startMode(saved.mode) } });
+    if (request.method === "GET") return json({ ok: true, models: CODER_MODELS, pick: { ...pickModel(saved.model, savedEffort(saved)), mode: startMode(saved.mode) }, prefs: prefsOf(saved) });
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
+    // Settings (the gear's menu) send `prefs`; the model, effort and mode pickers send their own fields.
+    const change = body.prefs && typeof body.prefs === "object" ? prefsChange(saved, body.prefs) : { prefs: prefsOf(saved) };
+    if (change.error) return json({ error: change.error }, 400);
     const chosen = pickModel(body.model ?? saved.model, body.effort ?? savedEffort(saved));
     const mode = MODES.includes(body.mode) && body.mode !== "plan" ? body.mode : startMode(saved.mode);
     // (A page from before Low became the default sends no pickV: what it saves still counts as the old default.)
-    await putJson(bucket, settingsKey(uid), { ...chosen, mode, ...(body.pickV === PICK_V || saved.pickV === PICK_V ? { pickV: PICK_V } : {}) });
-    return json({ ok: true, pick: { ...chosen, mode } });
+    const keepPick = body.prefs && typeof body.prefs === "object" && !("model" in body) && !("effort" in body) ? { model: saved.model, effort: saved.effort } : chosen;
+    await putJson(bucket, settingsKey(uid), { ...saved, ...keepPick, mode, ...(body.pickV === PICK_V || saved.pickV === PICK_V ? { pickV: PICK_V } : {}), ...change.prefs });
+    return json({ ok: true, pick: { ...chosen, mode }, prefs: change.prefs });
   }
   // THE OWNER'S PERMISSION RULES FOR A REPOSITORY (Claude Code's /permissions: "lists all permission rules", where you add
   // or remove them): GET ?repo=owner/name; POST { repo, kind: allow | ask | deny, add | remove: "Bash(npm test *)" }.
@@ -923,7 +956,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1147,7 +1180,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const ended = { ...meta, ...modeNow, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
-      if (background.length) await watchBackground(bucket, { uid, email: user.email, id }).catch(() => {});
+      if (background.length) await watchBackground(bucket, { uid, email: user.email, id, maxMs: machinePrefs(await getJson(bucket, settingsKey(uid), {})).bgMaxMs }).catch(() => {});
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
       await dropLive(bucket, uid, id).catch(() => {});
       // WHAT THE OWNER SENT WHILE IT WORKED AND CODER DID NOT READ (Claude Code: "When the turn ends with messages still

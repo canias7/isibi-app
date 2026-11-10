@@ -180,13 +180,36 @@ const JOB_CHECK_MS = 5000;
  * hours (Claude Code raises that past 2 hours; Coder's machine stays awake, on the owner's bill, while one runs).
  */
 export const FG_CAP_MS = 40 * 60 * 1000;
-export function bashTimeouts(vars = {}) {
+export function bashTimeouts(vars = {}, prefs = {}) {
   const num = (v) => { const n = Number(String(v ?? "").trim()); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; };
   const d = num(vars && vars.BASH_DEFAULT_TIMEOUT_MS), m = num(vars && vars.BASH_MAX_TIMEOUT_MS);
   const defaultMs = Math.max(1000, Math.min(FG_CAP_MS, d || 120_000));
   const maxMs = Math.max(defaultMs, Math.min(FG_CAP_MS, m || 600_000));
-  return { defaultMs, maxMs, bgDefaultMs: Math.min(BG_LIMIT_MAX_MS, Math.max(BG_LIMIT_MS, d)), bgMaxMs: BG_LIMIT_MAX_MS };
+  // THE LONGEST A BACKGROUND COMMAND MAY RUN: 2 hours, or what the owner set in Settings (owner, 2026-11-10: "do the 2 u
+  // left out optional, the setting put it in settings"; Claude Code raises its 2 hours with BASH_MAX_TIMEOUT_MS), 24 at most.
+  const bgMaxMs = prefsIn(prefs).bgMaxMs;
+  return { defaultMs, maxMs, bgDefaultMs: Math.min(bgMaxMs, Math.max(BG_LIMIT_MS, d)), bgMaxMs };
 }
+/**
+ * THE OWNER'S SETTINGS FOR THIS CHAT'S MACHINE (Settings, from the gear's menu; the Worker sends them with each message):
+ * the longest a background command may run (2 to 24 hours), whether stopping one also ends what it started in the
+ * background (Coder's default; off is how Claude Code 2.1.322 leaves them), and the low-disk warning (GiB; 0 is off).
+ */
+export const BG_MAX_CAP_MS = 24 * 60 * 60 * 1000;
+export function prefsIn(p) {
+  const x = p && typeof p === "object" ? p : {};
+  const bg = Number(x.bgMaxMs), disk = Number(x.diskWarnGib);
+  return {
+    bgMaxMs: Number.isFinite(bg) && bg > BG_LIMIT_MAX_MS ? Math.min(BG_MAX_CAP_MS, Math.round(bg)) : BG_LIMIT_MAX_MS,
+    endDetached: x.endDetached !== false,
+    diskWarnGib: Number.isInteger(disk) && disk > 0 && disk <= 1000 ? disk : 0,
+  };
+}
+/** This machine's settings, from the last message it was given (one chat to a machine). */
+let PREFS = prefsIn({});
+export function usePrefs(p) { PREFS = prefsIn(p); return PREFS; }
+/** The marks of stopped commands whose own background processes the owner lets go on (Settings: Stop's choice off). */
+export const KEPT_MARKS = new Set();
 /** The time limit a background command gets: its timeout given with run_in_background, up to 2 hours; else the default (30 minutes). */
 export const bgLimitMs = (ms, tmo = bashTimeouts()) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Math.min(tmo.bgMaxMs, Math.max(1000, Math.round(Number(ms)))) : tmo.bgDefaultMs);
 /**
@@ -315,11 +338,15 @@ export function endMarked(mark, signal = "SIGKILL", deps = {}) {
 export function stopJob(j, why, { hard = false } = {}) {
   if (!j || j.end) return;
   if (!j.stopping) j.stopping = why;
+  // (With Stop's choice off in Settings, what it started under setsid or timeout goes on, as in Claude Code 2.1.322: its
+  // mark is kept, so the sweep before Coder's next save leaves those processes too.)
+  const keep = PREFS.endDetached === false;
+  if (keep && typeof j.mark === "string" && j.mark) { KEPT_MARKS.add(j.mark); while (KEPT_MARKS.size > 50) KEPT_MARKS.delete(KEPT_MARKS.values().next().value); }
   try { process.kill(-j.pid, hard ? "SIGKILL" : "SIGTERM"); } catch { /* gone */ }
-  endMarked(j.mark, hard ? "SIGKILL" : "SIGTERM");
+  if (!keep) endMarked(j.mark, hard ? "SIGKILL" : "SIGTERM");
   setTimeout(() => {
     try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ }
-    endMarked(j.mark, "SIGKILL");
+    if (!keep) endMarked(j.mark, "SIGKILL");
     setTimeout(() => { if (!j.end && !groupAlive(j.pid)) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); sweepIfIdle(); }, 500).unref?.();
   }, hard ? 0 : 1500).unref?.();
 }
@@ -1944,7 +1971,7 @@ export function busyState(map, now = Date.now(), jobs = JOBS) {
     if (!j.end) { background++; backgroundMs = Math.max(backgroundMs, now - (Number(j.at) || now)); }
     else if (!j.told) { untold++; untoldMs = Math.max(untoldMs, now - (Number(j.end.at) || now)); }
   }
-  return { busy: working + unsaved + background + untold > 0, working, unsaved, workingMs: Math.max(0, workingMs), unsavedMs: Math.max(0, unsavedMs), background, untold, backgroundMs: Math.max(0, backgroundMs), untoldMs: Math.max(0, untoldMs) };
+  return { busy: working + unsaved + background + untold > 0, working, unsaved, workingMs: Math.max(0, workingMs), unsavedMs: Math.max(0, unsavedMs), background, untold, backgroundMs: Math.max(0, backgroundMs), untoldMs: Math.max(0, untoldMs), bgMaxMs: PREFS.bgMaxMs };
 }
 
 /** Stop every background command a turn left running (its whole process group). */
@@ -2076,13 +2103,15 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
   const finish = () => { if (PAUSED === mine) PAUSED = null; release(); };
   checkJobs();
   const live = keep ? [...JOBS.values()].filter((j) => !j.end && !j.stopping) : [];
+  // What stopped commands left running when the owner chose that (Settings): kept like a running command's own processes.
+  const kept = keep && PREFS.endDetached === false ? [...KEPT_MARKS] : [];
   const endAll = (why) => {
     for (const j of JOBS.values()) if (!j.end) { j.stopping ||= why; try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ } }
     const ok = killUser(uid, gid);
     for (const j of JOBS.values()) if (!j.end) jobEnded(j.pid, null);
     return ok;
   };
-  if (!live.length) {
+  if (!live.length && !kept.length) {
     if (!endAll(keep ? "lost" : "coder")) { finish(); return null; }
     return finish;
   }
@@ -2095,7 +2124,7 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
     if (!endAll("lost")) { finish(); return null; }
     return finish;
   }
-  await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set(), keepMarks: new Set(live.map((j) => j.mark).filter(Boolean)) });
+  await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set(), keepMarks: new Set([...live.map((j) => j.mark).filter(Boolean), ...kept]) });
   let went = false;
   return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); wakeStarters(live); finish(); };
 }
@@ -2267,7 +2296,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // What every command of Coder's reads first (tool 4, docs pass 2 and 5): see commandPrefix.
     t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0));
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
-    t.tmo = bashTimeouts(rawVars);
+    t.tmo = bashTimeouts(rawVars, usePrefs(body.prefs));
     // HOW MUCH OF A COMMAND'S OUTPUT CODER GETS (see bashOutputLimits); BACKGROUND COMMANDS OFF with CODER_DISABLE_BACKGROUND_TASKS
     // (Claude Code's CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "remove the run_in_background parameter … Claude Code then also stops
     // moving … timed-out shell commands to the background automatically"): a command still running at its timeout is stopped.
@@ -2466,6 +2495,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const { notices, lost } = backgroundNews();
       runCoder({
         send: via ? coderSend(env, { via }) : sendFn,
+        // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
+        // space on the working directory's filesystem").
+        diskFree: () => { try { const f = statfsSync(dir); return Number(f.bavail) * Number(f.bsize); } catch { return null; } },
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
         watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
@@ -2620,7 +2652,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
-      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      }, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES), checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: body.rules && typeof body.rules === "object" ? body.rules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
