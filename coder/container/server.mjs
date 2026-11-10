@@ -1604,6 +1604,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // hands it back (Grok Bot: "tell the Bot to continue").
   let ownerControl = null;
   const notWhileOwner = () => { if (ownerControl) throw new Error("the owner has taken over your browser: wait for their next message before you use it"); };
+  // THE OWNER'S TIME ZONE FOR THE BROWSER (owner, 2026-11-10: "yes go ahead", fix 7), as their device says it (the Worker
+  // sends it each turn): a browser running with another one stops, to start again with it at Gloopy's next step. Never
+  // while the owner has control.
+  const browserZone = async (body) => {
+    if (env.CODER_IMAGE !== "full" || ownerControl || typeof body.ownerZone !== "string" || !body.ownerZone) return;
+    await browserHub().setZone(body.ownerZone.slice(0, 64)).catch(() => {});
+  };
   async function startTurn(body, { copy = "" } = {}) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
@@ -2047,7 +2054,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // Gloopy's browser, through this service (its own user); the sign-in's filling is never the AI's.
         ...(files ? { files } : {}),
         ...(gloopy ? { writes: t.writes } : {}),
-        ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); }, signInSaved: (x) => { notWhileOwner(); return signInSaved(x); } } } : {}),
+        // A file to upload made ready (fix 3, 2026-11-10), and downloads finished since the last step (fix 2): only from a
+        // browser already running (none is started to be asked).
+        ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); }, signInSaved: (x) => { notWhileOwner(); return signInSaved(x); }, stage: (x) => { notWhileOwner(); return browserHub().stage(x); }, collect: async () => ((await browserHub().running().catch(() => false)) ? browserHub().collect() : null) } } : {}),
       }, { messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }), ...(gloopy ? { system: GLOOPY_SYSTEM, rules: Array.isArray(body.rules) ? body.rules : [], granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: Array.isArray(body.savedLogins) ? body.savedLogins.filter((x) => typeof x === "string").slice(0, 50) : [], webhooks, hookBase, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : "") } : {}) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
@@ -2082,6 +2091,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       } catch { /* no copy this time */ }
     }
     if (gloopy) await restoreGloopy().catch(() => {});
+    if (gloopy) await browserZone(body);
     begin();
     return [200, { ok: true }];
   }
@@ -2180,7 +2190,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         pending.delete(project);
         if (body.allow !== true) return send(200, { done: false, denied: true });
         try {
-          const r = await browserHub().act(p.args);
+          // `keep`: what the step downloads waits in the browser, for Gloopy's next turn (fix 2).
+          const r = await browserHub().act({ ...p.args, keep: true });
           const line = (k) => ((new RegExp("^" + k + ": (.*)$", "m").exec(r.text) || [])[1] || "").slice(0, 500);
           return send(200, { done: true, did: line("Did"), title: line("Page"), url: line("Address") });
         } catch (e) { return send(200, { done: false, why: String((e && e.message) || e).slice(0, 300) }); }

@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Gloopy's browser: the 7 fixes from Grok Bot's and dots' docs (your word: "yes go ahead")
+
+Tool by tool, the first tool is the browser. I compared it against everything Grok Bot's and dots' docs say about their browsers, and you said yes to the 7 small fixes:
+
+1. **Screenshots as files.** Gloopy can save a picture of a page (what's on screen, or the whole page) in its work folder, named after the site and the time. It can then send it to you as proof. Grok Bot's docs ask for "screenshots with the relevant state visible, timestamps". Card fields stay covered in the picture, as in Gloopy's own view.
+2. **Downloads.** What a page downloads goes into `files/` in Gloopy's work folder, at most 25 MB. A bigger one is stopped and Gloopy is told. A download from a step you OK'd on a card is put there before Gloopy's next turn.
+3. **Uploads.** Gloopy can give a site a file from its work folder (at most 5 MB, like a file it sends you). Each upload is checked first as sharing your things. With "Share your details" on Ask first, you get a card: "Upload the file “cv.pdf” with “Your CV”". The file is copied into the browser's own folder when it's checked, so what you OK is exactly what goes.
+4. **No asking twice.** Gloopy no longer asks in the chat before a step the check covers (browser steps, requests with a saved key, schedules, webhooks). The card is the question. This was the "asked twice" seen in the live test.
+5. **No working around a site's check.** When a site blocks Gloopy, shows a CAPTCHA, signs it out or asks to verify again, Gloopy stops and lets you know (handoff or the sign-in card). In a run you didn't start, it notifies you too. It never tries another way in. That's what Grok Bot's docs say to do.
+6. **"Are you sure?" pop-ups.** Before, every pop-up was closed with Cancel, so things like "Delete this item?" could never go through. Now a message is closed with OK. "Are you sure?" and "Leave this page?" are still answered Cancel, and Gloopy is told what the page asked. If you want it done, Gloopy repeats the step with "answer OK", and that step is checked first, like a click ("Click the button “Delete”, answering OK if the page asks to confirm"). When you have taken over the browser, your own click's "Are you sure?" is answered OK. It was your click, and the live view can't show the pop-up.
+7. **Your time zone in the browser.** Pages now see your device's time zone (a booking site's times, "today"), not the computer's (UTC). If your time zone changes, the browser restarts with the new one at the start of Gloopy's next job, and stays signed in.
+
+Tests GL85 to GL89 are new. GL89 runs everything end to end with a real browser: your time zone, an upload you OK'd (the site got the CV), a download from a step you OK'd, a screenshot, and both files read in Gloopy's folder.
+
+Still waiting for your choice (the bigger items from the report): per-site permissions, notes on a page, "Teach a task", codes by email, routing through your own computer, hardware keys, and connected apps.
+
 ## 2026-11-10: Testing Gloopy live on the test copy: three things found and fixed
 
 On test.gofarther.dev, signed in as the test account, with Grok. Recorded (the video comes with the results).

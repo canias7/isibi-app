@@ -23,15 +23,41 @@
 // service's, sent only while the owner has control (server.mjs).
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, chownSync, chmodSync, openSync, closeSync } from "node:fs";
-import { mkdir, rm, readFile } from "node:fs/promises";
+import { existsSync, mkdirSync, chownSync, chmodSync, openSync, closeSync, readdirSync, lstatSync } from "node:fs";
+import { mkdir, rm, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { cookieForSite, originForSite } from "./gloopy-check.mjs";
+import { okZone } from "./gloopy-schedule.mjs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
-export const BROWSER_ACTIONS = Object.freeze(["open", "look", "click", "type", "press", "select", "scroll", "back"]);
+export const BROWSER_ACTIONS = Object.freeze(["open", "look", "click", "type", "press", "select", "scroll", "back", "screenshot", "upload"]);
+/**
+ * "ARE YOU SURE?" (owner, 2026-11-10: "yes go ahead", fix 6): the steps that may be asked with confirm: true, which
+ * answers OK when the page asks to confirm (a confirm box, or "Leave this page?"). Without it the page is answered Cancel
+ * (it stays as it was), and the answer says so. A step with confirm is checked first, like a click.
+ */
+export const CONFIRM_ACTIONS = Object.freeze(["open", "click", "type", "press", "select", "back"]);
+/**
+ * DOWNLOADS (fix 2): saved by the browser, then put in Gloopy's work folder by Coder's service. At most DOWNLOAD_MAX
+ * downloading at once (one bigger is stopped); a step waits for one it started up to DOWNLOAD_WAIT_MS.
+ */
+export const DOWNLOAD_MAX = 25 * 1024 * 1024, DOWNLOAD_WAIT_MS = 20_000;
+/** UPLOADS (fix 3): a file from Gloopy's work folder, at most this big (as a file Gloopy sends the owner). */
+export const UPLOAD_MAX = 5 * 1024 * 1024;
+/** How long a file made ready to upload waits for the owner's OK on a card. */
+export const STAGED_MS = 24 * 60 * 60 * 1000;
+/** The most one request to the browser carries (a file to upload, as base64, in JSON). */
+const BODY_MAX = 8 * 1024 * 1024;
+/** SCREENSHOTS AS FILES (fix 1): PNG, or JPEG when a whole page's PNG would be bigger than this. */
+export const SHOT_FILE_MAX = 8 * 1024 * 1024;
+const STAGED_RE = /^u[0-9a-f]{12}$/;
+/** A file's name from a site or a folder, safe to save: no folders, no hidden characters, no leading dot. */
+export function fileNameOf(raw, fallback = "download") {
+  const s = String(raw == null ? "" : raw).replace(/[\p{Cf}\p{Cc}]/gu, "").replace(/[\/\\]/g, "_").replace(/^[\s.]+/, "").trim().slice(0, 120).trim();
+  return s || fallback;
+}
 /** The most of a page's outline one answer carries (a big page's goes on past it; the screenshot shows what is in view). */
 export const OUTLINE_MAX = 20000;
 export const VIEW = Object.freeze({ width: 1280, height: 800 });
@@ -81,14 +107,22 @@ const needRef = (x, field = "ref") => {
   return ref;
 };
 
-/** What the AI asked, checked: { action, url?, ref?, text?, submit?, key?, option?, direction? }; throws with what to fix. */
+/**
+ * What the AI asked, checked: { action, url?, ref?, text?, submit?, key?, option?, direction?, full?, staged?, confirm? };
+ * throws with what to fix. `staged`: a file Coder's service made ready to upload (the AI gives its path; the service
+ * reads it from the work folder). `keep`: the service's own (a step from a card: its downloads wait for the next step).
+ */
 export function checkAsk(a) {
   const x = a && typeof a === "object" ? a : {};
   const action = String(x.action || "");
   if (!BROWSER_ACTIONS.includes(action)) throw new Error("action is one of: " + BROWSER_ACTIONS.join(", "));
   const out = { action };
   if (action === "open") out.url = pageAddress(x.url);
-  if (["click", "type", "select"].includes(action)) out.ref = needRef(x);
+  if (["click", "type", "select", "upload"].includes(action)) out.ref = needRef(x);
+  if (action === "upload") { const id = String(x.staged || ""); if (!STAGED_RE.test(id)) throw new Error("give path: the file in your work folder to upload"); out.staged = id; }
+  if (action === "screenshot") out.full = x.full === true;
+  if (x.confirm === true && CONFIRM_ACTIONS.includes(action)) out.confirm = true;
+  if (x.keep === true) out.keep = true;
   if (action === "type") { if (typeof x.text !== "string") throw new Error("give text: what to type"); out.text = x.text.slice(0, 5000); out.submit = x.submit === true; }
   if (action === "press") {
     const key = String(x.key || "").trim();
@@ -186,13 +220,56 @@ function plainError(e, ask) {
 export async function serve(dir) {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const { chromium } = loadPlaywright();
-  const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: false });
+  // THE OWNER'S TIME ZONE (owner, 2026-11-10: "yes go ahead", fix 7): pages see the owner's own clock (a booking site's
+  // times, "today"), as the owner's device says it (GLOOPY_TZ, from Coder's service); the machine's (UTC) otherwise.
+  const zone = okZone(process.env.GLOOPY_TZ || "") ? process.env.GLOOPY_TZ : "";
+  // DOWNLOADS (fix 2) land in a folder of the browser's own, then go to Gloopy's work folder through Coder's service.
+  const dlDir = join(dir, "downloads"), upDir = join(dir, "uploads");
+  await rm(dlDir, { recursive: true, force: true }).catch(() => {});
+  await mkdir(dlDir, { recursive: true, mode: 0o700 });
+  const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: true, downloadsPath: dlDir, ...(zone ? { timezoneId: zone } : {}) });
   // ITS SIGN-INS, BACK ON A NEW COMPUTER (the audit, 2026-11-10): the copy Coder's Worker kept (cookies, and each site's
   // local storage), left here by Coder's service before the browser first started on this disk, then gone.
   await restoreState(ctx, join(dir, RESTORE_FILE)).catch(() => {});
   let page = ctx.pages()[0] || (await ctx.newPage());
-  let dialog = "";
-  const watch = (p) => p.on("dialog", (d) => { dialog = d.type() + ": " + String(d.message()).slice(0, 300); d.dismiss().catch(() => {}); });
+  // A PAGE'S OWN QUESTIONS (fix 6): a message (alert) is closed with OK; "Are you sure?" (confirm) and "Leave this page?"
+  // (beforeunload) are answered OK only for a step asked with confirm: true (`armed`, checked first) or the owner's own
+  // input while they have control (`ownerHand`: their own click), else Cancel; a question that wants typed text (prompt)
+  // is always cancelled. Each is said in the step's answer.
+  let dialogs = [], armed = false, ownerHand = false;
+  // DOWNLOADS (fix 2): the ones going, the ones done (waiting to be handed over) and what to say about the others.
+  const dl = { going: new Map(), ready: [], notes: [] };
+  const sizeNow = () => {
+    let n = 0;
+    try { for (const f of readdirSync(dlDir)) { try { n += lstatSync(join(dlDir, f)).size; } catch { /* gone */ } } } catch { /* no folder */ }
+    return n - dl.ready.reduce((sum, r) => sum + r.size, 0);
+  };
+  const onDownload = (d) => {
+    const name = fileNameOf(d.suggestedFilename());
+    const job = (async () => {
+      let over = false;
+      const timer = setInterval(() => { if (!over && sizeNow() > DOWNLOAD_MAX) { over = true; d.cancel().catch(() => {}); } }, 250);
+      try {
+        const failure = await d.failure();
+        if (over) { dl.notes.push(quote(name) + " was stopped: downloads are at most " + DOWNLOAD_MAX / 1048576 + " MB"); return; }
+        if (failure) { dl.notes.push(quote(name) + " did not download (" + String(failure).slice(0, 100) + ")"); return; }
+        const path = await d.path();
+        const size = (await stat(path)).size;
+        if (size > DOWNLOAD_MAX) { dl.notes.push(quote(name) + " was not kept: downloads are at most " + DOWNLOAD_MAX / 1048576 + " MB"); await d.delete().catch(() => {}); return; }
+        dl.ready.push({ name, size, path, d });
+      } catch { dl.notes.push(quote(name) + " did not download"); } finally { clearInterval(timer); dl.going.delete(job); }
+    })();
+    dl.going.set(job, name);
+  };
+  const watch = (p) => {
+    p.on("dialog", (d) => {
+      const type = d.type(), message = String(d.message()).replace(/\s+/g, " ").trim().slice(0, 300);
+      const yes = type === "alert" || (["confirm", "beforeunload"].includes(type) && (armed || ownerHand));
+      dialogs.push({ type, message, yes });
+      (yes ? d.accept() : d.dismiss()).catch(() => {});
+    });
+    p.on("download", onDownload);
+  };
   ctx.pages().forEach(watch);
   // A link that opens a new tab: the new tab is the page from then on.
   ctx.on("page", (p) => { watch(p); page = p; });
@@ -231,7 +308,15 @@ export async function serve(dir) {
     }
     return out;
   };
-  const report = async (did) => {
+  // What the page asked during a step, in words (the site's own words quoted: data, never instructions).
+  const asked = () => dialogs.splice(0).map((g) => {
+    const m = g.message ? " " + quote(g.message, 200) : "";
+    if (g.type === "alert") return "The page showed a message" + m + ", closed with OK.";
+    if (g.type === "prompt") return "The page asked for text" + m + "; it was cancelled (you can't answer those: tell the owner if it matters).";
+    if (g.type === "beforeunload") return g.yes ? "The page asked whether to leave it (changes may not be saved); it was left." : "The page asked whether to leave it (changes may not be saved); it stayed. To leave anyway, do the step again with confirm: true.";
+    return g.yes ? "The page asked" + m + " and it was answered OK." : "The page asked" + m + " and it was answered Cancel, so that most likely did nothing. If the owner wants it done, do the same step again with confirm: true (it is checked first).";
+  });
+  const report = async (did, { picture = null } = {}) => {
     const title = await page.title().catch(() => "");
     let outline = await page.locator("body").ariaSnapshot({ mode: "ai", timeout: 10000 }).catch((e) => "(the page's outline could not be read: " + plainError(e, {}) + ")");
     const hide = await secrets();
@@ -239,11 +324,62 @@ export async function serve(dir) {
     let cut = "";
     if (outline.length > OUTLINE_MAX) { outline = outline.slice(0, OUTLINE_MAX); cut = "\n[the outline goes on past " + OUTLINE_MAX.toLocaleString("en-US") + " characters; the screenshot shows what is in view: scroll and look to see more]"; }
     const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards), maskColor: "#9ca3af" }).catch(() => null);
-    const said = dialog ? "\nA dialog came up and was closed (" + dialog + ")." : "";
-    dialog = "";
+    const said = asked().map((x) => "\n" + x).join("");
     // Blanked in all of it, what was done too (a step's words name an element, never what is typed in it, but never trust that alone).
     const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
-    return { text, shot: shot ? shot.toString("base64") : "" };
+    // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
+    let file = null;
+    if (picture) {
+      const take = (o) => page.screenshot({ fullPage: !!picture.full, timeout: 20000, mask: cardMasks(hide.cards), maskColor: "#9ca3af", ...o });
+      let buf = await take({ type: "png" }), type = "png";
+      if (buf.length > SHOT_FILE_MAX) { buf = await take({ type: "jpeg", quality: 80 }); type = "jpeg"; }
+      if (buf.length > SHOT_FILE_MAX) throw new Error("the whole page is too long for one screenshot: take one of what is in view (without full), scrolling between them");
+      file = { type, data: buf.toString("base64") };
+    }
+    return { text, shot: shot ? shot.toString("base64") : "", ...(file ? { picture: file } : {}) };
+  };
+  // DOWNLOADS HANDED OVER (fix 2): each one done, as base64 (then gone from here), and what to say about the others. A
+  // step from a card (`keep`) hands over none: they wait for the next step (Coder's service asks at the next turn's start).
+  const handOver = async (keep = false) => {
+    const notes = dl.notes.splice(0);
+    for (const name of dl.going.values()) notes.push(quote(name) + " is still downloading: it goes in your work folder when it is done (at your next step)");
+    const downloads = [];
+    if (keep) for (const r of dl.ready) notes.push(quote(r.name) + " was downloaded: it goes in your work folder at your next step");
+    else {
+      for (const r of dl.ready.splice(0)) {
+        try { downloads.push({ name: r.name, size: r.size, data: (await readFile(r.path)).toString("base64") }); } catch { notes.push(quote(r.name) + " was downloaded but could not be read"); }
+        await r.d.delete().catch(() => {});
+      }
+    }
+    return { ...(downloads.length ? { downloads } : {}), ...(notes.length ? { downloadNotes: notes } : {}) };
+  };
+  // A FILE MADE READY TO UPLOAD (fix 3), by Coder's service: read by it from Gloopy's work folder (as `dev`, never
+  // through a link), kept here (only this user's) for STAGED_MS, while a card waits and while the page may send it.
+  const stage = async (x) => {
+    const name = fileNameOf(x.name, "");
+    if (!name || name !== String(x.name || "")) throw new Error("give the file's name");
+    if (typeof x.data !== "string" || !/^[A-Za-z0-9+/]*=*$/.test(x.data)) throw new Error("give the file's data");
+    const buf = Buffer.from(x.data, "base64");
+    if (!buf.length) throw new Error("the file is empty");
+    if (buf.length > UPLOAD_MAX) throw new Error("the file is over " + UPLOAD_MAX / 1048576 + " MB");
+    await mkdir(upDir, { recursive: true, mode: 0o700 });
+    await tidyUploads();
+    const id = "u" + randomBytes(6).toString("hex");
+    await mkdir(join(upDir, id), { mode: 0o700 });
+    await writeFile(join(upDir, id, name), buf, { mode: 0o600, flag: "wx" });
+    return { staged: id, name, size: buf.length };
+  };
+  const tidyUploads = async () => {
+    for (const old of await readdir(upDir).catch(() => [])) {
+      const st = await stat(join(upDir, old)).catch(() => null);
+      if (!st || Date.now() - st.mtimeMs > STAGED_MS) await rm(join(upDir, old), { recursive: true, force: true }).catch(() => {});
+    }
+  };
+  tidyUploads().catch(() => {});
+  const stagedFile = async (id) => {
+    const names = STAGED_RE.test(id) ? await readdir(join(upDir, id)).catch(() => []) : [];
+    if (names.length !== 1) throw new Error("that file is no longer ready to upload (it waited over a day): upload it again (give its path)");
+    return { path: join(upDir, id, names[0]), name: names[0] };
   };
   const target = (ref) => page.locator("aria-ref=" + ref);
   // An element as a person would say it ("Go", "Search"), and what it is: for the words of what was done, and the check.
@@ -280,10 +416,8 @@ export async function serve(dir) {
   }, null, { timeout: 8000 });
   const siteOf = (origin) => { try { const u = new URL(origin); return /^https?:$/.test(u.protocol) ? u.host : ""; } catch { return ""; } };
   const quote = (t, max = 60) => "“" + String(t).replace(/\s+/g, " ").trim().slice(0, max) + (String(t).length > max ? "…" : "") + "”";
-  const run = async (ask) => {
-    const el = ask.ref ? await about(ask.ref) : null;
-    const it = el && el.name ? quote(el.name) : ask.ref;
-    const did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back" }[ask.action];
+  // One of the AI's steps, done on the page.
+  const step = async (ask, el, file) => {
     if (ask.action === "open") await page.goto(ask.url, { waitUntil: "domcontentloaded", timeout: 30000 });
     else if (ask.action === "click") await target(ask.ref).click({ timeout: 8000 });
     else if (ask.action === "type") {
@@ -295,8 +429,41 @@ export async function serve(dir) {
     else if (ask.action === "select") await target(ask.ref).selectOption({ label: ask.option }, { timeout: 8000 }).catch(() => target(ask.ref).selectOption(ask.option, { timeout: 8000 }));
     else if (ask.action === "scroll") await page.mouse.wheel(0, ask.direction === "up" ? -700 : 700);
     else if (ask.action === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 20000 });
-    await settle();
-    return report(did);
+    else if (ask.action === "upload") {
+      // A page's file field takes the file at once; a button that opens a file chooser is clicked, and the chooser given it.
+      if (el && el.tag === "input" && el.type === "file") await target(ask.ref).setInputFiles(file.path, { timeout: 8000 });
+      else {
+        const chooser = page.waitForEvent("filechooser", { timeout: 8000 });
+        chooser.catch(() => {});
+        await target(ask.ref).click({ timeout: 8000 });
+        const fc = await chooser.catch(() => null);
+        if (!fc) throw new Error("that did not open a file chooser: give the page's file field or its upload button (look again)");
+        await fc.setFiles(file.path);
+      }
+      // Kept (STAGED_MS): the page reads the file only when it sends it (found 2026-11-10: gone at once, the form failed).
+    }
+  };
+  const run = async (ask) => {
+    const t0 = Date.now();
+    const el = ask.ref ? await about(ask.ref) : null;
+    const it = el && el.name ? quote(el.name) : ask.ref;
+    const file = ask.action === "upload" ? await stagedFile(ask.staged) : null;
+    let did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back", screenshot: "Took a screenshot of " + (ask.full ? "the whole page" : "what is in view"), upload: "Uploaded " + quote(file ? file.name : "") + " with " + it }[ask.action];
+    dialogs = [];
+    // Armed through the step and the wait after it (a page may ask a moment after the click).
+    armed = ask.confirm === true;
+    try {
+      try { await step(ask, el, file); } catch (e) {
+        // "Leave this page?" answered Cancel stops the page from going: that is the step's answer, not an error.
+        if (!dialogs.some((g) => g.type === "beforeunload" && !g.yes)) throw e;
+        did = "Stayed on the page (it asked whether to leave it)";
+      }
+      await settle();
+    } finally { armed = false; }
+    // A download the step started: waited for a while (the step's answer comes within its time all the same).
+    if (dl.going.size) await Promise.race([Promise.allSettled([...dl.going.keys()]), new Promise((ok) => setTimeout(ok, Math.max(0, Math.min(DOWNLOAD_WAIT_MS, 28_000 - (Date.now() - t0)))))]);
+    const out = await report(did, { picture: ask.action === "screenshot" ? { full: ask.full } : null });
+    return { ...out, ...(await handOver(ask.keep === true)) };
   };
   // THE SERVICE'S OWN: what an element is (none: the one with the focus), and where the page is.
   const describe = async (x) => {
@@ -411,26 +578,50 @@ export async function serve(dir) {
     const hash = createHash("sha1").update(shot).digest("hex").slice(0, 16);
     return x && x.since === hash ? { ...where, same: true, hash } : { ...where, hash, shot: shot.toString("base64"), w: VIEW.width, h: VIEW.height };
   };
-  // THE OWNER'S OWN CLICKS, TYPING, KEYS, SCROLLING AND BACK, while they have control; then the page as it is.
+  // THE OWNER'S OWN CLICKS, TYPING, KEYS, SCROLLING AND BACK, while they have control; then the page as it is. A page's
+  // "Are you sure?" after their own click is answered OK (their click is their own decision; the live view cannot show
+  // the box), and said with the page (`said`).
   const input = async (x) => {
     const i = checkInput(x);
-    if (i.kind === "click") await page.mouse.click(i.x, i.y);
-    else if (i.kind === "type") await page.keyboard.type(i.text);
-    else if (i.kind === "key") await page.keyboard.press(i.key);
-    else if (i.kind === "scroll") await page.mouse.wheel(0, i.dy);
-    else if (i.kind === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-    await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(350);
-    return screen({});
+    dialogs = [];
+    ownerHand = true;
+    try {
+      if (i.kind === "click") await page.mouse.click(i.x, i.y);
+      else if (i.kind === "type") await page.keyboard.type(i.text);
+      else if (i.kind === "key") await page.keyboard.press(i.key);
+      else if (i.kind === "scroll") await page.mouse.wheel(0, i.dy);
+      else if (i.kind === "back") await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(350);
+    } finally { ownerHand = false; }
+    const said = dialogs.splice(0).map((g) => (g.type === "prompt" ? "The page asked for text and it was cancelled" : g.type === "beforeunload" ? "The page asked whether to leave it, and it was left" : g.type === "alert" ? "The page showed a message" : "The page asked to confirm, and it was answered OK") + (g.message ? ": " + quote(g.message, 200) : "") + ".").join(" ");
+    return { ...(await screen({})), ...(said ? { said } : {}) };
   };
   let last = Date.now(), busy = Promise.resolve();
   const sock = join(dir, "ctl.sock");
   await rm(sock, { force: true });
   const server = http.createServer((req, res) => {
     last = Date.now();
-    let body = "";
-    req.on("data", (c) => { if (body.length < 100_000) body += c; });
+    // The request, whole (a file to upload is several MB), or refused when bigger than BODY_MAX.
+    const parts = [];
+    let size = 0;
+    req.on("data", (c) => { size += c.length; if (size <= BODY_MAX) parts.push(c); });
     req.on("end", () => {
+      const body = size > BODY_MAX ? "" : Buffer.concat(parts).toString("utf8");
+      if (size > BODY_MAX) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "that was too big for the browser" })); return; }
+      // THE OWNER'S TIME ZONE CHANGED (fix 7): the browser stops (after what it is doing), for Coder's service to start it
+      // again with the new one. Its sign-ins stay (they are on disk).
+      if (req.url === "/quit") {
+        busy = busy.then(async () => {
+          clearInterval(idle);
+          await ctx.close().catch(() => {});
+          server.close();
+          await rm(sock, { force: true }).catch(() => {});
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true }), () => process.exit(0));
+        });
+        return;
+      }
       // The owner's live view is answered at once, even while an action runs.
       if (req.url === "/screen") {
         let x = {};
@@ -443,7 +634,7 @@ export async function serve(dir) {
         let out, ask = null;
         try {
           const x = req.url === "/ping" ? null : JSON.parse(body || "{}");
-          if (!x) out = { ok: true };
+          if (!x) out = { ok: true, zone };
           else if (x.action === "describe") out = await describe(x);
           else if (x.action === "fill") out = await fill(x);
           else if (x.action === "fillCard") out = await fillCard(x);
@@ -451,6 +642,8 @@ export async function serve(dir) {
           else if (x.action === "state") out = await stateOf(ctx);
           else if (x.action === "signOut") out = await signOutOf(ctx, page, x);
           else if (x.action === "input") out = await input(x);
+          else if (x.action === "stage") out = await stage(x);
+          else if (x.action === "collect") out = await handOver(false);
           else { ask = checkAsk(x); out = await run(ask); }
         } catch (e) { out = { error: e && [PASSWORD_REFUSED, CARD_REFUSED].includes(e.message) ? e.message : plainError(e, ask || {}) }; }
         last = Date.now();
@@ -513,13 +706,21 @@ export async function signOutOf(ctx, page, x) {
   return { ok: true, site, cookies: gone.length, storage: origins.length };
 }
 
+/** Downloads in a browser's answer: the finished ones ({ name, size, data }) and what became of the others (words). */
+function handed(r) {
+  const downloads = (Array.isArray(r && r.downloads) ? r.downloads : []).filter((f) => f && typeof f.data === "string").map((f) => ({ name: fileNameOf(f.name), size: Number(f.size) || 0, data: f.data }));
+  const notes = (Array.isArray(r && r.downloadNotes) ? r.downloadNotes : []).filter((x) => typeof x === "string").map((x) => x.slice(0, 300)).slice(0, 10);
+  return { ...(downloads.length ? { downloads } : {}), ...(notes.length ? { downloadNotes: notes } : {}) };
+}
+
 /** One request to the running browser, or { down: true } when none answers. */
 function ask(sock, path, body, timeoutMs) {
   return new Promise((done) => {
     const req = http.request({ socketPath: sock, path, method: "POST", headers: { "content-type": "application/json" } }, (res) => {
-      let s = "";
-      res.on("data", (c) => { s += c; });
-      res.on("end", () => { try { done(JSON.parse(s)); } catch { done({ error: "the browser gave no answer" }); } });
+      // Whole, then read (a download is several MB, and a character may be cut between two parts).
+      const parts = [];
+      res.on("data", (c) => { parts.push(c); });
+      res.on("end", () => { try { done(JSON.parse(Buffer.concat(parts).toString("utf8"))); } catch { done({ error: "the browser gave no answer" }); } });
     });
     req.setTimeout(timeoutMs, () => { req.destroy(); done({ error: "the browser took too long to answer" }); });
     req.on("error", () => done({ down: true }));
@@ -549,15 +750,17 @@ export function browserEnv(dir, env = process.env) {
  * `gloopyweb`), in `dir` (made here, only that user's). `act`: one of the AI's actions; `describe` and `fill`: the
  * service's own. Each answers what the browser said, or throws with what went wrong.
  */
-export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS, startMs = START_MS, env = process.env } = {}) {
+export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS, startMs = START_MS, env = process.env, zone = "" } = {}) {
   const sock = join(dir, "ctl.sock");
+  // The owner's time zone the browser is started with (fix 7).
+  let want = okZone(zone) ? zone : "";
   const start = async () => {
     if (!hasBrowser()) throw new Error(NO_BROWSER);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (uid !== null) chownSync(dir, uid, gid ?? uid);
     chmodSync(dir, 0o700);
     const log = openSync(join(dir, "browser.log"), "a", 0o600);
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log, log], env: browserEnv(dir, env), ...(uid !== null ? { uid, gid: gid ?? uid } : {}) });
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log, log], env: { ...browserEnv(dir, env), ...(want ? { GLOOPY_TZ: want } : {}) }, ...(uid !== null ? { uid, gid: gid ?? uid } : {}) });
     child.unref();
     closeSync(log);
     const until = Date.now() + startMs;
@@ -572,7 +775,28 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     return r;
   };
   return {
-    act: async (args) => { const r = await call(checkAsk(args)); const shot = typeof r.shot === "string" ? r.shot : ""; return { text: String(r.text || ""), shot, thumb: thumbOf(shot) }; },
+    // One of the AI's steps: the page in words and a screenshot; with a screenshot step, the picture as a file
+    // (`picture`: { type, data }); downloads it finished (`downloads`: [{ name, size, data }]) and what became of others.
+    act: async (args) => {
+      const r = await call(checkAsk(args));
+      const shot = typeof r.shot === "string" ? r.shot : "";
+      return { text: String(r.text || ""), shot, thumb: thumbOf(shot), ...handed(r), ...(r.picture && typeof r.picture.data === "string" ? { picture: { type: r.picture.type === "jpeg" ? "jpeg" : "png", data: r.picture.data } } : {}) };
+    },
+    // A FILE TO UPLOAD (fix 3), made ready: { name, data } (base64, from the work folder) → { staged, name, size }.
+    stage: ({ name, data }) => call({ action: "stage", name, data }),
+    // Downloads finished since the last step (a step from a card, or the owner's own while they had control).
+    collect: async () => handed(await call({ action: "collect" })),
+    // THE OWNER'S TIME ZONE (fix 7): kept for the next start; a browser running with another one is stopped (it starts
+    // again at the next step, with its sign-ins). Never while the owner has control (Coder's service asks only then).
+    setZone: async (z) => {
+      if (!okZone(z)) return { zone: want };
+      want = z;
+      const p = await ask(sock, "/ping", {}, 2000);
+      if (!p || !p.ok || String(p.zone || "") === want) return { zone: want };
+      await ask(sock, "/quit", {}, 20_000);
+      for (let i = 0; i < 50 && (await ask(sock, "/ping", {}, 1000)).ok; i++) await new Promise((ok) => setTimeout(ok, 200));
+      return { zone: want, restarted: true };
+    },
     describe: (ref) => call({ action: "describe", ...(ref ? { ref } : {}) }),
     fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password }),
     // THE OWNER'S CARD (2026-11-09): { site, numberRef, expRef?, monthRef?, yearRef?, cvcRef?, nameRef?, postalRef?, card }.
