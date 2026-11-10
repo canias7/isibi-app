@@ -18,8 +18,10 @@ Being tested now on test.gofarther.dev with Grok, recorded; the full results go 
 **Found and fixed so far:**
 - **The live view stayed paused when Gloopy started working.** It pauses after 2 minutes of only watching, which is meant to happen. But when you then sent a message, it said "Gloopy is using it" over an old picture (or "asleep"), without Gloopy's steps, until you pressed Refresh. Now a turn that starts wakes it, and while Gloopy's computer wakes it says so.
 - **The card's form list doubled colons** ("Customer name:: Test Owner"), because the page's own label ends with one. Now it reads "Customer name: Test Owner".
+- **While a step ran, the chat showed the element's number** ("Typing into f2e23"). Now it says "Typing" or "Clicking", and once done, the step's own words as before ("Typed “Margherita pizza” into “Search Wikipedia”").
+- **"Do only this: … when you're in.."**: a handoff's task that ends in a full stop got a second one in the live view.
 
-Test GL96 is new.
+Tests GL96 and GL97 are new.
 
 ## 2026-11-10: The browser's missing pieces, added (your word: "if we missing stuff in the browser tool add it and then test the entire browser tool")
 

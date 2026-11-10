@@ -139,7 +139,9 @@ export const PAGE_ID = /^p[a-z0-9]{10}$/, PAGES_PER_TURN = 5;
 /** GLOOPY'S HELPERS (2026-11-09): at most 4 at once, 8 in one message; each up to 15 steps and 5 minutes; each answer up to 6,000 characters. */
 export const HELPERS_MAX = 4, HELPERS_PER_TURN = 8, HELPER_ROUNDS = 15, HELPER_MS = 5 * 60 * 1000, HELPER_ANSWER_MAX = 6000;
 /** GLOOPY'S BROWSER STEP in the chat (2026-11-09): the verb from its action; once done the chat shows what it did ("Clicked “Go”"). */
-export const BROWSER_STEP = { verb: (a) => ({ open: "Opened", look: "Looked at", click: "Clicked", type: "Typed into", press: "Pressed", select: "Chose in", scroll: "Scrolled", back: "Went back", screenshot: "Took a screenshot of", upload: "Uploaded" })[a.action] || "Used the browser", label: (a) => String(a.action === "open" ? a.url || "" : a.action === "look" || a.action === "screenshot" ? "the page" : a.action === "press" ? a.key || "" : a.action === "scroll" ? (a.direction === "up" ? "up" : "down") : a.action === "back" ? "" : a.action === "upload" ? String(a.path || "").split("/").pop() : a.ref || "") };
+// While a step runs, never the element's number ("Typing into f2e23" in the live test, 2026-11-10), nor what it types
+// (a refused step keeps its row): "Typing", "Clicking"; once done, its own words replace this ("Typed “pizza” into “Search”").
+export const BROWSER_STEP = { verb: (a) => ({ open: "Opened", look: "Looked at", click: "Clicked", type: "Typed", press: "Pressed", select: "Chose", scroll: "Scrolled", back: "Went back", screenshot: "Took a screenshot of", upload: "Uploaded" })[a.action] || "Used the browser", label: (a) => String(a.action === "open" ? a.url || "" : a.action === "look" || a.action === "screenshot" ? "the page" : a.action === "press" ? a.key || "" : a.action === "scroll" ? (a.direction === "up" ? "up" : "down") : a.action === "upload" ? String(a.path || "").split("/").pop() : "") };
 
 /**
  * @-MENTIONED FILES GO INTO THE MESSAGE (the owner, 2026-11-08: "add all of that"), like Claude Code's @: it "includes

@@ -4770,3 +4770,19 @@ test("GL96 (2026-11-10) found in the live test: a form's labels keep one colon o
   assert.equal(run(null), 0, "no view open, nothing");
   assert.match(ui, /: w\.asleep \? \(S\.running \? 'Gloopy’s computer is waking up\. Its browser shows here once Gloopy opens it\.' : 'Gloopy’s computer is asleep\. Its browser opens when Gloopy uses it, or when you take over\.'\)/);
 });
+
+test("GL97 (2026-11-10) found in the live test: a browser step that runs never shows the element's number (\"Typing into f2e23\") nor what it types; a handoff's task ending in a full stop isn't given a second one", async () => {
+  const { BROWSER_STEP } = await import("../container/coder-agent.mjs");
+  const step = (a) => [BROWSER_STEP.verb(a), BROWSER_STEP.label(a)];
+  assert.deepEqual(step({ action: "type", ref: "f2e23", text: "a secret" }), ["Typed", ""]);
+  assert.deepEqual(step({ action: "click", ref: "e12" }), ["Clicked", ""]);
+  assert.deepEqual(step({ action: "select", ref: "e4", option: "Medium" }), ["Chose", ""]);
+  assert.deepEqual(step({ action: "upload", ref: "e4", path: "files/cv.pdf" }), ["Uploaded", "cv.pdf"]);
+  assert.deepEqual(step({ action: "open", url: "https://shop.example/" }), ["Opened", "https://shop.example/"]);
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /\.replace\(\/\^Typed\$\/, 'Typing'\)/);
+  assert.match(ui, /\.replace\(\/\^Chose\$\/, 'Choosing'\)/);
+  assert.match(ui, /\.replace\(\/\^Typed into\$\/, 'Typing into'\)/, "old chats keep their words");
+  assert.match(ui, /\(said \|\| !e\.command \? '' : ' <code class="cd-cmd-text">'/, "no empty box after the verb");
+  assert.match(ui, /'Do only this: ' \+ esc\(ho\.task\) \+ \(\/\[\.!\?…\]\$\/\.test\(ho\.task\) \? '' : '\.'\)/);
+});
