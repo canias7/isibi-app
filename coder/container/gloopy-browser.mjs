@@ -454,9 +454,12 @@ export async function serve(dir) {
     armed = ask.confirm === true;
     try {
       try { await step(ask, el, file); } catch (e) {
+        // A file's own address (a PDF, an attachment): the browser downloads it instead of showing a page (found
+        // 2026-11-10: the step failed with "Download is starting", though the file came).
+        if (ask.action === "open" && /Download is starting/.test(String((e && e.message) || e))) did = "Opened " + ask.url + ": it is a file, so the browser downloaded it (the page is as it was)";
         // "Leave this page?" answered Cancel stops the page from going: that is the step's answer, not an error.
-        if (!dialogs.some((g) => g.type === "beforeunload" && !g.yes)) throw e;
-        did = "Stayed on the page (it asked whether to leave it)";
+        else if (dialogs.some((g) => g.type === "beforeunload" && !g.yes)) did = "Stayed on the page (it asked whether to leave it)";
+        else throw e;
       }
       await settle();
     } finally { armed = false; }

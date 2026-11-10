@@ -4202,6 +4202,10 @@ test("GL87 (2026-11-10) for real (where Chromium is installed): a screenshot as 
     assert.equal(a.downloads, undefined);
     assert.equal(a.downloadNotes.length, 1);
     assert.match(a.downloadNotes[0], /^“big\.bin” was (not kept|stopped): downloads are at most 25 MB$/);
+    // A file's own address, opened: downloaded, and the step says so (found 2026-11-10: it failed with "Download is starting").
+    let f = await hub.act({ action: "open", url: S + "/report" });
+    assert.match(f.text, new RegExp("^Did: Opened " + S + "/report: it is a file, so the browser downloaded it \\(the page is as it was\\)\nPage: Files\n"));
+    assert.deepEqual(f.downloads, [{ name: "report 1.txt", size: 12, data: b64("hello report") }]);
     // A step from a card (keep): its download waits, then is handed over once.
     a = await hub.act({ action: "click", ref: link(a.text, "Get the report"), keep: true });
     assert.equal(a.downloads, undefined);
