@@ -13,8 +13,26 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-10: Bash tested side by side with Claude Code (your words: "merge deploy and test everything in the bash thing , test it with claude code and coder , and see the differences pls")
 
-- **Merged and deployed** (deploy 80). The live test with Grok and the same tests on Claude Code 2.1.322 are under way; the full results come in this entry when they are done.
-- **Found so far, fixed on the branch (not live yet):** Claude Code asks about a command that changes folder more than once, like `cd docs && cd ..` or `pushd docs && popd` ("Multiple directory changes in one command require approval for clarity"), in Accept edits and Plan. Coder ran those without asking. Now it asks too, in Claude Code's words. Test: CD361.
+- **Merged and deployed** (deploy 80), then the same tests on both:
+  - **Coder:** live on gofarther.dev with Grok, in a new chat on canias7/testingforclaude, recorded (recording 25, six videos in the chat).
+  - **Claude Code 2.1.322:** this cloud session's own Bash for what every command gets, Stop and the basics; and Claude Code's command-line version (`claude -p`, with Haiku) for Accept edits, rules, links and the read block. It ran in its own folder with the same files and links. A run in its bypass mode was refused by Claude Code's own safety checker, so its auto mode was used.
+- **The same on both (what runs, what asks, what is refused):**
+  - Every command gets `GIT_EDITOR=true` and extended patterns off; `pgrep -f` doesn't find its own shell (exit 1); `pkill -f` ends the program, not the command.
+  - Accept edits: `lsof`, `ss`, `tput cols`, `fd`, `fdfind`, `docker logs`, `docker inspect` run without asking. All of these ask: a loop over `PATH`, a command ending in `&&`, a `<` read after a `cd`, Docker with `--context`, `tput reset`, `find … -delete` (even with an allow rule `Bash(find *)`), `ls > *.txt`.
+  - Links: a write through a link out of the project asks; a write through a link to `.husky/pre-commit` asks.
+  - The read block: `cat /etc/hostname` asks even in Auto; the Read tool on it is refused; `head README.md` runs; a read through a link out of the project asks; `python3 -c …` asks. With the block off, `cat /etc/hostname` runs.
+  - Rules: the Ask rule `Bash(run_in_background:true)` asks for a background command, not a foreground one; `Bash(git * main)` gets the same warning, word for word; `Bash(npm run *:*)` no longer approves `npm run build --watch`; `Bash(ls) x` is refused as a "Malformed Tool(content) rule".
+  - The basics: grep with no match is a normal result; a `cd` inside the project carries over, one outside is undone ("Shell cwd was reset to …"); 20,000 lines come back as a saved file with a 2 KB preview (both 106.3 KB); a command past its time limit moves to the background with the same notice; `sleep 30` is blocked.
+- **Different:**
+  1. **Stop:** Claude Code's stop ended the command, `timeout` and everything under them, but left the `setsid` child running (tried twice; still running 15 seconds later), though its changelog says it fixed that. Coder ended all of them ("none-left"). Coder is the stricter one here.
+  2. **A command that changes folder twice,** like `cd docs && cd ..` or `pushd docs && popd`: Claude Code asks in Accept edits ("Multiple directory changes in one command require approval for clarity"); Coder ran them. **Fixed on the branch, not live yet** (test CD361).
+  3. **Two rules Claude Code keeps but Coder refuses:** `Bash(command:rm *)` (Claude Code saves it and warns it "will not match") and a rule for a tool it doesn't know, like `Bsh` ("matches no known tool — check for typos"). Coder refuses both when you add them, with its own words.
+  4. **A `:*` in the middle of a rule,** like `Bash(git:* status)`: Coder warns; Claude Code prints nothing.
+  5. **The words on the cards:** the same decisions, worded differently. Claude Code is shorter and more technical, for example "PATH as loop variable bypasses assignment validation", "Parse error", "Shell expansion syntax in paths requires manual approval". Its read-block refusals name the path and the folder ("/etc/hostname is outside /home/user/cc-live-bash; …"); Coder's name its setting.
+  6. **Small:** Coder tells Grok "[Working directory: … (was …)]" in the command's result after a `cd`; Claude Code tells its model in a separate note. Coder's helper functions show in the command's line in `ps` (Claude Code keeps its in a file). Claude Code's shell prints "[1]+ Terminated" after a `pkill`. `AI_AGENT` names each tool.
+- **Not tried live, on purpose:** the email check (it would put your email into a command, and on Coder's side into Grok's chat); Claude Code's bypass mode (its checker refused it); dangerous deletes (they could delete real files if a check failed).
+- **Found in my own test, not Coder:** my script typed a line break as Enter, so the first try sent half a message. I stopped that chat (the first "Run each of these bash commands…" in your list) and started a new one.
+- **Next, with your word:** merge and deploy the fix for item 2. Items 3 to 6 are your call (match Claude Code's words, or keep Coder's).
 
 ## 2026-11-10: Bash, the five things from the last docs check built (your word: "so?")
 
