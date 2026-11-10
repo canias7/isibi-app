@@ -248,12 +248,31 @@ export function commandAsk(command, deps, where0 = "") {
   }
   // THE FILE COMMANDS TOO (mkdir, touch, rm, rmdir, mv, cp, sed -i; the permission modes, 2026-11-09): a protected file or
   // folder one changes is asked about in every mode (Claude Code: writes to protected paths "are never auto-approved").
+  // Each part from the folder it runs in (live test prep, 2026-11-10: `cd .husky && rm pre-commit` counted pre-commit from the
+  // folder the command started in, so in Auto it ran without asking); where that folder can't be known (after a cd in a
+  // subshell, a function or a $(…)), its names as written are checked, as for a redirection after a cd.
   const from = where0 || (deps && typeof deps.root === "string" ? deps.root : "") || "/";
-  for (const c of readCommand(command, { cwd: from }).cmds) {
-    const fc = fileCommandTargets(c, from);
-    if (!fc || !fc.sure) continue;
+  const parts = readCommand(command, { cwd: from }).cmds;
+  // A cd into a protected folder, at any level (in a subshell too), and a file command in the same command: asked about.
+  let into = "";
+  for (const c of parts) {
+    const w = c.words.map((x) => x.text);
+    if ((w[0] === "cd" || w[0] === "pushd") && w[1] && !c.words[1].expand && !c.words[1].subst) {
+      const p0 = w[1].startsWith("/") ? w[1] : (typeof c.dir === "string" ? c.dir : from) + "/" + w[1];
+      const segs = [];
+      for (const x of p0.split("/")) { if (!x || x === ".") continue; if (x === "..") segs.pop(); else segs.push(x); }
+      const name = projectPath(deps, "/" + segs.join("/"));
+      if (name && protectedFile(name + "/x")) into = into || name;
+    } else if (into && fileCommandTargets(c, "/") && !names.includes(into)) names.push(into);
+  }
+  for (const c of parts) {
+    const known = c.dir !== false;
+    const fc = fileCommandTargets(c, known ? (typeof c.dir === "string" ? c.dir : from) : "/");
+    if (!fc || (known && !fc.sure)) continue;
     for (const p of fc.paths) {
-      const name = projectPath(deps, p.replace(/\/\*$/, ""));
+      if (!p) continue;
+      const bare = p.replace(/\/\*$/, "");
+      const name = known ? projectPath(deps, bare) : bare.replace(/^\/+/, "");
       if (name && (protectedFile(name) || protectedFile(name + "/x")) && !names.includes(name)) names.push(name);
     }
   }

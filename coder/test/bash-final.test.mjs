@@ -118,3 +118,12 @@ test("CD340 the effort level is in each command's environment (Claude Code's CLA
   assert.equal(S.coderMarks("shop-ab12", "").GOFARTHER_CODER_EFFORT, undefined, "no model chosen: not set");
   assert.match(serverSrc(), /coderMarks\(project, body\.chatUrl, body\.model \? pickModel\(body\.model, body\.effort\)\.effort : ""\)/);
 });
+
+test("CD341 in every mode (Auto too), a file command that changes a protected file is asked about from the folder it really runs in (found preparing the live test, 2026-11-10: in Auto, `cd .husky && rm pre-commit` ran without asking; Claude Code: writes to protected paths \"are never auto-approved\"), and after a cd into a protected folder at any level", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const deps = { root: W, here: () => W };
+  const ask = (c) => { const a = A.commandAsk(c, deps, W); return a ? a.kind : null; };
+  for (const c of ["cd .husky && rm pre-commit", "(cd .husky; rm pre-commit)", "(cd ./.husky/ && touch x)", "cd src/../.husky && rm -f pre-commit", "(cd src; rm ../.husky/pre-commit)", "rm .husky/pre-commit", "cd .git && rm config"]) assert.equal(ask(c), "protected", c);
+  for (const c of ["cd .husky && ls", "(cd src; rm a.txt)", "cd src && rm a.txt", "rm a.txt"]) assert.equal(ask(c), null, c);
+  assert.deepEqual(A.commandAsk("cd .husky && rm pre-commit", deps, W).paths, [W + "/.husky", W + "/.husky/pre-commit"]);
+});
