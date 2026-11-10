@@ -25,10 +25,10 @@ Tried on test.gofarther.dev with Grok, recorded. What worked:
 Fixed after the test:
 
 1. **Helpers' finished steps now carry their names** in the chat ("“Prices” · Read the page"). Before, only their started steps did.
-2. **Switching to a helper's tab is instant.** Before, it could wait up to 6 seconds for the old tab's picture, which could have shown under the wrong name.
+2. **Switching to a helper's tab shows its picture in under a second** (0.7 seconds, measured live). Before, it could wait up to 6 seconds for the old tab's picture, which could have shown under the wrong name.
 3. **The live view is now a real stream.** Measured live, the near-video view showed about 2 pictures a second. The machine had them faster, but every picture was a new request, and gofarther.dev spends about 0.4 seconds on each request before answering (asking Supabase whether you're signed in, and reading storage). Now one request carries the pictures as they come, for up to 25 seconds, so that cost is paid once every 25 seconds instead of for each picture. A still page sends nothing but a tiny "still here" every 5 seconds. While you take over or hand back, the stream pauses, so an old picture can't flip the view back to "Gloopy is using it". Gloopy's latest step shows under the picture at once, even when it didn't change the page. Where a stream can't be had, the view works as before.
-   Measured again after the fix, on the same moving page: **6.6 pictures a second** (the most Chromium sends, about one every 0.15 seconds), with one request every 25 seconds. Taking over and handing back changed the status line once each, in about half a second, and it never flipped back. A helper's tab showed its picture about 0.7 seconds after the click.
-4. **A helper's step shows its name first**, then what it does ("“Rome population” · Searched the web for …"). Before, the name came after the verb ("Searched the web for “Rome population” · …"), which read as if that was what it searched for.
+   Measured again after the fix, on the same moving page: **6.6 pictures a second** (the most Gloopy's browser is set to send: one every 0.15 seconds), with one request every 25 seconds. Taking over and handing back changed the status line once each, in about half a second, and it never flipped back.
+4. **A helper's step shows its name first**, then what it does ("“Rome population” · Searched the web for …"). Before, the name came after the verb ("Searched the web for “Rome population” · …"), which read as if that was what it searched for. Checked live after the fix.
 
 Outside the browser (yours to decide; not changed):
 
