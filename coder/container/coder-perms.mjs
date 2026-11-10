@@ -827,6 +827,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   if (read.dangling) return { verdict: "ask", why: "This command ends with an operator (&&, || or |) that has nothing after it, so it can't be checked before it runs and needs your approval.", suggest: null };
   const loopVar = read.loopVars.find((n) => shellVariable(n));
   if (loopVar) return { verdict: "ask", why: "This command loops over " + loopVar + ", a variable the shell itself uses, so it can't be checked before it runs and needs your approval.", suggest: null };
+  // MORE THAN ONE FOLDER CHANGE IN ONE COMMAND (found in the live side-by-side, 2026-11-10: Claude Code 2.1.322 asks for
+  // `cd docs && cd ..`, `cd a; cd ../b` and `pushd a && popd` in Accept edits, in its words, MULTI_CD; one `cd` runs as
+  // before). Asked as the last reason: a part's own reason (a protected file, a folder outside) is said first, as Claude
+  // Code returns its parts' own results before this one.
+  const multiCd = read.cmds.filter((c) => { const w = unwrapped(c.words); const p = w[0] ? basename(w[0].text) : ""; return p === "cd" || p === "pushd" || p === "popd"; }).length > 1;
   // WHERE EACH PATH REALLY LEADS (Bash docs pass 3; Claude Code's permissions docs, Symlinks: "the permission check covers
   // two paths: the one Claude requested and the file it resolves to"; a write that "resolves outside the working
   // directories … isn't auto-approved in acceptEdits mode", and one that resolves to a protected path gets that path's
@@ -917,17 +922,19 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   if (gitAfterCd) why = why || "This command runs git after changing to another folder, where git may run that folder's hooks.";
   // THE PARTS LEFT: each allowed by one of the owner's rules (allowRuleCovers), or the command is asked about.
   const left = parts.filter((c) => !allowTexts(c).some((t) => allow.some((x) => ruleApproves(c, x, t))));
-  if (!left.length && !needs.length) return { verdict: "allow", why: "", suggest: null };
+  if (!left.length && !needs.length) return multiCd ? { verdict: "ask", why: MULTI_CD, suggest: null } : { verdict: "allow", why: "", suggest: null };
   // What "Yes, and don't ask again" would save: a rule for each part left, when they cover it all (a cd out of the
   // project, or git after a cd, has no rule that could).
   let suggest = null;
   const cdLeft = left.some((c) => { const w = readWords(c.words) || []; return w[0] && w[0].text === "cd"; });
-  if (!needs.length && left.length && left.length <= 5 && !gitAfterCd && !cdLeft) {
+  if (!needs.length && left.length && left.length <= 5 && !gitAfterCd && !cdLeft && !multiCd) {
     const s = left.map((c) => suggestFor(c));
     if (s.every((x) => typeof x === "string" && x.length && x.length <= RULE_MAX)) suggest = [...new Set(s.map((x) => ruleText("Bash", x)))];
   }
-  return { verdict: "ask", why: why || "This command requires approval", suggest };
+  return { verdict: "ask", why: why || (multiCd ? MULTI_CD : "This command requires approval"), suggest };
 }
+/** Claude Code's words for a command that changes folder more than once (see bashDecision). */
+export const MULTI_CD = "Multiple directory changes in one command require approval for clarity";
 
 // ── THE READ BLOCK ───────────────────────────────────────────────────────────
 /**

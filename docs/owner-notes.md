@@ -11,6 +11,11 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Bash tested side by side with Claude Code (your words: "merge deploy and test everything in the bash thing , test it with claude code and coder , and see the differences pls")
+
+- **Merged and deployed** (deploy 80). The live test with Grok and the same tests on Claude Code 2.1.322 are under way; the full results come in this entry when they are done.
+- **Found so far, fixed on the branch (not live yet):** Claude Code asks about a command that changes folder more than once, like `cd docs && cd ..` or `pushd docs && popd` ("Multiple directory changes in one command require approval for clarity"), in Accept edits and Plan. Coder ran those without asking. Now it asks too, in Claude Code's words. Test: CD361.
+
 ## 2026-11-10: Bash, the five things from the last docs check built (your word: "so?")
 
 - **1. `pkill` and `pgrep` no longer find the command's own shell.** Every command now gets Claude Code's versions of `pkill`, `pgrep` and `pidwait`, which leave the command's own shells out. Tried: `pgrep -f` finds nothing when nothing runs, and `pkill -f "…"` ends the program without ending the command that ran it. Coder's old refusal of `pkill node` is gone: it said "it would stop Coder itself", which hasn't been true since commands got their own sandbox.

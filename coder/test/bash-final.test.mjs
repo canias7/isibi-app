@@ -35,7 +35,9 @@ test("CD337 a file command's short paths count from the folder that part runs in
   for (const c of ["cd .husky && rm pre-commit", "cd src; cd ../.husky; rm pre-commit", "cd .husky; mv pre-commit x"]) assert.deepEqual([c, d(c).verdict, d(c).why], [c, "ask", "This command changes a protected file."]);
   for (const c of ["(cd .husky; rm pre-commit)", "(cd src && npm test); rm a.txt", "echo $(cd .husky && pwd); rm pre-commit"]) assert.equal(d(c).verdict, "ask", c);
   // Inside the project, as before.
-  for (const c of ["cd src && rm a.txt", "cd src && cd .. && rm a.txt", "cd src && mv a.js b.js", "rm a.txt"]) assert.equal(d(c).verdict, "allow", c);
+  for (const c of ["cd src && rm a.txt", "cd src && mv a.js b.js", "rm a.txt"]) assert.equal(d(c).verdict, "allow", c);
+  // (Two folder changes ask since the live side-by-side of 2026-11-10, as in Claude Code 2.1.322: CD361.)
+  assert.deepEqual([d("cd src && cd .. && rm a.txt").verdict, d("cd src && cd .. && rm a.txt").why], ["ask", "Multiple directory changes in one command require approval for clarity"]);
   assert.equal(d("rm .husky/pre-commit").verdict, "ask");
   // Each part knows its folder.
   const r = P.readCommand("cd src && touch a; (cd x; touch b); touch c", { cwd: W });
